@@ -9,16 +9,36 @@ producing detailed statistics on:
 - Recovery action usage
 - Board type comparisons
 - Performance metrics
+- AI type breakdown
+- Data quality metrics
 
 Usage:
     python scripts/analyze_game_statistics.py --data-dir data/selfplay
     python scripts/analyze_game_statistics.py --data-dir data/selfplay --output report.json
     python scripts/analyze_game_statistics.py --data-dir data/selfplay --format markdown
 
+    # Quarantine bad/timeout data:
+    python scripts/analyze_game_statistics.py --jsonl-dir data/games --quarantine-dir data/quarantine
+
+    # Fix missing metadata in-place:
+    python scripts/analyze_game_statistics.py --jsonl-dir data/games --fix-in-place
+
 Output formats:
     - json: Machine-readable JSON report
     - markdown: Human-readable markdown report (default)
     - both: Both formats
+
+Quarantine mode:
+    When --quarantine-dir is specified, malformed records and timeout games are
+    moved to separate files in the quarantine directory, organized by reason:
+    - malformed/: Records that couldn't be parsed or normalized
+    - timeout/: Games that ended due to timeout (config issues)
+    - unknown_board/: Games where board type couldn't be determined
+
+Fix-in-place mode:
+    When --fix-in-place is specified, JSONL files are updated with normalized
+    metadata (board_type, victory_type, num_players) where it was missing or
+    in a non-standard format.
 """
 
 from __future__ import annotations
@@ -115,11 +135,35 @@ AI_PATH_PATTERNS = {
     "random_only": "random",
     "random-only": "random",
     "gpu_heuristic": "gpu_heuristic",
+    "gpu_selfplay": "gpu_heuristic",
     "gpu_": "gpu_heuristic",
     "cpu_canonical": "cpu_heuristic",
     "fresh_cpu": "cpu_heuristic",
     "hybrid": "hybrid_gpu",
+    # Host-based inference (from selfplay repository structure)
+    "lambda-h100": "gpu_heuristic",
+    "lambda-a10": "gpu_heuristic",
+    "lambda-2xh100": "gpu_heuristic",
+    "vast-5090": "gpu_heuristic",
+    "vast-3090": "gpu_heuristic",
+    "vast-3080": "gpu_heuristic",
+    "vast-3070": "gpu_heuristic",
+    "vast-3060": "gpu_heuristic",
+    "mac-studio": "cpu_heuristic",
+    "mbp-": "cpu_heuristic",
+    "aws-": "cpu_heuristic",
+    # Experiment types
+    "canonical": "canonical_heuristic",
+    "selfplay": "selfplay_heuristic",
+    "soak": "soak_heuristic",
+    "tournament": "tournament_mixed",
 }
+
+# Quarantine reasons
+QUARANTINE_MALFORMED = "malformed"
+QUARANTINE_TIMEOUT = "timeout"
+QUARANTINE_UNKNOWN_BOARD = "unknown_board"
+QUARANTINE_NO_WINNER = "no_winner"
 
 
 def infer_ai_type(game: dict[str, Any], file_path: str = "") -> str:
@@ -165,13 +209,21 @@ def normalize_game(game: dict[str, Any], file_path: str = "") -> dict[str, Any]:
       - termination_reason: "status:completed:elimination", etc.
 
     Returns a normalized game dict with consistent field names.
+    Also tracks data quality via _inferred_* fields.
     """
     normalized = game.copy()
+    # Track what was inferred vs explicit
+    normalized["_inferred_board_type"] = False
+    normalized["_inferred_num_players"] = False
+    normalized["_inferred_victory_type"] = False
+    normalized["_source_file"] = file_path
 
     # --- Normalize board_type ---
     if "board_type" not in normalized or normalized.get("board_type") == "unknown":
+        normalized["_inferred_board_type"] = True
         if "config" in game and "board_type" in game["config"]:
             normalized["board_type"] = game["config"]["board_type"]
+            normalized["_inferred_board_type"] = False  # Found in config
         elif "board_size" in game:
             board_size = game["board_size"]
             normalized["board_type"] = BOARD_SIZE_TO_TYPE.get(board_size, f"square{board_size}")
@@ -192,11 +244,14 @@ def normalize_game(game: dict[str, Any], file_path: str = "") -> dict[str, Any]:
     elif normalized.get("board_type") == "square25":
         # Legacy alias used by some historical JSONLs / embeddings.
         normalized["board_type"] = "hexagonal"
+        normalized["_inferred_board_type"] = True  # Normalized from legacy
 
     # --- Normalize num_players ---
     if "num_players" not in normalized:
+        normalized["_inferred_num_players"] = True
         if "config" in game and "num_players" in game["config"]:
             normalized["num_players"] = game["config"]["num_players"]
+            normalized["_inferred_num_players"] = False  # Found in config
         elif "moves" in game and game["moves"]:
             max_player = max(
                 (m.get("player", 1) for m in game["moves"] if isinstance(m, dict) and "player" in m),
@@ -220,6 +275,8 @@ def normalize_game(game: dict[str, Any], file_path: str = "") -> dict[str, Any]:
             else str(game["victory_type"])
         )
         victory_type = OLD_VICTORY_TYPE_MAP.get(old_vtype, old_vtype)
+    else:
+        normalized["_inferred_victory_type"] = True
 
     if victory_type is None and "termination_reason" in game:
         tr = game["termination_reason"]
@@ -236,6 +293,16 @@ def normalize_game(game: dict[str, Any], file_path: str = "") -> dict[str, Any]:
 
     # --- Infer AI type ---
     normalized["_ai_type"] = infer_ai_type(game, file_path)
+
+    # --- Determine quarantine reason (if any) ---
+    quarantine_reason = None
+    if normalized.get("board_type") == "unknown":
+        quarantine_reason = QUARANTINE_UNKNOWN_BOARD
+    elif victory_type == "timeout":
+        quarantine_reason = QUARANTINE_TIMEOUT
+    elif game.get("winner") is None and victory_type not in ("draw", "stalemate"):
+        quarantine_reason = QUARANTINE_NO_WINNER
+    normalized["_quarantine_reason"] = quarantine_reason
 
     return normalized
 
@@ -319,6 +386,17 @@ class GameStats:
     wins_with_stack_strike: int = 0
     # Timeout diagnostics
     timeout_move_count_hist: dict[str, int] = field(default_factory=dict)
+    # AI type tracking
+    games_by_ai_type: dict[str, int] = field(default_factory=dict)
+    wins_by_ai_type: dict[str, dict[str, int]] = field(default_factory=dict)  # ai_type -> {player -> wins}
+    victory_types_by_ai_type: dict[str, dict[str, int]] = field(default_factory=dict)  # ai_type -> {vtype -> count}
+    # Data quality metrics
+    games_with_inferred_board_type: int = 0
+    games_with_inferred_num_players: int = 0
+    games_with_inferred_victory_type: int = 0
+    games_with_missing_winner: int = 0
+    games_with_missing_moves: int = 0
+    source_files: set[str] = field(default_factory=set)
 
     @property
     def moves_per_game(self) -> float:
@@ -387,6 +465,61 @@ class GameStats:
         }
 
 
+class QuarantineWriter:
+    """Handles writing quarantined game records to organized output files."""
+
+    def __init__(self, quarantine_dir: Path):
+        self.quarantine_dir = quarantine_dir
+        self.quarantine_dir.mkdir(parents=True, exist_ok=True)
+        self._file_handles: dict[str, Any] = {}
+        self._counts: dict[str, int] = defaultdict(int)
+
+    def write(self, game: dict[str, Any], reason: str, source_file: str) -> None:
+        """Write a game record to the appropriate quarantine file."""
+        reason_dir = self.quarantine_dir / reason
+        reason_dir.mkdir(exist_ok=True)
+
+        # Create a filename based on the source file
+        source_name = Path(source_file).stem if source_file else "unknown"
+        output_file = reason_dir / f"{source_name}.jsonl"
+
+        # Remove internal tracking fields before writing
+        clean_game = {k: v for k, v in game.items() if not k.startswith("_")}
+
+        with open(output_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(clean_game) + "\n")
+
+        self._counts[reason] += 1
+
+    def get_counts(self) -> dict[str, int]:
+        """Return counts of quarantined records by reason."""
+        return dict(self._counts)
+
+    def close(self) -> None:
+        """Close any open file handles."""
+        pass  # Using context managers, so nothing to close
+
+
+@dataclass
+class DataQualityMetrics:
+    """Aggregate data quality metrics across all games."""
+
+    total_games_processed: int = 0
+    games_with_explicit_board_type: int = 0
+    games_with_inferred_board_type: int = 0
+    games_with_explicit_num_players: int = 0
+    games_with_inferred_num_players: int = 0
+    games_with_explicit_victory_type: int = 0
+    games_with_inferred_victory_type: int = 0
+    games_with_winner: int = 0
+    games_without_winner: int = 0
+    games_with_moves: int = 0
+    games_without_moves: int = 0
+    quarantined_by_reason: dict[str, int] = field(default_factory=dict)
+    malformed_records: int = 0
+    games_by_source_host: dict[str, int] = field(default_factory=dict)
+
+
 @dataclass
 class AnalysisReport:
     """Complete analysis report across all configurations."""
@@ -395,6 +528,10 @@ class AnalysisReport:
     recovery_analysis: dict[str, Any] = field(default_factory=dict)
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     data_sources: list[str] = field(default_factory=list)
+    # AI type aggregation
+    games_by_ai_type: dict[str, int] = field(default_factory=dict)
+    # Data quality
+    data_quality: DataQualityMetrics = field(default_factory=DataQualityMetrics)
 
     def total_games(self) -> int:
         return sum(s.total_games for s in self.stats_by_config.values())
@@ -482,24 +619,56 @@ def iter_jsonl_games(
     include_winner_only: bool,
     game_cutoff_ts: float | None = None,
     include_unknown_game_timestamp: bool = False,
+    quarantine_writer: QuarantineWriter | None = None,
+    data_quality: DataQualityMetrics | None = None,
+    exclude_quarantined: bool = True,
 ) -> Iterator[dict[str, Any]]:
     """Yield normalized completed games from a JSONL file.
 
     This is streaming by design to avoid loading large JSONL files into memory.
+
+    Args:
+        path: Path to the JSONL file
+        include_winner_only: Include games with winner but no moves
+        game_cutoff_ts: Only include games after this timestamp
+        include_unknown_game_timestamp: Include games with unknown timestamps
+        quarantine_writer: If provided, write quarantined records to this writer
+        data_quality: If provided, update data quality metrics
+        exclude_quarantined: If True, don't yield quarantined games
     """
     file_path_str = str(path)
+
+    # Extract source host from path for data quality tracking
+    source_host = "unknown"
+    path_parts = str(path).lower().split("/")
+    for part in path_parts:
+        for pattern in ["lambda-", "vast-", "aws-", "mac-", "mbp-"]:
+            if part.startswith(pattern):
+                source_host = part
+                break
+
     try:
         with open(path, "r", encoding="utf-8") as f:
-            for line in f:
+            for line_num, line in enumerate(f, 1):
                 line = line.strip()
                 if not line:
                     continue
                 try:
                     game = json.loads(line)
                 except json.JSONDecodeError:
+                    if data_quality:
+                        data_quality.malformed_records += 1
+                    if quarantine_writer:
+                        quarantine_writer.write(
+                            {"_raw_line": line[:1000], "_line_num": line_num},
+                            QUARANTINE_MALFORMED,
+                            file_path_str,
+                        )
                     continue
+
                 if not is_completed_game(game, include_winner_only=include_winner_only):
                     continue
+
                 if game_cutoff_ts is not None:
                     game_ts = _extract_game_timestamp_seconds(game)
                     if game_ts is None:
@@ -507,9 +676,118 @@ def iter_jsonl_games(
                             continue
                     elif game_ts < game_cutoff_ts:
                         continue
-                yield normalize_game(game, file_path_str)
+
+                normalized = normalize_game(game, file_path_str)
+
+                # Update data quality metrics
+                if data_quality:
+                    data_quality.total_games_processed += 1
+                    data_quality.games_by_source_host[source_host] = (
+                        data_quality.games_by_source_host.get(source_host, 0) + 1
+                    )
+                    if normalized.get("_inferred_board_type"):
+                        data_quality.games_with_inferred_board_type += 1
+                    else:
+                        data_quality.games_with_explicit_board_type += 1
+                    if normalized.get("_inferred_num_players"):
+                        data_quality.games_with_inferred_num_players += 1
+                    else:
+                        data_quality.games_with_explicit_num_players += 1
+                    if normalized.get("_inferred_victory_type"):
+                        data_quality.games_with_inferred_victory_type += 1
+                    else:
+                        data_quality.games_with_explicit_victory_type += 1
+                    if game.get("winner") is not None:
+                        data_quality.games_with_winner += 1
+                    else:
+                        data_quality.games_without_winner += 1
+                    if game.get("moves"):
+                        data_quality.games_with_moves += 1
+                    else:
+                        data_quality.games_without_moves += 1
+
+                # Handle quarantine
+                quarantine_reason = normalized.get("_quarantine_reason")
+                if quarantine_reason:
+                    if quarantine_writer:
+                        quarantine_writer.write(normalized, quarantine_reason, file_path_str)
+                    if data_quality:
+                        data_quality.quarantined_by_reason[quarantine_reason] = (
+                            data_quality.quarantined_by_reason.get(quarantine_reason, 0) + 1
+                        )
+                    if exclude_quarantined:
+                        continue
+
+                yield normalized
     except OSError:
         return
+
+
+def fix_jsonl_in_place(
+    path: Path,
+    *,
+    dry_run: bool = False,
+    quiet: bool = False,
+) -> tuple[int, int]:
+    """Fix missing metadata in a JSONL file by normalizing all records.
+
+    Args:
+        path: Path to the JSONL file
+        dry_run: If True, don't actually write changes
+        quiet: Suppress progress messages
+
+    Returns:
+        Tuple of (total_records, modified_records)
+    """
+    file_path_str = str(path)
+    records = []
+    modified_count = 0
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    records.append("")
+                    continue
+                try:
+                    game = json.loads(line)
+                except json.JSONDecodeError:
+                    records.append(line)
+                    continue
+
+                normalized = normalize_game(game, file_path_str)
+
+                # Check if any normalization was applied
+                was_modified = False
+                update_fields = ["board_type", "num_players", "victory_type"]
+                for field in update_fields:
+                    if field in normalized and normalized[field] != game.get(field):
+                        was_modified = True
+                        game[field] = normalized[field]
+
+                if was_modified:
+                    modified_count += 1
+
+                records.append(json.dumps(game))
+
+    except OSError as e:
+        if not quiet:
+            print(f"Error reading {path}: {e}", file=sys.stderr)
+        return 0, 0
+
+    if modified_count > 0 and not dry_run:
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                for record in records:
+                    f.write(record + "\n")
+            if not quiet:
+                print(f"Fixed {modified_count} records in {path}", file=sys.stderr)
+        except OSError as e:
+            if not quiet:
+                print(f"Error writing {path}: {e}", file=sys.stderr)
+
+    return len([r for r in records if r]), modified_count
 
 
 def _get_first(d: dict[str, Any], keys: list[str]) -> Any:
@@ -590,6 +868,9 @@ def collect_stats_from_jsonl(
     include_winner_only: bool,
     game_cutoff_ts: float | None = None,
     include_unknown_game_timestamp: bool = False,
+    quarantine_writer: QuarantineWriter | None = None,
+    data_quality: DataQualityMetrics | None = None,
+    exclude_quarantined: bool = True,
 ) -> None:
     """Collect statistics from JSONL files and add to report."""
     for jsonl_path in jsonl_files:
@@ -599,6 +880,9 @@ def collect_stats_from_jsonl(
             include_winner_only=include_winner_only,
             game_cutoff_ts=game_cutoff_ts,
             include_unknown_game_timestamp=include_unknown_game_timestamp,
+            quarantine_writer=quarantine_writer,
+            data_quality=data_quality,
+            exclude_quarantined=exclude_quarantined,
         ):
             any_games = True
             board_type = game.get("board_type", "unknown")
@@ -676,6 +960,38 @@ def collect_stats_from_jsonl(
                 stats.timeout_move_count_hist[move_key] = (
                     stats.timeout_move_count_hist.get(move_key, 0) + 1
                 )
+
+            # AI type tracking
+            ai_type = game.get("_ai_type", "unknown")
+            stats.games_by_ai_type[ai_type] = stats.games_by_ai_type.get(ai_type, 0) + 1
+            if winner is not None:
+                if ai_type not in stats.wins_by_ai_type:
+                    stats.wins_by_ai_type[ai_type] = {}
+                stats.wins_by_ai_type[ai_type][str(winner)] = (
+                    stats.wins_by_ai_type[ai_type].get(str(winner), 0) + 1
+                )
+            if ai_type not in stats.victory_types_by_ai_type:
+                stats.victory_types_by_ai_type[ai_type] = {}
+            stats.victory_types_by_ai_type[ai_type][victory_type] = (
+                stats.victory_types_by_ai_type[ai_type].get(victory_type, 0) + 1
+            )
+            # Report-level AI type aggregation
+            report.games_by_ai_type[ai_type] = report.games_by_ai_type.get(ai_type, 0) + 1
+
+            # Data quality tracking (per-config)
+            if game.get("_inferred_board_type"):
+                stats.games_with_inferred_board_type += 1
+            if game.get("_inferred_num_players"):
+                stats.games_with_inferred_num_players += 1
+            if game.get("_inferred_victory_type"):
+                stats.games_with_inferred_victory_type += 1
+            if winner is None:
+                stats.games_with_missing_winner += 1
+            if not game.get("moves"):
+                stats.games_with_missing_moves += 1
+            source_file = game.get("_source_file", "")
+            if source_file:
+                stats.source_files.add(source_file)
 
             # Joined breakdowns (rings/threshold -> outcomes).
             if starting_rings_key is not None:
@@ -864,9 +1180,14 @@ def collect_stats(
     include_winner_only: bool = False,
     game_cutoff_ts: float | None = None,
     include_unknown_game_timestamp: bool = False,
+    quarantine_writer: QuarantineWriter | None = None,
+    data_quality: DataQualityMetrics | None = None,
+    exclude_quarantined: bool = True,
 ) -> AnalysisReport:
     """Collect statistics from all subdirectories in data_dir and optional JSONL files."""
     report = AnalysisReport()
+    if data_quality is not None:
+        report.data_quality = data_quality
 
     # Process JSONL files first if provided
     if jsonl_files:
@@ -876,6 +1197,9 @@ def collect_stats(
             include_winner_only=include_winner_only,
             game_cutoff_ts=game_cutoff_ts,
             include_unknown_game_timestamp=include_unknown_game_timestamp,
+            quarantine_writer=quarantine_writer,
+            data_quality=data_quality,
+            exclude_quarantined=exclude_quarantined,
         )
 
     if data_dir.exists():
@@ -1382,6 +1706,102 @@ def generate_markdown_report(report: AnalysisReport) -> str:
             lines.append(f"- Recovery was used in {with_recovery} games")
         lines.append("")
 
+    # AI Type Distribution
+    if report.games_by_ai_type:
+        lines.append("## 14. AI Type Distribution")
+        lines.append("")
+        lines.append("*Games grouped by inferred AI opponent type*")
+        lines.append("")
+        lines.append("| AI Type | Games | % of Total |")
+        lines.append("|---------|-------|------------|")
+        total = sum(report.games_by_ai_type.values())
+        for ai_type, count in sorted(report.games_by_ai_type.items(), key=lambda x: -x[1]):
+            pct = 100 * count / total if total else 0
+            lines.append(f"| {ai_type} | {count:,} | {pct:.1f}% |")
+        lines.append("")
+
+        # Per-config AI type breakdown (if multiple AI types exist)
+        if len(report.games_by_ai_type) > 1:
+            lines.append("### AI Type by Configuration")
+            lines.append("")
+            lines.append("| Config | " + " | ".join(sorted(report.games_by_ai_type.keys())) + " |")
+            lines.append("|--------| " + " | ".join(["---"] * len(report.games_by_ai_type)) + " |")
+            for (board_type, num_players), stats in sorted(report.stats_by_config.items()):
+                if stats.total_games == 0:
+                    continue
+                row = f"| {board_type} {num_players}p"
+                for ai_type in sorted(report.games_by_ai_type.keys()):
+                    count = stats.games_by_ai_type.get(ai_type, 0)
+                    row += f" | {count}"
+                row += " |"
+                lines.append(row)
+            lines.append("")
+
+    # Data Quality Report
+    dq = report.data_quality
+    if dq.total_games_processed > 0:
+        lines.append("## 15. Data Quality Report")
+        lines.append("")
+        lines.append(f"**Total Records Processed:** {dq.total_games_processed:,}")
+        lines.append("")
+
+        # Metadata inference rates
+        lines.append("### Metadata Quality")
+        lines.append("")
+        lines.append("| Metric | Explicit | Inferred | Inference Rate |")
+        lines.append("|--------|----------|----------|----------------|")
+
+        explicit_bt = dq.games_with_explicit_board_type
+        inferred_bt = dq.games_with_inferred_board_type
+        bt_rate = 100 * inferred_bt / dq.total_games_processed if dq.total_games_processed else 0
+        lines.append(f"| Board Type | {explicit_bt:,} | {inferred_bt:,} | {bt_rate:.1f}% |")
+
+        explicit_np = dq.games_with_explicit_num_players
+        inferred_np = dq.games_with_inferred_num_players
+        np_rate = 100 * inferred_np / dq.total_games_processed if dq.total_games_processed else 0
+        lines.append(f"| Num Players | {explicit_np:,} | {inferred_np:,} | {np_rate:.1f}% |")
+
+        explicit_vt = dq.games_with_explicit_victory_type
+        inferred_vt = dq.games_with_inferred_victory_type
+        vt_rate = 100 * inferred_vt / dq.total_games_processed if dq.total_games_processed else 0
+        lines.append(f"| Victory Type | {explicit_vt:,} | {inferred_vt:,} | {vt_rate:.1f}% |")
+        lines.append("")
+
+        # Completeness
+        lines.append("### Record Completeness")
+        lines.append("")
+        winner_rate = 100 * dq.games_with_winner / dq.total_games_processed if dq.total_games_processed else 0
+        moves_rate = 100 * dq.games_with_moves / dq.total_games_processed if dq.total_games_processed else 0
+        lines.append(f"- **With Winner:** {dq.games_with_winner:,} ({winner_rate:.1f}%)")
+        lines.append(f"- **With Moves:** {dq.games_with_moves:,} ({moves_rate:.1f}%)")
+        lines.append(f"- **Malformed Records:** {dq.malformed_records:,}")
+        lines.append("")
+
+        # Quarantine summary
+        if dq.quarantined_by_reason:
+            lines.append("### Quarantined Records")
+            lines.append("")
+            lines.append("| Reason | Count | % of Total |")
+            lines.append("|--------|-------|------------|")
+            total_quarantined = sum(dq.quarantined_by_reason.values())
+            for reason, count in sorted(dq.quarantined_by_reason.items(), key=lambda x: -x[1]):
+                pct = 100 * count / dq.total_games_processed if dq.total_games_processed else 0
+                lines.append(f"| {reason} | {count:,} | {pct:.1f}% |")
+            total_pct = 100 * total_quarantined / dq.total_games_processed if dq.total_games_processed else 0
+            lines.append(f"| **Total Quarantined** | **{total_quarantined:,}** | **{total_pct:.1f}%** |")
+            lines.append("")
+
+        # Source host distribution
+        if dq.games_by_source_host:
+            lines.append("### Data Sources by Host")
+            lines.append("")
+            lines.append("| Host | Games | % of Total |")
+            lines.append("|------|-------|------------|")
+            for host, count in sorted(dq.games_by_source_host.items(), key=lambda x: -x[1]):
+                pct = 100 * count / dq.total_games_processed if dq.total_games_processed else 0
+                lines.append(f"| {host} | {count:,} | {pct:.1f}% |")
+            lines.append("")
+
     return "\n".join(lines)
 
 
@@ -1396,6 +1816,23 @@ def generate_json_report(report: AnalysisReport) -> dict[str, Any]:
         },
         "configurations": {},
         "recovery_analysis": report.recovery_analysis,
+        "games_by_ai_type": report.games_by_ai_type,
+        "data_quality": {
+            "total_games_processed": report.data_quality.total_games_processed,
+            "games_with_explicit_board_type": report.data_quality.games_with_explicit_board_type,
+            "games_with_inferred_board_type": report.data_quality.games_with_inferred_board_type,
+            "games_with_explicit_num_players": report.data_quality.games_with_explicit_num_players,
+            "games_with_inferred_num_players": report.data_quality.games_with_inferred_num_players,
+            "games_with_explicit_victory_type": report.data_quality.games_with_explicit_victory_type,
+            "games_with_inferred_victory_type": report.data_quality.games_with_inferred_victory_type,
+            "games_with_winner": report.data_quality.games_with_winner,
+            "games_without_winner": report.data_quality.games_without_winner,
+            "games_with_moves": report.data_quality.games_with_moves,
+            "games_without_moves": report.data_quality.games_without_moves,
+            "malformed_records": report.data_quality.malformed_records,
+            "quarantined_by_reason": report.data_quality.quarantined_by_reason,
+            "games_by_source_host": report.data_quality.games_by_source_host,
+        },
     }
 
     for (board_type, num_players), stats in report.stats_by_config.items():
@@ -1446,6 +1883,17 @@ def generate_json_report(report: AnalysisReport) -> dict[str, Any]:
             "games_with_stack_strike": stats.games_with_stack_strike,
             "wins_with_stack_strike": stats.wins_with_stack_strike,
             "timeout_move_count_hist": stats.timeout_move_count_hist,
+            # AI type stats
+            "games_by_ai_type": stats.games_by_ai_type,
+            "wins_by_ai_type": stats.wins_by_ai_type,
+            "victory_types_by_ai_type": stats.victory_types_by_ai_type,
+            # Data quality stats
+            "games_with_inferred_board_type": stats.games_with_inferred_board_type,
+            "games_with_inferred_num_players": stats.games_with_inferred_num_players,
+            "games_with_inferred_victory_type": stats.games_with_inferred_victory_type,
+            "games_with_missing_winner": stats.games_with_missing_winner,
+            "games_with_missing_moves": stats.games_with_missing_moves,
+            "source_files_count": len(stats.source_files),
         }
         # Add detailed game length statistics if available
         if stats.game_lengths:
@@ -1621,6 +2069,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Include records that have a winner but no moves/termination fields (often non-game logs).",
     )
+    parser.add_argument(
+        "--quarantine-dir",
+        type=Path,
+        help="Directory to write quarantined records (malformed, timeout, unknown_board, no_winner).",
+    )
+    parser.add_argument(
+        "--fix-in-place",
+        action="store_true",
+        help="Fix missing metadata (board_type, num_players, victory_type) in JSONL files in-place.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="With --fix-in-place, show what would be changed without actually modifying files.",
+    )
+    parser.add_argument(
+        "--include-quarantined",
+        action="store_true",
+        help="Include quarantined records in statistics (default: exclude).",
+    )
     return parser.parse_args(argv)
 
 
@@ -1653,6 +2121,37 @@ def main(argv: list[str] | None = None) -> int:
     if args.game_max_age_hours is not None:
         game_cutoff_ts = datetime.now(timezone.utc).timestamp() - (float(args.game_max_age_hours) * 3600)
 
+    # Handle fix-in-place mode
+    if args.fix_in_place:
+        if not jsonl_files:
+            print("Error: --fix-in-place requires JSONL files (use --jsonl, --jsonl-dir, or --jsonl-filelist)", file=sys.stderr)
+            return 1
+        total_records = 0
+        total_modified = 0
+        for jsonl_path in jsonl_files:
+            records, modified = fix_jsonl_in_place(
+                jsonl_path,
+                dry_run=bool(args.dry_run),
+                quiet=bool(args.quiet),
+            )
+            total_records += records
+            total_modified += modified
+        if not args.quiet:
+            mode = "Would fix" if args.dry_run else "Fixed"
+            print(f"{mode} {total_modified:,} records across {len(jsonl_files)} files ({total_records:,} total records)", file=sys.stderr)
+        return 0
+
+    # Create quarantine writer if requested
+    quarantine_writer: QuarantineWriter | None = None
+    if args.quarantine_dir:
+        quarantine_writer = QuarantineWriter(args.quarantine_dir)
+
+    # Create data quality metrics tracker
+    data_quality = DataQualityMetrics()
+
+    # Determine whether to exclude quarantined records from stats
+    exclude_quarantined = not getattr(args, "include_quarantined", False)
+
     # Check if we have any data sources
     has_data_dir = args.data_dir.exists()
     has_jsonl = len(jsonl_files) > 0
@@ -1676,6 +2175,9 @@ def main(argv: list[str] | None = None) -> int:
             include_winner_only=bool(args.include_winner_only),
             game_cutoff_ts=game_cutoff_ts,
             include_unknown_game_timestamp=bool(args.include_unknown_game_timestamp),
+            quarantine_writer=quarantine_writer,
+            data_quality=data_quality,
+            exclude_quarantined=exclude_quarantined,
         )
 
         if report.total_games() == 0 and not args.allow_empty:
@@ -1687,6 +2189,15 @@ def main(argv: list[str] | None = None) -> int:
                 f"Found {report.total_games()} games across {len(report.stats_by_config)} configurations",
                 file=sys.stderr,
             )
+
+    # Show quarantine summary if applicable
+    if quarantine_writer and not args.quiet:
+        counts = quarantine_writer.get_counts()
+        if counts:
+            print(f"\nQuarantined records written to {args.quarantine_dir}:", file=sys.stderr)
+            for reason, count in sorted(counts.items(), key=lambda x: -x[1]):
+                print(f"  - {reason}: {count:,}", file=sys.stderr)
+            print(f"  Total: {sum(counts.values()):,}", file=sys.stderr)
 
     # Generate outputs
     if args.format in ("markdown", "both"):

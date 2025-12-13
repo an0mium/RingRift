@@ -13,7 +13,12 @@ import threading
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, model_validator
-from typing import Optional, Dict, Any, TypedDict, Self
+from typing import Optional, Dict, Any, TypedDict
+
+try:
+    from typing import Self  # Python 3.11+
+except ImportError:  # pragma: no cover
+    from typing_extensions import Self  # Python 3.10 compatibility
 
 try:  # Python 3.10 compatibility (NotRequired added in 3.11)
     from typing import NotRequired  # type: ignore

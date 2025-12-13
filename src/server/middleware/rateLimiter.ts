@@ -201,6 +201,14 @@ export const getRateLimitConfigs = (): Record<string, RateLimitConfig> => ({
     duration: getEnvNumber('RATE_LIMIT_GAME_CREATE_IP_DURATION', 600), // per 10 minutes
     blockDuration: getEnvNumber('RATE_LIMIT_GAME_CREATE_IP_BLOCK_DURATION', 600),
   },
+
+  // Data export (GDPR) - very restrictive per-user limit
+  dataExport: {
+    keyPrefix: 'data_export',
+    points: getEnvNumber('RATE_LIMIT_DATA_EXPORT_POINTS', 1), // 1 request
+    duration: getEnvNumber('RATE_LIMIT_DATA_EXPORT_DURATION', 3600), // per hour
+    blockDuration: getEnvNumber('RATE_LIMIT_DATA_EXPORT_BLOCK_DURATION', 3600), // 1 hour block
+  },
 });
 
 // Cache the configs to avoid re-parsing env vars on every request
@@ -474,6 +482,18 @@ export const authPasswordResetRateLimiter = createRateLimiter('authPasswordReset
 export const gameRateLimiter = createRateLimiter('game');
 export const gameMovesRateLimiter = createRateLimiter('gameMoves');
 export const websocketRateLimiter = createRateLimiter('websocket');
+
+/**
+ * Rate limiter for data export endpoints (GDPR/privacy).
+ * Uses user ID as the key to limit exports per user, not per IP.
+ * Default: 1 request per hour per user.
+ */
+export const dataExportRateLimiter = createRateLimiter('dataExport', {
+  keyGenerator: (req: Request) => {
+    const authReq = req as AuthenticatedRequest;
+    return authReq.user?.id || req.ip || 'unknown';
+  },
+});
 
 /**
  * Rate limiter that differentiates between authenticated and anonymous users.

@@ -82,6 +82,64 @@ export const PlayerChoiceResponsePayloadSchema = z.object({
 
 export type PlayerChoiceResponsePayload = z.infer<typeof PlayerChoiceResponsePayloadSchema>;
 
+// --- Rematch system events ---
+
+/**
+ * Client-to-server payload for requesting a rematch after a game ends.
+ */
+export const RematchRequestPayloadSchema = z.object({
+  gameId: z.string().min(1),
+});
+
+export type RematchRequestPayload = z.infer<typeof RematchRequestPayloadSchema>;
+
+/**
+ * Client-to-server payload for responding to a rematch request.
+ */
+export const RematchResponsePayloadSchema = z.object({
+  requestId: z.string().min(1),
+  accept: z.boolean(),
+});
+
+export type RematchResponsePayload = z.infer<typeof RematchResponsePayloadSchema>;
+
+// --- Matchmaking events ---
+
+/**
+ * Valid board types for matchmaking preferences.
+ */
+const BoardTypeSchema = z.enum(['square8', 'square19', 'hexagonal']);
+
+/**
+ * Numeric range schema for matchmaking preferences.
+ */
+const NumericRangeSchema = z
+  .object({
+    min: z.number().int().nonnegative(),
+    max: z.number().int().nonnegative(),
+  })
+  .refine((data) => data.min <= data.max, {
+    message: 'min must be less than or equal to max',
+  });
+
+/**
+ * Matchmaking preferences for finding opponents.
+ */
+const MatchmakingPreferencesSchema = z.object({
+  boardType: BoardTypeSchema,
+  ratingRange: NumericRangeSchema,
+  timeControl: NumericRangeSchema,
+});
+
+/**
+ * Client-to-server payload for joining the matchmaking queue.
+ */
+export const MatchmakingJoinPayloadSchema = z.object({
+  preferences: MatchmakingPreferencesSchema,
+});
+
+export type MatchmakingJoinPayload = z.infer<typeof MatchmakingJoinPayloadSchema>;
+
 // --- Diagnostic / load-testing events ---
 
 /**
@@ -178,6 +236,9 @@ export const WebSocketPayloadSchemas = {
   player_move_by_id: PlayerMoveByIdPayloadSchema,
   chat_message: ChatMessagePayloadSchema,
   player_choice_response: PlayerChoiceResponsePayloadSchema,
+  rematch_request: RematchRequestPayloadSchema,
+  rematch_respond: RematchResponsePayloadSchema,
+  'matchmaking:join': MatchmakingJoinPayloadSchema,
   'diagnostic:ping': DiagnosticPingPayloadSchema,
 } as const;
 

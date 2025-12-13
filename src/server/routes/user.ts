@@ -3,6 +3,7 @@ import { Prisma, GameStatus as PrismaGameStatus } from '@prisma/client';
 import { getDatabaseClient, TransactionClient } from '../database/connection';
 import { AuthenticatedRequest, getAuthUserId } from '../middleware/auth';
 import { createError, asyncHandler } from '../middleware/errorHandler';
+import { dataExportRateLimiter } from '../middleware/rateLimiter';
 import { httpLogger } from '../utils/logger';
 import {
   UpdateProfileSchema,
@@ -1349,8 +1350,7 @@ router.delete(
  */
 router.get(
   '/me/export',
-  // TODO: Add specific rate limiting for data export (1 request per hour)
-  // Example: rateLimiter({ windowMs: 60 * 60 * 1000, max: 1, keyPrefix: 'export' })
+  dataExportRateLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = getAuthUserId(req);
 

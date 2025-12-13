@@ -1882,6 +1882,24 @@ export function computeFSMOrchestration(
     } as TurnEndState;
   }
 
+  // Handle forced_elimination: when FSM transitions to turn_end, the pure FSM uses
+  // simple modular rotation which doesn't skip eliminated players. Recompute the
+  // next player using computeNextNonEliminatedPlayer to match Python's FSM behavior.
+  // RR-PARITY-FIX-2025-12-13: Fixes 4-player games where forced_elimination would
+  // incorrectly rotate to eliminated players instead of skipping them.
+  if (move.type === 'forced_elimination' && nextState.phase === 'turn_end') {
+    const computedNextPlayer = computeNextNonEliminatedPlayer(
+      gameState,
+      move.player,
+      context.numPlayers
+    );
+    nextState = {
+      phase: 'turn_end',
+      completedPlayer: move.player,
+      nextPlayer: computedNextPlayer,
+    } as TurnEndState;
+  }
+
   // Extract next phase and player from FSM state
   let nextPhase = nextState.phase;
   let nextPlayer: number;

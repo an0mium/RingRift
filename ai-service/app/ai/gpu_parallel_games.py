@@ -2972,6 +2972,174 @@ def generate_recovery_moves_batch(
 # =============================================================================
 
 
+def apply_placement_moves_batch_vectorized(
+    state: BatchGameState,
+    move_indices: torch.Tensor,
+    moves: BatchMoves,
+) -> None:
+    """Vectorized placement move application.
+
+    Args:
+        state: BatchGameState to modify
+        move_indices: (batch_size,) index into moves for each game's selected move
+        moves: BatchMoves containing all candidate moves
+    """
+    device = state.device
+    batch_size = state.batch_size
+    active_mask = state.get_active_mask()
+
+    # Filter to games with valid moves
+    has_moves = moves.moves_per_game > 0
+    valid_local_idx = move_indices < moves.moves_per_game
+    process_mask = active_mask & has_moves & valid_local_idx
+
+    if not process_mask.any():
+        return
+
+    # Get game indices to process
+    game_indices = torch.where(process_mask)[0]
+    n_games = game_indices.shape[0]
+
+    # Compute global move indices
+    global_indices = moves.move_offsets[game_indices] + move_indices[game_indices]
+
+    # Gather move data
+    y = moves.from_y[global_indices].long()
+    x = moves.from_x[global_indices].long()
+    move_type = moves.move_type[global_indices]
+    players = state.current_player[game_indices]
+
+    # Gather destination state
+    dest_owner = state.stack_owner[game_indices, y, x]
+    dest_height = state.stack_height[game_indices, y, x]
+    dest_cap = state.cap_height[game_indices, y, x]
+
+    # Record move history (for games with history space)
+    move_idx = state.move_count[game_indices]
+    history_mask = move_idx < state.max_history_moves
+    if history_mask.any():
+        hist_games = game_indices[history_mask]
+        hist_move_idx = move_idx[history_mask].long()
+        hist_y = y[history_mask]
+        hist_x = x[history_mask]
+        hist_players = players[history_mask]
+        hist_move_type = move_type[history_mask]
+
+        # Cast to match move_history dtype (int16)
+        hist_dtype = state.move_history.dtype
+        state.move_history[hist_games, hist_move_idx, 0] = hist_move_type.to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 1] = hist_players.to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 2] = hist_y.to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 3] = hist_x.to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 4] = hist_y.to(hist_dtype)  # to_y same for placement
+        state.move_history[hist_games, hist_move_idx, 5] = hist_x.to(hist_dtype)  # to_x same for placement
+
+    # Compute new values based on destination state
+    is_empty = dest_height <= 0
+    is_same_owner = dest_owner == players
+
+    # New height: 1 if empty, else dest_height + 1 (clamped to 127)
+    new_height = torch.where(is_empty, torch.ones_like(dest_height), torch.clamp(dest_height + 1, max=127))
+
+    # New cap_height: 1 if empty or different owner, else dest_cap + 1 (clamped to 127)
+    new_cap = torch.where(
+        is_empty | ~is_same_owner,
+        torch.ones_like(dest_cap),
+        torch.clamp(dest_cap + 1, max=127)
+    )
+
+    # Update stack state (cast to match dtypes)
+    state.stack_owner[game_indices, y, x] = players.to(state.stack_owner.dtype)
+    state.stack_height[game_indices, y, x] = new_height.to(state.stack_height.dtype)
+    state.cap_height[game_indices, y, x] = new_cap.to(state.cap_height.dtype)
+
+    # Handle buried rings for opponent stacks
+    is_opponent = ~is_empty & (dest_owner != 0) & (dest_owner != players)
+    if is_opponent.any():
+        opp_games = game_indices[is_opponent]
+        opp_owners = dest_owner[is_opponent].long()
+        # Scatter add 1 to buried_rings for each opponent
+        state.buried_rings[opp_games, opp_owners] += 1
+
+    # Update rings_in_hand (scatter subtract)
+    # Use a loop for scatter_add with player indices (more reliable)
+    for i in range(n_games):
+        g = game_indices[i].item()
+        p = players[i].item()
+        state.rings_in_hand[g, p] -= 1
+
+    # Update must_move_from (cast to match dtype)
+    state.must_move_from_y[game_indices] = y.to(state.must_move_from_y.dtype)
+    state.must_move_from_x[game_indices] = x.to(state.must_move_from_x.dtype)
+
+    # Advance move counter
+    state.move_count[game_indices] += 1
+
+
+def _apply_placement_moves_batch_legacy(
+    state: BatchGameState,
+    move_indices: torch.Tensor,
+    moves: BatchMoves,
+) -> None:
+    """Legacy Python-loop based placement application.
+
+    Kept for debugging and comparison.
+    """
+    batch_size = state.batch_size
+    active_mask = state.get_active_mask()
+
+    for g in range(batch_size):
+        if not active_mask[g]:
+            continue
+
+        if moves.moves_per_game[g] == 0:
+            continue
+
+        local_idx = move_indices[g].item()
+        if local_idx >= moves.moves_per_game[g]:
+            continue
+
+        global_idx = moves.move_offsets[g] + local_idx
+
+        y = moves.from_y[global_idx].item()
+        x = moves.from_x[global_idx].item()
+        player = state.current_player[g].item()
+        move_type = moves.move_type[global_idx].item()
+
+        move_idx = state.move_count[g].item()
+        if move_idx < state.max_history_moves:
+            state.move_history[g, move_idx, 0] = move_type
+            state.move_history[g, move_idx, 1] = player
+            state.move_history[g, move_idx, 2] = y
+            state.move_history[g, move_idx, 3] = x
+            state.move_history[g, move_idx, 4] = y
+            state.move_history[g, move_idx, 5] = x
+
+        dest_owner = int(state.stack_owner[g, y, x].item())
+        dest_height = int(state.stack_height[g, y, x].item())
+        dest_cap = int(state.cap_height[g, y, x].item())
+
+        if dest_height <= 0:
+            state.stack_owner[g, y, x] = player
+            state.stack_height[g, y, x] = 1
+            state.cap_height[g, y, x] = 1
+        else:
+            new_height = min(127, dest_height + 1)
+            state.stack_owner[g, y, x] = player
+            state.stack_height[g, y, x] = new_height
+            if dest_owner == player:
+                state.cap_height[g, y, x] = min(127, dest_cap + 1)
+            else:
+                state.cap_height[g, y, x] = 1
+
+            if dest_owner not in (0, player):
+                state.buried_rings[g, dest_owner] += 1
+        state.rings_in_hand[g, player] -= 1
+        state.must_move_from_y[g] = y
+        state.must_move_from_x[g] = x
+        state.move_count[g] += 1
+
+
 def apply_placement_moves_batch(
     state: BatchGameState,
     move_indices: torch.Tensor,
@@ -2984,104 +3152,144 @@ def apply_placement_moves_batch(
         move_indices: (batch_size,) index into moves for each game's selected move
         moves: BatchMoves containing all candidate moves
     """
-    # Get selected moves for each game
-    # move_indices[g] is the local move index for game g
-    # We need to convert to global index: move_offsets[g] + move_indices[g]
-
-    batch_size = state.batch_size
-    active_mask = state.get_active_mask()
-
-    for g in range(batch_size):
-        if not active_mask[g]:
-            continue
-
-        if moves.moves_per_game[g] == 0:
-            continue
-
-        # Get the selected move for this game
-        local_idx = move_indices[g].item()
-        if local_idx >= moves.moves_per_game[g]:
-            continue
-
-        global_idx = moves.move_offsets[g] + local_idx
-
-        y = moves.from_y[global_idx].item()
-        x = moves.from_x[global_idx].item()
-        player = state.current_player[g].item()
-        move_type = moves.move_type[global_idx].item()
-
-        # Record move in history before incrementing move_count
-        move_idx = state.move_count[g].item()
-        if move_idx < state.max_history_moves:
-            # Format: [move_type, player, from_y, from_x, to_y, to_x]
-            # For placement, from and to are same position
-            state.move_history[g, move_idx, 0] = move_type
-            state.move_history[g, move_idx, 1] = player
-            state.move_history[g, move_idx, 2] = y
-            state.move_history[g, move_idx, 3] = x
-            state.move_history[g, move_idx, 4] = y  # to_y same as from for placement
-            state.move_history[g, move_idx, 5] = x  # to_x same as from for placement
-
-        # Apply placement
-        # Canonical placement semantics:
-        # - Empty cell: create a new stack of height 1, capHeight 1.
-        # - Existing stack: place exactly one ring on top, increasing height
-        #   and setting controlling player to the placer.
-        #
-        # NOTE: GPU state does not track full per-ring colours, only
-        # (stack_owner, stack_height, cap_height). This is sufficient to
-        # model the canonical placement *shape* and movement distance rules
-        # (RR-CANON-R090: d >= stackHeight).
-        dest_owner = int(state.stack_owner[g, y, x].item())
-        dest_height = int(state.stack_height[g, y, x].item())
-        dest_cap = int(state.cap_height[g, y, x].item())
-
-        if dest_height <= 0:
-            state.stack_owner[g, y, x] = player
-            state.stack_height[g, y, x] = 1
-            state.cap_height[g, y, x] = 1
-        else:
-            # Place on top of an existing stack.
-            new_height = min(127, dest_height + 1)
-            state.stack_owner[g, y, x] = player
-            state.stack_height[g, y, x] = new_height
-            if dest_owner == player:
-                state.cap_height[g, y, x] = min(127, dest_cap + 1)
-            else:
-                state.cap_height[g, y, x] = 1
-
-            # Best-effort buried-ring accounting: the previous top ring becomes
-            # buried under the new controller when placing onto an opponent
-            # stack. This affects recovery eligibility (RR-CANON-R110–R115).
-            if dest_owner not in (0, player):
-                state.buried_rings[g, dest_owner] += 1
-        state.rings_in_hand[g, player] -= 1
-        # Per RR-CANON-R090: after a placement, the mover must move/capture
-        # with that exact stack on their subsequent movement phase.
-        state.must_move_from_y[g] = y
-        state.must_move_from_x[g] = x
-
-        # Advance move counter; player rotation happens in END_TURN.
-        state.move_count[g] += 1
+    if os.environ.get("RINGRIFT_GPU_PLACEMENT_LEGACY", "0") == "1":
+        _apply_placement_moves_batch_legacy(state, move_indices, moves)
+    else:
+        apply_placement_moves_batch_vectorized(state, move_indices, moves)
 
 
-def apply_movement_moves_batch(
+def apply_movement_moves_batch_vectorized(
     state: BatchGameState,
     move_indices: torch.Tensor,
     moves: BatchMoves,
 ) -> None:
-    """Apply selected movement moves to batch state (in-place).
-
-    Per RR-CANON-R090-R092:
-    - Stack moves from origin to destination
-    - Origin becomes empty
-    - Destination gets merged stack (if own stack) or new stack
-    - Markers along path: flip on pass, collapse cost on landing
+    """Vectorized movement move application.
 
     Args:
         state: BatchGameState to modify
         move_indices: (batch_size,) index into moves for each game's selected move
         moves: BatchMoves containing all candidate moves
+    """
+    device = state.device
+    batch_size = state.batch_size
+    board_size = state.board_size
+    active_mask = state.get_active_mask()
+
+    # Filter to games with valid moves
+    has_moves = moves.moves_per_game > 0
+    valid_local_idx = move_indices < moves.moves_per_game
+    process_mask = active_mask & has_moves & valid_local_idx
+
+    if not process_mask.any():
+        return
+
+    # Get game indices to process
+    game_indices = torch.where(process_mask)[0]
+    n_games = game_indices.shape[0]
+
+    # Compute global move indices
+    global_indices = moves.move_offsets[game_indices] + move_indices[game_indices]
+
+    # Gather move data
+    from_y = moves.from_y[global_indices].long()
+    from_x = moves.from_x[global_indices].long()
+    to_y = moves.to_y[global_indices].long()
+    to_x = moves.to_x[global_indices].long()
+    move_type = moves.move_type[global_indices]
+    players = state.current_player[game_indices]
+
+    # Record move history
+    move_idx = state.move_count[game_indices]
+    history_mask = move_idx < state.max_history_moves
+    if history_mask.any():
+        hist_games = game_indices[history_mask]
+        hist_move_idx = move_idx[history_mask].long()
+        hist_dtype = state.move_history.dtype
+        state.move_history[hist_games, hist_move_idx, 0] = move_type[history_mask].to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 1] = players[history_mask].to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 2] = from_y[history_mask].to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 3] = from_x[history_mask].to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 4] = to_y[history_mask].to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 5] = to_x[history_mask].to(hist_dtype)
+
+    # Get moving stack info
+    moving_height = state.stack_height[game_indices, from_y, from_x]
+    moving_cap_height = state.cap_height[game_indices, from_y, from_x]
+
+    # Compute direction and distance for each move
+    dy = torch.sign(to_y - from_y)
+    dx = torch.sign(to_x - from_x)
+    dist = torch.maximum(torch.abs(to_y - from_y), torch.abs(to_x - from_x))
+    max_dist = dist.max().item() if n_games > 0 else 0
+
+    # Process markers along path (flip opposing markers)
+    # Create path positions for all games: (n_games, max_dist-1)
+    if max_dist > 1:
+        steps = torch.arange(1, max_dist, device=device).view(1, -1)  # (1, max_dist-1)
+        path_y = from_y.unsqueeze(1) + dy.unsqueeze(1) * steps  # (n_games, max_dist-1)
+        path_x = from_x.unsqueeze(1) + dx.unsqueeze(1) * steps
+
+        # Mask for valid path positions (step < dist, so we don't include destination)
+        valid_path = steps < dist.unsqueeze(1)
+
+        # Clamp for safe indexing
+        path_y_safe = torch.clamp(path_y, 0, board_size - 1).long()
+        path_x_safe = torch.clamp(path_x, 0, board_size - 1).long()
+
+        # Get marker owners along path
+        game_indices_exp = game_indices.unsqueeze(1).expand(-1, max_dist - 1)
+        path_marker_owners = state.marker_owner[game_indices_exp, path_y_safe, path_x_safe]
+
+        # Find opponent markers to flip (not 0 and not player)
+        players_exp = players.unsqueeze(1).expand(-1, max_dist - 1)
+        is_opponent_marker = (path_marker_owners != 0) & (path_marker_owners != players_exp) & valid_path
+
+        # Flip opponent markers
+        if is_opponent_marker.any():
+            flip_games = game_indices_exp[is_opponent_marker]
+            flip_y = path_y_safe[is_opponent_marker]
+            flip_x = path_x_safe[is_opponent_marker]
+            flip_players = players_exp[is_opponent_marker]
+            state.marker_owner[flip_games, flip_y, flip_x] = flip_players.to(state.marker_owner.dtype)
+
+    # Handle landing on own marker (collapse cost)
+    dest_marker = state.marker_owner[game_indices, to_y, to_x]
+    landing_on_own_marker = dest_marker == players
+    landing_ring_cost = landing_on_own_marker.int()
+
+    if landing_on_own_marker.any():
+        collapse_games = game_indices[landing_on_own_marker]
+        collapse_y = to_y[landing_on_own_marker]
+        collapse_x = to_x[landing_on_own_marker]
+        state.is_collapsed[collapse_games, collapse_y, collapse_x] = True
+        state.marker_owner[collapse_games, collapse_y, collapse_x] = 0
+
+    # Clear origin
+    state.stack_owner[game_indices, from_y, from_x] = 0
+    state.stack_height[game_indices, from_y, from_x] = 0
+    state.cap_height[game_indices, from_y, from_x] = 0
+
+    # Set destination
+    new_height = torch.clamp(moving_height - landing_ring_cost, min=1)
+    new_cap_height = torch.clamp(moving_cap_height - landing_ring_cost, min=1)
+    state.stack_owner[game_indices, to_y, to_x] = players.to(state.stack_owner.dtype)
+    state.stack_height[game_indices, to_y, to_x] = new_height.to(state.stack_height.dtype)
+    state.cap_height[game_indices, to_y, to_x] = new_cap_height.to(state.cap_height.dtype)
+
+    # Advance turn
+    state.move_count[game_indices] += 1
+    new_player = (players % state.num_players) + 1
+    state.current_player[game_indices] = new_player.to(state.current_player.dtype)
+
+
+def _apply_movement_moves_batch_legacy(
+    state: BatchGameState,
+    move_indices: torch.Tensor,
+    moves: BatchMoves,
+) -> None:
+    """Legacy Python-loop based movement application.
+
+    Kept for debugging and comparison.
     """
     batch_size = state.batch_size
     active_mask = state.get_active_mask()
@@ -3106,7 +3314,6 @@ def apply_movement_moves_batch(
         player = state.current_player[g].item()
         move_type = moves.move_type[global_idx].item()
 
-        # Record move in history
         move_idx = state.move_count[g].item()
         if move_idx < state.max_history_moves:
             state.move_history[g, move_idx, 0] = move_type
@@ -3116,46 +3323,260 @@ def apply_movement_moves_batch(
             state.move_history[g, move_idx, 4] = to_y
             state.move_history[g, move_idx, 5] = to_x
 
-        # Get moving stack info (both height and cap_height)
         moving_height = state.stack_height[g, from_y, from_x].item()
         moving_cap_height = state.cap_height[g, from_y, from_x].item()
 
-        # Process markers along path (simplified - flip opposing markers)
         dy = 0 if to_y == from_y else (1 if to_y > from_y else -1)
         dx = 0 if to_x == from_x else (1 if to_x > from_x else -1)
         dist = max(abs(to_y - from_y), abs(to_x - from_x))
 
-        for step in range(1, dist):  # Don't flip at destination yet
+        for step in range(1, dist):
             check_y = from_y + dy * step
             check_x = from_x + dx * step
             marker_owner = state.marker_owner[g, check_y, check_x].item()
             if marker_owner != 0 and marker_owner != player:
-                # Flip opponent marker to our color
                 state.marker_owner[g, check_y, check_x] = player
 
-        # Handle landing on own marker (collapse cost)
         dest_marker = state.marker_owner[g, to_y, to_x].item()
         landing_ring_cost = 0
         if dest_marker == player:
-            # Landing on own marker costs 1 ring (cap elimination)
             landing_ring_cost = 1
             state.is_collapsed[g, to_y, to_x] = True
-            state.marker_owner[g, to_y, to_x] = 0  # Marker consumed
+            state.marker_owner[g, to_y, to_x] = 0
 
-        # Clear origin (both height and cap_height)
         state.stack_owner[g, from_y, from_x] = 0
         state.stack_height[g, from_y, from_x] = 0
         state.cap_height[g, from_y, from_x] = 0
 
-        # Handle destination - per RR-CANON-R091, movement cannot land on stacks
-        # Destination should always be empty (move generation guarantees this now)
         new_height = max(1, moving_height - landing_ring_cost)
         new_cap_height = max(1, moving_cap_height - landing_ring_cost)
         state.stack_owner[g, to_y, to_x] = player
         state.stack_height[g, to_y, to_x] = new_height
         state.cap_height[g, to_y, to_x] = new_cap_height
 
-        # Advance turn
+        state.move_count[g] += 1
+        state.current_player[g] = (player % state.num_players) + 1
+
+
+def apply_movement_moves_batch(
+    state: BatchGameState,
+    move_indices: torch.Tensor,
+    moves: BatchMoves,
+) -> None:
+    """Apply selected movement moves to batch state (in-place).
+
+    Per RR-CANON-R090-R092:
+    - Stack moves from origin to destination
+    - Origin becomes empty
+    - Destination gets merged stack (if own stack) or new stack
+    - Markers along path: flip on pass, collapse cost on landing
+
+    Args:
+        state: BatchGameState to modify
+        move_indices: (batch_size,) index into moves for each game's selected move
+        moves: BatchMoves containing all candidate moves
+    """
+    if os.environ.get("RINGRIFT_GPU_MOVEMENT_APPLY_LEGACY", "0") == "1":
+        _apply_movement_moves_batch_legacy(state, move_indices, moves)
+    else:
+        apply_movement_moves_batch_vectorized(state, move_indices, moves)
+
+
+def apply_capture_moves_batch_vectorized(
+    state: BatchGameState,
+    move_indices: torch.Tensor,
+    moves: BatchMoves,
+) -> None:
+    """Vectorized capture move application.
+
+    Args:
+        state: BatchGameState to modify
+        move_indices: (batch_size,) index into moves for each game's selected move
+        moves: BatchMoves containing all candidate moves
+    """
+    device = state.device
+    batch_size = state.batch_size
+    board_size = state.board_size
+    active_mask = state.get_active_mask()
+
+    # Filter to games with valid moves
+    has_moves = moves.moves_per_game > 0
+    valid_local_idx = move_indices < moves.moves_per_game
+    process_mask = active_mask & has_moves & valid_local_idx
+
+    if not process_mask.any():
+        return
+
+    # Get game indices to process
+    game_indices = torch.where(process_mask)[0]
+    n_games = game_indices.shape[0]
+
+    # Compute global move indices
+    global_indices = moves.move_offsets[game_indices] + move_indices[game_indices]
+
+    # Gather move data
+    from_y = moves.from_y[global_indices].long()
+    from_x = moves.from_x[global_indices].long()
+    to_y = moves.to_y[global_indices].long()
+    to_x = moves.to_x[global_indices].long()
+    move_type = moves.move_type[global_indices]
+    players = state.current_player[game_indices]
+
+    # Record move history
+    move_idx = state.move_count[game_indices]
+    history_mask = move_idx < state.max_history_moves
+    if history_mask.any():
+        hist_games = game_indices[history_mask]
+        hist_move_idx = move_idx[history_mask].long()
+        hist_dtype = state.move_history.dtype
+        state.move_history[hist_games, hist_move_idx, 0] = move_type[history_mask].to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 1] = players[history_mask].to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 2] = from_y[history_mask].to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 3] = from_x[history_mask].to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 4] = to_y[history_mask].to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 5] = to_x[history_mask].to(hist_dtype)
+
+    # Get attacker stack info
+    attacker_height = state.stack_height[game_indices, from_y, from_x]
+    attacker_cap_height = state.cap_height[game_indices, from_y, from_x]
+
+    # Get defender info
+    defender_owner = state.stack_owner[game_indices, to_y, to_x]
+    defender_height = state.stack_height[game_indices, to_y, to_x]
+
+    # Compute direction and distance for path processing
+    dy = torch.sign(to_y - from_y)
+    dx = torch.sign(to_x - from_x)
+    dist = torch.maximum(torch.abs(to_y - from_y), torch.abs(to_x - from_x))
+    max_dist = dist.max().item() if n_games > 0 else 0
+
+    # Process markers along path (flip opposing markers)
+    if max_dist > 1:
+        steps = torch.arange(1, max_dist, device=device).view(1, -1)
+        path_y = from_y.unsqueeze(1) + dy.unsqueeze(1) * steps
+        path_x = from_x.unsqueeze(1) + dx.unsqueeze(1) * steps
+
+        valid_path = steps < dist.unsqueeze(1)
+
+        path_y_safe = torch.clamp(path_y, 0, board_size - 1).long()
+        path_x_safe = torch.clamp(path_x, 0, board_size - 1).long()
+
+        game_indices_exp = game_indices.unsqueeze(1).expand(-1, max_dist - 1)
+        path_marker_owners = state.marker_owner[game_indices_exp, path_y_safe, path_x_safe]
+
+        players_exp = players.unsqueeze(1).expand(-1, max_dist - 1)
+        is_opponent_marker = (path_marker_owners != 0) & (path_marker_owners != players_exp) & valid_path
+
+        if is_opponent_marker.any():
+            flip_games = game_indices_exp[is_opponent_marker]
+            flip_y = path_y_safe[is_opponent_marker]
+            flip_x = path_x_safe[is_opponent_marker]
+            flip_players = players_exp[is_opponent_marker]
+            state.marker_owner[flip_games, flip_y, flip_x] = flip_players.to(state.marker_owner.dtype)
+
+    # Eliminate defender's ring (update tracking tensors)
+    # Use loop for scatter operations on 2D indexed tensors
+    for i in range(n_games):
+        g = game_indices[i].item()
+        def_owner = defender_owner[i].item()
+        p = players[i].item()
+        state.eliminated_rings[g, def_owner] += 1
+        state.rings_caused_eliminated[g, p] += 1
+
+    # Clear origin
+    state.stack_owner[game_indices, from_y, from_x] = 0
+    state.stack_height[game_indices, from_y, from_x] = 0
+    state.cap_height[game_indices, from_y, from_x] = 0
+
+    # Merge stacks at destination
+    new_height = torch.clamp(attacker_height + defender_height - 1, max=5)
+    new_cap_height = torch.clamp(attacker_cap_height, max=5)
+    state.stack_owner[game_indices, to_y, to_x] = players.to(state.stack_owner.dtype)
+    state.stack_height[game_indices, to_y, to_x] = new_height.to(state.stack_height.dtype)
+    state.cap_height[game_indices, to_y, to_x] = new_cap_height.to(state.cap_height.dtype)
+
+    # Place marker for attacker
+    state.marker_owner[game_indices, to_y, to_x] = players.to(state.marker_owner.dtype)
+
+    # Advance turn
+    state.move_count[game_indices] += 1
+    new_player = (players % state.num_players) + 1
+    state.current_player[game_indices] = new_player.to(state.current_player.dtype)
+
+
+def _apply_capture_moves_batch_legacy(
+    state: BatchGameState,
+    move_indices: torch.Tensor,
+    moves: BatchMoves,
+) -> None:
+    """Legacy Python-loop based capture application.
+
+    Kept for debugging and comparison.
+    """
+    batch_size = state.batch_size
+    active_mask = state.get_active_mask()
+
+    for g in range(batch_size):
+        if not active_mask[g]:
+            continue
+
+        if moves.moves_per_game[g] == 0:
+            continue
+
+        local_idx = move_indices[g].item()
+        if local_idx >= moves.moves_per_game[g]:
+            continue
+
+        global_idx = moves.move_offsets[g] + local_idx
+
+        from_y = moves.from_y[global_idx].item()
+        from_x = moves.from_x[global_idx].item()
+        to_y = moves.to_y[global_idx].item()
+        to_x = moves.to_x[global_idx].item()
+        player = state.current_player[g].item()
+        move_type = moves.move_type[global_idx].item()
+
+        move_idx = state.move_count[g].item()
+        if move_idx < state.max_history_moves:
+            state.move_history[g, move_idx, 0] = move_type
+            state.move_history[g, move_idx, 1] = player
+            state.move_history[g, move_idx, 2] = from_y
+            state.move_history[g, move_idx, 3] = from_x
+            state.move_history[g, move_idx, 4] = to_y
+            state.move_history[g, move_idx, 5] = to_x
+
+        attacker_height = state.stack_height[g, from_y, from_x].item()
+        attacker_cap_height = state.cap_height[g, from_y, from_x].item()
+
+        defender_owner = state.stack_owner[g, to_y, to_x].item()
+        defender_height = state.stack_height[g, to_y, to_x].item()
+
+        dy = 0 if to_y == from_y else (1 if to_y > from_y else -1)
+        dx = 0 if to_x == from_x else (1 if to_x > from_x else -1)
+        dist = max(abs(to_y - from_y), abs(to_x - from_x))
+
+        for step in range(1, dist):
+            check_y = from_y + dy * step
+            check_x = from_x + dx * step
+            marker_owner = state.marker_owner[g, check_y, check_x].item()
+            if marker_owner != 0 and marker_owner != player:
+                state.marker_owner[g, check_y, check_x] = player
+
+        state.eliminated_rings[g, defender_owner] += 1
+        state.rings_caused_eliminated[g, player] += 1
+
+        state.stack_owner[g, from_y, from_x] = 0
+        state.stack_height[g, from_y, from_x] = 0
+        state.cap_height[g, from_y, from_x] = 0
+
+        new_height = attacker_height + defender_height - 1
+        new_cap_height = attacker_cap_height
+        state.stack_owner[g, to_y, to_x] = player
+        state.stack_height[g, to_y, to_x] = min(5, new_height)
+        state.cap_height[g, to_y, to_x] = min(5, new_cap_height)
+
+        state.marker_owner[g, to_y, to_x] = player
+
         state.move_count[g] += 1
         state.current_player[g] = (player % state.num_players) + 1
 
@@ -3178,86 +3599,10 @@ def apply_capture_moves_batch(
         move_indices: (batch_size,) index into moves for each game's selected move
         moves: BatchMoves containing all candidate moves
     """
-    batch_size = state.batch_size
-    active_mask = state.get_active_mask()
-
-    for g in range(batch_size):
-        if not active_mask[g]:
-            continue
-
-        if moves.moves_per_game[g] == 0:
-            continue
-
-        local_idx = move_indices[g].item()
-        if local_idx >= moves.moves_per_game[g]:
-            continue
-
-        global_idx = moves.move_offsets[g] + local_idx
-
-        from_y = moves.from_y[global_idx].item()
-        from_x = moves.from_x[global_idx].item()
-        to_y = moves.to_y[global_idx].item()
-        to_x = moves.to_x[global_idx].item()
-        player = state.current_player[g].item()
-        move_type = moves.move_type[global_idx].item()
-
-        # Record move in history
-        move_idx = state.move_count[g].item()
-        if move_idx < state.max_history_moves:
-            state.move_history[g, move_idx, 0] = move_type
-            state.move_history[g, move_idx, 1] = player
-            state.move_history[g, move_idx, 2] = from_y
-            state.move_history[g, move_idx, 3] = from_x
-            state.move_history[g, move_idx, 4] = to_y
-            state.move_history[g, move_idx, 5] = to_x
-
-        # Get attacking stack info (height and cap_height)
-        attacker_height = state.stack_height[g, from_y, from_x].item()
-        attacker_cap_height = state.cap_height[g, from_y, from_x].item()
-
-        # Get defender info
-        defender_owner = state.stack_owner[g, to_y, to_x].item()
-        defender_height = state.stack_height[g, to_y, to_x].item()
-
-        # Process markers along path (flip opposing markers)
-        dy = 0 if to_y == from_y else (1 if to_y > from_y else -1)
-        dx = 0 if to_x == from_x else (1 if to_x > from_x else -1)
-        dist = max(abs(to_y - from_y), abs(to_x - from_x))
-
-        for step in range(1, dist):
-            check_y = from_y + dy * step
-            check_x = from_x + dx * step
-            marker_owner = state.marker_owner[g, check_y, check_x].item()
-            if marker_owner != 0 and marker_owner != player:
-                state.marker_owner[g, check_y, check_x] = player
-
-        # Eliminate defender's top ring
-        # eliminated_rings tracks rings LOST BY each player
-        # rings_caused_eliminated tracks rings CAUSED TO BE ELIMINATED BY each player (for victory)
-        state.eliminated_rings[g, defender_owner] += 1
-        state.rings_caused_eliminated[g, player] += 1
-
-        # Clear origin (height and cap_height)
-        state.stack_owner[g, from_y, from_x] = 0
-        state.stack_height[g, from_y, from_x] = 0
-        state.cap_height[g, from_y, from_x] = 0
-
-        # Merge stacks at destination per RR-CANON-R102:
-        # - Defender loses 1 ring (eliminated from their cap)
-        # - Attacker rings go on top of defender's remaining rings
-        # - New cap_height is the attacker's original height (all top rings are attacker's)
-        new_height = attacker_height + defender_height - 1
-        new_cap_height = attacker_cap_height  # Attacker's rings are now the entire cap
-        state.stack_owner[g, to_y, to_x] = player
-        state.stack_height[g, to_y, to_x] = min(5, new_height)
-        state.cap_height[g, to_y, to_x] = min(5, new_cap_height)
-
-        # Place marker for attacker (capture marker)
-        state.marker_owner[g, to_y, to_x] = player
-
-        # Advance turn
-        state.move_count[g] += 1
-        state.current_player[g] = (player % state.num_players) + 1
+    if os.environ.get("RINGRIFT_GPU_CAPTURE_APPLY_LEGACY", "0") == "1":
+        _apply_capture_moves_batch_legacy(state, move_indices, moves)
+    else:
+        apply_capture_moves_batch_vectorized(state, move_indices, moves)
 
 
 # =============================================================================
@@ -3288,6 +3633,181 @@ def get_required_line_length(board_size: int, num_players: int) -> int:
     if board_size == 8 and num_players >= 3:
         return 3
     return 4
+
+
+def detect_lines_vectorized(
+    state: BatchGameState,
+    player: int,
+    game_mask: Optional[torch.Tensor] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Vectorized line detection returning positions mask and line count.
+
+    Per RR-CANON-R120: A line is a sequence of consecutive MARKERS (not stacks)
+    of the same player, with length >= required_length.
+
+    This is a fast vectorized implementation for MCTS. It returns:
+    1. A mask of positions that are part of valid lines
+    2. A count of positions per game that are in lines (proxy for line count)
+
+    Args:
+        state: Current batch game state
+        player: Player number to detect lines for
+        game_mask: Mask of games to check (optional)
+
+    Returns:
+        Tuple of:
+        - in_line_mask: (batch_size, board_size, board_size) bool tensor
+        - line_position_counts: (batch_size,) int tensor with count of line positions
+    """
+    device = state.device
+    batch_size = state.batch_size
+    board_size = state.board_size
+    required_length = get_required_line_length(board_size, state.num_players)
+
+    if game_mask is None:
+        game_mask = torch.ones(batch_size, dtype=torch.bool, device=device)
+
+    # Per RR-CANON-R120: Lines are formed by MARKERS, not stacks
+    # A marker at (y,x) can be part of a line only if no stack is there
+    player_markers = (
+        (state.marker_owner == player) &
+        (state.stack_owner == 0) &
+        game_mask.view(-1, 1, 1)
+    )
+
+    # Output mask: positions that are part of any line
+    in_line_mask = torch.zeros_like(player_markers)
+
+    # Check all 4 directions
+    # For each direction, we check if there's a sequence of required_length markers
+
+    # Direction 1: Horizontal (dy=0, dx=1)
+    # Use cumsum trick: if we have N consecutive markers, positions i to i+N-1
+    # all get marked. We do this by checking windows of size required_length.
+
+    # Note: Using explicit OR + assignment instead of |= due to MPS device quirk
+    # Compute horizontal windows
+    if board_size >= required_length:
+        # Sum of required_length consecutive horizontal positions
+        markers_float = player_markers.float()
+
+        # Horizontal: sum along x-axis
+        cumsum_h = markers_float.cumsum(dim=2)
+        # Window sum at position x is cumsum[x+req-1] - cumsum[x-1]
+        # But we need to handle edge cases
+        padded_cumsum_h = torch.cat([
+            torch.zeros(batch_size, board_size, 1, device=device),
+            cumsum_h
+        ], dim=2)
+        # window_sum[y, x] = cumsum_h[y, x+req-1] - cumsum_h[y, x-1]
+        #                  = padded_cumsum_h[y, x+req] - padded_cumsum_h[y, x]
+        # This gives sum of markers from x to x+req-1
+        window_sums_h = padded_cumsum_h[:, :, required_length:] - padded_cumsum_h[:, :, :-required_length]
+        # window_sums_h shape: (batch, board_size, board_size - req + 1)
+        # A window is a complete line if sum == required_length
+        complete_windows_h = (window_sums_h == required_length)
+        # Mark all positions in complete windows
+        for offset in range(required_length):
+            # Position x is in a complete window if any window starting at x-offset is complete
+            # Window starting at x covers positions x to x+req-1
+            # So position p is covered by windows starting at max(0, p-req+1) to p
+            if offset < complete_windows_h.shape[2]:
+                start = offset
+                end = board_size - required_length + offset + 1
+                in_line_mask[:, :, start:end] = in_line_mask[:, :, start:end] | complete_windows_h
+
+        # Vertical: sum along y-axis
+        cumsum_v = markers_float.cumsum(dim=1)
+        padded_cumsum_v = torch.cat([
+            torch.zeros(batch_size, 1, board_size, device=device),
+            cumsum_v
+        ], dim=1)
+        window_sums_v = padded_cumsum_v[:, required_length:, :] - padded_cumsum_v[:, :-required_length, :]
+        complete_windows_v = (window_sums_v == required_length)
+        for offset in range(required_length):
+            if offset < complete_windows_v.shape[1]:
+                start = offset
+                end = board_size - required_length + offset + 1
+                in_line_mask[:, start:end, :] = in_line_mask[:, start:end, :] | complete_windows_v
+
+        # Diagonal (dy=1, dx=1): Need to handle diagonals
+        # Create shifted versions and compare
+        # A diagonal line at (y,x) requires markers at (y+i, x+i) for i in 0..req-1
+        diag_mask = torch.ones(batch_size, board_size, board_size, dtype=torch.bool, device=device)
+        for i in range(required_length):
+            # Shifted marker mask: markers_float shifted by (i, i)
+            if i == 0:
+                shifted = player_markers
+            else:
+                shifted = torch.zeros_like(player_markers)
+                shifted[:, :-i, :-i] = player_markers[:, i:, i:]
+            diag_mask = diag_mask & shifted
+
+        # diag_mask[y,x] = True if there's a diagonal line starting at (y,x)
+        # Valid starting positions: y <= board_size - req, x <= board_size - req
+        diag_mask[:, board_size - required_length + 1:, :] = False
+        diag_mask[:, :, board_size - required_length + 1:] = False
+
+        # Mark all positions covered by diagonal lines
+        valid_region = board_size - required_length + 1
+        for i in range(required_length):
+            y_start, y_end = i, valid_region + i
+            x_start, x_end = i, valid_region + i
+            in_line_mask[:, y_start:y_end, x_start:x_end] = \
+                in_line_mask[:, y_start:y_end, x_start:x_end] | diag_mask[:, :valid_region, :valid_region]
+
+        # Anti-diagonal (dy=1, dx=-1): markers at (y+i, x-i) for i in 0..req-1
+        anti_diag_mask = torch.ones(batch_size, board_size, board_size, dtype=torch.bool, device=device)
+        for i in range(required_length):
+            if i == 0:
+                shifted = player_markers
+            else:
+                shifted = torch.zeros_like(player_markers)
+                # Shift: target[y, x] = source[y+i, x-i]
+                # So we need: shifted[:, :-i, i:] = markers[:, i:, :-i]
+                shifted[:, :-i, i:] = player_markers[:, i:, :-i]
+            anti_diag_mask = anti_diag_mask & shifted
+
+        # Valid starting positions: y <= board_size - req, x >= req - 1
+        anti_diag_mask[:, board_size - required_length + 1:, :] = False
+        anti_diag_mask[:, :, :required_length - 1] = False
+
+        # Mark all positions covered by anti-diagonal lines
+        valid_y = board_size - required_length + 1
+        valid_x_start = required_length - 1
+        for i in range(required_length):
+            # Anti-diag line starting at (y,x) covers (y+i, x-i)
+            y_start, y_end = i, valid_y + i
+            x_start, x_end = valid_x_start - i, board_size - i
+            in_line_mask[:, y_start:y_end, x_start:x_end] = \
+                in_line_mask[:, y_start:y_end, x_start:x_end] | anti_diag_mask[:, :valid_y, valid_x_start:]
+
+    # Count line positions per game
+    line_position_counts = in_line_mask.view(batch_size, -1).sum(dim=1)
+
+    return in_line_mask, line_position_counts
+
+
+def has_lines_batch_vectorized(
+    state: BatchGameState,
+    player: int,
+    game_mask: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """Fast vectorized check for whether a player has any lines.
+
+    This is the fastest path for MCTS victory checking - just returns
+    a boolean tensor indicating which games have lines for this player.
+
+    Args:
+        state: Current batch game state
+        player: Player number to check
+        game_mask: Mask of games to check (optional)
+
+    Returns:
+        (batch_size,) bool tensor - True if player has at least one line
+    """
+    _, line_counts = detect_lines_vectorized(state, player, game_mask)
+    return line_counts > 0
 
 
 def detect_lines_with_metadata(

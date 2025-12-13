@@ -13,6 +13,9 @@ import {
   WebSocketPayloadSchemas,
   PlayerMovePayload,
   ChatMessagePayload,
+  RematchRequestPayload,
+  RematchResponsePayload,
+  MatchmakingJoinPayload,
 } from '../../shared/validation/websocketSchemas';
 import {
   WebSocketErrorCode,
@@ -32,11 +35,6 @@ import {
 } from '../../shared/stateMachines/connection';
 import { getChatPersistenceService } from '../services/ChatPersistenceService';
 import { getRematchService } from '../services/RematchService';
-import type {
-  RematchRequestClientPayload,
-  RematchResponseClientPayload,
-  MatchmakingJoinPayload,
-} from '../../shared/types/websocket';
 import { MatchmakingService } from '../services/MatchmakingService';
 
 /**
@@ -364,19 +362,19 @@ export class WebSocketServer {
 
       // Matchmaking handlers
       socket.on('matchmaking:join', async (data: unknown) => {
-        if (!socket.userId) {
-          const errorPayload: WebSocketErrorPayload = {
-            type: 'error',
-            code: 'ACCESS_DENIED',
-            event: 'matchmaking:join',
-            message: 'Authentication required to join matchmaking',
-          };
-          socket.emit('error', errorPayload);
-          return;
-        }
-
         try {
-          const payload = data as MatchmakingJoinPayload;
+          const payload = WebSocketPayloadSchemas['matchmaking:join'].parse(data);
+
+          if (!socket.userId) {
+            this.emitError(
+              socket,
+              'ACCESS_DENIED',
+              'Authentication required to join matchmaking',
+              'matchmaking:join'
+            );
+            return;
+          }
+
           // Get user rating from database
           const prisma = getDatabaseClient();
           const user = prisma
@@ -395,17 +393,21 @@ export class WebSocketServer {
             preferences: payload.preferences,
           });
         } catch (error) {
+          if (error instanceof ZodError) {
+            this.handleWebSocketValidationError(socket, 'matchmaking:join', error);
+            return;
+          }
+
           logger.error('Failed to join matchmaking queue', {
             userId: socket.userId,
             error: error instanceof Error ? error.message : String(error),
           });
-          const errorPayload: WebSocketErrorPayload = {
-            type: 'error',
-            code: 'INTERNAL_ERROR',
-            event: 'matchmaking:join',
-            message: 'Failed to join matchmaking queue',
-          };
-          socket.emit('error', errorPayload);
+          this.emitError(
+            socket,
+            'INTERNAL_ERROR',
+            'Failed to join matchmaking queue',
+            'matchmaking:join'
+          );
         }
       });
 
@@ -710,11 +712,7 @@ export class WebSocketServer {
       // Handle rematch requests
       socket.on('rematch_request', async (data: unknown) => {
         try {
-          const payload = data as RematchRequestClientPayload;
-          if (!payload.gameId) {
-            this.emitError(socket, 'INVALID_PAYLOAD', 'Missing gameId', 'rematch_request');
-            return;
-          }
+          const payload = WebSocketPayloadSchemas.rematch_request.parse(data);
 
           if (!socket.userId) {
             this.emitError(socket, 'ACCESS_DENIED', 'User not authenticated', 'rematch_request');
@@ -749,6 +747,11 @@ export class WebSocketServer {
             requesterId: socket.userId,
           });
         } catch (error) {
+          if (error instanceof ZodError) {
+            this.handleWebSocketValidationError(socket, 'rematch_request', error);
+            return;
+          }
+
           logger.error('Error handling rematch_request', {
             socketId: socket.id,
             userId: socket.userId,
@@ -766,11 +769,7 @@ export class WebSocketServer {
       // Handle rematch responses (accept/decline)
       socket.on('rematch_respond', async (data: unknown) => {
         try {
-          const payload = data as RematchResponseClientPayload;
-          if (!payload.requestId) {
-            this.emitError(socket, 'INVALID_PAYLOAD', 'Missing requestId', 'rematch_respond');
-            return;
-          }
+          const payload = WebSocketPayloadSchemas.rematch_respond.parse(data);
 
           if (!socket.userId) {
             this.emitError(socket, 'ACCESS_DENIED', 'User not authenticated', 'rematch_respond');
@@ -883,6 +882,11 @@ export class WebSocketServer {
             });
           }
         } catch (error) {
+          if (error instanceof ZodError) {
+            this.handleWebSocketValidationError(socket, 'rematch_respond', error);
+            return;
+          }
+
           logger.error('Error handling rematch_respond', {
             socketId: socket.id,
             userId: socket.userId,
