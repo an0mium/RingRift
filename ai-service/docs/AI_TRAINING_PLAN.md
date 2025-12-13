@@ -386,3 +386,218 @@ python scripts/run_self_play_soak.py \
 - Reduce `--batch-size`
 - Use `--use-streaming` for large datasets
 - Enable gradient checkpointing (if implemented)
+
+---
+
+## Selfplay Data Processing Pipeline
+
+The training pipeline uses JSONL selfplay data converted to NPZ format for neural network training.
+
+### Data Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 1. Selfplay Generation (GPU cluster)                                   │
+│    run_self_play_soak.py → data/selfplay/*.jsonl                       │
+├─────────────────────────────────────────────────────────────────────────┤
+│ 2. Data Conversion                                                      │
+│    jsonl_to_npz.py → data/training/*.npz                               │
+├─────────────────────────────────────────────────────────────────────────┤
+│ 3. Neural Network Training                                              │
+│    train.py → models/*.pth                                              │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Converting JSONL to NPZ
+
+The `jsonl_to_npz.py` script converts selfplay game records to training-ready NPZ format.
+It replays each game move-by-move, extracting 56-channel feature tensors at each position.
+
+**Basic conversion:**
+
+```bash
+PYTHONPATH=. python scripts/jsonl_to_npz.py \
+    --input-dir data/selfplay/ \
+    --output data/training/square8_2p.npz \
+    --board-type square8 \
+    --num-players 2
+```
+
+**With checkpointing (recommended for large datasets):**
+
+```bash
+PYTHONPATH=. python scripts/jsonl_to_npz.py \
+    --input-dir data/selfplay/ \
+    --output data/training/hex_2p.npz \
+    --board-type hexagonal \
+    --num-players 2 \
+    --checkpoint-dir /tmp/hex_checkpoint \
+    --checkpoint-interval 50
+```
+
+**Resume from checkpoint after interruption:**
+
+```bash
+PYTHONPATH=. python scripts/jsonl_to_npz.py \
+    --input-dir data/selfplay/ \
+    --output data/training/hex_2p.npz \
+    --board-type hexagonal \
+    --num-players 2 \
+    --checkpoint-dir /tmp/hex_checkpoint \
+    --resume
+```
+
+### NPZ Format Details
+
+Output NPZ files contain:
+
+| Array              | Shape         | Type    | Description                                     |
+| ------------------ | ------------- | ------- | ----------------------------------------------- |
+| `features`         | (N, 56, H, W) | float32 | 56-channel board features (14 base × 4 history) |
+| `globals`          | (N, 20)       | float32 | Global game state features                      |
+| `values`           | (N,)          | float32 | Game outcome from current player's perspective  |
+| `policy_indices`   | (N,)          | object  | Sparse action indices per sample                |
+| `policy_values`    | (N,)          | object  | Sparse action probabilities per sample          |
+| `move_numbers`     | (N,)          | int32   | Move index within game                          |
+| `total_game_moves` | (N,)          | int32   | Total moves in source game                      |
+| `phases`           | (N,)          | object  | Game phase at each position                     |
+| `values_mp`        | (N, 4)        | float32 | Multi-player value vectors                      |
+| `num_players`      | (N,)          | int32   | Player count per sample                         |
+
+### 56-Channel Feature Encoding
+
+The 14 base channels (× 4 history frames = 56 total):
+
+| Channels | Description                     |
+| -------- | ------------------------------- |
+| 0-3      | Ring ownership (players 1-4)    |
+| 4-7      | Marker ownership (players 1-4)  |
+| 8        | Empty cells                     |
+| 9        | Ring heights (normalized)       |
+| 10       | Valid ring positions            |
+| 11       | Current player's turn indicator |
+| 12       | Territory control               |
+| 13       | Threat positions                |
+
+### Checkpointing Details
+
+Long-running NPZ conversions (3+ hours for large datasets) can be interrupted by SSH timeouts,
+system restarts, or other failures. The checkpointing system prevents data loss:
+
+- **Chunk saves**: Every N games, data is saved to a numbered chunk file (`chunk_0000.npz`, etc.)
+- **Progress tracking**: A `progress.json` file tracks completed games and chunk metadata
+- **Resume support**: With `--resume`, the script skips already-processed games
+- **Automatic merge**: On completion, all chunks are merged into the final NPZ file
+- **Cleanup**: Checkpoint directory is removed after successful completion
+
+**Memory usage**: Without checkpointing, the script accumulates 6-8GB in RAM for large datasets.
+With checkpointing, memory is cleared after each chunk save.
+
+---
+
+## GPU Cluster Operations
+
+### Available Instances
+
+| Alias                     | Hardware | Primary Use                     |
+| ------------------------- | -------- | ------------------------------- |
+| `lambda-gpu`              | H100     | Training, large model inference |
+| `ringrift-staging`        | CPU      | Staging, API testing            |
+| `ringrift-selfplay-extra` | CPU      | Additional selfplay capacity    |
+
+### Syncing Code to Instances
+
+```bash
+# Lambda H100
+ssh lambda-gpu "cd /home/ubuntu/ringrift && git pull"
+
+# Staging
+ssh ringrift-staging "cd ~/RingRift && git pull"
+```
+
+### Running Long Jobs
+
+Use `nohup` and background processes for long-running tasks:
+
+```bash
+# NPZ export with checkpointing
+ssh lambda-gpu "cd /home/ubuntu/ringrift/ai-service && \
+    source venv/bin/activate && \
+    nohup python -u scripts/jsonl_to_npz.py \
+        --input-dir data/selfplay/ \
+        --output data/training/hex_2p.npz \
+        --board-type hexagonal \
+        --num-players 2 \
+        --checkpoint-dir /tmp/hex_checkpoint \
+        --checkpoint-interval 50 \
+        > /tmp/npz_export.log 2>&1 &"
+
+# Monitor progress
+ssh lambda-gpu "tail -f /tmp/npz_export.log"
+```
+
+### Training on GPU
+
+```bash
+ssh lambda-gpu "cd /home/ubuntu/ringrift/ai-service && \
+    source venv/bin/activate && \
+    nohup python -u -m app.training.train \
+        --data-path data/training/square8_2p.npz \
+        --save-path models/ringrift_v5_sq8_2p.pth \
+        --checkpoint-dir checkpoints/v5_sq8_2p \
+        --epochs 100 \
+        --batch-size 256 \
+        --learning-rate 0.001 \
+        --early-stopping-patience 15 \
+        --lr-scheduler cosine \
+        > /tmp/train.log 2>&1 &"
+```
+
+### Monitoring Running Processes
+
+```bash
+# Check for running training/export processes
+ssh lambda-gpu "ps aux | grep -E 'train|jsonl_to_npz' | grep python"
+
+# Check GPU utilization
+ssh lambda-gpu "nvidia-smi"
+
+# Check memory usage
+ssh lambda-gpu "free -h"
+```
+
+---
+
+## Quick Reference
+
+### Common Commands
+
+```bash
+# Check selfplay data counts
+find data/selfplay -name "*.jsonl" -exec wc -l {} + | tail -1
+
+# Inspect NPZ file
+python -c "import numpy as np; d=np.load('data.npz', allow_pickle=True); print({k: d[k].shape for k in d.files})"
+
+# Count training samples
+python -c "import numpy as np; d=np.load('data.npz'); print(f'{len(d[\"values\"])} samples')"
+```
+
+### Board Type Reference
+
+| Board Type  | Size  | Policy Size | Primary Use               |
+| ----------- | ----- | ----------- | ------------------------- |
+| `square8`   | 8×8   | 4100        | Fast iteration, testing   |
+| `square19`  | 19×19 | ~25k        | Standard competitive play |
+| `hexagonal` | 25×25 | ~25k        | Hex board variant         |
+
+### Model Naming Convention
+
+```
+ringrift_v{version}_{board}_{players}p.pth
+
+Examples:
+- ringrift_v5_sq8_2p.pth    (Square8, 2-player, version 5)
+- ringrift_v2_hex_2p.pth    (Hexagonal, 2-player, version 2)
+- ringrift_v1_sq19_4p.pth   (Square19, 4-player, version 1)
+```
