@@ -213,6 +213,7 @@ clients.
 | `SERVER_DATABASE_UNAVAILABLE` | 503         | Database not available          |
 | `SERVER_SERVICE_UNAVAILABLE`  | 503         | Service temporarily unavailable |
 | `SERVER_EMAIL_SEND_FAILED`    | 500         | Failed to send email            |
+| `SERVER_GATEWAY_TIMEOUT`      | 504         | Request timed out               |
 
 #### AI Service Errors (`AI_*`)
 

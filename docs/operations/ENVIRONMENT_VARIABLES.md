@@ -654,6 +654,16 @@ The `useOrchestratorAdapter` property on [`GameEngine`](../src/server/game/GameE
 
 Enable AI analysis mode for position evaluation streaming. When enabled, allows clients to request continuous position analysis from the AI service.
 
+### `ENABLE_SANDBOX_AI_ENDPOINTS`
+
+| Property | Value     |
+| -------- | --------- |
+| Type     | `boolean` |
+| Default  | `false`   |
+| Required | No        |
+
+Enable sandbox AI helper endpoints (for example `/api/games/sandbox/ai/move`). These are development/test tools by default but may be enabled in staging-like environments for QA and sandbox validation.
+
 ### `ENABLE_HTTP_MOVE_HARNESS`
 
 | Property | Value     |
@@ -680,6 +690,16 @@ defaults, see:
 - [`PLAYER_MOVE_TRANSPORT_DECISION.md`](../architecture/PLAYER_MOVE_TRANSPORT_DECISION.md)
 - The "Internal / Test harness APIs" section of
   [`API_REFERENCE.md`](../architecture/API_REFERENCE.md)
+
+### `HTTP_MOVE_HARNESS_TIMEOUT_MS`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `30000`  |
+| Required | No       |
+
+Timeout (milliseconds) for HTTP move harness requests (`POST /api/games/:gameId/moves`). If a request exceeds this threshold, the endpoint returns `504 Gateway Timeout` with `SERVER_GATEWAY_TIMEOUT`. This prevents unbounded hangs when the game lock or rules engine deadlocks.
 
 ### FSM Validation Mode
 
