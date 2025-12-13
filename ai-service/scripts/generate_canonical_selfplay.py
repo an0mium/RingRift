@@ -241,6 +241,8 @@ def run_selfplay_and_parity(
     parity_limit_games_per_db: int = 0,
     parity_timeout_seconds: int | None = None,
     include_training_data_jsonl: bool = False,
+    distributed_job_timeout_seconds: int = 0,
+    distributed_fetch_timeout_seconds: int = 0,
 ) -> Dict[str, Any]:
     """
     Delegate to run_canonical_selfplay_parity_gate.py to:
@@ -338,6 +340,16 @@ def run_selfplay_and_parity(
             cmd.append("--include-training-data-jsonl")
         if hosts:
             cmd += ["--hosts", hosts]
+            if distributed_job_timeout_seconds and distributed_job_timeout_seconds > 0:
+                cmd += [
+                    "--distributed-job-timeout-seconds",
+                    str(int(distributed_job_timeout_seconds)),
+                ]
+            if distributed_fetch_timeout_seconds and distributed_fetch_timeout_seconds > 0:
+                cmd += [
+                    "--distributed-fetch-timeout-seconds",
+                    str(int(distributed_fetch_timeout_seconds)),
+                ]
 
         proc = _run_cmd(
             cmd,
@@ -835,6 +847,24 @@ def main(argv: List[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--distributed-job-timeout-seconds",
+        type=int,
+        default=0,
+        help=(
+            "Per-job timeout passed through to run_distributed_selfplay_soak.py when "
+            "--hosts is set. Use 0 to keep that script's default."
+        ),
+    )
+    parser.add_argument(
+        "--distributed-fetch-timeout-seconds",
+        type=int,
+        default=0,
+        help=(
+            "scp fetch timeout passed through to run_distributed_selfplay_soak.py when "
+            "--hosts is set. Use 0 to keep that script's default."
+        ),
+    )
+    parser.add_argument(
         "--reset-db",
         action="store_true",
         help=(
@@ -857,6 +887,8 @@ def main(argv: List[str] | None = None) -> int:
         if int(args.parity_timeout_seconds) > 0
         else None
     )
+    distributed_job_timeout_seconds: int = int(args.distributed_job_timeout_seconds or 0)
+    distributed_fetch_timeout_seconds: int = int(args.distributed_fetch_timeout_seconds or 0)
     run_analyses = bool(not args.skip_analyses)
 
     if args.db:
@@ -883,6 +915,8 @@ def main(argv: List[str] | None = None) -> int:
             parity_limit_games_per_db=parity_limit_games_per_db,
             parity_timeout_seconds=parity_timeout_seconds,
             include_training_data_jsonl=run_analyses and num_games > 0,
+            distributed_job_timeout_seconds=distributed_job_timeout_seconds,
+            distributed_fetch_timeout_seconds=distributed_fetch_timeout_seconds,
         )
     except Exception as e:  # pragma: no cover - debug hook
         payload = {

@@ -467,6 +467,14 @@
             <input id="canonHosts" type="text" placeholder="host1,host2 (no spaces)" />
           </div>
           <div class="field">
+            <label for="canonJobTimeout">Job timeout (seconds)</label>
+            <input id="canonJobTimeout" type="number" min="0" step="1" value="0" />
+          </div>
+          <div class="field">
+            <label for="canonFetchTimeout">Fetch timeout (seconds)</label>
+            <input id="canonFetchTimeout" type="number" min="0" step="1" value="0" />
+          </div>
+          <div class="field">
             <label for="canonDifficulty">Difficulty</label>
             <select id="canonDifficulty">
               <option value="light" selected>light</option>
@@ -1186,6 +1194,8 @@
           const hosts = $("canonHosts").value.trim();
           const difficulty_band = $("canonDifficulty").value;
           const reset_db = $("canonReset").value === "true";
+          const distributed_job_timeout_seconds = Number($("canonJobTimeout").value || 0);
+          const distributed_fetch_timeout_seconds = Number($("canonFetchTimeout").value || 0);
 
           const body = {
             board_type,
@@ -1194,6 +1204,8 @@
             difficulty_band,
             reset_db,
             hosts: hosts || null,
+            distributed_job_timeout_seconds,
+            distributed_fetch_timeout_seconds,
           };
 
           const resp = await apiPost("/api/canonical/generate", body);

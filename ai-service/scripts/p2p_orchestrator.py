@@ -220,6 +220,7 @@ class NodeInfo:
     scheme: str = "http"  # How to reach this node (http/https)
     role: NodeRole = NodeRole.FOLLOWER
     last_heartbeat: float = 0.0
+    cpu_count: int = 0
     cpu_percent: float = 0.0
     memory_percent: float = 0.0
     disk_percent: float = 0.0
@@ -344,6 +345,7 @@ class NodeInfo:
         d['role'] = NodeRole(d.get('role', 'follower'))
         # Handle missing new fields gracefully
         d.setdefault('scheme', 'http')
+        d.setdefault('cpu_count', 0)
         d.setdefault('consecutive_failures', 0)
         d.setdefault('last_failure_time', 0.0)
         d.setdefault('disk_cleanup_needed', False)
@@ -1270,6 +1272,8 @@ class P2POrchestrator:
         # Detect GPU
         has_gpu, gpu_name = self._detect_gpu()
 
+        cpu_count = int(os.cpu_count() or 0)
+
         # Detect memory
         memory_gb = self._detect_memory()
 
@@ -1286,6 +1290,7 @@ class P2POrchestrator:
             port=self.advertise_port,
             role=self.role,
             last_heartbeat=time.time(),
+            cpu_count=cpu_count,
             has_gpu=has_gpu,
             gpu_name=gpu_name,
             memory_gb=memory_gb,
@@ -7114,6 +7119,8 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             difficulty_band = str(data.get("difficulty_band") or "light")
             reset_db = bool(data.get("reset_db") or False)
             hosts = (str(data.get("hosts") or "").strip()) or None
+            distributed_job_timeout_seconds = int(data.get("distributed_job_timeout_seconds") or 0)
+            distributed_fetch_timeout_seconds = int(data.get("distributed_fetch_timeout_seconds") or 0)
 
             if board_type not in ("square8", "square19", "hexagonal"):
                 return web.json_response({"success": False, "error": f"Unsupported board_type: {board_type}"}, status=400)
@@ -7125,6 +7132,16 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 return web.json_response({"success": False, "error": f"Unsupported difficulty_band: {difficulty_band}"}, status=400)
             if hosts and any(c.isspace() for c in hosts):
                 return web.json_response({"success": False, "error": "hosts must be comma-separated with no spaces"}, status=400)
+            if distributed_job_timeout_seconds < 0 or distributed_job_timeout_seconds > 604_800:
+                return web.json_response(
+                    {"success": False, "error": f"distributed_job_timeout_seconds out of range: {distributed_job_timeout_seconds}"},
+                    status=400,
+                )
+            if distributed_fetch_timeout_seconds < 0 or distributed_fetch_timeout_seconds > 86_400:
+                return web.json_response(
+                    {"success": False, "error": f"distributed_fetch_timeout_seconds out of range: {distributed_fetch_timeout_seconds}"},
+                    status=400,
+                )
 
             db_path, summary_path = self._canonical_gate_paths(board_type, num_players)
 
@@ -7146,6 +7163,20 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             ]
             if hosts:
                 cmd.extend(["--hosts", hosts])
+                if distributed_job_timeout_seconds > 0:
+                    cmd.extend(
+                        [
+                            "--distributed-job-timeout-seconds",
+                            str(distributed_job_timeout_seconds),
+                        ]
+                    )
+                if distributed_fetch_timeout_seconds > 0:
+                    cmd.extend(
+                        [
+                            "--distributed-fetch-timeout-seconds",
+                            str(distributed_fetch_timeout_seconds),
+                        ]
+                    )
             if reset_db:
                 cmd.append("--reset-db")
 
@@ -7172,6 +7203,8 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 "difficulty_band": difficulty_band,
                 "hosts": hosts,
                 "reset_db": reset_db,
+                "distributed_job_timeout_seconds": distributed_job_timeout_seconds,
+                "distributed_fetch_timeout_seconds": distributed_fetch_timeout_seconds,
                 "db_path": str(db_path),
                 "summary_path": str(summary_path),
                 "log_path": str(log_path),
@@ -8350,11 +8383,27 @@ print(json.dumps({{
                 continue
 
             # LEARNED LESSONS - Reduce target when approaching limits
-            target_selfplay = 2  # Base minimum
-            if node.memory_gb >= 64:
-                target_selfplay = 4
-            if node.has_gpu and "5090" in node.gpu_name.lower():
-                target_selfplay = 8  # More for powerful GPUs
+            # Base targets:
+            # - GPU nodes: fixed concurrency tuned for GPU throughput.
+            # - CPU-only nodes: scale with CPU cores (and cap by memory).
+            target_selfplay = 2
+            if node.has_gpu:
+                if node.memory_gb >= 64:
+                    target_selfplay = 4
+                if "5090" in (node.gpu_name or "").lower():
+                    target_selfplay = 8  # More for powerful GPUs
+            else:
+                cpu_count = int(getattr(node, "cpu_count", 0) or 0)
+                if cpu_count > 0:
+                    cpu_target = max(2, min(16, cpu_count // 4))
+                    target_selfplay = max(target_selfplay, cpu_target)
+                elif node.memory_gb >= 64:
+                    target_selfplay = 4
+
+                # Conservative memory cap: avoid overcommitting on low-memory CPU nodes.
+                if node.memory_gb > 0:
+                    mem_target = max(2, min(16, int(node.memory_gb) // 8))
+                    target_selfplay = min(target_selfplay, mem_target)
 
             # LEARNED LESSONS - Reduce target if resources are under pressure
             if node.disk_percent >= DISK_WARNING_THRESHOLD:
@@ -8393,8 +8442,15 @@ print(json.dumps({{
 
                 # LEARNED LESSONS - Weighted selection favoring high priority configs
                 # Expand configs by priority for weighted random selection
+                node_mem = int(getattr(node, "memory_gb", 0) or 0)
+                filtered_configs = selfplay_configs
+                if node_mem and node_mem < 48:
+                    # Smaller CPU nodes should avoid square19/hexagonal to reduce
+                    # OOM risk and thrash. Keep them productive with square8.
+                    filtered_configs = [cfg for cfg in selfplay_configs if cfg.get("board_type") == "square8"]
+
                 weighted_configs = []
-                for cfg in selfplay_configs:
+                for cfg in filtered_configs:
                     weighted_configs.extend([cfg] * cfg.get("priority", 1))
 
                 # Start jobs (max 2 at a time to avoid overwhelming)

@@ -55,6 +55,7 @@ import subprocess
 import sys
 import time
 import json
+import shlex
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -144,6 +145,61 @@ def load_remote_hosts(config_path: Optional[str] = None) -> Dict[str, Dict]:
         print(f"and fill in your host details.")
 
     return {}
+
+
+def _remote_ai_service_dir(host_config: Dict) -> str:
+    """Return the remote ai-service directory for a host config.
+
+    Host configs sometimes specify the repo root (RingRift/) and sometimes the
+    ai-service directory directly (RingRift/ai-service). Normalize both.
+    """
+    ringrift_path = host_config.get("ringrift_path") or host_config.get("work_dir", "~/Development/RingRift")
+    path = str(ringrift_path).rstrip("/")
+    if path.endswith("ai-service"):
+        return path
+    return f"{path}/ai-service"
+
+
+def _quote_remote_path(path: str) -> str:
+    """Quote a remote filesystem path for use in a bash command.
+
+    Preserves ~$HOME expansion (ssh runs the command through a shell).
+    """
+    raw = str(path).strip()
+    if raw == "~":
+        return "$HOME"
+    if raw.startswith("~/"):
+        rest = raw[2:]
+        # Quote only the suffix; allow $HOME to expand.
+        return "$HOME/" + shlex.quote(rest)
+    if "$" in raw:
+        # Prefer double-quotes so $VAR expansion still works.
+        escaped = raw.replace('"', '\\"')
+        return '"' + escaped + '"'
+    return shlex.quote(raw)
+
+
+def _format_remote_venv_activate(venv_activate: str) -> str:
+    """Best-effort venv activation that doesn't hard-fail when missing.
+
+    Vast nodes often do not have a venv at the configured path; treat activation
+    as optional so we can still run via system/conda python.
+    """
+    raw = (venv_activate or "").strip()
+    if not raw:
+        return ""
+
+    try:
+        parts = shlex.split(raw)
+    except Exception:
+        return f"({raw}) || true"
+
+    if parts and parts[0] in ("source", ".") and len(parts) >= 2:
+        activate_path = parts[1]
+        quoted = _quote_remote_path(activate_path)
+        return f"if [ -f {quoted} ]; then {parts[0]} {quoted}; fi"
+
+    return f"({raw}) || true"
 
 
 # Remote hosts loaded at module init (can be overridden by load_remote_hosts)
@@ -494,6 +550,7 @@ def generate_job_configs(
 
 def build_soak_command(job: JobConfig, is_remote: bool = False) -> str:
     """Build the self-play soak command for a job."""
+    python_exe = "python3" if is_remote else shlex.quote(sys.executable)
     cmd_parts = [
         "PYTHONPATH=.",
         "RINGRIFT_SKIP_SHADOW_CONTRACTS=true",
@@ -518,7 +575,7 @@ def build_soak_command(job: JobConfig, is_remote: bool = False) -> str:
         enabled = raw_norm in ("1", "true", "yes", "on")
         cmd_parts.append(f"RINGRIFT_RECOVERY_STACK_STRIKE_V1={'1' if enabled else '0'}")
     cmd_parts.extend([
-        "python",
+        python_exe,
         "scripts/run_self_play_soak.py",
         f"--num-games {job.num_games}",
         f"--board-type {job.board_type}",
@@ -542,21 +599,23 @@ def build_soak_command(job: JobConfig, is_remote: bool = False) -> str:
     return " ".join(cmd_parts)
 
 
-def run_local_job(job: JobConfig, ringrift_ai_dir: str) -> Tuple[str, bool, str]:
+def run_local_job(job: JobConfig, ringrift_ai_dir: str, *, timeout_seconds: int) -> Tuple[str, bool, str]:
     """Run a self-play job on the local machine."""
     cmd = build_soak_command(job)
 
     print(f"[LOCAL] Starting job {job.job_id}: {job.num_games} games of " f"{job.board_type} {job.num_players}p")
 
     try:
-        result = subprocess.run(
-            cmd,
-            shell=True,
-            cwd=ringrift_ai_dir,
-            capture_output=True,
-            text=True,
-            timeout=7200,  # 2 hour timeout
-        )
+        run_kwargs = {
+            "args": cmd,
+            "shell": True,
+            "cwd": ringrift_ai_dir,
+            "capture_output": True,
+            "text": True,
+        }
+        if timeout_seconds and timeout_seconds > 0:
+            run_kwargs["timeout"] = int(timeout_seconds)
+        result = subprocess.run(**run_kwargs)
         success = result.returncode == 0
         output = result.stdout + result.stderr
 
@@ -569,19 +628,19 @@ def run_local_job(job: JobConfig, ringrift_ai_dir: str) -> Tuple[str, bool, str]
 
     except subprocess.TimeoutExpired:
         print(f"[LOCAL] Job {job.job_id} timed out")
-        return job.job_id, False, "Job timed out after 2 hours"
+        return job.job_id, False, f"Job timed out after {timeout_seconds} seconds"
     except Exception as e:
         print(f"[LOCAL] Job {job.job_id} error: {e}")
         return job.job_id, False, str(e)
 
 
-def run_remote_job(job: JobConfig, host_config: Dict) -> Tuple[str, bool, str]:
+def run_remote_job(job: JobConfig, host_config: Dict, *, timeout_seconds: int) -> Tuple[str, bool, str]:
     """Run a self-play job on a remote machine via SSH."""
     ssh_host = host_config["ssh_host"]
     ssh_user = host_config.get("ssh_user")
     ssh_port = host_config.get("ssh_port")
-    ringrift_path = host_config.get("ringrift_path") or host_config.get("work_dir", "~/Development/RingRift")
-    venv_activate = host_config.get("venv_activate", "source venv/bin/activate")
+    ai_service_dir = _remote_ai_service_dir(host_config)
+    venv_activate = host_config.get("venv_activate", "")
     ssh_key = host_config.get("ssh_key")
 
     # Build SSH target (user@host or just host)
@@ -589,7 +648,16 @@ def run_remote_job(job: JobConfig, host_config: Dict) -> Tuple[str, bool, str]:
 
     # Build remote command
     soak_cmd = build_soak_command(job, is_remote=True)
-    remote_cmd = f"cd {ringrift_path}/ai-service && {venv_activate} && {soak_cmd}"
+    activate_cmd = _format_remote_venv_activate(venv_activate)
+    remote_parts = [
+        "set -euo pipefail",
+        f"cd {_quote_remote_path(ai_service_dir)}",
+    ]
+    if activate_cmd:
+        remote_parts.append(activate_cmd)
+    remote_parts.append(soak_cmd)
+    remote_script = "; ".join(remote_parts)
+    remote_cmd = f"bash -lc {shlex.quote(remote_script)}"
 
     ssh_cmd = [
         "ssh",
@@ -597,6 +665,8 @@ def run_remote_job(job: JobConfig, host_config: Dict) -> Tuple[str, bool, str]:
         "ConnectTimeout=10",
         "-o",
         "ServerAliveInterval=60",
+        "-o",
+        "BatchMode=yes",
     ]
     if ssh_port:
         ssh_cmd.extend(["-p", str(ssh_port)])
@@ -610,12 +680,10 @@ def run_remote_job(job: JobConfig, host_config: Dict) -> Tuple[str, bool, str]:
     )
 
     try:
-        result = subprocess.run(
-            ssh_cmd,
-            capture_output=True,
-            text=True,
-            timeout=7200,  # 2 hour timeout
-        )
+        run_args = dict(capture_output=True, text=True)
+        if timeout_seconds and timeout_seconds > 0:
+            run_args["timeout"] = int(timeout_seconds)
+        result = subprocess.run(ssh_cmd, **run_args)
         success = result.returncode == 0
         output = result.stdout + result.stderr
 
@@ -628,18 +696,18 @@ def run_remote_job(job: JobConfig, host_config: Dict) -> Tuple[str, bool, str]:
 
     except subprocess.TimeoutExpired:
         print(f"[{ssh_host.upper()}] Job {job.job_id} timed out")
-        return job.job_id, False, "Job timed out after 2 hours"
+        return job.job_id, False, f"Job timed out after {timeout_seconds} seconds"
     except Exception as e:
         print(f"[{ssh_host.upper()}] Job {job.job_id} error: {e}")
         return job.job_id, False, str(e)
 
 
-def run_job(job: JobConfig, ringrift_ai_dir: str) -> Tuple[str, bool, str]:
+def run_job(job: JobConfig, ringrift_ai_dir: str, *, timeout_seconds: int) -> Tuple[str, bool, str]:
     """Dispatch job to appropriate host."""
     if job.host == "local":
-        return run_local_job(job, ringrift_ai_dir)
+        return run_local_job(job, ringrift_ai_dir, timeout_seconds=timeout_seconds)
     elif job.host in REMOTE_HOSTS:
-        return run_remote_job(job, REMOTE_HOSTS[job.host])
+        return run_remote_job(job, REMOTE_HOSTS[job.host], timeout_seconds=timeout_seconds)
     else:
         return job.job_id, False, f"Unknown host: {job.host}"
 
@@ -649,6 +717,7 @@ def fetch_remote_results(
     output_dir: str,
     *,
     fetch_jsonl: bool,
+    fetch_timeout_seconds: int,
 ) -> List[str]:
     """Fetch database files from remote hosts.
 
@@ -664,12 +733,12 @@ def fetch_remote_results(
             ssh_user = host_config.get("ssh_user")
             ssh_port = host_config.get("ssh_port")
             ssh_key = host_config.get("ssh_key")
-            ringrift_path = host_config.get("ringrift_path") or host_config.get("work_dir", "~/Development/RingRift")
+            ai_service_dir = _remote_ai_service_dir(host_config)
 
             # Build SSH target (user@host or just host)
             ssh_target = f"{ssh_user}@{ssh_host}" if ssh_user else ssh_host
 
-            remote_db = f"{ringrift_path}/ai-service/{job.output_db}"
+            remote_db = f"{ai_service_dir}/{job.output_db}"
             local_db = os.path.join(output_dir, os.path.basename(job.output_db))
 
             print(f"Fetching {remote_db} from {ssh_target}...")
@@ -686,7 +755,7 @@ def fetch_remote_results(
                     scp_cmd,
                     check=True,
                     capture_output=True,
-                    timeout=300,
+                    timeout=int(fetch_timeout_seconds) if fetch_timeout_seconds and fetch_timeout_seconds > 0 else None,
                 )
                 print(f"  -> Saved to {local_db}")
                 fetched_dbs.append(local_db)
@@ -696,7 +765,7 @@ def fetch_remote_results(
                 print(f"  -> Fetch timed out")
 
             if fetch_jsonl:
-                remote_jsonl = f"{ringrift_path}/ai-service/{job.log_jsonl}"
+                remote_jsonl = f"{ai_service_dir}/{job.log_jsonl}"
                 local_jsonl = os.path.join(output_dir, os.path.basename(job.log_jsonl))
                 print(f"Fetching {remote_jsonl} from {ssh_target}...")
 
@@ -712,7 +781,7 @@ def fetch_remote_results(
                         scp_cmd,
                         check=True,
                         capture_output=True,
-                        timeout=300,
+                        timeout=int(fetch_timeout_seconds) if fetch_timeout_seconds and fetch_timeout_seconds > 0 else None,
                     )
                     print(f"  -> Saved to {local_jsonl}")
                 except subprocess.CalledProcessError as e:
@@ -747,7 +816,7 @@ def run_parity_checks(db_paths: List[str], ringrift_ai_dir: str) -> Tuple[int, i
         try:
             result = subprocess.run(
                 [
-                    "python",
+                    sys.executable,
                     "scripts/check_ts_python_replay_parity.py",
                     "--db",
                     db_path,
@@ -845,6 +914,21 @@ def main():
         type=int,
         default=2,
         help="Maximum parallel jobs per host (default: 2 to avoid memory exhaustion)",
+    )
+    parser.add_argument(
+        "--job-timeout-seconds",
+        type=int,
+        default=7200,
+        help=(
+            "Per-job wall-clock timeout in seconds (default: 7200). "
+            "Use 0 to disable the timeout entirely."
+        ),
+    )
+    parser.add_argument(
+        "--fetch-timeout-seconds",
+        type=int,
+        default=900,
+        help="Timeout for scp fetches in seconds (default: 900). Use 0 to disable.",
     )
     parser.add_argument(
         "--dry-run",
@@ -972,6 +1056,8 @@ def main():
 
     start_time = time.time()
     results = []
+    failures_dir = os.path.join(output_dir, "failures")
+    os.makedirs(failures_dir, exist_ok=True)
 
     # Group jobs by host for parallel execution
     jobs_by_host: Dict[str, List[JobConfig]] = {}
@@ -984,12 +1070,23 @@ def main():
     with ThreadPoolExecutor(max_workers=len(hosts) * args.max_parallel_per_host) as executor:
         futures = {}
         for job in jobs:
-            future = executor.submit(run_job, job, ringrift_ai_dir)
+            future = executor.submit(run_job, job, ringrift_ai_dir, timeout_seconds=args.job_timeout_seconds)
             futures[future] = job
 
         for future in as_completed(futures):
             job_id, success, output = future.result()
             results.append((job_id, success, output))
+            if not success:
+                job = futures.get(future)
+                safe_name = re.sub(r"[^a-zA-Z0-9_.-]+", "_", job_id)
+                path = os.path.join(failures_dir, f"{safe_name}.log")
+                try:
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(output)
+                    host_label = getattr(job, "host", "?") if job else "?"
+                    print(f"[FAILURE] wrote log: {path} (host={host_label})")
+                except Exception as exc:
+                    print(f"[FAILURE] could not write failure log for {job_id}: {exc}")
 
     elapsed = time.time() - start_time
 
@@ -1019,6 +1116,7 @@ def main():
             jobs,
             output_dir,
             fetch_jsonl=bool(args.fetch_jsonl),
+            fetch_timeout_seconds=args.fetch_timeout_seconds,
         )
         print(f"Fetched {len(fetched_dbs)} database(s) to {output_dir}")
 

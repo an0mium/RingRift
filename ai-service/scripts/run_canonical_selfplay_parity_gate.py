@@ -438,6 +438,24 @@ def main() -> None:
         help="Optional wall-clock timeout for the self-play soak (0 disables).",
     )
     parser.add_argument(
+        "--distributed-job-timeout-seconds",
+        type=int,
+        default=0,
+        help=(
+            "Per-job wall-clock timeout passed to run_distributed_selfplay_soak.py "
+            "when --hosts is set (0 uses that script's default)."
+        ),
+    )
+    parser.add_argument(
+        "--distributed-fetch-timeout-seconds",
+        type=int,
+        default=0,
+        help=(
+            "scp fetch timeout passed to run_distributed_selfplay_soak.py when --hosts "
+            "is set (0 uses that script's default)."
+        ),
+    )
+    parser.add_argument(
         "--parity-timeout-seconds",
         type=int,
         default=0,
@@ -524,6 +542,10 @@ def main() -> None:
             "2",
             "--fetch-jsonl",
         ]
+        if args.distributed_job_timeout_seconds and args.distributed_job_timeout_seconds > 0:
+            cmd += ["--job-timeout-seconds", str(args.distributed_job_timeout_seconds)]
+        if args.distributed_fetch_timeout_seconds and args.distributed_fetch_timeout_seconds > 0:
+            cmd += ["--fetch-timeout-seconds", str(args.distributed_fetch_timeout_seconds)]
         print(
             f"[parity-gate] distributed soak: board={args.board_type} players={args.num_players} "
             f"games_per_config={args.num_games} difficulty_band={args.difficulty_band}",
