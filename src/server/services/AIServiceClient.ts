@@ -1114,6 +1114,36 @@ export class AIServiceClient {
   isServiceAvailable(): boolean {
     return !this.circuitBreaker.isCircuitOpen();
   }
+
+  /**
+   * Get current model versions deployed to the AI service.
+   * Used for cache-busting and monitoring model updates.
+   */
+  async getModelVersions(): Promise<ModelVersionsResponse | null> {
+    try {
+      const response = await this.client.get('/ai/models');
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to get model versions', { error });
+      return null;
+    }
+  }
+}
+
+/**
+ * Response from /ai/models endpoint containing deployed model versions.
+ */
+export interface ModelVersionsResponse {
+  models: Record<
+    string,
+    {
+      path: string;
+      hash: string;
+      size_mb: number;
+      modified: number;
+    }
+  >;
+  timestamp: number;
 }
 
 // Singleton instance

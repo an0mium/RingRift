@@ -126,30 +126,30 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Number of players (default: 2)",
     )
 
-    # Training parameters
+    # Training parameters - tuned for high-quality training on H100/5090 GPUs
     parser.add_argument(
         "--epochs",
         type=int,
-        default=50,
-        help="Number of training epochs (default: 50)",
+        default=100,
+        help="Number of training epochs (default: 100)",
     )
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=256,
-        help="Training batch size (default: 256)",
+        default=512,
+        help="Training batch size (default: 512, use 1024+ for H100)",
     )
     parser.add_argument(
         "--learning-rate",
         type=float,
-        default=1e-3,
-        help="Learning rate (default: 1e-3)",
+        default=3e-4,
+        help="Learning rate (default: 3e-4, lower for stable convergence)",
     )
     parser.add_argument(
         "--weight-decay",
         type=float,
-        default=1e-5,
-        help="Weight decay for L2 regularization (default: 1e-5)",
+        default=1e-4,
+        help="Weight decay for L2 regularization (default: 1e-4)",
     )
     parser.add_argument(
         "--val-split",
@@ -160,8 +160,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--early-stopping-patience",
         type=int,
-        default=10,
-        help="Early stopping patience in epochs (default: 10)",
+        default=15,
+        help="Early stopping patience in epochs (default: 15)",
     )
     parser.add_argument(
         "--hidden-dim",

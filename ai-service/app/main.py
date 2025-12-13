@@ -31,7 +31,7 @@ from .metrics import (
 )
 from .config.ladder_config import (
     LadderTierConfig,
-    get_ladder_tier_config,
+    get_effective_ladder_config,
 )
 
 from .ai.random_ai import RandomAI
@@ -376,7 +376,7 @@ async def get_ai_move(request: MoveRequest):
         players = getattr(request.game_state, "players", None)
         num_players = len(players) if players is not None else None
         if board_type is not None and num_players:
-            ladder_config = get_ladder_tier_config(
+            ladder_config = get_effective_ladder_config(
                 request.difficulty,
                 board_type,
                 num_players,
@@ -1096,6 +1096,64 @@ async def ai_cache_stats():
         "count": count,
         "max": AI_INSTANCE_CACHE_MAX,
         "ttl_sec": AI_INSTANCE_CACHE_TTL_SEC,
+    }
+
+
+@app.get("/ai/models")
+async def get_model_versions():
+    """Return currently loaded model versions for cache-busting and monitoring.
+
+    This endpoint enables:
+    - TypeScript sandbox to detect when models are updated
+    - Monitoring dashboards to track deployed model versions
+    - Automatic cache invalidation when new models are promoted
+    """
+    import hashlib
+    from pathlib import Path
+
+    models_dir = Path(__file__).parent.parent / "models"
+    versions = {}
+
+    # Check NNUE models
+    nnue_dir = models_dir / "nnue"
+    if nnue_dir.exists():
+        for model_file in nnue_dir.glob("*.pt"):
+            try:
+                stat = model_file.stat()
+                with open(model_file, "rb") as f:
+                    # Read first 8KB for quick hash
+                    content = f.read(8192)
+                    hash_prefix = hashlib.sha256(content).hexdigest()[:12]
+                versions[model_file.stem] = {
+                    "path": str(model_file),
+                    "hash": hash_prefix,
+                    "size_mb": round(stat.st_size / 1024 / 1024, 2),
+                    "modified": stat.st_mtime,
+                }
+            except Exception:
+                pass
+
+    # Check neural net models
+    nn_dir = models_dir / "neural_net"
+    if nn_dir.exists():
+        for model_file in nn_dir.glob("*.pt"):
+            try:
+                stat = model_file.stat()
+                with open(model_file, "rb") as f:
+                    content = f.read(8192)
+                    hash_prefix = hashlib.sha256(content).hexdigest()[:12]
+                versions[model_file.stem] = {
+                    "path": str(model_file),
+                    "hash": hash_prefix,
+                    "size_mb": round(stat.st_size / 1024 / 1024, 2),
+                    "modified": stat.st_mtime,
+                }
+            except Exception:
+                pass
+
+    return {
+        "models": versions,
+        "timestamp": time.time(),
     }
 
 
