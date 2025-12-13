@@ -32,8 +32,13 @@ echo "RingRift dir: $RINGRIFT_DIR"
 
 # Determine whether systemd is actually usable (systemctl may exist in containers).
 HAS_USABLE_SYSTEMD=0
-if command -v systemctl &> /dev/null && [ -d /etc/systemd/system ] && systemctl is-system-running >/dev/null 2>&1; then
-    HAS_USABLE_SYSTEMD=1
+if command -v systemctl &> /dev/null && [ -d /etc/systemd/system ]; then
+    # Some providers report `degraded` due to unrelated units failing; treat it
+    # as usable for our purposes if systemd is otherwise operational.
+    STATE="$(systemctl is-system-running 2>/dev/null || true)"
+    if [ "$STATE" = "running" ] || [ "$STATE" = "degraded" ]; then
+        HAS_USABLE_SYSTEMD=1
+    fi
 fi
 
 # Try to infer SSH port from distributed_hosts.yaml if not explicitly provided.
