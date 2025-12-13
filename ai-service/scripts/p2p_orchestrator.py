@@ -1547,36 +1547,76 @@ class P2POrchestrator:
 
     def _count_local_jobs(self) -> Tuple[int, int]:
         """Count running selfplay and training jobs on this node."""
-        selfplay = 0
-        training = 0
+        def _pid_alive(pid: int) -> bool:
+            try:
+                os.kill(pid, 0)
+                return True
+            except ProcessLookupError:
+                return False
+            except PermissionError:
+                return True
+            except Exception:
+                return False
 
+        # Primary source of truth: jobs we started and are tracking.
+        selfplay_pids: Set[str] = set()
+        training_pids: Set[str] = set()
+
+        stale_job_ids: List[str] = []
         try:
-            # Count python processes running selfplay (CPU, hybrid, and GPU runners).
-            # Use PID union to avoid double-counting.
-            selfplay_pids: Set[str] = set()
-            for pattern in ("run_self_play_soak.py", "run_gpu_selfplay.py", "run_hybrid_selfplay.py"):
-                out = subprocess.run(
-                    ["pgrep", "-f", pattern],
-                    capture_output=True, text=True, timeout=5
-                )
-                if out.returncode == 0 and out.stdout.strip():
-                    selfplay_pids.update([p for p in out.stdout.strip().split() if p])
-            selfplay = len(selfplay_pids)
+            with self.jobs_lock:
+                jobs_snapshot = list(self.local_jobs.items())
+            for job_id, job in jobs_snapshot:
+                if job.status != "running":
+                    continue
+                pid = int(job.pid or 0)
+                if pid <= 0:
+                    continue
+                if not _pid_alive(pid):
+                    stale_job_ids.append(job_id)
+                    continue
+                if job.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY):
+                    selfplay_pids.add(str(pid))
+                elif job.job_type == JobType.TRAINING:
+                    training_pids.add(str(pid))
 
-            # Count training processes
-            training_pids: Set[str] = set()
-            for pattern in ("train_", "train.py"):
-                out = subprocess.run(
-                    ["pgrep", "-f", pattern],
-                    capture_output=True, text=True, timeout=5
-                )
-                if out.returncode == 0 and out.stdout.strip():
-                    training_pids.update([p for p in out.stdout.strip().split() if p])
-            training = len(training_pids)
-        except:
+            if stale_job_ids:
+                with self.jobs_lock:
+                    for job_id in stale_job_ids:
+                        self.local_jobs.pop(job_id, None)
+        except Exception:
             pass
 
-        return selfplay, training
+        # Secondary check: best-effort process scan for untracked jobs (e.g. manual runs).
+        # IMPORTANT: never return (0,0) just because `pgrep` is missing or fails;
+        # that can cause the leader to spawn runaway selfplay processes until disk fills.
+        try:
+            import shutil
+
+            if shutil.which("pgrep"):
+                for pattern in ("run_self_play_soak.py", "run_gpu_selfplay.py", "run_hybrid_selfplay.py"):
+                    out = subprocess.run(
+                        ["pgrep", "-f", pattern],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if out.returncode == 0 and out.stdout.strip():
+                        selfplay_pids.update([p for p in out.stdout.strip().split() if p])
+
+                for pattern in ("train_", "train.py"):
+                    out = subprocess.run(
+                        ["pgrep", "-f", pattern],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if out.returncode == 0 and out.stdout.strip():
+                        training_pids.update([p for p in out.stdout.strip().split() if p])
+        except Exception:
+            pass
+
+        return len(selfplay_pids), len(training_pids)
 
     # ============================================
     # Phase 2: Distributed Data Sync Methods
