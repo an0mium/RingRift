@@ -1,13 +1,39 @@
 # AI Strength & Training Infrastructure Progress
 
+> **Last Updated:** 2025-12-12
+
 This document tracks concrete AI/training improvements as they land, so work
 is not duplicated and future refactors stay canonical and debuggable.
+
+**See also:** [`ai-service/docs/AI_TRAINING_PLAN.md`](../../ai-service/docs/AI_TRAINING_PLAN.md) for the primary training guide.
 
 Status tags:
 
 - **done**: merged/landed in main
 - **next**: ready to implement
 - **blocked**: needs a prerequisite
+
+---
+
+## NPZ Export Pipeline (2025-12-12)
+
+- **done** `jsonl_to_npz.py` converts JSONL selfplay data to NPZ training format
+  with proper 56-channel feature encoding (14 base × 4 history frames).
+- **done** Checkpointing system added to prevent data loss on long-running exports:
+  - `--checkpoint-dir` for incremental chunk saves
+  - `--checkpoint-interval` configurable (default: 100 games)
+  - `--resume` flag for resuming from checkpoint after interruption
+  - Automatic chunk merge on completion
+- **done** Trained `square19_2p_v1` model (8740 samples, early stopped epoch 21).
+- **done** Trained `square8_2p_v5` model on H100 (120k samples, in progress).
+- **in_progress** NPZ exports for hex_2p and sq19 quality datasets on GPU cluster.
+
+## GPU Cluster Operations (2025-12-12)
+
+- **done** Lambda H100 instance configured for training and large model inference.
+- **done** Quality games synced across instances via rsync.
+- **done** SSH config aliases for cluster access (`lambda-gpu`, `ringrift-staging`).
+- **done** Documentation updated with cluster operations guide in `AI_TRAINING_PLAN.md`.
 
 ---
 

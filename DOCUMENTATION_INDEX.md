@@ -1,6 +1,6 @@
 # RingRift Documentation Index
 
-> **Last Updated:** 2025-12-11
+> **Last Updated:** 2025-12-12
 > **Organization:** 13 core docs in root, 6 in `/docs/` root, detailed docs in `/docs/` subdirectories
 
 This index catalogs all project documentation organized by topic and location. For a lightweight landing page, see `docs/INDEX.md`.
@@ -285,12 +285,49 @@ Key docs and tools for TS↔Python parity, replay analysis, and replay DB health
 
 ## AI Service Documentation
 
-| Document                                                                               | Purpose                                                                               |
-| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| [ai-service/README.md](ai-service/README.md)                                           | AI service overview                                                                   |
-| [ai-service/docs/NEURAL_AI_ARCHITECTURE.md](ai-service/docs/NEURAL_AI_ARCHITECTURE.md) | Neural network architecture                                                           |
-| [docs/ai/AI_TRAINING_AND_DATASETS.md](docs/ai/AI_TRAINING_AND_DATASETS.md)             | Training datasets, including canonical `GameRecord` JSONL exports (Dec 2025 updates). |
-| [ai-service/docs/GAME_RECORD_SPEC.md](ai-service/docs/GAME_RECORD_SPEC.md)             | GameRecord schema; Phase 1–2 implemented as of Dec 2025 (storage + DB integration).   |
+### Core AI Service
+
+| Document                                                                               | Purpose                                               |
+| -------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| [ai-service/README.md](ai-service/README.md)                                           | AI service overview, API endpoints, difficulty ladder |
+| [ai-service/docs/NEURAL_AI_ARCHITECTURE.md](ai-service/docs/NEURAL_AI_ARCHITECTURE.md) | Neural network architecture (RingRiftCNN)             |
+| [ai-service/docs/MPS_ARCHITECTURE.md](ai-service/docs/MPS_ARCHITECTURE.md)             | Apple Silicon MPS-compatible architecture             |
+
+### Training Pipeline (Active - Dec 2025)
+
+| Document                                                                                     | Purpose                                              |
+| -------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| [ai-service/docs/AI_TRAINING_PLAN.md](ai-service/docs/AI_TRAINING_PLAN.md)                   | **Primary training guide**: CMA-ES, NN, NPZ pipeline |
+| [ai-service/docs/AI_TRAINING_PIPELINE_PLAN.md](ai-service/docs/AI_TRAINING_PIPELINE_PLAN.md) | Detailed training pipeline architecture              |
+| [ai-service/docs/PIPELINE_ORCHESTRATOR.md](ai-service/docs/PIPELINE_ORCHESTRATOR.md)         | Training pipeline orchestration and automation       |
+| [ai-service/docs/DISTRIBUTED_SELFPLAY.md](ai-service/docs/DISTRIBUTED_SELFPLAY.md)           | Distributed selfplay across GPU clusters             |
+| [docs/ai/AI_TRAINING_AND_DATASETS.md](docs/ai/AI_TRAINING_AND_DATASETS.md)                   | Training datasets and GameRecord JSONL exports       |
+
+### GPU Infrastructure
+
+| Document                                                                                                       | Purpose                                         |
+| -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| [ai-service/docs/GPU_PIPELINE_ROADMAP.md](ai-service/docs/GPU_PIPELINE_ROADMAP.md)                             | GPU selfplay pipeline development roadmap       |
+| [ai-service/docs/GPU_ARCHITECTURE_SIMPLIFICATION.md](ai-service/docs/GPU_ARCHITECTURE_SIMPLIFICATION.md)       | GPU architecture design notes                   |
+| [ai-service/docs/GPU_RULES_PARITY_AUDIT.md](ai-service/docs/GPU_RULES_PARITY_AUDIT.md)                         | GPU vs CPU rules parity verification            |
+| [ai-service/docs/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md](ai-service/docs/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md) | Cloud training infrastructure (Lambda, Vast.ai) |
+
+### Data Formats & Schemas
+
+| Document                                                                                     | Purpose                             |
+| -------------------------------------------------------------------------------------------- | ----------------------------------- |
+| [ai-service/docs/GAME_RECORD_SPEC.md](ai-service/docs/GAME_RECORD_SPEC.md)                   | GameRecord schema for JSONL exports |
+| [ai-service/docs/GAME_REPLAY_DATABASE_SPEC.md](ai-service/docs/GAME_REPLAY_DATABASE_SPEC.md) | GameReplayDB SQLite schema and API  |
+| [ai-service/docs/GAME_NOTATION_SPEC.md](ai-service/docs/GAME_NOTATION_SPEC.md)               | Game notation format specification  |
+
+### Analysis & Status Reports
+
+| Document                                                                                                         | Purpose                         |
+| ---------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| [ai-service/docs/SELFPLAY_ANALYSIS_REPORT_2025_12_13.md](ai-service/docs/SELFPLAY_ANALYSIS_REPORT_2025_12_13.md) | Latest selfplay analysis        |
+| [ai-service/docs/TRAINING_PIPELINE_STATUS_2025_12_12.md](ai-service/docs/TRAINING_PIPELINE_STATUS_2025_12_12.md) | Training pipeline status update |
+| [ai-service/AI_ASSESSMENT_REPORT.md](ai-service/AI_ASSESSMENT_REPORT.md)                                         | AI service technical assessment |
+| [ai-service/AI_IMPROVEMENT_PLAN.md](ai-service/AI_IMPROVEMENT_PLAN.md)                                           | AI service improvement roadmap  |
 
 ---
 
