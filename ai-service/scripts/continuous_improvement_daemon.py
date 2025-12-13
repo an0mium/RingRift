@@ -361,7 +361,7 @@ async def run_balanced_selfplay(state: DaemonState, duration_minutes: int = 10) 
             "--num-games", str(batch_games),
             "--engine-mode", engine,
             "--log-jsonl", str(output_file),
-            "--max-moves", "500",
+            "--max-moves", "10000",  # Avoid draws due to move limit
         ]
 
         print(f"[Daemon] Running {batch_games} {key} selfplay games with {engine}...")

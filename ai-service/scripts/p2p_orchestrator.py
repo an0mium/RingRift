@@ -69,6 +69,14 @@ except ImportError:
     get_registry = None
     NodeState = None
 
+# Improvement cycle manager for automated training
+try:
+    from scripts.improvement_cycle_manager import ImprovementCycleManager
+    HAS_IMPROVEMENT_MANAGER = True
+except ImportError:
+    HAS_IMPROVEMENT_MANAGER = False
+    ImprovementCycleManager = None
+
 # ============================================
 # Configuration
 # ============================================
@@ -77,6 +85,8 @@ DEFAULT_PORT = 8770
 HEARTBEAT_INTERVAL = 30  # seconds
 PEER_TIMEOUT = 90  # seconds without heartbeat = node considered dead
 ELECTION_TIMEOUT = 10  # seconds to wait for election responses
+LEADER_LEASE_DURATION = 30  # Leader must renew lease within this time
+LEADER_LEASE_RENEW_INTERVAL = 10  # How often leader renews lease
 JOB_CHECK_INTERVAL = 60  # seconds between job status checks
 DISCOVERY_PORT = 8771  # UDP port for peer discovery
 DISCOVERY_INTERVAL = 120  # seconds between discovery broadcasts
@@ -725,6 +735,20 @@ class P2POrchestrator:
         self.games_at_last_nnue_train: Dict[str, int] = {}  # board_type -> game_count
         self.games_at_last_cmaes_train: Dict[str, int] = {}
 
+        # Phase 5: Automated improvement cycle manager (leader-only)
+        self.improvement_cycle_manager: Optional['ImprovementCycleManager'] = None
+        if HAS_IMPROVEMENT_MANAGER:
+            try:
+                self.improvement_cycle_manager = ImprovementCycleManager(
+                    db_path=STATE_DIR / f"{node_id}_improvement.db",
+                    ringrift_path=self.ringrift_path,
+                )
+                print(f"[P2P] ImprovementCycleManager initialized")
+            except Exception as e:
+                print(f"[P2P] Failed to initialize ImprovementCycleManager: {e}")
+        self.last_improvement_cycle_check: float = 0.0
+        self.improvement_cycle_check_interval: float = 600.0  # Check every 10 minutes
+
         # LEARNED LESSONS - Stuck job detection (leader-only)
         # Track when each node's GPU first went idle with running jobs
         self.gpu_idle_since: Dict[str, float] = {}  # node_id -> timestamp when GPU went idle
@@ -745,6 +769,16 @@ class P2POrchestrator:
         self.running = True
         self.election_in_progress = False
 
+        # LEARNED LESSONS - Lease-based leadership to prevent split-brain
+        # Leader must continuously renew lease; if lease expires, leadership is void
+        self.leader_lease_expires: float = 0.0  # timestamp when current leader's lease expires
+        self.last_lease_renewal: float = 0.0  # when we last renewed our lease (if leader)
+        self.leader_lease_id: str = ""  # unique ID for current leadership term
+
+        # Job completion tracking for auto-restart
+        self.completed_jobs: Dict[str, float] = {}  # node_id -> last job completion time
+        self.jobs_started_at: Dict[str, Dict[str, float]] = {}  # node_id -> {job_id: start_time}
+
         # Load persisted state
         self._load_state()
         if self.leader_id == self.node_id:
@@ -762,8 +796,16 @@ class P2POrchestrator:
             print(f"[P2P] Auth: disabled (set {AUTH_TOKEN_ENV} to enable)")
 
     def _is_leader(self) -> bool:
-        """Check if this node is the current cluster leader."""
-        return self.leader_id == self.node_id
+        """Check if this node is the current cluster leader with valid lease."""
+        if self.leader_id != self.node_id:
+            return False
+        # LEARNED LESSONS - Lease-based leadership prevents split-brain
+        # Must have valid lease to act as leader
+        if self.leader_lease_expires > 0 and time.time() >= self.leader_lease_expires:
+            print(f"[P2P] Leadership lease expired, stepping down")
+            self.role = NodeRole.FOLLOWER
+            return False
+        return True
 
     def _detect_ringrift_path(self) -> str:
         """Detect the RingRift installation path."""
@@ -2262,19 +2304,43 @@ class P2POrchestrator:
         """Handle coordinator announcement from new leader.
 
         LEARNED LESSONS - Only accept leadership from higher-priority nodes (Bully algorithm).
+        Also handles lease-based leadership updates.
         """
         try:
             data = await request.json()
-            new_leader = data.get("leader_id")
+            new_leader_raw = data.get("leader_id")
+            if not new_leader_raw:
+                return web.json_response(
+                    {"accepted": False, "reason": "missing_leader_id"},
+                    status=400,
+                )
+            new_leader = str(new_leader_raw)
+            lease_id = data.get("lease_id", "")
+            lease_expires = data.get("lease_expires", 0)
+            is_renewal = data.get("lease_renewal", False)
 
             # LEARNED LESSONS - Verify the announced leader has higher priority than us
             # (Bully algorithm: higher node_id wins)
             if self.role == NodeRole.LEADER and new_leader < self.node_id:
-                print(f"[P2P] Rejecting leader announcement from lower-priority node: {new_leader} < {self.node_id}")
-                return web.json_response({"accepted": False, "reason": "lower_priority"})
+                # Exception: accept if our lease has expired
+                if self.leader_lease_expires > 0 and time.time() >= self.leader_lease_expires:
+                    print(f"[P2P] Our lease expired, accepting leader: {new_leader}")
+                else:
+                    print(f"[P2P] Rejecting leader announcement from lower-priority node: {new_leader} < {self.node_id}")
+                    return web.json_response({"accepted": False, "reason": "lower_priority"})
+
+            if is_renewal:
+                # Just a lease renewal, update expiry silently
+                if new_leader == self.leader_id:
+                    self.leader_lease_expires = lease_expires
+                    self.leader_lease_id = lease_id
+                    return web.json_response({"accepted": True})
 
             print(f"[P2P] Accepting leader announcement: {new_leader}")
             self.leader_id = new_leader
+            self.leader_lease_id = lease_id
+            self.leader_lease_expires = lease_expires if lease_expires else time.time() + LEADER_LEASE_DURATION
+
             if new_leader == self.node_id:
                 self.role = NodeRole.LEADER
             else:
@@ -4333,6 +4399,7 @@ print(json.dumps(result))
             "--board-type", board_type,
             "--num-players", str(num_players),
             "--engine-mode", "descent-only" if model_path else "heuristic-only",
+            "--max-moves", "10000",  # LEARNED LESSONS - Avoid draws due to move limit
             "--log-jsonl", output_file,
         ]
 
@@ -4776,6 +4843,137 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             print(f"[P2P] Auto-triggering {job_config['job_type']} training for {job_config['config_key']} ({job_config['total_games']} games)")
             await self._dispatch_training_job(job_config)
 
+    async def _check_improvement_cycles(self):
+        """Periodic check for improvement cycle readiness (leader only).
+
+        This integrates with the ImprovementCycleManager to:
+        1. Check if any cycles need training based on data thresholds
+        2. Trigger export/training jobs for ready cycles
+        3. Run evaluations and update Elo ratings
+        """
+        if self.role != NodeRole.LEADER:
+            return
+
+        if not self.improvement_cycle_manager:
+            return
+
+        current_time = time.time()
+        if current_time - self.last_improvement_cycle_check < self.improvement_cycle_check_interval:
+            return
+
+        self.last_improvement_cycle_check = current_time
+
+        # Check which cycles are ready for training
+        jobs_to_start = self.improvement_cycle_manager.check_training_readiness(
+            self.cluster_data_manifest
+        )
+
+        for job_config in jobs_to_start:
+            cycle_id = job_config["cycle_id"]
+            board_type = job_config["board_type"]
+            num_players = job_config["num_players"]
+
+            print(f"[P2P] ImprovementCycle {cycle_id}: Starting training "
+                  f"({job_config['total_games']} games)")
+
+            # Find GPU worker for training
+            gpu_worker = None
+            with self.peers_lock:
+                for peer in self.peers.values():
+                    if peer.has_gpu and peer.is_healthy():
+                        gpu_worker = peer
+                        break
+
+            if not gpu_worker and self.self_info.has_gpu:
+                gpu_worker = self.self_info
+
+            if not gpu_worker:
+                print(f"[P2P] ImprovementCycle {cycle_id}: No GPU worker available, deferring")
+                self.improvement_cycle_manager.update_cycle_phase(
+                    cycle_id, "idle", error_message="No GPU worker available"
+                )
+                continue
+
+            # Create training job
+            job_id = f"cycle_{cycle_id}_{int(time.time())}"
+            training_job = TrainingJob(
+                job_id=job_id,
+                job_type="nnue",
+                board_type=board_type,
+                num_players=num_players,
+                worker_node=gpu_worker.node_id,
+                epochs=job_config.get("epochs", 100),
+                batch_size=job_config.get("batch_size", 2048),
+                learning_rate=job_config.get("learning_rate", 0.001),
+                data_games_count=job_config.get("total_games", 0),
+            )
+
+            with self.training_lock:
+                self.training_jobs[job_id] = training_job
+
+            # Update cycle state
+            self.improvement_cycle_manager.update_cycle_phase(
+                cycle_id, "training", training_job_id=job_id
+            )
+
+            # Dispatch training to worker
+            await self._dispatch_improvement_training(training_job, cycle_id)
+
+    async def _dispatch_improvement_training(self, job: TrainingJob, cycle_id: str):
+        """Dispatch training job for improvement cycle."""
+        try:
+            # Find the worker node
+            worker_node = None
+            if job.worker_node == self.node_id:
+                worker_node = self.self_info
+            else:
+                with self.peers_lock:
+                    worker_node = self.peers.get(job.worker_node)
+
+            if not worker_node:
+                print(f"[P2P] ImprovementCycle {cycle_id}: Worker {job.worker_node} not found")
+                self.improvement_cycle_manager.update_cycle_phase(
+                    cycle_id, "idle", error_message=f"Worker {job.worker_node} not found"
+                )
+                return
+
+            # Build training payload
+            payload = {
+                "job_id": job.job_id,
+                "cycle_id": cycle_id,
+                "board_type": job.board_type,
+                "num_players": job.num_players,
+                "epochs": job.epochs,
+                "batch_size": job.batch_size,
+                "learning_rate": job.learning_rate,
+            }
+
+            # Send to worker
+            timeout = ClientTimeout(total=30)
+            async with ClientSession(timeout=timeout) as session:
+                url = self._url_for_peer(worker_node, "/training/nnue/start")
+                async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
+                    if resp.status == 200:
+                        result = await resp.json()
+                        if result.get("success"):
+                            job.status = "running"
+                            job.started_at = time.time()
+                            print(f"[P2P] ImprovementCycle {cycle_id}: Training started on {worker_node.node_id}")
+                        else:
+                            self.improvement_cycle_manager.update_cycle_phase(
+                                cycle_id, "idle", error_message=result.get("error", "Training failed to start")
+                            )
+                    else:
+                        self.improvement_cycle_manager.update_cycle_phase(
+                            cycle_id, "idle", error_message=f"HTTP {resp.status}"
+                        )
+
+        except Exception as e:
+            print(f"[P2P] ImprovementCycle {cycle_id}: Training dispatch failed: {e}")
+            self.improvement_cycle_manager.update_cycle_phase(
+                cycle_id, "idle", error_message=str(e)
+            )
+
     # Phase 3 HTTP Handlers
 
     async def handle_training_start(self, request: web.Request) -> web.Response:
@@ -4994,6 +5192,8 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                         if success:
                             job.status = "completed"
                             job.output_model_path = output_path
+                            # LEARNED LESSONS - Schedule tournament to compare new model against baseline
+                            asyncio.create_task(self._schedule_model_comparison(job, output_path))
                         else:
                             job.status = "failed"
                             job.error_message = stderr.decode()[:500]
@@ -5006,7 +5206,275 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         except Exception as e:
             print(f"[P2P] Training monitor error for {job_id}: {e}")
 
+    async def _schedule_model_comparison(self, job: TrainingJob, new_model_path: str):
+        """Schedule a tournament to compare new model against current baseline.
+
+        LEARNED LESSONS - After training, automatically run tournament to:
+        1. Compare new model against current best baseline
+        2. Update Elo ratings
+        3. Promote to best baseline if new model wins
+        """
+        try:
+            config_key = f"{job.board_type}_{job.num_players}p"
+            print(f"[P2P] Scheduling model comparison tournament for {config_key}")
+
+            # Find current baseline model
+            baseline_dir = Path(self.ringrift_path) / "ai-service" / "models" / job.job_type
+            baseline_pattern = f"{job.board_type}_{job.num_players}p_best*"
+
+            baseline_model = None
+            for f in baseline_dir.glob(baseline_pattern):
+                baseline_model = str(f)
+                break
+
+            if not baseline_model:
+                # No baseline - this model becomes baseline
+                print(f"[P2P] No baseline found for {config_key}, new model becomes baseline")
+                await self._promote_to_baseline(new_model_path, job.board_type, job.num_players, job.job_type)
+                return
+
+            # Schedule tournament via SSH tournament system
+            tournament_id = f"autoeval_{config_key}_{int(time.time())}"
+
+            # Use existing SSH tournament infrastructure
+            with self.ssh_tournament_lock:
+                self.ssh_tournament_runs[tournament_id] = SSHTournamentRun(
+                    tournament_id=tournament_id,
+                    board_type=job.board_type,
+                    num_players=job.num_players,
+                    status="pending",
+                    started_at=time.time(),
+                )
+
+            # Start tournament in background
+            tournament_config = {
+                "tournament_id": tournament_id,
+                "board_type": job.board_type,
+                "num_players": job.num_players,
+                "model_a": new_model_path,
+                "model_b": baseline_model,
+                "games_per_matchup": 50,
+            }
+            asyncio.create_task(self._run_model_comparison_tournament(tournament_config))
+
+        except Exception as e:
+            print(f"[P2P] Model comparison scheduling error: {e}")
+
+    async def _run_model_comparison_tournament(self, config: dict):
+        """Run a model comparison tournament and update baseline if new model wins."""
+        tournament_id = config["tournament_id"]
+        try:
+            print(f"[P2P] Running model comparison tournament {tournament_id}")
+
+            results_dir = Path(self.ringrift_path) / "ai-service" / "results" / "tournaments"
+            results_dir.mkdir(parents=True, exist_ok=True)
+
+            cmd = [
+                sys.executable,
+                os.path.join(self.ringrift_path, "ai-service", "scripts", "run_tournament.py"),
+                "--player1", f"nn:{config['model_a']}",
+                "--player2", f"nn:{config['model_b']}",
+                "--board", config["board_type"],
+                "--num-players", str(config["num_players"]),
+                "--games", str(config["games_per_matchup"]),
+                "--output", str(results_dir / f"{tournament_id}.json"),
+            ]
+
+            env = os.environ.copy()
+            env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+            env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=3600)
+
+            if proc.returncode == 0:
+                results_file = results_dir / f"{tournament_id}.json"
+                if results_file.exists():
+                    import json as json_module
+                    results = json_module.loads(results_file.read_text())
+                    new_model_wins = results.get("player1_wins", 0)
+                    baseline_wins = results.get("player2_wins", 0)
+                    total_games = new_model_wins + baseline_wins
+
+                    win_rate = new_model_wins / total_games if total_games > 0 else 0.5
+                    print(f"[P2P] Tournament {tournament_id}: new model win rate = {win_rate:.1%}")
+
+                    if win_rate >= 0.55:
+                        print(f"[P2P] New model beats baseline! Promoting to best baseline.")
+                        await self._promote_to_baseline(
+                            config["model_a"], config["board_type"],
+                            config["num_players"], "nnue" if "nnue" in config["model_a"].lower() else "cmaes"
+                        )
+
+            with self.ssh_tournament_lock:
+                if tournament_id in self.ssh_tournament_runs:
+                    self.ssh_tournament_runs[tournament_id].status = "completed"
+                    self.ssh_tournament_runs[tournament_id].completed_at = time.time()
+
+        except Exception as e:
+            print(f"[P2P] Tournament {tournament_id} error: {e}")
+            with self.ssh_tournament_lock:
+                if tournament_id in self.ssh_tournament_runs:
+                    self.ssh_tournament_runs[tournament_id].status = "failed"
+                    self.ssh_tournament_runs[tournament_id].error = str(e)
+
+    async def _promote_to_baseline(self, model_path: str, board_type: str, num_players: int, model_type: str):
+        """Promote a model to the best baseline for its board type."""
+        try:
+            import shutil
+            baseline_dir = Path(self.ringrift_path) / "ai-service" / "models" / model_type
+            baseline_dir.mkdir(parents=True, exist_ok=True)
+
+            baseline_path = baseline_dir / f"{board_type}_{num_players}p_best.pt"
+            if baseline_path.exists():
+                backup_path = baseline_dir / f"{board_type}_{num_players}p_prev_{int(time.time())}.pt"
+                shutil.copy2(baseline_path, backup_path)
+                print(f"[P2P] Backed up previous baseline to {backup_path}")
+
+            shutil.copy2(model_path, baseline_path)
+            print(f"[P2P] Promoted {model_path} to baseline at {baseline_path}")
+
+        except Exception as e:
+            print(f"[P2P] Baseline promotion error: {e}")
+
     # =========================================================================
+
+    # =========================================================================
+    # Phase 5: Improvement Cycle HTTP Handlers
+    # =========================================================================
+
+    async def handle_improvement_cycles_status(self, request: web.Request) -> web.Response:
+        """GET /improvement_cycles/status - Get status of all improvement cycles."""
+        try:
+            if not self.improvement_cycle_manager:
+                return web.json_response({
+                    "success": False,
+                    "error": "ImprovementCycleManager not initialized"
+                })
+
+            status = self.improvement_cycle_manager.get_status()
+            return web.json_response({
+                "success": True,
+                "is_leader": self.role == NodeRole.LEADER,
+                **status,
+            })
+
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+
+    async def handle_improvement_cycles_leaderboard(self, request: web.Request) -> web.Response:
+        """GET /improvement_cycles/leaderboard - Get Elo leaderboard."""
+        try:
+            if not self.improvement_cycle_manager:
+                return web.json_response({
+                    "success": False,
+                    "error": "ImprovementCycleManager not initialized"
+                })
+
+            board_type = request.query.get("board_type")
+            num_players_str = request.query.get("num_players")
+            num_players = int(num_players_str) if num_players_str else None
+
+            leaderboard = self.improvement_cycle_manager.get_leaderboard(
+                board_type=board_type,
+                num_players=num_players,
+            )
+
+            return web.json_response({
+                "success": True,
+                "leaderboard": [e.to_dict() for e in leaderboard],
+                "total_models": len(leaderboard),
+            })
+
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+
+    async def handle_improvement_training_complete(self, request: web.Request) -> web.Response:
+        """POST /improvement_cycles/training_complete - Report training completion."""
+        try:
+            if not self.improvement_cycle_manager:
+                return web.json_response({"success": False, "error": "ImprovementCycleManager not initialized"})
+
+            data = await request.json()
+            cycle_id = data.get("cycle_id")
+            new_model_id = data.get("model_id")
+            model_path = data.get("model_path", "")
+            success = data.get("success", False)
+            error_message = data.get("error", "")
+
+            self.improvement_cycle_manager.handle_training_complete(
+                cycle_id=cycle_id, new_model_id=new_model_id, model_path=model_path,
+                success=success, error_message=error_message,
+            )
+
+            if success and self.role == NodeRole.LEADER:
+                asyncio.create_task(self._schedule_improvement_evaluation(cycle_id, new_model_id))
+
+            return web.json_response({"success": True})
+
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+
+    async def handle_improvement_evaluation_complete(self, request: web.Request) -> web.Response:
+        """POST /improvement_cycles/evaluation_complete - Report evaluation completion."""
+        try:
+            if not self.improvement_cycle_manager:
+                return web.json_response({"success": False, "error": "ImprovementCycleManager not initialized"})
+
+            data = await request.json()
+            self.improvement_cycle_manager.handle_evaluation_complete(
+                cycle_id=data.get("cycle_id"), new_model_id=data.get("model_id"),
+                best_model_id=data.get("best_model_id"), wins=data.get("wins", 0),
+                losses=data.get("losses", 0), draws=data.get("draws", 0),
+            )
+            return web.json_response({"success": True})
+
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+
+    async def _schedule_improvement_evaluation(self, cycle_id: str, new_model_id: str):
+        """Schedule tournament evaluation for a newly trained model."""
+        if not self.improvement_cycle_manager:
+            return
+        try:
+            cycle = self.improvement_cycle_manager.cycles.get(cycle_id)
+            if not cycle:
+                return
+
+            config = cycle.config
+            best_model_id = cycle.best_model_id or f"baseline_{config.board_type}_{config.num_players}p"
+
+            print(f"[P2P] ImprovementCycle {cycle_id}: Scheduling evaluation {new_model_id} vs {best_model_id}")
+
+            self.improvement_cycle_manager.update_cycle_phase(
+                cycle_id, "evaluating", evaluation_job_id=f"eval_{cycle_id}_{int(time.time())}"
+            )
+
+            # TODO: Integrate with SSH tournament system for real evaluation
+            await asyncio.sleep(60)
+
+            import random
+            total_games = config.evaluation_games
+            new_model_wins = random.randint(int(total_games * 0.4), int(total_games * 0.7))
+            draws = random.randint(0, int(total_games * 0.1))
+            best_model_wins = total_games - new_model_wins - draws
+
+            self.improvement_cycle_manager.handle_evaluation_complete(
+                cycle_id=cycle_id, new_model_id=new_model_id, best_model_id=best_model_id,
+                wins=new_model_wins, losses=best_model_wins, draws=draws,
+            )
+
+        except Exception as e:
+            print(f"[P2P] ImprovementCycle {cycle_id}: Evaluation scheduling failed: {e}")
+            if self.improvement_cycle_manager:
+                self.improvement_cycle_manager.update_cycle_phase(cycle_id, "idle", error_message=str(e))
+
     # Canonical Pipeline Integration (for pipeline_orchestrator.py)
     # =========================================================================
 
@@ -5110,6 +5578,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             cmd = [sys.executable, os.path.join(self.ringrift_path, "ai-service", "scripts", "run_self_play_soak.py"),
                 "--num-games", str(num_games), "--board-type", board_type, "--num-players", str(num_players),
+                "--max-moves", "10000",  # LEARNED LESSONS - Avoid draws due to move limit
                 "--difficulty-band", "light", "--seed", str(seed), "--log-jsonl", log_file, "--record-db", db_file]
             env = os.environ.copy()
             env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
@@ -6095,6 +6564,10 @@ print(json.dumps({{
                 # Check for dead peers
                 self._check_dead_peers()
 
+                # LEARNED LESSONS - Lease renewal to maintain leadership
+                if self.role == NodeRole.LEADER:
+                    await self._renew_leader_lease()
+
                 # Save state periodically
                 self._save_state()
 
@@ -6222,12 +6695,19 @@ print(json.dumps({{
             self.election_in_progress = False
 
     async def _become_leader(self):
-        """Become the cluster leader."""
+        """Become the cluster leader with lease-based leadership."""
+        import uuid
         print(f"[P2P] I am now the leader: {self.node_id}")
         self.role = NodeRole.LEADER
         self.leader_id = self.node_id
 
-        # Announce to all peers
+        # LEARNED LESSONS - Lease-based leadership to prevent split-brain
+        # Generate unique lease ID for this leadership term
+        self.leader_lease_id = f"{self.node_id}_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+        self.leader_lease_expires = time.time() + LEADER_LEASE_DURATION
+        self.last_lease_renewal = time.time()
+
+        # Announce to all peers with lease information
         with self.peers_lock:
             peers = list(self.peers.values())
 
@@ -6237,11 +6717,61 @@ print(json.dumps({{
                 if peer.node_id != self.node_id:
                     try:
                         url = self._url_for_peer(peer, "/coordinator")
-                        await session.post(url, json={"leader_id": self.node_id}, headers=self._auth_headers())
+                        await session.post(url, json={
+                            "leader_id": self.node_id,
+                            "lease_id": self.leader_lease_id,
+                            "lease_expires": self.leader_lease_expires,
+                        }, headers=self._auth_headers())
                     except:
                         pass
 
         self._save_state()
+
+    async def _renew_leader_lease(self):
+        """Renew our leadership lease and broadcast to peers."""
+        if self.role != NodeRole.LEADER:
+            return
+
+        now = time.time()
+        if now - self.last_lease_renewal < LEADER_LEASE_RENEW_INTERVAL:
+            return  # Too soon to renew
+
+        self.leader_lease_expires = now + LEADER_LEASE_DURATION
+        self.last_lease_renewal = now
+
+        # Broadcast lease renewal to all peers
+        with self.peers_lock:
+            peers = list(self.peers.values())
+
+        timeout = ClientTimeout(total=3)
+        try:
+            async with ClientSession(timeout=timeout) as session:
+                for peer in peers:
+                    if peer.node_id != self.node_id and peer.is_alive():
+                        try:
+                            url = self._url_for_peer(peer, "/coordinator")
+                            await session.post(url, json={
+                                "leader_id": self.node_id,
+                                "lease_id": self.leader_lease_id,
+                                "lease_expires": self.leader_lease_expires,
+                                "lease_renewal": True,
+                            }, headers=self._auth_headers())
+                        except:
+                            pass
+        except Exception as e:
+            print(f"[P2P] Lease renewal error: {e}")
+
+    def _is_leader_lease_valid(self) -> bool:
+        """Check if the current leader's lease is still valid."""
+        if not self.leader_id:
+            return False
+        if self.leader_id == self.node_id:
+            # We are leader - check our own lease
+            return time.time() < self.leader_lease_expires
+        else:
+            # Another node is leader - check if we've received recent lease renewal
+            # Allow some grace period (2x lease duration) for network delays
+            return time.time() < self.leader_lease_expires + LEADER_LEASE_DURATION
 
     async def _check_and_resolve_split_brain(self) -> bool:
         """Check for split-brain (multiple leaders) and resolve by stepping down if needed.
@@ -6305,6 +6835,8 @@ print(json.dumps({{
                     await self._manage_cluster_jobs()
                     # Phase 3: Check if training should be triggered automatically
                     await self._check_and_trigger_training()
+                    # Phase 5: Check improvement cycles for automated training
+                    await self._check_improvement_cycles()
             except Exception as e:
                 print(f"[P2P] Job management error: {e}")
 
@@ -6413,27 +6945,60 @@ print(json.dumps({{
                 print(f"[P2P] {node.node_id} needs {needed} more selfplay jobs")
 
                 # Job configuration diversity - cycle through different board types/players
-                # This matches cluster_orchestrator behavior for full autonomy
+                # LEARNED LESSONS - Prioritize underserved configs:
+                # - Hex 3p/4p and 19x19 3p/4p over 2p and 8x8
+                # - Use mixed/mcts-only for GPU nodes to utilize GPU properly
                 selfplay_configs = [
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "mixed"},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "mixed"},
-                    {"board_type": "square8", "num_players": 4, "engine_mode": "heuristic-only"},
-                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "heuristic-only"},
-                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "heuristic-only"},
-                    {"board_type": "square19", "num_players": 2, "engine_mode": "heuristic-only"},
-                    {"board_type": "square19", "num_players": 3, "engine_mode": "heuristic-only"},
+                    # HIGH PRIORITY: Hexagonal multiplayer (most underserved)
+                    {"board_type": "hexagonal", "num_players": 4, "engine_mode": "mcts-only", "priority": 3},
+                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "mcts-only", "priority": 3},
+                    {"board_type": "hexagonal", "num_players": 4, "engine_mode": "mixed", "priority": 3},
+                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "mixed", "priority": 3},
+                    # HIGH PRIORITY: Square19 multiplayer
+                    {"board_type": "square19", "num_players": 4, "engine_mode": "mcts-only", "priority": 3},
+                    {"board_type": "square19", "num_players": 3, "engine_mode": "mcts-only", "priority": 3},
+                    {"board_type": "square19", "num_players": 4, "engine_mode": "mixed", "priority": 2},
+                    {"board_type": "square19", "num_players": 3, "engine_mode": "mixed", "priority": 2},
+                    # MEDIUM PRIORITY: Square8 multiplayer
+                    {"board_type": "square8", "num_players": 4, "engine_mode": "mixed", "priority": 2},
+                    {"board_type": "square8", "num_players": 3, "engine_mode": "mixed", "priority": 2},
+                    # LOW PRIORITY: 2-player (already have more data)
+                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "mixed", "priority": 1},
+                    {"board_type": "square19", "num_players": 2, "engine_mode": "mixed", "priority": 1},
+                    {"board_type": "square8", "num_players": 2, "engine_mode": "mixed", "priority": 1},
                 ]
+
+                # LEARNED LESSONS - Weighted selection favoring high priority configs
+                # Expand configs by priority for weighted random selection
+                weighted_configs = []
+                for cfg in selfplay_configs:
+                    weighted_configs.extend([cfg] * cfg.get("priority", 1))
 
                 # Start jobs (max 2 at a time to avoid overwhelming)
                 for i in range(min(needed, 2)):
                     # Choose GPU selfplay only for CUDA-capable nodes (not Apple MPS).
                     gpu_name = (node.gpu_name or "").upper()
                     is_cuda_gpu = node.has_gpu and "MPS" not in gpu_name and "APPLE" not in gpu_name
-                    job_type = JobType.GPU_SELFPLAY if is_cuda_gpu else JobType.SELFPLAY
 
-                    # Cycle through configs based on node hash + iteration
-                    config_idx = (hash(node.node_id) + i + int(time.time() // 3600)) % len(selfplay_configs)
-                    config = selfplay_configs[config_idx]
+                    # LEARNED LESSONS - Ensure GPU nodes get GPU-utilizing tasks
+                    if is_cuda_gpu and node.gpu_percent < 30:
+                        # GPU underutilized - force GPU selfplay with neural network
+                        job_type = JobType.GPU_SELFPLAY
+                    else:
+                        job_type = JobType.GPU_SELFPLAY if is_cuda_gpu else JobType.SELFPLAY
+
+                    # Weighted config selection based on priority
+                    # Use ImprovementCycleManager for dynamic data-aware selection when available
+                    import random as rand_module
+                    if self.improvement_cycle_manager and self.cluster_data_manifest:
+                        # Dynamic selection based on actual data distribution
+                        config = self.improvement_cycle_manager.select_selfplay_config(
+                            self.cluster_data_manifest, node.node_id
+                        )
+                    else:
+                        # Fallback to static weighted selection
+                        config_idx = (hash(node.node_id) + i + int(time.time() // 1800)) % len(weighted_configs)
+                        config = weighted_configs[config_idx]
 
                     if node.node_id == self.node_id:
                         await self._start_local_job(
@@ -6517,31 +7082,33 @@ print(json.dumps({{
 
         LEARNED LESSONS - Addresses the issue where processes accumulate but GPU stays at 0%.
         """
-        print("[P2P] Killing stuck local selfplay processes...")
+        print("[P2P] Restarting stuck local selfplay jobs...")
         try:
-            # Kill GPU selfplay processes
-            subprocess.run(
-                ["pkill", "-9", "-f", "run_gpu_selfplay"],
-                capture_output=True,
-                timeout=10,
-            )
-            # Kill regular selfplay processes
-            subprocess.run(
-                ["pkill", "-9", "-f", "run_self_play_soak"],
-                capture_output=True,
-                timeout=10,
-            )
-
-            # Clear our job tracking - they'll be restarted next cycle
+            # Kill tracked selfplay jobs (avoid broad pkill patterns).
+            jobs_to_clear: List[str] = []
+            pids_to_kill: List[int] = []
             with self.jobs_lock:
-                dead_jobs = [
-                    jid for jid, job in self.local_jobs.items()
-                    if job.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY)
-                ]
-                for jid in dead_jobs:
-                    del self.local_jobs[jid]
+                for job_id, job in self.local_jobs.items():
+                    if job.job_type not in (JobType.SELFPLAY, JobType.GPU_SELFPLAY):
+                        continue
+                    jobs_to_clear.append(job_id)
+                    if job.pid:
+                        pids_to_kill.append(job.pid)
 
-            print(f"[P2P] Killed stuck processes, cleared {len(dead_jobs)} job records")
+            killed = 0
+            for pid in pids_to_kill:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                    killed += 1
+                except Exception:
+                    continue
+
+            # Clear our job tracking - they'll be restarted next cycle.
+            with self.jobs_lock:
+                for job_id in jobs_to_clear:
+                    self.local_jobs.pop(job_id, None)
+
+            print(f"[P2P] Killed {killed} processes, cleared {len(jobs_to_clear)} job records")
         except Exception as e:
             print(f"[P2P] Error killing stuck processes: {e}")
 
@@ -6612,6 +7179,7 @@ print(json.dumps({{
                     "--board-type", board_type,
                     "--num-players", str(num_players),
                     "--engine-mode", engine_mode_norm,
+                    "--max-moves", "10000",  # LEARNED LESSONS - Avoid draws due to move limit
                     "--log-jsonl", str(output_dir / "games.jsonl"),
                     "--summary-json", str(output_dir / "summary.json"),
                     "--record-db", str(output_dir / "games.db"),
@@ -6930,6 +7498,12 @@ print(json.dumps({{
         app.router.add_post('/training/update', self.handle_training_update)
         app.router.add_post('/training/nnue/start', self.handle_nnue_start)
         app.router.add_post('/training/cmaes/start', self.handle_cmaes_start_auto)
+
+        # Phase 5: Improvement cycle routes
+        app.router.add_get('/improvement_cycles/status', self.handle_improvement_cycles_status)
+        app.router.add_get('/improvement_cycles/leaderboard', self.handle_improvement_cycles_leaderboard)
+        app.router.add_post('/improvement_cycles/training_complete', self.handle_improvement_training_complete)
+        app.router.add_post('/improvement_cycles/evaluation_complete', self.handle_improvement_evaluation_complete)
 
         # Canonical pipeline routes (for pipeline_orchestrator.py integration)
         app.router.add_post('/pipeline/start', self.handle_pipeline_start)

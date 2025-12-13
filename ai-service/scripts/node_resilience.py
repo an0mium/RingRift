@@ -77,6 +77,7 @@ class NodeResilience:
     def __init__(self, config: NodeConfig):
         self.config = config
         self.local_selfplay_pids: List[int] = self._discover_fallback_pids()
+        self.gpu_idle_since: Optional[float] = None
         self.last_p2p_check = 0
         self.last_registration = 0
         self.p2p_connected = False
@@ -109,6 +110,26 @@ class NodeResilience:
                     return bool(data.get("healthy"))
                 # Back-compat for older health payloads
                 return data.get("status") == "ok"
+        except Exception:
+            return False
+
+    def check_p2p_managing_jobs(self) -> bool:
+        """Check if P2P is actively managing jobs (to avoid cron conflicts).
+
+        LEARNED LESSONS - Don't start fallback selfplay if P2P is managing jobs,
+        even if P2P health check is slightly delayed. This prevents job conflicts.
+        """
+        try:
+            url = f"http://localhost:{self.config.p2p_port}/status"
+            with urllib.request.urlopen(url, timeout=5) as response:
+                data = json.loads(response.read().decode())
+                # Check if this node has P2P-assigned jobs running
+                selfplay_jobs = data.get("selfplay_jobs", 0)
+                # Check if we're connected to a leader
+                leader_id = data.get("leader_id", "")
+                is_leader = data.get("is_leader", False)
+                # If we have jobs or are leader/connected to leader, P2P is managing
+                return selfplay_jobs > 0 or is_leader or bool(leader_id)
         except Exception:
             return False
 
@@ -289,6 +310,7 @@ class NodeResilience:
                         "--num-players", str(self.config.fallback_num_players),
                         "--num-games", str(self.config.fallback_num_games_gpu),
                         "--batch-size", str(self.config.fallback_batch_size_gpu),
+                        "--max-moves", "10000",  # Avoid draws due to move limit
                         "--output-dir", output_dir,
                         "--seed", str(int(time.time()) + gpu_id),
                     ],
@@ -330,6 +352,7 @@ class NodeResilience:
                         "--board-type", self.config.fallback_board,
                         "--num-players", str(self.config.fallback_num_players),
                         "--engine-mode", "mixed",
+                        "--max-moves", "10000",  # Avoid draws due to move limit
                         "--difficulty-band", "light",
                         "--log-jsonl", log_jsonl,
                         "--summary-json", summary_json,
@@ -349,6 +372,12 @@ class NodeResilience:
 
     def start_local_fallback_work(self) -> None:
         """Start local fallback work when P2P is unavailable."""
+        # LEARNED LESSONS - Don't start fallback if P2P is already managing jobs
+        # This prevents cron conflicts with P2P job management
+        if self.check_p2p_managing_jobs():
+            logger.info("P2P is managing jobs, skipping fallback work")
+            return
+
         # Clean up dead processes
         self.local_selfplay_pids = [
             pid for pid in self.local_selfplay_pids
@@ -477,9 +506,9 @@ class NodeResilience:
                 return True  # Can't check, assume healthy
 
             utilizations = []
-            for line in result.stdout.strip().split('\n'):
+            for line in result.stdout.strip().split("\n"):
                 try:
-                    util = int(line.strip().replace('%', '').replace(' ', ''))
+                    util = int(line.strip().replace("%", "").replace(" ", ""))
                     utilizations.append(util)
                 except ValueError:
                     continue
@@ -487,47 +516,45 @@ class NodeResilience:
             if not utilizations:
                 return True
 
-            # Count selfplay processes
-            selfplay_procs = 0
-            try:
-                ps_result = subprocess.run(
-                    ["pgrep", "-f", "run_gpu_selfplay|run_self_play"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                if ps_result.returncode == 0:
-                    selfplay_procs = len(ps_result.stdout.strip().split('\n'))
-            except Exception:
-                pass
+            # Only consider fallback processes we started/tracked.
+            self.local_selfplay_pids = [
+                pid for pid in self.local_selfplay_pids if self._process_running(pid)
+            ]
+            selfplay_procs = len(self.local_selfplay_pids)
+            if selfplay_procs == 0:
+                self.gpu_idle_since = None
+                return True
 
             # Stuck detection: processes running but all GPUs at 0%
             all_idle = all(u < 2 for u in utilizations)  # Allow 1-2% idle noise
 
             if selfplay_procs > 0 and all_idle:
                 # Track how long GPUs have been idle
-                if not hasattr(self, '_gpu_idle_since'):
-                    self._gpu_idle_since = time.time()
+                if self.gpu_idle_since is None:
+                    self.gpu_idle_since = time.time()
                     logger.warning(f"GPU idle detected: {selfplay_procs} procs, util={utilizations}")
                     return True  # Give it time
 
-                idle_duration = time.time() - self._gpu_idle_since
+                idle_duration = time.time() - self.gpu_idle_since
                 if idle_duration > 300:  # 5 minutes of idle
                     logger.error(f"Stuck processes detected: {selfplay_procs} procs, GPU idle for {idle_duration:.0f}s")
                     logger.info("Killing stuck selfplay processes...")
 
-                    # Kill stuck processes
-                    subprocess.run(["pkill", "-9", "-f", "run_gpu_selfplay"], timeout=10)
-                    subprocess.run(["pkill", "-9", "-f", "run_self_play_soak"], timeout=10)
+                    # Kill tracked fallback processes.
+                    for pid in self.local_selfplay_pids:
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                        except Exception:
+                            continue
 
                     # Reset tracking
-                    self._gpu_idle_since = None
+                    self.gpu_idle_since = None
                     self.local_selfplay_pids = []
 
                     return False
             else:
                 # GPU is working, reset idle tracking
-                self._gpu_idle_since = None
+                self.gpu_idle_since = None
 
             return True
 
