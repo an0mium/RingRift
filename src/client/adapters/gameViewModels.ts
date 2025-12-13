@@ -209,7 +209,7 @@ export interface HUDViewModel {
   /**
    * LPS (Last-Player-Standing) tracking state for UI display.
    * Shows round counter and progress toward LPS victory.
-   * Per RR-CANON-R172, LPS requires 2 consecutive rounds where only 1 player has real actions.
+   * Per RR-CANON-R172, LPS requires 3 consecutive rounds where only 1 player has real actions.
    */
   lpsTracking?:
     | {
@@ -705,7 +705,7 @@ export interface ToHUDViewModelOptions {
   gameEndExplanation?: GameEndExplanation | null | undefined;
   /**
    * Optional LPS tracking state from sandbox engine. Per RR-CANON-R172, LPS
-   * requires 2 consecutive rounds where only 1 player has real actions.
+   * requires 3 consecutive rounds where only 1 player has real actions.
    */
   lpsTracking?:
     | {

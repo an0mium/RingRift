@@ -113,14 +113,14 @@ describe('MobileLpsIndicator', () => {
     expect(indicator).toBeInTheDocument();
     // Mobile shows username + "exclusive" and progress dots with aria-label
     expect(indicator).toHaveTextContent('Alice exclusive');
-    expect(screen.getByLabelText('1 of 2 rounds')).toBeInTheDocument();
+    expect(screen.getByLabelText('1 of 3 rounds')).toBeInTheDocument();
   });
 
-  it('shows LPS at 2 rounds (per RR-CANON-R172)', () => {
+  it('shows LPS at 3 rounds (per RR-CANON-R172)', () => {
     const viewModel = baseHudViewModel({
       lpsTracking: {
-        roundIndex: 7,
-        consecutiveExclusiveRounds: 2,
+        roundIndex: 8,
+        consecutiveExclusiveRounds: 3,
         consecutiveExclusivePlayer: 2,
       },
     });
@@ -128,7 +128,7 @@ describe('MobileLpsIndicator', () => {
 
     const indicator = screen.getByTestId('mobile-lps-indicator');
     expect(indicator).toHaveTextContent('Bob exclusive');
-    expect(screen.getByLabelText('2 of 2 rounds')).toBeInTheDocument();
+    expect(screen.getByLabelText('3 of 3 rounds')).toBeInTheDocument();
   });
 });
 

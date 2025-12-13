@@ -138,7 +138,7 @@ describe('ClientSandboxEngine LPS + Line/Territory Cross-Interaction Scenarios',
 
       // Start of round 3: P1's turn completes round 2
       result = startInteractiveTurn(engineAny, state, 1);
-      expect(result).toBeNull(); // Still no LPS - only 2 consecutive rounds
+      expect(result).toBeNull(); // Still no LPS - need 3 consecutive rounds
 
       // Round 3: P2 -> P3
       result = startInteractiveTurn(engineAny, state, 2);
@@ -211,7 +211,7 @@ describe('ClientSandboxEngine LPS + Line/Territory Cross-Interaction Scenarios',
 
       // Start of round 3 (completes round 2)
       result = startInteractiveTurn(engineAny, state, 1);
-      expect(result).toBeNull(); // Only 2 consecutive rounds - not enough
+      expect(result).toBeNull(); // Only 2 consecutive rounds - need 3
 
       // Round 3
       result = startInteractiveTurn(engineAny, state, 2);
@@ -289,7 +289,7 @@ describe('ClientSandboxEngine LPS + Line/Territory Cross-Interaction Scenarios',
 
       // Start of round 3 (completes round 2)
       result = startInteractiveTurn(engineAny, state, 1);
-      expect(result).toBeNull(); // Only 2 consecutive rounds
+      expect(result).toBeNull(); // Only 2 consecutive rounds - need 3
 
       // Round 3
       result = startInteractiveTurn(engineAny, state, 2);
@@ -376,7 +376,7 @@ describe('ClientSandboxEngine LPS + Line/Territory Cross-Interaction Scenarios',
 
       // Start of round 3 (completes round 2)
       result = startInteractiveTurn(engineAny, state, 1);
-      expect(result).toBeNull(); // Only 2 consecutive rounds
+      expect(result).toBeNull(); // Only 2 consecutive rounds - need 3
 
       // Round 3
       result = startInteractiveTurn(engineAny, state, 2);
@@ -473,7 +473,7 @@ describe('ClientSandboxEngine LPS + Line/Territory Cross-Interaction Scenarios',
 
       // Start of round 3 (completes round 2)
       result = startInteractiveTurn(engineAny, state, 1);
-      expect(result).toBeNull(); // Only 2 consecutive rounds
+      expect(result).toBeNull(); // Only 2 consecutive rounds - need 3
 
       // Round 3
       result = startInteractiveTurn(engineAny, state, 2);

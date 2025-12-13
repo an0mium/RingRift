@@ -203,7 +203,7 @@ export const TEACHING_SCENARIOS: readonly TeachingScenarioMetadata[] = [
     showInSandboxPresets: false,
     showInTutorialCarousel: false,
     learningObjectiveShort:
-      'Understand LPS requires TWO consecutive rounds: first round you have and take real actions while others have none, second round confirms you remain the only active player.',
+      'Understand LPS requires THREE consecutive rounds: across all three rounds you must have and take real actions while others have none, confirming you remain the only active player.',
     difficultyTag: 'intermediate',
   },
 

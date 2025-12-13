@@ -125,7 +125,7 @@ function MobileWeirdStateBanner({
 /**
  * Mobile LPS (Last-Player-Standing) tracking indicator.
  * Compact version showing progress toward LPS victory.
- * Per RR-CANON-R172, LPS requires 2 consecutive rounds where only 1 player has real actions.
+ * Per RR-CANON-R172, LPS requires 3 consecutive rounds where only 1 player has real actions.
  */
 function MobileLpsIndicator({
   lpsTracking,
@@ -143,9 +143,9 @@ function MobileLpsIndicator({
   const exclusivePlayer = players.find((p) => p.playerNumber === consecutiveExclusivePlayer);
   const playerName = exclusivePlayer?.username ?? `P${consecutiveExclusivePlayer}`;
 
-  // Color progression: amber (1), red (2 = victory imminent)
+  // Color progression: amber (1-2), red (3 = victory imminent)
   const colorClass =
-    consecutiveExclusiveRounds >= 2
+    consecutiveExclusiveRounds >= 3
       ? 'border-red-400/80 bg-red-950/80 text-red-50'
       : 'border-amber-400/80 bg-amber-950/80 text-amber-50';
 
@@ -159,8 +159,8 @@ function MobileLpsIndicator({
       <span aria-hidden="true">🏆</span>
       <span className="font-semibold truncate flex-1">{playerName} exclusive</span>
       {/* Progress dots */}
-      <div className="flex gap-0.5" aria-label={`${consecutiveExclusiveRounds} of 2 rounds`}>
-        {[1, 2].map((n) => (
+      <div className="flex gap-0.5" aria-label={`${consecutiveExclusiveRounds} of 3 rounds`}>
+        {[1, 2, 3].map((n) => (
           <span
             key={n}
             className={`w-1.5 h-1.5 rounded-full ${

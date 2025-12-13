@@ -742,7 +742,7 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
 
   // LPS (Last-Player-Standing) tracking for R172 victory condition.
   // This must be kept in sync across move applications to detect when one
-  // player has been the exclusive real-action holder for 2 consecutive rounds.
+  // player has been the exclusive real-action holder for 3 consecutive rounds.
   const lpsState = createLpsTrackingState();
 
   // Helper to build action availability delegates for hasAnyRealAction

@@ -456,7 +456,7 @@ function SubPhaseDetails({ detail }: { detail?: string | undefined }) {
 /**
  * LPS (Last-Player-Standing) tracking indicator.
  * Shows round counter and progress toward LPS victory when a player has consecutive exclusive rounds.
- * Per RR-CANON-R172, LPS requires 2 consecutive rounds where only 1 player has real actions.
+ * Per RR-CANON-R172, LPS requires 3 consecutive rounds where only 1 player has real actions.
  */
 function LpsTrackingIndicator({
   lpsTracking,
@@ -478,15 +478,15 @@ function LpsTrackingIndicator({
   const exclusivePlayer = players.find((p) => p.playerNumber === consecutiveExclusivePlayer);
   const playerName = exclusivePlayer?.username ?? `Player ${consecutiveExclusivePlayer}`;
 
-  // Color progression: amber (1), red (2 = victory imminent)
+  // Color progression: amber (1-2), red (3 = victory imminent)
   const colorClass =
-    consecutiveExclusiveRounds >= 2
+    consecutiveExclusiveRounds >= 3
       ? 'border-red-400/80 bg-red-950/70 text-red-50'
       : 'border-amber-400/80 bg-amber-950/70 text-amber-50';
 
-  const roundsLeft = Math.max(0, 2 - consecutiveExclusiveRounds);
+  const roundsLeft = Math.max(0, 3 - consecutiveExclusiveRounds);
   const statusText =
-    consecutiveExclusiveRounds >= 2
+    consecutiveExclusiveRounds >= 3
       ? 'LPS Victory!'
       : `${roundsLeft} round${roundsLeft !== 1 ? 's' : ''} until LPS`;
 
@@ -503,12 +503,12 @@ function LpsTrackingIndicator({
       <div className="flex-1 min-w-0">
         <div className="font-semibold text-sm">{playerName} has exclusive actions</div>
         <div className="text-[11px] opacity-90">
-          {statusText} • Round {consecutiveExclusiveRounds}/2
+          {statusText} • Round {consecutiveExclusiveRounds}/3
         </div>
       </div>
       {/* Progress dots */}
-      <div className="flex gap-1" aria-label={`${consecutiveExclusiveRounds} of 2 rounds`}>
-        {[1, 2].map((n) => (
+      <div className="flex gap-1" aria-label={`${consecutiveExclusiveRounds} of 3 rounds`}>
+        {[1, 2, 3].map((n) => (
           <span
             key={n}
             className={`w-2 h-2 rounded-full ${
