@@ -2534,6 +2534,28 @@ class NeuralNetAI(BaseAI):
                 board_type,
             )
 
+        # Allow nn_model_id to be an explicit checkpoint path (useful for
+        # evaluation harnesses that want to compare two different checkpoints in
+        # the same process).
+        explicit_checkpoint_path: Optional[str] = None
+        if isinstance(model_id, str) and model_id.endswith(".pth"):
+            from pathlib import Path
+
+            candidate = Path(model_id).expanduser()
+            candidates: list[Path] = []
+            if candidate.is_absolute():
+                candidates.append(candidate)
+            else:
+                candidates.append((Path.cwd() / candidate))
+                candidates.append((Path(self._base_dir) / candidate))
+            for path in candidates:
+                try:
+                    if path.is_file() and path.stat().st_size > 0:
+                        explicit_checkpoint_path = str(path.resolve())
+                        break
+                except OSError:
+                    continue
+
         def _model_id_includes_board_hint(value: str) -> bool:
             lower = value.lower()
             return any(
@@ -2549,22 +2571,28 @@ class NeuralNetAI(BaseAI):
                 )
             )
 
-        # Board-type-specific model path (e.g., ringrift_v4_hex_2p_mps.pth)
+        # When nn_model_id points at an explicit checkpoint file, skip the
+        # model-id resolution logic and treat it as the resolved path.
         board_suffix = ""
-        if not _model_id_includes_board_hint(model_id):
-            if board_type == BoardType.HEXAGONAL:
-                board_suffix = "_hex"
-            elif board_type == BoardType.SQUARE19:
-                board_suffix = "_19x19"
-        # SQUARE8 uses the base model name (legacy compatibility)
-
-        # Architecture-specific checkpoint naming
-        if self.architecture_type == "mps":
-            model_filename = f"{model_id}{board_suffix}_mps.pth"
+        model_path: str
+        if explicit_checkpoint_path is not None:
+            model_path = explicit_checkpoint_path
         else:
-            model_filename = f"{model_id}{board_suffix}.pth"
+            # Board-type-specific model path (e.g., ringrift_v4_hex_2p_mps.pth)
+            if not _model_id_includes_board_hint(model_id):
+                if board_type == BoardType.HEXAGONAL:
+                    board_suffix = "_hex"
+                elif board_type == BoardType.SQUARE19:
+                    board_suffix = "_19x19"
+            # SQUARE8 uses the base model name (legacy compatibility)
 
-        model_path = os.path.join(self._base_dir, "models", model_filename)
+            # Architecture-specific checkpoint naming
+            if self.architecture_type == "mps":
+                model_filename = f"{model_id}{board_suffix}_mps.pth"
+            else:
+                model_filename = f"{model_id}{board_suffix}.pth"
+
+            model_path = os.path.join(self._base_dir, "models", model_filename)
 
         # Resolve a usable checkpoint path before building the model so we can
         # match architecture hyperparameters to the checkpoint metadata.
@@ -2575,36 +2603,38 @@ class NeuralNetAI(BaseAI):
             # tiers are expected to be functional.
             allow_fresh = False
 
-        arch_suffix = "_mps" if self.architecture_type == "mps" else ""
-        other_arch_suffix = "" if arch_suffix == "_mps" else "_mps"
+        chosen_path = explicit_checkpoint_path
+        if chosen_path is None:
+            arch_suffix = "_mps" if self.architecture_type == "mps" else ""
+            other_arch_suffix = "" if arch_suffix == "_mps" else "_mps"
 
-        candidate_filenames = [
-            f"{model_id}{board_suffix}{arch_suffix}.pth",
-            f"{model_id}{board_suffix}{other_arch_suffix}.pth",
-        ]
-        if board_suffix:
-            candidate_filenames.extend(
-                [
-                    f"{model_id}{arch_suffix}.pth",
-                    f"{model_id}{other_arch_suffix}.pth",
-                ]
-            )
+            candidate_filenames = [
+                f"{model_id}{board_suffix}{arch_suffix}.pth",
+                f"{model_id}{board_suffix}{other_arch_suffix}.pth",
+            ]
+            if board_suffix:
+                candidate_filenames.extend(
+                    [
+                        f"{model_id}{arch_suffix}.pth",
+                        f"{model_id}{other_arch_suffix}.pth",
+                    ]
+                )
 
-        seen: set[str] = set()
-        candidate_paths: list[str] = []
-        for filename in candidate_filenames:
-            if filename in seen:
-                continue
-            seen.add(filename)
-            candidate_paths.append(os.path.join(models_dir, filename))
+            seen: set[str] = set()
+            candidate_paths: list[str] = []
+            for filename in candidate_filenames:
+                if filename in seen:
+                    continue
+                seen.add(filename)
+                candidate_paths.append(os.path.join(models_dir, filename))
 
-        def _is_usable_checkpoint(path: str) -> bool:
-            try:
-                return os.path.isfile(path) and os.path.getsize(path) > 0
-            except OSError:
-                return False
+            def _is_usable_checkpoint(path: str) -> bool:
+                try:
+                    return os.path.isfile(path) and os.path.getsize(path) > 0
+                except OSError:
+                    return False
 
-        chosen_path = next((p for p in candidate_paths if _is_usable_checkpoint(p)), None)
+            chosen_path = next((p for p in candidate_paths if _is_usable_checkpoint(p)), None)
         if chosen_path is None:
             import glob
 
@@ -3216,7 +3246,14 @@ class NeuralNetAI(BaseAI):
                 # Try strict loading first
                 # Use actual model class for version validation
                 expected_version = getattr(self.model, "ARCHITECTURE_VERSION", "v2.0.0")
+                # Handle torch.compile() wrapped models - extract original class name
                 expected_class = self.model.__class__.__name__
+                if expected_class == "OptimizedModule":
+                    # torch.compile wraps the model - get original class
+                    if hasattr(self.model, "_orig_mod"):
+                        expected_class = self.model._orig_mod.__class__.__name__
+                    elif hasattr(self.model, "module"):
+                        expected_class = self.model.module.__class__.__name__
                 state_dict, metadata = manager.load_checkpoint(
                     model_path,
                     strict=True,
