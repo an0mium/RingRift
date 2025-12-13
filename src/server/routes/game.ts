@@ -1516,11 +1516,38 @@ router.post(
     }
     const moveInput: MoveInput = moveResult.data;
 
+    // Apply timeout protection to prevent unbounded hangs on lock contention or
+    // rules engine deadlocks. Returns 504 Gateway Timeout if exceeded.
+    const timeoutMs = config.featureFlags.httpMoveHarness.timeoutMs;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('HTTP_MOVE_HARNESS_TIMEOUT')), timeoutMs);
+    });
+
     let rulesResult: import('../game/RulesBackendFacade').RulesResult | undefined;
     try {
-      rulesResult = await wsServerInstance.handlePlayerMoveFromHttp(gameId, userId, moveInput);
+      rulesResult = await Promise.race([
+        wsServerInstance.handlePlayerMoveFromHttp(gameId, userId, moveInput),
+        timeoutPromise,
+      ]);
     } catch (error) {
+      // Handle timeout specifically
       const message = error instanceof Error ? error.message : String(error);
+      if (message === 'HTTP_MOVE_HARNESS_TIMEOUT') {
+        const code = ErrorCodes.SERVER_GATEWAY_TIMEOUT;
+        logger.warn('HTTP move harness request timed out', {
+          gameId,
+          userId,
+          timeoutMs,
+        });
+        res.status(504).json({
+          success: false,
+          error: {
+            code,
+            message: ErrorCodeMessages[code],
+          },
+        });
+        return;
+      }
 
       if (message === 'Database not available') {
         const code = ErrorCodes.SERVER_DATABASE_UNAVAILABLE;

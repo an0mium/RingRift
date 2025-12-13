@@ -25,6 +25,7 @@ jest.mock('../../src/server/config', () => {
         ...actual.config.featureFlags,
         httpMoveHarness: {
           enabled: true,
+          timeoutMs: 30_000,
         },
       },
     },
@@ -36,6 +37,7 @@ jest.mock('../../src/server/config', () => {
 jest.mock('../../src/server/middleware/rateLimiter', () => ({
   consumeRateLimit: jest.fn().mockResolvedValue({ allowed: true }),
   adaptiveRateLimiter: jest.fn(() => (_req: Request, _res: Response, next: () => void) => next()),
+  dataExportRateLimiter: (_req: Request, _res: Response, next: () => void) => next(),
 }));
 
 // Silence HTTP route logging for these tests.

@@ -103,6 +103,8 @@ export const ErrorCodes = {
   SERVER_SERVICE_UNAVAILABLE: 'SERVER_SERVICE_UNAVAILABLE',
   /** Failed to send email */
   SERVER_EMAIL_SEND_FAILED: 'SERVER_EMAIL_SEND_FAILED',
+  /** Request timed out (gateway timeout) */
+  SERVER_GATEWAY_TIMEOUT: 'SERVER_GATEWAY_TIMEOUT',
 
   // ============================================================================
   // AI Service Errors (AI_*)
@@ -203,6 +205,7 @@ export const ErrorCodeToStatus: Record<ErrorCode, number> = {
   [ErrorCodes.SERVER_DATABASE_UNAVAILABLE]: 503,
   [ErrorCodes.SERVER_SERVICE_UNAVAILABLE]: 503,
   [ErrorCodes.SERVER_EMAIL_SEND_FAILED]: 500,
+  [ErrorCodes.SERVER_GATEWAY_TIMEOUT]: 504,
 
   // AI service errors
   [ErrorCodes.AI_SERVICE_TIMEOUT]: 503,
@@ -279,6 +282,7 @@ export const ErrorCodeMessages: Record<ErrorCode, string> = {
   [ErrorCodes.SERVER_DATABASE_UNAVAILABLE]: 'Database not available',
   [ErrorCodes.SERVER_SERVICE_UNAVAILABLE]: 'Service temporarily unavailable',
   [ErrorCodes.SERVER_EMAIL_SEND_FAILED]: 'Failed to send email',
+  [ErrorCodes.SERVER_GATEWAY_TIMEOUT]: 'Request timed out',
 
   // AI service errors
   [ErrorCodes.AI_SERVICE_TIMEOUT]: 'AI service timed out',
@@ -294,7 +298,7 @@ export const ErrorCodeMessages: Record<ErrorCode, string> = {
   [ErrorCodes.GAME_FULL]: 'Game is full',
   [ErrorCodes.GAME_ACCESS_DENIED]: 'Access denied',
   [ErrorCodes.GAME_INVALID_MOVE]: 'Invalid move',
-  [ErrorCodes.GAME_NOT_YOUR_TURN]: "Not your turn",
+  [ErrorCodes.GAME_NOT_YOUR_TURN]: 'Not your turn',
   [ErrorCodes.GAME_ALREADY_ENDED]: 'Game has already ended',
   [ErrorCodes.GAME_AI_UNRATED]: 'AI games cannot be rated',
 

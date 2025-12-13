@@ -389,6 +389,15 @@ export const EnvSchema = z.object({
       return ['1', 'true', 'yes', 'on'].includes(normalized);
     }),
 
+  /**
+   * Timeout for HTTP move harness requests (milliseconds).
+   *
+   * If a move request takes longer than this threshold, the endpoint returns
+   * 504 Gateway Timeout. Prevents unbounded hangs when the game lock or rules
+   * engine deadlocks. Default: 30 seconds.
+   */
+  HTTP_MOVE_HARNESS_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+
   // ===================================================================
   // ORCHESTRATOR ROLLOUT CONFIGURATION
   // ===================================================================

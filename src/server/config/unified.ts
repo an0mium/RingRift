@@ -260,6 +260,11 @@ const ConfigSchema = z.object({
        * surface fully disabled by default.
        */
       enabled: z.boolean(),
+      /**
+       * Request timeout in milliseconds. If handlePlayerMoveFromHttp takes
+       * longer than this threshold, the endpoint returns 504 Gateway Timeout.
+       */
+      timeoutMs: z.number().int().positive(),
     }),
   }),
   orchestrator: z.object({
@@ -363,6 +368,7 @@ const preliminaryConfig = {
     },
     httpMoveHarness: {
       enabled: env.ENABLE_HTTP_MOVE_HARNESS,
+      timeoutMs: env.HTTP_MOVE_HARNESS_TIMEOUT_MS,
     },
   },
 };
