@@ -5111,31 +5111,41 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             return web.json_response({"success": False, "error": str(e)})
 
     async def handle_cmaes_start_auto(self, request: web.Request) -> web.Response:
-        """Handle CMA-ES optimization start request (worker endpoint)."""
+        """Handle CMA-ES optimization start request (worker endpoint).
+
+        Uses GPU-accelerated distributed CMA-ES for fast parallel evaluation.
+        """
         try:
             data = await request.json()
             job_id = data.get("job_id")
             board_type = data.get("board_type", "square8")
             num_players = data.get("num_players", 2)
 
-            # Start CMA-ES optimization subprocess
+            # Start GPU CMA-ES optimization subprocess
             output_dir = os.path.join(
                 self.ringrift_path, "ai-service", "data", "cmaes",
-                f"{board_type}_{num_players}p_auto"
+                f"{board_type}_{num_players}p_auto_{int(time.time())}"
             )
             os.makedirs(output_dir, exist_ok=True)
 
+            # LEARNED LESSONS - Use GPU-accelerated CMA-ES for speed
+            # run_gpu_cmaes.py uses parallel GPU evaluation for fitness
             cmd = [
-                sys.executable, "-m", "scripts.run_iterative_cmaes",
+                sys.executable,
+                os.path.join(self.ringrift_path, "ai-service", "scripts", "run_gpu_cmaes.py"),
                 "--board", board_type,
                 "--num-players", str(num_players),
+                "--generations", "100",  # More generations for better optimization
+                "--population-size", "32",  # Larger population for GPU parallelism
+                "--games-per-eval", "100",  # More games for accurate fitness
+                "--max-moves", "10000",  # Avoid draws due to move limit
                 "--output-dir", output_dir,
-                "--generations-per-iter", "10",
-                "--max-iterations", "3",
+                "--multi-gpu",  # Use all available GPUs
             ]
 
             env = os.environ.copy()
             env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+            env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
 
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -5144,7 +5154,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 env=env,
             )
 
-            print(f"[P2P] Started CMA-ES optimization subprocess (PID {proc.pid}) for job {job_id}")
+            print(f"[P2P] Started GPU CMA-ES optimization subprocess (PID {proc.pid}) for job {job_id}")
 
             # Monitor in background
             asyncio.create_task(self._monitor_training_process(job_id, proc, output_dir))
