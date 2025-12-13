@@ -20,6 +20,12 @@ echo "Setting up node resilience for $NODE_ID"
 echo "Coordinator: $COORDINATOR_URL"
 echo "RingRift dir: $RINGRIFT_DIR"
 
+# Determine whether systemd is actually usable (systemctl may exist in containers).
+HAS_USABLE_SYSTEMD=0
+if command -v systemctl &> /dev/null && [ -d /etc/systemd/system ] && systemctl is-system-running >/dev/null 2>&1; then
+    HAS_USABLE_SYSTEMD=1
+fi
+
 # Try to infer SSH port from distributed_hosts.yaml if not explicitly provided.
 if [ -z "$SSH_PORT" ]; then
     SSH_PORT="$(python3 - "$NODE_ID" "$RINGRIFT_DIR" <<'PY' 2>/dev/null || true
@@ -67,7 +73,7 @@ fi
 echo "Created /etc/ringrift/node.conf"
 
 # Install systemd services if available
-if command -v systemctl &> /dev/null && [ -d /etc/systemd/system ] && systemctl is-system-running >/dev/null 2>&1; then
+if [ "$HAS_USABLE_SYSTEMD" = "1" ]; then
     echo "Installing systemd services..."
 
     # Copy service files
@@ -131,7 +137,7 @@ EOF
 chmod +x /usr/local/bin/ringrift-watchdog
 
 # Add watchdog to crontab if not using systemd
-if ! command -v systemctl &> /dev/null; then
+if [ "$HAS_USABLE_SYSTEMD" != "1" ]; then
     echo "*/2 * * * * root /usr/local/bin/ringrift-watchdog >> $LOG_DIR/watchdog.log 2>&1" >> "$CRON_FILE"
 fi
 
@@ -139,7 +145,7 @@ echo ""
 echo "Node resilience setup complete!"
 echo ""
 echo "To start services now:"
-if command -v systemctl &> /dev/null; then
+if [ "$HAS_USABLE_SYSTEMD" = "1" ]; then
     echo "  systemctl start ringrift-p2p"
     echo "  systemctl start ringrift-resilience"
 else
