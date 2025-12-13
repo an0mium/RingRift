@@ -134,6 +134,14 @@ def _parse_move(move_dict: Dict[str, Any], move_number: int, timestamp: str) -> 
     to_pos = Position(x=to_dict["x"], y=to_dict["y"], z=to_dict.get("z")) if to_dict else None
     capture_target = Position(x=capture_dict["x"], y=capture_dict["y"], z=capture_dict.get("z")) if capture_dict else None
 
+    # For overtaking captures, compute capture_target if not provided
+    # The capture target is the midpoint between from and to (the stack being jumped over)
+    if move_type in (MoveType.OVERTAKING_CAPTURE, MoveType.CONTINUE_CAPTURE_SEGMENT) and capture_target is None:
+        if from_pos and to_pos:
+            mid_x = (from_pos.x + to_pos.x) // 2
+            mid_y = (from_pos.y + to_pos.y) // 2
+            capture_target = Position(x=mid_x, y=mid_y)
+
     return Move(
         id=f"move-{move_number}",
         type=move_type,
@@ -311,17 +319,43 @@ def _expand_gpu_moves_to_canonical(
                     current_state = GameEngine.apply_move(current_state, phase_move)
                     continue
 
+            elif phase == GamePhase.CHAIN_CAPTURE:
+                # Chain capture phase - GPU records all captures as overtaking_capture
+                # but canonical engine expects CONTINUE_CAPTURE_SEGMENT for chain captures
+                if gpu_move.type not in (MoveType.OVERTAKING_CAPTURE, MoveType.CONTINUE_CAPTURE_SEGMENT, MoveType.SKIP_CAPTURE):
+                    # Next GPU move isn't a capture - skip remaining captures
+                    move_num += 1
+                    phase_move = Move(
+                        id=f"move-{move_num}",
+                        type=MoveType.SKIP_CAPTURE,
+                        player=player,
+                        timestamp=gpu_move.timestamp,
+                        think_time=0,
+                        move_number=move_num,
+                    )
+                    expanded_moves.append(phase_move)
+                    current_state = GameEngine.apply_move(current_state, phase_move)
+                    continue
+
             # No phase move needed, break the while loop
             break
 
         if safety_counter >= max_phase_iterations:
             logger.warning(f"Phase handling loop exceeded {max_phase_iterations} iterations, breaking")
 
+        # Determine the correct move type for captures based on phase
+        # GPU records all captures as "overtaking_capture" but canonical engine expects:
+        # - OVERTAKING_CAPTURE in CAPTURE phase (initial capture)
+        # - CONTINUE_CAPTURE_SEGMENT in CHAIN_CAPTURE phase (chain captures)
+        actual_move_type = gpu_move.type
+        if gpu_move.type == MoveType.OVERTAKING_CAPTURE and current_state.current_phase == GamePhase.CHAIN_CAPTURE:
+            actual_move_type = MoveType.CONTINUE_CAPTURE_SEGMENT
+
         # Now apply the actual GPU move with updated move number
         move_num += 1
         gpu_move_updated = Move(
             id=f"move-{move_num}",
-            type=gpu_move.type,
+            type=actual_move_type,
             player=gpu_move.player,
             from_pos=gpu_move.from_pos,
             to=gpu_move.to,
@@ -523,17 +557,10 @@ class GPUSelfPlayGenerator:
                 sys.exit(1)
 
         if output_db:
-            os.makedirs(os.path.dirname(output_db) or ".", exist_ok=True)
-            db = GameReplayDB(output_db)
-            logger.info(f"  Writing to DB: {output_db}")
-
-        # Create initial state for DB storage
-        board_type_str = {8: "square8", 19: "square19", 25: "hexagonal"}.get(self.board_size, "square8")
-        board_type = _get_board_type(board_type_str)
-        initial_state = create_initial_state(
-            board_type=board_type,
-            num_players=self.num_players,
-        )
+            # NOTE: Canonical DB output is disabled for GPU games.
+            # GPU selfplay moves don't map 1:1 to canonical game engine phases.
+            # Use scripts/import_gpu_selfplay_to_db.py for post-hoc conversion.
+            logger.info(f"  Note: DB output not supported for GPU games (use import_gpu_selfplay_to_db.py)")
 
         try:
             for batch_idx in range(num_batches):
@@ -584,43 +611,12 @@ class GPUSelfPlayGenerator:
                     if file_handle:
                         file_handle.write(json.dumps(record) + "\n")
 
-                    # Store to DB in canonical format
-                    if db:
-                        try:
-                            # Parse GPU moves to Move objects
-                            moves_data = results["move_histories"][i]
-                            timestamp = record["timestamp"]
-                            gpu_moves = [
-                                _parse_move(m, j + 1, timestamp)
-                                for j, m in enumerate(moves_data)
-                            ]
-
-                            # Expand GPU moves to canonical format (inserts phase handling moves)
-                            canonical_moves, final_state = _expand_gpu_moves_to_canonical(
-                                gpu_moves, initial_state
-                            )
-
-                            # Store with full state snapshots
-                            metadata = {
-                                "source": "gpu_selfplay",
-                                "termination_reason": record["termination_reason"],
-                                "victory_type": record["victory_type"],
-                                "engine_mode": record["engine_mode"],
-                                "batch_id": record["batch_id"],
-                                "device": record["device"],
-                                "gpu_move_count": len(gpu_moves),
-                                "canonical_move_count": len(canonical_moves),
-                            }
-                            db.store_game(
-                                game_id=record["game_id"],
-                                initial_state=initial_state,
-                                final_state=final_state,
-                                moves=canonical_moves,
-                                metadata=metadata,
-                                store_history_entries=True,
-                            )
-                        except Exception as e:
-                            logger.warning(f"Failed to store game {record['game_id']} to DB: {e}")
+                    # NOTE: DB storage disabled for GPU games.
+                    # GPU selfplay uses simplified move semantics that don't map 1:1 to
+                    # the canonical game engine phases. The JSONL output contains full
+                    # move data sufficient for training. If canonical DB format is needed,
+                    # use scripts/import_gpu_selfplay_to_db.py for post-hoc conversion.
+                    # See GPU_PIPELINE_ROADMAP.md for GPU/canonical parity details.
 
                 # Progress logging
                 if (batch_idx + 1) % progress_interval == 0:
@@ -773,11 +769,9 @@ def run_gpu_selfplay(
 
     # Generate games
     games_file = os.path.join(output_dir, "games.jsonl")
-    db_path = output_db or os.path.join(output_dir, "games.db")
     records = generator.generate_games(
         num_games=num_games,
         output_file=games_file,
-        output_db=db_path,
         progress_interval=10,
     )
 
@@ -809,7 +803,6 @@ def run_gpu_selfplay(
         logger.info(f"  Player {p}: {stats[f'p{p}_win_rate']:.1%}")
     logger.info("")
     logger.info(f"Games saved to: {games_file}")
-    logger.info(f"Games DB saved to: {db_path}")
     logger.info(f"Stats saved to: {stats_file}")
 
     return stats
