@@ -735,6 +735,10 @@ class P2POrchestrator:
         else:
             print(f"[P2P] Auth: disabled (set {AUTH_TOKEN_ENV} to enable)")
 
+    def _is_leader(self) -> bool:
+        """Check if this node is the current cluster leader."""
+        return self.leader_id == self.node_id
+
     def _detect_ringrift_path(self) -> str:
         """Detect the RingRift installation path."""
         # Try common locations
