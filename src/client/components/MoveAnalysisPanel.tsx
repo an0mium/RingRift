@@ -1,6 +1,8 @@
 import type { Move, Player } from '../../shared/types/game';
 import type { PositionEvaluationPayload } from '../../shared/types/websocket';
-import { PLAYER_COLORS } from '../adapters/gameViewModels';
+import { getPlayerColors } from '../adapters/gameViewModels';
+import { useAccessibility } from '../contexts/AccessibilityContext';
+import { getPlayerIndicatorPatternClass } from '../utils/playerTheme';
 
 export interface MoveAnalysis {
   move: Move;
@@ -137,14 +139,17 @@ export function MoveAnalysisPanel({ analysis, players, className = '' }: MoveAna
     );
   }
 
+  const { colorVisionMode } = useAccessibility();
+
   const { move, moveNumber, playerNumber, evaluation, prevEvaluation, thinkTimeMs, engineDepth } =
     analysis;
   const player = players.find((p) => p.playerNumber === playerNumber);
   const playerName = player?.username || `Player ${playerNumber}`;
-  const colors = PLAYER_COLORS[playerNumber as keyof typeof PLAYER_COLORS] ?? {
-    ring: 'bg-slate-300',
-    hex: '#64748b',
-  };
+  const colors = getPlayerColors(playerNumber, colorVisionMode);
+  const patternClasses =
+    colorVisionMode === 'normal'
+      ? ''
+      : `${getPlayerIndicatorPatternClass(playerNumber)} text-black/30`;
 
   const evalResult = calculateEvalDelta(evaluation, prevEvaluation, playerNumber);
   const qualityStyle = evalResult ? getQualityStyle(evalResult.quality) : null;
@@ -169,7 +174,10 @@ export function MoveAnalysisPanel({ analysis, players, className = '' }: MoveAna
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className={`w-3 h-3 rounded-full ${colors.ring}`} aria-hidden="true" />
+          <span
+            className={`w-3 h-3 rounded-full ${colors.ring} ${patternClasses}`}
+            aria-hidden="true"
+          />
           <span className="text-sm font-semibold text-slate-100">{playerName}</span>
           <span className="text-xs text-slate-400">Move #{moveNumber}</span>
         </div>

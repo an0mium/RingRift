@@ -292,6 +292,61 @@ groups:
           runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/RESOURCE_LEAK.md'
           impact: 'Potential resource exhaustion.'
 
+      # -------------------------------------------------------------------------
+      # Cluster Node Memory Pressure
+      # -------------------------------------------------------------------------
+      - alert: ClusterNodeHighMemory
+        expr: ringrift_cluster_node_memory_percent > 85
+        for: 10m
+        labels:
+          severity: warning
+          team: ai
+          component: cluster
+        annotations:
+          summary: 'Cluster node {{ $labels.node_id }} high memory usage ({{ $value | printf "%.1f" }}%)'
+          description: 'Memory usage on cluster node {{ $labels.node_id }} exceeds 85%. Selfplay jobs may be throttled.'
+          runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/CLUSTER_HEALTH.md'
+          impact: 'Reduced selfplay throughput on affected node.'
+
+      - alert: ClusterNodeCriticalMemory
+        expr: ringrift_cluster_node_memory_percent > 95
+        for: 5m
+        labels:
+          severity: critical
+          team: ai
+          component: cluster
+        annotations:
+          summary: 'Cluster node {{ $labels.node_id }} critical memory ({{ $value | printf "%.1f" }}%)'
+          description: 'Memory usage on cluster node {{ $labels.node_id }} exceeds 95%. OOM imminent.'
+          runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/CLUSTER_HEALTH.md'
+          impact: 'Node may OOM and lose in-progress work.'
+
+      - alert: ClusterNodeHighDisk
+        expr: ringrift_cluster_node_disk_percent > 90
+        for: 10m
+        labels:
+          severity: warning
+          team: ai
+          component: cluster
+        annotations:
+          summary: 'Cluster node {{ $labels.node_id }} high disk usage ({{ $value | printf "%.1f" }}%)'
+          description: 'Disk usage on cluster node {{ $labels.node_id }} exceeds 90%. Data writes may fail.'
+          runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/CLUSTER_HEALTH.md'
+          impact: 'Game database writes and model checkpoints may fail.'
+
+      - alert: ClusterNodeHighGPUMemory
+        expr: ringrift_cluster_node_gpu_memory_percent > 90
+        for: 5m
+        labels:
+          severity: warning
+          team: ai
+          component: cluster
+        annotations:
+          summary: 'Cluster node {{ $labels.node_id }} high GPU memory ({{ $value | printf "%.1f" }}%)'
+          description: 'GPU memory usage on cluster node {{ $labels.node_id }} exceeds 90%.'
+          runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/CLUSTER_HEALTH.md'
+          impact: 'Neural network evaluation may fail or slow down.'
+
   # ===========================================================================
   # BUSINESS METRIC ALERTS
   # ===========================================================================
@@ -360,6 +415,58 @@ groups:
           description: 'Median game duration exceeds 1 hour. This may indicate stalled games or unusual gameplay.'
           runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/GAME_HEALTH.md'
           impact: 'Possible resource consumption from orphaned games.'
+
+      # -------------------------------------------------------------------------
+      # Selfplay Game Outcome Alerts
+      # -------------------------------------------------------------------------
+      - alert: SelfplayHighDrawRate
+        expr: |
+          (
+            sum(rate(ringrift_game_outcomes_total{outcome="draw"}[1h]))
+            /
+            (sum(rate(ringrift_games_completed_total[1h])) > 0)
+          ) > 0.5
+        for: 30m
+        labels:
+          severity: warning
+          team: ai
+          component: selfplay
+        annotations:
+          summary: 'High selfplay draw rate ({{ $value | humanizePercentage }})'
+          description: 'More than 50% of selfplay games are ending in draws. This may indicate stale AI or insufficient exploration.'
+          runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/SELFPLAY_HEALTH.md'
+          impact: 'Training data may lack decisive game outcomes, reducing model learning.'
+
+      - alert: SelfplayLowThroughput
+        expr: sum(rate(ringrift_games_completed_total[1h])) * 3600 < 10
+        for: 1h
+        labels:
+          severity: warning
+          team: ai
+          component: selfplay
+        annotations:
+          summary: 'Low selfplay game throughput (<10 games/hour)'
+          description: 'Selfplay is generating fewer than 10 games per hour. Current rate: {{ $value | printf "%.1f" }} games/hour.'
+          runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/SELFPLAY_HEALTH.md'
+          impact: 'Training data generation is slow, delaying model improvement cycles.'
+
+      - alert: SelfplayUnbalancedWinRate
+        expr: |
+          (
+            max(sum by (player_position) (rate(ringrift_game_outcomes_total{outcome=~"player_.*_win"}[6h])))
+            /
+            (min(sum by (player_position) (rate(ringrift_game_outcomes_total{outcome=~"player_.*_win"}[6h]))) > 0)
+          ) > 2
+        for: 2h
+        labels:
+          severity: warning
+          team: ai
+          component: selfplay
+        annotations:
+          summary: 'Unbalanced selfplay win rates by player position'
+          description: 'One player position is winning more than 2x as often as another. This may indicate first-player advantage or evaluation bias.'
+          runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/SELFPLAY_HEALTH.md'
+          impact: 'Training may be biased toward certain player positions.'
 
   # ===========================================================================
   # AI SERVICE ALERTS
@@ -441,6 +548,35 @@ groups:
               - ringrift_ai_fallback_total{reason=~"timeout|connection_refused|service_unavailable|overloaded"}
           runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/AI_ERRORS.md'
           impact: 'AI game experience degraded.'
+
+      # -------------------------------------------------------------------------
+      # Cluster Elo Divergence
+      # -------------------------------------------------------------------------
+      - alert: ClusterEloDivergence
+        expr: ringrift_cluster_elo_divergence_max > 100
+        for: 30m
+        labels:
+          severity: warning
+          team: ai
+          component: cluster
+        annotations:
+          summary: 'Cluster Elo ratings diverging (max diff: {{ $value | printf "%.0f" }})'
+          description: 'Elo ratings between cluster nodes differ by more than 100 points. Run validate_cluster_elo.py --fix to sync.'
+          runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/CLUSTER_ELO.md'
+          impact: 'Model selection may be inconsistent across cluster nodes.'
+
+      - alert: ClusterEloSourceUnreachable
+        expr: ringrift_cluster_elo_source_reachable == 0
+        for: 10m
+        labels:
+          severity: warning
+          team: ai
+          component: cluster
+        annotations:
+          summary: 'Authoritative Elo source (Mac Studio) unreachable'
+          description: 'Cannot reach Mac Studio to validate Elo ratings. Cluster nodes may drift.'
+          runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/CLUSTER_ELO.md'
+          impact: 'Elo validation disabled, ratings may diverge.'
 
   # ===========================================================================
   # DEGRADATION ALERTS

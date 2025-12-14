@@ -17,6 +17,7 @@ import { useMemo, useState, useCallback } from 'react';
 import type { BoardState, GameState, Position, BoardType } from '../../shared/types/game';
 import type { BoardViewModel } from '../adapters/gameViewModels';
 import { toBoardViewModel, deriveBoardDecisionHighlights } from '../adapters/gameViewModels';
+import { useAccessibility } from '../contexts/AccessibilityContext';
 import type { MoveAnimation } from './useMoveAnimation';
 import type { PlayerChoice } from '../../shared/types/game';
 
@@ -125,6 +126,7 @@ const DEFAULT_OVERLAYS: BoardOverlayConfig = {
  * Hook that consolidates BoardView props derivation.
  */
 export function useBoardViewProps(options: UseBoardViewPropsOptions): BoardViewPropsResult | null {
+  const { colorVisionMode } = useAccessibility();
   const {
     gameState,
     selectedPosition,
@@ -162,8 +164,15 @@ export function useBoardViewProps(options: UseBoardViewPropsOptions): BoardViewP
       selectedPosition: effectiveSelectedPosition,
       validTargets,
       decisionHighlights,
+      colorVisionMode,
     });
-  }, [gameState?.board, effectiveSelectedPosition, validTargets, decisionHighlights]);
+  }, [
+    gameState?.board,
+    effectiveSelectedPosition,
+    validTargets,
+    decisionHighlights,
+    colorVisionMode,
+  ]);
 
   // Extract chain capture path
   const chainCapturePath = useMemo(() => {

@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import type { GamePhase, Move, Player } from '../../shared/types/game';
 import type { PositionEvaluationPayload } from '../../shared/types/websocket';
-import { PLAYER_COLORS, PHASE_INFO } from '../adapters/gameViewModels';
+import { getPlayerColors, PHASE_INFO } from '../adapters/gameViewModels';
+import { useAccessibility } from '../contexts/AccessibilityContext';
 import { EvaluationGraph } from './EvaluationGraph';
 import { MoveAnalysisPanel, type MoveAnalysis } from './MoveAnalysisPanel';
+import { getPlayerIndicatorPatternClass } from '../utils/playerTheme';
 
 export interface SpectatorHUDProps {
   /** Current game phase */
@@ -157,13 +159,15 @@ export function SpectatorHUD({
   className = '',
 }: SpectatorHUDProps) {
   const [showAnalysis, setShowAnalysis] = useState(true);
+  const { colorVisionMode } = useAccessibility();
+  const patternClassesForPlayer = (playerNumber: number) =>
+    colorVisionMode === 'normal'
+      ? ''
+      : `${getPlayerIndicatorPatternClass(playerNumber)} text-black/30`;
 
   const currentPlayer = players.find((p) => p.playerNumber === currentPlayerNumber);
   const currentPlayerName = currentPlayer?.username || `Player ${currentPlayerNumber}`;
-  const currentPlayerColors = PLAYER_COLORS[currentPlayerNumber as keyof typeof PLAYER_COLORS] ?? {
-    ring: 'bg-slate-300',
-    hex: '#64748b',
-  };
+  const currentPlayerColors = getPlayerColors(currentPlayerNumber, colorVisionMode);
 
   const phaseDisplay = getPhaseDisplay(phase);
   const phaseInfo = PHASE_INFO[phase];
@@ -209,10 +213,7 @@ export function SpectatorHUD({
     ? players.find((p) => p.playerNumber === activeChoice.playerNumber)
     : null;
   const choicePlayerColors = activeChoice
-    ? (PLAYER_COLORS[activeChoice.playerNumber as keyof typeof PLAYER_COLORS] ?? {
-        ring: 'bg-slate-300',
-        hex: '#64748b',
-      })
+    ? getPlayerColors(activeChoice.playerNumber, colorVisionMode)
     : null;
   const choiceDisplay = activeChoice ? getChoiceDisplay(activeChoice.type) : null;
 
@@ -264,7 +265,9 @@ export function SpectatorHUD({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span
-                className={`w-3 h-3 rounded-full ${choicePlayerColors.ring}`}
+                className={`w-3 h-3 rounded-full ${choicePlayerColors.ring} ${patternClassesForPlayer(
+                  activeChoice.playerNumber
+                )}`}
                 aria-hidden="true"
               />
               <span className="text-sm font-semibold text-amber-100">
@@ -341,7 +344,12 @@ export function SpectatorHUD({
 
         {/* Current Player Indicator */}
         <div className="flex items-center gap-2 p-2 rounded bg-slate-800/60 border border-slate-700">
-          <span className={`w-3 h-3 rounded-full ${currentPlayerColors.ring}`} aria-hidden="true" />
+          <span
+            className={`w-3 h-3 rounded-full ${currentPlayerColors.ring} ${patternClassesForPlayer(
+              currentPlayerNumber
+            )}`}
+            aria-hidden="true"
+          />
           <span className="text-sm font-semibold text-slate-100">{currentPlayerName}</span>
           <span className="text-xs text-slate-400">is playing</span>
         </div>
@@ -358,10 +366,7 @@ export function SpectatorHUD({
         <div className="space-y-2">
           {players.map((player) => {
             const isCurrentPlayer = player.playerNumber === currentPlayerNumber;
-            const colors = PLAYER_COLORS[player.playerNumber as keyof typeof PLAYER_COLORS] ?? {
-              ring: 'bg-slate-300',
-              hex: '#64748b',
-            };
+            const colors = getPlayerColors(player.playerNumber, colorVisionMode);
             const ringsInHand = player.ringsInHand ?? 0;
             const eliminated = player.eliminatedRings ?? 0;
             const territory = player.territorySpaces ?? 0;
@@ -374,7 +379,12 @@ export function SpectatorHUD({
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <span className={`w-2.5 h-2.5 rounded-full ${colors.ring}`} aria-hidden="true" />
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full ${colors.ring} ${patternClassesForPlayer(
+                      player.playerNumber
+                    )}`}
+                    aria-hidden="true"
+                  />
                   <span
                     className={`text-sm ${isCurrentPlayer ? 'font-semibold text-slate-100' : 'text-slate-300'}`}
                   >
@@ -446,10 +456,7 @@ export function SpectatorHUD({
                 recentMoves.map((move, idx) => {
                   const actualIndex = moveHistory.length - recentMoves.length + idx;
                   const isSelected = selectedMoveIndex === actualIndex;
-                  const colors = PLAYER_COLORS[move.player as keyof typeof PLAYER_COLORS] ?? {
-                    ring: 'bg-slate-300',
-                    hex: '#64748b',
-                  };
+                  const colors = getPlayerColors(move.player, colorVisionMode);
 
                   return (
                     <button
@@ -463,7 +470,12 @@ export function SpectatorHUD({
                       }`}
                     >
                       <span className="text-slate-500 w-6">#{actualIndex + 1}</span>
-                      <span className={`w-2 h-2 rounded-full ${colors.ring}`} aria-hidden="true" />
+                      <span
+                        className={`w-2 h-2 rounded-full ${colors.ring} ${patternClassesForPlayer(
+                          move.player
+                        )}`}
+                        aria-hidden="true"
+                      />
                       <span className="text-slate-300 flex-1">
                         {getMoveAnnotation(move, move.player)}
                       </span>

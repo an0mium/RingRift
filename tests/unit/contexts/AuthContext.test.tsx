@@ -16,6 +16,7 @@ import { render, screen, waitFor, act, renderHook } from '@testing-library/react
 import userEvent from '@testing-library/user-event';
 import { AuthProvider, useAuth } from '../../../src/client/contexts/AuthContext';
 import { authApi } from '../../../src/client/services/api';
+import { AUTH_UNAUTHORIZED_EVENT } from '../../../src/client/utils/authEvents';
 import type { User } from '../../../src/shared/types/user';
 
 // Mock the API module
@@ -537,6 +538,31 @@ describe('AuthContext', () => {
       // Empty string is falsy, so should not call getProfile
       expect(mockAuthApi.getProfile).not.toHaveBeenCalled();
       expect(screen.getByTestId('user')).toHaveTextContent('anonymous');
+    });
+
+    it('clears user session on unauthorized event', async () => {
+      const mockUser = createMockUser();
+      localStorageMock['token'] = 'valid-token';
+      mockAuthApi.getProfile.mockResolvedValue(mockUser);
+
+      render(
+        <AuthProvider>
+          <TestConsumer />
+        </AuthProvider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('user')).toHaveTextContent('testuser');
+      });
+
+      act(() => {
+        window.dispatchEvent(new CustomEvent(AUTH_UNAUTHORIZED_EVENT, { detail: { url: '/me' } }));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('user')).toHaveTextContent('anonymous');
+      });
+      expect(localStorageMock['token']).toBeUndefined();
     });
   });
 });

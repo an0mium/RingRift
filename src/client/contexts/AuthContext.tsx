@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { User } from '../../shared/types/user';
 import { authApi } from '../services/api';
+import { AUTH_UNAUTHORIZED_EVENT } from '../utils/authEvents';
 
 interface AuthContextType {
   user: User | null;
@@ -30,8 +31,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Check if user is already logged in
     const token = localStorage.getItem('token');
     if (token) {
-      authApi.getProfile()
-        .then(userData => {
+      authApi
+        .getProfile()
+        .then((userData) => {
           setUser(userData);
         })
         .catch(() => {
@@ -43,6 +45,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } else {
       setIsLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handleUnauthorized = () => {
+      localStorage.removeItem('token');
+      setUser(null);
+    };
+
+    window.addEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
+    return () => window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -87,11 +103,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     updateUser,
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

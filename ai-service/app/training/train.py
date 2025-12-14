@@ -1263,6 +1263,8 @@ def train_model(
     multi_player: bool = False,
     num_players: int = 2,
     model_version: str = 'v2',
+    num_res_blocks: Optional[int] = None,
+    num_filters: Optional[int] = None,
 ):
     """
     Train the RingRift neural network model.
@@ -1487,6 +1489,22 @@ def train_model(
                 f"policy_size={policy_size}"
             )
 
+    # Determine model architecture size (allow CLI override for scaling up)
+    # Default: 12 blocks / 192 filters for v3/hex, 6 blocks / 96 filters for v2
+    if model_version == 'v3' or use_hex_model:
+        effective_blocks = num_res_blocks if num_res_blocks is not None else 12
+        effective_filters = num_filters if num_filters is not None else 192
+    else:
+        effective_blocks = num_res_blocks if num_res_blocks is not None else 6
+        effective_filters = num_filters if num_filters is not None else 96
+
+    # Log architecture size if non-default
+    if (num_res_blocks is not None or num_filters is not None) and (not distributed or is_main_process()):
+        logger.info(
+            f"Using custom architecture: {effective_blocks} residual blocks, "
+            f"{effective_filters} filters"
+        )
+
     # Initialize model based on board type and multi-player mode
     if use_hex_model:
         # HexNeuralNet_v2 for hexagonal boards with multi-player support
@@ -1494,8 +1512,8 @@ def train_model(
         model = HexNeuralNet_v2(
             in_channels=hex_in_channels,
             global_features=20,  # Must match _extract_features() which returns 20 globals
-            num_res_blocks=12,  # v2 uses 12 SE residual blocks
-            num_filters=192,    # v2 uses 192 filters for richer representations
+            num_res_blocks=effective_blocks,
+            num_filters=effective_filters,
             board_size=board_size,
             policy_size=policy_size,
             num_players=hex_num_players,
@@ -1510,11 +1528,14 @@ def train_model(
             history_length=config.history_length,
             policy_size=policy_size,
             num_players=v3_num_players,
+            num_res_blocks=effective_blocks,
+            num_filters=effective_filters,
         )
         if not distributed or is_main_process():
             logger.info(
                 f"Initializing RingRiftCNN_v3 with board_size={board_size}, "
-                f"policy_size={policy_size}, num_players={v3_num_players}"
+                f"policy_size={policy_size}, num_players={v3_num_players}, "
+                f"blocks={effective_blocks}, filters={effective_filters}"
             )
     elif multi_player:
         # Multi-player mode: use RingRiftCNN_v2 with multi-player value loss
@@ -1525,6 +1546,8 @@ def train_model(
             global_features=20,  # Must match _extract_features() which returns 20 globals
             history_length=config.history_length,
             policy_size=policy_size,
+            num_res_blocks=effective_blocks,
+            num_filters=effective_filters,
         )
         if not distributed or is_main_process():
             logger.warning(
@@ -1539,6 +1562,8 @@ def train_model(
             global_features=20,  # Must match _extract_features() which returns 20 globals
             history_length=config.history_length,
             policy_size=policy_size,
+            num_res_blocks=effective_blocks,
+            num_filters=effective_filters,
         )
     model.to(device)
 
@@ -2628,6 +2653,22 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         ),
     )
 
+    # Model architecture size (for scaling up models)
+    parser.add_argument(
+        '--num-res-blocks', type=int, default=None,
+        help=(
+            'Number of SE-Residual blocks in the model. Default: 12 for v3/hex, '
+            '6 for v2. Increase to 20+ for stronger models (AlphaZero uses 19-20).'
+        ),
+    )
+    parser.add_argument(
+        '--num-filters', type=int, default=None,
+        help=(
+            'Number of filters/channels in residual blocks. Default: 192 for v3/hex, '
+            '96 for v2. Increase to 256 for stronger models (AlphaZero uses 256).'
+        ),
+    )
+
     # Multi-player value head
     parser.add_argument(
         '--multi-player',
@@ -2964,6 +3005,8 @@ def main():
         multi_player=args.multi_player,
         num_players=args.num_players,
         model_version=model_version,
+        num_res_blocks=getattr(args, 'num_res_blocks', None),
+        num_filters=getattr(args, 'num_filters', None),
     )
 
 

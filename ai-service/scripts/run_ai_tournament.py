@@ -19,10 +19,11 @@ from app.ai.heuristic_ai import HeuristicAI
 from app.ai.minimax_ai import MinimaxAI
 from app.ai.mcts_ai import MCTSAI
 from app.ai.random_ai import RandomAI
+from app.ai.descent_ai import DescentAI
 from app.rules.default_engine import DefaultRulesEngine
 
 # Map string names to AI classes
-AI_CLASSES = {"Random": RandomAI, "Heuristic": HeuristicAI, "Minimax": MinimaxAI, "MCTS": MCTSAI}
+AI_CLASSES = {"Random": RandomAI, "Heuristic": HeuristicAI, "Minimax": MinimaxAI, "MCTS": MCTSAI, "Descent": DescentAI}
 
 BOARD_TYPES = {"Square8": BoardType.SQUARE8, "Square19": BoardType.SQUARE19, "Hex": BoardType.HEXAGONAL}
 

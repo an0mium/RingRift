@@ -67,6 +67,44 @@ AI_INSTANCE_CACHE_SIZE: Final[Gauge] = Gauge(
     "Current number of cached AI instances in this process.",
 )
 
+# Game outcome metrics
+GAME_OUTCOMES: Final[Counter] = Counter(
+    "ringrift_game_outcomes_total",
+    "Total game outcomes from selfplay, labeled by board_type, num_players, and outcome.",
+    labelnames=("board_type", "num_players", "outcome"),
+)
+
+GAMES_COMPLETED: Final[Counter] = Counter(
+    "ringrift_games_completed_total",
+    "Total completed selfplay games, labeled by board_type and num_players.",
+    labelnames=("board_type", "num_players"),
+)
+
+GAMES_MOVES_TOTAL: Final[Counter] = Counter(
+    "ringrift_games_moves_total",
+    "Total moves across all selfplay games, labeled by board_type and num_players.",
+    labelnames=("board_type", "num_players"),
+)
+
+GAME_DURATION_SECONDS: Final[Histogram] = Histogram(
+    "ringrift_game_duration_seconds",
+    "Duration of selfplay games in seconds.",
+    labelnames=("board_type", "num_players"),
+    buckets=(1, 5, 10, 30, 60, 120, 300, 600),
+)
+
+WIN_RATE_BY_PLAYER: Final[Gauge] = Gauge(
+    "ringrift_win_rate_by_player",
+    "Win rate per player position (0-indexed), updated periodically.",
+    labelnames=("board_type", "num_players", "player_position"),
+)
+
+DRAW_RATE: Final[Gauge] = Gauge(
+    "ringrift_draw_rate",
+    "Draw rate for selfplay games, updated periodically.",
+    labelnames=("board_type", "num_players"),
+)
+
 # Pre-initialize one labeled time series for the core /ai/move metrics so the
 # /metrics endpoint exposes histogram buckets even before the first request.
 # This keeps smoke tests and local Prometheus setups stable.
@@ -88,11 +126,52 @@ def observe_ai_move_start(ai_type: str, difficulty: int) -> tuple[str, str]:
     return ai_type, str(difficulty)
 
 
+def record_game_outcome(
+    board_type: str,
+    num_players: int,
+    winner: int | None,  # None for draw, player index (0-based) for win
+    move_count: int,
+    duration_seconds: float,
+) -> None:
+    """Record metrics for a completed selfplay game.
+
+    Args:
+        board_type: Board type (e.g., 'square8', 'hexagonal')
+        num_players: Number of players (2, 3, or 4)
+        winner: Player index (0-based) who won, or None for draw
+        move_count: Total moves in the game
+        duration_seconds: Game duration in seconds
+    """
+    np_str = str(num_players)
+
+    # Record game completion
+    GAMES_COMPLETED.labels(board_type, np_str).inc()
+
+    # Record outcome
+    if winner is None:
+        GAME_OUTCOMES.labels(board_type, np_str, "draw").inc()
+    else:
+        GAME_OUTCOMES.labels(board_type, np_str, f"player_{winner}_win").inc()
+
+    # Record moves
+    GAMES_MOVES_TOTAL.labels(board_type, np_str).inc(move_count)
+
+    # Record duration
+    GAME_DURATION_SECONDS.labels(board_type, np_str).observe(duration_seconds)
+
+
 __all__ = [
     "AI_MOVE_REQUESTS",
     "AI_MOVE_LATENCY",
     "AI_INSTANCE_CACHE_LOOKUPS",
     "AI_INSTANCE_CACHE_SIZE",
     "PYTHON_INVARIANT_VIOLATIONS",
+    "GAME_OUTCOMES",
+    "GAMES_COMPLETED",
+    "GAMES_MOVES_TOTAL",
+    "GAME_DURATION_SECONDS",
+    "WIN_RATE_BY_PLAYER",
+    "DRAW_RATE",
     "observe_ai_move_start",
+    "record_game_outcome",
 ]

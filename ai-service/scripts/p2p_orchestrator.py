@@ -10623,6 +10623,29 @@ print(json.dumps({{
         except Exception:
             target = 0
 
+        # First, get an overall count using the same mechanism used for cluster
+        # reporting (includes untracked processes).
+        try:
+            selfplay_before, _training_before = self._count_local_jobs()
+        except Exception:
+            selfplay_before = 0
+
+        # Hard shedding (target=0): reuse the existing restart sweep, which
+        # kills both tracked and untracked selfplay processes.
+        if target <= 0:
+            await self._restart_local_stuck_jobs()
+            try:
+                selfplay_after, _training_after = self._count_local_jobs()
+            except Exception:
+                selfplay_after = 0
+            return {
+                "running_before": int(selfplay_before),
+                "running_after": int(selfplay_after),
+                "stopped": max(0, int(selfplay_before) - int(selfplay_after)),
+                "target": 0,
+                "reason": reason,
+            }
+
         with self.jobs_lock:
             running: List[Tuple[str, ClusterJob]] = [
                 (job_id, job)
@@ -10631,11 +10654,10 @@ print(json.dumps({{
                 and job.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY)
             ]
 
-        running_before = len(running)
-        if running_before <= target:
+        if selfplay_before <= target and len(running) <= target:
             return {
-                "running_before": running_before,
-                "running_after": running_before,
+                "running_before": int(selfplay_before),
+                "running_after": int(selfplay_before),
                 "stopped": 0,
                 "target": target,
                 "reason": reason,
@@ -10656,12 +10678,66 @@ print(json.dumps({{
                 except Exception:
                     continue
 
+        # If job tracking was lost, we may still have a large number of
+        # untracked selfplay processes. Best-effort kill enough to hit target.
+        try:
+            selfplay_mid, _training_mid = self._count_local_jobs()
+        except Exception:
+            selfplay_mid = max(0, int(selfplay_before) - stopped)
+
+        if selfplay_mid > target:
+            try:
+                import shutil
+
+                if shutil.which("pgrep"):
+                    pids: List[int] = []
+                    for pattern in (
+                        "run_self_play_soak.py",
+                        "run_gpu_selfplay.py",
+                        "run_hybrid_selfplay.py",
+                        "run_random_selfplay.py",
+                    ):
+                        out = subprocess.run(
+                            ["pgrep", "-f", pattern],
+                            capture_output=True,
+                            text=True,
+                            timeout=5,
+                        )
+                        if out.returncode == 0 and out.stdout.strip():
+                            for token in out.stdout.strip().split():
+                                try:
+                                    pids.append(int(token))
+                                except Exception:
+                                    continue
+
+                    # Kill newest-ish (highest PID) first.
+                    pids = sorted(set(pids), reverse=True)
+                    excess = int(selfplay_mid) - int(target)
+                    killed = 0
+                    for pid in pids:
+                        if killed >= excess:
+                            break
+                        try:
+                            os.kill(pid, signal.SIGTERM)
+                            killed += 1
+                        except Exception:
+                            continue
+                    stopped += killed
+            except Exception:
+                pass
+
         if stopped:
             self._save_state()
+
+        try:
+            selfplay_after, _training_after = self._count_local_jobs()
+        except Exception:
+            selfplay_after = max(0, int(selfplay_before) - stopped)
+
         return {
-            "running_before": running_before,
-            "running_after": max(0, running_before - stopped),
-            "stopped": stopped,
+            "running_before": int(selfplay_before),
+            "running_after": int(selfplay_after),
+            "stopped": int(max(0, int(selfplay_before) - int(selfplay_after))),
             "target": target,
             "reason": reason,
         }

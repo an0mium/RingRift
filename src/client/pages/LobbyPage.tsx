@@ -849,7 +849,10 @@ export default function LobbyPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <div className="p-3 text-sm text-red-300 bg-red-900/40 border border-red-700 rounded-lg">
+              <div
+                className="p-3 text-sm text-red-300 bg-red-900/40 border border-red-700 rounded-lg"
+                role="alert"
+              >
                 {error}
               </div>
             )}
@@ -903,19 +906,23 @@ export default function LobbyPage() {
                     type="number"
                     min={60}
                     max={7200}
+                    inputMode="numeric"
                     className="w-28 px-3 py-2 rounded-lg bg-slate-900 border border-slate-600 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     value={form.initialTime}
                     onChange={(e) => handleChange('initialTime', Number(e.target.value))}
                     title="Initial time in seconds"
+                    aria-label="Initial time (seconds)"
                   />
                   <input
                     type="number"
                     min={0}
                     max={60}
+                    inputMode="numeric"
                     className="w-24 px-3 py-2 rounded-lg bg-slate-900 border border-slate-600 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     value={form.increment}
                     onChange={(e) => handleChange('increment', Number(e.target.value))}
                     title="Increment in seconds per move"
+                    aria-label="Increment per move (seconds)"
                   />
                 </div>
               </div>

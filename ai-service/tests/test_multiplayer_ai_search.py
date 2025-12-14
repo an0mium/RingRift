@@ -248,7 +248,8 @@ class TestThreatOpponentSelection(unittest.TestCase):
         self.assertGreater(default_progress, 0.0)
 
         # Make LPS harder to achieve; progress should decrease accordingly.
-        game_state.lps_rounds_required = 3
+        # Default lps_rounds_required is 3, so we need to increase to 4+ to see a decrease.
+        game_state.lps_rounds_required = 4
         adjusted_progress = victory_progress_for_player(game_state, 3)
         self.assertLess(adjusted_progress, default_progress)
 

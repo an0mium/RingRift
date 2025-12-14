@@ -131,7 +131,10 @@ export const SaveStateDialog: React.FC<SaveStateDialogProps> = ({
         </label>
 
         {error && (
-          <div className="p-3 rounded-lg bg-red-900/30 border border-red-700 text-red-300 text-sm">
+          <div
+            className="p-3 rounded-lg bg-red-900/30 border border-red-700 text-red-300 text-sm"
+            role="alert"
+          >
             {error}
           </div>
         )}

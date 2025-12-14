@@ -18,6 +18,7 @@ import { useMemo } from 'react';
 import type { Position } from '../../shared/types/game';
 import { positionToString } from '../../shared/types/game';
 import type { GameFacade } from './GameFacade';
+import { useAccessibility } from '../contexts/AccessibilityContext';
 import {
   toBoardViewModel,
   toHUDViewModel,
@@ -84,6 +85,7 @@ export function useGamePlayViewModels(
   facade: GameFacade | null,
   options: GamePlayViewModelOptions = {}
 ): GamePlayViewModels {
+  const { colorVisionMode } = useAccessibility();
   const {
     selectedPosition,
     validTargets = [],
@@ -191,8 +193,16 @@ export function useGamePlayViewModels(
       selectedPosition: effectiveSelected,
       validTargets,
       decisionHighlights: mergedHighlights,
+      colorVisionMode,
     });
-  }, [facade?.gameState, facade?.mustMoveFrom, selectedPosition, validTargets, mergedHighlights]);
+  }, [
+    facade?.gameState,
+    facade?.mustMoveFrom,
+    selectedPosition,
+    validTargets,
+    mergedHighlights,
+    colorVisionMode,
+  ]);
 
   // HUD view model
   const hudViewModel = useMemo<HUDViewModel | null>(() => {
@@ -206,6 +216,7 @@ export function useGamePlayViewModels(
       lastHeartbeatAt: null,
       isSpectator: !facade.isPlayer,
       currentUserId: facade.currentUserId,
+      colorVisionMode,
       pendingChoice: facade.decisionState.pendingChoice,
       choiceDeadline: facade.decisionState.choiceDeadline,
       choiceTimeRemainingMs: facade.decisionState.choiceTimeRemainingMs,
@@ -265,6 +276,7 @@ export function useGamePlayViewModels(
     facade?.isMyTurn,
     hasOptionalCapture,
     hasSkipCapture,
+    colorVisionMode,
   ]);
 
   // Victory view model
@@ -276,6 +288,7 @@ export function useGamePlayViewModels(
     return toVictoryViewModel(facade.victoryState, facade.gameState.players, facade.gameState, {
       currentUserId: facade.currentUserId,
       isDismissed: isVictoryModalDismissed,
+      colorVisionMode,
       gameEndExplanation: facade.gameEndExplanation,
     });
   }, [
@@ -284,6 +297,7 @@ export function useGamePlayViewModels(
     facade?.currentUserId,
     facade?.gameEndExplanation,
     isVictoryModalDismissed,
+    colorVisionMode,
   ]);
 
   // Event log view model

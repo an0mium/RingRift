@@ -469,6 +469,35 @@ class FSMOrchestrationResult:
     """Error message if transition failed."""
 
 
+def _did_process_territory_region(game_state: GameState, move: Move) -> bool:
+    """Check if a CHOOSE_TERRITORY_OPTION move actually collapsed any territory.
+
+    Per legacy parity: non-processable territory decisions are a no-op and
+    must NOT end the phase. The player stays in TERRITORY_PROCESSING so hosts
+    can emit NO_TERRITORY_ACTION when no processable regions exist.
+
+    Returns True if the move collapsed at least one space.
+    """
+    board = game_state.board
+
+    # Check if move.to is in collapsed_spaces
+    if move.to is not None:
+        to_key = move.to.to_key()
+        if to_key in board.collapsed_spaces:
+            return True
+
+    # Check disconnected_regions
+    if move.disconnected_regions:
+        for region in move.disconnected_regions:
+            if hasattr(region, "positions"):
+                for pos in region.positions:
+                    pos_key = pos.to_key() if hasattr(pos, "to_key") else f"{pos.x},{pos.y}"
+                    if pos_key in board.collapsed_spaces:
+                        return True
+
+    return False
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # FSM TRANSITION FUNCTION (mirrors TurnStateMachine.transition)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -609,20 +638,29 @@ def compute_fsm_orchestration(
             MoveType.PROCESS_TERRITORY_REGION,
             MoveType.ELIMINATE_RINGS_FROM_STACK,
         ):
-            # Check for more regions
-            territory_moves = GameEngine._get_territory_processing_moves(
-                game_state, current_player
-            )
-            if territory_moves:
-                next_phase = GamePhase.TERRITORY_PROCESSING  # Stay
+            # Per legacy parity: non-processable territory decisions are a no-op
+            # and must NOT end the phase. Stay in TERRITORY_PROCESSING so hosts
+            # can emit NO_TERRITORY_ACTION when no processable regions exist.
+            # Check if this move actually processed territory (collapsed a space).
+            did_process = _did_process_territory_region(game_state, last_move)
+            if not did_process:
+                # No territory was processed - stay in phase for NO_TERRITORY_ACTION
+                next_phase = GamePhase.TERRITORY_PROCESSING
             else:
-                had_action = compute_had_any_action_this_turn(game_state)
-                has_stacks = player_has_stacks_on_board(game_state, current_player)
-                if not had_action and has_stacks:
-                    next_phase = GamePhase.FORCED_ELIMINATION
+                # Check for more regions
+                territory_moves = GameEngine._get_territory_processing_moves(
+                    game_state, current_player
+                )
+                if territory_moves:
+                    next_phase = GamePhase.TERRITORY_PROCESSING  # Stay
                 else:
-                    next_phase = GamePhase.RING_PLACEMENT
-                    next_player = _next_active_player(game_state)
+                    had_action = compute_had_any_action_this_turn(game_state)
+                    has_stacks = player_has_stacks_on_board(game_state, current_player)
+                    if not had_action and has_stacks:
+                        next_phase = GamePhase.FORCED_ELIMINATION
+                    else:
+                        next_phase = GamePhase.RING_PLACEMENT
+                        next_player = _next_active_player(game_state)
 
     elif current_phase == GamePhase.FORCED_ELIMINATION:
         if move_type == MoveType.FORCED_ELIMINATION:

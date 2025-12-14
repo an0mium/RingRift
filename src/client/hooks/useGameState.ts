@@ -15,6 +15,7 @@
 
 import { useMemo } from 'react';
 import { useGame } from '../contexts/GameContext';
+import { useAccessibility } from '../contexts/AccessibilityContext';
 import type { GameState, GameResult, Player, Move } from '../../shared/types/game';
 import type {
   DecisionAutoResolvedMeta,
@@ -157,6 +158,7 @@ export function useGameState(): RawGameState {
  */
 export function useHUDViewModel(options: UseHUDViewModelOptions = {}): HUDViewModel | null {
   const { gameState, victoryState, connectionStatus, lastHeartbeatAt } = useGame();
+  const { colorVisionMode } = useAccessibility();
   const { instruction, currentUserId } = options;
 
   return useMemo(() => {
@@ -171,11 +173,20 @@ export function useHUDViewModel(options: UseHUDViewModelOptions = {}): HUDViewMo
       lastHeartbeatAt,
       isSpectator,
       currentUserId,
+      colorVisionMode,
       victoryState,
     };
 
     return toHUDViewModel(gameState, viewModelOptions);
-  }, [gameState, victoryState, connectionStatus, lastHeartbeatAt, instruction, currentUserId]);
+  }, [
+    gameState,
+    victoryState,
+    connectionStatus,
+    lastHeartbeatAt,
+    instruction,
+    currentUserId,
+    colorVisionMode,
+  ]);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -195,13 +206,14 @@ export function useHUDViewModel(options: UseHUDViewModelOptions = {}): HUDViewMo
  */
 export function useBoardViewModel(options: ToBoardViewModelOptions = {}): BoardViewModel | null {
   const { gameState } = useGame();
+  const { colorVisionMode } = useAccessibility();
   const { selectedPosition, validTargets } = options;
 
   return useMemo(() => {
     if (!gameState?.board) return null;
 
-    return toBoardViewModel(gameState.board, { selectedPosition, validTargets });
-  }, [gameState?.board, selectedPosition, validTargets]);
+    return toBoardViewModel(gameState.board, { selectedPosition, validTargets, colorVisionMode });
+  }, [gameState?.board, selectedPosition, validTargets, colorVisionMode]);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -247,6 +259,7 @@ export function useVictoryViewModel(
   options: UseVictoryViewModelOptions = {}
 ): VictoryViewModel | null {
   const { gameState, victoryState } = useGame();
+  const { colorVisionMode } = useAccessibility();
   const { currentUserId, isDismissed = false } = options;
 
   return useMemo(() => {
@@ -256,8 +269,9 @@ export function useVictoryViewModel(
     return toVictoryViewModel(victoryState, players, gameState ?? undefined, {
       currentUserId,
       isDismissed,
+      colorVisionMode,
     });
-  }, [gameState, victoryState, currentUserId, isDismissed]);
+  }, [gameState, victoryState, currentUserId, isDismissed, colorVisionMode]);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

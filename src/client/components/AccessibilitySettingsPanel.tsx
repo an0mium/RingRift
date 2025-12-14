@@ -9,6 +9,7 @@
  */
 
 import { useAccessibility, type ColorVisionMode } from '../contexts/AccessibilityContext';
+import { getPlayerIndicatorPatternClass } from '../utils/playerTheme';
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -93,20 +94,21 @@ interface ColorPreviewProps {
 
 function ColorPreview({ mode }: ColorPreviewProps) {
   const { getPlayerColor } = useAccessibility();
-  // The preview currently uses the global accessibility state; keep the mode
-  // prop for future per-mode previews and mark it as used for type-checking.
-  void mode;
+  const getPatternClasses = (playerNumber: number) =>
+    mode === 'normal' ? '' : `${getPlayerIndicatorPatternClass(playerNumber)} text-black/30`;
 
   return (
     <div className="flex gap-2 mt-2">
       {[0, 1, 2, 3].map((playerIndex) => (
         <div
           key={playerIndex}
-          className="w-8 h-8 rounded-full border-2 border-slate-600 flex items-center justify-center text-xs font-bold text-white"
+          className={`w-8 h-8 rounded-full border-2 border-slate-600 flex items-center justify-center text-xs font-bold ${getPatternClasses(
+            playerIndex + 1
+          )}`}
           style={{ backgroundColor: getPlayerColor(playerIndex) }}
           title={`Player ${playerIndex + 1}`}
         >
-          {playerIndex + 1}
+          <span className="text-white">{playerIndex + 1}</span>
         </div>
       ))}
     </div>

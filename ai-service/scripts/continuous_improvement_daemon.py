@@ -122,6 +122,43 @@ SYNC_STAGING_FAIL_ON_MISSING = os.environ.get("RINGRIFT_SYNC_STAGING_FAIL_ON_MIS
     "on",
 )
 
+# S3 Backup Configuration
+S3_BACKUP_ENABLED = os.environ.get("RINGRIFT_S3_BACKUP", "").lower() in ("1", "true", "yes", "on")
+S3_BACKUP_INTERVAL_HOURS = float(os.environ.get("RINGRIFT_S3_BACKUP_INTERVAL_HOURS", "6"))
+_last_s3_backup_time: Optional[float] = None
+
+
+def run_s3_backup(models_only: bool = True) -> bool:
+    """Run S3 backup if enabled and interval has passed."""
+    global _last_s3_backup_time
+
+    if not S3_BACKUP_ENABLED:
+        return True
+
+    current_time = time.time()
+    if _last_s3_backup_time is not None:
+        hours_since_backup = (current_time - _last_s3_backup_time) / 3600
+        if hours_since_backup < S3_BACKUP_INTERVAL_HOURS:
+            return True  # Skip, not yet time
+
+    print(f"[Daemon] Running S3 backup (models_only={models_only})...")
+    try:
+        cmd = [sys.executable, str(AI_SERVICE_ROOT / "scripts" / "s3_backup.py")]
+        if models_only:
+            cmd.append("--models-only")
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        if result.returncode == 0:
+            print(f"[Daemon] S3 backup completed successfully")
+            _last_s3_backup_time = current_time
+            return True
+        else:
+            print(f"[Daemon] S3 backup failed: {result.stderr}")
+            return False
+    except Exception as e:
+        print(f"[Daemon] S3 backup error: {e}")
+        return False
+
 
 async def get_p2p_cluster_status() -> Optional[Dict[str, Any]]:
     """Query P2P orchestrator for cluster status and data manifest."""
@@ -329,6 +366,10 @@ class DaemonState:
     # Maps "square8_2p" -> {"last_opt_time": float, "last_opt_games": int, "profile_id": str}
     cmaes_state: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
+    # NNUE Policy training tracking (per board_type/num_players config)
+    # Maps "square8_2p" -> {"last_train_time": float, "last_train_games": int, ...}
+    nnue_policy_state: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
     # Auto-promotion tracking
     last_auto_promote_time: float = 0.0
     total_auto_promotions: int = 0
@@ -365,8 +406,9 @@ def load_state() -> DaemonState:
             state.elo_ratings = data.get("elo_ratings", {})
             state.elo_history = data.get("elo_history", [])
 
-            # Load NNUE and CMAES state
+            # Load NNUE, NNUE Policy, and CMAES state
             state.nnue_state = data.get("nnue_state", {})
+            state.nnue_policy_state = data.get("nnue_policy_state", {})
             state.cmaes_state = data.get("cmaes_state", {})
             state.last_auto_promote_time = data.get("last_auto_promote_time", 0.0)
             state.total_auto_promotions = data.get("total_auto_promotions", 0)
@@ -398,6 +440,7 @@ def save_state(state: DaemonState) -> None:
         "elo_ratings": state.elo_ratings,
         "elo_history": state.elo_history,
         "nnue_state": state.nnue_state,
+        "nnue_policy_state": state.nnue_policy_state,
         "cmaes_state": state.cmaes_state,
         "last_auto_promote_time": state.last_auto_promote_time,
         "total_auto_promotions": state.total_auto_promotions,
@@ -713,6 +756,64 @@ async def run_balanced_selfplay(state: DaemonState, duration_minutes: int = 10) 
                 print(f"[Daemon] Generated {games_generated} {key} games")
             else:
                 print(f"[Daemon] Selfplay failed for {key}: {output[:200]}")
+
+    state.total_games_generated += total_games
+    return total_games
+
+
+# GPU selfplay configuration
+GPU_SELFPLAY_BATCH_SIZE = 100
+GPU_SELFPLAY_MAX_MOVES = 400
+
+
+async def run_gpu_policy_selfplay(state: DaemonState, games_per_config: int = 50) -> int:
+    """Run GPU-accelerated selfplay with policy-guided move selection."""
+    total_games = 0
+
+    for config in BOARD_CONFIGS:
+        key = get_config_key(config["board"], config["players"])
+        policy_model_path = AI_SERVICE_ROOT / "models" / "nnue" / f"nnue_policy_{config['board']}_{config['players']}p.pt"
+        if not policy_model_path.exists():
+            continue
+
+        output_db = AI_SERVICE_ROOT / "data" / "games" / f"gpu_policy_{key}.db"
+        output_dir = AI_SERVICE_ROOT / "data" / "selfplay" / f"daemon_gpu_policy_{key}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        cmd = [
+            sys.executable, "scripts/run_gpu_selfplay.py",
+            "--board", config["board"],
+            "--num-players", str(config["players"]),
+            "--num-games", str(games_per_config),
+            "--batch-size", str(GPU_SELFPLAY_BATCH_SIZE),
+            "--max-moves", str(GPU_SELFPLAY_MAX_MOVES),
+            "--use-policy",
+            "--policy-model", str(policy_model_path),
+            "--output-dir", str(output_dir),
+            "--output-db", str(output_db),
+        ]
+
+        print(f"[Daemon] Running {games_per_config} GPU policy selfplay games for {key}...")
+        success, output = run_command(cmd, timeout=1800)
+
+        if success:
+            games_generated = games_per_config
+            for line in output.split('\n'):
+                if 'Total games:' in line:
+                    try:
+                        games_generated = int(line.split(':')[1].strip())
+                    except (ValueError, IndexError):
+                        pass
+                    break
+
+            total_games += games_generated
+            if key not in state.board_states:
+                state.board_states[key] = BoardTypeState(config["board"], config["players"])
+            state.board_states[key].total_games += games_generated
+            state.board_states[key].games_since_last_training += games_generated
+            print(f"[Daemon] Generated {games_generated} GPU policy games for {key}")
+        else:
+            print(f"[Daemon] GPU policy selfplay failed for {key}: {output[:200]}")
 
     state.total_games_generated += total_games
     return total_games
@@ -1092,6 +1193,14 @@ def print_status(state: DaemonState) -> None:
         games = nnue.get("last_train_games", 0)
         print(f"  {key}: last trained {last_train} at {games} games")
 
+    print("\n--- NNUE Policy Training Status ---")
+    for key, policy in state.nnue_policy_state.items():
+        last_train = datetime.fromtimestamp(policy.get("last_train_time", 0)).strftime("%Y-%m-%d %H:%M") if policy.get("last_train_time") else "never"
+        games = policy.get("last_train_games", 0)
+        acc = policy.get("accuracy")
+        acc_str = f"{acc:.2%}" if acc is not None else "N/A"
+        print(f"  {key}: last trained {last_train} at {games} games, accuracy={acc_str}")
+
     print("\n--- CMAES Heuristic Status ---")
     for key, cmaes in state.cmaes_state.items():
         last_opt = datetime.fromtimestamp(cmaes.get("last_opt_time", 0)).strftime("%Y-%m-%d %H:%M") if cmaes.get("last_opt_time") else "never"
@@ -1225,6 +1334,7 @@ async def check_and_run_nnue_training(state: DaemonState) -> List[str]:
             "--board-type", config["board"],
             "--num-players", str(config["players"]),
             "--epochs", str(NNUE_EPOCHS),
+            "--hidden-dim", "512",  # Larger model - 2x params, better performance
             "--run-dir", str(output_dir),
             "--model-id", nnue_id,
             "--save-path", str(candidate_path),
@@ -1289,6 +1399,182 @@ async def check_and_run_nnue_training(state: DaemonState) -> List[str]:
                     pass
         else:
             print(f"[Daemon] NNUE training failed for {key}: {output[:200]}")
+
+    return trained
+
+
+# =============================================================================
+# NNUE Policy Auto-Training
+# =============================================================================
+
+# Minimum new games before considering NNUE Policy retraining
+NNUE_POLICY_MIN_NEW_GAMES = 5000
+# Minimum time between NNUE Policy training runs (seconds) = 2 hours
+NNUE_POLICY_MIN_INTERVAL = 2 * 60 * 60
+# NNUE Policy training epochs
+NNUE_POLICY_EPOCHS = 20
+# Max samples per training run
+NNUE_POLICY_MAX_SAMPLES = 50000
+
+
+def _nnue_policy_model_id(board: str, num_players: int) -> str:
+    """Get canonical NNUE policy model ID."""
+    return f"nnue_policy_{board}_{num_players}p"
+
+
+def _gate_nnue_policy_report(
+    *,
+    candidate_report: Dict[str, Any],
+    baseline_accuracy: Optional[float],
+) -> Dict[str, Any]:
+    """Decide whether to promote a candidate NNUE policy based on accuracy."""
+    cand_acc_raw = candidate_report.get("final_val_policy_accuracy")
+    cand_acc: Optional[float] = None
+    try:
+        cand_acc = float(cand_acc_raw) if cand_acc_raw is not None else None
+    except (TypeError, ValueError):
+        cand_acc = None
+
+    # If we have no baseline metric, promote by default
+    if baseline_accuracy is None or cand_acc is None:
+        return {
+            "promote": True,
+            "candidate_accuracy": cand_acc,
+            "baseline_accuracy": baseline_accuracy,
+            "reason": "no_baseline_metric" if baseline_accuracy is None else "missing_candidate_metric",
+        }
+
+    # Require strictly higher accuracy
+    promote = cand_acc > baseline_accuracy
+    return {
+        "promote": bool(promote),
+        "candidate_accuracy": cand_acc,
+        "baseline_accuracy": baseline_accuracy,
+        "reason": "improved_accuracy" if promote else "no_accuracy_improvement",
+    }
+
+
+async def check_and_run_nnue_policy_training(state: DaemonState) -> List[str]:
+    """Check if NNUE policy models need retraining and run training if needed.
+
+    Returns list of board config keys that were trained.
+    """
+    trained = []
+    current_time = time.time()
+
+    for config in BOARD_CONFIGS:
+        key = get_config_key(config["board"], config["players"])
+        bs = state.board_states.get(key)
+
+        if not bs:
+            continue
+
+        # Get NNUE policy state for this config
+        policy_state = state.nnue_policy_state.get(key, {
+            "last_train_time": 0,
+            "last_train_games": 0,
+            "model_path": None,
+        })
+
+        # Check if enough time has passed
+        time_since_train = current_time - policy_state.get("last_train_time", 0)
+        if time_since_train < NNUE_POLICY_MIN_INTERVAL:
+            continue
+
+        # Check if enough new games accumulated
+        games_since_train = bs.total_games - policy_state.get("last_train_games", 0)
+        if games_since_train < NNUE_POLICY_MIN_NEW_GAMES:
+            continue
+
+        print(f"[Daemon] NNUE Policy training triggered for {key}: {games_since_train} new games")
+
+        # Find selfplay databases
+        dbs = list(Path(AI_SERVICE_ROOT / "data" / "games").glob("*.db"))
+
+        if not dbs:
+            print(f"[Daemon] No selfplay databases found for NNUE Policy training")
+            continue
+
+        # Run NNUE Policy training
+        output_dir = AI_SERVICE_ROOT / "logs" / "nnue_policy_auto" / f"{key}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        policy_id = _nnue_policy_model_id(config["board"], config["players"])
+        stable_path = AI_SERVICE_ROOT / "models" / "nnue" / f"{policy_id}.pt"
+        prev_path = AI_SERVICE_ROOT / "models" / "nnue" / f"{policy_id}_prev.pt"
+        candidate_path = output_dir / f"{policy_id}_candidate.pt"
+
+        policy_cmd = [
+            sys.executable, "scripts/train_nnue_policy.py",
+            "--db", *[str(db) for db in dbs[:5]],  # Use up to 5 databases
+            "--board-type", config["board"],
+            "--num-players", str(config["players"]),
+            "--epochs", str(NNUE_POLICY_EPOCHS),
+            "--max-samples", str(NNUE_POLICY_MAX_SAMPLES),
+            "--run-dir", str(output_dir),
+            "--model-id", policy_id,
+            "--save-path", str(candidate_path),
+        ]
+
+        success, output = run_command(policy_cmd, timeout=3600)  # 1 hour timeout
+
+        if success:
+            report_path = output_dir / "nnue_policy_training_report.json"
+            report: Dict[str, Any] = {}
+            if report_path.exists():
+                try:
+                    report = json.loads(report_path.read_text())
+                except Exception:
+                    report = {}
+
+            if not candidate_path.exists() or candidate_path.stat().st_size <= 0:
+                print(f"[Daemon] NNUE Policy training reported success but missing candidate: {candidate_path}")
+                continue
+
+            baseline_accuracy: Optional[float] = None
+            baseline_record = state.nnue_policy_state.get(key) or {}
+            try:
+                raw = baseline_record.get("accuracy")
+                baseline_accuracy = float(raw) if raw is not None else None
+            except (TypeError, ValueError):
+                baseline_accuracy = None
+
+            gate = _gate_nnue_policy_report(candidate_report=report, baseline_accuracy=baseline_accuracy)
+            should_promote = bool(gate.get("promote", False))
+
+            if should_promote:
+                # Snapshot prior stable model for rollback
+                if stable_path.exists() and stable_path.stat().st_size > 0:
+                    try:
+                        _atomic_copy(stable_path, prev_path)
+                    except Exception as e:
+                        print(f"[Daemon] Warning: failed to backup NNUE policy baseline: {e}")
+
+                try:
+                    _atomic_copy(candidate_path, stable_path)
+                except Exception as e:
+                    print(f"[Daemon] NNUE Policy promotion copy failed for {key}: {e}")
+                    continue
+
+                # Update NNUE Policy state
+                state.nnue_policy_state[key] = {
+                    "last_train_time": current_time,
+                    "last_train_games": bs.total_games,
+                    "model_path": str(stable_path),
+                    "accuracy": gate.get("candidate_accuracy"),
+                    "baseline_accuracy": gate.get("baseline_accuracy"),
+                    "gate_reason": gate.get("reason"),
+                }
+                trained.append(key)
+                print(f"[Daemon] NNUE Policy promoted for {key} ({gate.get('reason')})")
+            else:
+                print(f"[Daemon] NNUE Policy not promoted for {key} ({gate.get('reason')})")
+                try:
+                    candidate_path.unlink()
+                except Exception:
+                    pass
+        else:
+            print(f"[Daemon] NNUE Policy training failed for {key}: {output[:200]}")
 
     return trained
 
@@ -1489,6 +1775,14 @@ async def daemon_cycle(state: DaemonState) -> bool:
                 state.total_games_generated += asymmetric_games
             print(f"[Daemon] Generated {games} total games (including asymmetric)")
 
+        # Phase 1c: GPU policy-guided selfplay (every 4th cycle when policy models exist)
+        if state.total_cycles % 4 == 0:
+            print("[Daemon] Phase 1c: Running GPU policy-guided selfplay...")
+            gpu_policy_games = await run_gpu_policy_selfplay(state, games_per_config=50)
+            if gpu_policy_games > 0:
+                games += gpu_policy_games
+                print(f"[Daemon] Generated {gpu_policy_games} GPU policy-guided games")
+
         # Phase 2: Check and run training
         print("[Daemon] Phase 2: Checking training thresholds...")
         trained_models = await check_and_run_training(state)
@@ -1513,13 +1807,21 @@ async def daemon_cycle(state: DaemonState) -> bool:
         if promotions > 0:
             maybe_sync_staging("auto_promotion")
 
-        # Phase 6: NNUE retraining (when enough new games accumulated)
+        # Phase 6a: NNUE (value) retraining (when enough new games accumulated)
         if state.total_cycles % 5 == 0:
-            print("[Daemon] Phase 6: Checking NNUE retraining thresholds...")
+            print("[Daemon] Phase 6a: Checking NNUE retraining thresholds...")
             nnue_trained = await check_and_run_nnue_training(state)
             if nnue_trained:
                 print(f"[Daemon] NNUE models retrained for: {', '.join(nnue_trained)}")
                 maybe_sync_staging("nnue_training")
+
+        # Phase 6b: NNUE Policy retraining (when enough new games accumulated)
+        if state.total_cycles % 5 == 0:
+            print("[Daemon] Phase 6b: Checking NNUE Policy retraining thresholds...")
+            policy_trained = await check_and_run_nnue_policy_training(state)
+            if policy_trained:
+                print(f"[Daemon] NNUE Policy models retrained for: {', '.join(policy_trained)}")
+                maybe_sync_staging("nnue_policy_training")
 
         # Phase 7: CMAES heuristic optimization (when enough new games accumulated)
         if state.total_cycles % 15 == 0:
@@ -1535,6 +1837,9 @@ async def daemon_cycle(state: DaemonState) -> bool:
         # Reset failure counter on success
         state.consecutive_failures = 0
         save_state(state)
+
+        # Run S3 backup if enabled and interval has passed
+        run_s3_backup(models_only=True)
 
         return True
 

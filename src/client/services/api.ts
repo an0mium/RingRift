@@ -9,6 +9,7 @@ import {
   Move,
 } from '../../shared/types/game';
 import { readEnv } from '../../shared/utils/envFlags';
+import { AUTH_UNAUTHORIZED_EVENT } from '../utils/authEvents';
 
 /**
  * Response format for game history endpoint
@@ -217,7 +218,15 @@ api.interceptors.response.use(
       const isRulesUxTelemetryEndpoint = url.startsWith('/telemetry/rules-ux');
 
       if (!isGameEndpoint && !isAuthEndpoint && !isRulesUxTelemetryEndpoint) {
-        window.location.href = '/login';
+        try {
+          window.dispatchEvent(
+            new CustomEvent(AUTH_UNAUTHORIZED_EVENT, {
+              detail: { url },
+            })
+          );
+        } catch {
+          window.location.href = '/login';
+        }
       }
     }
     return Promise.reject(error);

@@ -41,10 +41,12 @@ Semantics must always match:
 - For 4-player games, threshold increases further: 30 (8×8), 120 (19×19), 160 (hexagonal).
 - A player wins by **Ring Elimination** when their credited eliminated rings reach or exceed this threshold.
 
-**Territory threshold (R062, R140–R145)**
+**Territory threshold (R062-v2, R140–R145)**
 
-- Let `totalSpaces` be the board’s cell count.
-- Territory victory threshold is `floor(totalSpaces / 2) + 1`.
+- Let `totalSpaces` be the board's cell count.
+- Territory victory requires BOTH conditions (RR-CANON-R062-v2):
+  1. `territorySpaces >= floor(totalSpaces / numPlayers) + 1` (your "fair share" minimum), AND
+  2. `territorySpaces > sum of all opponents' territory` (dominance over opponents)
 - Territory victory uses **territory spaces**, not raw markers or stacks.
 
 **Real moves vs forced elimination (R070–R072, R170–R173)**

@@ -74,9 +74,9 @@ except ImportError:
 # Board configurations with appropriate max moves
 BOARD_CONFIGS: Dict[str, Dict[int, int]] = {
     # board_type: {num_players: max_moves}
-    "square8": {2: 200, 3: 250, 4: 300},
-    "square19": {2: 1200, 3: 1400, 4: 1600},
-    "hexagonal": {2: 1200, 3: 1400, 4: 1600},
+    "square8": {2: 400, 3: 600, 4: 800},
+    "square19": {2: 2000, 3: 3000, 4: 4000},
+    "hexagonal": {2: 2000, 3: 3000, 4: 4000},
 }
 
 # Memory requirements per board type (in GB)

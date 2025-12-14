@@ -95,6 +95,7 @@ export default function ProfilePage() {
             </div>
             {!isEditing && currentUser?.id === profile.id && (
               <button
+                type="button"
                 onClick={() => setIsEditing(true)}
                 className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium transition-colors"
               >
@@ -106,8 +107,14 @@ export default function ProfilePage() {
           {isEditing ? (
             <form onSubmit={handleUpdateProfile} className="space-y-4 max-w-md">
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Username</label>
+                <label
+                  htmlFor="profile-username"
+                  className="block text-sm font-medium text-slate-300 mb-1"
+                >
+                  Username
+                </label>
                 <input
+                  id="profile-username"
                   type="text"
                   value={editForm.username}
                   onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
@@ -116,7 +123,11 @@ export default function ProfilePage() {
                   maxLength={20}
                 />
               </div>
-              {error && <p className="text-red-400 text-sm">{error}</p>}
+              {error && (
+                <p className="text-red-400 text-sm" role="alert">
+                  {error}
+                </p>
+              )}
               <div className="flex gap-3">
                 <button
                   type="submit"

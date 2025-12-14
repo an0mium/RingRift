@@ -30,6 +30,7 @@ import {
   CreateGameRequest,
 } from '../../shared/types/game';
 import { useAuth } from '../contexts/AuthContext';
+import { useAccessibility } from '../contexts/AccessibilityContext';
 import {
   useSandbox,
   LocalConfig,
@@ -337,6 +338,7 @@ const PHASE_COPY: Record<
 export const SandboxGameHost: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { colorVisionMode } = useAccessibility();
   const { shouldShowWelcome, markWelcomeSeen, markGameCompleted, isFirstTimePlayer } =
     useFirstTimePlayer();
 
@@ -1601,6 +1603,7 @@ export const SandboxGameHost: React.FC = () => {
         selectedPosition: selected,
         validTargets: displayedValidTargets,
         decisionHighlights,
+        colorVisionMode,
       })
     : null;
 
@@ -1649,6 +1652,7 @@ export const SandboxGameHost: React.FC = () => {
         {
           currentUserId: user?.id,
           isDismissed: isSandboxVictoryModalDismissed,
+          colorVisionMode,
           gameEndExplanation: sandboxGameEndExplanation,
         }
       )
@@ -1672,6 +1676,7 @@ export const SandboxGameHost: React.FC = () => {
         lastHeartbeatAt: null,
         isSpectator: false,
         currentUserId: user?.id,
+        colorVisionMode,
         pendingChoice: activePendingChoice,
         choiceDeadline: null,
         choiceTimeRemainingMs: sandboxDecisionTimeRemainingMs,

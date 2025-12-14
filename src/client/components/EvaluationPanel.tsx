@@ -1,7 +1,8 @@
 import React from 'react';
 import type { PositionEvaluationPayload } from '../../shared/types/websocket';
 import type { Player } from '../../shared/types/game';
-import { PLAYER_COLORS } from '../adapters/gameViewModels';
+import { getPlayerColors } from '../adapters/gameViewModels';
+import { useAccessibility } from '../contexts/AccessibilityContext';
 
 export interface EvaluationPanelProps {
   evaluationHistory: PositionEvaluationPayload['data'][];
@@ -14,6 +15,7 @@ export function EvaluationPanel({
   players,
   className = '',
 }: EvaluationPanelProps) {
+  const { colorVisionMode } = useAccessibility();
   const latest =
     evaluationHistory && evaluationHistory.length > 0
       ? evaluationHistory[evaluationHistory.length - 1]
@@ -72,10 +74,7 @@ export function EvaluationPanel({
     const series = Array.from(playerNumbers)
       .sort((a, b) => a - b)
       .map((playerNumber) => {
-        const colors = PLAYER_COLORS[playerNumber as keyof typeof PLAYER_COLORS] ?? {
-          ring: 'bg-slate-300',
-          hex: '#64748b',
-        };
+        const colors = getPlayerColors(playerNumber, colorVisionMode);
 
         const points: string[] = [];
         evaluationHistory.forEach((snapshot, index) => {
@@ -116,7 +115,7 @@ export function EvaluationPanel({
     }
 
     return { width, height, series };
-  }, [evaluationHistory, players]);
+  }, [evaluationHistory, players, colorVisionMode]);
 
   return (
     <div
@@ -162,10 +161,7 @@ export function EvaluationPanel({
 
                 const player = playerByNumber.get(playerNumber);
                 const name = player?.username || `P${playerNumber}`;
-                const colors = PLAYER_COLORS[playerNumber as keyof typeof PLAYER_COLORS] ?? {
-                  ring: 'bg-slate-300',
-                  hex: '#64748b',
-                };
+                const colors = getPlayerColors(playerNumber, colorVisionMode);
 
                 const total = ev.totalEval ?? 0;
                 const territory = ev.territoryEval ?? 0;

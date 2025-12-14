@@ -35,6 +35,7 @@ import {
   deriveBoardDecisionHighlights,
 } from '../adapters/gameViewModels';
 import { useAuth } from '../contexts/AuthContext';
+import { useAccessibility } from '../contexts/AccessibilityContext';
 import { useGame } from '../contexts/GameContext';
 import { getGameOverBannerText } from '../utils/gameCopy';
 import { formatPosition } from '../../shared/engine/notation';
@@ -508,6 +509,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
   const { shakingCellKey, triggerInvalidMove } = useInvalidMoveFeedback();
 
   const isMobile = useIsMobile();
+  const { colorVisionMode } = useAccessibility();
 
   // DecisionUI: pending choice state + countdown timer
   const {
@@ -1444,6 +1446,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     selectedPosition: selected || backendMustMoveFrom,
     validTargets,
     decisionHighlights,
+    colorVisionMode,
   });
 
   let hudViewModel = toHUDViewModel(gameState, {
@@ -1452,6 +1455,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     lastHeartbeatAt,
     isSpectator: !isPlayer,
     currentUserId: user?.id,
+    colorVisionMode,
     pendingChoice,
     choiceDeadline,
     choiceTimeRemainingMs: reconciledDecisionTimeRemainingMs,
@@ -1636,6 +1640,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
   const victoryViewModel = toVictoryViewModel(victoryState, gameState.players, gameState, {
     currentUserId: user?.id,
     isDismissed: isVictoryModalDismissed,
+    colorVisionMode,
     gameEndExplanation,
   });
 
@@ -2034,6 +2039,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 placeholder="Type a message..."
+                aria-label="Chat message"
                 className="flex-1 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-emerald-500"
               />
               <button

@@ -22,8 +22,9 @@ import {
 } from '../../shared/engine/weirdStateReasons';
 import { logRulesUxEvent, newOverlaySessionId } from '../utils/rulesUxTelemetry';
 import type { GameEndExplanation } from '../../shared/engine/gameEndExplanation';
-import { PLAYER_COLOR_PALETTES } from '../contexts/AccessibilityContext';
+import { useAccessibility } from '../contexts/AccessibilityContext';
 import { Dialog } from './ui/Dialog';
+import { getPlayerIndicatorPatternClass, getPlayerTheme } from '../utils/playerTheme';
 
 /**
  * Status of a pending rematch request.
@@ -143,6 +144,13 @@ function FinalStatsTable({
   stats: PlayerFinalStatsViewModel[];
   winner?: PlayerViewModel | undefined;
 }) {
+  const { colorVisionMode } = useAccessibility();
+  const patternClassesForPlayer = (playerNumber: number) =>
+    colorVisionMode === 'normal'
+      ? ''
+      : `${getPlayerIndicatorPatternClass(playerNumber)} text-black/30`;
+  const playerHex = (playerNumber: number) => getPlayerTheme(playerNumber, colorVisionMode).hex;
+
   // Sort by winner first, then by rings eliminated (descending)
   const sortedStats = [...stats].sort((a, b) => {
     if (a.isWinner && !b.isWinner) return -1;
@@ -175,9 +183,11 @@ function FinalStatsTable({
               <td className="px-4 py-3">
                 <div className="flex items-center gap-2">
                   <div
-                    className="w-4 h-4 rounded-full border border-slate-400"
+                    className={`w-4 h-4 rounded-full border border-slate-400 ${patternClassesForPlayer(
+                      stat.player.playerNumber
+                    )}`}
                     style={{
-                      backgroundColor: getPlayerColor(stat.player.playerNumber),
+                      backgroundColor: playerHex(stat.player.playerNumber),
                     }}
                   />
                   <span className="text-slate-100">
@@ -226,15 +236,6 @@ function GameSummary({ summary }: { summary: VictoryViewModel['gameSummary'] }) 
       )}
     </div>
   );
-}
-
-/**
- * Get player color based on player number
- */
-function getPlayerColor(playerNumber: number): string {
-  const colors = PLAYER_COLOR_PALETTES.normal; // emerald, sky, amber, fuchsia
-  const safePlayerNumber = Number.isFinite(playerNumber) ? Math.max(1, playerNumber) : 1;
-  return colors[(safePlayerNumber - 1) % colors.length];
 }
 
 /**
@@ -411,6 +412,7 @@ export function VictoryModal({
   const overlaySessionIdRef = useRef<string | null>(null);
   const weirdStateImpressionLoggedRef = useRef<string | null>(null);
   const { currentTopic, isOpen: isTeachingOpen, showTopic, hideTopic } = useTeachingOverlay();
+  const { colorVisionMode } = useAccessibility();
 
   // Reset per-session impression tracking whenever the modal closes.
   useEffect(() => {
@@ -432,6 +434,7 @@ export function VictoryModal({
       toVictoryViewModel(effectiveGameResultLocal, effectivePlayersLocal, gameState, {
         currentUserId,
         isDismissed: false,
+        colorVisionMode,
         gameEndExplanation,
       });
 
@@ -497,6 +500,7 @@ export function VictoryModal({
     viewModel,
     gameEndExplanation,
     currentUserId,
+    colorVisionMode,
     isSandbox,
   ]);
 
@@ -510,6 +514,7 @@ export function VictoryModal({
     toVictoryViewModel(effectiveGameResult, effectivePlayers, gameState, {
       currentUserId,
       isDismissed: false,
+      colorVisionMode,
       gameEndExplanation,
     });
 

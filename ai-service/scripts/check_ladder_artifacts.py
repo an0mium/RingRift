@@ -8,7 +8,9 @@ It is intended for:
   - Local dev sanity checks after training/promotion.
   - CI / deployment scripts that want a simple exit code without running the server.
 
-It does not load models; it only checks configuration and file presence.
+By default it does not load models; it only checks configuration and file
+presence. Use ``--load-checkpoints`` to also verify that CNN checkpoints are
+actually loadable (catches truncated/corrupted .pth files).
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -27,6 +30,12 @@ from app.ai.heuristic_weights import HEURISTIC_WEIGHT_PROFILES
 from app.ai.nnue import get_nnue_model_path
 from app.config.ladder_config import get_effective_ladder_config, list_ladder_tiers
 from app.models import AIType, BoardType
+
+
+@dataclass(frozen=True)
+class _CheckpointLoadResult:
+    ok: bool
+    error: Optional[str] = None
 
 
 def _resolve_latest_checkpoint(models_dir: Path, model_id: str) -> Optional[Path]:
@@ -53,6 +62,24 @@ def _resolve_latest_checkpoint(models_dir: Path, model_id: str) -> Optional[Path
     return None
 
 
+def _try_load_checkpoint(path: Path) -> _CheckpointLoadResult:
+    """Best-effort checkpoint integrity check.
+
+    Uses ``torch.load(..., weights_only=False)`` because RingRift checkpoints can
+    include lightweight metadata alongside tensor weights.
+    """
+    try:
+        import torch  # type: ignore
+    except Exception as exc:
+        return _CheckpointLoadResult(ok=False, error=f"torch_import_failed: {exc}")
+
+    try:
+        _ = torch.load(str(path), map_location="cpu", weights_only=False)
+        return _CheckpointLoadResult(ok=True, error=None)
+    except Exception as exc:
+        return _CheckpointLoadResult(ok=False, error=f"{type(exc).__name__}: {exc}")
+
+
 def _parse_board(value: Optional[str]) -> Optional[BoardType]:
     if not value:
         return None
@@ -76,6 +103,19 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--num-players", type=int, default=None, help="Filter by num players (2/3/4).")
     parser.add_argument("--difficulty", type=int, default=None, help="Filter by difficulty (1..10).")
     parser.add_argument("--fail-on-missing", action="store_true", help="Exit non-zero when any artifacts are missing.")
+    parser.add_argument(
+        "--load-checkpoints",
+        action="store_true",
+        help=(
+            "Attempt to load CNN checkpoints with torch.load to catch corrupted/truncated files. "
+            "Adds `corrupt_neural_checkpoints` to the summary and marks per-tier artifacts."
+        ),
+    )
+    parser.add_argument(
+        "--fail-on-corrupt",
+        action="store_true",
+        help="When used with --load-checkpoints, exit non-zero if any CNN checkpoint fails to load.",
+    )
     parser.add_argument("--json", action="store_true", help="Emit JSON summary instead of human text.")
     parser.add_argument("--verbose", action="store_true", help="Include per-tier details.")
     args = parser.parse_args(argv)
@@ -99,6 +139,7 @@ def main(argv: list[str]) -> int:
     missing_profiles = 0
     missing_nnue = 0
     missing_nn = 0
+    corrupt_nn = 0
 
     def _difficulty_matches(level: int) -> bool:
         return difficulty is None or level == difficulty
@@ -156,11 +197,22 @@ def main(argv: list[str]) -> int:
             exists = checkpoint is not None
             if not exists:
                 missing_nn += 1
-            artifacts["neural_net"] = {
+            neural_artifact: Dict[str, Any] = {
                 "model_id": eff.model_id,
                 "chosen": str(checkpoint) if checkpoint is not None else None,
                 "exists": exists,
             }
+            if exists and args.load_checkpoints and checkpoint is not None:
+                load_result = _try_load_checkpoint(checkpoint)
+                neural_artifact.update(
+                    {
+                        "loadable": bool(load_result.ok),
+                        "load_error": load_result.error,
+                    }
+                )
+                if not load_result.ok:
+                    corrupt_nn += 1
+            artifacts["neural_net"] = neural_artifact
 
         row = {
             "difficulty": eff.difficulty,
@@ -186,6 +238,7 @@ def main(argv: list[str]) -> int:
             "missing_heuristic_profiles": missing_profiles,
             "missing_nnue_checkpoints": missing_nnue,
             "missing_neural_checkpoints": missing_nn,
+            "corrupt_neural_checkpoints": corrupt_nn,
         },
     }
 
@@ -200,6 +253,8 @@ def main(argv: list[str]) -> int:
     missing_total = missing_profiles + missing_nnue + missing_nn
     if args.fail_on_missing and missing_total > 0:
         return 2
+    if args.load_checkpoints and args.fail_on_corrupt and corrupt_nn > 0:
+        return 3
     return 0
 
 

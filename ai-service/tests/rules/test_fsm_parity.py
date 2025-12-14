@@ -290,17 +290,22 @@ class TestFSMParityTerritoryProcessing:
         assert legacy_phase == GamePhase.RING_PLACEMENT
         assert legacy_player == 2
 
-    def test_choose_territory_option_empty_board_ends_turn(self):
-        """CHOOSE_TERRITORY_OPTION on empty board should end turn."""
+    def test_choose_territory_option_empty_board_stays_in_phase(self):
+        """CHOOSE_TERRITORY_OPTION on empty board stays in TERRITORY_PROCESSING.
+
+        Per legacy behavior: non-processable territory decisions are a no-op
+        and must NOT end the phase. The player stays in TERRITORY_PROCESSING
+        so hosts can emit NO_TERRITORY_ACTION when no processable regions exist.
+        """
         state = _make_game_state(GamePhase.TERRITORY_PROCESSING, current_player=1)
         move = _make_move(MoveType.CHOOSE_TERRITORY_OPTION, player=1)
 
         fsm_result, legacy_phase, legacy_player, parity_ok = _run_parity_check(state, move)
 
         assert parity_ok, f"FSM: {fsm_result.next_phase}/{fsm_result.next_player}, Legacy: {legacy_phase}/{legacy_player}"
-        # Empty board: no more regions → turn ends
-        assert fsm_result.next_phase == GamePhase.RING_PLACEMENT
-        assert fsm_result.next_player == 2
+        # Empty board: no territory was processed, stay in phase for NO_TERRITORY_ACTION
+        assert legacy_phase == GamePhase.TERRITORY_PROCESSING
+        assert legacy_player == 1
 
 
 class TestFSMParityForcedElimination:

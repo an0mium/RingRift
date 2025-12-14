@@ -159,9 +159,15 @@ def test_territory_processing_q23_region_property(
     terr_moves = GameEngine._get_territory_processing_moves(state, 1)
     assert terr_moves, "expected territory-processing moves"
 
-    for move in terr_moves:
-        # All surfaced moves must be CHOOSE_TERRITORY_OPTION (canonical) / PROCESS_TERRITORY_REGION (legacy).
-        assert move.type in (MoveType.CHOOSE_TERRITORY_OPTION, MoveType.PROCESS_TERRITORY_REGION)
+    # Filter to only territory option moves (exclude SKIP_TERRITORY_PROCESSING which is
+    # a valid optional choice per RR-CANON-R075 but not what we're testing here).
+    option_moves = [
+        m for m in terr_moves
+        if m.type in (MoveType.CHOOSE_TERRITORY_OPTION, MoveType.PROCESS_TERRITORY_REGION)
+    ]
+    assert option_moves, "expected at least one territory option move"
+
+    for move in option_moves:
         assert move.disconnected_regions
         region = list(move.disconnected_regions)[0]
         region_spaces = list(region.spaces)
@@ -173,7 +179,7 @@ def test_territory_processing_q23_region_property(
         )
         assert move.to in region_spaces
 
-    move = terr_moves[0]
+    move = option_moves[0]
     GameEngine._apply_territory_claim(state, move)
 
     p1_after = next(p for p in state.players if p.player_number == 1)

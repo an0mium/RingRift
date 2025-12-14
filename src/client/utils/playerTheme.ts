@@ -217,14 +217,6 @@ function clampPlayerIndex(playerIndex: number): 0 | 1 | 2 | 3 {
   return index as 0 | 1 | 2 | 3;
 }
 
-function clampPlayerNumber(playerNumber: number): 1 | 2 | 3 | 4 {
-  if (!Number.isFinite(playerNumber)) return 1;
-  const value = Math.floor(playerNumber);
-  if (value <= 1) return 1;
-  if (value >= 4) return 4;
-  return value as 1 | 2 | 3 | 4;
-}
-
 export function getPlayerColorHex(playerIndex: number, mode: ColorVisionMode): string {
   const palette = PLAYER_COLOR_PALETTES[mode] ?? PLAYER_COLOR_PALETTES.normal;
   return palette[clampPlayerIndex(playerIndex)];
@@ -243,10 +235,13 @@ export function getPlayerTheme(
   playerNumber: number | undefined,
   mode: ColorVisionMode
 ): PlayerTheme {
-  if (!playerNumber) {
+  if (!playerNumber || !Number.isFinite(playerNumber)) {
     return DEFAULT_PLAYER_THEME;
   }
-  const safePlayer = clampPlayerNumber(playerNumber);
+  const safePlayer = Math.floor(playerNumber);
+  if (safePlayer < 1 || safePlayer > 4) {
+    return DEFAULT_PLAYER_THEME;
+  }
   return (
     PLAYER_THEMES[mode]?.[safePlayer] ?? PLAYER_THEMES.normal[safePlayer] ?? DEFAULT_PLAYER_THEME
   );

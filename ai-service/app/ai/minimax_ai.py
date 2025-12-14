@@ -173,7 +173,11 @@ class MinimaxAI(HeuristicAI):
             model_path = os.path.normpath(model_path)
 
             if os.path.exists(model_path):
-                checkpoint = torch.load(model_path, map_location="cpu")
+                # PyTorch 2.6+ defaults to weights_only=True for safer loading,
+                # but our policy checkpoints include lightweight metadata (e.g.
+                # numpy scalars) alongside tensor weights. These checkpoints are
+                # shipped/promoted by RingRift tooling, so load them fully.
+                checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
                 state_dict = checkpoint
                 hidden_dim = 256
                 num_hidden_layers = 2

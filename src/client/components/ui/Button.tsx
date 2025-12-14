@@ -30,10 +30,11 @@ const sizeClasses: Record<ButtonSize, string> = {
 };
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ variant = 'primary', size = 'md', fullWidth, className, ...props }, ref) => {
+  ({ variant = 'primary', size = 'md', fullWidth, className, type = 'button', ...props }, ref) => {
     return (
       <button
         ref={ref}
+        type={type}
         className={clsx(
           baseClasses,
           variantClasses[variant],

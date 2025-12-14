@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
 import type { PositionEvaluationPayload } from '../../shared/types/websocket';
 import type { Player } from '../../shared/types/game';
-import { PLAYER_COLORS } from '../adapters/gameViewModels';
+import { getPlayerColors } from '../adapters/gameViewModels';
+import { useAccessibility } from '../contexts/AccessibilityContext';
+import { getPlayerIndicatorPatternClass } from '../utils/playerTheme';
 
 export interface EvaluationGraphProps {
   evaluationHistory: PositionEvaluationPayload['data'][];
@@ -25,6 +27,7 @@ export function EvaluationGraph({
   className = '',
   height = 120,
 }: EvaluationGraphProps) {
+  const { colorVisionMode } = useAccessibility();
   const { points, minEval, maxEval, playerNumbers } = useMemo(() => {
     if (!evaluationHistory || evaluationHistory.length === 0) {
       return { points: [], minEval: -10, maxEval: 10, playerNumbers: [] };
@@ -104,10 +107,7 @@ export function EvaluationGraph({
 
         if (pathPoints.length < 2) return null;
 
-        const colors = PLAYER_COLORS[pn as keyof typeof PLAYER_COLORS] ?? {
-          ring: 'bg-slate-300',
-          hex: '#64748b',
-        };
+        const colors = getPlayerColors(pn, colorVisionMode);
 
         return {
           playerNumber: pn,
@@ -116,7 +116,7 @@ export function EvaluationGraph({
         };
       })
       .filter(Boolean);
-  }, [playerNumbers, points, maxEval, minEval, graphHeight]);
+  }, [playerNumbers, points, maxEval, minEval, graphHeight, colorVisionMode]);
 
   // Get player name
   const getPlayerName = (pn: number) => {
@@ -133,13 +133,17 @@ export function EvaluationGraph({
         <h3 className="text-xs font-semibold text-slate-400">Evaluation Timeline</h3>
         <div className="flex items-center gap-3">
           {playerNumbers.map((pn) => {
-            const colors = PLAYER_COLORS[pn as keyof typeof PLAYER_COLORS] ?? {
-              ring: 'bg-slate-300',
-              hex: '#64748b',
-            };
+            const colors = getPlayerColors(pn, colorVisionMode);
+            const patternClasses =
+              colorVisionMode === 'normal'
+                ? ''
+                : `${getPlayerIndicatorPatternClass(pn)} text-black/30`;
             return (
               <div key={pn} className="flex items-center gap-1 text-[10px] text-slate-400">
-                <span className={`w-2 h-2 rounded-full ${colors.ring}`} aria-hidden="true" />
+                <span
+                  className={`w-2 h-2 rounded-full ${colors.ring} ${patternClasses}`}
+                  aria-hidden="true"
+                />
                 <span>{getPlayerName(pn)}</span>
               </div>
             );
