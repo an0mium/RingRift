@@ -433,7 +433,7 @@ Investigation found that `ACTIVE_NO_CANDIDATE_MOVES` violations are **expected b
 
 #### Spectator/Replay Polish
 
-- [ ] Enhance spectator HUD (reconnection state, watcher counts, phase/choice banners) and validate via integration tests
+- [x] Enhance spectator HUD (reconnection state, watcher counts, phase/choice banners) and validate via integration tests
 - [x] Ensure move history lists all phase moves, including `no_*` and `forced_elimination`, and supports export/share
 - [x] Add fast-forward/rewind affordances and keyboard bindings for replay; prefetch upcoming turns for smooth playback
 
@@ -626,7 +626,7 @@ SandboxGameHost integration requires mapping existing state to hooks:
 | --------------------- | -------- | ----------- |
 | HUD and GameHost UX   | P1       | ✅ Complete |
 | Spectator experience  | P1       | ✅ Complete |
-| Mobile responsiveness | P2       | Pending     |
+| Mobile responsiveness | P2       | ✅ Complete |
 | Analysis mode UI      | P2       | ✅ Complete |
 
 ### 3.4 AI Work
