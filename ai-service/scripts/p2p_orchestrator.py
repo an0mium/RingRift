@@ -8976,7 +8976,8 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             return web.Response(
                 text="\n".join(lines) + "\n",
-                content_type="text/plain; version=0.0.4; charset=utf-8",
+                content_type="text/plain",
+                charset="utf-8",
             )
 
         except Exception as e:
