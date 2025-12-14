@@ -22,6 +22,7 @@ describe('rulesUxTelemetry route handler', () => {
 
   it('forwards a valid RulesUxEventPayload to MetricsService and returns 204', () => {
     const req = {
+      get: jest.fn().mockReturnValue('0'),
       body: {
         type: 'rules_help_open',
         boardType: 'square8',
@@ -53,6 +54,7 @@ describe('rulesUxTelemetry route handler', () => {
 
   it('throws a 400-level error and does not record metrics when payload is invalid', () => {
     const req = {
+      get: jest.fn().mockReturnValue('0'),
       body: {
         // Missing "type" and invalid numPlayers to exercise validation path.
         boardType: 'square8',

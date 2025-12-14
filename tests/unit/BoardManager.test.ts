@@ -469,7 +469,7 @@ describe('BoardManager', () => {
       });
 
       it('should have fewer neighbors for edge positions', () => {
-        const edgePos = pos(10, 0, -10); // Edge position
+        const edgePos = pos(12, 0, -12); // Edge position (radius=12)
         const neighbors = boardManager.getAdjacentPositions(edgePos, 'hexagonal');
         expect(neighbors.length).toBeLessThan(6);
       });

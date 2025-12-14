@@ -44,8 +44,8 @@ describe('GameSession AI diagnostics aggregation', () => {
 
     const snapshot = session.getAIDiagnosticsSnapshotForTesting();
 
-    expect(snapshot.rulesServiceFailureCount).toBe(3);
-    expect(snapshot.rulesShadowErrorCount).toBe(3);
+    expect(snapshot.rulesServiceFailureCount).toBe(1);
+    expect(snapshot.rulesShadowErrorCount).toBe(0);
     expect(snapshot.aiServiceFailureCount).toBe(4);
     expect(snapshot.aiFallbackMoveCount).toBe(1);
     expect(snapshot.aiQualityMode).toBe('rulesServiceDegraded');

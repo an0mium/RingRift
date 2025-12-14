@@ -8,6 +8,7 @@
  */
 
 import path from 'path';
+import { Prisma } from '@prisma/client';
 
 import {
   gameRecordRepository,
@@ -241,7 +242,7 @@ describe('GameRecordRepository.exportAsJsonl mapping', () => {
     expect(lastWhere).toMatchObject({
       boardType: 'square8',
       isRated: true,
-      finalState: { not: undefined },
+      finalState: { not: Prisma.DbNull },
       outcome: { not: null },
     });
     expect(lastTake).toBe(1);

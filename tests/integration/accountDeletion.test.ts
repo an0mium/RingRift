@@ -16,8 +16,15 @@ import express, { Express, Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
-// Mock the database connection
-jest.mock('../../src/server/database/connection');
+// Mock the database connection, but keep timeout wrappers real so route code
+// (which uses withQueryTimeoutStrict) behaves the same as production.
+jest.mock('../../src/server/database/connection', () => {
+  const actual = jest.requireActual('../../src/server/database/connection');
+  return {
+    ...actual,
+    getDatabaseClient: jest.fn(),
+  };
+});
 
 // Mock the logger to reduce noise
 jest.mock('../../src/server/utils/logger', () => ({

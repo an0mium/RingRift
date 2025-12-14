@@ -290,8 +290,8 @@ describe('lineDecisionHelpers branch coverage', () => {
 
         const moves = enumerateChooseLineRewardMoves(state, 1, 0);
         expect(moves.length).toBe(1);
-        expect(moves[0].type).toBe('choose_line_reward');
-        expect(moves[0].collapsedMarkers).toBeUndefined();
+        expect(moves[0].type).toBe('choose_line_option');
+        expect(moves[0].collapsedMarkers).toEqual(line.positions);
       });
     });
 
@@ -307,7 +307,7 @@ describe('lineDecisionHelpers branch coverage', () => {
         expect(moves.length).toBe(3);
 
         // First is collapse-all
-        expect(moves[0].collapsedMarkers).toBeUndefined();
+        expect(moves[0].collapsedMarkers).toEqual(line.positions);
 
         // Following are minimum collapse segments
         expect(moves[1].collapsedMarkers).toHaveLength(4);
@@ -558,7 +558,7 @@ describe('lineDecisionHelpers branch coverage', () => {
         };
 
         expect(() => applyChooseLineRewardDecision(state, wrongMove)).toThrow(
-          "applyChooseLineRewardDecision expected move.type === 'choose_line_reward'"
+          "applyChooseLineRewardDecision expected move.type === 'choose_line_option'"
         );
       });
     });
@@ -568,7 +568,7 @@ describe('lineDecisionHelpers branch coverage', () => {
         const state = makeGameState();
         const move: Move = {
           id: 'test',
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           player: 1,
           to: pos(0, 0),
           timestamp: new Date(),
@@ -588,7 +588,7 @@ describe('lineDecisionHelpers branch coverage', () => {
 
         const move: Move = {
           id: 'test',
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           player: 1,
           to: pos(0, 0),
           formedLines: [shortLine],
@@ -614,7 +614,7 @@ describe('lineDecisionHelpers branch coverage', () => {
 
         const move: Move = {
           id: 'test',
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           player: 1,
           to: pos(0, 0),
           formedLines: [line],
@@ -900,8 +900,8 @@ describe('lineDecisionHelpers branch coverage', () => {
       addFormedLine(state, line);
 
       const moves = enumerateChooseLineRewardMoves(state, 1, 0);
-      expect(moves[0].id).toMatch(/^choose-line-reward-/);
-      expect(moves[0].type).toBe('choose_line_reward');
+      expect(moves[0].id).toMatch(/^choose-line-option-/);
+      expect(moves[0].type).toBe('choose_line_option');
       expect(moves[0].player).toBe(1);
       expect(moves[0].timestamp).toBeInstanceOf(Date);
     });

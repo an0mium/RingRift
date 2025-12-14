@@ -503,11 +503,7 @@ describe('GameSession Move Handling', () => {
         };
 
         (session as any).gameEngine = {
-          getGameState: jest
-            .fn()
-            .mockReturnValueOnce(state)
-            .mockReturnValueOnce(state)
-            .mockReturnValue(updatedState),
+          getGameState: jest.fn().mockReturnValueOnce(state).mockReturnValue(updatedState),
           getValidMoves: jest.fn(() => []),
         };
         (session as any).rulesFacade = {

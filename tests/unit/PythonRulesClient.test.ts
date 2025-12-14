@@ -41,6 +41,7 @@ jest.mock('axios', () => ({
 }));
 
 import { PythonRulesClient } from '../../src/server/services/PythonRulesClient';
+import { toPythonWireGameState } from '../../src/server/services/pythonWire';
 import type { GameState, Move } from '../../src/shared/types/game';
 import axios from 'axios';
 
@@ -104,7 +105,7 @@ describe('PythonRulesClient', () => {
       const result = await client.evaluateMove(mockState, mockMove);
 
       expect(mockAxiosPost).toHaveBeenCalledWith('/rules/evaluate_move', {
-        game_state: mockState,
+        game_state: toPythonWireGameState(mockState),
         move: mockMove,
       });
 
