@@ -1693,10 +1693,16 @@ def main():
             import psutil
             system_memory_gb = psutil.virtual_memory().total / (1024**3)
             if system_memory_gb < MIN_MEMORY_GB:
-                print(f"[UnifiedLoop] ERROR: System has only {system_memory_gb:.1f}GB RAM, minimum {MIN_MEMORY_GB}GB required")
-                print("[UnifiedLoop] Exiting to avoid OOM on low-memory machine")
-                print("[UnifiedLoop] Set RINGRIFT_DISABLE_LOCAL_TASKS=true to run in coordination-only mode")
-                return
+                if DISABLE_LOCAL_TASKS:
+                    # Allow coordinator-only mode on low-memory machines
+                    print(f"[UnifiedLoop] System has {system_memory_gb:.1f}GB RAM (below {MIN_MEMORY_GB}GB threshold)")
+                    print("[UnifiedLoop] Running in COORDINATOR-ONLY mode (RINGRIFT_DISABLE_LOCAL_TASKS=true)")
+                    print("[UnifiedLoop] Local tournaments and training will be skipped")
+                else:
+                    print(f"[UnifiedLoop] ERROR: System has only {system_memory_gb:.1f}GB RAM, minimum {MIN_MEMORY_GB}GB required")
+                    print("[UnifiedLoop] Exiting to avoid OOM on low-memory machine")
+                    print("[UnifiedLoop] Set RINGRIFT_DISABLE_LOCAL_TASKS=true to run in coordination-only mode")
+                    return
         except ImportError:
             print("[UnifiedLoop] Warning: psutil not installed, cannot check memory")
         except Exception as e:
