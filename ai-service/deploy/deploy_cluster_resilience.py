@@ -434,6 +434,26 @@ def main() -> None:
     voter_env = ",".join(voter_ids)
     voter_prefix = f"RINGRIFT_P2P_VOTERS={shlex.quote(voter_env)} " if voter_env else ""
 
+    # Optional resilience tuning values are forwarded via env so the setup
+    # scripts can persist them into node.conf / launchd.
+    tuning_keys = [
+        "RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS",
+        "RINGRIFT_P2P_RETRY_RETIRED_NODE_INTERVAL",
+        "RINGRIFT_P2P_DISK_WARNING_THRESHOLD",
+        "RINGRIFT_P2P_DISK_CLEANUP_THRESHOLD",
+        "RINGRIFT_P2P_DISK_CRITICAL_THRESHOLD",
+        "RINGRIFT_P2P_MEMORY_WARNING_THRESHOLD",
+        "RINGRIFT_P2P_MEMORY_CRITICAL_THRESHOLD",
+        "RINGRIFT_P2P_LOAD_MAX_FOR_NEW_JOBS",
+    ]
+    tuning_prefix_parts: List[str] = []
+    for key in tuning_keys:
+        val = (os.environ.get(key) or "").strip()
+        if not val:
+            continue
+        tuning_prefix_parts.append(f"{key}={shlex.quote(val)} ")
+    tuning_prefix = "".join(tuning_prefix_parts)
+
     # Determine coordinator URL
     coordinator_url = (args.coordinator_url or "").strip()
     if args.use_tailscale:
@@ -546,6 +566,7 @@ def main() -> None:
                     f"P2P_PORT={int(p2p_port)} RINGRIFT_ROOT=\"$RINGRIFT_ROOT\" "
                     f"{advertise_host_prefix}"
                     f"{voter_prefix}"
+                    f"{tuning_prefix}"
                     f"bash \"$RINGRIFT_DIR/deploy/setup_node_resilience_macos.sh\" "
                     f"{shlex.quote(node_id)} {shlex.quote(coordinator_url)}\n"
                 )
@@ -583,6 +604,7 @@ def main() -> None:
                     f"SSH_PORT={int(target.ssh_port)} "
                     f"{advertise_host_prefix}"
                     f"{voter_prefix}"
+                    f"{tuning_prefix}"
                     f"bash \"$RINGRIFT_DIR/deploy/setup_node_resilience.sh\" "
                     f"{shlex.quote(node_id)} {shlex.quote(coordinator_url)}\n"
                     # Best-effort restart.

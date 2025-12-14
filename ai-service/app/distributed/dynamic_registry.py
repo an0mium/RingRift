@@ -503,6 +503,7 @@ class DynamicHostRegistry:
 
         try:
             import asyncio
+            import re
 
             region_env = (
                 os.environ.get("AWS_REGION")
@@ -523,28 +524,81 @@ class DynamicHostRegistry:
                     by_region.setdefault(region, []).append(instance_id)
                     id_to_node[instance_id] = node_id
 
-            updated = 0
-            for region, region_instance_ids in by_region.items():
+            def _extract_invalid_ids(stderr: str) -> List[str]:
+                # Common AWS CLI error when instances are terminated/deleted:
+                #   InvalidInstanceID.NotFound ... instance IDs 'i-...' do not exist
+                if not stderr:
+                    return []
+                if "InvalidInstanceID" not in stderr and "InvalidInstanceID.NotFound" not in stderr:
+                    return []
+                return re.findall(r"i-[0-9a-fA-F]{8,32}", stderr)
+
+            async def _describe_instances(region: str, instance_ids: List[str]) -> Optional[Dict[str, Any]]:
                 cmd = [
                     "aws",
                     "ec2",
                     "describe-instances",
                     "--instance-ids",
-                    *region_instance_ids,
+                    *instance_ids,
                     "--output",
                     "json",
                 ]
                 if region:
                     cmd.extend(["--region", region])
 
-                def _run_region() -> subprocess.CompletedProcess[str]:
+                def _run() -> subprocess.CompletedProcess[str]:
                     return subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
-                result = await asyncio.to_thread(_run_region)
+                result = await asyncio.to_thread(_run)
                 if result.returncode != 0:
-                    continue
+                    invalid = _extract_invalid_ids(result.stderr or "")
+                    if invalid:
+                        # Caller will retry without invalid IDs.
+                        return {"__invalid_instance_ids": invalid, "__stderr": result.stderr or ""}
+                    logger.warning(
+                        "AWS CLI describe-instances failed "
+                        f"(region={region or 'default'}, ids={len(instance_ids)}): "
+                        f"{(result.stderr or '').strip()[:200]}"
+                    )
+                    return None
 
-                payload = json.loads(result.stdout or "{}")
+                try:
+                    return json.loads(result.stdout or "{}")
+                except Exception:
+                    return None
+
+            updated = 0
+            for region, region_instance_ids in by_region.items():
+                remaining = list(dict.fromkeys(region_instance_ids))  # stable de-dupe
+                payload: Optional[Dict[str, Any]] = None
+                invalid_ids: List[str] = []
+
+                # Retry once if terminated instance IDs cause the bulk query to fail.
+                for _attempt in range(2):
+                    if not remaining:
+                        break
+                    response = await _describe_instances(region, remaining)
+                    if response is None:
+                        payload = None
+                        break
+                    invalid = response.get("__invalid_instance_ids") if isinstance(response, dict) else None
+                    if invalid:
+                        invalid_ids = [str(i) for i in invalid if str(i)]
+                        remaining = [i for i in remaining if i not in set(invalid_ids)]
+                        continue
+                    payload = response
+                    break
+
+                if invalid_ids:
+                    with self._lock:
+                        for bad_id in invalid_ids:
+                            node_id = id_to_node.get(bad_id)
+                            if not node_id:
+                                continue
+                            self.record_check_result(node_id, False, failure_reason="aws_instance_not_found")
+
+                if not payload:
+                    continue
 
                 reservations = payload.get("Reservations") or []
                 with self._lock:
@@ -554,13 +608,25 @@ class DynamicHostRegistry:
                             instance_id = str(inst.get("InstanceId") or "")
                             if not instance_id or instance_id not in id_to_node:
                                 continue
+                            state = (inst.get("State") or {}).get("Name") or ""
                             public_ip = inst.get("PublicIpAddress") or ""
-                            if not public_ip:
-                                continue
                             node_id = id_to_node[instance_id]
                             node = self._nodes.get(node_id)
                             if not node:
                                 continue
+
+                            # Mark as non-healthy if instance isn't running; still allow
+                            # the registry to recover automatically if it comes back.
+                            if state and state != "running":
+                                self.record_check_result(
+                                    node_id, False, failure_reason=f"aws_state_{state}"
+                                )
+                                continue
+                            if not public_ip:
+                                self.record_check_result(node_id, False, failure_reason="aws_no_public_ip")
+                                continue
+
+                            self.record_check_result(node_id, True)
                             if public_ip != node.dynamic_host:
                                 logger.info(
                                     f"AWS CLI: {node_id} IP updated to {public_ip}:{node.static_port} "

@@ -1199,7 +1199,12 @@ def print_status(state: DaemonState) -> None:
         games = policy.get("last_train_games", 0)
         acc = policy.get("accuracy")
         acc_str = f"{acc:.2%}" if acc is not None else "N/A"
-        print(f"  {key}: last trained {last_train} at {games} games, accuracy={acc_str}")
+        # Include benchmark results
+        top1 = policy.get("benchmark_top1")
+        top1_str = f", Top-1={top1:.1%}" if top1 is not None else ""
+        mean_rank = policy.get("benchmark_mean_rank")
+        rank_str = f", rank={mean_rank:.1f}" if mean_rank is not None else ""
+        print(f"  {key}: last trained {last_train} at {games} games, accuracy={acc_str}{top1_str}{rank_str}")
 
     print("\n--- CMAES Heuristic Status ---")
     for key, cmaes in state.cmaes_state.items():
@@ -1288,9 +1293,58 @@ def _gate_nnue_report(
     }
 
 
+async def _train_nnue_size(
+    config: Dict[str, Any],
+    size_name: str,
+    size_config: Dict[str, Any],
+    dbs: List[Path],
+    output_dir: Path,
+) -> Tuple[Optional[Path], Optional[Dict[str, Any]]]:
+    """Train a single NNUE model of a specific size.
+
+    Returns (model_path, report) or (None, None) on failure.
+    """
+    nnue_id = _nnue_model_id(config["board"], config["players"], size_name)
+    candidate_path = output_dir / f"{nnue_id}_candidate.pt"
+
+    nnue_cmd = [
+        sys.executable, "scripts/train_nnue.py",
+        "--db", *[str(db) for db in dbs[:5]],
+        "--board-type", config["board"],
+        "--num-players", str(config["players"]),
+        "--epochs", str(size_config.get("epochs", NNUE_EPOCHS)),
+        "--hidden-dim", str(size_config["hidden_dim"]),
+        "--num-hidden-layers", str(size_config.get("num_hidden_layers", 2)),
+        "--run-dir", str(output_dir / size_name),
+        "--model-id", nnue_id,
+        "--save-path", str(candidate_path),
+    ]
+
+    (output_dir / size_name).mkdir(parents=True, exist_ok=True)
+    success, output = run_command(nnue_cmd, timeout=3600)
+
+    if not success:
+        print(f"[Daemon] NNUE {size_name} training failed: {output[:200]}")
+        return None, None
+
+    report_path = output_dir / size_name / "nnue_training_report.json"
+    report: Dict[str, Any] = {}
+    if report_path.exists():
+        try:
+            report = json.loads(report_path.read_text())
+        except Exception:
+            pass
+
+    if not candidate_path.exists() or candidate_path.stat().st_size <= 0:
+        return None, None
+
+    return candidate_path, report
+
+
 async def check_and_run_nnue_training(state: DaemonState) -> List[str]:
     """Check if NNUE models need retraining and run training if needed.
 
+    Trains multiple model sizes (small, medium, large) and promotes the best one.
     Returns list of board config keys that were trained.
     """
     trained = []
@@ -1308,6 +1362,7 @@ async def check_and_run_nnue_training(state: DaemonState) -> List[str]:
             "last_train_time": 0,
             "last_train_games": 0,
             "model_path": None,
+            "train_cycle": 0,
         })
 
         # Check if enough time has passed
@@ -1323,93 +1378,129 @@ async def check_and_run_nnue_training(state: DaemonState) -> List[str]:
         print(f"[Daemon] NNUE training triggered for {key}: {games_since_train} new games")
 
         # Find selfplay databases
-        db_pattern = str(AI_SERVICE_ROOT / "data" / "games" / "*.db")
         dbs = list(Path(AI_SERVICE_ROOT / "data" / "games").glob("*.db"))
 
         if not dbs:
             print(f"[Daemon] No selfplay databases found for NNUE training")
             continue
 
-        # Run NNUE training
+        # Determine which sizes to train
+        train_cycle = nnue.get("train_cycle", 0) + 1
+        train_all_sizes = (train_cycle % NNUE_TRAIN_ALL_SIZES_INTERVAL) == 0
+        current_best_size = nnue.get("best_size", "large")  # Default to large
+
+        if train_all_sizes:
+            sizes_to_train = list(NNUE_MODEL_SIZES.keys())
+            print(f"[Daemon] Training all NNUE sizes: {sizes_to_train}")
+        else:
+            # Just train the current best size
+            sizes_to_train = [current_best_size]
+            print(f"[Daemon] Training NNUE size: {current_best_size}")
+
         output_dir = AI_SERVICE_ROOT / "logs" / "nnue_auto" / f"{key}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        nnue_id = _nnue_model_id(config["board"], config["players"])
-        stable_path = AI_SERVICE_ROOT / "models" / "nnue" / f"{nnue_id}.pt"
-        prev_path = AI_SERVICE_ROOT / "models" / "nnue" / f"{nnue_id}_prev.pt"
-        candidate_path = output_dir / f"{nnue_id}_candidate.pt"
+        # Train each size and collect results
+        size_results: Dict[str, Tuple[Path, Dict[str, Any], float]] = {}
+        for size_name in sizes_to_train:
+            size_config = NNUE_MODEL_SIZES[size_name]
+            print(f"[Daemon] Training NNUE {size_name} (hidden_dim={size_config['hidden_dim']})...")
 
-        nnue_cmd = [
-            sys.executable, "scripts/train_nnue.py",
-            "--db", *[str(db) for db in dbs[:5]],  # Use up to 5 databases
-            "--board-type", config["board"],
-            "--num-players", str(config["players"]),
-            "--epochs", str(NNUE_EPOCHS),
-            "--hidden-dim", "512",  # Larger model - 2x params, better performance
-            "--run-dir", str(output_dir),
-            "--model-id", nnue_id,
-            "--save-path", str(candidate_path),
-        ]
+            model_path, report = await _train_nnue_size(
+                config, size_name, size_config, dbs, output_dir
+            )
 
-        success, output = run_command(nnue_cmd, timeout=3600)  # 1 hour timeout
+            if model_path and report:
+                val_loss = report.get("best_val_loss")
+                if val_loss is not None:
+                    try:
+                        size_results[size_name] = (model_path, report, float(val_loss))
+                        print(f"[Daemon] NNUE {size_name}: val_loss={val_loss:.4f}")
+                    except (TypeError, ValueError):
+                        pass
 
-        if success:
-            report_path = output_dir / "nnue_training_report.json"
-            report: Dict[str, Any] = {}
-            if report_path.exists():
+        if not size_results:
+            print(f"[Daemon] All NNUE training failed for {key}")
+            continue
+
+        # Find the best performing size
+        best_size = min(size_results.keys(), key=lambda s: size_results[s][2])
+        best_path, best_report, best_val_loss = size_results[best_size]
+
+        print(f"[Daemon] Best NNUE size for {key}: {best_size} (val_loss={best_val_loss:.4f})")
+
+        # Gate against current production model
+        baseline_best_val_loss: Optional[float] = None
+        baseline_record = state.nnue_state.get(key) or {}
+        try:
+            raw = baseline_record.get("best_val_loss")
+            baseline_best_val_loss = float(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            baseline_best_val_loss = None
+
+        gate = _gate_nnue_report(candidate_report=best_report, baseline_best_val_loss=baseline_best_val_loss)
+        should_promote = bool(gate.get("promote", False))
+
+        # Save size-specific models even if not promoted as primary
+        models_dir = AI_SERVICE_ROOT / "models" / "nnue"
+        for size_name, (model_path, _, _) in size_results.items():
+            size_model_id = _nnue_model_id(config["board"], config["players"], size_name)
+            size_stable_path = models_dir / f"{size_model_id}.pt"
+            try:
+                _atomic_copy(model_path, size_stable_path)
+                print(f"[Daemon] Saved NNUE {size_name} model: {size_stable_path}")
+            except Exception as e:
+                print(f"[Daemon] Failed to save NNUE {size_name}: {e}")
+
+        if should_promote:
+            nnue_id = _nnue_model_id(config["board"], config["players"])
+            stable_path = models_dir / f"{nnue_id}.pt"
+            prev_path = models_dir / f"{nnue_id}_prev.pt"
+
+            # Snapshot prior model
+            if stable_path.exists() and stable_path.stat().st_size > 0:
                 try:
-                    report = json.loads(report_path.read_text())
-                except Exception:
-                    report = {}
+                    _atomic_copy(stable_path, prev_path)
+                except Exception as e:
+                    print(f"[Daemon] Warning: failed to backup NNUE baseline: {e}")
 
-            if not candidate_path.exists() or candidate_path.stat().st_size <= 0:
-                print(f"[Daemon] NNUE training reported success but missing candidate checkpoint: {candidate_path}")
+            try:
+                _atomic_copy(best_path, stable_path)
+            except Exception as e:
+                print(f"[Daemon] NNUE promotion copy failed for {key}: {e}")
                 continue
 
-            baseline_best_val_loss: Optional[float] = None
-            baseline_record = state.nnue_state.get(key) or {}
-            try:
-                raw = baseline_record.get("best_val_loss")
-                baseline_best_val_loss = float(raw) if raw is not None else None
-            except (TypeError, ValueError):
-                baseline_best_val_loss = None
-
-            gate = _gate_nnue_report(candidate_report=report, baseline_best_val_loss=baseline_best_val_loss)
-            should_promote = bool(gate.get("promote", False))
-
-            if should_promote:
-                # Snapshot the prior stable model for rollback (best-effort).
-                if stable_path.exists() and stable_path.stat().st_size > 0:
-                    try:
-                        _atomic_copy(stable_path, prev_path)
-                    except Exception as e:
-                        print(f"[Daemon] Warning: failed to backup NNUE baseline: {e}")
-
-                try:
-                    _atomic_copy(candidate_path, stable_path)
-                except Exception as e:
-                    print(f"[Daemon] NNUE promotion copy failed for {key}: {e}")
-                    continue
-
-                # Update NNUE state (record promotion metrics).
-                state.nnue_state[key] = {
-                    "last_train_time": current_time,
-                    "last_train_games": bs.total_games,
-                    "model_path": str(stable_path),
-                    "best_val_loss": gate.get("candidate_best_val_loss"),
-                    "baseline_best_val_loss": gate.get("baseline_best_val_loss"),
-                    "gate_reason": gate.get("reason"),
-                }
-                trained.append(key)
-                print(f"[Daemon] NNUE promoted for {key} ({gate.get('reason')})")
-            else:
-                print(f"[Daemon] NNUE not promoted for {key} ({gate.get('reason')})")
-                try:
-                    candidate_path.unlink()
-                except Exception:
-                    pass
+            # Update NNUE state
+            state.nnue_state[key] = {
+                "last_train_time": current_time,
+                "last_train_games": bs.total_games,
+                "model_path": str(stable_path),
+                "best_val_loss": best_val_loss,
+                "baseline_best_val_loss": baseline_best_val_loss,
+                "gate_reason": gate.get("reason"),
+                "best_size": best_size,
+                "train_cycle": train_cycle,
+                "hidden_dim": NNUE_MODEL_SIZES[best_size]["hidden_dim"],
+            }
+            trained.append(key)
+            print(f"[Daemon] NNUE promoted for {key}: {best_size} ({gate.get('reason')})")
         else:
-            print(f"[Daemon] NNUE training failed for {key}: {output[:200]}")
+            # Still update training time even if not promoted
+            state.nnue_state[key] = {
+                **nnue,
+                "last_train_time": current_time,
+                "last_train_games": bs.total_games,
+                "train_cycle": train_cycle,
+            }
+            print(f"[Daemon] NNUE not promoted for {key} ({gate.get('reason')})")
+
+        # Cleanup candidate files
+        for size_name, (model_path, _, _) in size_results.items():
+            try:
+                if model_path.exists():
+                    model_path.unlink()
+            except Exception:
+                pass
 
     return trained
 
@@ -1588,6 +1679,95 @@ async def check_and_run_nnue_policy_training(state: DaemonState) -> List[str]:
             print(f"[Daemon] NNUE Policy training failed for {key}: {output[:200]}")
 
     return trained
+
+
+# =============================================================================
+# Policy Benchmarking
+# =============================================================================
+
+# Minimum time between policy benchmarks (seconds) = 1 hour
+POLICY_BENCHMARK_INTERVAL = 60 * 60
+# Number of positions to benchmark
+POLICY_BENCHMARK_POSITIONS = 500
+
+
+async def run_policy_benchmark(state: DaemonState) -> Dict[str, Dict[str, Any]]:
+    """Run policy benchmark for all configs with policy models.
+
+    Returns dict of benchmark results per config key.
+    """
+    results = {}
+    current_time = time.time()
+
+    for config in BOARD_CONFIGS:
+        key = get_config_key(config["board"], config["players"])
+
+        # Check if policy model exists
+        policy_model_path = AI_SERVICE_ROOT / "models" / "nnue" / f"nnue_policy_{config['board']}_{config['players']}p.pt"
+        if not policy_model_path.exists():
+            continue
+
+        # Check last benchmark time
+        policy_state = state.nnue_policy_state.get(key, {})
+        last_benchmark = policy_state.get("last_benchmark_time", 0)
+        if current_time - last_benchmark < POLICY_BENCHMARK_INTERVAL:
+            continue
+
+        # Find databases to benchmark against
+        dbs = list(Path(AI_SERVICE_ROOT / "data" / "games").glob("*.db"))
+        if not dbs:
+            continue
+
+        # Run benchmark
+        output_dir = AI_SERVICE_ROOT / "runs" / f"policy_benchmark_{key}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        benchmark_cmd = [
+            sys.executable, "scripts/benchmark_policy.py",
+            "--db", *[str(db) for db in dbs[:3]],
+            "--board-type", config["board"],
+            "--num-players", str(config["players"]),
+            "--model", str(policy_model_path),
+            "--num-positions", str(POLICY_BENCHMARK_POSITIONS),
+            "--output-dir", str(output_dir),
+        ]
+
+        print(f"[Daemon] Running policy benchmark for {key}...")
+        success, output = run_command(benchmark_cmd, timeout=600)
+
+        if success:
+            # Parse benchmark results
+            report_path = output_dir / "policy_benchmark_report.json"
+            if report_path.exists():
+                try:
+                    report = json.loads(report_path.read_text())
+                    top1 = report.get("top_1_accuracy", 0)
+                    top3 = report.get("top_3_accuracy", 0)
+                    top5 = report.get("top_5_accuracy", 0)
+                    mean_rank = report.get("mean_rank", 999)
+
+                    results[key] = {
+                        "top_1_accuracy": top1,
+                        "top_3_accuracy": top3,
+                        "top_5_accuracy": top5,
+                        "mean_rank": mean_rank,
+                        "timestamp": current_time,
+                    }
+
+                    # Update policy state with benchmark results
+                    if key in state.nnue_policy_state:
+                        state.nnue_policy_state[key]["last_benchmark_time"] = current_time
+                        state.nnue_policy_state[key]["benchmark_top1"] = top1
+                        state.nnue_policy_state[key]["benchmark_top3"] = top3
+                        state.nnue_policy_state[key]["benchmark_mean_rank"] = mean_rank
+
+                    print(f"[Daemon] Policy benchmark {key}: Top-1={top1:.1%}, Top-3={top3:.1%}, Mean rank={mean_rank:.1f}")
+                except Exception as e:
+                    print(f"[Daemon] Failed to parse benchmark report: {e}")
+        else:
+            print(f"[Daemon] Policy benchmark failed for {key}: {output[:200]}")
+
+    return results
 
 
 # =============================================================================
@@ -1834,6 +2014,14 @@ async def daemon_cycle(state: DaemonState) -> bool:
                 print(f"[Daemon] NNUE Policy models retrained for: {', '.join(policy_trained)}")
                 maybe_sync_staging("nnue_policy_training")
 
+        # Phase 6c: Policy benchmarking (every 3rd cycle)
+        if state.total_cycles % 3 == 0:
+            print("[Daemon] Phase 6c: Running policy benchmarks...")
+            benchmark_results = await run_policy_benchmark(state)
+            if benchmark_results:
+                for key, res in benchmark_results.items():
+                    print(f"[Daemon] Policy {key}: Top-1={res['top_1_accuracy']:.1%}")
+
         # Phase 7: CMAES heuristic optimization (when enough new games accumulated)
         if state.total_cycles % 15 == 0:
             print("[Daemon] Phase 7: Checking CMAES optimization thresholds...")
@@ -1927,8 +2115,48 @@ def main():
     parser.add_argument("--status", action="store_true", help="Show daemon status")
     parser.add_argument("--stop", action="store_true", help="Stop running daemon")
     parser.add_argument("--verbose", action="store_true", help="Verbose output")
+    parser.add_argument(
+        "--sync-staging",
+        action="store_true",
+        help=(
+            "Enable SSH sync of promoted models/weights to staging after promotion/training. "
+            "Requires RINGRIFT_STAGING_SSH_HOST and RINGRIFT_STAGING_ROOT."
+        ),
+    )
+    parser.add_argument(
+        "--sync-staging-no-restart",
+        action="store_true",
+        help="When used with --sync-staging, do not restart docker compose services after syncing.",
+    )
+    parser.add_argument(
+        "--sync-staging-validate-health",
+        action="store_true",
+        help="When used with --sync-staging, validate /internal/ladder/health on staging after sync.",
+    )
+    parser.add_argument(
+        "--sync-staging-fail-on-missing",
+        action="store_true",
+        help=(
+            "When used with --sync-staging, exit non-zero if staging reports missing artifacts "
+            "(implies --sync-staging-validate-health)."
+        ),
+    )
 
     args = parser.parse_args()
+
+    global SYNC_STAGING
+    global SYNC_STAGING_RESTART
+    global SYNC_STAGING_VALIDATE_HEALTH
+    global SYNC_STAGING_FAIL_ON_MISSING
+
+    if args.sync_staging:
+        SYNC_STAGING = True
+        if args.sync_staging_no_restart:
+            SYNC_STAGING_RESTART = False
+        if args.sync_staging_validate_health or args.sync_staging_fail_on_missing:
+            SYNC_STAGING_VALIDATE_HEALTH = True
+        if args.sync_staging_fail_on_missing:
+            SYNC_STAGING_FAIL_ON_MISSING = True
 
     if args.status:
         state = load_state()

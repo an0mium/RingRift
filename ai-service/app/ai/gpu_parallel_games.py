@@ -5479,6 +5479,15 @@ class ParallelGameRunner:
             self.policy_model.load_state_dict(checkpoint["model_state_dict"])
             self.policy_model.to(self.device)
             self.policy_model.eval()
+
+            # Enable FP16 inference for faster GPU execution if CUDA available
+            if self.device.type == "cuda" and torch.cuda.is_available():
+                try:
+                    self.policy_model = self.policy_model.half()
+                    logger.info(f"ParallelGameRunner: Enabled FP16 inference for policy model")
+                except Exception as e:
+                    logger.debug(f"FP16 inference not available: {e}")
+
             self.use_policy_selection = True
 
             logger.info(f"ParallelGameRunner: Loaded policy model from {model_path}")
@@ -5562,10 +5571,18 @@ class ParallelGameRunner:
                 raise RuntimeError("Batched feature extraction failed")
 
             # === Batched Policy Inference ===
+            # Convert to half precision if model uses FP16
+            model_dtype = next(self.policy_model.parameters()).dtype
+            if model_dtype == torch.float16:
+                features_batch = features_batch.half()
+
             with torch.no_grad():
                 _, from_logits_batch, to_logits_batch = self.policy_model(
                     features_batch, return_policy=True
                 )
+                # Convert back to float32 for stable sampling
+                from_logits_batch = from_logits_batch.float()
+                to_logits_batch = to_logits_batch.float()
                 # from_logits_batch: (num_active, H*W)
                 # to_logits_batch: (num_active, H*W)
 

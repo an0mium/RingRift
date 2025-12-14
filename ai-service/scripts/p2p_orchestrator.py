@@ -96,12 +96,15 @@ DISCOVERY_PORT = 8771  # UDP port for peer discovery
 DISCOVERY_INTERVAL = 120  # seconds between discovery broadcasts
 
 # LEARNED LESSONS from PLAN.md - Disk and resource thresholds
-DISK_CRITICAL_THRESHOLD = 90  # Stop all new jobs at 90% disk
-DISK_WARNING_THRESHOLD = 80   # Reduce job count at 80% disk
-DISK_CLEANUP_THRESHOLD = 85   # Trigger automatic cleanup at 85%
-MEMORY_CRITICAL_THRESHOLD = 95  # OOM prevention - stop jobs at 95%
-MEMORY_WARNING_THRESHOLD = 85   # Reduce jobs at 85% memory
-LOAD_MAX_FOR_NEW_JOBS = 85      # Stop starting new jobs when node is overloaded
+# These thresholds are env-overridable so heterogeneous clusters (e.g. small
+# Mac disks vs large cloud volumes) can tune health/scheduling without code
+# changes.
+DISK_CRITICAL_THRESHOLD = int(os.environ.get("RINGRIFT_P2P_DISK_CRITICAL_THRESHOLD", "90") or 90)  # Stop all new jobs
+DISK_WARNING_THRESHOLD = int(os.environ.get("RINGRIFT_P2P_DISK_WARNING_THRESHOLD", "80") or 80)    # Reduce jobs
+DISK_CLEANUP_THRESHOLD = int(os.environ.get("RINGRIFT_P2P_DISK_CLEANUP_THRESHOLD", "85") or 85)    # Trigger cleanup
+MEMORY_CRITICAL_THRESHOLD = int(os.environ.get("RINGRIFT_P2P_MEMORY_CRITICAL_THRESHOLD", "95") or 95)  # Stop jobs
+MEMORY_WARNING_THRESHOLD = int(os.environ.get("RINGRIFT_P2P_MEMORY_WARNING_THRESHOLD", "85") or 85)    # Reduce jobs
+LOAD_MAX_FOR_NEW_JOBS = int(os.environ.get("RINGRIFT_P2P_LOAD_MAX_FOR_NEW_JOBS", "85") or 85)          # Stop starting
 
 # LEARNED LESSONS - Connection robustness
 HTTP_CONNECT_TIMEOUT = 10     # Fast timeout for connection phase

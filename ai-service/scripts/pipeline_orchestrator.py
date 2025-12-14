@@ -359,6 +359,69 @@ async def discover_p2p_leader_url(
     headers = {"Authorization": f"Bearer {auth_token}"} if auth_token else {}
     timeout = aiohttp.ClientTimeout(total=float(timeout_seconds))
 
+    def _is_loopback(host: str) -> bool:
+        host = (host or "").strip().lower()
+        return host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+
+    def _is_tailscale_ip(host: str) -> bool:
+        host = (host or "").strip()
+        if not host:
+            return False
+        try:
+            import ipaddress
+
+            ip = ipaddress.ip_address(host)
+            if ip.version != 4:
+                return False
+            return ip in ipaddress.ip_network("100.64.0.0/10")
+        except Exception:
+            return False
+
+    def _candidate_base_urls(info: Dict[str, Any]) -> List[str]:
+        scheme = str(info.get("scheme") or "http").strip() or "http"
+        host = str(info.get("host") or "").strip()
+        rh = str(info.get("reported_host") or "").strip()
+        try:
+            port = int(info.get("port", None))
+        except Exception:
+            port = None
+        try:
+            rp = int(info.get("reported_port", None))
+        except Exception:
+            rp = None
+
+        candidates: List[str] = []
+
+        def _add(h: str, p: Optional[int]) -> None:
+            h = (h or "").strip()
+            if not h or _is_loopback(h):
+                return
+            if not p or p <= 0:
+                return
+            base = f"{scheme}://{h}:{p}"
+            if base not in candidates:
+                candidates.append(base)
+
+        # Prefer mesh addresses first when present (best NAT traversal).
+        if rh and rp and _is_tailscale_ip(rh):
+            _add(rh, rp)
+        _add(host, port)
+        if rh and rp and (rh != host or rp != port):
+            _add(rh, rp)
+
+        # If the only discovered address is loopback/empty, leave it to the caller.
+        return candidates
+
+    async def _first_reachable_base(candidates: List[str]) -> Optional[str]:
+        for base in candidates:
+            try:
+                async with session.get(f"{base}/health") as resp:
+                    if resp.status == 200:
+                        return base
+            except Exception:
+                continue
+        return None
+
     async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
         for seed in seeds:
             try:
@@ -393,7 +456,13 @@ async def discover_p2p_leader_url(
             except Exception:
                 port_i = None
 
-            if host and port_i:
+            candidates = _candidate_base_urls(leader_info)
+            reachable = await _first_reachable_base(candidates)
+            if reachable:
+                return reachable
+
+            if host and port_i and not _is_loopback(host):
+                # Back-compat fallback (may be unreachable in NAT/proxy setups).
                 return f"{scheme}://{host}:{port_i}"
 
             # Fallback: use the seed itself if it claims to be leader.

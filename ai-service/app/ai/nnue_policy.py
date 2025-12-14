@@ -15,6 +15,7 @@ Training:
 - Combined: L = value_weight * L_value + policy_weight * L_policy
 """
 
+import math
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -284,6 +285,11 @@ class NNUEPolicyTrainer:
 
     Combines value loss (MSE) and policy loss (cross-entropy) for
     joint training of value and policy networks.
+
+    Supports:
+    - Temperature scaling for sharper/softer policy predictions
+    - Label smoothing for regularization
+    - Temperature annealing during training
     """
 
     def __init__(
@@ -294,11 +300,16 @@ class NNUEPolicyTrainer:
         weight_decay: float = 1e-5,
         value_weight: float = 1.0,
         policy_weight: float = 1.0,
+        temperature: float = 1.0,
+        label_smoothing: float = 0.0,
     ):
         self.model = model.to(device)
         self.device = device
         self.value_weight = value_weight
         self.policy_weight = policy_weight
+        self.temperature = temperature
+        self.initial_temperature = temperature
+        self.label_smoothing = label_smoothing
 
         self.optimizer = torch.optim.AdamW(
             model.parameters(),
@@ -312,7 +323,45 @@ class NNUEPolicyTrainer:
             patience=5,
         )
         self.value_criterion = nn.MSELoss()
-        self.policy_criterion = nn.CrossEntropyLoss()
+        self.policy_criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+
+    def set_temperature(self, temperature: float) -> None:
+        """Set the temperature for policy softmax."""
+        self.temperature = max(0.01, temperature)  # Prevent division by zero
+
+    def anneal_temperature(
+        self,
+        epoch: int,
+        total_epochs: int,
+        start_temp: float = 2.0,
+        end_temp: float = 0.5,
+        schedule: str = "linear",
+    ) -> float:
+        """Anneal temperature during training.
+
+        Args:
+            epoch: Current epoch (0-indexed)
+            total_epochs: Total number of epochs
+            start_temp: Starting temperature (higher = softer)
+            end_temp: Ending temperature (lower = sharper)
+            schedule: "linear", "cosine", or "exponential"
+
+        Returns:
+            The new temperature value
+        """
+        progress = min(1.0, epoch / max(1, total_epochs - 1))
+
+        if schedule == "cosine":
+            # Cosine annealing: slower at start and end
+            temp = end_temp + 0.5 * (start_temp - end_temp) * (1 + math.cos(math.pi * progress))
+        elif schedule == "exponential":
+            # Exponential decay
+            temp = start_temp * ((end_temp / start_temp) ** progress)
+        else:  # linear
+            temp = start_temp + (end_temp - start_temp) * progress
+
+        self.set_temperature(temp)
+        return temp
 
     def train_step(
         self,
@@ -346,9 +395,10 @@ class NNUEPolicyTrainer:
         value_loss = self.value_criterion(pred_value, values)
 
         # Policy loss: compute move scores and apply cross-entropy
+        # Apply temperature scaling (higher temp = softer targets, lower = sharper)
         from_scores = torch.gather(from_logits, 1, from_indices)
         to_scores = torch.gather(to_logits, 1, to_indices)
-        move_scores = from_scores + to_scores
+        move_scores = (from_scores + to_scores) / self.temperature
         move_scores = move_scores.masked_fill(~move_mask, float('-inf'))
 
         policy_loss = self.policy_criterion(move_scores, target_move_idx)

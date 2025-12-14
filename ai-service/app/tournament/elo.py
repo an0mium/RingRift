@@ -13,7 +13,12 @@ from typing import Dict, List, Optional, Tuple, Sequence
 
 @dataclass
 class EloRating:
-    """Elo rating for an agent."""
+    """Elo rating for an agent.
+
+    Includes confidence interval estimation based on Glicko-style rating deviation.
+    The rating deviation (RD) starts high for new players and decreases as more
+    games are played, reflecting increased confidence in the rating.
+    """
 
     agent_id: str
     rating: float = 1500.0
@@ -22,6 +27,14 @@ class EloRating:
     losses: int = 0
     draws: int = 0
     rating_history: List[Tuple[datetime, float]] = field(default_factory=list)
+
+    # Glicko-style rating deviation parameters
+    # Initial RD for new players (high uncertainty)
+    INITIAL_RD: float = 350.0
+    # Minimum RD after many games (baseline uncertainty)
+    MIN_RD: float = 50.0
+    # Games needed to reach near-minimum RD
+    RD_DECAY_GAMES: int = 100
 
     @property
     def win_rate(self) -> float:
@@ -37,7 +50,70 @@ class EloRating:
             return 0.5
         return (self.wins + 0.5 * self.draws) / self.games_played
 
+    @property
+    def rating_deviation(self) -> float:
+        """Estimate rating deviation (uncertainty) based on games played.
+
+        Uses exponential decay from INITIAL_RD toward MIN_RD as games increase.
+        This approximates Glicko's RD without the time-based component.
+
+        Returns:
+            Rating deviation (standard deviation of rating estimate).
+        """
+        if self.games_played == 0:
+            return self.INITIAL_RD
+
+        # Exponential decay: RD = MIN_RD + (INITIAL_RD - MIN_RD) * e^(-games/decay)
+        decay_factor = math.exp(-self.games_played / self.RD_DECAY_GAMES)
+        return self.MIN_RD + (self.INITIAL_RD - self.MIN_RD) * decay_factor
+
+    def confidence_interval(self, confidence: float = 0.95) -> Tuple[float, float]:
+        """Calculate confidence interval for the rating.
+
+        Args:
+            confidence: Confidence level (default 0.95 for 95% CI).
+
+        Returns:
+            Tuple of (lower_bound, upper_bound) for the rating.
+
+        Example:
+            >>> rating = EloRating("agent_1", rating=1600, games_played=50)
+            >>> lower, upper = rating.confidence_interval(0.95)
+            >>> print(f"Rating: {rating.rating} [{lower:.0f}, {upper:.0f}]")
+            Rating: 1600 [1412, 1788]
+        """
+        from statistics import NormalDist
+
+        # Calculate z-score for the confidence level
+        if confidence <= 0.0 or confidence >= 1.0:
+            confidence = 0.95
+        p = 0.5 + confidence / 2.0
+        z = NormalDist().inv_cdf(p)
+
+        rd = self.rating_deviation
+        margin = z * rd
+
+        return (round(self.rating - margin, 1), round(self.rating + margin, 1))
+
+    @property
+    def ci_95(self) -> Tuple[float, float]:
+        """Convenience property for 95% confidence interval."""
+        return self.confidence_interval(0.95)
+
+    @property
+    def uncertainty_str(self) -> str:
+        """Human-readable rating with uncertainty.
+
+        Returns:
+            String like "1600 ± 94" showing rating and 95% CI half-width.
+        """
+        rd = self.rating_deviation
+        # 95% CI uses z ≈ 1.96
+        margin = round(1.96 * rd)
+        return f"{round(self.rating)} ± {margin}"
+
     def to_dict(self) -> Dict:
+        ci_lower, ci_upper = self.ci_95
         return {
             "agent_id": self.agent_id,
             "rating": self.rating,
@@ -46,6 +122,9 @@ class EloRating:
             "losses": self.losses,
             "draws": self.draws,
             "win_rate": round(self.win_rate, 3),
+            "rating_deviation": round(self.rating_deviation, 1),
+            "ci_95_lower": ci_lower,
+            "ci_95_upper": ci_upper,
         }
 
 

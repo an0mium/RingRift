@@ -26,6 +26,14 @@ fi
 SSH_PORT="${SSH_PORT:-}"
 P2P_VOTERS="${RINGRIFT_P2P_VOTERS:-}"
 P2P_VOTERS="${P2P_VOTERS//[[:space:]]/}"
+PEER_RETIRE_AFTER_SECONDS="${RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS:-}"
+RETRY_RETIRED_NODE_INTERVAL="${RINGRIFT_P2P_RETRY_RETIRED_NODE_INTERVAL:-}"
+DISK_WARNING_THRESHOLD_OVERRIDE="${RINGRIFT_P2P_DISK_WARNING_THRESHOLD:-}"
+DISK_CLEANUP_THRESHOLD_OVERRIDE="${RINGRIFT_P2P_DISK_CLEANUP_THRESHOLD:-}"
+DISK_CRITICAL_THRESHOLD_OVERRIDE="${RINGRIFT_P2P_DISK_CRITICAL_THRESHOLD:-}"
+MEMORY_WARNING_THRESHOLD_OVERRIDE="${RINGRIFT_P2P_MEMORY_WARNING_THRESHOLD:-}"
+MEMORY_CRITICAL_THRESHOLD_OVERRIDE="${RINGRIFT_P2P_MEMORY_CRITICAL_THRESHOLD:-}"
+LOAD_MAX_FOR_NEW_JOBS_OVERRIDE="${RINGRIFT_P2P_LOAD_MAX_FOR_NEW_JOBS:-}"
 
 is_port_available() {
     local port="$1"
@@ -157,6 +165,32 @@ EOF
 if [ -n "$P2P_VOTERS" ]; then
     echo "RINGRIFT_P2P_VOTERS=$P2P_VOTERS" >> /etc/ringrift/node.conf
 fi
+
+append_env_if_int() {
+    local name="$1"
+    local val="$2"
+    if [ -z "$val" ]; then
+        return 0
+    fi
+    if echo "$val" | grep -Eq '^[0-9]+$'; then
+        echo "${name}=${val}" >> /etc/ringrift/node.conf
+        return 0
+    fi
+    echo "Warning: ignoring non-integer ${name}=${val}" >&2
+    return 0
+}
+
+# Peer lifecycle tuning (useful after large provider churn, e.g. Vast termination).
+append_env_if_int "RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS" "$PEER_RETIRE_AFTER_SECONDS"
+append_env_if_int "RINGRIFT_P2P_RETRY_RETIRED_NODE_INTERVAL" "$RETRY_RETIRED_NODE_INTERVAL"
+
+# Scheduling/resource thresholds (override defaults per-node when needed).
+append_env_if_int "RINGRIFT_P2P_DISK_WARNING_THRESHOLD" "$DISK_WARNING_THRESHOLD_OVERRIDE"
+append_env_if_int "RINGRIFT_P2P_DISK_CLEANUP_THRESHOLD" "$DISK_CLEANUP_THRESHOLD_OVERRIDE"
+append_env_if_int "RINGRIFT_P2P_DISK_CRITICAL_THRESHOLD" "$DISK_CRITICAL_THRESHOLD_OVERRIDE"
+append_env_if_int "RINGRIFT_P2P_MEMORY_WARNING_THRESHOLD" "$MEMORY_WARNING_THRESHOLD_OVERRIDE"
+append_env_if_int "RINGRIFT_P2P_MEMORY_CRITICAL_THRESHOLD" "$MEMORY_CRITICAL_THRESHOLD_OVERRIDE"
+append_env_if_int "RINGRIFT_P2P_LOAD_MAX_FOR_NEW_JOBS" "$LOAD_MAX_FOR_NEW_JOBS_OVERRIDE"
 
 # Persist an explicit advertised P2P port for port-mapped environments (Vast.ai)
 # so the orchestrator can report a reachable endpoint even in minimal

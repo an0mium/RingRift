@@ -193,6 +193,33 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Freeze value weights when fine-tuning from pretrained model",
     )
 
+    # Temperature annealing
+    parser.add_argument(
+        "--temperature-start",
+        type=float,
+        default=2.0,
+        help="Starting temperature for policy annealing (default: 2.0)",
+    )
+    parser.add_argument(
+        "--temperature-end",
+        type=float,
+        default=0.5,
+        help="Ending temperature for policy annealing (default: 0.5)",
+    )
+    parser.add_argument(
+        "--temperature-schedule",
+        type=str,
+        default="cosine",
+        choices=["linear", "cosine", "exponential"],
+        help="Temperature annealing schedule (default: cosine)",
+    )
+    parser.add_argument(
+        "--label-smoothing",
+        type=float,
+        default=0.1,
+        help="Label smoothing factor for policy loss (default: 0.1)",
+    )
+
     # Sampling configuration
     parser.add_argument(
         "--sample-every-n",
@@ -284,6 +311,10 @@ def train_nnue_policy(
     seed: int,
     pretrained_path: Optional[str] = None,
     freeze_value: bool = False,
+    temperature_start: float = 2.0,
+    temperature_end: float = 0.5,
+    temperature_schedule: str = "cosine",
+    label_smoothing: float = 0.1,
 ) -> Dict[str, Any]:
     """Train NNUE policy model and return training report."""
     seed_all(seed)
@@ -403,7 +434,7 @@ def train_nnue_policy(
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(f"Model parameters: {total_params:,} total, {trainable_params:,} trainable")
 
-    # Create trainer
+    # Create trainer with temperature annealing and label smoothing
     trainer = NNUEPolicyTrainer(
         model=model,
         device=device,
@@ -411,7 +442,12 @@ def train_nnue_policy(
         weight_decay=weight_decay,
         value_weight=value_weight,
         policy_weight=policy_weight,
+        temperature=temperature_start,
+        label_smoothing=label_smoothing,
     )
+
+    logger.info(f"Temperature annealing: {temperature_start} -> {temperature_end} ({temperature_schedule})")
+    logger.info(f"Label smoothing: {label_smoothing}")
 
     # Training loop
     best_val_loss = float("inf")
@@ -425,9 +461,20 @@ def train_nnue_policy(
         "val_value_loss": [],
         "val_policy_loss": [],
         "val_policy_accuracy": [],
+        "temperature": [],
     }
 
     for epoch in range(epochs):
+        # Apply temperature annealing
+        current_temp = trainer.anneal_temperature(
+            epoch=epoch,
+            total_epochs=epochs,
+            start_temp=temperature_start,
+            end_temp=temperature_end,
+            schedule=temperature_schedule,
+        )
+        history["temperature"].append(current_temp)
+
         # Training
         model.train()
         train_losses = []
@@ -621,6 +668,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         seed=args.seed,
         pretrained_path=args.pretrained,
         freeze_value=args.freeze_value,
+        temperature_start=args.temperature_start,
+        temperature_end=args.temperature_end,
+        temperature_schedule=args.temperature_schedule,
+        label_smoothing=args.label_smoothing,
     )
 
     # Add metadata to report

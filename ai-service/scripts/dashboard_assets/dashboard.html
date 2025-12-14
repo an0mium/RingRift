@@ -682,6 +682,26 @@
         return `${Math.floor(delta / 86400)}d`;
       }
 
+      function versionKey(v) {
+        const s = String(v || "").trim();
+        if (!s) return "";
+        const parts = s.split("@");
+        if (parts.length === 2) {
+          const branch = (parts[0] || "").trim();
+          const commit = (parts[1] || "").trim();
+          const commitShort = commit.slice(0, 7);
+          return branch ? `${branch}@${commitShort}` : commitShort;
+        }
+        if (/^[0-9a-f]{8,40}$/i.test(s)) return s.slice(0, 7);
+        return s;
+      }
+
+      function versionsMatch(a, b) {
+        const ka = versionKey(a);
+        const kb = versionKey(b);
+        return Boolean(ka) && Boolean(kb) && ka === kb;
+      }
+
       function pill(text, kind) {
         return `<span class="pill ${kind || ""}">${text}</span>`;
       }
@@ -755,7 +775,7 @@
             const versionCounts = {};
             for (const p of peers) {
               if (!p || p.status !== "online") continue;
-              const v = String(p.version || "").trim();
+              const v = versionKey(p.version);
               if (!v) continue;
               versionCounts[v] = (versionCounts[v] || 0) + 1;
             }
@@ -802,12 +822,13 @@
         for (const n of allNodes) {
           const status = n === cluster.self ? "online" : n.status || "unknown";
           if (status !== "online") continue;
-          const v = String(n.version || "").trim();
+          const v = versionKey(n.version);
           if (!v) continue;
           versionCounts[v] = (versionCounts[v] || 0) + 1;
         }
         const versions = Object.keys(versionCounts).sort((a, b) => (versionCounts[b] || 0) - (versionCounts[a] || 0));
-        const targetVersion = versions[0] || "";
+        const rawSelfVersion = String((cluster.self || {}).version || "").trim();
+        const targetVersion = rawSelfVersion || versions[0] || "";
 
         function addNode(n, isSelf) {
           if (!n) return;
@@ -816,9 +837,9 @@
             status === "online" ? pill("online", "good") : status === "offline" ? pill("offline", "bad") : pill(status, "warn");
           const role = n.role || (isSelf ? cluster.role : "-");
           const version = n.version || "-";
-          const isSkew = Boolean(targetVersion) && version !== "-" && version !== targetVersion;
+          const isSkew = Boolean(targetVersion) && version !== "-" && !versionsMatch(version, targetVersion);
           const versionStyle = isSkew ? `style="color: var(--warn)"` : "";
-          const versionTitle = isSkew ? `title="Target: ${targetVersion}"` : "";
+          const versionTitle = isSkew ? `title="Target: ${versionKey(targetVersion) || targetVersion}"` : "";
           const jobs = `${Number(n.selfplay_jobs || 0)} sp / ${Number(n.training_jobs || 0)} tr`;
           const gpuText = n.has_gpu ? `${fmtPct(n.gpu_percent)} / ${fmtPct(n.gpu_memory_percent)}` : "-";
           const eHost = n.effective_host || n.host || "";
