@@ -335,7 +335,7 @@ def run_single_game(
             players,
             key=lambda p: (
                 territory_counts.get(int(p.player_number), 0),
-                int(p.eliminated_rings),
+                -int(p.eliminated_rings),  # FEWER lost rings = better (negate for reverse sort)
                 marker_counts.get(int(p.player_number), 0),
                 1 if last_actor == p.player_number else 0,
             ),
