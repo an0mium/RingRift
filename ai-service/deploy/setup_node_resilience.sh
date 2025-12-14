@@ -49,14 +49,21 @@ PY
 # If the chosen port is already in use (e.g. Jupyter on Vast.ai), fall back to
 # a known-safe port.
 if ! is_port_available "$P2P_PORT"; then
-    echo "Warning: P2P_PORT=$P2P_PORT already in use; selecting fallback port"
-    for candidate in 8770 8772 8773 8774 8780 8781; do
-        if is_port_available "$candidate"; then
-            P2P_PORT="$candidate"
-            echo "Using fallback P2P_PORT=$P2P_PORT"
-            break
-        fi
-    done
+    # If the port is already serving the orchestrator health endpoint, keep it.
+    # This avoids bouncing to a new port on redeploy when the daemon is already
+    # running on the intended port.
+    if curl -s --connect-timeout 2 "http://localhost:${P2P_PORT}/health" | grep -q '"node_id"' 2>/dev/null; then
+        echo "P2P_PORT=$P2P_PORT is in use by an existing orchestrator; keeping port"
+    else
+        echo "Warning: P2P_PORT=$P2P_PORT already in use; selecting fallback port"
+        for candidate in 8770 8772 8773 8774 8780 8781; do
+            if is_port_available "$candidate"; then
+                P2P_PORT="$candidate"
+                echo "Using fallback P2P_PORT=$P2P_PORT"
+                break
+            fi
+        done
+    fi
 fi
 
 echo "Setting up node resilience for $NODE_ID"

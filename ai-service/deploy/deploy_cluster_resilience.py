@@ -136,8 +136,11 @@ def _run_ssh(
     wrap_in_bash: bool = True,
 ) -> None:
     if wrap_in_bash:
-        shell_args = ["bash", "-lc" if login_shell else "-c", script]
-        cmd = _ssh_base_cmd(target) + shell_args
+        mode_flag = "-lc" if login_shell else "-c"
+        # IMPORTANT: ssh executes the remote command through a shell; do not
+        # rely on argument boundaries to keep multi-line scripts intact.
+        remote_cmd = f"bash {mode_flag} {shlex.quote(script)}"
+        cmd = _ssh_base_cmd(target) + [remote_cmd]
     else:
         # Let ssh run the command through the remote user's default shell.
         cmd = _ssh_base_cmd(target) + [script]
