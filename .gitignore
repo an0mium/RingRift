@@ -162,6 +162,7 @@ backups/
 
 # Lint / tooling reports
 eslint-report*.json
+ci-results.json
 
 # Load test result artifacts
 tests/load/*.load.results.json
@@ -201,3 +202,9 @@ ai-service/docs/SELFPLAY_*.md
 
 # Cluster connection documentation (contains IPs/credentials)
 CLUSTER_CONNECTIONS.md
+
+# Root-level scenario dumps (should go in public/scenarios/)
+ringrift_scenario_*.json
+
+# Root-level game databases (should go in ai-service/data/)
+data/games/
