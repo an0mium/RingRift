@@ -8,7 +8,7 @@ import {
 import { ErrorCodes } from '../errors';
 import { AuthenticatedRequest, getAuthUserId } from '../middleware/auth';
 import { createError, asyncHandler } from '../middleware/errorHandler';
-import { dataExportRateLimiter } from '../middleware/rateLimiter';
+import { dataExportRateLimiter, userRatingRateLimiter } from '../middleware/rateLimiter';
 import { httpLogger } from '../utils/logger';
 import {
   UpdateProfileSchema,
@@ -202,56 +202,76 @@ router.put(
 
     // Check if username is already taken (if provided, exclude soft-deleted users)
     if (username) {
-      const existingUser = await prisma.user.findFirst({
-        where: {
-          username,
-          NOT: { id: userId },
-          deletedAt: null,
-        },
-      });
+      const usernameCheckResult = await withQueryTimeoutStrict(
+        prisma.user.findFirst({
+          where: {
+            username,
+            NOT: { id: userId },
+            deletedAt: null,
+          },
+        })
+      );
 
-      if (existingUser) {
+      if (!usernameCheckResult.success) {
+        throw createError('Database query timed out', 504, ErrorCodes.SERVER_GATEWAY_TIMEOUT);
+      }
+
+      if (usernameCheckResult.data) {
         throw createError('Username already taken', 409, 'USERNAME_EXISTS');
       }
     }
 
     // Check if email is already taken (if provided, exclude soft-deleted users)
     if (email) {
-      const existingUser = await prisma.user.findFirst({
-        where: {
-          email,
-          NOT: { id: userId },
-          deletedAt: null,
-        },
-      });
+      const emailCheckResult = await withQueryTimeoutStrict(
+        prisma.user.findFirst({
+          where: {
+            email,
+            NOT: { id: userId },
+            deletedAt: null,
+          },
+        })
+      );
 
-      if (existingUser) {
+      if (!emailCheckResult.success) {
+        throw createError('Database query timed out', 504, ErrorCodes.SERVER_GATEWAY_TIMEOUT);
+      }
+
+      if (emailCheckResult.data) {
         throw createError('Email already registered', 409, 'EMAIL_EXISTS');
       }
     }
 
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: {
-        ...(username && { username }),
-        ...(email && { email }),
-        ...(preferences && { preferences: preferences as Prisma.InputJsonValue }),
-        updatedAt: new Date(),
-      },
-      select: {
-        id: true,
-        email: true,
-        username: true,
-        role: true,
-        rating: true,
-        gamesPlayed: true,
-        gamesWon: true,
-        createdAt: true,
-        lastLoginAt: true,
-        emailVerified: true,
-        isActive: true,
-      },
-    });
+    const updateResult = await withQueryTimeoutStrict(
+      prisma.user.update({
+        where: { id: userId },
+        data: {
+          ...(username && { username }),
+          ...(email && { email }),
+          ...(preferences && { preferences: preferences as Prisma.InputJsonValue }),
+          updatedAt: new Date(),
+        },
+        select: {
+          id: true,
+          email: true,
+          username: true,
+          role: true,
+          rating: true,
+          gamesPlayed: true,
+          gamesWon: true,
+          createdAt: true,
+          lastLoginAt: true,
+          emailVerified: true,
+          isActive: true,
+        },
+      })
+    );
+
+    if (!updateResult.success) {
+      throw createError('Database query timed out', 504, ErrorCodes.SERVER_GATEWAY_TIMEOUT);
+    }
+
+    const updatedUser = updateResult.data;
 
     httpLogger.info(req, 'User profile updated', { userId });
 
@@ -1050,6 +1070,7 @@ router.get(
  */
 router.get(
   '/:userId/rating',
+  userRatingRateLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { userId } = req.params;
 

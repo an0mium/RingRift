@@ -241,6 +241,14 @@ export const getRateLimitConfigs = (): Record<string, RateLimitConfig> => ({
     duration: getEnvNumber('RATE_LIMIT_ALERT_WEBHOOK_DURATION', 60), // per minute
     blockDuration: getEnvNumber('RATE_LIMIT_ALERT_WEBHOOK_BLOCK_DURATION', 300), // 5 min block
   },
+
+  // User rating lookup - prevent enumeration attacks
+  userRating: {
+    keyPrefix: 'user_rating_limit',
+    points: getEnvNumber('RATE_LIMIT_USER_RATING_POINTS', 30), // requests
+    duration: getEnvNumber('RATE_LIMIT_USER_RATING_DURATION', 60), // per minute
+    blockDuration: getEnvNumber('RATE_LIMIT_USER_RATING_BLOCK_DURATION', 120), // 2 min block
+  },
 });
 
 // Cache the configs to avoid re-parsing env vars on every request
@@ -552,6 +560,9 @@ export const clientErrorsRateLimiter = createRateLimiter('clientErrors', {
 // Internal route rate limiters
 export const internalHealthRateLimiter = createRateLimiter('internalHealth');
 export const alertWebhookRateLimiter = createRateLimiter('alertWebhook');
+
+// User data rate limiters
+export const userRatingRateLimiter = createRateLimiter('userRating');
 
 /**
  * Rate limiter that differentiates between authenticated and anonymous users.

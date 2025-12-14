@@ -279,6 +279,9 @@ function coerceRulesUxEventPayload(raw: unknown): RulesUxEventPayload {
   return payload;
 }
 
+// Maximum request body size for telemetry (8KB - larger than nested payload limit to allow metadata)
+const MAX_REQUEST_BODY_SIZE = 8192;
+
 /**
  * Core handler for POST /api/telemetry/rules-ux.
  *
@@ -287,6 +290,13 @@ function coerceRulesUxEventPayload(raw: unknown): RulesUxEventPayload {
  * - Only coarse board / player / AI context and small enums are accepted.
  */
 export function handleRulesUxTelemetry(req: Request, res: Response): void {
+  // Early size check before any processing to prevent memory exhaustion
+  // Use content-length header as a fast check (not 100% accurate but good first barrier)
+  const contentLength = parseInt(req.get('content-length') || '0', 10);
+  if (contentLength > MAX_REQUEST_BODY_SIZE) {
+    throw createError('Request body too large', 413, 'PAYLOAD_TOO_LARGE');
+  }
+
   const payload = coerceRulesUxEventPayload(req.body);
 
   const metrics = getMetricsService();

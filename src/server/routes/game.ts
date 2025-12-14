@@ -2290,15 +2290,22 @@ router.get(
 
     const diagnostics = wsServerInstance.getGameDiagnosticsForGame(gameId);
 
+    // Non-admin users get sanitized diagnostics (hide internal AI state details)
+    const isAdmin = req.user?.role === 'ADMIN';
+
     res.json({
       success: true,
       data: {
         sessionStatus: diagnostics.sessionStatus,
-        lastAIRequestState: diagnostics.lastAIRequestState,
-        aiDiagnostics: diagnostics.aiDiagnostics,
-        connections: diagnostics.connections || {},
+        // Only expose detailed AI state to admins to prevent information leakage
+        lastAIRequestState: isAdmin ? diagnostics.lastAIRequestState : null,
+        aiDiagnostics: isAdmin ? diagnostics.aiDiagnostics : null,
+        connections: isAdmin
+          ? diagnostics.connections || {}
+          : { count: Object.keys(diagnostics.connections || {}).length },
         meta: {
           hasInMemorySession: diagnostics.hasInMemorySession,
+          sanitized: !isAdmin,
         },
       },
     });
