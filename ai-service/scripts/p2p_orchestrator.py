@@ -8593,27 +8593,81 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             lines.append("# TYPE ringrift_training_jobs_running gauge")
             lines.append(f"ringrift_training_jobs_running {training_jobs}")
 
-            # Resource utilization
-            lines.append("# HELP ringrift_cpu_percent CPU utilization percentage")
+            # Resource utilization - include node labels for all nodes
+            lines.append("# HELP ringrift_cpu_percent CPU utilization percentage per node")
             lines.append("# TYPE ringrift_cpu_percent gauge")
-            lines.append(f"ringrift_cpu_percent {getattr(self.self_info, 'cpu_percent', 0)}")
 
-            lines.append("# HELP ringrift_memory_percent Memory utilization percentage")
+            lines.append("# HELP ringrift_memory_percent Memory utilization percentage per node")
             lines.append("# TYPE ringrift_memory_percent gauge")
-            lines.append(f"ringrift_memory_percent {getattr(self.self_info, 'memory_percent', 0)}")
 
-            lines.append("# HELP ringrift_disk_percent Disk utilization percentage")
+            lines.append("# HELP ringrift_disk_percent Disk utilization percentage per node")
             lines.append("# TYPE ringrift_disk_percent gauge")
-            lines.append(f"ringrift_disk_percent {getattr(self.self_info, 'disk_percent', 0)}")
 
-            if self.self_info.has_gpu:
-                lines.append("# HELP ringrift_gpu_percent GPU utilization percentage")
-                lines.append("# TYPE ringrift_gpu_percent gauge")
-                lines.append(f"ringrift_gpu_percent {getattr(self.self_info, 'gpu_percent', 0)}")
+            lines.append("# HELP ringrift_gpu_percent GPU utilization percentage per node")
+            lines.append("# TYPE ringrift_gpu_percent gauge")
 
-                lines.append("# HELP ringrift_gpu_memory_percent GPU memory utilization percentage")
-                lines.append("# TYPE ringrift_gpu_memory_percent gauge")
-                lines.append(f"ringrift_gpu_memory_percent {getattr(self.self_info, 'gpu_memory_percent', 0)}")
+            lines.append("# HELP ringrift_selfplay_jobs Selfplay jobs per node")
+            lines.append("# TYPE ringrift_selfplay_jobs gauge")
+
+            lines.append("# HELP ringrift_node_alive Whether node is alive (1) or not (0)")
+            lines.append("# TYPE ringrift_node_alive gauge")
+
+            # Export self metrics with node label
+            node_name = self.node_id or "unknown"
+            cpu = getattr(self.self_info, 'cpu_percent', 0)
+            mem = getattr(self.self_info, 'memory_percent', 0)
+            disk = getattr(self.self_info, 'disk_percent', 0)
+            gpu = getattr(self.self_info, 'gpu_percent', 0) if self.self_info.has_gpu else 0
+            role = "leader" if self.role == NodeRole.LEADER else "worker"
+
+            lines.append(f'ringrift_cpu_percent{{node="{node_name}",role="{role}"}} {cpu}')
+            lines.append(f'ringrift_memory_percent{{node="{node_name}",role="{role}"}} {mem}')
+            lines.append(f'ringrift_disk_percent{{node="{node_name}",role="{role}"}} {disk}')
+            lines.append(f'ringrift_gpu_percent{{node="{node_name}",role="{role}"}} {gpu}')
+            lines.append(f'ringrift_selfplay_jobs{{node="{node_name}",role="{role}"}} {selfplay_jobs}')
+            lines.append(f'ringrift_node_alive{{node="{node_name}",role="{role}"}} 1')
+
+            # Export peer metrics with node labels
+            with self.peers_lock:
+                for peer_id, peer in self.peers.items():
+                    peer_name = peer_id or "unknown"
+                    peer_role = "worker"
+                    is_alive = 1 if peer.is_alive() else 0
+
+                    # Get peer resource info if available
+                    peer_cpu = getattr(peer, 'cpu_percent', 0) or 0
+                    peer_mem = getattr(peer, 'memory_percent', 0) or 0
+                    peer_gpu = getattr(peer, 'gpu_percent', 0) or 0
+                    peer_jobs = getattr(peer, 'selfplay_jobs', 0) or 0
+
+                    lines.append(f'ringrift_cpu_percent{{node="{peer_name}",role="{peer_role}"}} {peer_cpu}')
+                    lines.append(f'ringrift_memory_percent{{node="{peer_name}",role="{peer_role}"}} {peer_mem}')
+                    lines.append(f'ringrift_gpu_percent{{node="{peer_name}",role="{peer_role}"}} {peer_gpu}')
+                    lines.append(f'ringrift_selfplay_jobs{{node="{peer_name}",role="{peer_role}"}} {peer_jobs}')
+                    lines.append(f'ringrift_node_alive{{node="{peer_name}",role="{peer_role}"}} {is_alive}')
+
+            # Elo metrics with config labels
+            try:
+                from scripts.run_model_elo_tournament import init_elo_database, ELO_DB_PATH
+                if ELO_DB_PATH and ELO_DB_PATH.exists():
+                    db = init_elo_database()
+                    conn = db._get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT board_type, num_players, MAX(rating) as best_elo
+                        FROM elo_ratings
+                        WHERE games_played >= 10
+                        GROUP BY board_type, num_players
+                    """)
+                    lines.append("# HELP ringrift_best_elo Best Elo rating per configuration")
+                    lines.append("# TYPE ringrift_best_elo gauge")
+                    for row in cursor.fetchall():
+                        bt, np, elo = row
+                        config = f"{bt}_{np}p"
+                        lines.append(f'ringrift_best_elo{{config="{config}",board_type="{bt}",num_players="{np}"}} {elo}')
+                    db.close()
+            except Exception:
+                pass
 
             # Diversity metrics
             if hasattr(self, 'diversity_metrics'):
@@ -9544,6 +9598,163 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
         except Exception as e:
             return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def handle_elo_table(self, request: web.Request) -> web.Response:
+        """GET /elo/table - Elo leaderboard in flat table format for Grafana Infinity.
+
+        Returns a simple JSON array of model entries with rank, suitable for table display.
+        """
+        try:
+            from scripts.run_model_elo_tournament import (
+                init_elo_database,
+                ELO_DB_PATH,
+            )
+
+            if not ELO_DB_PATH or not ELO_DB_PATH.exists():
+                return web.json_response([])
+
+            limit = int(request.query.get("limit", "50"))
+            board_type_filter = request.query.get("board_type")
+            num_players_filter = request.query.get("num_players")
+
+            db = init_elo_database()
+            conn = db._get_connection()
+            cursor = conn.cursor()
+
+            # Build query with optional filters
+            query = """
+                SELECT
+                    participant_id,
+                    board_type,
+                    num_players,
+                    rating,
+                    games_played,
+                    wins,
+                    losses,
+                    draws,
+                    last_update
+                FROM elo_ratings
+                WHERE games_played >= 5
+            """
+            params = []
+
+            if board_type_filter:
+                query += " AND board_type = ?"
+                params.append(board_type_filter)
+
+            if num_players_filter:
+                query += " AND num_players = ?"
+                params.append(int(num_players_filter))
+
+            query += " ORDER BY rating DESC LIMIT ?"
+            params.append(limit)
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            db.close()
+
+            # Build flat table response
+            table_data = []
+            for rank, row in enumerate(rows, 1):
+                participant_id, board_type, num_players, rating, games, wins, losses, draws, last_update = row
+
+                # Extract model name from participant_id
+                model_name = participant_id
+                if participant_id.startswith("nn:"):
+                    model_name = Path(participant_id[3:]).stem
+
+                # Calculate win rate
+                total_decided = wins + losses
+                win_rate = wins / total_decided if total_decided > 0 else 0.5
+
+                # Format config
+                config = f"{board_type}_{num_players}p"
+
+                table_data.append({
+                    "Rank": rank,
+                    "Model": model_name,
+                    "Elo": round(rating, 1),
+                    "WinRate": round(win_rate * 100, 1),
+                    "Games": games,
+                    "Wins": wins,
+                    "Losses": losses,
+                    "Draws": draws,
+                    "Config": config,
+                })
+
+            return web.json_response(table_data)
+
+        except ImportError:
+            return web.json_response([{"error": "Elo database module not available"}])
+        except Exception as e:
+            return web.json_response([{"error": str(e)}])
+
+    async def handle_nodes_table(self, request: web.Request) -> web.Response:
+        """GET /nodes/table - Node status in flat table format for Grafana Infinity.
+
+        Returns current status of all cluster nodes in table format.
+        """
+        try:
+            nodes = []
+
+            # Add self
+            node_name = self.node_id or "unknown"
+            role = "Leader" if self.role == NodeRole.LEADER else "Worker"
+            cpu = getattr(self.self_info, 'cpu_percent', 0)
+            mem = getattr(self.self_info, 'memory_percent', 0)
+            gpu = getattr(self.self_info, 'gpu_percent', 0) if self.self_info.has_gpu else 0
+            gpu_mem = getattr(self.self_info, 'gpu_memory_percent', 0) if self.self_info.has_gpu else 0
+
+            with self.jobs_lock:
+                selfplay_jobs = len([j for j in self.local_jobs.values()
+                                    if j.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY)
+                                    and j.status == "running"])
+
+            nodes.append({
+                "Node": node_name,
+                "Role": role,
+                "Status": "Online",
+                "CPU": round(cpu, 1),
+                "Memory": round(mem, 1),
+                "GPU": round(gpu, 1),
+                "GPUMem": round(gpu_mem, 1),
+                "Jobs": selfplay_jobs,
+                "HasGPU": "Yes" if self.self_info.has_gpu else "No",
+            })
+
+            # Add peers
+            with self.peers_lock:
+                for peer_id, peer in self.peers.items():
+                    peer_name = peer_id or "unknown"
+                    is_alive = peer.is_alive()
+                    status = "Online" if is_alive else "Offline"
+
+                    peer_cpu = getattr(peer, 'cpu_percent', 0) or 0
+                    peer_mem = getattr(peer, 'memory_percent', 0) or 0
+                    peer_gpu = getattr(peer, 'gpu_percent', 0) or 0
+                    peer_gpu_mem = getattr(peer, 'gpu_memory_percent', 0) or 0
+                    peer_jobs = getattr(peer, 'selfplay_jobs', 0) or 0
+                    has_gpu = getattr(peer, 'has_gpu', False)
+
+                    nodes.append({
+                        "Node": peer_name,
+                        "Role": "Worker",
+                        "Status": status,
+                        "CPU": round(peer_cpu, 1),
+                        "Memory": round(peer_mem, 1),
+                        "GPU": round(peer_gpu, 1),
+                        "GPUMem": round(peer_gpu_mem, 1),
+                        "Jobs": peer_jobs,
+                        "HasGPU": "Yes" if has_gpu else "No",
+                    })
+
+            # Sort by role (leader first) then by name
+            nodes.sort(key=lambda n: (0 if n["Role"] == "Leader" else 1, n["Node"]))
+
+            return web.json_response(nodes)
+
+        except Exception as e:
+            return web.json_response([{"error": str(e)}])
 
     async def handle_api_training_status(self, request: web.Request) -> web.Response:
         """Get training pipeline status including NNUE, CMAES, and auto-promotion state.
@@ -13254,6 +13465,8 @@ print(json.dumps({{
         app.router.add_post('/api/cluster/git/update', self.handle_api_cluster_git_update)
         app.router.add_get('/api/selfplay/stats', self.handle_api_selfplay_stats)
         app.router.add_get('/api/elo/leaderboard', self.handle_api_elo_leaderboard)
+        app.router.add_get('/elo/table', self.handle_elo_table)
+        app.router.add_get('/nodes/table', self.handle_nodes_table)
         app.router.add_get('/api/training/status', self.handle_api_training_status)
         app.router.add_get('/api/canonical/health', self.handle_api_canonical_health)
         app.router.add_get('/api/canonical/jobs', self.handle_api_canonical_jobs_list)
