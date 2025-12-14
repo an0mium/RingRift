@@ -278,7 +278,13 @@ class GameEngine:
         # exposes FE via dedicated phase logic; it does not auto-fallback to
         # FORCED_ELIMINATION moves from get_valid_moves (RR-CANON-R076).
 
-        cache_moves(game_state, player_number, moves)
+        # IMPORTANT: Only cache non-empty move lists. Empty lists should NOT be
+        # cached because host-level callers (like DefaultRulesEngine.get_valid_moves)
+        # may need to synthesize bookkeeping moves (NO_PLACEMENT_ACTION, etc.) when
+        # there are no interactive moves. Caching empty lists prevents proper
+        # bookkeeping move synthesis and causes AI to return None incorrectly.
+        if moves:
+            cache_moves(game_state, player_number, moves)
         return moves
 
     @staticmethod
