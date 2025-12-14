@@ -16,20 +16,30 @@
 #   --target PATH   Target directory for synced data (default: ./data/games/cluster_sync)
 #   --config FILE   Hosts config file (default: config/distributed_hosts.yaml)
 #   --dry-run       Show what would be synced without actually syncing
-#   --parallel N    Sync from N hosts in parallel (default: 4)
+#   --no-tailscale  Skip Tailscale fallback attempts
+#   --no-http-check Skip HTTP health checks before SSH
 #   -h, --help      Show this help message
 #
+# Resilient Connection Methods:
+#   The script attempts multiple connection strategies for each host:
+#   1. HTTP health check via worker_url (if configured) to verify host is alive
+#   2. Primary SSH connection via ssh_host
+#   3. Tailscale SSH fallback via tailscale_ip (if primary fails)
+#
 # Configuration:
-#   Hosts are read from config/distributed_hosts.yaml. Each host entry should have:
-#     - ssh_host: IP or hostname
+#   Hosts are read from config/distributed_hosts.yaml. Each host entry can have:
+#     - ssh_host: Primary IP or hostname
+#     - tailscale_ip: (optional) Tailscale IP for fallback
 #     - ssh_user: SSH username
 #     - ssh_port: (optional) SSH port, default 22
 #     - ssh_key: (optional) path to SSH key
 #     - ringrift_path: path to ringrift/ai-service on the remote host
+#     - worker_url: (optional) HTTP worker URL for health checks
 #
 # The script automatically handles:
 #   - Standard SSH hosts (port 22, persistent storage)
 #   - Vast.ai instances (custom ports, RAM storage at /dev/shm)
+#   - Tailscale network fallback when primary connection fails
 #   - Failed/unreachable hosts (continues with remaining hosts)
 
 set -euo pipefail
@@ -41,6 +51,12 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 # Default target (local cluster sync directory)
 TARGET_DIR="$AI_SERVICE_DIR/data/games/cluster_sync"
+
+# Connection settings
+USE_TAILSCALE=true
+USE_HTTP_CHECK=true
+SSH_CONNECT_TIMEOUT=15
+HTTP_CHECK_TIMEOUT=5
 
 # Colors
 RED='\033[0;31m'
@@ -63,8 +79,10 @@ while [[ $# -gt 0 ]]; do
         --dry-run) DRY_RUN=true; shift ;;
         --target) TARGET_DIR="$2"; shift 2 ;;
         --config) CONFIG_FILE="$2"; shift 2 ;;
+        --no-tailscale) USE_TAILSCALE=false; shift ;;
+        --no-http-check) USE_HTTP_CHECK=false; shift ;;
         --help|-h)
-            head -30 "$0" | tail -n +2 | sed 's/^# //' | sed 's/^#//'
+            head -45 "$0" | tail -n +2 | sed 's/^# //' | sed 's/^#//'
             exit 0
             ;;
         *)
@@ -80,6 +98,8 @@ echo "  Timestamp: $TIMESTAMP"
 echo "  Target: $TARGET_DIR"
 echo "  Config: $CONFIG_FILE"
 [[ "$DRY_RUN" == "true" ]] && echo "  Mode: DRY RUN"
+[[ "$USE_TAILSCALE" == "true" ]] && echo "  Tailscale fallback: enabled"
+[[ "$USE_HTTP_CHECK" == "true" ]] && echo "  HTTP health check: enabled"
 echo "============================================="
 
 # Verify config file exists
@@ -105,29 +125,62 @@ mkdir -p "$TARGET_DIR"
 # Track stats
 SYNC_SUCCESS=0
 SYNC_FAILED=0
+SYNC_VIA_TAILSCALE=0
 TOTAL_FILES=0
 
-# Generic sync function
-sync_from_host() {
+# Check if host is reachable via HTTP health endpoint
+check_http_health() {
+    local worker_url="$1"
+    local timeout="${2:-$HTTP_CHECK_TIMEOUT}"
+
+    if [[ -z "$worker_url" ]]; then
+        return 1
+    fi
+
+    # Ensure URL has protocol
+    if [[ ! "$worker_url" =~ ^https?:// ]]; then
+        worker_url="http://$worker_url"
+    fi
+
+    local health_url="${worker_url%/}/health"
+
+    if curl -s --connect-timeout "$timeout" --max-time "$((timeout + 2))" "$health_url" >/dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
+# Test SSH connectivity
+test_ssh_connection() {
+    local ssh_host="$1"
+    local ssh_user="$2"
+    local ssh_key="${3:-}"
+    local ssh_port="${4:-22}"
+    local timeout="${5:-$SSH_CONNECT_TIMEOUT}"
+
+    local ssh_opts="-o ConnectTimeout=$timeout -o StrictHostKeyChecking=no -o BatchMode=yes"
+    [[ -n "$ssh_key" ]] && ssh_opts="$ssh_opts -i $ssh_key"
+    [[ "$ssh_port" != "22" ]] && ssh_opts="$ssh_opts -p $ssh_port"
+
+    if ssh $ssh_opts "$ssh_user@$ssh_host" "echo ok" >/dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
+# Sync from host with rsync
+do_rsync_sync() {
     local name="$1"
     local ssh_host="$2"
     local ssh_user="$3"
     local remote_path="$4"
     local ssh_key="${5:-}"
     local ssh_port="${6:-22}"
+    local dest="$7"
 
-    log_info "Syncing from $name..."
-    local dest="$TARGET_DIR/$name"
-    mkdir -p "$dest"
-
-    local ssh_opts="-o ConnectTimeout=15 -o StrictHostKeyChecking=no -o BatchMode=yes"
+    local ssh_opts="-o ConnectTimeout=$SSH_CONNECT_TIMEOUT -o StrictHostKeyChecking=no -o BatchMode=yes"
     [[ -n "$ssh_key" ]] && ssh_opts="$ssh_opts -i $ssh_key"
     [[ "$ssh_port" != "22" ]] && ssh_opts="$ssh_opts -p $ssh_port"
-
-    if [[ "$DRY_RUN" == "true" ]]; then
-        echo "  [DRY-RUN] rsync -avz -e 'ssh $ssh_opts' $ssh_user@$ssh_host:$remote_path/data/games/*.db $dest/"
-        return 0
-    fi
 
     local synced_any=false
 
@@ -150,13 +203,79 @@ sync_from_host() {
     fi
 
     if [[ "$synced_any" == "true" ]]; then
+        return 0
+    fi
+    return 1
+}
+
+# Main sync function with resilient connection handling
+sync_from_host() {
+    local name="$1"
+    local ssh_host="$2"
+    local ssh_user="$3"
+    local remote_path="$4"
+    local ssh_key="${5:-}"
+    local ssh_port="${6:-22}"
+    local tailscale_ip="${7:-}"
+    local worker_url="${8:-}"
+
+    log_info "Syncing from $name..."
+    local dest="$TARGET_DIR/$name"
+    mkdir -p "$dest"
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo "  [DRY-RUN] Would sync from $ssh_user@$ssh_host:$remote_path/data/games/ to $dest/"
+        [[ -n "$tailscale_ip" ]] && echo "  [DRY-RUN] Tailscale fallback available: $tailscale_ip"
+        [[ -n "$worker_url" ]] && echo "  [DRY-RUN] HTTP health check: $worker_url"
+        return 0
+    fi
+
+    local connection_method=""
+    local effective_host="$ssh_host"
+    local effective_port="$ssh_port"
+
+    # Step 1: Optional HTTP health check to quickly verify host is alive
+    if [[ "$USE_HTTP_CHECK" == "true" && -n "$worker_url" ]]; then
+        if check_http_health "$worker_url"; then
+            log_info "  HTTP health check passed for $name"
+        else
+            log_warning "  HTTP health check failed for $name (will try SSH anyway)"
+        fi
+    fi
+
+    # Step 2: Try primary SSH connection
+    if test_ssh_connection "$ssh_host" "$ssh_user" "$ssh_key" "$ssh_port"; then
+        connection_method="primary"
+        effective_host="$ssh_host"
+        effective_port="$ssh_port"
+    # Step 3: Try Tailscale fallback if available
+    elif [[ "$USE_TAILSCALE" == "true" && -n "$tailscale_ip" ]]; then
+        log_info "  Primary SSH failed, trying Tailscale ($tailscale_ip)..."
+        if test_ssh_connection "$tailscale_ip" "$ssh_user" "$ssh_key" "22"; then
+            connection_method="tailscale"
+            effective_host="$tailscale_ip"
+            effective_port="22"
+            ((SYNC_VIA_TAILSCALE++)) || true
+        fi
+    fi
+
+    if [[ -z "$connection_method" ]]; then
+        log_warning "$name: unreachable (tried primary${tailscale_ip:+ + tailscale})"
+        ((SYNC_FAILED++)) || true
+        return 1
+    fi
+
+    # Step 4: Perform the actual sync
+    if do_rsync_sync "$name" "$effective_host" "$ssh_user" "$remote_path" "$ssh_key" "$effective_port" "$dest"; then
         local db_count=$(find "$dest" -name "*.db" 2>/dev/null | wc -l | tr -d ' ')
         local jsonl_count=$(find "$dest" -name "*.jsonl" 2>/dev/null | wc -l | tr -d ' ')
-        log_success "$name: $db_count DB(s), $jsonl_count JSONL"
+        local method_note=""
+        [[ "$connection_method" == "tailscale" ]] && method_note=" (via Tailscale)"
+        log_success "$name: $db_count DB(s), $jsonl_count JSONL$method_note"
         ((SYNC_SUCCESS++)) || true
         ((TOTAL_FILES += db_count + jsonl_count)) || true
     else
-        log_warning "$name: no data or unreachable"
+        log_warning "$name: connected but no data found"
         ((SYNC_FAILED++)) || true
     fi
 }
@@ -173,7 +292,7 @@ if ! command -v python3 &>/dev/null; then
     exit 1
 fi
 
-# Generate sync commands from config
+# Generate sync commands from config (now includes tailscale_ip and worker_url)
 SYNC_COMMANDS=$(python3 - "$CONFIG_FILE" << 'PYTHON_SCRIPT'
 import sys
 import os
@@ -203,11 +322,24 @@ for name, host_cfg in hosts.items():
     ssh_key = host_cfg.get("ssh_key", "")
     ringrift_path = host_cfg.get("ringrift_path", "~/ringrift/ai-service")
 
+    # Resilient connection options
+    tailscale_ip = host_cfg.get("tailscale_ip", "")
+    worker_url = host_cfg.get("worker_url", "")
+
+    # If no explicit worker_url, construct from ssh_host and default port
+    if not worker_url and ssh_host:
+        worker_port = host_cfg.get("worker_port", 8765)
+        # Only construct URL for non-Vast.ai hosts (they use non-standard ports)
+        if ssh_port == 22:
+            worker_url = f"http://{ssh_host}:{worker_port}"
+
     # Expand ~ in paths
     ssh_key = ssh_key.replace("~", os.environ.get("HOME", "~"))
 
     if ssh_host and ssh_user:
-        print(f'sync_from_host "{name}" "{ssh_host}" "{ssh_user}" "{ringrift_path}" "{ssh_key}" "{ssh_port}"')
+        # Escape any special characters in paths
+        ringrift_path = ringrift_path.replace('"', '\\"')
+        print(f'sync_from_host "{name}" "{ssh_host}" "{ssh_user}" "{ringrift_path}" "{ssh_key}" "{ssh_port}" "{tailscale_ip}" "{worker_url}"')
 PYTHON_SCRIPT
 ) || {
     log_error "Failed to parse config file"
@@ -231,6 +363,7 @@ done <<< "$SYNC_COMMANDS"
 log_section "Sync Summary"
 echo "  Successful: $SYNC_SUCCESS hosts"
 echo "  Failed/Empty: $SYNC_FAILED hosts"
+[[ "$SYNC_VIA_TAILSCALE" -gt 0 ]] && echo "  Connected via Tailscale: $SYNC_VIA_TAILSCALE hosts"
 echo "  Total files synced: $TOTAL_FILES"
 echo ""
 
