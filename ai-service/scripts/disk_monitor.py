@@ -227,6 +227,81 @@ def cleanup_selfplay_data(ringrift_path: str, max_age_days: int = 7,
     return results
 
 
+def cleanup_large_noncanonical_game_dbs(
+    ringrift_path: str,
+    *,
+    dry_run: bool = False,
+    min_size_mb: int = 256,
+) -> List[CleanupResult]:
+    """Clean up large non-canonical SQLite DBs under ai-service/data/games.
+
+    This is specifically to protect small-disk nodes (e.g. Vast.ai 16GB overlay)
+    from being bricked by multi-GB scratch DBs like `selfplay.db`.
+
+    Safety rules:
+    - Never delete `canonical_*.db`
+    - Only deletes DBs matching selfplay-ish patterns
+    - Only deletes when size >= min_size_mb
+    """
+    results: List[CleanupResult] = []
+    games_dir = Path(ringrift_path) / "ai-service" / "data" / "games"
+    if not games_dir.exists():
+        return results
+
+    patterns = [
+        "selfplay*.db",
+        "self_play*.db",
+        "*selfplay*.db",
+    ]
+    min_size = int(min_size_mb) * 1024 * 1024
+
+    seen: set[Path] = set()
+    for pattern in patterns:
+        for filepath in games_dir.glob(pattern):
+            path = filepath
+            if path in seen:
+                continue
+            seen.add(path)
+
+            name = path.name
+            if name.startswith("canonical_"):
+                continue
+            try:
+                size = path.stat().st_size
+            except (OSError, PermissionError):
+                continue
+            if size < min_size:
+                continue
+
+            # Remove the DB plus common SQLite sidecars if present.
+            sidecars = [path, path.with_name(f"{name}-wal"), path.with_name(f"{name}-shm")]
+            freed = 0
+            deleted_any = False
+            for candidate in sidecars:
+                try:
+                    if not candidate.exists():
+                        continue
+                    candidate_size = candidate.stat().st_size
+                    if not dry_run:
+                        candidate.unlink()
+                    freed += candidate_size
+                    deleted_any = True
+                except (OSError, PermissionError):
+                    continue
+
+            if deleted_any:
+                results.append(
+                    CleanupResult(
+                        path=str(path),
+                        size_bytes=freed,
+                        deleted=not dry_run,
+                        reason="large_noncanonical_game_db",
+                    )
+                )
+
+    return results
+
+
 def cleanup_venv_cache(ringrift_path: str, dry_run: bool = False) -> List[CleanupResult]:
     """Clean up Python cache in venv."""
     results = []
@@ -288,6 +363,7 @@ def run_cleanup(ringrift_path: str, threshold: int = 80, force: bool = False,
                 dry_run: bool = False, aggressive: bool = False) -> dict:
     """Run full disk cleanup if needed."""
     used, total, percent = get_disk_usage("/")
+    free_gb = (total - used) / (1024 ** 3) if total > 0 else 0.0
 
     print(f"Disk usage: {format_size(used)} / {format_size(total)} ({percent:.1f}%)")
 
@@ -313,6 +389,16 @@ def run_cleanup(ringrift_path: str, threshold: int = 80, force: bool = False,
             keep_min_gb=0.5 if percent > 95 else 1.0,
             dry_run=dry_run
         ))
+        # Last-resort protection for tiny disks: delete multi-GB non-canonical DBs
+        # that can brick nodes (e.g. ai-service/data/games/selfplay.db).
+        if force or percent > 95 or free_gb < 2.0:
+            all_results.extend(
+                cleanup_large_noncanonical_game_dbs(
+                    ringrift_path,
+                    dry_run=dry_run,
+                    min_size_mb=256 if free_gb < 2.0 else 512,
+                )
+            )
 
     # Summarize results
     total_freed = sum(r.size_bytes for r in all_results if r.deleted)
