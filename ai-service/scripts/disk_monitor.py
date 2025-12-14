@@ -302,6 +302,82 @@ def cleanup_large_noncanonical_game_dbs(
     return results
 
 
+def _dir_size_bytes(path: Path) -> int:
+    """Best-effort directory size (bytes) for reporting cleanup impact."""
+    try:
+        result = subprocess.run(
+            ["du", "-sk", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode == 0 and (result.stdout or "").strip():
+            kb = int((result.stdout or "").strip().split()[0])
+            return kb * 1024
+    except Exception:
+        pass
+
+    total = 0
+    try:
+        for p in path.rglob("*"):
+            try:
+                if p.is_file():
+                    total += p.stat().st_size
+            except (OSError, PermissionError):
+                continue
+    except (OSError, PermissionError):
+        return 0
+    return total
+
+
+def cleanup_old_synced_game_bundles(
+    ringrift_path: str,
+    *,
+    keep_latest: int = 2,
+    dry_run: bool = False,
+) -> List[CleanupResult]:
+    """Prune large synced game bundle directories under ai-service/data/games.
+
+    These directories are derived artifacts (often multi-GB) created by cluster
+    sync/collection scripts. Keeping a small number for debugging is useful,
+    but allowing them to accumulate can brick nodes via disk pressure.
+    """
+    results: List[CleanupResult] = []
+    games_dir = Path(ringrift_path) / "ai-service" / "data" / "games"
+    if not games_dir.exists():
+        return results
+
+    candidates = [
+        p for p in games_dir.glob("synced_*")
+        if p.is_dir()
+    ]
+    if not candidates:
+        return results
+
+    # Newest first; keep a small tail.
+    candidates.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0.0, reverse=True)
+    keep_latest = max(0, int(keep_latest))
+    to_delete = candidates[keep_latest:] if keep_latest else candidates
+
+    for path in to_delete:
+        try:
+            size = _dir_size_bytes(path)
+            if not dry_run:
+                shutil.rmtree(path)
+            results.append(
+                CleanupResult(
+                    path=str(path),
+                    size_bytes=size,
+                    deleted=not dry_run,
+                    reason="synced_bundle_prune",
+                )
+            )
+        except (OSError, PermissionError):
+            continue
+
+    return results
+
+
 def cleanup_venv_cache(ringrift_path: str, dry_run: bool = False) -> List[CleanupResult]:
     """Clean up Python cache in venv."""
     results = []
@@ -392,6 +468,14 @@ def run_cleanup(ringrift_path: str, threshold: int = 80, force: bool = False,
             keep_min_gb=0.5 if percent > 95 else 1.0,
             dry_run=dry_run
         ))
+        # Prune large derived sync bundles that frequently dominate disk usage.
+        all_results.extend(
+            cleanup_old_synced_game_bundles(
+                ringrift_path,
+                keep_latest=2 if percent < 95 else 1,
+                dry_run=dry_run,
+            )
+        )
         # Last-resort protection for tiny disks: delete multi-GB non-canonical DBs
         # that can brick nodes (e.g. ai-service/data/games/selfplay.db).
         if force or percent > 95 or free_gb < 2.0:
