@@ -104,8 +104,9 @@ class EvaluationResult:
 class ShadowTournamentService:
     """Continuous lightweight model evaluation service."""
 
-    def __init__(self, config: TournamentConfig):
+    def __init__(self, config: TournamentConfig, http_port: int = 8771):
         self.config = config
+        self.http_port = http_port
         self._running = False
         self._shutdown_event = asyncio.Event()
         self._last_shadow: Dict[str, float] = {}
@@ -113,6 +114,10 @@ class ShadowTournamentService:
         self._watched_dirs: Set[Path] = set()
         self._known_checkpoints: Set[str] = set()
         self._results_history: List[EvaluationResult] = []
+        self._elo_baselines: Dict[str, float] = {}  # Baseline Elo for regression detection
+        self._regression_threshold: float = 30.0  # Alert if Elo drops by this much
+        self._app: Optional[Any] = None
+        self._http_runner: Optional[Any] = None
 
     async def run_shadow_tournament(
         self,
@@ -417,6 +422,9 @@ class ShadowTournamentService:
         self._running = True
         print(f"[ShadowTournament] Starting - shadow every {self.config.shadow_interval_seconds}s, full every {self.config.full_interval_seconds}s")
 
+        # Start HTTP API
+        await self._setup_http()
+
         while self._running:
             try:
                 if self._watched_dirs:
@@ -429,6 +437,18 @@ class ShadowTournamentService:
                     result = await self.run_shadow_tournament(board_type, num_players)
                     if result.success:
                         print(f"[ShadowTournament] {result.config}: win_rate={result.win_rate:.2%}, elo~{result.elo_estimate:.0f}")
+
+                        # Check for regression
+                        regression = self.check_regression(result)
+                        if regression:
+                            print(f"[ShadowTournament] ⚠️  REGRESSION DETECTED: {result.config} dropped {regression['drop']:.0f} Elo")
+                            if HAS_EVENT_BUS:
+                                await emit_error(
+                                    "shadow_tournament",
+                                    f"Elo regression: {result.config} dropped {regression['drop']:.0f} points",
+                                    details=regression,
+                                    source="shadow_tournament_service",
+                                )
 
                 if self.needs_full_eval():
                     print("[ShadowTournament] Running full tournament")
@@ -443,12 +463,160 @@ class ShadowTournamentService:
             except asyncio.TimeoutError:
                 pass
 
+        # Cleanup HTTP
+        await self._cleanup_http()
         print("[ShadowTournament] Stopped")
 
     def stop(self):
         """Request graceful shutdown."""
         self._running = False
         self._shutdown_event.set()
+
+    def check_regression(self, result: EvaluationResult) -> Optional[Dict[str, Any]]:
+        """Check if result shows regression from baseline."""
+        if not result.success:
+            return None
+
+        config_key = result.config
+        elo = result.elo_estimate
+
+        # Initialize or update baseline
+        if config_key not in self._elo_baselines:
+            self._elo_baselines[config_key] = elo
+            return None
+
+        baseline = self._elo_baselines[config_key]
+        drop = baseline - elo
+
+        # Update baseline if improving
+        if elo > baseline:
+            self._elo_baselines[config_key] = elo
+            return None
+
+        # Check for regression
+        if drop >= self._regression_threshold:
+            return {
+                "config": config_key,
+                "baseline_elo": baseline,
+                "current_elo": elo,
+                "drop": drop,
+                "timestamp": result.timestamp,
+            }
+
+        return None
+
+    # HTTP API methods
+    async def _setup_http(self):
+        """Set up HTTP API server."""
+        try:
+            from aiohttp import web
+        except ImportError:
+            print("[ShadowTournament] aiohttp not installed, HTTP API disabled")
+            return
+
+        self._app = web.Application()
+        self._app.router.add_get('/health', self._handle_health)
+        self._app.router.add_get('/status', self._handle_status)
+        self._app.router.add_get('/results', self._handle_results)
+        self._app.router.add_get('/trends', self._handle_trends)
+        self._app.router.add_post('/trigger', self._handle_trigger)
+
+        self._http_runner = web.AppRunner(self._app)
+        await self._http_runner.setup()
+        site = web.TCPSite(self._http_runner, '0.0.0.0', self.http_port)
+        await site.start()
+        print(f"[ShadowTournament] HTTP API listening on port {self.http_port}")
+
+    async def _cleanup_http(self):
+        """Clean up HTTP server."""
+        if self._http_runner:
+            await self._http_runner.cleanup()
+
+    async def _handle_health(self, request) -> Any:
+        """GET /health - Health check."""
+        from aiohttp import web
+        return web.json_response({"status": "healthy", "running": self._running})
+
+    async def _handle_status(self, request) -> Any:
+        """GET /status - Service status."""
+        from aiohttp import web
+
+        now = time.time()
+        status = {
+            "running": self._running,
+            "shadow_interval": self.config.shadow_interval_seconds,
+            "full_interval": self.config.full_interval_seconds,
+            "results_count": len(self._results_history),
+            "watched_dirs": [str(d) for d in self._watched_dirs],
+            "last_shadow": {
+                k: now - v for k, v in self._last_shadow.items()
+            },
+            "time_since_full": now - self._last_full if self._last_full else None,
+            "elo_baselines": self._elo_baselines,
+        }
+        return web.json_response(status)
+
+    async def _handle_results(self, request) -> Any:
+        """GET /results - Recent evaluation results."""
+        from aiohttp import web
+
+        limit = int(request.query.get('limit', '20'))
+        config_filter = request.query.get('config')
+
+        results = self._results_history[-limit:]
+        if config_filter:
+            results = [r for r in results if r.config == config_filter]
+
+        return web.json_response([{
+            "config": r.config,
+            "win_rate": r.win_rate,
+            "elo_estimate": r.elo_estimate,
+            "games_played": r.games_played,
+            "tournament_type": r.tournament_type,
+            "success": r.success,
+            "error": r.error,
+            "timestamp": r.timestamp,
+            "duration": r.duration_seconds,
+        } for r in results])
+
+    async def _handle_trends(self, request) -> Any:
+        """GET /trends - Elo trends for each config."""
+        from aiohttp import web
+
+        trends = {}
+        for board_type, num_players in ALL_CONFIGS:
+            config_key = f"{board_type}_{num_players}p"
+            trend = self.get_elo_trend(config_key)
+            trends[config_key] = {
+                "trend": trend,
+                "baseline": self._elo_baselines.get(config_key, 0),
+                "improving": trend > 5,
+                "regressing": trend < -10,
+            }
+
+        return web.json_response(trends)
+
+    async def _handle_trigger(self, request) -> Any:
+        """POST /trigger - Trigger evaluation manually."""
+        from aiohttp import web
+
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+
+        config = data.get('config', 'square8_2p')
+        full = data.get('full', False)
+
+        if full:
+            asyncio.create_task(self.run_full_tournament())
+            return web.json_response({"triggered": "full", "status": "started"})
+        else:
+            parts = config.split("_")
+            board_type = parts[0]
+            num_players = int(parts[1].replace("p", "")) if len(parts) > 1 else 2
+            asyncio.create_task(self.run_shadow_tournament(board_type, num_players))
+            return web.json_response({"triggered": config, "status": "started"})
 
 
 def main():
@@ -462,6 +630,8 @@ def main():
     parser.add_argument("--shadow-games", type=int, default=10, help="Games per shadow tournament")
     parser.add_argument("--full-interval", type=int, default=3600, help="Full tournament interval seconds")
     parser.add_argument("--full-games", type=int, default=50, help="Games per full tournament")
+    parser.add_argument("--http-port", type=int, default=8771, help="HTTP API port")
+    parser.add_argument("--regression-threshold", type=float, default=30.0, help="Elo drop threshold for regression alert")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
 
     args = parser.parse_args()
@@ -476,7 +646,8 @@ def main():
     if args.quick:
         config.shadow_games = 10
 
-    service = ShadowTournamentService(config)
+    service = ShadowTournamentService(config, http_port=args.http_port)
+    service._regression_threshold = args.regression_threshold
 
     if args.watch_dir:
         service.add_watch_dir(Path(args.watch_dir))

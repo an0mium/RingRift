@@ -355,6 +355,7 @@ class StreamingDataCollector:
         config: CollectorConfig,
         hosts: List[HostConfig],
         manifest: DataManifest,
+        http_port: int = 8772,
     ):
         self.config = config
         self.hosts = {h.name: h for h in hosts}
@@ -362,6 +363,11 @@ class StreamingDataCollector:
         self.host_states: Dict[str, HostSyncState] = {}
         self._running = False
         self._shutdown_event = asyncio.Event()
+        self.http_port = http_port
+        self._app: Optional[Any] = None
+        self._http_runner: Optional[Any] = None
+        self._last_cycle_time: float = 0.0
+        self._last_cycle_games: int = 0
 
         # Load previous host states
         for host in hosts:
@@ -642,10 +648,17 @@ class StreamingDataCollector:
         self._running = True
         print(f"[Collector] Starting with {len(self.hosts)} hosts, {self.config.poll_interval_seconds}s interval")
 
+        # Start HTTP API
+        await self._setup_http()
+
         while self._running:
             try:
                 cycle_start = time.time()
                 new_games = await self.run_collection_cycle()
+
+                # Track cycle metrics
+                self._last_cycle_time = time.time()
+                self._last_cycle_games = new_games
 
                 if new_games > 0:
                     total = self.manifest.get_synced_count()
@@ -664,12 +677,114 @@ class StreamingDataCollector:
             except asyncio.TimeoutError:
                 pass
 
+        # Cleanup HTTP
+        await self._cleanup_http()
         print("[Collector] Stopped")
 
     def stop(self):
         """Request graceful shutdown."""
         self._running = False
         self._shutdown_event.set()
+
+    # HTTP API methods
+    async def _setup_http(self):
+        """Set up HTTP API server."""
+        try:
+            from aiohttp import web
+        except ImportError:
+            print("[Collector] aiohttp not installed, HTTP API disabled")
+            return
+
+        self._app = web.Application()
+        self._app.router.add_get('/health', self._handle_health)
+        self._app.router.add_get('/status', self._handle_status)
+        self._app.router.add_get('/hosts', self._handle_hosts)
+        self._app.router.add_get('/dead-letter', self._handle_dead_letter)
+        self._app.router.add_post('/trigger', self._handle_trigger)
+
+        self._http_runner = web.AppRunner(self._app)
+        await self._http_runner.setup()
+        site = web.TCPSite(self._http_runner, '0.0.0.0', self.http_port)
+        await site.start()
+        print(f"[Collector] HTTP API listening on port {self.http_port}")
+
+    async def _cleanup_http(self):
+        """Clean up HTTP server."""
+        if self._http_runner:
+            await self._http_runner.cleanup()
+
+    async def _handle_health(self, request) -> Any:
+        """GET /health - Health check."""
+        from aiohttp import web
+        return web.json_response({"status": "healthy", "running": self._running})
+
+    async def _handle_status(self, request) -> Any:
+        """GET /status - Collector status."""
+        from aiohttp import web
+
+        status = {
+            "running": self._running,
+            "poll_interval": self.config.poll_interval_seconds,
+            "total_synced": self.manifest.get_synced_count(),
+            "dead_letter_count": self.manifest.get_dead_letter_count(),
+            "hosts_count": len(self.hosts),
+            "last_cycle_time": self._last_cycle_time,
+            "last_cycle_games": self._last_cycle_games,
+            "sync_method": self.config.sync_method,
+        }
+        return web.json_response(status)
+
+    async def _handle_hosts(self, request) -> Any:
+        """GET /hosts - Host status summary."""
+        from aiohttp import web
+
+        hosts = []
+        for name, state in self.host_states.items():
+            host = self.hosts.get(name)
+            hosts.append({
+                "name": name,
+                "enabled": host.enabled if host else False,
+                "role": host.role if host else "unknown",
+                "last_sync_time": state.last_sync_time,
+                "last_game_count": state.last_game_count,
+                "total_games_synced": state.total_games_synced,
+                "consecutive_failures": state.consecutive_failures,
+                "last_error": state.last_error[:100] if state.last_error else "",
+                "healthy": state.consecutive_failures < self.config.max_consecutive_failures,
+            })
+        return web.json_response(hosts)
+
+    async def _handle_dead_letter(self, request) -> Any:
+        """GET /dead-letter - Dead letter queue entries."""
+        from aiohttp import web
+
+        limit = int(request.query.get('limit', '50'))
+        entries = self.manifest.get_dead_letter_entries(limit)
+        return web.json_response({
+            "count": self.manifest.get_dead_letter_count(),
+            "entries": entries,
+        })
+
+    async def _handle_trigger(self, request) -> Any:
+        """POST /trigger - Trigger sync cycle manually."""
+        from aiohttp import web
+
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+
+        host_filter = data.get('host')
+
+        if host_filter:
+            host = self.hosts.get(host_filter)
+            if host:
+                asyncio.create_task(self._sync_host(host))
+                return web.json_response({"triggered": host_filter, "status": "started"})
+            return web.json_response({"error": f"Host {host_filter} not found"}, status=404)
+        else:
+            asyncio.create_task(self.run_collection_cycle())
+            return web.json_response({"triggered": "all", "status": "started"})
 
 
 def load_hosts_from_yaml(path: Path) -> List[HostConfig]:
@@ -714,6 +829,7 @@ def main():
     parser.add_argument("--once", action="store_true", help="Run one cycle and exit")
     parser.add_argument("--dry-run", action="store_true", help="Check what would sync without syncing")
     parser.add_argument("--interval", type=int, default=60, help="Poll interval in seconds")
+    parser.add_argument("--http-port", type=int, default=8772, help="HTTP API port")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
 
     args = parser.parse_args()
@@ -742,7 +858,7 @@ def main():
     manifest = DataManifest(AI_SERVICE_ROOT / config.manifest_db_path)
 
     # Create collector
-    collector = StreamingDataCollector(config, hosts, manifest)
+    collector = StreamingDataCollector(config, hosts, manifest, http_port=args.http_port)
 
     if args.dry_run:
         print("[Collector] Dry run - checking hosts...")
