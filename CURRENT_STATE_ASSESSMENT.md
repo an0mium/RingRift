@@ -1,6 +1,6 @@
 # RingRift Current State Assessment
 
-**Assessment Date:** 2025-12-13
+**Assessment Date:** 2025-12-14
 **Project Health Status:** GREEN
 **Purpose:** Authoritative snapshot of implementation status, architecture, and quality metrics
 
@@ -27,7 +27,7 @@ RingRift is a **stable beta** turn-based board game implementation with a consol
 
 | Metric                               | Value                                                  |
 | ------------------------------------ | ------------------------------------------------------ |
-| TypeScript tests (CI-gated)          | 2,987 passing                                          |
+| TypeScript tests (CI-gated)          | 10,177 passing (595 test suites)                       |
 | Python tests                         | 1,727 passing                                          |
 | Contract vectors                     | 81 across 18 files (v2 format)                         |
 | DB replay parity (TS↔Python replays) | In progress; CanonicalReplayEngine powering TS harness |
@@ -336,6 +336,16 @@ Documented in `docs/TEST_CATEGORIES.md`:
 | Scale testing             | Complete (staging baseline + target scale) |
 | Backup/recovery drill     | Runbook exists, not exercised              |
 | Performance optimization  | No major bottlenecks at target load        |
+
+### Cluster & Training Infrastructure (Dec 2025)
+
+| Metric          | Value                                                                                                                   |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Online nodes    | 13 (lambda-h100, lambda-2xh100, all 8 GH200s, aws-cpu-strong-1, aws-selfplay-extra, lambda-a10)                         |
+| GH200 cluster   | 8/8 nodes online (lambda-gh200-{a..h})                                                                                  |
+| Active selfplay | ~2,500 jobs                                                                                                             |
+| Quorum          | Healthy                                                                                                                 |
+| Monitoring      | CloudWatch dashboard, SNS alerts, Slack integration, cron health checks (see `ai-service/scripts/monitoring/README.md`) |
 
 ---
 

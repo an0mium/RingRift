@@ -1,6 +1,6 @@
 # RingRift Documentation Index
 
-> **Last Updated:** 2025-12-13
+> **Last Updated:** 2025-12-14
 > **Organization:** 13 core docs in root, 6 in `/docs/` root, detailed docs in `/docs/` subdirectories
 
 This index catalogs all project documentation organized by topic and location. For a lightweight landing page, see `docs/INDEX.md`.
@@ -163,6 +163,25 @@ Operational configuration and infrastructure documentation.
 | [SECRETS_MANAGEMENT.md](docs/operations/SECRETS_MANAGEMENT.md)       | Secrets and credentials     |
 | [STAGING_ENVIRONMENT.md](docs/operations/STAGING_ENVIRONMENT.md)     | Staging environment setup   |
 | [SLO_VERIFICATION.md](docs/operations/SLO_VERIFICATION.md)           | SLO verification framework  |
+
+### Cluster Monitoring Infrastructure
+
+Production monitoring scripts for the distributed training cluster. See [ai-service/scripts/monitoring/README.md](ai-service/scripts/monitoring/README.md) for full documentation.
+
+| Script/Document                                                                                | Purpose                                       |
+| ---------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| [cluster_health_check.sh](ai-service/scripts/monitoring/cluster_health_check.sh)               | Node status, quorum, CPU/memory, disk alerts  |
+| [selfplay_throughput_monitor.sh](ai-service/scripts/monitoring/selfplay_throughput_monitor.sh) | Game generation throughput monitoring         |
+| [training_pipeline_monitor.sh](ai-service/scripts/monitoring/training_pipeline_monitor.sh)     | NNUE training, Elo tournaments, model gating  |
+| [setup_cloudwatch.sh](ai-service/scripts/monitoring/setup_cloudwatch.sh)                       | CloudWatch alarms, dashboard, SNS setup       |
+| [README.md](ai-service/scripts/monitoring/README.md)                                           | Monitoring quick start and environment config |
+
+**Deployed infrastructure:**
+
+- CloudWatch dashboard: `RingRift-Cluster` (us-east-1)
+- SNS topic: `ringrift-alerts` with email subscription
+- Slack webhook integration for real-time alerts
+- Cron jobs on `aws-staging` (5-min health, 2-min throughput, 10-min training)
 
 ### /docs/security/
 

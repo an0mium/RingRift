@@ -1,6 +1,6 @@
 # RingRift Task Tracker
 
-**Last Updated:** 2025-12-13 (Documentation Refresh)
+**Last Updated:** 2025-12-14 (Documentation Refresh)
 **Project Health:** GREEN
 **Purpose:** Canonical task tracker for near- and mid-term work
 **Current Focus:** Production validation at scale, parity maintenance, client test coverage
@@ -129,6 +129,7 @@ Created the canonical turn orchestrator architecture:
 - k6 load testing framework with 4 production-scale scenarios
 - Monitoring stack runs by default
 - `DOCUMENTATION_INDEX.md` created
+- **Cluster monitoring (Dec 2025):** CloudWatch dashboard + alarms, SNS email alerts, Slack webhook integration, cron-based health/throughput/training monitors on aws-staging (see `ai-service/scripts/monitoring/README.md`)
 
 ### 1.4 Production Validation (Wave 7) ✅
 

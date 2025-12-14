@@ -86,7 +86,10 @@ DEFAULT_PORT = 8770
 HEARTBEAT_INTERVAL = 30  # seconds
 PEER_TIMEOUT = 90  # seconds without heartbeat = node considered dead
 ELECTION_TIMEOUT = 10  # seconds to wait for election responses
-LEADER_LEASE_DURATION = 30  # Leader must renew lease within this time
+# Leader lease must be comfortably larger than the heartbeat cadence; otherwise
+# small scheduling delays can cause leaders to "expire" their own lease and
+# flap into leaderless states.
+LEADER_LEASE_DURATION = 90  # seconds
 LEADER_LEASE_RENEW_INTERVAL = 10  # How often leader renews lease
 JOB_CHECK_INTERVAL = 60  # seconds between job status checks
 DISCOVERY_PORT = 8771  # UDP port for peer discovery
@@ -933,6 +936,7 @@ class P2POrchestrator:
         # Event flags
         self.running = True
         self.election_in_progress = False
+        self.last_election_attempt: float = 0.0
 
         # LEARNED LESSONS - Lease-based leadership to prevent split-brain
         # Leader must continuously renew lease; if lease expires, leadership is void
@@ -9319,6 +9323,16 @@ print(json.dumps({{
                     self.last_lease_renewal = 0.0
                     self.role = NodeRole.FOLLOWER
                     asyncio.create_task(self._start_election())
+
+        # If we're leaderless, periodically retry elections so the cluster can
+        # recover without requiring manual restarts.
+        if not self.leader_id and not self.election_in_progress:
+            now = time.time()
+            backoff_seconds = max(LEADER_LEASE_RENEW_INTERVAL, ELECTION_TIMEOUT * 3)
+            last_attempt = float(getattr(self, "last_election_attempt", 0.0) or 0.0)
+            if now - last_attempt >= backoff_seconds:
+                self.last_election_attempt = now
+                asyncio.create_task(self._start_election())
 
     async def _start_election(self):
         """Start leader election using Bully algorithm."""

@@ -5,7 +5,7 @@
 ![RingRift CI/CD](https://github.com/an0mium/RingRift/actions/workflows/ci.yml/badge.svg)
 ![Parity CI Gate](https://github.com/an0mium/RingRift/actions/workflows/parity-ci.yml/badge.svg)
 
-**Doc Status (2025-12-13): Active (project overview & navigation)**
+**Doc Status (2025-12-14): Active (project overview & navigation)**
 
 - High-level project overview, setup, and API surface.
 - Not a rules or lifecycle SSoT. For rules semantics, defer to `RULES_CANONICAL_SPEC.md` plus the shared TypeScript rules engine under `src/shared/engine/` (helpers → domain aggregates → turn orchestrator → contracts + v2 contract vectors). For lifecycle semantics (move/decision/WebSocket), defer to `docs/architecture/CANONICAL_ENGINE_API.md` plus shared TS/WebSocket types and schemas.
@@ -18,24 +18,25 @@ A web-based multiplayer implementation of the RingRift strategy game supporting 
 
 ## 📋 Current Status
 
-**Last checked:** 2025-12-13 (aligned with current scripts/config; rerun below commands for fresh numbers)
+**Last checked:** 2025-12-14 (aligned with current scripts/config; rerun below commands for fresh numbers)
 
 ### Key Metrics
 
-| Metric                      | Value                      |
-| --------------------------- | -------------------------- |
-| TypeScript tests (CI-gated) | 2,987 passing              |
-| Python tests                | 1,727 passing              |
-| Contract vectors            | 81 (100% TS↔Python parity) |
-| Line coverage               | ~69%                       |
-| Canonical phases            | 8                          |
-| Development waves complete  | 14/14                      |
+| Metric                      | Value                       |
+| --------------------------- | --------------------------- |
+| TypeScript tests (CI-gated) | 10,177 passing (595 suites) |
+| Python tests                | 1,727 passing               |
+| Contract vectors            | 81 (100% TS↔Python parity)  |
+| Line coverage               | ~69%                        |
+| Canonical phases            | 8                           |
+| Development waves complete  | 14/14                       |
 
-### Recent Updates (2025-12-13)
+### Recent Updates (2025-12-14)
 
-- **Component test coverage expansion**: Added 152 new tests across 4 previously untested components (SandboxTouchControlsPanel, MoveAnalysisPanel, EvaluationGraph, RatingHistoryChart). Total component test suites now at 60 with 1,189 tests.
-- **Documentation hygiene pass**: Updated dates and metrics across all key docs.
-- **Python test suite growth**: Python AI service tests expanded from 836 to 1,727 tests covering parity, training, and AI improvements.
+- **Cluster monitoring infrastructure**: Deployed CloudWatch dashboard, SNS alerts, Slack integration, and cron-based health checks on aws-staging. See `ai-service/scripts/monitoring/README.md`.
+- **Test coverage growth**: TypeScript tests expanded to 10,177 (from 2,987), covering additional component, parity, and integration scenarios.
+- **UX copy improvements**: Enhanced game-end messaging, status indicators, and error handling copy across the UI.
+- **Python test suite growth**: Python AI service tests at 1,727 tests covering parity, training, and AI improvements.
 
 ### Commands
 
@@ -632,7 +633,7 @@ The WebSocket layer sits on top of `GameEngine` and `PlayerInteractionManager`, 
 
 ## 🧪 Testing Strategy
 
-> **Test Status (2025-12-13):** 2,987 TypeScript tests passing (CI-gated), 1,727 Python tests passing, 81 contract vectors at 100% parity. Component test coverage has grown significantly (60 suites, 1,189 tests). See `CURRENT_STATE_ASSESSMENT.md` for up-to-date coverage details.
+> **Test Status (2025-12-14):** 10,177 TypeScript tests passing (595 suites, CI-gated), 1,727 Python tests passing, 81 contract vectors at 100% parity. See `CURRENT_STATE_ASSESSMENT.md` for up-to-date coverage details.
 
 ### Backend Testing
 
