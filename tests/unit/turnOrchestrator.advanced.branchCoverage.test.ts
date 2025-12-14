@@ -900,9 +900,18 @@ describe('TurnOrchestrator advanced branch coverage', () => {
       const delegates = {
         resolveDecision: jest.fn().mockImplementation((decision) => {
           decisionCount++;
-          // Return first option from decision (all PendingDecision types have options)
+          // Return first option from decision if available
           if (decision.options && decision.options.length > 0) {
             return Promise.resolve(decision.options[0]);
+          }
+          // Handle bookkeeping decisions with empty options
+          if (decision.type === 'no_line_action_required') {
+            return Promise.resolve(createMove('no_line_action', decision.player, { x: 0, y: 0 }));
+          }
+          if (decision.type === 'no_territory_action_required') {
+            return Promise.resolve(
+              createMove('no_territory_action', decision.player, { x: 0, y: 0 })
+            );
           }
           throw new Error(`Decision ${decision.type} has no options`);
         }),
@@ -928,6 +937,15 @@ describe('TurnOrchestrator advanced branch coverage', () => {
         resolveDecision: jest.fn().mockImplementation((decision) => {
           if (decision.options && decision.options.length > 0) {
             return Promise.resolve(decision.options[0]);
+          }
+          // Handle bookkeeping decisions with empty options
+          if (decision.type === 'no_line_action_required') {
+            return Promise.resolve(createMove('no_line_action', decision.player, { x: 0, y: 0 }));
+          }
+          if (decision.type === 'no_territory_action_required') {
+            return Promise.resolve(
+              createMove('no_territory_action', decision.player, { x: 0, y: 0 })
+            );
           }
           throw new Error(`Decision ${decision.type} has no options`);
         }),
