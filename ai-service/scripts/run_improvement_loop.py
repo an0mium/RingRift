@@ -50,6 +50,23 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Light-weight significance helper (used for promotion gating).
 from app.training.significance import wilson_score_interval
 
+# Diverse tournament orchestrator integration (for periodic Elo calibration)
+try:
+    import asyncio
+    from scripts.run_diverse_tournaments import (
+        run_tournament_round_distributed,
+        run_tournament_round_local,
+        load_cluster_hosts,
+        filter_available_hosts,
+        build_tournament_configs,
+        TournamentConfig,
+        TournamentResult,
+        DEFAULT_GAMES_PER_CONFIG,
+    )
+    HAS_DIVERSE_TOURNAMENTS = True
+except ImportError:
+    HAS_DIVERSE_TOURNAMENTS = False
+
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -1043,6 +1060,95 @@ def rollback_model(config: dict, dry_run: bool = False) -> bool:
         return False
 
 
+def run_diverse_tournaments(
+    board_types: List[str],
+    player_counts: List[int],
+    games_per_config: int,
+    cluster_config: Optional[str] = None,
+    use_distributed: bool = True,
+    dry_run: bool = False,
+    output_base: Optional[str] = None,
+) -> Tuple[bool, int, int]:
+    """Run diverse tournaments across board/player configurations.
+
+    Returns: (success, total_games, total_samples)
+    """
+    if not HAS_DIVERSE_TOURNAMENTS:
+        print("Diverse tournament module not available - skipping")
+        return True, 0, 0
+
+    if dry_run:
+        print(f"[DRY-RUN] Would run diverse tournaments:")
+        print(f"  Board types: {board_types}")
+        print(f"  Player counts: {player_counts}")
+        print(f"  Games per config: {games_per_config}")
+        return True, 0, 0
+
+    print("\n" + "=" * 60)
+    print("Running Diverse Tournament Round (Elo Calibration)")
+    print("=" * 60)
+
+    # Default output base
+    if output_base is None:
+        output_base = str(AI_SERVICE_ROOT / "data" / "tournaments")
+
+    # Build tournament configs
+    configs = build_tournament_configs(
+        board_types=board_types,
+        player_counts=player_counts,
+        games_per_config=games_per_config,
+        output_base=output_base,
+    )
+
+    if not configs:
+        print("No tournament configs to run")
+        return True, 0, 0
+
+    print(f"Configurations: {len(configs)} total")
+    for cfg in configs:
+        print(f"  - {cfg.board_type} {cfg.num_players}p x {cfg.num_games} games")
+
+    results: List[TournamentResult] = []
+
+    try:
+        if use_distributed:
+            # Load cluster hosts
+            hosts = load_cluster_hosts(cluster_config)
+            if not hosts:
+                print("No cluster hosts configured - falling back to local execution")
+                results = run_tournament_round_local(configs)
+            else:
+                # Filter available hosts
+                available = asyncio.get_event_loop().run_until_complete(
+                    filter_available_hosts(hosts)
+                )
+                if not available:
+                    print("No cluster hosts available - falling back to local execution")
+                    results = run_tournament_round_local(configs)
+                else:
+                    print(f"Cluster hosts available: {len(available)}/{len(hosts)}")
+                    results = asyncio.get_event_loop().run_until_complete(
+                        run_tournament_round_distributed(configs, available)
+                    )
+        else:
+            results = run_tournament_round_local(configs)
+    except Exception as e:
+        print(f"Tournament execution failed: {e}")
+        return False, 0, 0
+
+    # Summarize results
+    total_games = sum(r.games_completed for r in results)
+    total_samples = sum(r.samples_generated for r in results)
+    success_count = sum(1 for r in results if r.success)
+
+    print(f"\nTournament Summary:")
+    print(f"  Successful configs: {success_count}/{len(results)}")
+    print(f"  Total games: {total_games}")
+    print(f"  Total samples: {total_samples}")
+
+    return success_count == len(results), total_games, total_samples
+
+
 def run_improvement_iteration(
     iteration: int,
     config: dict,
@@ -1349,6 +1455,50 @@ def main():
         default=5,
         help="Rollback after this many consecutive non-improvements",
     )
+    # Diverse tournament scheduling
+    parser.add_argument(
+        "--tournament-every-n-iterations",
+        type=int,
+        default=0,
+        help=(
+            "Run diverse tournaments every N iterations (0 = disabled). "
+            "Tournaments generate games across all board/player configs for Elo calibration."
+        ),
+    )
+    parser.add_argument(
+        "--tournament-on-promotion",
+        action="store_true",
+        help="Run diverse tournaments after each model promotion.",
+    )
+    parser.add_argument(
+        "--tournament-board-types",
+        type=str,
+        default="square8",
+        help="Comma-separated board types for tournaments (default: square8). Use 'all' for square8,square19,hexagonal.",
+    )
+    parser.add_argument(
+        "--tournament-player-counts",
+        type=str,
+        default="2",
+        help="Comma-separated player counts for tournaments (default: 2). Use 'all' for 2,3,4.",
+    )
+    parser.add_argument(
+        "--tournament-games-per-config",
+        type=int,
+        default=10,
+        help="Games per board/player configuration in tournaments (default: 10).",
+    )
+    parser.add_argument(
+        "--tournament-cluster-config",
+        type=str,
+        default=None,
+        help="Path to cluster config for distributed tournaments (default: config/distributed_hosts.yaml).",
+    )
+    parser.add_argument(
+        "--tournament-local-only",
+        action="store_true",
+        help="Run tournaments locally only, without distributed execution.",
+    )
     parser.add_argument(
         "--resume",
         action="store_true",
@@ -1417,6 +1567,30 @@ def main():
         "gate_summary": str(gate_summary_path),
     }
 
+    # Tournament configuration
+    tournament_board_types = (
+        ["square8", "square19", "hexagonal"]
+        if args.tournament_board_types == "all"
+        else [b.strip() for b in args.tournament_board_types.split(",") if b.strip()]
+    )
+    tournament_player_counts = (
+        [2, 3, 4]
+        if args.tournament_player_counts == "all"
+        else [int(p.strip()) for p in args.tournament_player_counts.split(",") if p.strip()]
+    )
+    tournament_config = {
+        "every_n_iterations": args.tournament_every_n_iterations,
+        "on_promotion": args.tournament_on_promotion,
+        "board_types": tournament_board_types,
+        "player_counts": tournament_player_counts,
+        "games_per_config": args.tournament_games_per_config,
+        "cluster_config": args.tournament_cluster_config,
+        "local_only": args.tournament_local_only,
+    }
+    tournaments_enabled = (
+        args.tournament_every_n_iterations > 0 or args.tournament_on_promotion
+    )
+
     # State file path
     if args.state_file:
         state_path = args.state_file
@@ -1461,6 +1635,16 @@ def main():
         if args.policy_nn_model_id:
             print(f"Reanalysis nn_model_id: {args.policy_nn_model_id}")
     print(f"State file: {state_path}")
+    if tournaments_enabled:
+        triggers = []
+        if args.tournament_every_n_iterations > 0:
+            triggers.append(f"every {args.tournament_every_n_iterations} iterations")
+        if args.tournament_on_promotion:
+            triggers.append("on promotion")
+        mode = "local" if args.tournament_local_only else "distributed"
+        print(f"Diverse tournaments: {', '.join(triggers)} ({mode})")
+        print(f"  Boards: {tournament_board_types}, Players: {tournament_player_counts}")
+        print(f"  Games per config: {args.tournament_games_per_config}")
     if args.dry_run:
         print("*** DRY RUN MODE - No commands will be executed ***")
     print("=" * 60)
@@ -1506,6 +1690,38 @@ def main():
                     )
                     if rollback_model(config, args.dry_run):
                         state.consecutive_failures = 0
+
+            # Run diverse tournaments if configured
+            run_tournament_now = False
+            if tournaments_enabled:
+                # Trigger on promotion
+                if improved and tournament_config["on_promotion"]:
+                    print("\nTriggering tournament: model was promoted")
+                    run_tournament_now = True
+                # Trigger every N iterations (1-indexed, so iteration i+1)
+                elif (
+                    tournament_config["every_n_iterations"] > 0
+                    and (i + 1) % tournament_config["every_n_iterations"] == 0
+                ):
+                    print(f"\nTriggering tournament: iteration {i+1} (every {tournament_config['every_n_iterations']})")
+                    run_tournament_now = True
+
+            if run_tournament_now:
+                try:
+                    t_success, t_games, t_samples = run_diverse_tournaments(
+                        board_types=tournament_config["board_types"],
+                        player_counts=tournament_config["player_counts"],
+                        games_per_config=tournament_config["games_per_config"],
+                        cluster_config=tournament_config["cluster_config"],
+                        use_distributed=not tournament_config["local_only"],
+                        dry_run=args.dry_run,
+                    )
+                    if t_success:
+                        print(f"Tournament completed: {t_games} games, {t_samples} samples")
+                    else:
+                        print("Tournament completed with some failures")
+                except Exception as te:
+                    print(f"Tournament error (non-fatal): {te}")
 
             save_state(state, state_path)
 

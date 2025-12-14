@@ -462,6 +462,188 @@ def run_tournament(
     }
 
 
+def run_tournament_adaptive(
+    model_a_path: str,
+    model_b_path: str,
+    promotion_threshold: float = 0.55,
+    confidence: float = 0.95,
+    min_games: int = 30,
+    max_games: int = 300,
+    batch_size: int = 20,
+    ci_width_target: float = 0.04,
+    board_type: BoardType = BoardType.SQUARE8,
+    num_players: int = 2,
+    max_moves: int = 10000,
+    seed: Optional[int] = None,
+) -> Dict[str, any]:
+    """
+    Run an adaptive tournament that stops early when statistically decisive.
+
+    This function runs games in batches and computes Wilson confidence intervals
+    after each batch. It stops early when:
+    1. Lower bound > threshold (obvious winner - promote)
+    2. Upper bound < threshold (obvious loser - reject)
+    3. CI width < ci_width_target (sufficient precision achieved)
+
+    This approach:
+    - Promotes obvious winners quickly (30-50 games)
+    - Rejects obvious losers quickly (30-50 games)
+    - Runs more games for marginal cases (200-300)
+
+    Parameters
+    ----------
+    model_a_path : str
+        Path to the candidate model checkpoint.
+    model_b_path : str
+        Path to the baseline model checkpoint.
+    promotion_threshold : float
+        Win rate threshold for promotion (default 0.55).
+    confidence : float
+        Confidence level for Wilson interval (default 0.95).
+    min_games : int
+        Minimum games to play before allowing early stopping (default 30).
+    max_games : int
+        Maximum games to play (default 300).
+    batch_size : int
+        Number of games per batch (default 20).
+    ci_width_target : float
+        Target confidence interval width for stopping (default 0.04 = ±2%).
+    board_type : BoardType
+        Board type to use.
+    num_players : int
+        Number of players (2, 3, or 4).
+    max_moves : int
+        Maximum moves per game.
+    seed : Optional[int]
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    Dict[str, any]
+        Results dictionary with keys:
+        - model_a_wins: Number of wins for model A
+        - model_b_wins: Number of wins for model B
+        - draws: Number of draws
+        - total_games: Total games played
+        - win_rate: Final win rate
+        - ci_lower: Wilson lower bound
+        - ci_upper: Wilson upper bound
+        - early_stopped: Whether evaluation stopped early
+        - stop_reason: Reason for stopping ('obvious_winner', 'obvious_loser',
+                       'ci_converged', 'max_games')
+    """
+    from app.training.significance import wilson_score_interval
+
+    # Validate player count
+    if num_players < 2:
+        num_players = 2
+    if num_players > 4:
+        num_players = 4
+
+    total_wins = 0
+    total_losses = 0
+    total_draws = 0
+    games_played = 0
+    victory_reasons: Dict[str, int] = {reason: 0 for reason in VICTORY_REASONS}
+
+    current_seed = seed if seed is not None else int(time.time())
+    stop_reason = "max_games"
+    early_stopped = False
+
+    while games_played < max_games:
+        # Determine batch size for this iteration
+        remaining = max_games - games_played
+        current_batch = min(batch_size, remaining)
+
+        # Run a batch of games
+        tournament = Tournament(
+            model_path_a=model_a_path,
+            model_path_b=model_b_path,
+            num_games=current_batch,
+            board_type=board_type,
+            num_players=num_players,
+            max_moves=max_moves,
+        )
+
+        # Set seed for reproducibility
+        if seed is not None:
+            tournament.seed = current_seed
+            current_seed += current_batch
+
+        results = tournament.run()
+
+        # Accumulate results
+        total_wins += results.get("A", 0)
+        total_losses += results.get("B", 0)
+        total_draws += results.get("Draw", 0)
+        games_played += current_batch
+
+        # Merge victory reasons
+        for reason, count in tournament.victory_reasons.items():
+            victory_reasons[reason] = victory_reasons.get(reason, 0) + count
+
+        # Check for early stopping after minimum games
+        if games_played >= min_games:
+            total = total_wins + total_losses + total_draws
+            if total > 0:
+                win_rate = total_wins / total
+                ci_lower, ci_upper = wilson_score_interval(
+                    total_wins, total, confidence=confidence
+                )
+                ci_width = ci_upper - ci_lower
+
+                # Check stopping conditions
+                if ci_lower > promotion_threshold:
+                    # Obvious winner - lower bound exceeds threshold
+                    stop_reason = "obvious_winner"
+                    early_stopped = True
+                    logger.info(
+                        f"Early stop: obvious winner after {games_played} games "
+                        f"(win_rate={win_rate:.1%}, CI_lower={ci_lower:.1%} > {promotion_threshold:.1%})"
+                    )
+                    break
+                elif ci_upper < promotion_threshold:
+                    # Obvious loser - upper bound below threshold
+                    stop_reason = "obvious_loser"
+                    early_stopped = True
+                    logger.info(
+                        f"Early stop: obvious loser after {games_played} games "
+                        f"(win_rate={win_rate:.1%}, CI_upper={ci_upper:.1%} < {promotion_threshold:.1%})"
+                    )
+                    break
+                elif ci_width <= ci_width_target:
+                    # Sufficient precision achieved
+                    stop_reason = "ci_converged"
+                    early_stopped = True
+                    logger.info(
+                        f"Early stop: CI converged after {games_played} games "
+                        f"(win_rate={win_rate:.1%}, CI_width={ci_width:.1%} <= {ci_width_target:.1%})"
+                    )
+                    break
+
+    # Compute final statistics
+    total = total_wins + total_losses + total_draws
+    win_rate = total_wins / total if total > 0 else 0.0
+    ci_lower, ci_upper = wilson_score_interval(
+        total_wins, total, confidence=confidence
+    ) if total > 0 else (0.0, 0.0)
+
+    return {
+        "model_a_wins": total_wins,
+        "model_b_wins": total_losses,
+        "draws": total_draws,
+        "total_games": games_played,
+        "win_rate": win_rate,
+        "ci_lower": ci_lower,
+        "ci_upper": ci_upper,
+        "early_stopped": early_stopped,
+        "stop_reason": stop_reason,
+        "victory_reasons": victory_reasons,
+        "board_type": board_type.value,
+        "num_players": num_players,
+    }
+
+
 if __name__ == "__main__":
     if len(sys.argv) >= 3:
         t = Tournament(sys.argv[1], sys.argv[2])

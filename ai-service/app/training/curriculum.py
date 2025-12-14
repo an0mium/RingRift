@@ -166,6 +166,14 @@ class CurriculumConfig:
     # This replaces promotion_threshold when use_model_pool=True
     pool_promotion_threshold: float = 0.55
 
+    # Adaptive evaluation settings
+    # When enabled, evaluation runs until statistically decisive rather than fixed games
+    use_adaptive_eval: bool = True
+    adaptive_min_games: int = 30  # Minimum games before early stopping
+    adaptive_max_games: int = 300  # Maximum games to play
+    adaptive_batch_size: int = 20  # Games per batch
+    adaptive_ci_width_target: float = 0.04  # Target CI width (±2%)
+
     def get_model_id(self) -> str:
         """Get model identifier for this board type."""
         return f"{self.model_prefix}_{self.board_type.value}"
@@ -669,8 +677,16 @@ class CurriculumTrainer:
         candidate_path: Path,
         seed: int,
     ) -> Dict[str, Any]:
-        """Evaluate candidate model against current best (standard mode)."""
-        from app.training.tournament import run_tournament
+        """Evaluate candidate model against current best (standard mode).
+
+        Uses adaptive evaluation when config.use_adaptive_eval is True,
+        which runs games until statistically decisive rather than a fixed count.
+        This approach:
+        - Promotes obvious winners quickly (30-50 games)
+        - Rejects obvious losers quickly (30-50 games)
+        - Runs more games for marginal cases (200-300)
+        """
+        from app.training.tournament import run_tournament, run_tournament_adaptive
 
         # If no current best, candidate auto-wins
         if self.current_best_path is None:
@@ -685,16 +701,39 @@ class CurriculumTrainer:
                 "draws": 0,
             }
 
-        # Run tournament: candidate vs current_best
-        results = run_tournament(
-            model_a_path=str(candidate_path),
-            model_b_path=self.current_best_path,
-            num_games=self.config.eval_games,
-            board_type=self.config.board_type,
-            num_players=self.config.num_players,
-            max_moves=self.config.max_moves,
-            seed=seed,
-        )
+        # Use adaptive evaluation when enabled
+        if self.config.use_adaptive_eval:
+            results = run_tournament_adaptive(
+                model_a_path=str(candidate_path),
+                model_b_path=self.current_best_path,
+                promotion_threshold=self.config.promotion_threshold,
+                confidence=self.config.promotion_confidence,
+                min_games=self.config.adaptive_min_games,
+                max_games=self.config.adaptive_max_games,
+                batch_size=self.config.adaptive_batch_size,
+                ci_width_target=self.config.adaptive_ci_width_target,
+                board_type=self.config.board_type,
+                num_players=self.config.num_players,
+                max_moves=self.config.max_moves,
+                seed=seed,
+            )
+            logger.info(
+                f"Adaptive eval: {results['total_games']} games, "
+                f"win_rate={results['win_rate']:.1%}, "
+                f"CI=[{results['ci_lower']:.1%}, {results['ci_upper']:.1%}], "
+                f"stop_reason={results['stop_reason']}"
+            )
+        else:
+            # Run fixed tournament: candidate vs current_best
+            results = run_tournament(
+                model_a_path=str(candidate_path),
+                model_b_path=self.current_best_path,
+                num_games=self.config.eval_games,
+                board_type=self.config.board_type,
+                num_players=self.config.num_players,
+                max_moves=self.config.max_moves,
+                seed=seed,
+            )
 
         total_games = max(1, results["total_games"])
         wins = results["model_a_wins"]
