@@ -1,6 +1,6 @@
 # Known Issues & Bugs
 
-> **Doc Status (2025-12-01): Active (code-verified issue tracker)**
+> **Doc Status (2025-12-13): Active (code-verified issue tracker)**
 >
 > - Canonical list of current, code-verified issues and gaps.
 > - Not a rules or lifecycle SSoT; for rules semantics defer to `ringrift_complete_rules.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.

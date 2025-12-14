@@ -198,7 +198,17 @@ def _format_remote_venv_activate(venv_activate: str) -> str:
     if parts and parts[0] in ("source", ".") and len(parts) >= 2:
         activate_path = parts[1]
         quoted = _quote_remote_path(activate_path)
-        return f"if [ -f {quoted} ]; then {parts[0]} {quoted}; fi"
+        # Some hosts (notably Vast.ai containers) can have an incomplete venv that
+        # masks system-level deps. Activate only when it can import FastAPI (a
+        # transitive dependency of the self-play harness).
+        return (
+            f"if [ -f {quoted} ]; then "
+            f"{parts[0]} {quoted}; "
+            "python3 -c 'import fastapi' >/dev/null 2>&1 || "
+            "{ echo '[distributed-soak] venv missing deps; using system python' >&2; "
+            "deactivate 2>/dev/null || true; }; "
+            "fi"
+        )
 
     return f"({raw}) || true"
 
@@ -491,11 +501,18 @@ def get_remote_disk_gb(host_name: str, host_config: Dict) -> Tuple[int, int]:
         )
         ssh_cmd = ssh_cmd_base + [ssh_target, f"bash -lc {shlex.quote(df_script)}"]
         result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=15)
-        if result.returncode == 0 and result.stdout.strip():
-            nums = re.findall(r"\\d+", result.stdout)
-            if len(nums) >= 2:
-                total_kb = int(nums[-2])
-                available_kb = int(nums[-1])
+        # Vast.ai nodes often print a login banner on stderr/stdout; extract the
+        # final numeric payload line instead of hard-failing on extra output.
+        if result.stdout:
+            total_kb = None
+            available_kb = None
+            for line in result.stdout.splitlines():
+                m = re.fullmatch(r"\s*(\d+)\s+(\d+)\s*", line)
+                if not m:
+                    continue
+                total_kb = int(m.group(1))
+                available_kb = int(m.group(2))
+            if total_kb is not None and available_kb is not None:
                 total_gb = total_kb // 1048576
                 available_gb = available_kb // 1048576
                 return int(total_gb), int(available_gb)
@@ -670,6 +687,12 @@ def generate_job_configs(
 def build_soak_command(job: JobConfig, is_remote: bool = False) -> str:
     """Build the self-play soak command for a job."""
     python_exe = "python3" if is_remote else shlex.quote(sys.executable)
+    # Distributed runs often execute on remote GPU hosts without Node.js/npx.
+    # On-the-fly TS parity validation would fail there and prevent any games from
+    # being recorded. We rely on the controller-side parity gate instead.
+    parity_mode = os.getenv("RINGRIFT_PARITY_VALIDATION", "strict")
+    if is_remote:
+        parity_mode = os.getenv("RINGRIFT_REMOTE_PARITY_VALIDATION", "off")
     cmd_parts = [
         "PYTHONPATH=.",
         "RINGRIFT_SKIP_SHADOW_CONTRACTS=true",
@@ -677,7 +700,7 @@ def build_soak_command(job: JobConfig, is_remote: bool = False) -> str:
         # Keep these strict by default so distributed soaks produce debuggable,
         # parity-safe recordings (especially for training data).
         "RINGRIFT_STRICT_NO_MOVE_INVARIANT=1",
-        "RINGRIFT_PARITY_VALIDATION=strict",
+        f"RINGRIFT_PARITY_VALIDATION={parity_mode}",
         "RINGRIFT_FORCE_BOOKKEEPING_MOVES=1",
         # Keep OpenMP usage conservative for stability across hosts/containers.
         "OMP_NUM_THREADS=1",

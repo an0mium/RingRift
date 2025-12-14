@@ -190,6 +190,47 @@ def find_dbs(explicit_db: Optional[str] = None) -> List[Path]:
     return results
 
 
+def _load_game_id_filter(
+    *,
+    include_game_ids: Optional[List[str]],
+    include_game_ids_file: Optional[str],
+) -> set[str]:
+    """Return a set of game_ids to include (empty set means include all)."""
+    game_ids: set[str] = set()
+    for raw in include_game_ids or []:
+        token = str(raw or "").strip()
+        if token:
+            game_ids.add(token)
+
+    if include_game_ids_file:
+        path = Path(include_game_ids_file).expanduser().resolve()
+        if not path.exists():
+            raise ValueError(f"--include-game-ids-file not found: {path}")
+        text = path.read_text(encoding="utf-8")
+        if path.suffix.lower() == ".json":
+            payload = json.loads(text)
+            if isinstance(payload, dict) and isinstance(payload.get("game_ids"), list):
+                values = payload.get("game_ids") or []
+            elif isinstance(payload, list):
+                values = payload
+            else:
+                raise ValueError(
+                    f"--include-game-ids-file JSON must be a list of game_ids or {{'game_ids': [...]}}: {path}"
+                )
+            for value in values:
+                token = str(value or "").strip()
+                if token:
+                    game_ids.add(token)
+        else:
+            for line in text.splitlines():
+                token = line.strip()
+                if not token or token.startswith("#"):
+                    continue
+                game_ids.add(token)
+
+    return game_ids
+
+
 def import_json_to_temp_db(json_path: str) -> Tuple[Path, str]:
     """Import a JSON scenario/fixture file into a temporary GameReplayDB.
 
@@ -1437,6 +1478,24 @@ def main() -> None:
         help="Optional limit on number of games per DB to check (0 = all).",
     )
     parser.add_argument(
+        "--include-game-id",
+        action="append",
+        default=[],
+        help=(
+            "Only check these game_id values (repeatable). "
+            "Use --include-game-ids-file when passing many IDs."
+        ),
+    )
+    parser.add_argument(
+        "--include-game-ids-file",
+        type=str,
+        default=None,
+        help=(
+            "Path to a newline-delimited list of game_ids (or a JSON list / {'game_ids': [...]}). "
+            "When set, only those games are checked."
+        ),
+    )
+    parser.add_argument(
         "--compact",
         action="store_true",
         help=(
@@ -1587,6 +1646,18 @@ def main() -> None:
         print(f"[trace] game {args.trace_game} not found in any GameReplayDB " f"(searched {len(db_paths)} databases)")
         return
 
+    include_game_ids: set[str] = set()
+    try:
+        include_game_ids = _load_game_id_filter(
+            include_game_ids=list(args.include_game_id or []),
+            include_game_ids_file=args.include_game_ids_file,
+        )
+    except Exception as exc:
+        print(f"[parity-filter] {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    filtered_found_game_ids: set[str] = set()
+
     structural_issues: List[Dict[str, object]] = []
     semantic_divergences: List[Dict[str, object]] = []
     end_of_game_only_divergences: List[Dict[str, object]] = []
@@ -1612,11 +1683,17 @@ def main() -> None:
         games = db.query_games(limit=100000)
         if not games:
             continue
+        if include_game_ids:
+            games = [g for g in games if g.get("game_id") in include_game_ids]
+            if not games:
+                continue
         if args.limit_games_per_db and args.limit_games_per_db > 0:
             games = games[: args.limit_games_per_db]
 
         for game_meta in games:
             game_id = game_meta["game_id"]
+            if include_game_ids:
+                filtered_found_game_ids.add(str(game_id))
             total_games += 1
             try:
                 result = check_game_parity(
@@ -1782,6 +1859,16 @@ def main() -> None:
         "legacy_mode": bool(mode == "legacy"),
         "passed_canonical_parity_gate": bool(passed_canonical_parity_gate),
     }
+    if include_game_ids:
+        missing = sorted(include_game_ids.difference(filtered_found_game_ids))
+        summary.update(
+            {
+                "filtered_game_ids_count": len(include_game_ids),
+                "filtered_game_ids_found_count": len(filtered_found_game_ids),
+                "filtered_game_ids_missing_count": len(missing),
+                "filtered_game_ids_missing_sample": missing[:50],
+            }
+        )
     if not args.compact:
         print(json.dumps(summary, indent=2, sort_keys=True))
 

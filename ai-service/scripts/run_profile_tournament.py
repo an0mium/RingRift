@@ -278,7 +278,7 @@ def main():
     parser.add_argument("--board", type=str, default="square8", choices=BOARD_TYPES.keys(), help="Board type")
     parser.add_argument("--num-players", type=int, default=3, help="Number of players (2-4)")
     parser.add_argument("--games-per-config", type=int, default=10, help="Number of games to play per configuration")
-    parser.add_argument("--max-moves", type=int, default=300, help="Maximum moves per game")
+    parser.add_argument("--max-moves", type=int, default=10000, help="Maximum moves per game")
     parser.add_argument("--verbose", action="store_true", help="Print per-game diagnostics")
     parser.add_argument("--diagnostics", action="store_true", help="Print detailed game statistics at the end")
 

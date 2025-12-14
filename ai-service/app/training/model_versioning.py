@@ -241,7 +241,7 @@ def get_model_config(model: nn.Module) -> Dict[str, Any]:
     config: Dict[str, Any] = {}
     class_name = model.__class__.__name__
 
-    if class_name in ("RingRiftCNN_v2", "RingRiftCNN_v2_Lite"):
+    if class_name in ("RingRiftCNN_v2", "RingRiftCNN_v2_Lite", "RingRiftCNN_v3", "RingRiftCNN_v3_Lite"):
         # V2 models use SE residual blocks
         num_filters = 128
         if hasattr(model, "conv1"):
@@ -265,7 +265,22 @@ def get_model_config(model: nn.Module) -> Dict[str, Any]:
             "num_filters": num_filters,
             "num_res_blocks": num_res_blocks,
             "policy_size": getattr(model, "policy_size", 55000),
+            # Critical for safe loading: value head output depends on num_players.
+            "num_players": getattr(model, "num_players", 4),
         }
+
+        # v3 spatial heads: persist key shape-defining dimensions for compatibility checks.
+        if class_name in ("RingRiftCNN_v3", "RingRiftCNN_v3_Lite"):
+            config.update(
+                {
+                    "max_distance": getattr(model, "max_distance", None),
+                    "num_ring_counts": getattr(model, "num_ring_counts", None),
+                    "num_directions": getattr(model, "num_directions", None),
+                    "num_line_dirs": getattr(model, "num_line_dirs", None),
+                    "territory_size_buckets": getattr(model, "territory_size_buckets", None),
+                    "territory_max_players": getattr(model, "territory_max_players", None),
+                }
+            )
     elif class_name in ("HexNeuralNet_v2", "HexNeuralNet_v2_Lite"):
         config = {
             "in_channels": getattr(model, "in_channels", 14),

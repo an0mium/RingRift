@@ -128,6 +128,7 @@ def _evaluate_nn_vs_nn(
     board_type: str,
     games: int,
     seed: int,
+    max_moves: int,
     output_path: Path,
 ) -> int:
     cmd = [
@@ -145,6 +146,8 @@ def _evaluate_nn_vs_nn(
         board_type,
         "--games",
         str(games),
+        "--max-moves",
+        str(int(max_moves)),
         "--seed",
         str(seed),
         "--output",
@@ -284,6 +287,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Number of evaluation games for v3 vs v2 (default: 200).",
     )
     parser.add_argument(
+        "--eval-max-moves",
+        type=int,
+        default=10000,
+        help="Max moves per evaluation game before timeout tie-breaks (default: 10000).",
+    )
+    parser.add_argument(
         "--skip-eval",
         action="store_true",
         help="Skip the evaluation match (train only).",
@@ -398,6 +407,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         board_type=board_type,
         games=int(args.eval_games),
         seed=int(args.seed) + 2,
+        max_moves=int(args.eval_max_moves),
         output_path=eval_out,
     )
     if rc != 0:

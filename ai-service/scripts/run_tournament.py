@@ -76,8 +76,8 @@ def parse_args():
     parser.add_argument(
         "--max-moves",
         type=int,
-        default=500,
-        help="Maximum moves per game (default: 500)",
+        default=10000,
+        help="Maximum moves per game (default: 10000)",
     )
     parser.add_argument(
         "--max-workers",

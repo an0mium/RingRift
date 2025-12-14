@@ -43,6 +43,10 @@ MAC_STUDIO_HOST = os.environ.get("MAC_STUDIO_HOST", "mac-studio")
 MAC_STUDIO_DATA_DIR = "~/Development/RingRift/ai-service/data/games"
 SYNC_INTERVAL = 6  # Sync every 6 iterations (30 minutes at 5-min interval)
 
+# Elo calibration configuration
+ELO_CALIBRATION_INTERVAL = 72  # Run Elo tournament every 72 iterations (6 hours at 5-min interval)
+ELO_CALIBRATION_GAMES = 50  # Games per config for Elo calibration
+
 
 @dataclass
 class HostConfig:
@@ -77,6 +81,7 @@ class HostStatus:
     selfplay_jobs: int = 0
     training_jobs: int = 0
     cmaes_jobs: int = 0
+    elo_tournament_jobs: int = 0
     last_check: str = ""
     error: str = ""
 
@@ -89,6 +94,7 @@ class ClusterState:
     total_restarts: int = 0
     host_statuses: Dict[str, dict] = field(default_factory=dict)
     last_sync: str = ""
+    last_elo_calibration: str = ""
     errors: List[str] = field(default_factory=list)
 
 
@@ -246,16 +252,17 @@ def check_host_status(host: HostConfig) -> HostStatus:
     selfplay=$(pgrep -f "selfplay|run_hybrid" | wc -l)
     training=$(pgrep -f "train_nnue|train.py" | wc -l)
     cmaes=$(pgrep -f "cmaes" | wc -l)
+    elo_tournament=$(pgrep -f "run_model_elo_tournament" | wc -l)
     python_total=$(pgrep -f "python" | wc -l)
 
-    echo "$cpu|$mem|$disk|$gpu|$gpu_mem|$selfplay|$training|$cmaes|$python_total"
+    echo "$cpu|$mem|$disk|$gpu|$gpu_mem|$selfplay|$training|$cmaes|$elo_tournament|$python_total"
     """
 
     code, out, err = ssh_cmd(host, metrics_cmd, timeout=30)
     if code == 0 and out:
         try:
             parts = out.strip().split("|")
-            if len(parts) >= 9:
+            if len(parts) >= 10:
                 status.cpu_percent = float(parts[0] or 0)
                 status.memory_percent = float(parts[1] or 0)
                 status.disk_percent = float(parts[2] or 0)
@@ -264,7 +271,8 @@ def check_host_status(host: HostConfig) -> HostStatus:
                 status.selfplay_jobs = int(parts[5] or 0)
                 status.training_jobs = int(parts[6] or 0)
                 status.cmaes_jobs = int(parts[7] or 0)
-                status.python_jobs = int(parts[8] or 0)
+                status.elo_tournament_jobs = int(parts[8] or 0)
+                status.python_jobs = int(parts[9] or 0)
         except (ValueError, IndexError) as e:
             status.error = f"Parse error: {e}"
 
@@ -406,14 +414,15 @@ def start_training(host: HostConfig, action: str, dry_run: bool = False) -> bool
 
 def print_status_dashboard(hosts: List[HostConfig], statuses: Dict[str, HostStatus]):
     """Print a nice status dashboard."""
-    print("\n" + "=" * 80)
+    print("\n" + "=" * 90)
     print(f"CLUSTER STATUS - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("=" * 80)
-    print(f"{'Host':<18} {'Status':<8} {'CPU%':<6} {'MEM%':<6} {'Disk%':<6} {'GPU%':<6} {'Jobs':<12}")
-    print("-" * 80)
+    print("=" * 90)
+    print(f"{'Host':<18} {'Status':<8} {'CPU%':<6} {'MEM%':<6} {'Disk%':<6} {'GPU%':<6} {'Jobs':<20}")
+    print("-" * 90)
 
     total_selfplay = 0
     total_training = 0
+    total_elo = 0
     reachable_count = 0
 
     for host in hosts:
@@ -426,16 +435,17 @@ def print_status_dashboard(hosts: List[HostConfig], statuses: Dict[str, HostStat
             reachable_count += 1
             total_selfplay += status.selfplay_jobs
             total_training += status.training_jobs
+            total_elo += status.elo_tournament_jobs
 
-            jobs_str = f"S:{status.selfplay_jobs} T:{status.training_jobs} C:{status.cmaes_jobs}"
+            jobs_str = f"S:{status.selfplay_jobs} T:{status.training_jobs} C:{status.cmaes_jobs} E:{status.elo_tournament_jobs}"
             print(f"{host.name:<18} {'OK':<8} {status.cpu_percent:<6.1f} {status.memory_percent:<6.1f} "
-                  f"{status.disk_percent:<6.1f} {status.gpu_percent:<6.1f} {jobs_str:<12}")
+                  f"{status.disk_percent:<6.1f} {status.gpu_percent:<6.1f} {jobs_str:<20}")
         else:
             print(f"{host.name:<18} {'DOWN':<8} {'-':<6} {'-':<6} {'-':<6} {'-':<6} {status.error[:20]}")
 
-    print("-" * 80)
-    print(f"TOTALS: {reachable_count}/{len(hosts)} hosts up | {total_selfplay} selfplay | {total_training} training")
-    print("=" * 80 + "\n")
+    print("-" * 90)
+    print(f"TOTALS: {reachable_count}/{len(hosts)} hosts up | {total_selfplay} selfplay | {total_training} training | {total_elo} elo")
+    print("=" * 90 + "\n")
 
 
 def load_state() -> ClusterState:
@@ -457,6 +467,7 @@ def save_state(state: ClusterState):
         "total_restarts": state.total_restarts,
         "host_statuses": state.host_statuses,
         "last_sync": state.last_sync,
+        "last_elo_calibration": state.last_elo_calibration,
         "errors": state.errors[-100:],  # Keep last 100 errors
     }, indent=2))
 
@@ -587,6 +598,73 @@ def sync_to_mac_studio(hosts: List[HostConfig], dry_run: bool = False) -> bool:
     return synced_count > 0
 
 
+def trigger_elo_calibration(hosts: List[HostConfig], statuses: Dict[str, HostStatus], dry_run: bool = False) -> bool:
+    """Trigger Elo calibration tournament on a GPU host.
+
+    Runs run_model_elo_tournament.py with --all-configs on the first available GPU host.
+    Returns True if successfully triggered.
+    """
+    # Find a GPU host that is reachable and not overloaded
+    gpu_host = None
+    for host in hosts:
+        if not host.enabled or not host.has_gpu:
+            continue
+        status = statuses.get(host.name)
+        if not status or not status.reachable:
+            continue
+        # Prefer hosts with lower CPU usage
+        if status.cpu_percent < 80:
+            gpu_host = host
+            break
+
+    if not gpu_host:
+        log("Elo calibration: No available GPU host found", "WARN")
+        return False
+
+    log(f"Triggering Elo calibration on {gpu_host.name}...")
+
+    # Build SSH command
+    ssh_base = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15"]
+    if gpu_host.ssh_key:
+        ssh_base.extend(["-i", os.path.expanduser(gpu_host.ssh_key)])
+    if gpu_host.ssh_port != 22:
+        ssh_base.extend(["-p", str(gpu_host.ssh_port)])
+
+    target = f"{gpu_host.ssh_user}@{gpu_host.ssh_host}"
+    ringrift_path = gpu_host.ringrift_path
+
+    # Run Elo tournament in background with nohup
+    remote_cmd = (
+        f"cd {ringrift_path} && "
+        f"source venv/bin/activate && "
+        f"nohup python3 scripts/run_model_elo_tournament.py "
+        f"--all-configs --games {ELO_CALIBRATION_GAMES} --run "
+        f"> /tmp/elo_calibration_auto.log 2>&1 &"
+        f"echo 'Elo calibration started'"
+    )
+
+    cmd = ssh_base + [target, remote_cmd]
+
+    if dry_run:
+        log(f"[DRY-RUN] Would run: {' '.join(cmd)}")
+        return True
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode == 0:
+            log(f"Elo calibration triggered on {gpu_host.name}")
+            return True
+        else:
+            log(f"Elo calibration failed: {result.stderr}", "WARN")
+            return False
+    except subprocess.TimeoutExpired:
+        log("Elo calibration: SSH timeout", "WARN")
+        return False
+    except Exception as e:
+        log(f"Elo calibration error: {e}", "WARN")
+        return False
+
+
 def main():
     parser = argparse.ArgumentParser(description="Enhanced Cluster Orchestrator")
     parser.add_argument("--dry-run", action="store_true", help="Don't execute commands")
@@ -595,6 +673,10 @@ def main():
     parser.add_argument("--once", action="store_true", help="Run once and exit")
     parser.add_argument("--sync-now", action="store_true", help="Force sync to Mac Studio immediately")
     parser.add_argument("--no-sync", action="store_true", help="Disable periodic sync to Mac Studio")
+    parser.add_argument("--elo-calibration-now", action="store_true", help="Trigger Elo calibration immediately")
+    parser.add_argument("--no-elo-calibration", action="store_true", help="Disable periodic Elo calibration")
+    parser.add_argument("--elo-interval", type=int, default=ELO_CALIBRATION_INTERVAL,
+                        help=f"Elo calibration interval in iterations (default: {ELO_CALIBRATION_INTERVAL})")
     args = parser.parse_args()
 
     # Acquire lockfile to prevent multiple instances
@@ -628,6 +710,19 @@ def main():
         log("Forcing sync to Mac Studio...")
         if sync_to_mac_studio(hosts, args.dry_run):
             state.last_sync = datetime.now().isoformat()
+            save_state(state)
+        return
+
+    # Force Elo calibration if requested
+    if args.elo_calibration_now:
+        log("Forcing Elo calibration...")
+        # Need to collect statuses first
+        statuses: Dict[str, HostStatus] = {}
+        for host in hosts:
+            if host.enabled:
+                statuses[host.name] = check_host_status(host)
+        if trigger_elo_calibration(hosts, statuses, args.dry_run):
+            state.last_elo_calibration = datetime.now().isoformat()
             save_state(state)
         return
 
@@ -685,6 +780,12 @@ def main():
             log(f"Starting periodic sync (every {SYNC_INTERVAL} iterations)...")
             if sync_to_mac_studio(hosts, args.dry_run):
                 state.last_sync = datetime.now().isoformat()
+
+        # Periodic Elo calibration (every elo_interval iterations)
+        if not args.no_elo_calibration and state.iteration % args.elo_interval == 0:
+            log(f"Starting periodic Elo calibration (every {args.elo_interval} iterations)...")
+            if trigger_elo_calibration(hosts, statuses, args.dry_run):
+                state.last_elo_calibration = datetime.now().isoformat()
 
         save_state(state)
 

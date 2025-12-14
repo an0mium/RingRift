@@ -151,7 +151,12 @@ def _looks_like_game_replay_db(db_path: Path) -> bool:
         conn.close()
 
 
-def _run_parity_summary(db_path: Path, *, work_dir: Path) -> Dict[str, Any]:
+def _run_parity_summary(
+    db_path: Path,
+    *,
+    work_dir: Path,
+    include_game_ids_file: Optional[Path] = None,
+) -> Dict[str, Any]:
     summary_path = work_dir / f"parity_summary.{db_path.stem}.{uuid.uuid4().hex}.json"
     cmd = [
         sys.executable,
@@ -166,6 +171,8 @@ def _run_parity_summary(db_path: Path, *, work_dir: Path) -> Dict[str, Any]:
         "--summary-json",
         str(summary_path),
     ]
+    if include_game_ids_file is not None:
+        cmd += ["--include-game-ids-file", str(include_game_ids_file)]
     proc = subprocess.run(
         cmd,
         cwd=str(AI_SERVICE_ROOT),
@@ -307,6 +314,34 @@ def _extract_noncanonical_history_failures(
     return failures
 
 
+def _select_existing_game_ids(db_path: Path, game_ids: Sequence[str]) -> Set[str]:
+    """Return the subset of `game_ids` already present in `db_path`."""
+    if not game_ids:
+        return set()
+    try:
+        if not db_path.exists() or db_path.stat().st_size <= 0:
+            return set()
+    except OSError:
+        return set()
+
+    conn = _connect_sqlite(db_path, readonly=True)
+    try:
+        found: Set[str] = set()
+        batch_size = 500
+        for i in range(0, len(game_ids), batch_size):
+            batch = list(game_ids[i : i + batch_size])
+            placeholders = ", ".join(["?"] * len(batch))
+            rows = conn.execute(
+                f"SELECT game_id FROM games WHERE game_id IN ({placeholders})",
+                batch,
+            ).fetchall()
+            for (gid,) in rows:
+                found.add(str(gid))
+        return found
+    finally:
+        conn.close()
+
+
 def _ensure_db_initialized(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     if db_path.exists() and db_path.stat().st_size > 0:
@@ -419,6 +454,7 @@ def build_pool(
     require_completed: bool,
     holdout_source_substrings: Sequence[str],
     report_json: Optional[Path],
+    recheck_existing: bool,
 ) -> int:
     _ensure_db_initialized(output_db)
     if holdout_db is not None:
@@ -440,6 +476,8 @@ def build_pool(
         "inputs": [],
         "totals": {
             "games_seen": 0,
+            "games_skipped_existing": 0,
+            "games_gated": 0,
             "training_candidates": 0,
             "holdout_candidates": 0,
             "training_passed": 0,
@@ -462,12 +500,54 @@ def build_pool(
             if not games:
                 continue
 
-            parity_summary = _run_parity_summary(db_path, work_dir=work_dir)
+            candidate_ids = sorted(games.keys())
+            skipped_existing: Set[str] = set()
+            pending_ids = candidate_ids
+            if not recheck_existing:
+                already_seen: Set[str] = set()
+                already_seen.update(_select_existing_game_ids(output_db, candidate_ids))
+                if holdout_db is not None:
+                    already_seen.update(_select_existing_game_ids(holdout_db, candidate_ids))
+                if quarantine_db is not None:
+                    already_seen.update(_select_existing_game_ids(quarantine_db, candidate_ids))
+                skipped_existing = already_seen
+                if skipped_existing:
+                    pending_ids = [gid for gid in candidate_ids if gid not in skipped_existing]
+
+            if not pending_ids:
+                report["inputs"].append(
+                    {
+                        "db_path": str(db_path),
+                        "games_considered": len(games),
+                        "games_skipped_existing": len(skipped_existing),
+                        "games_gated": 0,
+                        "training_candidates": 0,
+                        "holdout_candidates": 0,
+                        "training_passed": 0,
+                        "training_failed": 0,
+                        "holdout_passed": 0,
+                        "holdout_failed": 0,
+                        "parity_summary": None,
+                    }
+                )
+                totals = report["totals"]
+                totals["games_seen"] += len(games)
+                totals["games_skipped_existing"] += len(skipped_existing)
+                continue
+
+            include_ids_path = work_dir / f"include_game_ids.{db_path.stem}.{uuid.uuid4().hex}.txt"
+            include_ids_path.write_text("\n".join(pending_ids) + "\n", encoding="utf-8")
+
+            parity_summary = _run_parity_summary(
+                db_path,
+                work_dir=work_dir,
+                include_game_ids_file=include_ids_path,
+            )
             failures = _extract_gate_failures(parity_summary)
-            config_failures = _extract_noncanonical_config_failures(db_path, games.keys())
+            config_failures = _extract_noncanonical_config_failures(db_path, pending_ids)
             for game_id, failure in config_failures.items():
                 failures.setdefault(game_id, failure)
-            history_failures = _extract_noncanonical_history_failures(db_path, games.keys())
+            history_failures = _extract_noncanonical_history_failures(db_path, pending_ids)
             for game_id, failure in history_failures.items():
                 failures.setdefault(game_id, failure)
 
@@ -476,7 +556,10 @@ def build_pool(
             failed_training_ids: List[str] = []
             failed_holdout_ids: List[str] = []
 
+            pending_set = set(pending_ids)
             for game_id, meta in games.items():
+                if game_id not in pending_set:
+                    continue
                 source = meta.get("source")
                 is_holdout = _is_holdout_source(source, holdout_source_substrings)
 
@@ -497,6 +580,8 @@ def build_pool(
                 {
                     "db_path": str(db_path),
                     "games_considered": len(games),
+                    "games_skipped_existing": len(skipped_existing),
+                    "games_gated": len(pending_ids),
                     "training_candidates": len(training_ids) + len(failed_training_ids),
                     "holdout_candidates": len(holdout_ids) + len(failed_holdout_ids),
                     "training_passed": len(training_ids),
@@ -517,6 +602,8 @@ def build_pool(
 
             totals = report["totals"]
             totals["games_seen"] += len(games)
+            totals["games_skipped_existing"] += len(skipped_existing)
+            totals["games_gated"] += len(pending_ids)
             totals["training_candidates"] += len(training_ids) + len(failed_training_ids)
             totals["holdout_candidates"] += len(holdout_ids) + len(failed_holdout_ids)
             totals["training_passed"] += len(training_ids)
@@ -607,6 +694,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         default=None,
         help="Optional path to write a JSON ingestion report (counts + parity summaries).",
     )
+    parser.add_argument(
+        "--recheck-existing",
+        action="store_true",
+        help=(
+            "Re-run gates for games already present in the output/holdout/quarantine DBs. "
+            "Default behavior skips previously ingested/quarantined games."
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -676,6 +771,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         require_completed=bool(args.require_completed),
         holdout_source_substrings=holdout_source_substrings,
         report_json=report_json,
+        recheck_existing=bool(args.recheck_existing),
     )
 
 

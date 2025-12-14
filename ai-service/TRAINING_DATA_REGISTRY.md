@@ -239,4 +239,62 @@ parity issues before promoting a DB to the canonical training allowlist.
 
 ---
 
+## Elo Tournament and Holdout Data
+
+Tournament and evaluation games are explicitly **holdout data** and are excluded from training. This section documents the Elo calibration tournament infrastructure.
+
+### Elo Leaderboard Database
+
+| Database             | Location                  | Purpose                                                         |
+| -------------------- | ------------------------- | --------------------------------------------------------------- |
+| `elo_leaderboard.db` | `data/elo_leaderboard.db` | Stores model Elo ratings, match history, and rating progression |
+
+Schema tables:
+
+- `models`: Registered models with paths, board types, and versions
+- `elo_ratings`: Current Elo ratings per model/config (rating, games_played, wins, losses, draws)
+- `match_history`: Individual match records (model_a, model_b, winner, game_length, timestamp)
+- `rating_history`: Historical rating snapshots for tracking progression
+
+### Tournament Orchestration
+
+Elo calibration tournaments can be triggered via:
+
+1. **Standalone script** (`scripts/run_model_elo_tournament.py`):
+
+   ```bash
+   python scripts/run_model_elo_tournament.py --board square8 --players 2 --games 100 --run
+   python scripts/run_model_elo_tournament.py --all-configs --games 50 --run
+   ```
+
+2. **Pipeline integration** (`scripts/pipeline_orchestrator.py`):
+   - Phase 7 "elo-calibration" runs diverse tournaments across all board/player configs
+   - Triggered after evaluation, before tier-gating
+
+3. **Improvement loop integration** (`scripts/run_improvement_loop.py`):
+   - `--tournament-every-n-iterations N`: Run tournaments every N iterations
+   - `--tournament-on-promotion`: Run tournaments after each model promotion
+   - `--tournament-board-types`: Comma-separated board types (or "all")
+   - `--tournament-player-counts`: Comma-separated player counts (or "all")
+
+### Holdout Data Policy
+
+Tournament games are written to holdout DBs and are NOT ingested into canonical training pools:
+
+| Holdout DB                        | Board Type | Players | Purpose                    |
+| --------------------------------- | ---------- | ------- | -------------------------- |
+| `holdouts/holdout_square8_2p.db`  | square8    | 2       | Eval/tournament games only |
+| `holdouts/holdout_square8_3p.db`  | square8    | 3       | Eval/tournament games only |
+| `holdouts/holdout_square8_4p.db`  | square8    | 4       | Eval/tournament games only |
+| `holdouts/holdout_square19_2p.db` | square19   | 2       | Eval/tournament games only |
+| `holdouts/holdout_hex_2p.db`      | hexagonal  | 2       | Eval/tournament games only |
+
+This separation ensures:
+
+- Training data remains uncontaminated by evaluation games
+- Elo ratings reflect true model strength (no training on test data)
+- Holdout games can be used for independent validation
+
+---
+
 _Last updated: 2025-12-13_
