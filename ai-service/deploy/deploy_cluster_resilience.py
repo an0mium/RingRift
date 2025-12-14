@@ -42,7 +42,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass(frozen=True)
@@ -76,7 +76,7 @@ def _looks_like_tailscale_ip(host: str) -> bool:
     return ip in ipaddress.ip_network("100.64.0.0/10")
 
 
-def _load_hosts(config_path: Path) -> Dict[str, HostTarget]:
+def _load_config_data(config_path: Path, overlays: Optional[List[Path]] = None) -> Dict[str, Any]:
     try:
         import yaml  # type: ignore
     except Exception as exc:  # pragma: no cover
@@ -86,6 +86,45 @@ def _load_hosts(config_path: Path) -> Dict[str, HostTarget]:
         raise FileNotFoundError(f"Missing config: {config_path}")
 
     data = yaml.safe_load(config_path.read_text()) or {}
+    overlays = list(overlays or [])
+    if not overlays:
+        return data
+
+    hosts = data.get("hosts", {}) or {}
+    if not isinstance(hosts, dict):
+        hosts = {}
+
+    for overlay_path in overlays:
+        if not overlay_path.exists():
+            raise FileNotFoundError(f"Missing overlay config: {overlay_path}")
+        overlay = yaml.safe_load(overlay_path.read_text()) or {}
+        overlay_hosts = overlay.get("hosts", {}) or {}
+        if not isinstance(overlay_hosts, dict):
+            continue
+        for node_id, cfg in overlay_hosts.items():
+            if node_id not in hosts:
+                hosts[node_id] = cfg
+                continue
+            if not isinstance(hosts.get(node_id), dict) or not isinstance(cfg, dict):
+                hosts[node_id] = cfg
+                continue
+            merged = dict(hosts.get(node_id) or {})
+            merged.update(cfg)
+            hosts[node_id] = merged
+    data["hosts"] = hosts
+    return data
+
+
+def _load_hosts(config_path: Path, overlays: Optional[List[Path]] = None) -> Dict[str, HostTarget]:
+    try:
+        import yaml  # type: ignore
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError("PyYAML is required (pip install pyyaml)") from exc
+
+    if not config_path.exists():
+        raise FileNotFoundError(f"Missing config: {config_path}")
+
+    data = _load_config_data(config_path, overlays)
     hosts = data.get("hosts", {}) or {}
 
     targets: Dict[str, HostTarget] = {}
@@ -129,7 +168,7 @@ def _default_p2p_port_for_node(node_id: str) -> int:
     return 8770
 
 
-def _derive_p2p_voters(config_path: Path) -> List[str]:
+def _derive_p2p_voters(config_path: Path, overlays: Optional[List[Path]] = None) -> List[str]:
     """Derive the stable voter set from distributed_hosts.yaml.
 
     This avoids depending on the config file being present on remote nodes. The
@@ -140,11 +179,8 @@ def _derive_p2p_voters(config_path: Path) -> List[str]:
     except Exception:
         return []
 
-    if not config_path.exists():
-        return []
-
     try:
-        data = yaml.safe_load(config_path.read_text()) or {}
+        data = _load_config_data(config_path, overlays)
     except Exception:
         return []
 
@@ -165,7 +201,13 @@ def _derive_p2p_voters(config_path: Path) -> List[str]:
     return sorted(set(voters))
 
 
-def _build_tailscale_coordinator_urls(config_path: Path, voter_ids: List[str], p2p_port: int = 8770) -> str:
+def _build_tailscale_coordinator_urls(
+    config_path: Path,
+    voter_ids: List[str],
+    *,
+    overlays: Optional[List[Path]] = None,
+    p2p_port: int = 8770,
+) -> str:
     """Build coordinator URLs using Tailscale IPs for voter nodes.
 
     This function builds a comma-separated list of coordinator URLs using
@@ -186,11 +228,8 @@ def _build_tailscale_coordinator_urls(config_path: Path, voter_ids: List[str], p
     except Exception:
         return ""
 
-    if not config_path.exists():
-        return ""
-
     try:
-        data = yaml.safe_load(config_path.read_text()) or {}
+        data = _load_config_data(config_path, overlays)
     except Exception:
         return ""
 
@@ -289,6 +328,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Deploy RingRift resilience setup across cluster hosts")
     parser.add_argument("--config", type=str, default=str(default_config), help="Path to distributed_hosts.yaml")
     parser.add_argument(
+        "--config-overlay",
+        action="append",
+        default=[],
+        help="Optional overlay YAML (repeatable) merged into --config (hosts only); avoids editing distributed_hosts.yaml.",
+    )
+    parser.add_argument(
         "--coordinator-url",
         type=str,
         default="",
@@ -337,7 +382,8 @@ def main() -> None:
     args = parser.parse_args()
 
     config_path = Path(args.config).expanduser()
-    targets = _load_hosts(config_path)
+    overlays = [Path(p).expanduser() for p in (args.config_overlay or []) if str(p).strip()]
+    targets = _load_hosts(config_path, overlays=overlays)
 
     include = {s.strip() for s in (args.include or "").split(",") if s.strip()}
     exclude = {s.strip() for s in (args.exclude or "").split(",") if s.strip()}
@@ -366,14 +412,14 @@ def main() -> None:
         voter_list = [t.strip() for t in explicit_voters.split(",") if t.strip()]
         voter_ids = sorted(set(voter_list))
     else:
-        voter_ids = _derive_p2p_voters(config_path)
+        voter_ids = _derive_p2p_voters(config_path, overlays=overlays)
     voter_env = ",".join(voter_ids)
     voter_prefix = f"RINGRIFT_P2P_VOTERS={shlex.quote(voter_env)} " if voter_env else ""
 
     # Determine coordinator URL
     coordinator_url = (args.coordinator_url or "").strip()
     if args.use_tailscale:
-        tailscale_urls = _build_tailscale_coordinator_urls(config_path, voter_ids)
+        tailscale_urls = _build_tailscale_coordinator_urls(config_path, voter_ids, overlays=overlays)
         if tailscale_urls:
             coordinator_url = tailscale_urls
             print(f"[INFO] Using Tailscale coordinator URLs: {coordinator_url}")

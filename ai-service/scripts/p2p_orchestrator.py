@@ -1335,6 +1335,67 @@ class P2POrchestrator:
             return min(expiries)
         return now + float(duration)
 
+    async def _determine_leased_leader_from_voters(self) -> Optional[str]:
+        """Return the current lease-holder as reported by a quorum of voters.
+
+        This is a read-only reconciliation step used to resolve split-brain once
+        partitions heal. It queries the current voter grant state via
+        `/election/grant` and selects the leader_id that has >= quorum votes with
+        non-expired grants.
+        """
+        voter_ids = list(getattr(self, "voter_node_ids", []) or [])
+        if not voter_ids:
+            return None
+
+        quorum = int(getattr(self, "voter_quorum_size", 0) or 0)
+        if quorum <= 0:
+            quorum = len(voter_ids) // 2 + 1
+
+        now = time.time()
+        counts: Dict[str, int] = {}
+
+        # Include local voter state.
+        if self.node_id in voter_ids:
+            leader_id = str(getattr(self, "voter_grant_leader_id", "") or "")
+            expires = float(getattr(self, "voter_grant_expires", 0.0) or 0.0)
+            if leader_id and expires > now:
+                counts[leader_id] = counts.get(leader_id, 0) + 1
+
+        with self.peers_lock:
+            peers_by_id = dict(self.peers)
+
+        timeout = ClientTimeout(total=5)
+        async with ClientSession(timeout=timeout) as session:
+            for voter_id in voter_ids:
+                if voter_id == self.node_id:
+                    continue
+                voter = peers_by_id.get(voter_id)
+                if not voter or not voter.is_alive():
+                    continue
+
+                for url in self._urls_for_peer(voter, "/election/grant"):
+                    try:
+                        async with session.get(url, headers=self._auth_headers()) as resp:
+                            if resp.status != 200:
+                                continue
+                            data = await resp.json()
+                        leader_id = str((data or {}).get("leader_id") or "")
+                        if not leader_id:
+                            break
+                        expires = float((data or {}).get("lease_expires") or 0.0)
+                        if expires <= now:
+                            break
+                        counts[leader_id] = counts.get(leader_id, 0) + 1
+                        break
+                    except Exception:
+                        continue
+
+        winners = [leader_id for leader_id, count in counts.items() if count >= quorum]
+        if not winners:
+            return None
+        # Deterministic: if multiple satisfy quorum (shouldn't), pick highest node_id.
+        return sorted(winners)[-1]
+
     def _parse_peer_address(self, peer_addr: str) -> Tuple[str, str, int]:
         """Parse `--peers` entries.
 
@@ -2244,13 +2305,17 @@ class P2POrchestrator:
     async def _request_peer_manifest(self, peer_info: NodeInfo) -> Optional[NodeDataManifest]:
         """Request data manifest from a peer node."""
         try:
-            url = self._url_for_peer(peer_info, "/data_manifest")
             timeout = ClientTimeout(total=30)
             async with ClientSession(timeout=timeout) as session:
-                async with session.get(url, headers=self._auth_headers()) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return NodeDataManifest.from_dict(data.get("manifest", {}))
+                for url in self._urls_for_peer(peer_info, "/data_manifest"):
+                    try:
+                        async with session.get(url, headers=self._auth_headers()) as resp:
+                            if resp.status != 200:
+                                continue
+                            data = await resp.json()
+                        return NodeDataManifest.from_dict((data or {}).get("manifest", {}))
+                    except Exception:
+                        continue
         except Exception as e:
             print(f"[P2P] Error requesting manifest from {peer_info.node_id}: {e}")
         return None
@@ -3620,6 +3685,8 @@ class P2POrchestrator:
         lease expires (or is explicitly released by stepping down).
         """
         try:
+            if self.auth_token and not self._is_request_authorized(request):
+                return web.json_response({"error": "unauthorized"}, status=401)
             data = await request.json()
             leader_id = str(data.get("leader_id") or data.get("candidate_id") or "").strip()
             lease_id = str(data.get("lease_id") or "").strip()
@@ -3673,6 +3740,28 @@ class P2POrchestrator:
         except Exception as e:
             return web.json_response({"granted": False, "error": str(e)}, status=400)
 
+    async def handle_voter_grant_status(self, request: web.Request) -> web.Response:
+        """Read-only voter endpoint: return our currently granted leader lease.
+
+        This lets nodes resolve split-brain by consulting a quorum of voters for
+        the active lease holder, without mutating lease state.
+        """
+        try:
+            if self.auth_token and not self._is_request_authorized(request):
+                return web.json_response({"error": "unauthorized"}, status=401)
+            now = time.time()
+            return web.json_response(
+                {
+                    "voter_id": self.node_id,
+                    "now": now,
+                    "leader_id": str(getattr(self, "voter_grant_leader_id", "") or ""),
+                    "lease_id": str(getattr(self, "voter_grant_lease_id", "") or ""),
+                    "lease_expires": float(getattr(self, "voter_grant_expires", 0.0) or 0.0),
+                }
+            )
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=400)
+
     async def handle_coordinator(self, request: web.Request) -> web.Response:
         """Handle coordinator announcement from new leader.
 
@@ -3720,9 +3809,9 @@ class P2POrchestrator:
                         status=409,
                     )
 
-            # LEARNED LESSONS - Verify the announced leader has higher priority than us
-            # (Bully algorithm: higher node_id wins)
-            if self.role == NodeRole.LEADER and new_leader < self.node_id:
+            # If quorum gating is not configured, fall back to bully ordering
+            # (lexicographically highest node_id wins).
+            if not voters and self.role == NodeRole.LEADER and new_leader < self.node_id:
                 # Exception: accept if our lease has expired
                 if self.leader_lease_expires > 0 and time.time() >= self.leader_lease_expires:
                     print(f"[P2P] Our lease expired, accepting leader: {new_leader}")
@@ -6393,7 +6482,6 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             endpoint = f"/training/{job_type}/start"
             timeout = ClientTimeout(total=30)
             async with ClientSession(timeout=timeout) as session:
-                url = self._url_for_peer(worker_node, endpoint)
                 payload = {
                     "job_id": job_id,
                     "board_type": board_type,
@@ -6402,21 +6490,28 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     "batch_size": job.batch_size,
                     "learning_rate": job.learning_rate,
                 }
-                async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
-                    if resp.status == 200:
-                        result = await resp.json()
+                last_err: Optional[str] = None
+                for url in self._urls_for_peer(worker_node, endpoint):
+                    try:
+                        async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
+                            if resp.status != 200:
+                                last_err = f"http_{resp.status}"
+                                continue
+                            result = await resp.json()
                         if result.get("success"):
                             job.status = "running"
                             job.started_at = time.time()
                             print(f"[P2P] Started {job_type} training job {job_id} on {worker_node.node_id}")
                             self._save_state()
                             return job
-                        else:
-                            job.status = "failed"
-                            job.error_message = result.get("error", "Unknown error")
-                    else:
                         job.status = "failed"
-                        job.error_message = f"HTTP {resp.status}"
+                        job.error_message = str(result.get("error") or "Unknown error")
+                        return job
+                    except Exception as e:
+                        last_err = str(e)
+                        continue
+                job.status = "failed"
+                job.error_message = last_err or "dispatch_failed"
         except Exception as e:
             job.status = "failed"
             job.error_message = str(e)
@@ -6584,22 +6679,29 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             # Send to worker
             timeout = ClientTimeout(total=30)
             async with ClientSession(timeout=timeout) as session:
-                url = self._url_for_peer(worker_node, "/training/nnue/start")
-                async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
-                    if resp.status == 200:
-                        result = await resp.json()
+                last_err: Optional[str] = None
+                for url in self._urls_for_peer(worker_node, "/training/nnue/start"):
+                    try:
+                        async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
+                            if resp.status != 200:
+                                last_err = f"http_{resp.status}"
+                                continue
+                            result = await resp.json()
                         if result.get("success"):
                             job.status = "running"
                             job.started_at = time.time()
                             print(f"[P2P] ImprovementCycle {cycle_id}: Training started on {worker_node.node_id}")
-                        else:
-                            self.improvement_cycle_manager.update_cycle_phase(
-                                cycle_id, "idle", error_message=result.get("error", "Training failed to start")
-                            )
-                    else:
+                            return
                         self.improvement_cycle_manager.update_cycle_phase(
-                            cycle_id, "idle", error_message=f"HTTP {resp.status}"
+                            cycle_id, "idle", error_message=result.get("error", "Training failed to start")
                         )
+                        return
+                    except Exception as e:
+                        last_err = str(e)
+                        continue
+                self.improvement_cycle_manager.update_cycle_phase(
+                    cycle_id, "idle", error_message=last_err or "dispatch_failed"
+                )
 
         except Exception as e:
             print(f"[P2P] ImprovementCycle {cycle_id}: Training dispatch failed: {e}")
@@ -9646,6 +9748,10 @@ print(json.dumps({{
             if p.role == NodeRole.LEADER and self._is_leader_eligible(p, conflict_keys)
         ]
 
+        voter_ids = list(getattr(self, "voter_node_ids", []) or [])
+        if voter_ids:
+            leaders = [p for p in leaders if p.node_id in voter_ids]
+
         if not leaders:
             return False
 
@@ -9953,24 +10059,54 @@ print(json.dumps({{
         conflict_keys = self._endpoint_conflict_keys([self.self_info] + peers_snapshot)
 
         # Gather all peers claiming to be leader.
-        other_leaders = [
-            peer for peer in peers_snapshot
-            if peer.role == NodeRole.LEADER and peer.is_alive()
-        ]
+        other_leaders = [peer for peer in peers_snapshot if peer.role == NodeRole.LEADER and peer.is_alive()]
 
         if not other_leaders:
             return False  # No split-brain
 
+        voter_ids = list(getattr(self, "voter_node_ids", []) or [])
+        if voter_ids:
+            # In quorum-gated clusters, only voters may safely lead.
+            if self.node_id not in voter_ids:
+                print(
+                    f"[P2P] SPLIT-BRAIN detected, but {self.node_id} is not a voter; stepping down."
+                )
+                self.role = NodeRole.FOLLOWER
+                self.leader_id = None
+                self.leader_lease_id = ""
+                self.leader_lease_expires = 0.0
+                self._release_voter_grant_if_self()
+                self._save_state()
+                return True
+
+            leased_leader = await self._determine_leased_leader_from_voters()
+            if leased_leader and leased_leader != self.node_id:
+                print(
+                    f"[P2P] SPLIT-BRAIN resolved by voter quorum: stepping down for lease-holder {leased_leader}"
+                )
+                self.role = NodeRole.FOLLOWER
+                self.leader_id = leased_leader
+                self.leader_lease_id = ""
+                self.leader_lease_expires = 0.0
+                self._release_voter_grant_if_self()
+                self._save_state()
+                return True
+
         # Find the highest-priority *eligible* leader (including ourselves).
-        eligible_leaders = [
-            p for p in other_leaders
-            if self._is_leader_eligible(p, conflict_keys)
-        ]
+        considered_leaders = other_leaders
+        if voter_ids:
+            # Prefer voter leaders when resolving conflicts; non-voter leaders
+            # are treated as noise from older configs/versions.
+            voter_leaders = [p for p in other_leaders if p.node_id in voter_ids]
+            if voter_leaders:
+                considered_leaders = voter_leaders
+
+        eligible_leaders = [p for p in considered_leaders if self._is_leader_eligible(p, conflict_keys)]
         if self._is_leader_eligible(self.self_info, conflict_keys):
             eligible_leaders.append(self.self_info)
 
         # If none are eligible, fall back to bully ordering (best-effort).
-        candidates = eligible_leaders or (other_leaders + [self.self_info])
+        candidates = eligible_leaders or (considered_leaders + [self.self_info])
         highest_leader = max(candidates, key=lambda p: p.node_id)
 
         if highest_leader.node_id != self.node_id:
@@ -10951,6 +11087,7 @@ print(json.dumps({{
         app.router.add_get('/status', self.handle_status)
         app.router.add_post('/election', self.handle_election)
         app.router.add_post('/election/lease', self.handle_lease_request)
+        app.router.add_get('/election/grant', self.handle_voter_grant_status)
         app.router.add_post('/coordinator', self.handle_coordinator)
         app.router.add_post('/start_job', self.handle_start_job)
         app.router.add_post('/stop_job', self.handle_stop_job)
