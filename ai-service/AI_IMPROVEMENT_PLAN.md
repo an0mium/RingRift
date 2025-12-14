@@ -1,4 +1,4 @@
-> **Doc Status (2025-12-04): Active (AI host improvement plan, Python service only)**
+> **Doc Status (2025-12-14): Active (AI host improvement plan, Python service only)**
 >
 > - Role: prioritized technical improvement and performance plan for the Python AI microservice (agents, search patterns, training pipeline). It informs work on the AI host, but does not redefine game rules.
 > - Not a semantics or lifecycle SSoT: for rules semantics and lifecycle / API contracts, defer to the shared TypeScript rules engine under `src/shared/engine/**`, the engine contracts under `src/shared/engine/contracts/**`, the v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`, [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md), [`ringrift_complete_rules.md`](../ringrift_complete_rules.md), [`RULES_ENGINE_ARCHITECTURE.md`](../RULES_ENGINE_ARCHITECTURE.md), [`RULES_IMPLEMENTATION_MAPPING.md`](../RULES_IMPLEMENTATION_MAPPING.md), and [`docs/CANONICAL_ENGINE_API.md`](../docs/CANONICAL_ENGINE_API.md).
@@ -33,13 +33,13 @@ These tests are designed to validate the existing v1 balanced profile rather tha
 
 The AI Service implements a multi-tier difficulty system with six AI implementations:
 
-| AI Type                                 | Difficulty Levels | Key Features                           |
-| --------------------------------------- | ----------------- | -------------------------------------- |
-| [`RandomAI`](app/ai/random_ai.py)       | 1                 | Pure random move selection             |
-| [`HeuristicAI`](app/ai/heuristic_ai.py) | 2                 | 17+ weighted evaluation factors        |
-| [`MinimaxAI`](app/ai/minimax_ai.py)     | 3–6               | Alpha-beta + PVS + Quiescence search   |
-| [`MCTSAI`](app/ai/mcts_ai.py)           | 7–8               | PUCT + RAVE + tree reuse               |
-| [`DescentAI`](app/ai/descent_ai.py)     | 9–10              | UBFM-style search with neural guidance |
+| AI Type                                 | Difficulty Levels | Key Features                              |
+| --------------------------------------- | ----------------- | ----------------------------------------- |
+| [`RandomAI`](app/ai/random_ai.py)       | 1                 | Pure random move selection                |
+| [`HeuristicAI`](app/ai/heuristic_ai.py) | 2                 | 45+ CMA-ES optimized evaluation factors   |
+| [`MinimaxAI`](app/ai/minimax_ai.py)     | 3–4               | Alpha-beta + PVS + NNUE neural evaluation |
+| [`MCTSAI`](app/ai/mcts_ai.py)           | 5–8               | PUCT + RAVE + neural value/policy heads   |
+| [`DescentAI`](app/ai/descent_ai.py)     | 9–10              | AlphaZero-style UBFM search               |
 
 ### 1.3 MPS-Compatible Architecture (Apple Silicon)
 
@@ -67,21 +67,22 @@ The canonical 1–10 difficulty ladder is defined in `_CANONICAL_DIFFICULTY_PROF
 the intended _product-facing_ interpretation so lobby/matchmaking UIs and operators
 have a shared understanding of what each band represents.
 
-| Difficulty | Internal AI type(s)         | Profile ID (Python) | Suggested label / use case                                     |
-| ---------- | --------------------------- | ------------------- | -------------------------------------------------------------- |
-| 1          | `RandomAI`                  | `v1-random-1`       | **Beginner – Random**: sandbox/tutorial only, not for rating.  |
-| 2          | `HeuristicAI`               | `v1-heuristic-2`    | **Beginner – Heuristic**: default “easy” AI vs human.          |
-| 3–4        | `MinimaxAI`                 | `v1-minimax-3/4`    | **Intermediate – Minimax**: shallow search, casual play.       |
-| 5–6        | `MinimaxAI`                 | `v1-minimax-5/6`    | **Challenging – Minimax**: deeper search, default “strong” AI. |
-| 7–8        | `MCTSAI` + `NeuralNetAI`    | `v1-mcts-7/8`       | **Stronger Opponents – MCTS**: advanced/experimental ladder.   |
-| 9–10       | `DescentAI` + `NeuralNetAI` | `v1-descent-9/10`   | **Stronger Opponents – Descent**: highest difficulty, beta.    |
+| Difficulty | Internal AI type(s)         | Profile ID (Python)    | Suggested label / use case                                     |
+| ---------- | --------------------------- | ---------------------- | -------------------------------------------------------------- |
+| 1          | `RandomAI`                  | `v1-random-1`          | **Beginner – Random**: sandbox/tutorial only, not for rating.  |
+| 2          | `HeuristicAI`               | `v1-heuristic-2`       | **Beginner – Heuristic**: default "easy" AI vs human.          |
+| 3          | `MinimaxAI`                 | `v1-minimax-3`         | **Intermediate – Minimax**: heuristic-only evaluation.         |
+| 4          | `MinimaxAI` + `NNUE`        | `v1-minimax-4-nnue`    | **Intermediate – Minimax+NNUE**: neural position evaluation.   |
+| 5          | `MCTSAI`                    | `v1-mcts-5`            | **Challenging – MCTS**: heuristic rollouts, default strong AI. |
+| 6–8        | `MCTSAI` + `NeuralNetAI`    | `v1-mcts-6/7/8-neural` | **Expert – Neural MCTS**: neural value/policy guidance.        |
+| 9–10       | `DescentAI` + `NeuralNetAI` | `v1-descent-9/10`      | **Master – Descent**: AlphaZero-style UBFM, highest strength.  |
 
 Product-level guidance:
 
 - Lobby / matchmaking UIs SHOULD:
   - Default AI games to **difficulty 2–5** for casual play.
-  - Treat **7–10** as an **opt‑in “Stronger Opponents” band**, surfaced with
-    explicit copy (e.g. “Experimental – may think slowly on large boards”).
+  - Treat **6–10** as an **opt‑in "Expert/Master" band**, surfaced with
+    explicit copy (e.g. "Neural AI – may think slowly on large boards").
 - Operators SHOULD:
   - Avoid using 7–10 for time‑sensitive rating queues until aggregate latency
     and strength have been validated via scripts like

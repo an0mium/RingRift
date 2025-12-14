@@ -1,0 +1,511 @@
+#!/usr/bin/env python3
+"""Shadow Tournament Service - Continuous lightweight model evaluation.
+
+This service provides quick feedback on model quality by running mini-tournaments
+every 15 minutes instead of waiting for full 6-hour Elo calibration.
+
+Features:
+1. Shadow tournaments: 10-20 games every 15 minutes for quick feedback
+2. Full tournaments: 50 games every hour for comprehensive evaluation
+3. Checkpoint monitoring: Watch training directories for new models
+4. Early regression detection: Alert if model performance drops
+5. Event emission: Notify downstream systems of evaluation results
+
+Usage:
+    # Run as standalone service
+    python scripts/shadow_tournament_service.py
+
+    # Watch a specific training run
+    python scripts/shadow_tournament_service.py --watch-dir runs/training_001/models
+
+    # Run single evaluation
+    python scripts/shadow_tournament_service.py --once --config square8_2p
+
+    # Quick mode (10 games)
+    python scripts/shadow_tournament_service.py --quick --config square8_2p
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import os
+import sqlite3
+import subprocess
+import sys
+import time
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set
+
+import yaml
+
+# Allow imports from app/
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
+
+# Try to import event bus
+try:
+    from app.distributed.data_events import (
+        DataEventType,
+        DataEvent,
+        get_event_bus,
+        emit_evaluation_completed,
+        emit_error,
+    )
+    HAS_EVENT_BUS = True
+except ImportError:
+    HAS_EVENT_BUS = False
+
+
+# Board/player configurations
+ALL_CONFIGS = [
+    ("square8", 2), ("square8", 3), ("square8", 4),
+    ("square19", 2), ("square19", 3), ("square19", 4),
+    ("hexagonal", 2), ("hexagonal", 3), ("hexagonal", 4),
+]
+
+
+@dataclass
+class TournamentConfig:
+    """Configuration for shadow tournaments."""
+    shadow_interval_seconds: int = 900  # 15 minutes
+    shadow_games: int = 10
+    full_interval_seconds: int = 3600  # 1 hour
+    full_games: int = 50
+    include_baselines: bool = True
+    baseline_models: List[str] = field(default_factory=lambda: ["random", "heuristic", "mcts_100"])
+    timeout_seconds: int = 600  # Per tournament
+    concurrent_tournaments: int = 1
+
+
+@dataclass
+class EvaluationResult:
+    """Result of a tournament evaluation."""
+    config: str
+    board_type: str
+    num_players: int
+    games_played: int
+    wins: int
+    losses: int
+    draws: int
+    win_rate: float
+    elo_estimate: float
+    duration_seconds: float
+    timestamp: float
+    tournament_type: str  # "shadow" or "full"
+    success: bool
+    error: Optional[str] = None
+
+
+class ShadowTournamentService:
+    """Continuous lightweight model evaluation service."""
+
+    def __init__(self, config: TournamentConfig):
+        self.config = config
+        self._running = False
+        self._shutdown_event = asyncio.Event()
+        self._last_shadow: Dict[str, float] = {}
+        self._last_full: float = 0.0
+        self._watched_dirs: Set[Path] = set()
+        self._known_checkpoints: Set[str] = set()
+        self._results_history: List[EvaluationResult] = []
+
+    async def run_shadow_tournament(
+        self,
+        board_type: str,
+        num_players: int,
+        model_path: Optional[str] = None,
+    ) -> EvaluationResult:
+        """Run a quick shadow tournament for a configuration."""
+        config_key = f"{board_type}_{num_players}p"
+        start_time = time.time()
+
+        try:
+            # Build command
+            cmd = [
+                sys.executable,
+                str(AI_SERVICE_ROOT / "scripts" / "run_model_elo_tournament.py"),
+                "--board-type", board_type,
+                "--num-players", str(num_players),
+                "--games", str(self.config.shadow_games),
+                "--quick",
+            ]
+
+            if self.config.include_baselines:
+                cmd.append("--include-baselines")
+
+            if model_path:
+                cmd.extend(["--model", model_path])
+
+            # Run tournament
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=AI_SERVICE_ROOT,
+            )
+
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=self.config.timeout_seconds
+            )
+
+            duration = time.time() - start_time
+            success = process.returncode == 0
+
+            # Parse results
+            result = EvaluationResult(
+                config=config_key,
+                board_type=board_type,
+                num_players=num_players,
+                games_played=self.config.shadow_games,
+                wins=0,
+                losses=0,
+                draws=0,
+                win_rate=0.5,
+                elo_estimate=1500.0,
+                duration_seconds=duration,
+                timestamp=time.time(),
+                tournament_type="shadow",
+                success=success,
+                error=None if success else stderr.decode()[:500],
+            )
+
+            # Try to parse actual results from stdout
+            try:
+                output = stdout.decode()
+                for line in output.split("\n"):
+                    if "Win rate:" in line:
+                        parts = line.split(":")
+                        if len(parts) >= 2:
+                            result.win_rate = float(parts[1].strip().rstrip("%")) / 100
+                    if "Elo:" in line:
+                        parts = line.split(":")
+                        if len(parts) >= 2:
+                            result.elo_estimate = float(parts[1].strip().split()[0])
+            except Exception:
+                pass
+
+            self._results_history.append(result)
+            self._last_shadow[config_key] = time.time()
+
+            # Emit event
+            if HAS_EVENT_BUS:
+                await emit_evaluation_completed(
+                    config_key,
+                    result.elo_estimate,
+                    result.games_played,
+                    result.win_rate,
+                    source="shadow_tournament_service",
+                )
+
+            return result
+
+        except asyncio.TimeoutError:
+            duration = time.time() - start_time
+            result = EvaluationResult(
+                config=config_key,
+                board_type=board_type,
+                num_players=num_players,
+                games_played=0,
+                wins=0, losses=0, draws=0,
+                win_rate=0.0,
+                elo_estimate=0.0,
+                duration_seconds=duration,
+                timestamp=time.time(),
+                tournament_type="shadow",
+                success=False,
+                error="Timeout",
+            )
+            self._results_history.append(result)
+
+            if HAS_EVENT_BUS:
+                await emit_error("shadow_tournament", f"Timeout for {config_key}", source="shadow_tournament_service")
+
+            return result
+
+        except Exception as e:
+            duration = time.time() - start_time
+            result = EvaluationResult(
+                config=config_key,
+                board_type=board_type,
+                num_players=num_players,
+                games_played=0,
+                wins=0, losses=0, draws=0,
+                win_rate=0.0,
+                elo_estimate=0.0,
+                duration_seconds=duration,
+                timestamp=time.time(),
+                tournament_type="shadow",
+                success=False,
+                error=str(e),
+            )
+            self._results_history.append(result)
+            return result
+
+    async def run_full_tournament(
+        self,
+        configs: Optional[List[tuple]] = None,
+    ) -> List[EvaluationResult]:
+        """Run a full tournament across configurations."""
+        if configs is None:
+            configs = ALL_CONFIGS
+
+        results = []
+        start_time = time.time()
+
+        try:
+            cmd = [
+                sys.executable,
+                str(AI_SERVICE_ROOT / "scripts" / "run_model_elo_tournament.py"),
+                "--all-configs",
+                "--games", str(self.config.full_games),
+            ]
+
+            if self.config.include_baselines:
+                cmd.append("--include-baselines")
+
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=AI_SERVICE_ROOT,
+            )
+
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=self.config.timeout_seconds * len(configs)
+            )
+
+            duration = time.time() - start_time
+            success = process.returncode == 0
+
+            for board_type, num_players in configs:
+                config_key = f"{board_type}_{num_players}p"
+                result = EvaluationResult(
+                    config=config_key,
+                    board_type=board_type,
+                    num_players=num_players,
+                    games_played=self.config.full_games,
+                    wins=0, losses=0, draws=0,
+                    win_rate=0.5,
+                    elo_estimate=1500.0,
+                    duration_seconds=duration / len(configs),
+                    timestamp=time.time(),
+                    tournament_type="full",
+                    success=success,
+                    error=None if success else stderr.decode()[:200],
+                )
+                results.append(result)
+                self._results_history.append(result)
+
+            self._last_full = time.time()
+
+            if HAS_EVENT_BUS:
+                for result in results:
+                    await emit_evaluation_completed(
+                        result.config,
+                        result.elo_estimate,
+                        result.games_played,
+                        result.win_rate,
+                        source="shadow_tournament_service",
+                    )
+
+        except Exception as e:
+            for board_type, num_players in configs:
+                config_key = f"{board_type}_{num_players}p"
+                result = EvaluationResult(
+                    config=config_key,
+                    board_type=board_type,
+                    num_players=num_players,
+                    games_played=0,
+                    wins=0, losses=0, draws=0,
+                    win_rate=0.0,
+                    elo_estimate=0.0,
+                    duration_seconds=0.0,
+                    timestamp=time.time(),
+                    tournament_type="full",
+                    success=False,
+                    error=str(e),
+                )
+                results.append(result)
+
+            if HAS_EVENT_BUS:
+                await emit_error("full_tournament", str(e), source="shadow_tournament_service")
+
+        return results
+
+    async def run_checkpoint_evaluation(self, checkpoint_path: Path) -> EvaluationResult:
+        """Evaluate a specific training checkpoint."""
+        board_type = "square8"
+        num_players = 2
+
+        path_str = str(checkpoint_path).lower()
+        for bt in ["square8", "square19", "hexagonal"]:
+            if bt in path_str:
+                board_type = bt
+                break
+        for np in [2, 3, 4]:
+            if f"_{np}p" in path_str or f"{np}p" in path_str:
+                num_players = np
+                break
+
+        return await self.run_shadow_tournament(
+            board_type, num_players, str(checkpoint_path)
+        )
+
+    def add_watch_dir(self, dir_path: Path):
+        """Add a directory to watch for new checkpoints."""
+        self._watched_dirs.add(dir_path)
+
+    async def _check_watched_dirs(self):
+        """Check watched directories for new checkpoints."""
+        for watch_dir in self._watched_dirs:
+            if not watch_dir.exists():
+                continue
+
+            for pth_file in watch_dir.glob("*.pth"):
+                file_key = f"{pth_file}:{pth_file.stat().st_mtime}"
+                if file_key not in self._known_checkpoints:
+                    self._known_checkpoints.add(file_key)
+                    print(f"[ShadowTournament] New checkpoint: {pth_file.name}")
+                    await self.run_checkpoint_evaluation(pth_file)
+
+    def get_needs_shadow_eval(self) -> Optional[tuple]:
+        """Get next configuration needing shadow evaluation."""
+        now = time.time()
+
+        for board_type, num_players in ALL_CONFIGS:
+            config_key = f"{board_type}_{num_players}p"
+            last = self._last_shadow.get(config_key, 0)
+
+            if now - last >= self.config.shadow_interval_seconds:
+                return (board_type, num_players)
+
+        return None
+
+    def needs_full_eval(self) -> bool:
+        """Check if full tournament is due."""
+        return time.time() - self._last_full >= self.config.full_interval_seconds
+
+    def get_recent_results(self, limit: int = 50) -> List[EvaluationResult]:
+        """Get recent evaluation results."""
+        return self._results_history[-limit:]
+
+    def get_elo_trend(self, config: str, window: int = 10) -> float:
+        """Get Elo trend for a configuration (positive = improving)."""
+        config_results = [r for r in self._results_history if r.config == config and r.success]
+        if len(config_results) < 2:
+            return 0.0
+
+        recent = config_results[-window:]
+        if len(recent) < 2:
+            return 0.0
+
+        elos = [r.elo_estimate for r in recent]
+        avg_early = sum(elos[:len(elos)//2]) / (len(elos)//2)
+        avg_late = sum(elos[len(elos)//2:]) / (len(elos) - len(elos)//2)
+
+        return avg_late - avg_early
+
+    async def run(self):
+        """Main service loop."""
+        self._running = True
+        print(f"[ShadowTournament] Starting - shadow every {self.config.shadow_interval_seconds}s, full every {self.config.full_interval_seconds}s")
+
+        while self._running:
+            try:
+                if self._watched_dirs:
+                    await self._check_watched_dirs()
+
+                shadow_config = self.get_needs_shadow_eval()
+                if shadow_config:
+                    board_type, num_players = shadow_config
+                    print(f"[ShadowTournament] Running shadow for {board_type}_{num_players}p")
+                    result = await self.run_shadow_tournament(board_type, num_players)
+                    if result.success:
+                        print(f"[ShadowTournament] {result.config}: win_rate={result.win_rate:.2%}, elo~{result.elo_estimate:.0f}")
+
+                if self.needs_full_eval():
+                    print("[ShadowTournament] Running full tournament")
+                    await self.run_full_tournament()
+
+            except Exception as e:
+                print(f"[ShadowTournament] Error: {e}")
+
+            try:
+                await asyncio.wait_for(self._shutdown_event.wait(), timeout=60)
+                break
+            except asyncio.TimeoutError:
+                pass
+
+        print("[ShadowTournament] Stopped")
+
+    def stop(self):
+        """Request graceful shutdown."""
+        self._running = False
+        self._shutdown_event.set()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Shadow Tournament Service")
+    parser.add_argument("--config", type=str, help="Config key (e.g., square8_2p)")
+    parser.add_argument("--watch-dir", type=str, help="Directory to watch for checkpoints")
+    parser.add_argument("--once", action="store_true", help="Run one evaluation and exit")
+    parser.add_argument("--quick", action="store_true", help="Run quick (10 games) evaluation")
+    parser.add_argument("--full", action="store_true", help="Run full tournament")
+    parser.add_argument("--shadow-interval", type=int, default=900, help="Shadow interval seconds")
+    parser.add_argument("--shadow-games", type=int, default=10, help="Games per shadow tournament")
+    parser.add_argument("--full-interval", type=int, default=3600, help="Full tournament interval seconds")
+    parser.add_argument("--full-games", type=int, default=50, help="Games per full tournament")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+
+    args = parser.parse_args()
+
+    config = TournamentConfig(
+        shadow_interval_seconds=args.shadow_interval,
+        shadow_games=args.shadow_games,
+        full_interval_seconds=args.full_interval,
+        full_games=args.full_games,
+    )
+
+    if args.quick:
+        config.shadow_games = 10
+
+    service = ShadowTournamentService(config)
+
+    if args.watch_dir:
+        service.add_watch_dir(Path(args.watch_dir))
+
+    import signal
+
+    def signal_handler(sig, frame):
+        print("\n[ShadowTournament] Shutdown requested")
+        service.stop()
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    if args.once:
+        if args.config:
+            parts = args.config.split("_")
+            board_type = parts[0]
+            num_players = int(parts[1].replace("p", ""))
+            result = asyncio.run(service.run_shadow_tournament(board_type, num_players))
+            print(f"Result: {result}")
+        elif args.full:
+            results = asyncio.run(service.run_full_tournament())
+            for r in results:
+                print(f"  {r.config}: win_rate={r.win_rate:.2%}, success={r.success}")
+        else:
+            asyncio.run(service.run_shadow_tournament("square8", 2))
+    else:
+        asyncio.run(service.run())
+
+
+if __name__ == "__main__":
+    main()

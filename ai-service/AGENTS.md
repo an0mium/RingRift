@@ -29,11 +29,11 @@ must conform to them and to the TS engine, not vice versa.
 ### 2.1 Canonical policy (must follow)
 
 - **Canonical game data**:
-  - Lives in SQLite DBs under `ai-service/data/games`.
-  - Canonical DBs are named `canonical_<board>.db`, e.g.:
-    - `canonical_square8.db`
+  - Lives in SQLite DBs under `ai-service/data/games` and `ai-service/data/canonical`.
+  - Canonical DBs are named `canonical_<board>.db` or `canonical_<board>_<players>p.db`, e.g.:
+    - `canonical_square8.db`, `canonical_square8_2p.db`, `canonical_square8_3p.db`, `canonical_square8_4p.db`
     - `canonical_square19.db`
-    - `canonical_hex.db` (removed; old radius-10 geometry — regenerate for radius-12 before use)
+    - `canonical_hex.db` (radius-12 geometry, 25×25 grid, 469 cells)
   - Their status and provenance are documented in:
     - `ai-service/TRAINING_DATA_REGISTRY.md`
     - Gate summaries like `db_health.canonical_<board>.json`

@@ -1,0 +1,104 @@
+# Unified AI Self-Improvement Loop Configuration
+# This file configures all aspects of the integrated improvement cycle.
+
+version: '1.0'
+
+# Data ingestion from remote hosts
+data_ingestion:
+  poll_interval_seconds: 60 # How often to check for new games
+  sync_method: 'incremental' # "incremental" (rsync append) or "full"
+  deduplication: true # Deduplicate games by ID
+  min_games_per_sync: 10 # Only sync if at least this many new games
+  remote_db_pattern: 'data/games/*.db'
+
+# Automatic training triggers
+training:
+  trigger_threshold_games: 1000 # Start training when this many new games available
+  min_interval_seconds: 1800 # At least 30 min between training runs
+  max_concurrent_jobs: 1 # Only one training job at a time
+  prefer_gpu_hosts: true # Schedule training on GPU hosts
+  training_script: 'scripts/train_nnue.py'
+
+# Continuous evaluation (shadow + full tournaments)
+evaluation:
+  # Shadow tournaments: quick evaluation during normal operation
+  shadow_interval_seconds: 900 # 15 minutes between shadow evals
+  shadow_games_per_config: 10 # Games per shadow tournament
+
+  # Full tournaments: comprehensive evaluation periodically
+  full_tournament_interval_seconds: 3600 # 1 hour between full tournaments
+  full_tournament_games: 50 # Games per full tournament
+
+  # Baseline models for comparison
+  baseline_models:
+    - 'random'
+    - 'heuristic'
+    - 'mcts_100'
+    - 'mcts_500'
+
+# Automatic model promotion
+promotion:
+  auto_promote: true # Enable automatic promotion
+  elo_threshold: 20 # Must beat current best by this many Elo
+  min_games: 50 # Minimum games before promotion eligible
+  significance_level: 0.05 # Statistical significance requirement
+  sync_to_cluster: true # Sync promoted models to all hosts
+
+# Adaptive curriculum (Elo-weighted training)
+curriculum:
+  adaptive: true # Enable adaptive curriculum
+  rebalance_interval_seconds: 3600 # How often to recompute weights
+  max_weight_multiplier: 2.0 # Max boost for underperforming configs
+  min_weight_multiplier: 0.5 # Min weight for strong configs
+
+# Host configuration file
+hosts_config_path: 'config/remote_hosts.yaml'
+
+# Database paths (relative to ai-service root)
+unified_elo_db: 'data/unified_elo.db'
+data_manifest_db: 'data/data_manifest.db'
+
+# Logging
+log_dir: 'logs/unified_loop'
+verbose: false
+
+# Pipeline orchestration (from async-forging-karp plan)
+pipeline:
+  parallel_stages: true # Run selfplay concurrent with training
+  hot_data_path: true # Use in-memory buffer for recent games
+  overlapped_selfplay: true # Start next iteration selfplay during training
+
+# Validation settings
+validation:
+  parallel_workers: 8 # Parallel validation threads
+  lightweight_mode: true # Skip full parity for hot path
+  full_validation_background: true # Run full validation in background
+
+# Adaptive control (from async-forging-karp plan)
+adaptive_control:
+  enabled: true
+  plateau_threshold: 5 # Stop after N iterations without improvement
+  dynamic_games: true # Adjust games based on win rate
+  min_games: 50 # Minimum games per evaluation
+  max_games: 200 # Maximum games per evaluation
+
+# Regression gate (from peppy-dazzling-newt plan)
+regression:
+  hard_block: true # Block promotion on regression test failure
+  test_script: 'scripts/run_regression_tests.py'
+  timeout_seconds: 600
+
+# CMA-ES weight propagation (from peppy-dazzling-newt plan)
+cmaes:
+  auto_propagate: true # Auto-inject weights to selfplay
+  weights_config_path: 'config/heuristic_weights.json'
+  restart_selfplay_on_update: true
+
+# Board/player configurations to track
+configurations:
+  - board_type: 'square8'
+    num_players: [2, 3, 4]
+  - board_type: 'square19'
+    num_players: [2, 3, 4]
+  - board_type: 'hexagonal'
+    num_players: [2, 3, 4]

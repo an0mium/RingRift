@@ -1,4 +1,4 @@
-> **Doc Status (2025-11-27): Partially historical (AI host analysis, Python service only)**
+> **Doc Status (2025-12-14): Partially historical (AI host analysis, Python service only)**
 >
 > - Role: deep technical assessment of the Python AI microservice (agents, training flows, and Python `GameEngine`) from an earlier architecture revision.
 > - Not a semantics or lifecycle SSoT: for rules semantics and lifecycle / API contracts, defer to the shared TypeScript rules engine under `src/shared/engine/**`, the engine contracts under `src/shared/engine/contracts/**`, the v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`, [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md), [`ringrift_complete_rules.md`](../ringrift_complete_rules.md), [`RULES_ENGINE_ARCHITECTURE.md`](../RULES_ENGINE_ARCHITECTURE.md), [`RULES_IMPLEMENTATION_MAPPING.md`](../RULES_IMPLEMENTATION_MAPPING.md), and [`docs/CANONICAL_ENGINE_API.md`](../docs/CANONICAL_ENGINE_API.md).

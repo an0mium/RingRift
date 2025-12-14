@@ -23,6 +23,7 @@ import sys
 import tempfile
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -232,77 +233,105 @@ def _extract_gate_failures(parity_summary: Dict[str, Any]) -> Dict[str, GateFail
     return failures
 
 
-def _extract_noncanonical_config_failures(
+def _validate_single_config(
     db_path: Path,
-    game_ids: Iterable[str],
-) -> Dict[str, GateFailure]:
-    failures: Dict[str, GateFailure] = {}
+    game_id: str,
+) -> Tuple[str, Optional[GateFailure]]:
+    """Validate a single game's config. Thread-safe - opens its own DB connection."""
     try:
         db = GameReplayDB(str(db_path))
-    except Exception as exc:
-        # If we cannot open the DB, treat everything as failed (the parity
-        # harness would likely have surfaced this too, but be explicit).
-        msg = f"{type(exc).__name__}: {exc}"
-        for gid in game_ids:
-            failures[str(gid)] = GateFailure(
-                kind="config",
-                reason="config_validation_error",
-                details={"error": msg, "db_path": str(db_path)},
-            )
-        return failures
-
-    for gid in game_ids:
-        game_id = str(gid)
-        try:
-            report = validate_canonical_config_for_game(db, game_id)
-        except Exception as exc:
-            failures[game_id] = GateFailure(
-                kind="config",
-                reason="config_validation_error",
-                details={"error": f"{type(exc).__name__}: {exc}", "db_path": str(db_path)},
-            )
-            continue
+        report = validate_canonical_config_for_game(db, game_id)
         if not getattr(report, "is_canonical", False):
-            failures[game_id] = GateFailure(
+            return game_id, GateFailure(
                 kind="config",
                 reason="non_canonical_config",
                 details={"issues": [asdict(issue) for issue in (report.issues or [])], "db_path": str(db_path)},
             )
+        return game_id, None
+    except Exception as exc:
+        return game_id, GateFailure(
+            kind="config",
+            reason="config_validation_error",
+            details={"error": f"{type(exc).__name__}: {exc}", "db_path": str(db_path)},
+        )
+
+
+def _extract_noncanonical_config_failures(
+    db_path: Path,
+    game_ids: Iterable[str],
+    parallel_workers: int = 1,
+) -> Dict[str, GateFailure]:
+    failures: Dict[str, GateFailure] = {}
+    game_id_list = list(game_ids)
+
+    if not game_id_list:
+        return failures
+
+    if parallel_workers <= 1:
+        # Sequential path (original behavior)
+        try:
+            db = GameReplayDB(str(db_path))
+        except Exception as exc:
+            msg = f"{type(exc).__name__}: {exc}"
+            for gid in game_id_list:
+                failures[str(gid)] = GateFailure(
+                    kind="config",
+                    reason="config_validation_error",
+                    details={"error": msg, "db_path": str(db_path)},
+                )
+            return failures
+
+        for gid in game_id_list:
+            game_id = str(gid)
+            try:
+                report = validate_canonical_config_for_game(db, game_id)
+            except Exception as exc:
+                failures[game_id] = GateFailure(
+                    kind="config",
+                    reason="config_validation_error",
+                    details={"error": f"{type(exc).__name__}: {exc}", "db_path": str(db_path)},
+                )
+                continue
+            if not getattr(report, "is_canonical", False):
+                failures[game_id] = GateFailure(
+                    kind="config",
+                    reason="non_canonical_config",
+                    details={"issues": [asdict(issue) for issue in (report.issues or [])], "db_path": str(db_path)},
+                )
+        return failures
+
+    # Parallel path - each worker opens its own DB connection
+    with ThreadPoolExecutor(max_workers=parallel_workers) as executor:
+        futures = {
+            executor.submit(_validate_single_config, db_path, str(gid)): str(gid)
+            for gid in game_id_list
+        }
+        for future in as_completed(futures):
+            try:
+                game_id, failure = future.result()
+                if failure is not None:
+                    failures[game_id] = failure
+            except Exception as exc:
+                game_id = futures[future]
+                failures[game_id] = GateFailure(
+                    kind="config",
+                    reason="config_validation_error",
+                    details={"error": f"ThreadPool error: {exc}", "db_path": str(db_path)},
+                )
 
     return failures
 
 
-def _extract_noncanonical_history_failures(
+def _validate_single_history(
     db_path: Path,
-    game_ids: Iterable[str],
-) -> Dict[str, GateFailure]:
-    failures: Dict[str, GateFailure] = {}
+    game_id: str,
+) -> Tuple[str, Optional[GateFailure]]:
+    """Validate a single game's history. Thread-safe - opens its own DB connection."""
     try:
         db = GameReplayDB(str(db_path))
-    except Exception as exc:
-        msg = f"{type(exc).__name__}: {exc}"
-        for gid in game_ids:
-            failures[str(gid)] = GateFailure(
-                kind="history",
-                reason="history_validation_error",
-                details={"error": msg, "db_path": str(db_path)},
-            )
-        return failures
-
-    for gid in game_ids:
-        game_id = str(gid)
-        try:
-            report = validate_canonical_history_for_game(db, game_id)
-        except Exception as exc:
-            failures[game_id] = GateFailure(
-                kind="history",
-                reason="history_validation_error",
-                details={"error": f"{type(exc).__name__}: {exc}", "db_path": str(db_path)},
-            )
-            continue
-
+        report = validate_canonical_history_for_game(db, game_id)
         if not getattr(report, "is_canonical", False):
-            failures[game_id] = GateFailure(
+            return game_id, GateFailure(
                 kind="history",
                 reason="non_canonical_history",
                 details={
@@ -310,6 +339,81 @@ def _extract_noncanonical_history_failures(
                     "db_path": str(db_path),
                 },
             )
+        return game_id, None
+    except Exception as exc:
+        return game_id, GateFailure(
+            kind="history",
+            reason="history_validation_error",
+            details={"error": f"{type(exc).__name__}: {exc}", "db_path": str(db_path)},
+        )
+
+
+def _extract_noncanonical_history_failures(
+    db_path: Path,
+    game_ids: Iterable[str],
+    parallel_workers: int = 1,
+) -> Dict[str, GateFailure]:
+    failures: Dict[str, GateFailure] = {}
+    game_id_list = list(game_ids)
+
+    if not game_id_list:
+        return failures
+
+    if parallel_workers <= 1:
+        # Sequential path (original behavior)
+        try:
+            db = GameReplayDB(str(db_path))
+        except Exception as exc:
+            msg = f"{type(exc).__name__}: {exc}"
+            for gid in game_id_list:
+                failures[str(gid)] = GateFailure(
+                    kind="history",
+                    reason="history_validation_error",
+                    details={"error": msg, "db_path": str(db_path)},
+                )
+            return failures
+
+        for gid in game_id_list:
+            game_id = str(gid)
+            try:
+                report = validate_canonical_history_for_game(db, game_id)
+            except Exception as exc:
+                failures[game_id] = GateFailure(
+                    kind="history",
+                    reason="history_validation_error",
+                    details={"error": f"{type(exc).__name__}: {exc}", "db_path": str(db_path)},
+                )
+                continue
+
+            if not getattr(report, "is_canonical", False):
+                failures[game_id] = GateFailure(
+                    kind="history",
+                    reason="non_canonical_history",
+                    details={
+                        "issues": [asdict(issue) for issue in (report.issues or [])],
+                        "db_path": str(db_path),
+                    },
+                )
+        return failures
+
+    # Parallel path - each worker opens its own DB connection
+    with ThreadPoolExecutor(max_workers=parallel_workers) as executor:
+        futures = {
+            executor.submit(_validate_single_history, db_path, str(gid)): str(gid)
+            for gid in game_id_list
+        }
+        for future in as_completed(futures):
+            try:
+                game_id, failure = future.result()
+                if failure is not None:
+                    failures[game_id] = failure
+            except Exception as exc:
+                game_id = futures[future]
+                failures[game_id] = GateFailure(
+                    kind="history",
+                    reason="history_validation_error",
+                    details={"error": f"ThreadPool error: {exc}", "db_path": str(db_path)},
+                )
 
     return failures
 
@@ -455,6 +559,7 @@ def build_pool(
     holdout_source_substrings: Sequence[str],
     report_json: Optional[Path],
     recheck_existing: bool,
+    parallel_workers: int = 1,
 ) -> int:
     _ensure_db_initialized(output_db)
     if holdout_db is not None:
@@ -544,10 +649,14 @@ def build_pool(
                 include_game_ids_file=include_ids_path,
             )
             failures = _extract_gate_failures(parity_summary)
-            config_failures = _extract_noncanonical_config_failures(db_path, pending_ids)
+            config_failures = _extract_noncanonical_config_failures(
+                db_path, pending_ids, parallel_workers=parallel_workers
+            )
             for game_id, failure in config_failures.items():
                 failures.setdefault(game_id, failure)
-            history_failures = _extract_noncanonical_history_failures(db_path, pending_ids)
+            history_failures = _extract_noncanonical_history_failures(
+                db_path, pending_ids, parallel_workers=parallel_workers
+            )
             for game_id, failure in history_failures.items():
                 failures.setdefault(game_id, failure)
 
@@ -702,6 +811,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "Default behavior skips previously ingested/quarantined games."
         ),
     )
+    parser.add_argument(
+        "--parallel-workers",
+        type=int,
+        default=1,
+        help=(
+            "Number of parallel workers for config/history validation. "
+            "Set to 8+ to reduce validation time from ~30min to ~5min. "
+            "(default: 1 = sequential)"
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -772,6 +891,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         holdout_source_substrings=holdout_source_substrings,
         report_json=report_json,
         recheck_existing=bool(args.recheck_existing),
+        parallel_workers=int(args.parallel_workers),
     )
 
 

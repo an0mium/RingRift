@@ -56,6 +56,9 @@ logger = logging.getLogger(__name__)
 # Data Classes
 # ---------------------------------------------------------------------------
 
+# Minimum memory requirement for task assignment
+MIN_MEMORY_GB_FOR_TASKS = 64
+
 @dataclass
 class ClusterHost:
     """A host in the distributed cluster."""
@@ -67,6 +70,7 @@ class ClusterHost:
     ringrift_path: str = "~/ringrift"
     venv_activate: Optional[str] = None
     status: str = "ready"
+    memory_gb: int = 0  # System memory in GB (0 = unknown)
 
     def ssh_cmd_prefix(self) -> List[str]:
         """Build SSH command prefix for this host."""
@@ -159,6 +163,12 @@ def load_cluster_hosts(config_path: Optional[str] = None) -> List[ClusterHost]:
         if not ssh_host:
             continue
 
+        memory_gb = int(cfg.get("memory_gb", 0) or 0)
+        # Skip low-memory hosts
+        if memory_gb > 0 and memory_gb < MIN_MEMORY_GB_FOR_TASKS:
+            logger.info(f"Skipping {name}: {memory_gb}GB RAM < {MIN_MEMORY_GB_FOR_TASKS}GB minimum")
+            continue
+
         host = ClusterHost(
             name=name,
             ssh_host=ssh_host,
@@ -168,6 +178,7 @@ def load_cluster_hosts(config_path: Optional[str] = None) -> List[ClusterHost]:
             ringrift_path=cfg.get("ringrift_path", "~/ringrift"),
             venv_activate=cfg.get("venv_activate"),
             status=cfg.get("status", "ready"),
+            memory_gb=memory_gb,
         )
         hosts.append(host)
 

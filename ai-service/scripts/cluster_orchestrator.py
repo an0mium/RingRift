@@ -51,6 +51,12 @@ MODEL_SYNC_ENABLED = True  # Enable automatic model syncing
 ELO_CALIBRATION_INTERVAL = 72  # Run Elo tournament every 72 iterations (6 hours at 5-min interval)
 ELO_CALIBRATION_GAMES = 50  # Games per config for Elo calibration
 
+# Elo-driven scheduling configuration (curriculum learning)
+ELO_LEADERBOARD_DB = Path(__file__).parent.parent / "data" / "elo_leaderboard.db"
+ELO_CURRICULUM_ENABLED = True  # Enable Elo-based opponent selection
+ELO_MATCH_WINDOW = 200  # Match opponents within this Elo range
+ELO_UNDERSERVED_THRESHOLD = 100  # Configs with fewer games are "underserved"
+
 # Auto-scaling configuration
 AUTO_SCALE_INTERVAL = 12  # Check for underutilized hosts every 12 iterations (1 hour at 5-min interval)
 UNDERUTILIZED_CPU_THRESHOLD = 30  # CPU usage below this % is considered underutilized
@@ -64,6 +70,7 @@ TARGET_CPU_UTILIZATION_MIN = 60  # Start more jobs if CPU below this %
 TARGET_CPU_UTILIZATION_MAX = 85  # Don't start more jobs if CPU above this %
 GH200_MIN_SELFPLAY_JOBS = 20  # Higher baseline for GH200 hosts
 GH200_MAX_SELFPLAY_JOBS = 100  # Upper limit for GH200 hosts
+MIN_MEMORY_GB_FOR_TASKS = 64  # Skip nodes with less than 64GB RAM to avoid OOM
 
 # Tournament scheduling configuration
 TOURNAMENT_INTERVAL = 6  # Run tournaments every 6 iterations (30 minutes at 5-min interval)
@@ -141,6 +148,210 @@ class ClusterState:
     last_elo_calibration: str = ""
     last_model_sync: str = ""  # Last model sync across cluster
     errors: List[str] = field(default_factory=list)
+
+
+# ============================================
+# Priority-Based Job Scheduling
+# ============================================
+from enum import IntEnum
+
+
+class JobPriority(IntEnum):
+    """Priority levels for job scheduling.
+
+    Lower values = higher priority.
+    Critical jobs (promotion evaluation) always run first.
+    """
+    CRITICAL = 0   # Promotion evaluation, regression tests
+    HIGH = 1       # Shadow tournaments, Elo calibration
+    NORMAL = 2     # Regular selfplay, training
+    LOW = 3        # Backfill, optional data collection
+
+
+@dataclass
+class ScheduledJob:
+    """A job to be scheduled on the cluster."""
+    job_type: str  # selfplay, tournament, training, promotion, etc.
+    priority: JobPriority
+    config: Dict[str, Any] = field(default_factory=dict)
+    host_preference: Optional[str] = None  # Preferred host name or None
+    requires_gpu: bool = False
+    estimated_duration_seconds: int = 3600
+    created_at: float = field(default_factory=time.time)
+    started_at: Optional[float] = None
+    completed_at: Optional[float] = None
+
+    def __lt__(self, other):
+        """Enable sorting by priority."""
+        return self.priority < other.priority
+
+
+class PriorityJobScheduler:
+    """Priority-based job scheduler for the unified AI improvement loop.
+
+    Ensures critical jobs (promotion evaluation, regression tests) run
+    first, while regular selfplay jobs fill remaining capacity.
+
+    Usage:
+        scheduler = PriorityJobScheduler()
+
+        # Queue jobs with different priorities
+        scheduler.schedule(ScheduledJob(
+            job_type="promotion_evaluation",
+            priority=JobPriority.CRITICAL,
+            config={"model_id": "latest"},
+            requires_gpu=True,
+        ))
+        scheduler.schedule(ScheduledJob(
+            job_type="selfplay",
+            priority=JobPriority.NORMAL,
+            config={"board": "square8", "players": 2},
+        ))
+
+        # Get next job for a host
+        host_status = check_host_status(host)
+        next_job = scheduler.next_job([host], [host_status])
+    """
+
+    def __init__(self, max_queue_size: int = 1000):
+        self._queue: List[ScheduledJob] = []
+        self._running: Dict[str, ScheduledJob] = {}  # host_name -> job
+        self._max_queue_size = max_queue_size
+
+    def schedule(self, job: ScheduledJob) -> bool:
+        """Add a job to the scheduling queue.
+
+        Returns True if job was added, False if queue is full.
+        """
+        if len(self._queue) >= self._max_queue_size:
+            log(f"Job queue full ({self._max_queue_size}), rejecting {job.job_type}", "WARN")
+            return False
+
+        self._queue.append(job)
+        self._queue.sort()  # Sort by priority
+        return True
+
+    def next_job(
+        self,
+        hosts: List[HostConfig],
+        statuses: List[HostStatus],
+    ) -> Optional[Tuple[ScheduledJob, HostConfig]]:
+        """Get the next job to run and the host to run it on.
+
+        Matches jobs to hosts based on requirements (GPU, capacity).
+        Returns (job, host) tuple or None if no suitable match.
+        """
+        if not self._queue:
+            return None
+
+        # Build host availability map
+        available_hosts: List[Tuple[HostConfig, HostStatus]] = []
+        for host, status in zip(hosts, statuses):
+            if not status.reachable:
+                continue
+            if status.disk_percent > 90:
+                continue
+            if status.memory_percent > 90:
+                continue
+            # Skip low-memory hosts to avoid OOM
+            if host.memory_gb > 0 and host.memory_gb < MIN_MEMORY_GB_FOR_TASKS:
+                continue
+            available_hosts.append((host, status))
+
+        if not available_hosts:
+            return None
+
+        # Find best match for highest priority job
+        for job_idx, job in enumerate(self._queue):
+            for host, status in available_hosts:
+                # Check GPU requirement
+                if job.requires_gpu and not host.has_gpu:
+                    continue
+
+                # Check host preference
+                if job.host_preference and host.name != job.host_preference:
+                    continue
+
+                # Check CPU capacity
+                if job.job_type == "selfplay" and status.cpu_percent > TARGET_CPU_UTILIZATION_MAX:
+                    continue
+
+                # Found a match
+                self._queue.pop(job_idx)
+                job.started_at = time.time()
+                self._running[host.name] = job
+                return (job, host)
+
+        return None
+
+    def complete_job(self, host_name: str) -> Optional[ScheduledJob]:
+        """Mark a job as completed for a host."""
+        if host_name in self._running:
+            job = self._running.pop(host_name)
+            job.completed_at = time.time()
+            return job
+        return None
+
+    def get_queue_stats(self) -> Dict[str, int]:
+        """Get statistics about queued jobs by priority."""
+        stats = {
+            "total": len(self._queue),
+            "running": len(self._running),
+            "critical": 0,
+            "high": 0,
+            "normal": 0,
+            "low": 0,
+        }
+        for job in self._queue:
+            if job.priority == JobPriority.CRITICAL:
+                stats["critical"] += 1
+            elif job.priority == JobPriority.HIGH:
+                stats["high"] += 1
+            elif job.priority == JobPriority.NORMAL:
+                stats["normal"] += 1
+            else:
+                stats["low"] += 1
+        return stats
+
+    def has_critical_pending(self) -> bool:
+        """Check if any critical priority jobs are pending."""
+        return any(j.priority == JobPriority.CRITICAL for j in self._queue)
+
+    def reserve_capacity_for_training(
+        self,
+        hosts: List[HostConfig],
+        statuses: List[HostStatus],
+        reserve_percent: float = 20.0,
+    ) -> List[str]:
+        """Reserve GPU capacity for training on GPU hosts.
+
+        Returns list of host names where capacity was reserved.
+        """
+        reserved = []
+        for host, status in zip(hosts, statuses):
+            if not host.has_gpu:
+                continue
+            if not status.reachable:
+                continue
+
+            # Reserve by not scheduling selfplay jobs on this host
+            # if GPU utilization is already in acceptable range for training
+            if status.gpu_percent < reserve_percent:
+                reserved.append(host.name)
+
+        return reserved
+
+
+# Global scheduler instance
+_scheduler: Optional[PriorityJobScheduler] = None
+
+
+def get_scheduler() -> PriorityJobScheduler:
+    """Get the global scheduler instance."""
+    global _scheduler
+    if _scheduler is None:
+        _scheduler = PriorityJobScheduler()
+    return _scheduler
 
 
 def log(msg: str, level: str = "INFO"):
@@ -376,8 +587,105 @@ def should_start_selfplay(host: HostConfig, status: HostStatus) -> int:
     return jobs_needed
 
 
+# =============================================================================
+# Elo-Driven Scheduling (Curriculum Learning)
+# =============================================================================
+
+def get_elo_leaderboard() -> Dict[str, Dict[str, Any]]:
+    """Load Elo ratings from leaderboard database.
+
+    Returns dict of model_id -> {rating, games_played, board_type, num_players}
+    """
+    if not ELO_LEADERBOARD_DB.exists():
+        return {}
+
+    try:
+        conn = sqlite3.connect(str(ELO_LEADERBOARD_DB), timeout=5.0)
+        cursor = conn.execute("""
+            SELECT model_id, rating, games_played, board_type, num_players
+            FROM elo_ratings
+            WHERE games_played > 0
+            ORDER BY rating DESC
+        """)
+        leaderboard = {}
+        for row in cursor.fetchall():
+            leaderboard[row[0]] = {
+                "rating": row[1],
+                "games_played": row[2],
+                "board_type": row[3],
+                "num_players": row[4],
+            }
+        conn.close()
+        return leaderboard
+    except Exception as e:
+        log(f"Failed to load Elo leaderboard: {e}", "WARN")
+        return {}
+
+
+def get_config_game_counts() -> Dict[str, int]:
+    """Get game counts per config from match history for curriculum prioritization.
+
+    Returns dict of "board_players" -> game_count
+    """
+    if not ELO_LEADERBOARD_DB.exists():
+        return {}
+
+    try:
+        conn = sqlite3.connect(str(ELO_LEADERBOARD_DB), timeout=5.0)
+        cursor = conn.execute("""
+            SELECT board_type, num_players, COUNT(*) as game_count
+            FROM match_history
+            GROUP BY board_type, num_players
+        """)
+        counts = {}
+        for row in cursor.fetchall():
+            key = f"{row[0]}_{row[1]}p"
+            counts[key] = row[2]
+        conn.close()
+        return counts
+    except Exception:
+        return {}
+
+
+def select_curriculum_config(configs: List[Dict], game_counts: Dict[str, int]) -> Dict:
+    """Select next config based on curriculum learning (prioritize underserved).
+
+    Configs with fewer games get higher priority to ensure balanced training.
+    """
+    if not game_counts:
+        # No history - use round-robin
+        return random.choice(configs)
+
+    # Calculate priority score for each config (lower games = higher priority)
+    scored_configs = []
+    for cfg in configs:
+        key = f"{cfg['board']}_{cfg['players']}p"
+        count = game_counts.get(key, 0)
+        # Inverse priority: fewer games = higher weight
+        priority = 1.0 / (count + 1)
+        scored_configs.append((cfg, priority))
+
+    # Weighted random selection based on priority
+    total_weight = sum(p for _, p in scored_configs)
+    if total_weight <= 0:
+        return random.choice(configs)
+
+    r = random.random() * total_weight
+    cumulative = 0
+    for cfg, priority in scored_configs:
+        cumulative += priority
+        if r <= cumulative:
+            return cfg
+
+    return configs[-1]
+
+
 def start_selfplay_jobs(host: HostConfig, count: int, dry_run: bool = False) -> int:
-    """Start selfplay jobs on a host. Returns number started."""
+    """Start selfplay jobs on a host with Elo-driven curriculum scheduling.
+
+    Uses curriculum learning to prioritize underserved configs,
+    ensuring balanced training data across all board types.
+    """
     if count <= 0:
         return 0
 
@@ -389,11 +697,19 @@ def start_selfplay_jobs(host: HostConfig, count: int, dry_run: bool = False) -> 
         {"board": "square19", "players": 2, "games": 300},
     ]
 
+    # Load game counts for curriculum-based config selection
+    game_counts = get_config_game_counts() if ELO_CURRICULUM_ENABLED else {}
+
     started = 0
     seed_base = int(time.time())
 
     for i in range(count):
-        cfg = configs[i % len(configs)]
+        # Use curriculum-based selection if enabled, otherwise round-robin
+        if ELO_CURRICULUM_ENABLED and game_counts:
+            cfg = select_curriculum_config(configs, game_counts)
+        else:
+            cfg = configs[i % len(configs)]
+
         seed = seed_base + i
 
         output_dir = f"data/selfplay/{cfg['board']}_{cfg['players']}p"
@@ -411,7 +727,7 @@ def start_selfplay_jobs(host: HostConfig, count: int, dry_run: bool = False) -> 
         """
 
         if dry_run:
-            log(f"[DRY-RUN] Would start on {host.name}: {cfg['board']} {cfg['players']}p")
+            log(f"[DRY-RUN] Would start on {host.name}: {cfg['board']} {cfg['players']}p (curriculum)")
             started += 1
         else:
             code, out, err = ssh_cmd(host, cmd, timeout=30)

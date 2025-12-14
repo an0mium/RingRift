@@ -933,6 +933,110 @@ def cleanup_remote_job_artifacts(
         return False
 
 
+def _fetch_single_job(
+    job: JobConfig,
+    output_dir: str,
+    fetch_jsonl: bool,
+    fetch_timeout_seconds: int,
+    cleanup_remote: bool,
+) -> Optional[str]:
+    """Fetch a single job's database from remote host. Thread-safe.
+
+    Returns:
+        Local database path if successful, None otherwise.
+    """
+    if job.host == "local":
+        local_db = os.path.join(output_dir, os.path.basename(job.output_db))
+        if os.path.exists(local_db):
+            return local_db
+        return None
+
+    if job.host not in REMOTE_HOSTS:
+        return None
+
+    host_config = REMOTE_HOSTS[job.host]
+    ssh_host = host_config["ssh_host"]
+    ssh_user = host_config.get("ssh_user")
+    ssh_port = host_config.get("ssh_port")
+    ssh_key = host_config.get("ssh_key")
+    ai_service_dir = _remote_ai_service_dir(host_config)
+
+    # Build SSH target (user@host or just host)
+    ssh_target = f"{ssh_user}@{ssh_host}" if ssh_user else ssh_host
+
+    remote_db = f"{ai_service_dir}/{job.output_db}"
+    local_db = os.path.join(output_dir, os.path.basename(job.output_db))
+
+    print(f"[{job.host}] Fetching {remote_db}...")
+
+    db_fetched = False
+    jsonl_fetched = False
+
+    # Fetch database
+    scp_cmd = ["scp"]
+    if ssh_key:
+        scp_cmd.extend(["-i", os.path.expanduser(ssh_key)])
+    if ssh_port:
+        scp_cmd.extend(["-P", str(ssh_port)])
+    scp_cmd.extend([f"{ssh_target}:{remote_db}", local_db])
+
+    try:
+        subprocess.run(
+            scp_cmd,
+            check=True,
+            capture_output=True,
+            timeout=int(fetch_timeout_seconds) if fetch_timeout_seconds and fetch_timeout_seconds > 0 else None,
+        )
+        print(f"[{job.host}] -> Saved to {local_db}")
+        db_fetched = True
+    except subprocess.CalledProcessError as e:
+        print(f"[{job.host}] -> Failed to fetch: {e}")
+    except subprocess.TimeoutExpired:
+        print(f"[{job.host}] -> Fetch timed out")
+
+    # Fetch JSONL if requested
+    if fetch_jsonl:
+        remote_jsonl = f"{ai_service_dir}/{job.log_jsonl}"
+        local_jsonl = os.path.join(output_dir, os.path.basename(job.log_jsonl))
+        print(f"[{job.host}] Fetching {remote_jsonl}...")
+
+        scp_cmd = ["scp"]
+        if ssh_key:
+            scp_cmd.extend(["-i", os.path.expanduser(ssh_key)])
+        if ssh_port:
+            scp_cmd.extend(["-P", str(ssh_port)])
+        scp_cmd.extend([f"{ssh_target}:{remote_jsonl}", local_jsonl])
+
+        try:
+            subprocess.run(
+                scp_cmd,
+                check=True,
+                capture_output=True,
+                timeout=int(fetch_timeout_seconds) if fetch_timeout_seconds and fetch_timeout_seconds > 0 else None,
+            )
+            print(f"[{job.host}] -> Saved JSONL to {local_jsonl}")
+            jsonl_fetched = True
+        except subprocess.CalledProcessError as e:
+            print(f"[{job.host}] -> Failed to fetch JSONL: {e}")
+        except subprocess.TimeoutExpired:
+            print(f"[{job.host}] -> JSONL fetch timed out")
+    else:
+        jsonl_fetched = True
+
+    # Cleanup remote if both succeeded
+    if cleanup_remote and db_fetched and jsonl_fetched:
+        print(f"[{job.host}] Cleaning up remote artifacts for {job.job_id}...")
+        if cleanup_remote_job_artifacts(
+            job,
+            host_config,
+            cleanup_jsonl=fetch_jsonl,
+            timeout_seconds=max(30, int(fetch_timeout_seconds) if fetch_timeout_seconds else 60),
+        ):
+            print(f"[{job.host}] -> Remote cleanup complete")
+
+    return local_db if db_fetched else None
+
+
 def fetch_remote_results(
     jobs: List[JobConfig],
     output_dir: str,
@@ -940,99 +1044,63 @@ def fetch_remote_results(
     fetch_jsonl: bool,
     fetch_timeout_seconds: int,
     cleanup_remote: bool,
+    parallel_workers: int = 8,
 ) -> List[str]:
-    """Fetch database files from remote hosts.
+    """Fetch database files from remote hosts in parallel.
+
+    Uses ThreadPoolExecutor to download from multiple hosts simultaneously,
+    significantly reducing total fetch time for large clusters.
+
+    Args:
+        parallel_workers: Number of parallel download threads (default 8).
 
     Returns:
         List of successfully fetched local database paths.
     """
+    if not jobs:
+        return []
+
+    # Filter to remote jobs only for parallel fetching
+    remote_jobs = [j for j in jobs if j.host != "local" and j.host in REMOTE_HOSTS]
+    local_jobs = [j for j in jobs if j.host == "local"]
+
     fetched_dbs = []
 
-    for job in jobs:
-        if job.host != "local" and job.host in REMOTE_HOSTS:
-            host_config = REMOTE_HOSTS[job.host]
-            ssh_host = host_config["ssh_host"]
-            ssh_user = host_config.get("ssh_user")
-            ssh_port = host_config.get("ssh_port")
-            ssh_key = host_config.get("ssh_key")
-            ai_service_dir = _remote_ai_service_dir(host_config)
+    # Handle local jobs immediately
+    for job in local_jobs:
+        local_db = os.path.join(output_dir, os.path.basename(job.output_db))
+        if os.path.exists(local_db):
+            fetched_dbs.append(local_db)
 
-            # Build SSH target (user@host or just host)
-            ssh_target = f"{ssh_user}@{ssh_host}" if ssh_user else ssh_host
+    if not remote_jobs:
+        return fetched_dbs
 
-            remote_db = f"{ai_service_dir}/{job.output_db}"
-            local_db = os.path.join(output_dir, os.path.basename(job.output_db))
+    print(f"\nFetching {len(remote_jobs)} remote databases with {parallel_workers} parallel workers...")
 
-            print(f"Fetching {remote_db} from {ssh_target}...")
+    # Parallel fetch for remote jobs
+    with ThreadPoolExecutor(max_workers=parallel_workers) as executor:
+        futures = {
+            executor.submit(
+                _fetch_single_job,
+                job,
+                output_dir,
+                fetch_jsonl,
+                fetch_timeout_seconds,
+                cleanup_remote,
+            ): job
+            for job in remote_jobs
+        }
 
-            db_fetched = False
-            jsonl_fetched = False
-
-            scp_cmd = ["scp"]
-            if ssh_key:
-                scp_cmd.extend(["-i", os.path.expanduser(ssh_key)])
-            if ssh_port:
-                scp_cmd.extend(["-P", str(ssh_port)])
-            scp_cmd.extend([f"{ssh_target}:{remote_db}", local_db])
-
+        for future in as_completed(futures):
+            job = futures[future]
             try:
-                subprocess.run(
-                    scp_cmd,
-                    check=True,
-                    capture_output=True,
-                    timeout=int(fetch_timeout_seconds) if fetch_timeout_seconds and fetch_timeout_seconds > 0 else None,
-                )
-                print(f"  -> Saved to {local_db}")
-                fetched_dbs.append(local_db)
-                db_fetched = True
-            except subprocess.CalledProcessError as e:
-                print(f"  -> Failed to fetch: {e}")
-            except subprocess.TimeoutExpired:
-                print(f"  -> Fetch timed out")
+                result = future.result()
+                if result is not None:
+                    fetched_dbs.append(result)
+            except Exception as e:
+                print(f"[{job.host}] Exception during fetch: {e}")
 
-            if fetch_jsonl:
-                remote_jsonl = f"{ai_service_dir}/{job.log_jsonl}"
-                local_jsonl = os.path.join(output_dir, os.path.basename(job.log_jsonl))
-                print(f"Fetching {remote_jsonl} from {ssh_target}...")
-
-                scp_cmd = ["scp"]
-                if ssh_key:
-                    scp_cmd.extend(["-i", os.path.expanduser(ssh_key)])
-                if ssh_port:
-                    scp_cmd.extend(["-P", str(ssh_port)])
-                scp_cmd.extend([f"{ssh_target}:{remote_jsonl}", local_jsonl])
-
-                try:
-                    subprocess.run(
-                        scp_cmd,
-                        check=True,
-                        capture_output=True,
-                        timeout=int(fetch_timeout_seconds) if fetch_timeout_seconds and fetch_timeout_seconds > 0 else None,
-                    )
-                    print(f"  -> Saved to {local_jsonl}")
-                    jsonl_fetched = True
-                except subprocess.CalledProcessError as e:
-                    print(f"  -> Failed to fetch JSONL: {e}")
-                except subprocess.TimeoutExpired:
-                    print(f"  -> JSONL fetch timed out")
-            else:
-                jsonl_fetched = True
-
-            if cleanup_remote and db_fetched and jsonl_fetched:
-                print(f"Cleaning up remote artifacts for {job.job_id} on {ssh_target}...")
-                if cleanup_remote_job_artifacts(
-                    job,
-                    host_config,
-                    cleanup_jsonl=fetch_jsonl,
-                    timeout_seconds=max(30, int(fetch_timeout_seconds) if fetch_timeout_seconds else 60),
-                ):
-                    print(f"  -> Remote cleanup complete")
-        elif job.host == "local":
-            # Local jobs already have their DB in the output dir
-            local_db = os.path.join(output_dir, os.path.basename(job.output_db))
-            if os.path.exists(local_db):
-                fetched_dbs.append(local_db)
-
+    print(f"Fetched {len(fetched_dbs)} databases total ({len(fetched_dbs) - len(local_jobs)} remote, {len([j for j in local_jobs if os.path.exists(os.path.join(output_dir, os.path.basename(j.output_db)))])} local)")
     return fetched_dbs
 
 

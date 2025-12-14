@@ -982,6 +982,207 @@ def run_all_config_tournaments(args):
     db.close()
 
 
+def run_continuous_tournament(args):
+    """Run tournaments continuously in daemon mode.
+
+    This provides continuous model evaluation for the unified AI improvement loop:
+    - Shadow tournaments every 15 minutes (10 games)
+    - Full tournaments every hour (50 games)
+    - Checkpoint monitoring for new models
+    - Event emission for pipeline integration
+    """
+    import signal
+
+    # Try to import event bus for pipeline integration
+    emit_events = args.emit_events
+    if emit_events:
+        try:
+            from app.distributed.data_events import (
+                emit_evaluation_completed,
+                emit_error,
+                get_event_bus,
+            )
+            import asyncio
+        except ImportError:
+            print("[ContinuousTournament] Warning: Event bus not available, disabling event emission")
+            emit_events = False
+
+    db_path = Path(args.db) if args.db else ELO_DB_PATH
+    db = init_elo_database(db_path)
+    models_dir = AI_SERVICE_ROOT / "models"
+
+    interval = args.continuous_interval
+    checkpoint_watch_dir = Path(args.checkpoint_watch) if args.checkpoint_watch else None
+    known_checkpoints = set()
+
+    running = True
+
+    def signal_handler(sig, frame):
+        nonlocal running
+        print("\n[ContinuousTournament] Shutdown requested")
+        running = False
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    print(f"[ContinuousTournament] Starting continuous evaluation daemon")
+    print(f"  Interval: {interval}s ({interval // 60} min)")
+    print(f"  Games per matchup: {args.games}")
+    print(f"  Board: {args.board}, Players: {args.players}")
+    if checkpoint_watch_dir:
+        print(f"  Watching: {checkpoint_watch_dir}")
+
+    iteration = 0
+    while running:
+        iteration += 1
+        iteration_start = time.time()
+
+        print(f"\n{'='*60}")
+        print(f"[ContinuousTournament] Iteration {iteration} at {datetime.now().isoformat()}")
+        print(f"{'='*60}")
+
+        try:
+            # Check for new checkpoints if watching
+            if checkpoint_watch_dir and checkpoint_watch_dir.exists():
+                for pth_file in checkpoint_watch_dir.glob("*.pth"):
+                    file_key = f"{pth_file}:{pth_file.stat().st_mtime}"
+                    if file_key not in known_checkpoints:
+                        known_checkpoints.add(file_key)
+                        print(f"[ContinuousTournament] New checkpoint: {pth_file.name}")
+
+            # Discover models
+            if args.baselines_only:
+                models = get_baseline_players(args.board, args.players)
+            else:
+                models = discover_models(models_dir, args.board, args.players, include_nnue=args.include_nnue)
+                if args.include_baselines:
+                    models.extend(get_baseline_players(args.board, args.players))
+
+            if args.top_n:
+                models = models[:args.top_n]
+
+            if len(models) < 2:
+                print(f"[ContinuousTournament] Not enough models ({len(models)}), waiting...")
+                time.sleep(interval)
+                continue
+
+            # Register models
+            register_models(db, models)
+
+            # Filter archived models
+            active_models = [m for m in models if not is_model_archived(db, m["model_id"], args.board, args.players)]
+            if len(active_models) < 2:
+                print(f"[ContinuousTournament] Not enough active models ({len(active_models)}), waiting...")
+                time.sleep(interval)
+                continue
+            models = active_models
+
+            # Generate matchups
+            if args.elo_matchmaking:
+                matchups = generate_elo_based_matchups(models, db, args.board, args.players, args.elo_range)
+            else:
+                matchups = []
+                for i, m1 in enumerate(models):
+                    for m2 in models[i+1:]:
+                        matchups.append((m1, m2))
+
+            # Limit matchups for shadow mode
+            if args.quick and len(matchups) > 10:
+                # Sample matchups for quick evaluation
+                import random
+                matchups = random.sample(matchups, min(10, len(matchups)))
+
+            print(f"[ContinuousTournament] Running {len(matchups)} matchups × {args.games} games")
+
+            import uuid
+            tournament_id = f"cont_{str(uuid.uuid4())[:8]}"
+            games_completed = 0
+            total_wins = 0
+            total_games = 0
+
+            for matchup_idx, (m1, m2) in enumerate(matchups):
+                if not running:
+                    break
+
+                try:
+                    results = run_model_matchup(
+                        db=db,
+                        model_a=m1,
+                        model_b=m2,
+                        board_type=args.board,
+                        num_players=args.players,
+                        games=args.games,
+                        tournament_id=tournament_id,
+                        nn_ai_type=args.ai_type,
+                        use_both_ai_types=args.both_ai_types,
+                    )
+                    games_completed += args.games
+                    total_wins += results["model_a_wins"] + results["model_b_wins"]
+                    total_games += results["model_a_wins"] + results["model_b_wins"] + results["draws"]
+                    print(f"  [{matchup_idx + 1}/{len(matchups)}] A={results['model_a_wins']} B={results['model_b_wins']} D={results['draws']}")
+
+                except Exception as e:
+                    print(f"  [{matchup_idx + 1}/{len(matchups)}] ERROR: {e}")
+                    continue
+
+            iteration_duration = time.time() - iteration_start
+
+            # Get best model Elo for reporting
+            leaderboard = get_leaderboard(db, args.board, args.players, limit=1)
+            best_elo = leaderboard[0]["rating"] if leaderboard else 1500.0
+            win_rate = total_wins / total_games if total_games > 0 else 0.5
+
+            print(f"[ContinuousTournament] Completed {games_completed} games in {iteration_duration:.1f}s")
+            print(f"  Best Elo: {best_elo:.0f}, Win rate: {win_rate:.1%}")
+
+            # Emit event for pipeline integration
+            if emit_events:
+                config_key = f"{args.board}_{args.players}p"
+                try:
+                    asyncio.run(emit_evaluation_completed(
+                        config=config_key,
+                        elo=best_elo,
+                        games_played=games_completed,
+                        win_rate=win_rate,
+                        source="run_model_elo_tournament.py",
+                    ))
+                except Exception as e:
+                    print(f"[ContinuousTournament] Failed to emit event: {e}")
+
+            # Print summary output for parsing by shadow tournament service
+            print(f"Win rate: {win_rate * 100:.1f}%")
+            print(f"Elo: {best_elo:.0f}")
+
+        except Exception as e:
+            print(f"[ContinuousTournament] Error in iteration: {e}")
+            import traceback
+            traceback.print_exc()
+
+            if emit_events:
+                try:
+                    asyncio.run(emit_error(
+                        component="continuous_tournament",
+                        error=str(e),
+                        source="run_model_elo_tournament.py",
+                    ))
+                except Exception:
+                    pass
+
+        # Wait for next iteration
+        if running:
+            elapsed = time.time() - iteration_start
+            sleep_time = max(0, interval - elapsed)
+            if sleep_time > 0:
+                print(f"[ContinuousTournament] Sleeping {sleep_time:.0f}s until next iteration")
+                try:
+                    time.sleep(sleep_time)
+                except KeyboardInterrupt:
+                    running = False
+
+    print("[ContinuousTournament] Stopped")
+    db.close()
+
+
 def generate_elo_based_matchups(
     models: List[Dict[str, Any]],
     db: EloDatabase,
@@ -1137,7 +1338,24 @@ def main():
     parser.add_argument("--include-nnue", action="store_true", help="Include NNUE models from models/nnue/ directory")
     parser.add_argument("--nnue-only", action="store_true", help="Run tournament with only NNUE models")
 
+    # Continuous evaluation modes (for unified AI loop integration)
+    parser.add_argument("--quick", action="store_true", help="Quick mode: 10 games per matchup for fast shadow evaluation")
+    parser.add_argument("--continuous", action="store_true", help="Continuous daemon mode: run tournaments periodically")
+    parser.add_argument("--continuous-interval", type=int, default=900, help="Interval between continuous runs (seconds, default: 900)")
+    parser.add_argument("--checkpoint-watch", type=str, help="Directory to watch for new model checkpoints")
+    parser.add_argument("--emit-events", action="store_true", help="Emit data events for pipeline integration")
+
     args = parser.parse_args()
+
+    # Quick mode: reduce games for fast shadow evaluation
+    if args.quick:
+        args.games = 10
+        args.run = True  # Quick mode implies --run
+
+    # Continuous mode: run as daemon
+    if args.continuous:
+        run_continuous_tournament(args)
+        return
 
     # If --all-configs, loop through all configurations
     if args.all_configs:

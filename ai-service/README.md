@@ -1,6 +1,6 @@
 # RingRift AI Service
 
-> **Doc Status (2025-12-13): Active (Python AI microservice, AI host/adapter only)**
+> **Doc Status (2025-12-14): Active (Python AI microservice, AI host/adapter only)**
 >
 > - Role: primary reference for the Python AI microservice API surface, difficulty ladder, and integration with the Node.js backend. It describes the AI host, not the game rules themselves.
 > - Not a semantics or lifecycle SSoT: the Python rules engine inside this service is a **host/adapter** over the canonical rules SSoT (the written spec in `RULES_CANONICAL_SPEC.md` plus `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) and its shared TypeScript implementation under `src/shared/engine/**` and `src/shared/engine/contracts/**`, with cross-language behaviour anchored by the v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`. For canonical rules semantics and lifecycle/API contracts, defer to [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md), [`ringrift_complete_rules.md`](../ringrift_complete_rules.md), [`RULES_ENGINE_ARCHITECTURE.md`](../RULES_ENGINE_ARCHITECTURE.md), [`RULES_IMPLEMENTATION_MAPPING.md`](../RULES_IMPLEMENTATION_MAPPING.md), and [`docs/CANONICAL_ENGINE_API.md`](../docs/CANONICAL_ENGINE_API.md).
@@ -20,17 +20,23 @@ This service provides AI capabilities for the RingRift game through a RESTful AP
 ## Features
 
 - **Currently supported AI types (canonical ladder)**:
-  - RandomAI: Selects random valid moves (difficulty 1)
-  - HeuristicAI: Uses strategic heuristics (difficulty 2)
-  - MinimaxAI: Depth-limited minimax with alpha-beta pruning (difficulty 3–6)
-  - MCTSAI: Monte Carlo tree search with PUCT/RAVE (difficulty 7–8)
-  - DescentAI: UBFM/Descent-style tree search (difficulty 9–10)
+  - **RandomAI** (difficulty 1): Selects random valid moves
+  - **HeuristicAI** (difficulty 2): Uses 45+ weighted evaluation factors
+  - **MinimaxAI** (difficulty 3–4): Alpha-beta pruning with quiescence search
+    - D3: Heuristic-only evaluation
+    - D4: NNUE neural evaluation for stronger position assessment
+  - **MCTSAI** (difficulty 5–8): Monte Carlo tree search with PUCT/RAVE
+    - D5: Heuristic rollouts only
+    - D6–8: Neural network value/policy guidance
+  - **DescentAI** (difficulty 9–10): UBFM/AlphaZero-style best-first search with neural guidance
 
-  These types are wired through the **canonical 1–10 difficulty ladder** defined in [`app/main.py`](ai-service/app/main.py) (and per-board/per-player ladders in [`app/config/ladder_config.py`](ai-service/app/config/ladder_config.py)) and mirrored in the TypeScript backend’s `AI_DIFFICULTY_PRESETS` in [`AIEngine.ts`](../src/server/game/ai/AIEngine.ts:1). For a given numeric difficulty, both the backend and service agree on the underlying AI type, randomness, and think-time budget.
+  These types are wired through the **canonical 1–10 difficulty ladder** defined in [`app/main.py`](app/main.py:1577) (and per-board/per-player ladders in [`app/config/ladder_config.py`](app/config/ladder_config.py)) and mirrored in the TypeScript backend's `AI_DIFFICULTY_PRESETS` in [`AIEngine.ts`](../src/server/game/ai/AIEngine.ts:1). For a given numeric difficulty, both the backend and service agree on the underlying AI type, randomness, and think-time budget.
 
-- **Experimental / ML-focused work (in progress)**:
-  - NeuralNetAI scaffolding lives in [`neural_net.py`](ai-service/app/ai/neural_net.py:1) but is **not** yet part of the production `/ai/move` path.
-  - Future ML-backed engines (policy/value networks) will be added as new `AIType` variants and corresponding difficulty profiles.
+- **Neural Network Integration**:
+  - Difficulties 4+ use neural network evaluation (NNUE or full CNN)
+  - ResNet-style architecture with policy/value heads
+  - MPS-compatible variant for Apple Silicon (`RingRiftCNN_MPS`)
+  - Board-specific policy sizes (7K for 8×8, 67K for 19×19, 54K for hex)
 
 - **Difficulty Levels**: 1–10, mapped consistently to AI profiles in both the backend and service via:
   - Python: `_CANONICAL_DIFFICULTY_PROFILES` in [`app/main.py`](ai-service/app/main.py)
@@ -428,25 +434,55 @@ You should only run the AI service on its own (via `uvicorn` or `docker run`) wh
 ```
 ai-service/
 ├── app/
-│   ├── __init__.py
-│   ├── main.py              # FastAPI application
-│   ├── models/              # Pydantic models mirroring src/shared/types/game.ts
-│   │   ├── __init__.py      # Import surface for GameState, Move, choice payloads
-│   │   └── core.py          # Core model definitions (BoardState, GameState, choices)
-│   └── ai/
-│       ├── __init__.py
-│       ├── base.py          # Base AI class
-│       ├── random_ai.py     # Random AI implementation
-│       ├── heuristic_ai.py  # Heuristic AI implementation
-│       └── ...              # Future AI implementations (MCTS, neural net, descent, etc.)
-├── app/training/
-│   ├── generate_territory_dataset.py  # Self-play dataset generation for heuristic training
-│   ├── heuristic_features.py          # Feature extraction for heuristic regression
-│   ├── train_heuristic_weights.py     # Offline training for heuristic weight profiles
-│   └── ...                            # Additional training loops and helpers
-├── scripts/
-│   ├── run_ai_tournament.py           # Generic AI-vs-AI tournament driver
-│   └── run_heuristic_experiment.py    # Baseline-vs-trained and A/B heuristic experiments
+│   ├── main.py                     # FastAPI application entry point
+│   ├── game_engine.py              # Python rules engine (parity with TS)
+│   ├── board_manager.py            # Board state management
+│   ├── models/                     # Pydantic models (GameState, Move, choices)
+│   ├── ai/                         # AI implementations
+│   │   ├── base.py                 # Base AI class
+│   │   ├── random_ai.py            # Random AI (D1)
+│   │   ├── heuristic_ai.py         # Heuristic AI (D2, ~86KB)
+│   │   ├── minimax_ai.py           # Minimax with alpha-beta (D3-4)
+│   │   ├── mcts_ai.py              # Monte Carlo tree search (D5-8)
+│   │   ├── descent_ai.py           # UBFM/Descent search (D9-10)
+│   │   ├── neural_net.py           # Neural network evaluator (~230KB)
+│   │   ├── nnue.py                 # NNUE evaluator
+│   │   ├── gpu_batch.py            # GPU batch processing
+│   │   └── ...                     # Caching, move ordering, evaluation
+│   ├── rules/                      # Rules engine implementation
+│   │   ├── default_engine.py       # Main rules engine
+│   │   ├── history_contract.py     # Canonical phase↔move contract
+│   │   ├── mutable_state.py        # Make/unmake pattern support
+│   │   └── ...                     # Validators, mutators, geometry
+│   ├── training/                   # Training pipeline
+│   │   ├── train.py                # Main training loop (~117KB)
+│   │   ├── generate_data.py        # Self-play data generation
+│   │   ├── curriculum.py           # Curriculum learning
+│   │   ├── data_loader.py          # Data loading and batching
+│   │   ├── model_versioning.py     # Checkpoint management
+│   │   └── ...                     # Evaluation, encoding, config
+│   ├── db/                         # Database layer
+│   │   ├── game_replay.py          # GameReplayDB (SQLite-backed)
+│   │   └── recording.py            # Game recording helpers
+│   └── distributed/                # Distributed computing
+├── scripts/                        # CLI tools (~196 scripts)
+│   ├── pipeline_orchestrator.py    # Master training pipeline
+│   ├── run_improvement_loop.py     # Continuous improvement
+│   ├── run_cmaes_optimization.py   # CMA-ES heuristic optimization
+│   ├── run_self_play_soak.py       # Self-play game generation
+│   ├── run_model_elo_tournament.py # Elo calibration tournaments
+│   └── ...                         # Analysis, debugging, benchmarking
+├── config/                         # Configuration files
+│   ├── distributed_hosts.yaml      # Worker host configuration
+│   ├── unified_loop.yaml           # Unified AI loop config
+│   └── ...                         # Templates, examples
+├── data/                           # Training data
+│   ├── canonical/                  # Canonical training databases
+│   ├── eval_pools/                 # Evaluation state pools
+│   └── holdouts/                   # Holdout/tournament data
+├── docs/                           # Documentation
+├── tests/                          # Test suite
+├── models/                         # Neural network checkpoints
 ├── Dockerfile
 ├── requirements.txt
 └── README.md
@@ -468,15 +504,15 @@ ai-service/
 
 ### Heuristic AI (`heuristic_ai.py`)
 
-- Evaluates positions using weighted heuristics:
-  - Stack control (10.0)
-  - Stack height (5.0)
-  - Territory control (8.0)
-  - Rings in hand (3.0)
-  - Center control (4.0)
-  - Opponent threats (6.0)
-- Selects moves with highest evaluation
-- Used for difficulty levels 3-5
+- Evaluates positions using 45+ weighted heuristic factors including:
+  - Stack control and height
+  - Territory control and closure potential
+  - Rings in hand and mobility
+  - Center control and board influence
+  - Opponent threats and victory proximity
+  - Chain capture potential and line formation
+- CMA-ES optimized weight profiles per board type
+- Used for difficulty level 2 and as fallback evaluator in search AIs
 
 ### Offline heuristic training and experiments
 
@@ -801,20 +837,20 @@ AI_SERVICE_URL=http://localhost:8001   # Local
 
 ## Canonical Difficulty Ladder
 
-The AI service implements a 10-level difficulty ladder that maps numeric difficulty values to specific AI algorithms and parameters. This mapping is defined in [`_CANONICAL_DIFFICULTY_PROFILES`](app/main.py:1) and mirrored in the TypeScript backend's [`AI_DIFFICULTY_PRESETS`](../src/server/game/ai/AIEngine.ts:1).
+The AI service implements a 10-level difficulty ladder that maps numeric difficulty values to specific AI algorithms and parameters. This mapping is defined in [`_CANONICAL_DIFFICULTY_PROFILES`](app/main.py:1577) and mirrored in the TypeScript backend's [`AI_DIFFICULTY_PRESETS`](../src/server/game/ai/AIEngine.ts:1).
 
-| Difficulty | AI Type   | Randomness | Profile ID     | Description                     |
-| ---------- | --------- | ---------- | -------------- | ------------------------------- |
-| 1          | RANDOM    | 0.5        | v1-random-1    | Random valid moves              |
-| 2          | HEURISTIC | 0.3        | v1-heuristic-2 | Basic heuristic with noise      |
-| 3          | MINIMAX   | 0.2        | v1-minimax-3   | Shallow search, some randomness |
-| 4          | MINIMAX   | 0.15       | v1-minimax-4   | Medium depth                    |
-| 5          | MINIMAX   | 0.1        | v1-minimax-5   | Deeper search                   |
-| 6          | MINIMAX   | 0.0        | v1-minimax-6   | Deterministic minimax           |
-| 7          | MCTS      | 0.0        | v1-mcts-7      | Monte Carlo tree search         |
-| 8          | MCTS      | 0.0        | v1-mcts-8      | Extended MCTS                   |
-| 9          | DESCENT   | 0.0        | v1-descent-9   | Local descent optimizer         |
-| 10         | DESCENT   | 0.0        | v1-descent-10  | Full strength descent           |
+| Difficulty | AI Type   | Randomness | Think Time | Neural Net | Profile ID        | Description                        |
+| ---------- | --------- | ---------- | ---------- | ---------- | ----------------- | ---------------------------------- |
+| 1          | RANDOM    | 50%        | 150ms      | No         | v1-random-1       | Random valid moves                 |
+| 2          | HEURISTIC | 30%        | 200ms      | No         | v1-heuristic-2    | Basic heuristic with noise         |
+| 3          | MINIMAX   | 15%        | 1.8s       | No         | v1-minimax-3      | Alpha-beta search (heuristic only) |
+| 4          | MINIMAX   | 8%         | 2.8s       | Yes (NNUE) | v1-minimax-4-nnue | Alpha-beta with NNUE evaluation    |
+| 5          | MCTS      | 5%         | 4.0s       | No         | v1-mcts-5         | Monte Carlo tree search            |
+| 6          | MCTS      | 2%         | 5.5s       | Yes        | v1-mcts-6-neural  | MCTS with neural value/policy      |
+| 7          | MCTS      | 0%         | 7.5s       | Yes        | v1-mcts-7-neural  | Expert neural MCTS                 |
+| 8          | MCTS      | 0%         | 9.6s       | Yes        | v1-mcts-8-neural  | Strong expert MCTS                 |
+| 9          | DESCENT   | 0%         | 12.6s      | Yes        | v1-descent-9      | AlphaZero-style UBFM search        |
+| 10         | DESCENT   | 0%         | 16.0s      | Yes        | v1-descent-10     | Grandmaster Descent                |
 
 ## RNG Seeding for Determinism
 

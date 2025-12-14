@@ -1,6 +1,6 @@
 # Pipeline Orchestrator
 
-> **Status:** Production-ready as of 2025-12-13
+> **Status:** Production-ready as of 2025-12-14
 > **Location:** `ai-service/scripts/pipeline_orchestrator.py`
 
 The pipeline orchestrator provides unified coordination for the complete AI training pipeline across distributed compute resources including local Mac clusters, AWS, Lambda Labs, and Vast.ai instances.
@@ -224,6 +224,24 @@ python scripts/pipeline_orchestrator.py --iterations 10 --resume
 
 ## Pipeline Phases
 
+The orchestrator supports multiple phases that can be run individually or as part of a full iteration:
+
+| Phase                | Description                                        |
+| -------------------- | -------------------------------------------------- |
+| `selfplay`           | GPU/heuristic selfplay (fast but simplified rules) |
+| `canonical-selfplay` | CPU selfplay with full phase machine (canonical)   |
+| `sync`               | Sync game data from all workers                    |
+| `parity-validation`  | Validate games against canonical parity gate       |
+| `npz-export`         | Export validated games to NPZ training format      |
+| `training`           | Train neural network on exported data              |
+| `cmaes`              | CMA-ES heuristic optimization                      |
+| `profile-sync`       | Sync trained heuristic profiles across workers     |
+| `evaluation`         | Run evaluation tournaments                         |
+| `elo-calibration`    | Run diverse tournaments for Elo calibration        |
+| `tier-gating`        | Check for model tier promotions                    |
+| `resources`          | Log resource usage across workers                  |
+| `refresh-workers`    | Dynamically discover Vast.ai instances             |
+
 ### Phase 1: Selfplay
 
 Generates training games across all board×player configurations using diverse engine modes:
@@ -337,29 +355,44 @@ python scripts/pipeline_orchestrator.py --dry-run
 ### Run Specific Phases
 
 ```bash
-# Selfplay only
+# Selfplay (fast GPU/heuristic)
 python scripts/pipeline_orchestrator.py --phase selfplay
 
-# Sync only
+# Canonical selfplay (CPU with full phase machine)
+python scripts/pipeline_orchestrator.py --phase canonical-selfplay
+
+# Sync data from workers
 python scripts/pipeline_orchestrator.py --phase sync
 
-# CMA-ES only
-python scripts/pipeline_orchestrator.py --phase cmaes
+# Parity validation gate
+python scripts/pipeline_orchestrator.py --phase parity-validation
 
-# Training only
+# Export to NPZ format
+python scripts/pipeline_orchestrator.py --phase npz-export
+
+# Neural network training
 python scripts/pipeline_orchestrator.py --phase training
 
-# Profile sync only
+# CMA-ES heuristic optimization
+python scripts/pipeline_orchestrator.py --phase cmaes
+
+# Profile sync across workers
 python scripts/pipeline_orchestrator.py --phase profile-sync
 
-# Evaluation only
+# Evaluation tournaments
 python scripts/pipeline_orchestrator.py --phase evaluation
 
-# Tier gating checks only
+# Elo calibration (all configs)
+python scripts/pipeline_orchestrator.py --phase elo-calibration
+
+# Tier gating checks
 python scripts/pipeline_orchestrator.py --phase tier-gating
 
-# Resource monitoring only
+# Resource monitoring
 python scripts/pipeline_orchestrator.py --phase resources
+
+# Refresh Vast.ai worker discovery
+python scripts/pipeline_orchestrator.py --phase refresh-workers
 ```
 
 ### CLI Options

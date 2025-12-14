@@ -1,5 +1,7 @@
 # AI Training Plan: Heuristic Weight Optimization & Neural Network Training
 
+> **Doc Status (2025-12-14): Active**
+
 This document outlines the complete training pipeline for optimizing RingRift AI,
 covering heuristic weight optimization via CMA-ES and neural network training.
 
@@ -12,14 +14,14 @@ covering heuristic weight optimization via CMA-ES and neural network training.
 │ Phase 1: Generate Evaluation State Pools                                │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ Phase 2: CMA-ES Heuristic Weight Optimization                          │
-│   └─ 2a: Square8 → 2b: Square19 → 2c: Hex11                            │
+│   └─ 2a: Square8 → 2b: Square19 → 2c: Hex (radius-12)                  │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ Phase 3: Validate & Promote Heuristic Weights                          │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ Phase 4: Generate Neural Network Training Data                         │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ Phase 5: Neural Network Training                                       │
-│   └─ 5a: Square8 → 5b: Hex11 → 5c: Square19                            │
+│   └─ 5a: Square8 → 5b: Hex (radius-12) → 5c: Square19                  │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ Phase 6: Validation & Deployment                                        │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -68,9 +70,9 @@ RINGRIFT_SKIP_SHADOW_CONTRACTS=true python scripts/run_self_play_soak.py \
     --sample-mid-game \
     --output data/eval_pools/square19/pool_v1.jsonl
 
-# Hex11 (moderate - ~1-2 hours)
+# Hex radius-12 (moderate - ~1-2 hours)
 RINGRIFT_SKIP_SHADOW_CONTRACTS=true python scripts/run_self_play_soak.py \
-    --board hex \
+    --board hexagonal \
     --games 100 \
     --sample-mid-game \
     --output data/eval_pools/hex/pool_v1.jsonl
@@ -130,7 +132,7 @@ python scripts/run_cmaes_optimization.py \
     --output logs/cmaes/square19_v2
 ```
 
-### 2c: Hex11
+### 2c: Hex (Radius-12, 25×25 grid)
 
 ```bash
 RINGRIFT_SKIP_SHADOW_CONTRACTS=true \
@@ -140,8 +142,8 @@ python scripts/run_cmaes_optimization.py \
     --generations 30 \
     --population-size 16 \
     --games-per-eval 24 \
-    --board hex \
-    --eval-boards hex \
+    --board hexagonal \
+    --eval-boards hexagonal \
     --eval-mode multi-start \
     --state-pool-id v1 \
     --max-moves 300 \
@@ -250,7 +252,7 @@ python -m app.training.train \
     --seed 42
 ```
 
-### 5b: Hex11 (With D6 augmentation)
+### 5b: Hex (Radius-12, 25×25 with D6 augmentation)
 
 ```bash
 python -m app.training.train \
@@ -328,16 +330,16 @@ python scripts/run_self_play_soak.py \
 
 ## Recommended Execution Order (Priority)
 
-| Priority | Phase | Board    | Reason                                            |
-| -------- | ----- | -------- | ------------------------------------------------- |
-| 1        | 1+2a  | Square8  | Fastest iteration, validates pipeline             |
-| 2        | 3     | Square8  | Validate weights before proceeding                |
-| 3        | 4+5a  | Square8  | Generate NN training data with optimized weights  |
-| 4        | 2c    | Hex11    | Medium complexity, test larger board optimization |
-| 5        | 4+5b  | Hex11    | NN training with D6 augmentation                  |
-| 6        | 2b    | Square19 | Slowest optimization, benefits from learnings     |
-| 7        | 4+5c  | Square19 | Final NN training                                 |
-| 8        | 6     | All      | Comprehensive validation                          |
+| Priority | Phase | Board     | Reason                                            |
+| -------- | ----- | --------- | ------------------------------------------------- |
+| 1        | 1+2a  | Square8   | Fastest iteration, validates pipeline             |
+| 2        | 3     | Square8   | Validate weights before proceeding                |
+| 3        | 4+5a  | Square8   | Generate NN training data with optimized weights  |
+| 4        | 2c    | Hex (r12) | Medium complexity, test larger board optimization |
+| 5        | 4+5b  | Hex (r12) | NN training with D6 augmentation                  |
+| 6        | 2b    | Square19  | Slowest optimization, benefits from learnings     |
+| 7        | 4+5c  | Square19  | Final NN training                                 |
+| 8        | 6     | All       | Comprehensive validation                          |
 
 ---
 
@@ -587,9 +589,11 @@ python -c "import numpy as np; d=np.load('data.npz'); print(f'{len(d[\"values\"]
 
 | Board Type  | Size  | Policy Size | Primary Use               |
 | ----------- | ----- | ----------- | ------------------------- |
-| `square8`   | 8×8   | 4100        | Fast iteration, testing   |
-| `square19`  | 19×19 | ~25k        | Standard competitive play |
-| `hexagonal` | 25×25 | ~25k        | Hex board variant         |
+| `square8`   | 8×8   | 7,000       | Fast iteration, testing   |
+| `square19`  | 19×19 | 67,000      | Standard competitive play |
+| `hexagonal` | 25×25 | 54,244      | Hex board variant (r12)   |
+
+**Note:** Hex board uses radius-12 geometry (469 cells, 96 rings, 25×25 input). Old radius-10 models are deprecated.
 
 ### Model Naming Convention
 

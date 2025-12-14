@@ -198,6 +198,159 @@ from app.db import (  # noqa: E402
     ParityValidationError,
 )
 from app.ai.neural_net import clear_model_cache  # noqa: E402
+
+# Hot model reload for unified AI loop integration
+try:
+    from app.distributed.data_events import (
+        emit_new_games,
+        get_event_bus,
+    )
+    HAS_EVENT_BUS = True
+except ImportError:
+    HAS_EVENT_BUS = False
+
+
+class HotModelReloader:
+    """Hot model reload manager for continuous selfplay.
+
+    Monitors model files and triggers reload when they change. This allows
+    selfplay to automatically pick up newly promoted models without restart.
+
+    Usage:
+        reloader = HotModelReloader(board_type="square8", num_players=2)
+
+        for game_num in range(num_games):
+            if reloader.should_check(game_num, interval=100):
+                if reloader.check_for_updates():
+                    print(f"Model updated: {reloader.current_model_path}")
+                    clear_model_cache()  # Force reload on next AI creation
+            # ... run game ...
+    """
+
+    BOARD_ALIAS_TOKENS = {
+        "square8": "sq8",
+        "square19": "sq19",
+        "hexagonal": "hex",
+    }
+
+    def __init__(
+        self,
+        board_type: str,
+        num_players: int,
+        model_alias_path: Optional[str] = None,
+    ):
+        self.board_type = board_type
+        self.num_players = num_players
+        self._models_dir = os.path.join(ROOT, "models")
+
+        # Determine which model path to watch
+        if model_alias_path:
+            self._watch_path = model_alias_path
+        else:
+            token = self.BOARD_ALIAS_TOKENS.get(board_type, board_type)
+            self._watch_path = os.path.join(
+                self._models_dir,
+                f"ringrift_best_{token}_{num_players}p.pth"
+            )
+
+        # Track model state
+        self._current_mtime: Optional[float] = None
+        self._current_hash: Optional[str] = None
+        self._update_count = 0
+        self._last_check_game = 0
+
+        # Initialize by reading current state
+        self._read_current_state()
+
+    @property
+    def current_model_path(self) -> str:
+        """Get the currently watched model path."""
+        return self._watch_path
+
+    @property
+    def update_count(self) -> int:
+        """Number of model updates detected since initialization."""
+        return self._update_count
+
+    def _read_current_state(self) -> bool:
+        """Read current model file state. Returns True if file exists."""
+        if not os.path.exists(self._watch_path):
+            return False
+
+        try:
+            stat = os.stat(self._watch_path)
+            self._current_mtime = stat.st_mtime
+            # Quick hash based on size + mtime (faster than full file hash)
+            self._current_hash = f"{stat.st_size}:{stat.st_mtime}"
+            return True
+        except OSError:
+            return False
+
+    def should_check(self, game_num: int, interval: int) -> bool:
+        """Check if we should look for model updates at this game number."""
+        if interval <= 0:
+            return False
+        if game_num == 0:
+            return False  # Already initialized
+        if game_num - self._last_check_game >= interval:
+            self._last_check_game = game_num
+            return True
+        return False
+
+    def check_for_updates(self) -> bool:
+        """Check if the model file has been updated.
+
+        Returns True if an update was detected, False otherwise.
+        If True is returned, callers should clear_model_cache() to force reload.
+        """
+        if not os.path.exists(self._watch_path):
+            return False
+
+        try:
+            stat = os.stat(self._watch_path)
+            new_hash = f"{stat.st_size}:{stat.st_mtime}"
+
+            if self._current_hash is None:
+                # First check after initialization
+                self._current_mtime = stat.st_mtime
+                self._current_hash = new_hash
+                return False
+
+            if new_hash != self._current_hash:
+                # Model file changed!
+                self._current_mtime = stat.st_mtime
+                self._current_hash = new_hash
+                self._update_count += 1
+                return True
+
+            return False
+        except OSError:
+            return False
+
+    def get_model_metadata(self) -> Dict[str, Any]:
+        """Get metadata about the current model file."""
+        if not os.path.exists(self._watch_path):
+            return {"exists": False}
+
+        try:
+            stat = os.stat(self._watch_path)
+            # Try to read companion .meta.json file
+            meta_path = self._watch_path.replace(".pth", ".meta.json")
+            meta = {}
+            if os.path.exists(meta_path):
+                with open(meta_path) as f:
+                    meta = json.load(f)
+
+            return {
+                "exists": True,
+                "path": self._watch_path,
+                "size_mb": stat.st_size / (1024 * 1024),
+                "mtime": stat.st_mtime,
+                "update_count": self._update_count,
+                **meta,
+            }
+        except (OSError, json.JSONDecodeError):
+            return {"exists": True, "path": self._watch_path}
 from app.utils.victory_type import derive_victory_type  # noqa: E402
 
 
@@ -899,6 +1052,25 @@ def run_self_play_soak(
     gc_interval = getattr(args, "gc_interval", 5)
     profile_timing = getattr(args, "profile_timing", False)
 
+    # Hot model reload for continuous selfplay
+    watch_model_updates = getattr(args, "watch_model_updates", False)
+    model_reload_interval = getattr(args, "model_reload_interval", 100)
+    model_alias_path = getattr(args, "model_alias_path", None)
+    emit_events = getattr(args, "emit_events", False)
+
+    hot_reloader: Optional[HotModelReloader] = None
+    if watch_model_updates:
+        hot_reloader = HotModelReloader(
+            board_type=args.board_type,
+            num_players=num_players,
+            model_alias_path=model_alias_path,
+        )
+        print(
+            f"[hot-reload] Enabled: watching {hot_reloader.current_model_path} "
+            f"(check every {model_reload_interval} games)",
+            flush=True,
+        )
+
     # Memory management options
     intra_game_gc_interval = getattr(args, "intra_game_gc_interval", 0)
     streaming_record = getattr(args, "streaming_record", False)
@@ -1121,6 +1293,20 @@ def run_self_play_soak(
 
         for game_idx in range(start_game_idx, num_games):
             game_start_time = time.time()
+
+            # Hot model reload check
+            if hot_reloader and hot_reloader.should_check(game_idx, model_reload_interval):
+                if hot_reloader.check_for_updates():
+                    meta = hot_reloader.get_model_metadata()
+                    print(
+                        f"[hot-reload] Model updated! Reloading... "
+                        f"(update #{hot_reloader.update_count}, "
+                        f"source: {meta.get('source_model_id', 'unknown')})",
+                        flush=True,
+                    )
+                    # Clear the neural net model cache to force reload on next AI creation
+                    clear_model_cache()
+
             game_seed = None if base_seed is None else base_seed + game_idx
             try:
                 if profile_timing:
@@ -2081,6 +2267,28 @@ def run_self_play_soak(
             f"avg_per_game={timing_totals['db_record'] / max(total_games_run, 1):.3f}"
         )
 
+    # Emit event for pipeline integration (new games available)
+    if emit_events and HAS_EVENT_BUS and len(records) > 0:
+        import asyncio
+        config_key = f"{args.board_type}_{num_players}p"
+        try:
+            asyncio.run(emit_new_games(
+                host="localhost",
+                new_games=len(records),
+                total_games=len(records),
+                source="run_self_play_soak.py",
+            ))
+            print(f"[event] Emitted NEW_GAMES_AVAILABLE: {len(records)} games for {config_key}")
+        except Exception as e:
+            print(f"[event] Failed to emit event: {e}")
+
+    # Log hot reload summary
+    if hot_reloader and hot_reloader.update_count > 0:
+        print(
+            f"[hot-reload] Session summary: {hot_reloader.update_count} model updates detected",
+            flush=True,
+        )
+
     return records, invariant_violation_samples
 
 
@@ -2872,6 +3080,44 @@ def _parse_args() -> argparse.Namespace:
             "Batch size for GPU parallel game simulation. Higher values improve "
             "throughput but use more GPU memory. Default: 64. "
             "Recommended: 32-128 for consumer GPUs, 256-512 for data center GPUs."
+        ),
+    )
+
+    # Hot model reload options (for unified AI loop integration)
+    parser.add_argument(
+        "--watch-model-updates",
+        action="store_true",
+        help=(
+            "Enable hot model reload: periodically check for model file changes and "
+            "reload without process restart. Useful for continuous selfplay during "
+            "training. Checks the promoted model alias for the current board/player config."
+        ),
+    )
+    parser.add_argument(
+        "--model-reload-interval",
+        type=int,
+        default=100,
+        help=(
+            "How often to check for model updates (in games). Default: 100. "
+            "Set to 0 to disable periodic checks (only reload on startup)."
+        ),
+    )
+    parser.add_argument(
+        "--model-alias-path",
+        type=str,
+        default=None,
+        help=(
+            "Path to the model alias file to watch for hot reload. "
+            "If not specified, uses the promoted model alias for the current config "
+            "(e.g., models/ringrift_best_sq8_2p.pth for square8 2p)."
+        ),
+    )
+    parser.add_argument(
+        "--emit-events",
+        action="store_true",
+        help=(
+            "Emit data events for pipeline integration (NEW_GAMES_AVAILABLE). "
+            "Useful for triggering downstream processing in the unified AI loop."
         ),
     )
     return parser.parse_args()

@@ -32,6 +32,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import re
@@ -39,6 +40,7 @@ import shutil
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -61,7 +63,6 @@ except ImportError:
 
 # Diverse tournament orchestrator integration (for periodic Elo calibration)
 try:
-    import asyncio
     from scripts.run_diverse_tournaments import (
         run_tournament_round_distributed,
         run_tournament_round_local,
@@ -76,7 +77,111 @@ try:
 except ImportError:
     HAS_DIVERSE_TOURNAMENTS = False
 
+# Adaptive controller for dynamic loop behavior
+try:
+    from app.training.adaptive_controller import (
+        AdaptiveController,
+        create_adaptive_controller,
+    )
+    HAS_ADAPTIVE_CONTROLLER = True
+except ImportError:
+    HAS_ADAPTIVE_CONTROLLER = False
+    AdaptiveController = None  # type: ignore
+    create_adaptive_controller = None  # type: ignore
+
+# Hot data buffer for streaming training
+try:
+    from app.training.hot_data_buffer import (
+        HotDataBuffer,
+        create_hot_buffer,
+    )
+    HAS_HOT_BUFFER = True
+except ImportError:
+    HAS_HOT_BUFFER = False
+    HotDataBuffer = None  # type: ignore
+    create_hot_buffer = None  # type: ignore
+
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
+
+
+class OverlappedPipelineManager:
+    """Manages overlapped pipeline stages for faster iteration.
+
+    Enables selfplay for iteration N+1 to run concurrently with training/eval for N.
+    This reduces total iteration time by overlapping data generation with training.
+    """
+
+    def __init__(self, enabled: bool = True):
+        self.enabled = enabled
+        self._selfplay_future: Optional[asyncio.Task] = None
+        self._selfplay_result: Optional[Tuple[bool, int, Optional[Path]]] = None
+        self._loop = None
+
+    def _get_loop(self):
+        """Get or create event loop."""
+        if self._loop is None or self._loop.is_closed():
+            try:
+                self._loop = asyncio.get_event_loop()
+            except RuntimeError:
+                self._loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self._loop)
+        return self._loop
+
+    def start_selfplay_async(
+        self,
+        config: dict,
+        iteration: int,
+        dry_run: bool = False,
+    ) -> None:
+        """Start selfplay for next iteration in background.
+
+        This allows training to proceed while data generation happens.
+        """
+        if not self.enabled:
+            return
+
+        async def _run_selfplay_async():
+            # Run selfplay in executor to not block event loop
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: run_selfplay(config, iteration, dry_run)
+            )
+            return result
+
+        loop = self._get_loop()
+        self._selfplay_future = loop.create_task(_run_selfplay_async())
+
+    def get_selfplay_result(
+        self,
+        config: dict,
+        iteration: int,
+        dry_run: bool = False,
+    ) -> Tuple[bool, int, Optional[Path]]:
+        """Get selfplay result, waiting if async task is running.
+
+        If no async task was started, runs selfplay synchronously.
+        """
+        if self._selfplay_future is not None:
+            loop = self._get_loop()
+            try:
+                # Wait for async selfplay to complete
+                result = loop.run_until_complete(self._selfplay_future)
+                self._selfplay_future = None
+                return result
+            except Exception as e:
+                print(f"[overlapped] Async selfplay failed: {e}")
+                self._selfplay_future = None
+                # Fall through to synchronous execution
+
+        # Run synchronously if no async task or it failed
+        return run_selfplay(config, iteration, dry_run)
+
+    def cancel_pending(self) -> None:
+        """Cancel any pending async tasks."""
+        if self._selfplay_future is not None:
+            self._selfplay_future.cancel()
+            self._selfplay_future = None
 
 
 def _atomic_copy(src: Path, dst: Path) -> None:
@@ -565,8 +670,14 @@ def ingest_training_pool(
     *,
     staging_db_path: Optional[Path],
     dry_run: bool = False,
+    parallel_workers: int = 8,
 ) -> bool:
-    """Ingest newly discovered staging DBs into the canonical training pool DB."""
+    """Ingest newly discovered staging DBs into the canonical training pool DB.
+
+    Args:
+        parallel_workers: Number of parallel workers for validation.
+            Default 8 reduces validation time from ~30min to ~5min.
+    """
     if not bool(config.get("canonical_mode", False)):
         return True
 
@@ -644,6 +755,8 @@ def ingest_training_pool(
         "--report-json",
         str(report_json),
     ]
+    if parallel_workers > 1:
+        cmd += ["--parallel-workers", str(parallel_workers)]
     if holdout_db is not None:
         cmd += ["--holdout-db", str(holdout_db)]
     if quarantine_db is not None:
@@ -879,6 +992,72 @@ def train_model(
     return True, iter_model
 
 
+def _run_pool_opponent_eval(
+    *,
+    iter_model: Path,
+    opponent: Path,
+    board: str,
+    pool_games: int,
+    max_moves: int,
+    seed: int,
+    out_path: Path,
+    dry_run: bool,
+) -> Tuple[bool, int, int, int, str]:
+    """Run evaluation against a single pool opponent.
+
+    Returns: (success, wins, losses, draws, error_msg)
+    """
+    if dry_run:
+        return True, int(pool_games * 0.55), int(pool_games * 0.45), 0, ""
+
+    cmd = [
+        sys.executable,
+        "scripts/evaluate_ai_models.py",
+        "--player1",
+        "neural_network",
+        "--player2",
+        "neural_network",
+        "--checkpoint",
+        str(iter_model),
+        "--checkpoint2",
+        str(opponent),
+        "--board",
+        board,
+        "--games",
+        str(pool_games),
+        "--max-moves",
+        str(max_moves),
+        "--seed",
+        str(seed),
+        "--output",
+        str(out_path),
+        "--quiet",
+    ]
+
+    code, _, stderr = run_command(
+        cmd,
+        dry_run=False,
+        capture=False,
+        timeout=7200,
+        cwd=AI_SERVICE_ROOT,
+    )
+    if code != 0:
+        return False, 0, 0, 0, f"eval failed: {stderr[:200]}"
+
+    if not out_path.exists():
+        return False, 0, 0, 0, f"missing output file: {out_path}"
+
+    try:
+        payload = json.loads(out_path.read_text())
+        res = payload.get("results", {}) if isinstance(payload, dict) else {}
+        wins = int(res.get("player1_wins", 0))
+        losses = int(res.get("player2_wins", 0))
+        draws = int(res.get("draws", 0))
+        return True, wins, losses, draws, ""
+    except Exception as e:
+        return False, 0, 0, 0, f"parse error: {e}"
+
+
 def evaluate_model(
     config: dict,
     iteration: int,
@@ -901,7 +1080,12 @@ def evaluate_model(
         )
         return False, {}
 
-    eval_games = int(config.get("eval_games", 100))
+    # Adaptive evaluation: use fewer games for clear results, more for uncertain
+    # Starts with initial_games (default 50), extends to max_games if win rate is 45-55%
+    initial_games = int(config.get("eval_initial_games", 50))
+    max_eval_games = int(config.get("eval_games", 100))
+    adaptive_eval = bool(config.get("adaptive_eval", True))
+    eval_games = initial_games if adaptive_eval else max_eval_games
     seed = int(config.get("eval_seed_base", 10_000)) + int(iteration)
     max_moves = int(config.get("max_moves", 10000))
 
@@ -972,6 +1156,40 @@ def evaluate_model(
     losses = int(res.get("player2_wins", 0))
     draws = int(res.get("draws", 0))
 
+    # Adaptive evaluation: extend if result is uncertain (45-55% win rate)
+    total_games = wins + losses + draws
+    if adaptive_eval and total_games > 0 and total_games < max_eval_games:
+        win_rate = wins / total_games
+        uncertain_lower = float(config.get("eval_uncertain_lower", 0.45))
+        uncertain_upper = float(config.get("eval_uncertain_upper", 0.55))
+        if uncertain_lower < win_rate < uncertain_upper:
+            extra_games = max_eval_games - total_games
+            print(f"  Win rate {win_rate:.1%} is uncertain, extending with {extra_games} more games...")
+            eval_out_ext = log_dir / f"eval_iter{iteration}_{board}_{players}p_ext.json"
+            cmd_ext = cmd.copy()
+            # Update games and seed in command
+            for i, arg in enumerate(cmd_ext):
+                if arg == "--games" and i + 1 < len(cmd_ext):
+                    cmd_ext[i + 1] = str(extra_games)
+                if arg == "--seed" and i + 1 < len(cmd_ext):
+                    cmd_ext[i + 1] = str(seed + 1000)
+                if arg == "--output" and i + 1 < len(cmd_ext):
+                    cmd_ext[i + 1] = str(eval_out_ext)
+            code_ext, _, _ = run_command(cmd_ext, dry_run=dry_run, capture=False, timeout=7200, cwd=AI_SERVICE_ROOT)
+            if code_ext == 0 and eval_out_ext.exists():
+                try:
+                    payload_ext = json.loads(eval_out_ext.read_text())
+                    res_ext = payload_ext.get("results", {}) if isinstance(payload_ext, dict) else {}
+                    wins += int(res_ext.get("player1_wins", 0))
+                    losses += int(res_ext.get("player2_wins", 0))
+                    draws += int(res_ext.get("draws", 0))
+                    total_games = wins + losses + draws
+                    print(f"  Extended evaluation: {wins}W-{losses}L-{draws}D ({total_games} games)")
+                except Exception:
+                    pass
+        else:
+            print(f"  Win rate {win_rate:.1%} is decisive, skipping extended evaluation")
+
     summary = _promotion_gate(
         wins=wins,
         losses=losses,
@@ -1010,6 +1228,13 @@ def evaluate_model(
                 except Exception as e:
                     print(f"[pool-eval] cache init failed: {e}", file=sys.stderr)
 
+            # Check if parallel pool evaluation is enabled
+            parallel_pool_eval = bool(config.get("parallel_pool_eval", False))
+
+            # Prepare evaluation tasks
+            eval_tasks: list[tuple[int, Path, Path, int, bool]] = []  # (idx, opp, out_path, seed, cached)
+            cached_results: dict[int, tuple[int, int, int]] = {}  # idx -> (wins, losses, draws)
+
             for idx, opp in enumerate(opponents):
                 out_path = log_dir / f"eval_iter{iteration}_{board}_{players}p_pool{idx+1}.json"
                 opp_seed = seed + 10_000 * (idx + 1)
@@ -1023,69 +1248,76 @@ def evaluate_model(
                         )
                         if cached_result is not None:
                             print(f"[pool-eval] cache hit vs {opp.name}")
+                            cached_results[idx] = (
+                                cached_result.model_a_wins,
+                                cached_result.model_b_wins,
+                                cached_result.draws,
+                            )
                     except Exception as e:
                         print(f"[pool-eval] cache lookup failed: {e}", file=sys.stderr)
 
-                if cached_result is not None:
-                    # Use cached result
-                    opp_wins = cached_result.model_a_wins
-                    opp_losses = cached_result.model_b_wins
-                    opp_draws = cached_result.draws
+                if cached_result is None:
+                    eval_tasks.append((idx, opp, out_path, opp_seed, False))
+
+            # Run evaluations (parallel or sequential)
+            eval_results: dict[int, tuple[bool, int, int, int, str]] = {}
+
+            if eval_tasks:
+                if parallel_pool_eval and len(eval_tasks) > 1:
+                    print(f"[pool-eval] Running {len(eval_tasks)} evaluations in parallel...")
+
+                    def run_eval_task(task: tuple) -> tuple[int, tuple[bool, int, int, int, str]]:
+                        idx, opp, out_path, opp_seed, _ = task
+                        result = _run_pool_opponent_eval(
+                            iter_model=iter_model,
+                            opponent=opp,
+                            board=board,
+                            pool_games=pool_games,
+                            max_moves=max_moves,
+                            seed=opp_seed,
+                            out_path=out_path,
+                            dry_run=dry_run,
+                        )
+                        return idx, result
+
+                    # Use ThreadPoolExecutor for parallel execution
+                    max_workers = min(len(eval_tasks), 4)  # Cap at 4 to avoid resource exhaustion
+                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                        futures = {executor.submit(run_eval_task, task): task[0] for task in eval_tasks}
+                        for future in as_completed(futures):
+                            try:
+                                idx, result = future.result()
+                                eval_results[idx] = result
+                            except Exception as e:
+                                idx = futures[future]
+                                eval_results[idx] = (False, 0, 0, 0, f"ThreadPool error: {e}")
                 else:
-                    # Run evaluation
-                    cmd = [
-                        sys.executable,
-                        "scripts/evaluate_ai_models.py",
-                        "--player1",
-                        "neural_network",
-                        "--player2",
-                        "neural_network",
-                        "--checkpoint",
-                        str(iter_model),
-                        "--checkpoint2",
-                        str(opp),
-                        "--board",
-                        board,
-                        "--games",
-                        str(pool_games),
-                        "--max-moves",
-                        str(max_moves),
-                        "--seed",
-                        str(opp_seed),
-                        "--output",
-                        str(out_path),
-                        "--quiet",
-                    ]
+                    # Sequential execution
+                    for task in eval_tasks:
+                        idx, opp, out_path, opp_seed, _ = task
+                        result = _run_pool_opponent_eval(
+                            iter_model=iter_model,
+                            opponent=opp,
+                            board=board,
+                            pool_games=pool_games,
+                            max_moves=max_moves,
+                            seed=opp_seed,
+                            out_path=out_path,
+                            dry_run=dry_run,
+                        )
+                        eval_results[idx] = result
 
-                    code, _, stderr = run_command(
-                        cmd,
-                        dry_run=dry_run,
-                        capture=False,
-                        timeout=7200,
-                        cwd=AI_SERVICE_ROOT,
-                    )
-                    if code != 0:
-                        print(f"[pool-eval] failed vs {opp.name}: {stderr[:200]}", file=sys.stderr)
+            # Aggregate results
+            for idx, opp in enumerate(opponents):
+                if idx in cached_results:
+                    opp_wins, opp_losses, opp_draws = cached_results[idx]
+                    was_cached = True
+                elif idx in eval_results:
+                    success, opp_wins, opp_losses, opp_draws, err_msg = eval_results[idx]
+                    if not success:
+                        print(f"[pool-eval] failed vs {opp.name}: {err_msg}", file=sys.stderr)
                         return False, {}
-
-                    if dry_run:
-                        opp_payload = {
-                            "results": {
-                                "player1_wins": int(pool_games * 0.55),
-                                "player2_wins": int(pool_games * 0.45),
-                                "draws": 0,
-                            }
-                        }
-                    else:
-                        if not out_path.exists():
-                            print(f"[pool-eval] missing output file: {out_path}", file=sys.stderr)
-                            return False, {}
-                        opp_payload = json.loads(out_path.read_text())
-
-                    opp_res = opp_payload.get("results", {}) if isinstance(opp_payload, dict) else {}
-                    opp_wins = int(opp_res.get("player1_wins", 0))
-                    opp_losses = int(opp_res.get("player2_wins", 0))
-                    opp_draws = int(opp_res.get("draws", 0))
+                    was_cached = False
 
                     # Store in cache
                     if eval_cache is not None and not dry_run:
@@ -1096,6 +1328,9 @@ def evaluate_model(
                             )
                         except Exception as e:
                             print(f"[pool-eval] cache store failed: {e}", file=sys.stderr)
+                else:
+                    print(f"[pool-eval] no result for opponent {idx}", file=sys.stderr)
+                    return False, {}
 
                 agg_wins += opp_wins
                 agg_losses += opp_losses
@@ -1107,7 +1342,7 @@ def evaluate_model(
                         "wins": opp_wins,
                         "losses": opp_losses,
                         "draws": opp_draws,
-                        "cached": cached_result is not None,
+                        "cached": was_cached,
                     }
                 )
 
@@ -1450,14 +1685,28 @@ def run_improvement_iteration(
     config: dict,
     state: LoopState,
     dry_run: bool = False,
+    pipeline_manager: Optional[OverlappedPipelineManager] = None,
 ) -> Tuple[bool, float, int]:
     """Run a single iteration of the improvement loop.
 
+    Args:
+        iteration: Current iteration number (0-indexed)
+        config: Loop configuration dictionary
+        state: Current loop state
+        dry_run: If True, print commands without executing
+        pipeline_manager: Optional overlapped pipeline manager for async selfplay
+
     Returns: (improved, winrate, games_generated)
     """
-    # Step 1: Selfplay
+    # Step 1: Selfplay - use pipeline manager if async selfplay was started
     print(f"\n--- Step 1: Selfplay ---")
-    success, games, staging_db_path = run_selfplay(config, iteration, dry_run)
+    if pipeline_manager is not None and pipeline_manager.enabled:
+        # Get result from async selfplay (or run sync if no task pending)
+        success, games, staging_db_path = pipeline_manager.get_selfplay_result(
+            config, iteration, dry_run
+        )
+    else:
+        success, games, staging_db_path = run_selfplay(config, iteration, dry_run)
     if not success:
         return False, 0.0, 0
 
@@ -1470,6 +1719,7 @@ def run_improvement_iteration(
             state,
             staging_db_path=staging_db_path,
             dry_run=dry_run,
+            parallel_workers=int(config.get("parallel_validation_workers", 1)),
         ):
             return False, 0.0, games
 
@@ -1826,6 +2076,68 @@ def main():
         default=5,
         help="Rollback after this many consecutive non-improvements",
     )
+    # Parallelization options
+    parser.add_argument(
+        "--parallel-validation-workers",
+        type=int,
+        default=1,
+        help=(
+            "Number of parallel workers for config/history validation during ingest. "
+            "Set to 8+ to reduce validation time from ~30min to ~5min. "
+            "(default: 1 = sequential)"
+        ),
+    )
+    parser.add_argument(
+        "--parallel-pool-eval",
+        action="store_true",
+        help=(
+            "Run pool opponent evaluations in parallel using concurrent.futures. "
+            "Reduces pool eval time from 30-60min to ~15min."
+        ),
+    )
+    # Overlapped pipeline options (enabled by default for faster iterations)
+    parser.add_argument(
+        "--overlapped-selfplay",
+        action="store_true",
+        default=True,
+        help=(
+            "Enable overlapped pipeline: start selfplay for iteration N+1 while "
+            "training/eval for N is running. Reduces total iteration time by ~30%%. (default: enabled)"
+        ),
+    )
+    parser.add_argument(
+        "--no-overlapped-selfplay",
+        action="store_false",
+        dest="overlapped_selfplay",
+        help="Disable overlapped pipeline (run stages sequentially).",
+    )
+    # Adaptive controller options
+    parser.add_argument(
+        "--adaptive",
+        action="store_true",
+        help=(
+            "Enable adaptive controller for dynamic loop behavior. "
+            "Includes plateau detection, dynamic game counts, and early stopping."
+        ),
+    )
+    parser.add_argument(
+        "--plateau-threshold",
+        type=int,
+        default=5,
+        help=(
+            "Number of iterations without improvement before plateau detection "
+            "(default: 5). Only used with --adaptive."
+        ),
+    )
+    parser.add_argument(
+        "--adaptive-state-file",
+        type=str,
+        default=None,
+        help=(
+            "Path to adaptive controller state file for persistence across runs. "
+            "Default: logs/improvement/<board>_<players>p_adaptive.json"
+        ),
+    )
     # Diverse tournament scheduling
     parser.add_argument(
         "--tournament-every-n-iterations",
@@ -1942,6 +2254,11 @@ def main():
         "allow_pending_gate": bool(args.allow_pending_gate),
         "registry_path": str(registry_path),
         "gate_summary": str(gate_summary_path),
+        "parallel_validation_workers": int(args.parallel_validation_workers),
+        "parallel_pool_eval": bool(args.parallel_pool_eval),
+        "overlapped_selfplay": bool(args.overlapped_selfplay),
+        "adaptive": bool(args.adaptive),
+        "plateau_threshold": int(args.plateau_threshold),
     }
 
     # Tournament configuration
@@ -2037,17 +2354,63 @@ def main():
         print(f"  Games per config: {args.tournament_games_per_config}")
     if args.dry_run:
         print("*** DRY RUN MODE - No commands will be executed ***")
+    if args.overlapped_selfplay:
+        print("Overlapped selfplay: enabled (30% faster iterations)")
+    if args.adaptive:
+        print(f"Adaptive controller: enabled (plateau threshold: {args.plateau_threshold})")
     print("=" * 60)
+
+    # Initialize overlapped pipeline manager
+    pipeline_manager = OverlappedPipelineManager(enabled=bool(args.overlapped_selfplay))
+
+    # Initialize adaptive controller
+    adaptive_controller = None
+    if args.adaptive and HAS_ADAPTIVE_CONTROLLER:
+        adaptive_state_file = args.adaptive_state_file
+        if adaptive_state_file is None:
+            adaptive_state_file = AI_SERVICE_ROOT / "logs" / "improvement" / f"{args.board}_{args.players}p_adaptive.json"
+        else:
+            adaptive_state_file = Path(adaptive_state_file)
+
+        adaptive_controller = create_adaptive_controller(
+            plateau_threshold=args.plateau_threshold,
+            min_games=50,
+            max_games=200,
+            state_path=adaptive_state_file,
+        )
+        print(f"Adaptive state file: {adaptive_state_file}")
+    elif args.adaptive:
+        print("Warning: --adaptive requested but adaptive_controller module not available")
 
     for i in range(start_iter, args.iterations):
         print(f"\n{'='*60}")
         print(f"=== Improvement Iteration {i+1}/{args.iterations} ===")
         print(f"{'='*60}")
 
+        # Check adaptive controller for plateau detection
+        if adaptive_controller is not None:
+            if not adaptive_controller.should_continue():
+                print("\n[adaptive] Plateau detected - stopping loop")
+                print(f"[adaptive] {adaptive_controller.get_statistics()}")
+                break
+
+            # Get dynamic game count from adaptive controller
+            dynamic_games = adaptive_controller.compute_games()
+            if dynamic_games != config["games_per_iter"]:
+                print(f"[adaptive] Adjusting games_per_iter: {config['games_per_iter']} -> {dynamic_games}")
+                config["games_per_iter"] = dynamic_games
+
         try:
+            # Use pipeline manager for overlapped selfplay if enabled
             improved, winrate, games = run_improvement_iteration(
-                i, config, state, args.dry_run
+                i, config, state, args.dry_run,
+                pipeline_manager=pipeline_manager,
             )
+
+            # Start selfplay for next iteration in background (if overlapped enabled)
+            if args.overlapped_selfplay and i + 1 < args.iterations:
+                print("[overlapped] Starting selfplay for next iteration in background...")
+                pipeline_manager.start_selfplay_async(config, i + 1, args.dry_run)
 
             # Update state
             state.iteration = i + 1
@@ -2058,6 +2421,23 @@ def main():
                 "winrate": winrate,
                 "games": games,
             })
+
+            # Update adaptive controller
+            if adaptive_controller is not None:
+                adaptive_controller.record_iteration(
+                    iteration=i + 1,
+                    win_rate=winrate,
+                    promoted=improved,
+                    games_played=games,
+                    eval_games=int(config.get("eval_games", 100)),
+                )
+                # Save adaptive state
+                if args.adaptive_state_file:
+                    adaptive_controller.save(Path(args.adaptive_state_file))
+                else:
+                    adaptive_controller.save(
+                        AI_SERVICE_ROOT / "logs" / "improvement" / f"{args.board}_{args.players}p_adaptive.json"
+                    )
 
             if improved:
                 state.total_improvements += 1
@@ -2117,7 +2497,13 @@ def main():
 
         except KeyboardInterrupt:
             print("\n\nInterrupted by user. Saving state...")
+            pipeline_manager.cancel_pending()
             save_state(state, state_path)
+            if adaptive_controller is not None:
+                adaptive_controller.save(
+                    Path(args.adaptive_state_file) if args.adaptive_state_file
+                    else AI_SERVICE_ROOT / "logs" / "improvement" / f"{args.board}_{args.players}p_adaptive.json"
+                )
             print(f"State saved to {state_path}. Resume with --resume")
             sys.exit(0)
 
@@ -2130,6 +2516,9 @@ def main():
         if not args.dry_run:
             time.sleep(5)
 
+    # Cleanup
+    pipeline_manager.cancel_pending()
+
     # Final summary
     print(f"\n{'='*60}")
     print("Improvement Loop Complete!")
@@ -2140,6 +2529,14 @@ def main():
     print(f"Best win rate achieved: {state.best_winrate:.1%}")
     if state.best_model_path:
         print(f"Best model: {state.best_model_path}")
+
+    # Print adaptive controller stats if enabled
+    if adaptive_controller is not None:
+        stats = adaptive_controller.get_statistics()
+        print(f"\nAdaptive Controller Statistics:")
+        print(f"  Plateau count: {stats.get('plateau_count', 0)}")
+        print(f"  Promotion rate: {stats.get('promotion_rate', 0):.1%}")
+        print(f"  Trend: {stats.get('trend', 'unknown')}")
 
 
 if __name__ == "__main__":

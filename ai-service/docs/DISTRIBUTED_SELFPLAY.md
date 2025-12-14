@@ -1,6 +1,8 @@
 # Distributed Self-Play Setup
 
-This guide explains how to set up distributed self-play across multiple local Macs and AWS cloud workers.
+> **Doc Status (2025-12-14): Active**
+
+This guide explains how to set up distributed self-play across multiple local Macs, AWS instances, Lambda Labs, and Vast.ai workers.
 
 ## Deployment Modes
 

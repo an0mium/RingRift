@@ -795,6 +795,25 @@ def main():
 
     args = parser.parse_args()
 
+    # Validate GPU/CUDA environment
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            logger.warning("=" * 60)
+            logger.warning("WARNING: CUDA is not available!")
+            logger.warning("Hybrid selfplay requires GPU acceleration for optimal performance.")
+            logger.warning("The script will still run but may fall back to CPU evaluation.")
+            logger.warning("")
+            logger.warning("To use CPU-only selfplay, run scripts/run_self_play.py instead.")
+            logger.warning("=" * 60)
+        else:
+            device_count = torch.cuda.device_count()
+            device_name = torch.cuda.get_device_name(0) if device_count > 0 else "unknown"
+            logger.info(f"CUDA available: {device_count} GPU(s) detected ({device_name})")
+    except ImportError:
+        logger.error("PyTorch not installed - hybrid selfplay requires torch with CUDA support")
+        sys.exit(1)
+
     # Normalize board type aliases
     if args.board_type == "hexagonal":
         args.board_type = "hex"

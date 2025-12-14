@@ -93,8 +93,9 @@ SSH_BASE_DELAY = 2.0  # seconds
 SSH_MAX_DELAY = 30.0  # seconds
 SSH_BACKOFF_FACTOR = 2.0
 
-# Smart polling configuration
-POLL_INTERVAL_SECONDS = 60  # Check every minute
+# Smart polling configuration - reduced from 60s to 10s for faster response
+POLL_INTERVAL_SECONDS = 10  # Check every 10 seconds (reduced from 60s)
+POLL_INTERVAL_SLOW = 30  # Slower polling for less urgent phases
 MAX_PHASE_WAIT_MINUTES = 120  # Maximum wait for any phase
 SELFPLAY_MIN_GAMES_THRESHOLD = 50  # Min games before proceeding
 CMAES_COMPLETION_CHECK_CMD = "pgrep -f 'run_iterative_cmaes' >/dev/null && echo running || echo done"
@@ -102,7 +103,7 @@ CMAES_COMPLETION_CHECK_CMD = "pgrep -f 'run_iterative_cmaes' >/dev/null && echo 
 # P2P orchestrator integration
 P2P_DEFAULT_PORT = 8770
 P2P_HTTP_TIMEOUT = 30  # seconds
-P2P_JOB_POLL_INTERVAL = 30  # seconds
+P2P_JOB_POLL_INTERVAL = 10  # seconds (reduced from 30s)
 
 # Try to import aiohttp for P2P backend
 try:
@@ -494,6 +495,164 @@ class PipelineState:
     tier_promotions: Dict[str, str] = field(default_factory=dict)  # config -> current tier
 
 
+# =============================================================================
+# Event-Driven Pipeline Infrastructure
+# =============================================================================
+# Completion callbacks allow immediate triggering of downstream stages instead
+# of relying on polling. This reduces iteration time by eliminating idle gaps.
+
+from enum import Enum
+from typing import Callable, Awaitable
+
+class StageEvent(Enum):
+    """Events emitted when pipeline stages complete."""
+    SELFPLAY_COMPLETE = "selfplay_complete"
+    CANONICAL_SELFPLAY_COMPLETE = "canonical_selfplay_complete"
+    SYNC_COMPLETE = "sync_complete"
+    PARITY_VALIDATION_COMPLETE = "parity_validation_complete"
+    NPZ_EXPORT_COMPLETE = "npz_export_complete"
+    TRAINING_COMPLETE = "training_complete"
+    EVALUATION_COMPLETE = "evaluation_complete"
+    CMAES_COMPLETE = "cmaes_complete"
+    PROMOTION_COMPLETE = "promotion_complete"
+
+
+@dataclass
+class StageCompletionResult:
+    """Data passed to completion callbacks."""
+    event: StageEvent
+    success: bool
+    iteration: int
+    timestamp: str
+    board_type: str = "square8"
+    num_players: int = 2
+    games_generated: int = 0
+    model_path: Optional[str] = None
+    win_rate: Optional[float] = None
+    promoted: bool = False
+    error: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+# Type alias for completion callbacks
+StageCompletionCallback = Callable[[StageCompletionResult], Awaitable[None]]
+
+
+class StageEventBus:
+    """Event bus for pipeline stage completion notifications.
+
+    Enables event-driven pipeline execution by allowing stages to register
+    callbacks that fire immediately when upstream stages complete.
+
+    Example:
+        bus = StageEventBus()
+
+        async def on_selfplay_done(result):
+            if result.success:
+                await start_data_sync()
+
+        bus.subscribe(StageEvent.SELFPLAY_COMPLETE, on_selfplay_done)
+
+        # Later, when selfplay completes:
+        await bus.emit(StageCompletionResult(
+            event=StageEvent.SELFPLAY_COMPLETE,
+            success=True,
+            iteration=1,
+            timestamp=datetime.now().isoformat(),
+            games_generated=500
+        ))
+    """
+
+    def __init__(self):
+        self._subscribers: Dict[StageEvent, List[StageCompletionCallback]] = {}
+        self._log_callback: Optional[Callable[[str], None]] = None
+
+    def set_logger(self, log_fn: Callable[[str], None]) -> None:
+        """Set a logging function for event notifications."""
+        self._log_callback = log_fn
+
+    def subscribe(self, event: StageEvent, callback: StageCompletionCallback) -> None:
+        """Register a callback for a stage completion event."""
+        if event not in self._subscribers:
+            self._subscribers[event] = []
+        self._subscribers[event].append(callback)
+
+    def unsubscribe(self, event: StageEvent, callback: StageCompletionCallback) -> bool:
+        """Remove a callback from an event. Returns True if found and removed."""
+        if event in self._subscribers and callback in self._subscribers[event]:
+            self._subscribers[event].remove(callback)
+            return True
+        return False
+
+    async def emit(self, result: StageCompletionResult) -> int:
+        """Emit a stage completion event to all subscribers.
+
+        Returns the number of callbacks invoked.
+        """
+        callbacks = self._subscribers.get(result.event, [])
+        if self._log_callback:
+            status = "OK" if result.success else "FAILED"
+            self._log_callback(
+                f"[EVENT] {result.event.value} ({status}) - "
+                f"invoking {len(callbacks)} callback(s)"
+            )
+
+        invoked = 0
+        for callback in callbacks:
+            try:
+                await callback(result)
+                invoked += 1
+            except Exception as e:
+                if self._log_callback:
+                    self._log_callback(f"[EVENT] Callback error for {result.event.value}: {e}")
+
+        return invoked
+
+    def subscriber_count(self, event: StageEvent) -> int:
+        """Get the number of subscribers for an event."""
+        return len(self._subscribers.get(event, []))
+
+
+# Global event bus singleton for cross-module event handling
+_global_event_bus: Optional[StageEventBus] = None
+
+
+def get_event_bus() -> StageEventBus:
+    """Get or create the global event bus."""
+    global _global_event_bus
+    if _global_event_bus is None:
+        _global_event_bus = StageEventBus()
+    return _global_event_bus
+
+
+# =============================================================================
+# Convenience callbacks for common pipeline transitions
+# =============================================================================
+
+async def on_selfplay_complete(result: StageCompletionResult) -> None:
+    """Default handler for selfplay completion - triggers data sync.
+
+    This is a template showing the event-driven pattern. Real implementations
+    should register their own callbacks with specific logic.
+    """
+    if result.success and result.games_generated > 0:
+        # Emit signal that data is ready for sync
+        # The actual sync should be triggered by the orchestrator
+        pass
+
+
+async def on_training_complete(result: StageCompletionResult) -> None:
+    """Default handler for training completion - triggers evaluation.
+
+    This is a template showing the event-driven pattern. Real implementations
+    should register their own callbacks with specific logic.
+    """
+    if result.success and result.model_path:
+        # Emit signal that model is ready for evaluation
+        # The actual evaluation should be triggered by the orchestrator
+        pass
+
+
 # Worker configurations loaded from gitignored config file
 # See config/distributed_hosts.yaml for actual host configuration
 def load_workers_from_config() -> List[WorkerConfig]:
@@ -597,6 +756,7 @@ class PipelineOrchestrator:
         backend: str = "ssh",
         p2p_leader_url: Optional[str] = None,
         p2p_auth_token: Optional[str] = None,
+        event_bus: Optional[StageEventBus] = None,
     ):
         self.config = self._load_config(config_path) if config_path else {}
         self.state_path = state_path or "logs/pipeline/state.json"
@@ -604,6 +764,10 @@ class PipelineOrchestrator:
         self.dry_run = dry_run
         self.log_dir = Path("logs/pipeline")
         self.log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Event-driven pipeline infrastructure
+        self.event_bus = event_bus or get_event_bus()
+        self.event_bus.set_logger(self.log)
 
         # Backend configuration
         self.backend_mode = backend
@@ -653,6 +817,39 @@ class PipelineOrchestrator:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         prefix = {"INFO": "[INFO]", "WARN": "[WARN]", "ERROR": "[ERROR]", "OK": "[OK]"}
         print(f"{timestamp} {prefix.get(level, '[???]')} {message}")
+
+    async def _emit_stage_completion(
+        self,
+        event: StageEvent,
+        success: bool,
+        board_type: str = "square8",
+        num_players: int = 2,
+        games_generated: int = 0,
+        model_path: Optional[str] = None,
+        win_rate: Optional[float] = None,
+        promoted: bool = False,
+        error: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        """Emit a stage completion event to trigger downstream actions.
+
+        Returns the number of callbacks invoked.
+        """
+        result = StageCompletionResult(
+            event=event,
+            success=success,
+            iteration=self.state.iteration,
+            timestamp=datetime.now().isoformat(),
+            board_type=board_type,
+            num_players=num_players,
+            games_generated=games_generated,
+            model_path=model_path,
+            win_rate=win_rate,
+            promoted=promoted,
+            error=error,
+            metadata=metadata or {},
+        )
+        return await self.event_bus.emit(result)
 
     async def run_remote_command(
         self,
@@ -775,14 +972,19 @@ class PipelineOrchestrator:
         self,
         min_games: int = SELFPLAY_MIN_GAMES_THRESHOLD,
         max_wait_minutes: int = 30,
+        board_type: str = "square8",
+        num_players: int = 2,
+        emit_event: bool = True,
     ) -> int:
         """Poll workers until sufficient selfplay games are generated.
 
         Returns total games generated across all workers.
+        Emits SELFPLAY_COMPLETE event when threshold is reached.
         """
         self.log(f"Polling for selfplay completion (min {min_games} games, max {max_wait_minutes} min)...")
         start_time = time.time()
         max_wait_seconds = max_wait_minutes * 60
+        total_games = 0
 
         while time.time() - start_time < max_wait_seconds:
             total_games = 0
@@ -796,11 +998,30 @@ class PipelineOrchestrator:
 
             if total_games >= min_games:
                 self.log(f"Selfplay target reached: {total_games} games", "OK")
+                # Emit completion event to trigger downstream stages
+                if emit_event:
+                    await self._emit_stage_completion(
+                        event=StageEvent.SELFPLAY_COMPLETE,
+                        success=True,
+                        board_type=board_type,
+                        num_players=num_players,
+                        games_generated=total_games,
+                    )
                 return total_games
 
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
         self.log(f"Selfplay timeout after {max_wait_minutes} min with {total_games} games", "WARN")
+        # Emit timeout event (partial success if some games generated)
+        if emit_event:
+            await self._emit_stage_completion(
+                event=StageEvent.SELFPLAY_COMPLETE,
+                success=total_games > 0,
+                board_type=board_type,
+                num_players=num_players,
+                games_generated=total_games,
+                error=f"Timeout after {max_wait_minutes} min" if total_games < min_games else None,
+            )
         return total_games
 
     async def poll_for_cmaes_completion(
@@ -846,8 +1067,15 @@ class PipelineOrchestrator:
         self,
         worker: WorkerConfig,
         max_wait_minutes: int = 60,
+        board_type: str = "square8",
+        num_players: int = 2,
+        model_path: Optional[str] = None,
+        emit_event: bool = True,
     ) -> bool:
-        """Poll a worker until training job completes."""
+        """Poll a worker until training job completes.
+
+        Emits TRAINING_COMPLETE event when training finishes.
+        """
         self.log(f"Polling {worker.name} for training completion...")
         start_time = time.time()
         max_wait_seconds = max_wait_minutes * 60
@@ -859,6 +1087,16 @@ class PipelineOrchestrator:
             )
             if code == 0 and "done" in stdout:
                 self.log(f"Training on {worker.name} completed", "OK")
+                # Emit completion event to trigger evaluation
+                if emit_event:
+                    await self._emit_stage_completion(
+                        event=StageEvent.TRAINING_COMPLETE,
+                        success=True,
+                        board_type=board_type,
+                        num_players=num_players,
+                        model_path=model_path,
+                        metadata={"worker": worker.name},
+                    )
                 return True
 
             elapsed_min = (time.time() - start_time) / 60
@@ -868,6 +1106,17 @@ class PipelineOrchestrator:
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
         self.log(f"Training timeout on {worker.name} after {max_wait_minutes} min", "WARN")
+        # Emit timeout event
+        if emit_event:
+            await self._emit_stage_completion(
+                event=StageEvent.TRAINING_COMPLETE,
+                success=False,
+                board_type=board_type,
+                num_players=num_players,
+                model_path=model_path,
+                error=f"Timeout after {max_wait_minutes} min on {worker.name}",
+                metadata={"worker": worker.name},
+            )
         return False
 
     # =========================================================================
@@ -1300,7 +1549,7 @@ export RINGRIFT_TRAINED_HEURISTIC_PROFILES={worker.remote_path}/data/trained_heu
 
         return {"dispatched": success_count, "total": len(tasks)}
 
-    async def run_sync_phase(self) -> bool:
+    async def run_sync_phase(self, emit_event: bool = True) -> bool:
         """Sync all selfplay AND tournament data from remote workers.
 
         This phase pulls:
@@ -1308,12 +1557,14 @@ export RINGRIFT_TRAINED_HEURISTIC_PROFILES={worker.remote_path}/data/trained_heu
         2. Tournament JSONL files from workers (for training data)
 
         Both sources are merged into the training data pool.
+        Emits SYNC_COMPLETE event when sync finishes.
         """
         self.state.phase = "sync"
         self._save_state()
         self.log("=== Starting Data Sync Phase ===")
 
         success = True
+        error_msg = None
 
         # Step 1: Sync selfplay databases using existing script
         sync_script = Path(__file__).parent / "sync_selfplay_data.sh"
@@ -1333,20 +1584,33 @@ export RINGRIFT_TRAINED_HEURISTIC_PROFILES={worker.remote_path}/data/trained_heu
                     else:
                         self.log(f"Selfplay sync failed: {result.stderr[:200]}", "ERROR")
                         success = False
+                        error_msg = f"Selfplay sync failed: {result.stderr[:200]}"
                 except subprocess.TimeoutExpired:
                     self.log("Selfplay sync timed out", "ERROR")
                     success = False
+                    error_msg = "Selfplay sync timed out after 30 minutes"
                 except Exception as e:
                     self.log(f"Selfplay sync error: {e}", "ERROR")
                     success = False
+                    error_msg = f"Selfplay sync error: {e}"
         else:
             self.log(f"Sync script not found: {sync_script}", "WARN")
 
         # Step 2: Sync tournament JSONL files from workers
-        await self.sync_tournament_games()
+        merged_games = await self.sync_tournament_games()
 
         self.state.last_sync = datetime.now().isoformat()
         self._save_state()
+
+        # Emit completion event
+        if emit_event:
+            await self._emit_stage_completion(
+                event=StageEvent.SYNC_COMPLETE,
+                success=success,
+                games_generated=merged_games,
+                error=error_msg,
+            )
+
         return success
 
     async def sync_tournament_games(self) -> int:

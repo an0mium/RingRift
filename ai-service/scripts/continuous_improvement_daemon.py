@@ -506,6 +506,17 @@ TRAINING_COOLDOWN_SECONDS = 900    # 15 min between training runs (was 30 min)
 TOURNAMENT_GAMES = 50              # Games per model comparison
 PROMOTION_THRESHOLD = 0.55         # Win rate needed for promotion
 
+# Adaptive training configuration
+# When Elo is improving rapidly, train more frequently
+# When Elo is plateauing, train less frequently to save resources
+ADAPTIVE_TRAINING_ENABLED = True
+ADAPTIVE_MIN_COOLDOWN = 600       # 10 min minimum when improving fast
+ADAPTIVE_MAX_COOLDOWN = 1800      # 30 min maximum when plateauing
+ADAPTIVE_MIN_GAMES = 300          # Train with fewer games when improving
+ADAPTIVE_MAX_GAMES = 800          # Require more games when plateauing
+ELO_IMPROVEMENT_THRESHOLD = 20    # Elo gain to consider "improving"
+ELO_HISTORY_WINDOW = 5            # Number of recent models to check
+
 # Game count cache for faster threshold checking
 GAME_COUNT_CACHE_FILE = AI_SERVICE_ROOT / "logs" / "improvement_daemon" / "game_count_cache.json"
 _game_count_cache: Dict[str, Tuple[int, float]] = {}  # path -> (count, mtime)
@@ -886,6 +897,66 @@ def save_game_count_cache() -> None:
         pass
 
 
+def get_adaptive_training_thresholds(state: DaemonState, config_key: str) -> Tuple[int, int]:
+    """Compute adaptive training thresholds based on Elo improvement velocity.
+
+    Returns (min_games_threshold, cooldown_seconds).
+
+    When recent models show Elo improvement:
+    - Lower game threshold (train sooner)
+    - Shorter cooldown (train more frequently)
+
+    When Elo is plateauing or declining:
+    - Higher game threshold (accumulate more data)
+    - Longer cooldown (train less frequently)
+    """
+    if not ADAPTIVE_TRAINING_ENABLED:
+        return MIN_NEW_GAMES_FOR_TRAINING, TRAINING_COOLDOWN_SECONDS
+
+    # Get recent models for this config
+    recent_models = []
+    for model_id, model_info in state.models.items():
+        key = get_config_key(model_info.board_type, model_info.num_players)
+        if key == config_key:
+            recent_models.append(model_info)
+
+    # Sort by creation time (newest first)
+    recent_models.sort(key=lambda m: m.created_at, reverse=True)
+    recent_models = recent_models[:ELO_HISTORY_WINDOW]
+
+    if len(recent_models) < 2:
+        # Not enough history, use defaults
+        return MIN_NEW_GAMES_FOR_TRAINING, TRAINING_COOLDOWN_SECONDS
+
+    # Calculate Elo velocity (change in best Elo over recent models)
+    elos = [m.elo_rating for m in recent_models]
+    if len(elos) >= 2:
+        # Compare newest to oldest in window
+        elo_change = elos[0] - elos[-1]
+    else:
+        elo_change = 0
+
+    # Determine if improving, plateauing, or declining
+    if elo_change >= ELO_IMPROVEMENT_THRESHOLD:
+        # Improving: train more aggressively
+        improvement_factor = min(elo_change / ELO_IMPROVEMENT_THRESHOLD, 2.0)  # Cap at 2x
+        min_games = int(ADAPTIVE_MIN_GAMES + (MIN_NEW_GAMES_FOR_TRAINING - ADAPTIVE_MIN_GAMES) * (1 - improvement_factor / 2))
+        cooldown = int(ADAPTIVE_MIN_COOLDOWN + (TRAINING_COOLDOWN_SECONDS - ADAPTIVE_MIN_COOLDOWN) * (1 - improvement_factor / 2))
+        print(f"[Daemon] Adaptive training: IMPROVING (+{elo_change:.0f} Elo), min_games={min_games}, cooldown={cooldown}s")
+    elif elo_change <= -ELO_IMPROVEMENT_THRESHOLD:
+        # Declining: accumulate more data before training
+        min_games = ADAPTIVE_MAX_GAMES
+        cooldown = ADAPTIVE_MAX_COOLDOWN
+        print(f"[Daemon] Adaptive training: DECLINING ({elo_change:.0f} Elo), min_games={min_games}, cooldown={cooldown}s")
+    else:
+        # Plateauing: use standard thresholds
+        min_games = MIN_NEW_GAMES_FOR_TRAINING
+        cooldown = TRAINING_COOLDOWN_SECONDS
+        print(f"[Daemon] Adaptive training: STABLE ({elo_change:+.0f} Elo), using defaults")
+
+    return min_games, cooldown
+
+
 def get_training_data_stats(state: DaemonState) -> Dict[str, Dict[str, int]]:
     """Get training data statistics for each board type."""
     stats = {}
@@ -920,9 +991,15 @@ async def run_asymmetric_selfplay(state: DaemonState, board_type: str, num_playe
 
     This generates diverse training data by pitting different AI algorithms
     against each other, exploring more of the game tree than homogeneous selfplay.
+
+    Note: Currently only supports 2-player games as run_ai_tournament.py only has --p1/--p2.
     """
     total_games = 0
     key = get_config_key(board_type, num_players)
+
+    # Only support 2-player asymmetric games for now
+    if num_players != 2:
+        return 0
 
     # Select a random asymmetric matchup
     if not ASYMMETRIC_MATCHUPS:
@@ -954,7 +1031,7 @@ async def run_asymmetric_selfplay(state: DaemonState, board_type: str, num_playe
         "--p1-diff", str(diff1),
         "--p2", p2_type,
         "--p2-diff", str(diff2),
-        "--board", board_type.replace("square", "Square").replace("hex", "Hex"),
+        "--board", {"square8": "Square8", "square19": "Square19", "hexagonal": "Hex"}.get(board_type, "Square8"),
         "--games", "10",
         "--output-dir", str(output_file.parent),
     ]
@@ -1288,17 +1365,20 @@ async def check_and_run_training(state: DaemonState) -> List[str]:
         if not bs:
             continue
 
+        # Get adaptive thresholds based on Elo improvement velocity
+        min_games_threshold, cooldown_threshold = get_adaptive_training_thresholds(state, key)
+
         # Check if training is needed
         needs_training = (
-            bs.games_since_last_training >= MIN_NEW_GAMES_FOR_TRAINING and
-            (current_time - bs.last_training_time) >= TRAINING_COOLDOWN_SECONDS and
+            bs.games_since_last_training >= min_games_threshold and
+            (current_time - bs.last_training_time) >= cooldown_threshold and
             bs.total_games >= config["min_games"]
         )
 
         if not needs_training:
             continue
 
-        print(f"[Daemon] Training needed for {key}: {bs.games_since_last_training} new games")
+        print(f"[Daemon] Training needed for {key}: {bs.games_since_last_training} new games (threshold: {min_games_threshold})")
 
         # Export training data
         export_cmd = [
@@ -2644,6 +2724,19 @@ async def daemon_cycle(state: DaemonState) -> bool:
 
 async def run_daemon(foreground: bool = False) -> None:
     """Run the continuous improvement daemon."""
+    # Check system memory - skip on low-memory machines to avoid OOM
+    # 32GB minimum is sufficient for coordinating selfplay; heavy training runs on cluster
+    MIN_MEMORY_GB = 32
+    try:
+        import psutil
+        system_memory_gb = psutil.virtual_memory().total / (1024**3)
+        if system_memory_gb < MIN_MEMORY_GB:
+            print(f"[Daemon] ERROR: System has only {system_memory_gb:.1f}GB RAM, minimum {MIN_MEMORY_GB}GB required")
+            print("[Daemon] Exiting to avoid OOM on low-memory machine")
+            return
+    except Exception as e:
+        print(f"[Daemon] Warning: Could not check system memory: {e}")
+
     state = load_state()
 
     if not state.started_at:

@@ -1,0 +1,268 @@
+"""Adaptive controller for self-improvement loop optimization.
+
+This module provides dynamic control over the improvement loop based on
+convergence detection and performance trends. It implements:
+
+1. Plateau detection: Stop after N iterations without improvement
+2. Dynamic scaling: More selfplay games when improving, fewer when stable
+3. Early stopping: Confidence-based evaluation termination
+4. Win rate tracking: Historical analysis for trend detection
+"""
+
+from __future__ import annotations
+
+import json
+import statistics
+from dataclasses import dataclass, field, asdict
+from pathlib import Path
+from typing import List, Optional
+
+
+@dataclass
+class IterationResult:
+    """Result of a single improvement iteration."""
+    iteration: int
+    win_rate: float
+    promoted: bool
+    games_played: int
+    eval_games: int
+
+
+@dataclass
+class AdaptiveController:
+    """Controller for adaptive improvement loop behavior.
+
+    Attributes:
+        plateau_threshold: Number of iterations without improvement before stopping
+        min_games: Minimum selfplay games per iteration
+        max_games: Maximum selfplay games per iteration
+        min_eval_games: Minimum evaluation games
+        max_eval_games: Maximum evaluation games
+        history: List of iteration results
+        base_win_rate: Win rate threshold considered as "improvement"
+    """
+
+    plateau_threshold: int = 5
+    min_games: int = 50
+    max_games: int = 200
+    min_eval_games: int = 50
+    max_eval_games: int = 200
+    base_win_rate: float = 0.55
+    history: List[IterationResult] = field(default_factory=list)
+
+    def record_iteration(
+        self,
+        iteration: int,
+        win_rate: float,
+        promoted: bool,
+        games_played: int,
+        eval_games: int,
+    ) -> None:
+        """Record the result of an iteration."""
+        self.history.append(IterationResult(
+            iteration=iteration,
+            win_rate=win_rate,
+            promoted=promoted,
+            games_played=games_played,
+            eval_games=eval_games,
+        ))
+
+    def should_continue(self) -> bool:
+        """Determine if the improvement loop should continue.
+
+        Returns True if:
+        - Not enough history yet (< plateau_threshold iterations)
+        - At least one recent iteration showed improvement
+        """
+        if len(self.history) < self.plateau_threshold:
+            return True
+
+        recent = self.history[-self.plateau_threshold:]
+        return any(r.promoted for r in recent)
+
+    def get_plateau_count(self) -> int:
+        """Count consecutive iterations without improvement."""
+        count = 0
+        for result in reversed(self.history):
+            if result.promoted:
+                break
+            count += 1
+        return count
+
+    def compute_games(self, recent_win_rate: Optional[float] = None) -> int:
+        """Compute optimal number of selfplay games for next iteration.
+
+        Strategy:
+        - Marginal win rates (0.45-0.55): More games needed for better signal
+        - Clear results (< 0.45 or > 0.55): Fewer games needed
+        - Rising trend: More games to capitalize on momentum
+        - Plateau: Fewer games to reduce wasted compute
+        """
+        if recent_win_rate is None and self.history:
+            recent_win_rate = self.history[-1].win_rate
+
+        if recent_win_rate is None:
+            return (self.min_games + self.max_games) // 2
+
+        # Marginal results need more data
+        if 0.45 < recent_win_rate < 0.55:
+            base = self.max_games
+        else:
+            base = self.min_games
+
+        # Adjust based on trend
+        trend_factor = self._compute_trend_factor()
+        adjusted = int(base * trend_factor)
+
+        return max(self.min_games, min(self.max_games, adjusted))
+
+    def compute_eval_games(self, recent_win_rate: Optional[float] = None) -> int:
+        """Compute optimal number of evaluation games.
+
+        Strategy:
+        - Marginal win rates: More eval games for confidence
+        - Clear winners/losers: Fewer eval games (obvious result)
+        """
+        if recent_win_rate is None and self.history:
+            recent_win_rate = self.history[-1].win_rate
+
+        if recent_win_rate is None:
+            return (self.min_eval_games + self.max_eval_games) // 2
+
+        # Marginal results need more evaluation
+        if 0.48 < recent_win_rate < 0.52:
+            return self.max_eval_games
+        elif 0.45 < recent_win_rate < 0.55:
+            return (self.min_eval_games + self.max_eval_games) // 2
+        else:
+            return self.min_eval_games
+
+    def _compute_trend_factor(self) -> float:
+        """Compute trend factor based on recent history.
+
+        Returns:
+            > 1.0: Improving trend (boost games)
+            < 1.0: Declining/plateau trend (reduce games)
+            = 1.0: No clear trend
+        """
+        if len(self.history) < 3:
+            return 1.0
+
+        recent_wins = [r.promoted for r in self.history[-5:]]
+        win_count = sum(1 for w in recent_wins if w)
+        win_ratio = win_count / len(recent_wins)
+
+        if win_ratio > 0.6:
+            # Strong improvement - boost games
+            return 1.3
+        elif win_ratio > 0.4:
+            # Moderate improvement - slight boost
+            return 1.1
+        elif win_ratio > 0.2:
+            # Weak improvement - maintain
+            return 1.0
+        else:
+            # Plateau - reduce games
+            return 0.8
+
+    def get_statistics(self) -> dict:
+        """Get summary statistics of the improvement loop."""
+        if not self.history:
+            return {
+                "total_iterations": 0,
+                "total_promotions": 0,
+                "promotion_rate": 0.0,
+                "avg_win_rate": 0.0,
+                "plateau_count": 0,
+                "trend": "unknown",
+            }
+
+        total = len(self.history)
+        promotions = sum(1 for r in self.history if r.promoted)
+        win_rates = [r.win_rate for r in self.history]
+
+        # Compute trend
+        if len(win_rates) >= 3:
+            recent_avg = statistics.mean(win_rates[-3:])
+            older_avg = statistics.mean(win_rates[:-3]) if len(win_rates) > 3 else win_rates[0]
+            if recent_avg > older_avg + 0.02:
+                trend = "improving"
+            elif recent_avg < older_avg - 0.02:
+                trend = "declining"
+            else:
+                trend = "stable"
+        else:
+            trend = "insufficient_data"
+
+        return {
+            "total_iterations": total,
+            "total_promotions": promotions,
+            "promotion_rate": promotions / total if total > 0 else 0.0,
+            "avg_win_rate": statistics.mean(win_rates),
+            "plateau_count": self.get_plateau_count(),
+            "trend": trend,
+        }
+
+    def save(self, path: Path) -> None:
+        """Save controller state to JSON file."""
+        state = {
+            "plateau_threshold": self.plateau_threshold,
+            "min_games": self.min_games,
+            "max_games": self.max_games,
+            "min_eval_games": self.min_eval_games,
+            "max_eval_games": self.max_eval_games,
+            "base_win_rate": self.base_win_rate,
+            "history": [asdict(r) for r in self.history],
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state, indent=2))
+
+    @classmethod
+    def load(cls, path: Path) -> "AdaptiveController":
+        """Load controller state from JSON file."""
+        if not path.exists():
+            return cls()
+
+        try:
+            state = json.loads(path.read_text())
+            history = [
+                IterationResult(**r) for r in state.get("history", [])
+            ]
+            return cls(
+                plateau_threshold=state.get("plateau_threshold", 5),
+                min_games=state.get("min_games", 50),
+                max_games=state.get("max_games", 200),
+                min_eval_games=state.get("min_eval_games", 50),
+                max_eval_games=state.get("max_eval_games", 200),
+                base_win_rate=state.get("base_win_rate", 0.55),
+                history=history,
+            )
+        except (json.JSONDecodeError, TypeError, KeyError):
+            return cls()
+
+
+def create_adaptive_controller(
+    *,
+    plateau_threshold: int = 5,
+    min_games: int = 50,
+    max_games: int = 200,
+    state_path: Optional[Path] = None,
+) -> AdaptiveController:
+    """Factory function to create an adaptive controller.
+
+    If state_path is provided and exists, loads existing state.
+    Otherwise creates a new controller with the given parameters.
+    """
+    if state_path and state_path.exists():
+        controller = AdaptiveController.load(state_path)
+        # Update parameters (allows reconfiguration)
+        controller.plateau_threshold = plateau_threshold
+        controller.min_games = min_games
+        controller.max_games = max_games
+        return controller
+
+    return AdaptiveController(
+        plateau_threshold=plateau_threshold,
+        min_games=min_games,
+        max_games=max_games,
+    )
