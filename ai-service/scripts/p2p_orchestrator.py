@@ -124,6 +124,13 @@ PEER_BOOTSTRAP_MIN_PEERS = 3  # refresh if we see fewer than this many peers
 # LEARNED LESSONS - Stuck job detection
 GPU_IDLE_RESTART_TIMEOUT = 300  # Restart jobs after 5 min of GPU at 0%
 GPU_IDLE_THRESHOLD = 2          # Consider GPU idle if utilization < 2%
+# If a node reports hundreds/thousands of selfplay processes, it almost always
+# indicates job tracking was lost and stale processes are accumulating (which
+# can brick nodes via disk/memory pressure). Treat this as a runaway condition
+# and trigger a restart_stuck_jobs sweep.
+RUNAWAY_SELFPLAY_PROCESS_THRESHOLD = int(
+    os.environ.get("RINGRIFT_RUNAWAY_SELFPLAY_PROCESS_THRESHOLD", "128")
+)
 
 # Git auto-update settings
 GIT_UPDATE_CHECK_INTERVAL = int(os.environ.get("RINGRIFT_P2P_GIT_UPDATE_CHECK_INTERVAL", "300") or 300)  # seconds
@@ -9021,6 +9028,25 @@ print(json.dumps({{
                 if node.node_id in self.gpu_idle_since:
                     del self.gpu_idle_since[node.node_id]
 
+        # Phase 1.6: Detect runaway selfplay processes (lost tracking / manual runs).
+        # If a node reports an absurd number of selfplay processes, request a
+        # restart sweep to kill untracked jobs and recover capacity.
+        for node in all_nodes:
+            try:
+                if int(getattr(node, "selfplay_jobs", 0) or 0) < RUNAWAY_SELFPLAY_PROCESS_THRESHOLD:
+                    continue
+            except Exception:
+                continue
+
+            print(
+                f"[P2P] {node.node_id}: RUNAWAY selfplay count ({node.selfplay_jobs}) "
+                f">= {RUNAWAY_SELFPLAY_PROCESS_THRESHOLD} — requesting restart sweep"
+            )
+            if node.node_id == self.node_id:
+                await self._restart_local_stuck_jobs()
+            else:
+                await self._request_job_restart(node)
+
         # Phase 2: Calculate desired job distribution for healthy nodes
         # LEARNED LESSONS - Sort nodes by load score for load balancing
         # Least-loaded nodes get jobs first to ensure even distribution
@@ -9233,17 +9259,48 @@ print(json.dumps({{
         try:
             # Kill tracked selfplay jobs (avoid broad pkill patterns).
             jobs_to_clear: List[str] = []
-            pids_to_kill: List[int] = []
+            pids_to_kill: Set[int] = set()
             with self.jobs_lock:
                 for job_id, job in self.local_jobs.items():
                     if job.job_type not in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY):
                         continue
                     jobs_to_clear.append(job_id)
                     if job.pid:
-                        pids_to_kill.append(job.pid)
+                        try:
+                            pids_to_kill.add(int(job.pid))
+                        except Exception:
+                            continue
+
+            # Sweep for untracked selfplay processes (e.g. lost local_jobs state) and kill them too.
+            try:
+                import shutil
+
+                if shutil.which("pgrep"):
+                    for pattern in (
+                        "run_self_play_soak.py",
+                        "run_gpu_selfplay.py",
+                        "run_hybrid_selfplay.py",
+                        "run_random_selfplay.py",
+                    ):
+                        out = subprocess.run(
+                            ["pgrep", "-f", pattern],
+                            capture_output=True,
+                            text=True,
+                            timeout=5,
+                        )
+                        if out.returncode == 0 and out.stdout.strip():
+                            for token in out.stdout.strip().split():
+                                try:
+                                    pids_to_kill.add(int(token))
+                                except Exception:
+                                    continue
+            except Exception:
+                pass
+
+            pids_to_kill.discard(int(os.getpid()))
 
             killed = 0
-            for pid in pids_to_kill:
+            for pid in sorted(pids_to_kill):
                 try:
                     os.kill(pid, signal.SIGKILL)
                     killed += 1
