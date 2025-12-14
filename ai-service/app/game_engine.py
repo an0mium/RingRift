@@ -685,6 +685,13 @@ class GameEngine:
         if STRICT_NO_MOVE_INVARIANT and new_state.game_status == GameStatus.ACTIVE:
             GameEngine._assert_active_player_has_legal_action(new_state, move)
 
+        # Recovery slide mutates multiple board domains (markers, stacks,
+        # collapsed spaces) via the recovery module, which historically did not
+        # maintain incremental Zobrist hash updates. Recompute from scratch to
+        # keep move caching and parity tooling sound.
+        if move.type == MoveType.RECOVERY_SLIDE:
+            new_state.zobrist_hash = ZobristHash().compute_initial_hash(new_state)
+
         return new_state
 
     @staticmethod
@@ -3255,14 +3262,9 @@ class GameEngine:
                         continue
                 else:
                     # RR-CANON-R145: normal territory self-elimination requires
-                    # an eligible cap target controlled by the player.
+                    # a controlled stack outside the region.
+                    # All controlled stacks are eligible (including height-1).
                     if stack.controlling_player != player_number:
-                        continue
-                    is_multicolor = stack.stack_height > stack.cap_height
-                    is_single_color_tall = (
-                        stack.stack_height == stack.cap_height and stack.stack_height > 1
-                    )
-                    if not (is_multicolor or is_single_color_tall):
                         continue
 
                 elimination_moves.append(
@@ -3391,14 +3393,9 @@ class GameEngine:
 
         for stack in player_stacks:
             if stack.position.to_key() not in region_keys:
-                # Check eligible cap target criteria (RR-CANON-R082)
-                is_multicolor = stack.stack_height > stack.cap_height
-                is_single_color_tall = (
-                    stack.stack_height == stack.cap_height and stack.stack_height > 1
-                )
-                if is_multicolor or is_single_color_tall:
-                    return True
-                # Otherwise it's a height-1 standalone ring - not eligible
+                # RR-CANON-R082/R145: All controlled stacks are eligible
+                # (including height-1 standalone rings)
+                return True
 
         return False
 

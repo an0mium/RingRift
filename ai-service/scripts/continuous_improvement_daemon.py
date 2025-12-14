@@ -84,6 +84,23 @@ try:
 except ImportError:
     HAS_LEAGUE_SYSTEM = False
 
+# Import optimized hyperparameters
+try:
+    from app.config.hyperparameters import (
+        get_hyperparameters,
+        get_hyperparameter_info,
+        needs_tuning,
+    )
+    HAS_HYPERPARAMETERS = True
+except ImportError:
+    HAS_HYPERPARAMETERS = False
+    def get_hyperparameters(board_type, num_players):
+        return {}
+    def get_hyperparameter_info(board_type, num_players):
+        return {"optimized": False, "confidence": "none"}
+    def needs_tuning(board_type, num_players, min_confidence="medium"):
+        return True
+
 # Global improvement cycle manager instance
 _improvement_manager = None
 
@@ -1568,14 +1585,33 @@ async def _train_nnue_size(
     nnue_id = _nnue_model_id(config["board"], config["players"], size_name)
     candidate_path = output_dir / f"{nnue_id}_candidate.pt"
 
+    # Load optimized hyperparameters for this board/player config
+    hp = get_hyperparameters(config["board"], config["players"])
+    hp_info = get_hyperparameter_info(config["board"], config["players"])
+
+    # Merge: size_config overrides hp for architecture, hp provides training params
+    learning_rate = hp.get("learning_rate", 0.0003)
+    batch_size = hp.get("batch_size", 256)
+    weight_decay = hp.get("weight_decay", 0.0001)
+    hidden_dim = size_config.get("hidden_dim", hp.get("hidden_dim", 256))
+    num_hidden_layers = size_config.get("num_hidden_layers", hp.get("num_hidden_layers", 2))
+    epochs = size_config.get("epochs", hp.get("epochs", NNUE_EPOCHS))
+
+    if hp_info.get("optimized"):
+        print(f"[Daemon] Using optimized hyperparameters for {config['board']} {config['players']}p "
+              f"(confidence: {hp_info.get('confidence', 'unknown')})")
+
     nnue_cmd = [
         sys.executable, "scripts/train_nnue.py",
         "--db", *[str(db) for db in dbs[:5]],
         "--board-type", config["board"],
         "--num-players", str(config["players"]),
-        "--epochs", str(size_config.get("epochs", NNUE_EPOCHS)),
-        "--hidden-dim", str(size_config["hidden_dim"]),
-        "--num-hidden-layers", str(size_config.get("num_hidden_layers", 2)),
+        "--epochs", str(epochs),
+        "--hidden-dim", str(hidden_dim),
+        "--num-hidden-layers", str(num_hidden_layers),
+        "--learning-rate", str(learning_rate),
+        "--batch-size", str(batch_size),
+        "--weight-decay", str(weight_decay),
         "--run-dir", str(output_dir / size_name),
         "--model-id", nnue_id,
         "--save-path", str(candidate_path),

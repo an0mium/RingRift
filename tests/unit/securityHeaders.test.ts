@@ -14,34 +14,83 @@
 import express, { Express } from 'express';
 import request from 'supertest';
 
+type SecurityHeadersModule = typeof import('../../src/server/middleware/securityHeaders');
+
+const SECURITY_ENV_KEYS = [
+  'NODE_ENV',
+  'DATABASE_URL',
+  'REDIS_URL',
+  'JWT_SECRET',
+  'JWT_REFRESH_SECRET',
+  'ALLOWED_ORIGINS',
+] as const;
+
+let originalSecurityEnv: Partial<NodeJS.ProcessEnv> | null = null;
+
+function loadSecurityHeadersModule(overrides?: {
+  config?: unknown;
+  logger?: unknown;
+}): SecurityHeadersModule {
+  let mod: SecurityHeadersModule | undefined;
+  jest.isolateModules(() => {
+    if (overrides?.logger) {
+      jest.doMock('../../src/server/utils/logger', () => overrides.logger);
+    }
+
+    if (overrides?.config) {
+      jest.doMock('../../src/server/config', () => ({ config: overrides.config }));
+    }
+
+    mod = require('../../src/server/middleware/securityHeaders') as SecurityHeadersModule;
+  });
+
+  if (!mod) {
+    throw new Error('Failed to load securityHeaders module');
+  }
+
+  return mod;
+}
+
+beforeAll(() => {
+  originalSecurityEnv = Object.fromEntries(SECURITY_ENV_KEYS.map((k) => [k, process.env[k]]));
+
+  process.env.NODE_ENV = 'test';
+  process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+  process.env.REDIS_URL = 'redis://localhost:6379';
+  process.env.JWT_SECRET = 'test-jwt-secret';
+  process.env.JWT_REFRESH_SECRET = 'test-jwt-refresh-secret';
+  process.env.ALLOWED_ORIGINS = 'http://localhost:3000,http://localhost:5173';
+});
+
+afterAll(() => {
+  if (!originalSecurityEnv) return;
+  const keys = Object.keys(originalSecurityEnv) as Array<keyof typeof originalSecurityEnv>;
+  for (const key of keys) {
+    const value = originalSecurityEnv[key];
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+});
+
+afterEach(() => {
+  jest.useRealTimers();
+  jest.resetModules();
+  jest.clearAllMocks();
+  jest.unmock('../../src/server/config');
+  jest.unmock('../../src/server/utils/logger');
+});
+
 describe('Security Headers Middleware', () => {
   let app: Express;
-  let securityMiddleware: typeof import('../../src/server/middleware/securityHeaders').securityMiddleware;
-  let originalEnv: Partial<NodeJS.ProcessEnv>;
+  let securityMiddleware: SecurityHeadersModule['securityMiddleware'];
 
   beforeEach(() => {
     // Defensive: some suites use fake timers; ensure this integration-style
     // supertest flow always runs on real timers to avoid socket hangups.
     jest.useRealTimers();
-
-    // Need a stable environment before loading server/config-derived middleware.
-    const keys = [
-      'NODE_ENV',
-      'DATABASE_URL',
-      'REDIS_URL',
-      'JWT_SECRET',
-      'JWT_REFRESH_SECRET',
-      'ALLOWED_ORIGINS',
-    ] as const;
-
-    originalEnv = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
-
-    process.env.NODE_ENV = 'test';
-    process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
-    process.env.REDIS_URL = 'redis://localhost:6379';
-    process.env.JWT_SECRET = 'test-jwt-secret';
-    process.env.JWT_REFRESH_SECRET = 'test-jwt-refresh-secret';
-    process.env.ALLOWED_ORIGINS = 'http://localhost:3000,http://localhost:5173';
 
     // Load in an isolated registry so cached config from other test files
     // cannot change middleware behavior in this suite.
@@ -64,18 +113,6 @@ describe('Security Headers Middleware', () => {
     app.post('/test-post', (_req, res) => {
       res.json({ message: 'posted' });
     });
-  });
-
-  afterEach(() => {
-    const keys = Object.keys(originalEnv) as Array<keyof typeof originalEnv>;
-    for (const key of keys) {
-      const value = originalEnv[key];
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
   });
 
   describe('Content Security Policy', () => {
@@ -300,11 +337,19 @@ describe('Security Headers Middleware', () => {
 
 describe('Origin Validation Middleware', () => {
   let app: Express;
+  let securityMiddleware: SecurityHeadersModule['securityMiddleware'];
 
   beforeEach(() => {
+    jest.useRealTimers();
+    jest.unmock('../../src/server/config');
+    jest.unmock('../../src/server/utils/logger');
+
+    ({ securityMiddleware } = loadSecurityHeadersModule());
+
     app = express();
     app.use(express.json());
     app.use(securityMiddleware.cors);
+    app.use(securityMiddleware.originValidation);
     // Note: originValidation middleware skips in development mode
     // To test it properly, we'd need to mock config.isDevelopment = false
 
@@ -328,34 +373,17 @@ describe('Origin Validation Middleware', () => {
 });
 
 describe('Origin Validation Middleware - Production Mode', () => {
-  // Save original config values to restore after tests
-  const originalIsDevelopment = jest.requireActual('../../src/server/config').config?.isDevelopment;
-
-  beforeEach(() => {
-    jest.resetModules();
-  });
-
-  afterEach(() => {
-    jest.resetModules();
-  });
-
   it('should reject requests with disallowed origin in production mode', async () => {
-    // Mock config to simulate production mode
-    jest.doMock('../../src/server/config', () => ({
+    jest.useRealTimers();
+
+    const { originValidationMiddleware } = loadSecurityHeadersModule({
       config: {
-        logging: {
-          level: 'error',
-        },
+        logging: { level: 'error' },
         isDevelopment: false,
         isProduction: true,
-        server: {
-          allowedOrigins: ['http://allowed-origin.com'],
-        },
+        server: { allowedOrigins: ['http://allowed-origin.com'] },
       },
-    }));
-
-    // Re-import the middleware with mocked config
-    const { originValidationMiddleware } = require('../../src/server/middleware/securityHeaders');
+    });
 
     const app = express();
     app.use(express.json());
@@ -376,20 +404,16 @@ describe('Origin Validation Middleware - Production Mode', () => {
   });
 
   it('should allow requests with allowed origin in production mode', async () => {
-    jest.doMock('../../src/server/config', () => ({
+    jest.useRealTimers();
+
+    const { originValidationMiddleware } = loadSecurityHeadersModule({
       config: {
-        logging: {
-          level: 'error',
-        },
+        logging: { level: 'error' },
         isDevelopment: false,
         isProduction: true,
-        server: {
-          allowedOrigins: ['http://allowed-origin.com'],
-        },
+        server: { allowedOrigins: ['http://allowed-origin.com'] },
       },
-    }));
-
-    const { originValidationMiddleware } = require('../../src/server/middleware/securityHeaders');
+    });
 
     const app = express();
     app.use(express.json());
@@ -408,20 +432,16 @@ describe('Origin Validation Middleware - Production Mode', () => {
   });
 
   it('should allow requests without origin header in production mode (server-to-server)', async () => {
-    jest.doMock('../../src/server/config', () => ({
+    jest.useRealTimers();
+
+    const { originValidationMiddleware } = loadSecurityHeadersModule({
       config: {
-        logging: {
-          level: 'error',
-        },
+        logging: { level: 'error' },
         isDevelopment: false,
         isProduction: true,
-        server: {
-          allowedOrigins: ['http://allowed-origin.com'],
-        },
+        server: { allowedOrigins: ['http://allowed-origin.com'] },
       },
-    }));
-
-    const { originValidationMiddleware } = require('../../src/server/middleware/securityHeaders');
+    });
 
     const app = express();
     app.use(express.json());
@@ -438,20 +458,16 @@ describe('Origin Validation Middleware - Production Mode', () => {
   });
 
   it('should use Referer header when Origin header is missing in production mode', async () => {
-    jest.doMock('../../src/server/config', () => ({
+    jest.useRealTimers();
+
+    const { originValidationMiddleware } = loadSecurityHeadersModule({
       config: {
-        logging: {
-          level: 'error',
-        },
+        logging: { level: 'error' },
         isDevelopment: false,
         isProduction: true,
-        server: {
-          allowedOrigins: ['http://allowed-origin.com'],
-        },
+        server: { allowedOrigins: ['http://allowed-origin.com'] },
       },
-    }));
-
-    const { originValidationMiddleware } = require('../../src/server/middleware/securityHeaders');
+    });
 
     const app = express();
     app.use(express.json());
@@ -471,20 +487,16 @@ describe('Origin Validation Middleware - Production Mode', () => {
   });
 
   it('should reject when Referer origin is disallowed in production mode', async () => {
-    jest.doMock('../../src/server/config', () => ({
+    jest.useRealTimers();
+
+    const { originValidationMiddleware } = loadSecurityHeadersModule({
       config: {
-        logging: {
-          level: 'error',
-        },
+        logging: { level: 'error' },
         isDevelopment: false,
         isProduction: true,
-        server: {
-          allowedOrigins: ['http://allowed-origin.com'],
-        },
+        server: { allowedOrigins: ['http://allowed-origin.com'] },
       },
-    }));
-
-    const { originValidationMiddleware } = require('../../src/server/middleware/securityHeaders');
+    });
 
     const app = express();
     app.use(express.json());
@@ -503,20 +515,16 @@ describe('Origin Validation Middleware - Production Mode', () => {
   });
 
   it('should skip validation for HEAD requests in production mode', async () => {
-    jest.doMock('../../src/server/config', () => ({
+    jest.useRealTimers();
+
+    const { originValidationMiddleware } = loadSecurityHeadersModule({
       config: {
-        logging: {
-          level: 'error',
-        },
+        logging: { level: 'error' },
         isDevelopment: false,
         isProduction: true,
-        server: {
-          allowedOrigins: ['http://allowed-origin.com'],
-        },
+        server: { allowedOrigins: ['http://allowed-origin.com'] },
       },
-    }));
-
-    const { originValidationMiddleware } = require('../../src/server/middleware/securityHeaders');
+    });
 
     const app = express();
     app.use(originValidationMiddleware);
@@ -535,30 +543,18 @@ describe('Origin Validation Middleware - Production Mode', () => {
 });
 
 describe('HSTS Configuration - Production Mode', () => {
-  beforeEach(() => {
-    jest.resetModules();
-  });
-
-  afterEach(() => {
-    jest.resetModules();
-  });
-
   it('enables HSTS with one-year max-age and preload in production', async () => {
     // Mock config to simulate production mode for helmet HSTS configuration.
-    jest.doMock('../../src/server/config', () => ({
+    jest.useRealTimers();
+
+    const { securityHeaders } = loadSecurityHeadersModule({
       config: {
-        logging: {
-          level: 'error',
-        },
+        logging: { level: 'error' },
         isDevelopment: false,
         isProduction: true,
-        server: {
-          allowedOrigins: ['https://example.com'],
-        },
+        server: { allowedOrigins: ['https://example.com'] },
       },
-    }));
-
-    const { securityHeaders } = require('../../src/server/middleware/securityHeaders');
+    });
 
     const app = express();
     app.use(securityHeaders);
@@ -578,8 +574,11 @@ describe('HSTS Configuration - Production Mode', () => {
 
 describe('CORS Regex Origin Matching', () => {
   it('should match localhost with various ports via regex in development mode', async () => {
+    jest.useRealTimers();
+
     // The default test environment allows localhost regex patterns
     const app = express();
+    const { securityMiddleware } = loadSecurityHeadersModule();
     app.use(securityMiddleware.cors);
 
     app.get('/test', (_req, res) => {
@@ -602,21 +601,16 @@ describe('CORS Regex Origin Matching', () => {
 
   it('should match 127.0.0.1 with various ports in development mode', async () => {
     // When isDevelopment is true, 127.0.0.1:* should be allowed
-    jest.doMock('../../src/server/config', () => ({
+    jest.useRealTimers();
+
+    const { corsMiddleware } = loadSecurityHeadersModule({
       config: {
-        logging: {
-          level: 'error',
-        },
+        logging: { level: 'error' },
         isDevelopment: true,
         isProduction: false,
-        server: {
-          allowedOrigins: ['http://localhost:3000'],
-        },
+        server: { allowedOrigins: ['http://localhost:3000'] },
       },
-    }));
-
-    jest.resetModules();
-    const { corsMiddleware } = require('../../src/server/middleware/securityHeaders');
+    });
 
     const app = express();
     app.use(corsMiddleware);
@@ -632,22 +626,17 @@ describe('CORS Regex Origin Matching', () => {
   });
 
   it('should reject non-localhost origins in development mode', async () => {
-    jest.doMock('../../src/server/config', () => ({
+    jest.useRealTimers();
+
+    const { corsMiddleware } = loadSecurityHeadersModule({
       config: {
         nodeEnv: 'development',
-        logging: {
-          level: 'error',
-        },
+        logging: { level: 'error' },
         isDevelopment: true,
         isProduction: false,
-        server: {
-          allowedOrigins: ['http://localhost:3000'],
-        },
+        server: { allowedOrigins: ['http://localhost:3000'] },
       },
-    }));
-
-    jest.resetModules();
-    const { corsMiddleware } = require('../../src/server/middleware/securityHeaders');
+    });
 
     const app = express();
     app.use(corsMiddleware);
@@ -667,28 +656,18 @@ describe('CORS Console Warning', () => {
   it('should log warning for rejected origins in non-production mode', async () => {
     const warnSpy = jest.fn();
 
-    jest.doMock('../../src/server/utils/logger', () => ({
-      logger: {
-        warn: warnSpy,
-      },
-    }));
+    jest.useRealTimers();
 
-    jest.doMock('../../src/server/config', () => ({
+    const { corsMiddleware } = loadSecurityHeadersModule({
+      logger: { logger: { warn: warnSpy } },
       config: {
         nodeEnv: 'development',
-        logging: {
-          level: 'error',
-        },
+        logging: { level: 'error' },
         isDevelopment: true,
         isProduction: false,
-        server: {
-          allowedOrigins: ['http://localhost:3000'],
-        },
+        server: { allowedOrigins: ['http://localhost:3000'] },
       },
-    }));
-
-    jest.resetModules();
-    const { corsMiddleware } = require('../../src/server/middleware/securityHeaders');
+    });
 
     const app = express();
     app.use(corsMiddleware);

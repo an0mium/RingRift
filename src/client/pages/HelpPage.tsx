@@ -6,6 +6,7 @@ import {
 } from '../components/TeachingOverlay';
 import { StatusBanner } from '../components/ui/StatusBanner';
 import { Button } from '../components/ui/Button';
+import { ButtonLink } from '../components/ui/ButtonLink';
 
 function formatTopicLabel(topic: string): string {
   return topic
@@ -40,21 +41,12 @@ export default function HelpPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => navigate('/sandbox?preset=learn-basics')}
-            >
+            <ButtonLink to="/sandbox?preset=learn-basics" size="sm">
               Learn the Basics
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => navigate('/sandbox')}
-            >
+            </ButtonLink>
+            <ButtonLink to="/sandbox" variant="secondary" size="sm">
               Open Sandbox
-            </Button>
+            </ButtonLink>
           </div>
         </header>
 

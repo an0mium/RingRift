@@ -67,16 +67,23 @@
   "training": {
     "nn": {
       "epochs_per_iteration": 50,
-      "batch_size": 256,
-      "learning_rate": 0.001,
-      "device": "mps",
+      "batch_size": 64,
+      "learning_rate": 0.0009,
+      "weight_decay": 0.00028,
+      "hidden_dim": 512,
+      "num_layers": 5,
+      "dropout": 0.135,
+      "device": "auto",
       "save_checkpoints": true,
       "checkpoint_frequency": 10
     },
     "nnue": {
-      "epochs_per_iteration": 20,
-      "batch_size": 1024,
-      "learning_rate": 0.0001
+      "epochs_per_iteration": 30,
+      "batch_size": 64,
+      "learning_rate": 0.0009,
+      "weight_decay": 0.00028,
+      "hidden_dim": 512,
+      "num_hidden_layers": 5
     },
     "cmaes": {
       "generations_per_iteration": 10,

@@ -26,7 +26,7 @@ import { GameEngine } from '../game/GameEngine';
 import { getDisplayUsername } from './user';
 import { config } from '../config';
 import { createDecisionPhaseFixtureGame } from '../game/testFixtures/decisionPhaseFixtures';
-import { getAIServiceClient } from '../services/AIServiceClient';
+import { getAIServiceClient, type LadderHealthQuery } from '../services/AIServiceClient';
 import type { PositionEvaluationPayload } from '../../shared/types/websocket';
 import {
   deserializeGameState,
@@ -370,11 +370,18 @@ sandboxHelperRoutes.get(
 
     const aiClient = getAIServiceClient();
     try {
-      const data = await aiClient.getLadderHealth({
-        boardType,
-        numPlayers: Number.isFinite(numPlayers as number) ? numPlayers : undefined,
-        difficulty: Number.isFinite(difficulty as number) ? difficulty : undefined,
-      });
+      const query: LadderHealthQuery = {};
+      if (boardType) {
+        query.boardType = boardType;
+      }
+      if (typeof numPlayers === 'number' && Number.isFinite(numPlayers)) {
+        query.numPlayers = numPlayers;
+      }
+      if (typeof difficulty === 'number' && Number.isFinite(difficulty)) {
+        query.difficulty = difficulty;
+      }
+
+      const data = await aiClient.getLadderHealth(query);
       res.status(200).json(data);
     } catch (err) {
       const message =

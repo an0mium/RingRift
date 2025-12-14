@@ -105,9 +105,9 @@ function cloneBoard(board: BoardState): BoardState {
  * - **Recovery context:** an eligible buried-ring extraction target outside the
  *   region must exist under RR-CANON-R114 (stack need not be controlled).
  *
- * A height-1 standalone ring is NOT an eligible cap target for normal
- * territory processing. Recovery extraction also requires a buried ring, so
- * eligible recovery targets necessarily have stack height ≥ 2.
+ * All controlled stacks (including height-1 standalone rings) are eligible
+ * cap targets for normal territory processing. Recovery extraction requires
+ * a buried ring, so eligible recovery targets necessarily have stack height ≥ 2.
  *
  * This helper performs only the outside-stack check; it assumes that `region`
  * itself is already a disconnected region as reported by the canonical
@@ -211,10 +211,10 @@ export function getProcessableTerritoryRegions(
  * **Self-Elimination Cost Rules (§12.2):**
  * - Normal territory processing: Player must eliminate an **entire stack cap**
  *   (all consecutive top rings of their colour) from a controlled stack outside
- *   the processed region. The stack used must either:
- *   (a) Be a mixed-colour stack with rings of other colours buried beneath, OR
- *   (b) Be a single-colour stack of height > 1 (all player's rings).
- *   Single-ring stacks cannot be used for cap elimination.
+ *   the processed region. All controlled stacks are eligible, including:
+ *   (a) Mixed-colour stacks with rings of other colours buried beneath,
+ *   (b) Single-colour stacks of height > 1 (all player's rings), AND
+ *   (c) Height-1 standalone rings (single-ring stacks).
  * - **Recovery action exception:** When territory processing is triggered by a
  *   recovery action, the cost is only 1 buried ring extraction (bottommost ring
  *   from a chosen stack), not an entire cap.

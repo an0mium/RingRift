@@ -25,6 +25,13 @@ AWS_HOSTS=(
     "ringrift-selfplay-extra"
 )
 
+# Lambda GPU instances (primary training)
+LAMBDA_HOSTS=(
+    "lambda-h100"
+    "lambda-2xh100"
+    "lambda-a10"
+)
+
 # Local cluster machines (from ~/.ssh/config)
 LOCAL_HOSTS=(
     "mac-studio"
@@ -189,6 +196,15 @@ if ! $LOCAL_ONLY; then
     echo "=== AWS Instances ==="
     for host in "${AWS_HOSTS[@]}"; do
         update_host "$host" "$REMOTE_DIR" || true
+    done
+    echo ""
+fi
+
+# Update Lambda GPU instances (primary training hosts)
+if ! $LOCAL_ONLY; then
+    echo "=== Lambda GPU Instances ==="
+    for host in "${LAMBDA_HOSTS[@]}"; do
+        update_host "$host" "~/ringrift" || true
     done
     echo ""
 fi

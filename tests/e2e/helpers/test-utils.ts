@@ -441,11 +441,35 @@ export async function goToLobby(page: Page): Promise<void> {
 /**
  * Navigates to the sandbox page.
  */
-export async function goToSandbox(page: Page): Promise<void> {
-  await page.goto('/sandbox');
-  await expect(page.getByRole('heading', { name: /Start a Game \(Sandbox\)/i })).toBeVisible({
-    timeout: 10_000,
-  });
+export async function goToSandbox(page: Page, url = '/sandbox'): Promise<void> {
+  await page.addInitScript(
+    ({ onboardingKey, onboardingValue, advancedSidebarKey }) => {
+      try {
+        if (window.location.pathname.startsWith('/sandbox')) {
+          window.localStorage.setItem(onboardingKey, onboardingValue);
+          window.localStorage.setItem(advancedSidebarKey, 'true');
+        }
+      } catch {
+        // Ignore storage failures in locked-down browser contexts.
+      }
+    },
+    {
+      onboardingKey: 'ringrift_onboarding',
+      onboardingValue: JSON.stringify({
+        hasSeenWelcome: true,
+        hasCompletedFirstGame: true,
+        gamesPlayed: 1,
+      }),
+      advancedSidebarKey: 'ringrift_sandbox_sidebar_show_advanced',
+    }
+  );
+
+  await page.goto(url);
+
+  const setupHeading = page.getByRole('heading', { name: /Start a Game \(Sandbox\)/i });
+  const boardView = page.getByTestId('board-view');
+
+  await expect(setupHeading.or(boardView)).toBeVisible({ timeout: 30_000 });
 }
 
 /**

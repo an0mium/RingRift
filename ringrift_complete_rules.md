@@ -682,9 +682,9 @@ When you capture a ring, it goes to the _bottom_ of your stack. The order of rin
 
 **Line processing** requires eliminating **one ring** from the top of any controlled stack (including height-1 standalone rings)—any stack you control is eligible.
 
-**Territory processing** requires eliminating the **entire cap** (all consecutive top rings of the controlling color). An **eligible cap target** for territory processing must be either: (1) a **multicolor stack** that P controls (with other players' rings buried beneath P's cap), or (2) a **single-color stack of height > 1** consisting entirely of P's colour. A height-1 standalone ring is **NOT** an eligible cap target for territory processing. For multicolor stacks, eliminating the cap exposes buried rings of other colors beneath. For single-color stacks with height > 1, this eliminates all rings and removes the stack entirely.
+**Territory processing** requires eliminating the **entire cap** (all consecutive top rings of the controlling color). **All controlled stacks outside the region are eligible cap targets** for territory processing, including: (1) **multicolor stacks** (with other players' rings buried beneath P's cap), (2) **single-color stacks of height > 1** consisting entirely of P's colour, and (3) **height-1 standalone rings**. For multicolor stacks, eliminating the cap exposes buried rings of other colors beneath. For single-color stacks (any height), this eliminates all rings and removes the stack entirely.
 
-**Forced elimination** (when a player has no valid actions but still controls stacks) requires eliminating the **entire cap** from **any** controlled stack—**including height-1 standalone rings**. Unlike territory processing, all controlled stacks are eligible targets for forced elimination regardless of height or composition.
+**Forced elimination** (when a player has no valid actions but still controls stacks) requires eliminating the **entire cap** from **any** controlled stack—**including height-1 standalone rings**. All controlled stacks are eligible targets for forced elimination, regardless of height or composition.
 
 Why it matters:
 
@@ -1007,8 +1007,8 @@ There are two fundamentally different ways to capture rings in RingRift - Overta
 1.  **Line Formation:** When a player forms an **eligible line of markers** (as defined in Section 11.1) they must Eliminate **one ring** from any controlled stack for each distinct line formed, unless they choose Option 2 for longer lines. Any controlled stack (including height-1 standalone rings) is an eligible target. Concretely:
     - On **8×8**, lines of **4+ markers** trigger line processing in 2-player games, **3+ markers** in 3–4 player games.
     - On **19×19** and **Hexagonal** boards, lines of **4+ markers** trigger line processing.
-2.  **Surrounded Territory:** When a player collapses (claims) an area by disconnecting it, they must Eliminate the **entire cap** (all consecutive top rings of their colour) from an **eligible** controlled ring stack per each collapsed area. Eligible targets are multicolor stacks or single-color stacks of height > 1 (height-1 standalone rings are NOT eligible). **Exception:** Recovery actions pay with one buried ring extraction instead of an entire cap.
-3.  **Disconnected Regions:** When a region becomes disconnected (see Section 12 and Section 15.4, Q15 for detailed criteria), all spaces within the region are collapsed and claimed in the color of the player moving, all rings within that region are Eliminated from play. The player who caused the disconnection must also Eliminate the **entire cap** from an **eligible** ring stack outside the region (subject to prerequisite check). Eligible targets are multicolor stacks or single-color stacks of height > 1 (height-1 standalone rings are NOT eligible). All Eliminated rings count toward their victory condition. **Exception:** Recovery actions pay with one buried ring extraction instead of an entire cap.
+2.  **Surrounded Territory:** When a player collapses (claims) an area by disconnecting it, they must Eliminate the **entire cap** (all consecutive top rings of their colour) from any controlled ring stack outside the region per each collapsed area. All controlled stacks are eligible targets, including height-1 standalone rings. **Exception:** Recovery actions pay with one buried ring extraction instead of an entire cap.
+3.  **Disconnected Regions:** When a region becomes disconnected (see Section 12 and Section 15.4, Q15 for detailed criteria), all spaces within the region are collapsed and claimed in the color of the player moving, all rings within that region are Eliminated from play. The player who caused the disconnection must also Eliminate the **entire cap** from any controlled ring stack outside the region (subject to prerequisite check). All controlled stacks are eligible targets, including height-1 standalone rings. All Eliminated rings count toward their victory condition. **Exception:** Recovery actions pay with one buried ring extraction instead of an entire cap.
 
 • **Victory Impact**:
 • Eliminated rings count toward the Elimination victory threshold, which equals two thirds of your starting rings plus one third of your opponents' combined starting rings. For 2-player games this equals ringsPerPlayer; for 3+ player games it is higher.
@@ -2234,7 +2234,7 @@ Turn Flow Summary:
       - **Option 1:** Eliminate one ring AND collapse the entire line, OR
       - **Option 2:** Collapse only the minimum number of consecutive markers of your choice within the line WITHOUT eliminating any rings.
     - This "Graduated Line Rewards" system adds strategic depth.
-2.  Territory Collapse from disconnection. You must Eliminate the **entire cap** from an eligible controlled ring stack per region collapsed. Eligible targets are multicolor stacks or single-color stacks of height > 1 (height-1 standalone rings are NOT eligible).
+2.  Territory Collapse from disconnection. You must Eliminate the **entire cap** from any controlled ring stack outside the region per region collapsed. All controlled stacks are eligible targets, including height-1 standalone rings.
 3.  Any rings in the newly collapsed region are also Eliminated.
     • These Eliminated rings count toward the victory threshold (per RR-CANON-R061: `round(ringsPerPlayer × (2/3 + 1/3 × (numPlayers - 1)))`, e.g., 18/24/30 for 2/3/4 players on 8×8).
 
@@ -2388,7 +2388,7 @@ Elimination Captures
 • Occurs via:
 
 1.  **Line collapses (4+ markers on 19×19/Hex):** Collapsing the line (with graduated reward for 5+), Eliminating **one ring** from any controlled stack per line (unless choosing Option 2 for 5+ lines). Any controlled stack including height-1 standalone rings is an eligible target.
-2.  **Territory:** Surrounded or disconnected regions are collapsed; you must Eliminate the **entire cap** from an eligible controlled stack per region, and all rings within that region are also Eliminated. Eligible targets for territory are multicolor stacks or single-color stacks of height > 1 (height-1 standalone rings are NOT eligible).
+2.  **Territory:** Surrounded or disconnected regions are collapsed; you must Eliminate the **entire cap** from any controlled stack outside the region per region, and all rings within that region are also Eliminated. All controlled stacks are eligible targets, including height-1 standalone rings.
     • All Eliminated rings count toward the ring Elimination victory threshold.
     • Important Notes:
     - Eliminated rings are permanently removed from play

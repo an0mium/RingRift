@@ -7,6 +7,8 @@ import { GameList } from './ReplayPanel/GameList';
 import { PlaybackControls } from './ReplayPanel/PlaybackControls';
 import { MoveInfo } from './ReplayPanel/MoveInfo';
 import { useAuth } from '../contexts/AuthContext';
+import { InlineAlert } from './ui/InlineAlert';
+import { Button } from './ui/Button';
 import {
   gameApi,
   type GameSummary,
@@ -740,9 +742,14 @@ export function ReplayPanel({
               )}
 
               {replayError && !isLoadingReplay && (
-                <div className="text-xs text-red-400 bg-red-900/30 border border-red-700/50 rounded px-2 py-1.5">
-                  Replay unavailable: {replayError}
-                </div>
+                <InlineAlert
+                  variant="error"
+                  title="Replay unavailable"
+                  className="text-xs"
+                  role="alert"
+                >
+                  {replayError}
+                </InlineAlert>
               )}
 
               {/* Playback controls */}
@@ -784,11 +791,12 @@ export function ReplayPanel({
 
                   {/* Action buttons */}
                   <div className="flex gap-2">
-                    <button
+                    <Button
                       type="button"
                       onClick={handleFork}
                       disabled={!currentState}
-                      className="flex-1 text-xs px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors flex items-center justify-center gap-1"
+                      size="sm"
+                      className="flex-1 gap-1"
                       title="Start playing from this position"
                     >
                       <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
@@ -799,14 +807,16 @@ export function ReplayPanel({
                         />
                       </svg>
                       Fork
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
                       onClick={exitReplay}
-                      className="flex-1 text-xs px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+                      variant="secondary"
+                      size="sm"
+                      className="flex-1"
                     >
                       Exit Replay
-                    </button>
+                    </Button>
                   </div>
 
                   {/* Keyboard hints */}

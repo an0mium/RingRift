@@ -1565,13 +1565,10 @@ class MutableGameState:
 
         Eliminates the **entire cap** from the stack at move.to position.
 
-        FORCED ELIMINATION vs TERRITORY PROCESSING (RR-CANON-R022):
-        - Forced elimination: ANY controlled stack is eligible, including
-          height-1 standalone rings.
-        - Territory processing: Only multicolor stacks or single-color stacks
-          with height > 1 are eligible (standalone rings NOT eligible).
-
-        Both use the same underlying cap elimination logic.
+        FORCED ELIMINATION and TERRITORY PROCESSING (RR-CANON-R022/R145):
+        Both contexts allow ANY controlled stack as eligible, including
+        height-1 standalone rings. They use the same underlying cap
+        elimination logic (eliminating the entire cap from the stack).
         """
         self._make_eliminate_rings_from_stack(move, undo)
 

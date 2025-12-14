@@ -110,8 +110,8 @@ function deriveTerritoryEliminationContext(
  *   - One move per eligible stack under the acting player's control.
  *   - Eliminates the **entire cap** (all consecutive top rings of the
  *     controlling colour). For mixed-colour stacks, this exposes buried
- *     rings; for single-colour stacks with height > 1, this removes the
- *     stack entirely.
+ *     rings; for single-colour stacks (any height, including height-1),
+ *     this removes the stack entirely.
  *   - **Exception:** Recovery actions use buried ring extraction instead
  *     (RR-CANON-R114; expressed as `eliminationContext: 'recovery'` on
  *     `eliminate_rings_from_stack` moves).
@@ -448,8 +448,8 @@ export function applyProcessTerritoryRegionDecision(
  * - Mandatory self-elimination after processing a disconnected territory
  *   region. This requires eliminating the **entire cap** (all consecutive
  *   top rings of the controlling colour). For mixed-colour stacks, this
- *   exposes buried rings of other colours; for single-colour stacks with
- *   height > 1, this eliminates all rings (removing the stack entirely).
+ *   exposes buried rings of other colours; for single-colour stacks (any
+ *   height, including height-1), this eliminates all rings (removing the stack entirely).
  * - Ring-elimination rewards earned from line-collapses (Option 1 on long
  *   lines), when engines choose to express those rewards explicitly as
  *   `eliminate_rings_from_stack` moves rather than as implicit effects.
@@ -490,8 +490,8 @@ export interface TerritoryEliminationScope {
 
   /**
    * Elimination context that controls eligibility and elimination semantics.
-   * - 'territory': Only eligible cap targets (multicolor or height > 1) can be
-   *   selected; entire cap is eliminated. Per RR-CANON-R145.
+   * - 'territory': Any controlled stack (including height-1) can be selected;
+   *   entire cap is eliminated. Per RR-CANON-R145.
    * - 'line': Any controlled stack (including height-1 standalone rings) can be
    *   selected; only ONE ring is eliminated. Per RR-CANON-R122.
    * - 'forced' or undefined: Any controlled stack can be selected; entire cap

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from './ui/Button';
+import { ButtonLink } from './ui/ButtonLink';
 import { SettingsModal } from './SettingsModal';
 
 const navLinkBaseClasses =
@@ -208,12 +209,9 @@ export default function Layout() {
                   </Button>
                 </div>
               ) : (
-                <Link
-                  to="/login"
-                  className="block rounded-lg bg-emerald-600 px-4 py-3 text-center text-sm font-medium text-white hover:bg-emerald-500"
-                >
+                <ButtonLink to="/login" className="w-full justify-center">
                   Login
-                </Link>
+                </ButtonLink>
               )}
             </div>
           </div>

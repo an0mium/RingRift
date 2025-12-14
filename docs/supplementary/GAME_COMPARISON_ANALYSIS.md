@@ -8,18 +8,18 @@
 
 ## 1. RingRift Core Mechanics Summary
 
-| Mechanic                    | RingRift Implementation                                                                                   |
-| --------------------------- | --------------------------------------------------------------------------------------------------------- |
-| **Stacking**                | 1-N rings per cell; cap height (consecutive top rings of controlling player) determines control           |
-| **Movement**                | Distance >= stack height (minimum, not exact)                                                             |
-| **Capture**                 | Overtaking - attacker cap height >= target cap height; captured ring added to bottom of attacker          |
-| **Chain captures**          | Mandatory continuation while legal captures exist                                                         |
-| **Trail markers**           | Left on departure; opponent markers flip to your color, own markers collapse to territory                 |
-| **Line formation**          | 3-4 markers in row (board-dependent) -> territory collapse + forced self-elimination                      |
-| **Territory disconnection** | Regions cut off from other players are claimed by enclosing player                                        |
-| **Victory conditions**      | ring-elimination victoryThreshold (RR-CANON-R061), territory spaces (>50% board), or last-player-standing |
-| **Player count**            | 2-4 players (with pie rule for 2-player balance)                                                          |
-| **Information**             | Perfect information, fully deterministic                                                                  |
+| Mechanic                    | RingRift Implementation                                                                                                          |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Stacking**                | 1-N rings per cell; cap height (consecutive top rings of controlling player) determines control                                  |
+| **Movement**                | Distance >= stack height (minimum, not exact)                                                                                    |
+| **Capture**                 | Overtaking - attacker cap height >= target cap height; captured ring added to bottom of attacker                                 |
+| **Chain captures**          | Mandatory continuation while legal captures exist                                                                                |
+| **Trail markers**           | Left on departure; opponent markers flip to your color, own markers collapse to territory                                        |
+| **Line formation**          | 3-4 markers in row (board-dependent) -> territory collapse + forced self-elimination                                             |
+| **Territory disconnection** | Regions cut off from other players are claimed by enclosing player                                                               |
+| **Victory conditions**      | ring-elimination victoryThreshold (RR-CANON-R061), territory (fair share + dominance, RR-CANON-R062-v2), or last-player-standing |
+| **Player count**            | 2-4 players (with pie rule for 2-player balance)                                                                                 |
+| **Information**             | Perfect information, fully deterministic                                                                                         |
 
 ---
 
@@ -159,7 +159,7 @@ The [TZAAR game](https://www.meeplemountain.com/reviews/tzaar/) replaced TAMSK i
    - Graduated rewards (full collapse + elimination vs. partial collapse + no elimination)
    - Choice in how to process overlength lines
 
-4. **Multiple integrated victory conditions** - The combination of elimination threshold (RR-CANON-R061), territory control (>50% of board spaces), AND last-player-standing creates three distinct strategic paths that interact. Most abstracts have single or binary win conditions.
+4. **Multiple integrated victory conditions** - The combination of elimination threshold (RR-CANON-R061), territory control (fair share + dominance over opponents, RR-CANON-R062-v2), AND last-player-standing creates three distinct strategic paths that interact. Most abstracts have single or binary win conditions.
 
 ### 5.2 Borrowed/Common Patterns
 

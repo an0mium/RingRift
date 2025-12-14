@@ -530,13 +530,14 @@ export const SelfPlayBrowser: React.FC<SelfPlayBrowserProps> = ({
                     <td className="py-2 px-2 text-slate-400">{game.source || '-'}</td>
                     <td className="py-2 px-2 text-slate-400">{formatDate(game.createdAt)}</td>
                     <td className="py-2 px-2">
-                      <button
+                      <Button
+                        type="button"
                         onClick={() => handleLoadGame(game)}
                         disabled={loadingGame === game.gameId}
-                        className="px-3 py-1 text-xs rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors"
+                        size="sm"
                       >
                         {loadingGame === game.gameId ? 'Loading...' : 'Load'}
-                      </button>
+                      </Button>
                     </td>
                   </tr>
                 ))}

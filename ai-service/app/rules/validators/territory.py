@@ -48,12 +48,11 @@ class TerritoryValidator(Validator):
         # For ELIMINATE_RINGS_FROM_STACK (self-elimination), the player must
         # have rings outside the disconnected region (or generally available).
         # This is a complex check in TS (canEliminateFromStack).
-        # RR-CANON-R082: An eligible cap target must be either:
-        # (1) A multicolor stack controlled by the player (with other players'
-        #     rings buried beneath the player's cap), OR
-        # (2) A single-color stack of height > 1 consisting entirely of the
-        #     player's colour.
-        # A height-1 standalone ring is NOT an eligible cap target.
+        # RR-CANON-R082/R145: All controlled stacks outside the region are eligible
+        # cap targets, including:
+        # (1) Multicolor stacks (with other players' rings buried beneath),
+        # (2) Single-color stacks of height > 1 (all player's rings), AND
+        # (3) Height-1 standalone rings.
 
         if move.type == MoveType.ELIMINATE_RINGS_FROM_STACK:
             if not move.to:

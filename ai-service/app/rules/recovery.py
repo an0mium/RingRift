@@ -14,9 +14,9 @@ Cost Model (Option 1 / Option 2):
   - Option 2: Collapse exactly lineLength consecutive markers, cost = 0 (free)
 
 **Important:** Recovery moves use buried ring extraction, NOT stack cap elimination.
-This is intentionally cheaper than normal territory processing which requires an
-entire stack cap. Stack cap eligibility: mixed-colour (buried rings of other
-colours beneath) OR single-colour stack height > 1.
+This is intentionally cheaper than normal territory processing which requires
+eliminating an entire stack cap. All controlled stacks (including height-1
+standalone rings) are eligible for territory cap elimination.
 
 Recovery moves CAN cause territory disconnection. If a recovery slide (line or
 fallback) results in territory disconnection, the triggered territory processing
@@ -1071,14 +1071,17 @@ def apply_recovery_slide(
 
     if recovery_mode == "stack_strike":
         # Stack-strike recovery (v1, RR-CANON-R112(b2)): sacrifice marker to strike adjacent stack.
-        del board.markers[from_key]
-
-        attacked = board.stacks.get(to_key)
-        if not attacked or attacked.stack_height == 0:
+        attacked_existing = board.stacks.get(to_key)
+        if not attacked_existing or attacked_existing.stack_height == 0:
             return RecoveryApplicationOutcome(success=False, error="No stack to strike")
 
+        del board.markers[from_key]
+
+        attacked = attacked_existing.model_copy(deep=True)
+        board.stacks[to_key] = attacked
+
         attacked.rings.pop()  # rings stored bottom->top; pop removes top
-        attacked.stack_height -= 1
+        attacked.stack_height = len(attacked.rings)
 
         # Credit elimination to recovering player.
         player_id_str = str(player)
@@ -1178,9 +1181,12 @@ def apply_recovery_slide(
             if rings_extracted >= cost:
                 break
 
-            stack = board.stacks.get(stack_key)
-            if not stack:
+            stack_existing = board.stacks.get(stack_key)
+            if not stack_existing or stack_existing.stack_height == 0:
                 continue
+
+            stack = stack_existing.model_copy(deep=True)
+            board.stacks[stack_key] = stack
 
             # Find player's bottommost ring (first occurrence = bottommost)
             try:
@@ -1213,6 +1219,9 @@ def apply_recovery_slide(
     # Per RR-CANON-R113: Extracted ring is credited as self-eliminated, NOT returned
     # to hand. This is the mandatory cost for recovery actions.
     if rings_extracted > 0:
+        player_id_str = str(player)
+        board.eliminated_rings[player_id_str] = board.eliminated_rings.get(player_id_str, 0) + rings_extracted
+        state.total_rings_eliminated += rings_extracted
         for p in state.players:
             if p.player_number == player:
                 p.eliminated_rings = getattr(p, "eliminated_rings", 0) + rings_extracted

@@ -1,4 +1,3 @@
-import express from 'express';
 import request from 'supertest';
 import crypto from 'crypto';
 import { mockDb, prismaStub, resetPrismaMockDb } from '../utils/prismaTestUtils';
@@ -11,6 +10,7 @@ let authModule: typeof import('../../src/server/middleware/auth');
 let mockedAuth: jest.Mocked<typeof import('../../src/server/middleware/auth')>;
 let config: typeof import('../../src/server/config').config;
 let logger: typeof import('../../src/server/utils/logger').logger;
+let expressFactory: typeof import('express');
 
 const loadAuthRouteTestDeps = () => {
   let deps:
@@ -22,10 +22,17 @@ const loadAuthRouteTestDeps = () => {
         authModule: typeof import('../../src/server/middleware/auth');
         config: typeof import('../../src/server/config').config;
         logger: typeof import('../../src/server/utils/logger').logger;
+        expressFactory: typeof import('express');
       }
     | undefined;
 
   jest.isolateModules(() => {
+    // Load express from the same isolated module registry as the auth routes.
+    // This avoids subtle incompatibilities when mounting a Router created from
+    // one Express module instance onto an app created from another.
+    //
+
+    const expressFactory = require('express') as typeof import('express');
     const routesMod =
       require('../../src/server/routes/auth') as typeof import('../../src/server/routes/auth');
     const errorMod =
@@ -45,6 +52,7 @@ const loadAuthRouteTestDeps = () => {
       authModule: authMod,
       config: configMod.config,
       logger: loggerMod.logger,
+      expressFactory,
     };
   });
 
@@ -151,8 +159,8 @@ jest.mock('bcryptjs', () => ({
 // --- Test app factory ---------------------------------------------------
 
 function createTestApp() {
-  const app = express();
-  app.use(express.json());
+  const app = expressFactory();
+  app.use(expressFactory.json());
   app.use('/api/auth', authRoutes);
   app.use(errorHandler);
   return app;
@@ -172,6 +180,7 @@ describe('Auth HTTP routes', () => {
     authModule = deps.authModule;
     config = deps.config;
     logger = deps.logger;
+    expressFactory = deps.expressFactory;
     mockedAuth = authModule as jest.Mocked<typeof authModule>;
 
     // Defensive: ensure any fake timers enabled by other suites do not leak

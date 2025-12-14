@@ -20,6 +20,8 @@ import { useGameList, useReplayServiceAvailable } from '../../hooks/useReplaySer
 import { useReplayPlayback } from '../../hooks/useReplayPlayback';
 import { useReplayAnimation } from '../../hooks/useReplayAnimation';
 import { useAccessibility } from '../../contexts/AccessibilityContext';
+import { InlineAlert } from '../ui/InlineAlert';
+import { Button } from '../ui/Button';
 import type { ReplayGameQueryParams } from '../../types/replay';
 import type { GameState } from '../../../shared/types/game';
 import type { MoveAnimationData } from '../BoardView';
@@ -310,14 +312,16 @@ export function ReplayPanel({
           <h2 className="font-semibold text-sm text-emerald-100 flex items-center gap-2">
             <span>▶</span> Replay Mode
           </h2>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="sm"
             onClick={handleCloseReplay}
-            className="text-xs text-slate-400 hover:text-red-400 transition"
             title="Close replay (Esc)"
+            className="gap-1"
           >
-            ✕ Close
-          </button>
+            <span aria-hidden="true">✕</span> Close
+          </Button>
         </div>
 
         {/* Game info */}
@@ -338,9 +342,9 @@ export function ReplayPanel({
 
         {/* Error display */}
         {playback.error && (
-          <div className="mb-3 p-2 rounded bg-red-900/40 border border-red-700/50 text-xs text-red-300">
+          <InlineAlert variant="error" className="mb-3 text-xs">
             {playback.error}
-          </div>
+          </InlineAlert>
         )}
 
         {/* Playback controls */}
@@ -369,14 +373,16 @@ export function ReplayPanel({
 
         {/* Fork button */}
         {onForkFromPosition && playback.currentState && (
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
+            fullWidth
             onClick={handleFork}
-            className="w-full px-3 py-2 rounded-lg border border-slate-600 text-xs font-medium text-slate-200 hover:border-emerald-500 hover:text-emerald-200 transition"
             title="Fork from here (f)"
           >
             Fork from this position
-          </button>
+          </Button>
         )}
 
         {/* Keyboard hints */}
@@ -396,19 +402,15 @@ export function ReplayPanel({
         <h2 className="font-semibold text-sm text-slate-100 flex items-center gap-2">
           <span>📂</span> Game Database
         </h2>
-        <button
-          type="button"
-          onClick={() => setIsCollapsed(true)}
-          className="text-xs text-slate-400 hover:text-slate-200"
-        >
+        <Button type="button" variant="ghost" size="sm" onClick={() => setIsCollapsed(true)}>
           ▲ Collapse
-        </button>
+        </Button>
       </div>
 
       {autoLoadError && (
-        <div className="mb-3 p-2 rounded-lg bg-amber-900/40 border border-amber-600/70 text-[11px] text-amber-100">
+        <InlineAlert variant="warning" className="mb-3 text-[11px]">
           {autoLoadError}
-        </div>
+        </InlineAlert>
       )}
 
       {/* Filters */}

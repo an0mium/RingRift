@@ -31,7 +31,7 @@ The game rewards both careful planning and bold plays. You'll form temporary all
 Win by achieving **any one** of three conditions:
 
 1. **Ring Elimination**: Remove enough rings to reach the victory threshold
-2. **Territory Control**: Control more than half of all board spaces
+2. **Territory Control**: Control your fair share of spaces AND more than all opponents combined
 3. **Last Player Standing**: Be the only player who can still take meaningful actions
 
 ---

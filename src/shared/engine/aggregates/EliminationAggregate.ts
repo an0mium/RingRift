@@ -9,12 +9,12 @@
  * | Context              | Cost                    | Eligible Stacks                              | Reference      |
  * |----------------------|-------------------------|----------------------------------------------|----------------|
  * | Line Processing      | 1 ring from top         | Any controlled stack (including height-1)    | RR-CANON-R122  |
- * | Territory Processing | Entire cap              | Multicolor OR single-color height > 1        | RR-CANON-R145  |
+ * | Territory Processing | Entire cap              | Any controlled stack (including height-1)    | RR-CANON-R145  |
  * | Forced Elimination   | Entire cap              | Any controlled stack (including height-1)    | RR-CANON-R100  |
  * | Recovery Action      | 1 buried ring extraction| Any stack with player's buried ring          | RR-CANON-R113  |
  *
- * Height-1 standalone rings are NOT eligible for territory processing but ARE
- * eligible for line, forced elimination, and recovery (as extraction source).
+ * All controlled stacks (including height-1 standalone rings) are eligible for
+ * line, territory, and forced elimination. Recovery uses buried ring extraction.
  *
  * @module EliminationAggregate
  */
@@ -137,7 +137,7 @@ export function calculateCapHeight(rings: number[]): number {
  *
  * Eligibility rules per canonical spec:
  * - Line (RR-CANON-R122): Any controlled stack, including height-1
- * - Territory (RR-CANON-R145): Multicolor OR single-color height > 1; NOT height-1
+ * - Territory (RR-CANON-R145): Any controlled stack, including height-1
  * - Forced (RR-CANON-R100): Any controlled stack, including height-1
  * - Recovery (RR-CANON-R113): Any stack containing player's buried ring
  *
@@ -171,28 +171,9 @@ export function isStackEligibleForElimination(
     return { eligible: false, reason: 'No cap to eliminate' };
   }
 
-  // Line and Forced: any controlled stack is eligible (including height-1)
-  if (context === 'line' || context === 'forced') {
-    return { eligible: true, reason: `${context} allows any controlled stack` };
-  }
-
-  // Territory: must be multicolor OR single-color height > 1
-  // Height-1 standalone rings are NOT eligible
-  const isMulticolor = stack.stackHeight > capHeight;
-  const isSingleColorTall = stack.stackHeight === capHeight && stack.stackHeight > 1;
-
-  if (isMulticolor) {
-    return { eligible: true, reason: 'Multicolor stack (buried rings of other colors)' };
-  }
-  if (isSingleColorTall) {
-    return { eligible: true, reason: 'Single-color stack with height > 1' };
-  }
-
-  // Height-1 standalone ring - not eligible for territory
-  return {
-    eligible: false,
-    reason: 'Height-1 standalone ring not eligible for territory elimination',
-  };
+  // Line, Territory, and Forced: any controlled stack is eligible (including height-1)
+  // Per RR-CANON-R022, RR-CANON-R122, RR-CANON-R145, RR-CANON-R100
+  return { eligible: true, reason: `${context} allows any controlled stack` };
 }
 
 /**

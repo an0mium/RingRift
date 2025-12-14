@@ -297,8 +297,8 @@ describe('Region Order Integration', () => {
         isDisconnected: true,
       };
 
-      // Outside stack - must be height > 1 or multicolor to be eligible for territory elimination
-      // Per RR-CANON-R145: height-1 standalone rings are NOT eligible for territory elimination
+      // Outside stack - any controlled stack is now eligible for territory elimination
+      // Per RR-CANON-R145: all controlled stacks including height-1 are eligible
       addStack(state, { x: 3, y: 3 }, 1, [1, 1]); // Height-2 stack
 
       const moves = enumerateProcessTerritoryRegionMoves(state, 1, {
@@ -357,8 +357,8 @@ describe('Region Order Integration', () => {
       // Add stack inside the region
       addStack(state, { x: 1, y: 1 }, 1, [1]);
 
-      // Add eligible stack OUTSIDE the region (height > 1 required per RR-CANON-R145)
-      // Height-1 standalone rings are NOT eligible for territory elimination
+      // Add eligible stack OUTSIDE the region (any height is now eligible per RR-CANON-R145)
+      // All controlled stacks including height-1 are eligible for territory elimination
       addStack(state, { x: 5, y: 5 }, 1, [1, 1]); // Height-2 stack
 
       const moves = enumerateProcessTerritoryRegionMoves(state, 1, {
@@ -370,7 +370,7 @@ describe('Region Order Integration', () => {
       expect(moves[0].type).toBe('choose_territory_option');
     });
 
-    it('should NOT enumerate region when outside stack is height-1', () => {
+    it('should enumerate region when outside stack is height-1', () => {
       const state = createEmptyState('prereq-height1-test');
 
       const region: Territory = {
@@ -382,15 +382,15 @@ describe('Region Order Integration', () => {
       // Add stack inside the region
       addStack(state, { x: 1, y: 1 }, 1, [1]);
 
-      // Add height-1 stack OUTSIDE the region - NOT eligible per RR-CANON-R145
+      // Add height-1 stack OUTSIDE the region - now eligible per RR-CANON-R145
       addStack(state, { x: 5, y: 5 }, 1, [1]); // Height-1 standalone ring
 
       const moves = enumerateProcessTerritoryRegionMoves(state, 1, {
         testOverrideRegions: [region],
       });
 
-      // No moves - height-1 standalone rings are not eligible for territory elimination
-      expect(moves).toHaveLength(0);
+      // Move should be available - height-1 stacks are now eligible
+      expect(moves).toHaveLength(1);
     });
   });
 

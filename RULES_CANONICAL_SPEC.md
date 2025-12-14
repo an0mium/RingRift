@@ -109,7 +109,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - `stackHeight = rings.length`.
   - `capHeight` is the number of consecutive rings from the top that belong to `controllingPlayer`.
   - **Single-ring elimination (for line processing):** When rules require eliminating "one ring" for line processing, P may choose **any** ring from **any** stack P controls—including a height-1 standalone ring. The ring is removed from the top of the chosen stack. If this empties the stack, the stack is removed; if buried rings remain, control transfers to the new top ring's owner.
-  - **Entire cap elimination (for territory processing):** When territory processing requires eliminating the "entire cap" or "stack cap", this means eliminating all consecutive top rings of the controlling color. An eligible stack cap for territory processing must be either: (1) a **multicolor stack** that P controls (P's rings on top with other players' rings buried beneath), or (2) a **single-color stack of height > 1** consisting entirely of P's colour. **Height-1 standalone rings are NOT eligible cap targets for territory processing.** For multicolor stacks, eliminating the cap exposes the buried rings of other colours. For single-color stacks with height > 1, this eliminates all rings and removes the stack entirely.
+  - **Entire cap elimination (for territory processing):** When territory processing requires eliminating the "entire cap" or "stack cap", this means eliminating all consecutive top rings of the controlling color. **All controlled stacks are eligible cap targets for territory processing**, including: (1) **multicolor stacks** (P's rings on top with other players' rings buried beneath), (2) **single-color stacks of height > 1** consisting entirely of P's colour, and (3) **height-1 standalone rings**. For multicolor stacks, eliminating the cap exposes the buried rings of other colours. For single-color stacks (any height), this eliminates all rings and removes the stack entirely.
   - **Entire cap elimination (for forced elimination):** When forced elimination occurs (player had no valid actions but still controls stacks), P must eliminate the entire cap from **any** controlled stack—**including height-1 standalone rings**. All controlled stacks are eligible targets for forced elimination, regardless of height or composition.
   - Control changes whenever the top ring changes color (due to overtaking or elimination).
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §1.3; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§5.1–5.3, 7.2, 15.4 Q16.
@@ -120,7 +120,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - Adding rings at the **bottom** via overtaking capture.
     - Removing the **top ring** of a stack via overtaking capture.
     - Removing **one ring** from the top of a controlled stack via line processing elimination (any controlled stack eligible, including standalone rings).
-    - Removing an **entire cap** via territory processing (only multicolor stacks or single-color stacks with height > 1 are eligible; standalone rings are NOT eligible).
+    - Removing an **entire cap** via territory processing (any controlled stack eligible, including standalone rings).
     - Removing an **entire cap** via forced elimination (any controlled stack eligible, including standalone rings).
     - Removing all rings in a region during territory collapse.
   - Stacks may **never** be split or reordered in any other way.
@@ -431,7 +431,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
       - The `forced_elimination` phase is the canonical location for recording this action, ensuring clear phase semantics and replay consistency.
     - **Explicit elimination decisions (during other phases).**
       - During line processing (RR-CANON-R120–R122), elimination of a single ring as a line reward is represented as an explicit decision (`eliminate_rings_from_stack`) tied to the processed line. Any controlled stack (including height-1 standalone rings) is eligible.
-      - During Territory processing (RR-CANON-R140–R145), mandatory self-elimination of an **entire stack cap** from an eligible stack outside the processed region is likewise represented as an explicit `eliminate_rings_from_stack` decision. Eligible targets for territory processing are multicolor stacks or single-color stacks of height > 1 (height-1 standalone rings are NOT eligible). Exception: recovery actions use buried ring extraction per RR-CANON-R114.
+      - During Territory processing (RR-CANON-R140–R145), mandatory self-elimination of an **entire stack cap** from an eligible stack outside the processed region is likewise represented as an explicit `eliminate_rings_from_stack` decision. All controlled stacks outside the region are eligible targets for territory processing, including height-1 standalone rings. Exception: recovery actions use buried ring extraction per RR-CANON-R114.
       - These explicit elimination moves are phase-local **interactive actions** for P and therefore count as global legal actions under RR-CANON-R200.
   - In all cases, any forced elimination or explicit elimination must remove at least one ring belonging to the acting player and must increase the global eliminated-ring count in RR-CANON-R060–R061 and RR-CANON-R191.
 
@@ -902,10 +902,10 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
        - For empty regions (containing no stacks), this step eliminates zero rings, but processing remains valid.
     4. **Mandatory self-elimination:**
        - Eliminate the **entire cap** (all consecutive top rings of P's colour) from a P-controlled stack that lies outside R.
-       - **Cap definition:** The cap consists of all consecutive rings of P's colour counting from the top of the stack. **Eligible** cap elimination targets for territory processing:
+       - **Cap definition:** The cap consists of all consecutive rings of P's colour counting from the top of the stack. **All controlled stacks outside the region are eligible** cap elimination targets for territory processing:
          - **(i) Mixed-colour stack:** For a stack where P controls (top rings are P's colour) but other players' rings are buried beneath (e.g., `[P, P, Q, P]` from top to bottom), the cap is the top consecutive P rings (2 in this example). Eliminating this cap removes P's control while preserving the buried rings.
          - **(ii) Single-colour stack of height > 1:** For a stack consisting entirely of P's rings with height > 1 (e.g., `[P, P, P]`), the entire stack is the cap and must be eliminated. This removes the stack from the board entirely.
-         - **Height-1 standalone rings are NOT eligible** as cap targets for territory processing. A player must have at least one eligible stack (multicolour or single-colour height > 1) outside the region to process it.
+         - **(iii) Height-1 standalone ring:** For a single ring of P's colour, the entire stack (the one ring) is eliminated. This is equivalent to removing the stack entirely.
        - **Exception for recovery actions:** When territory processing is triggered by a recovery action (RR-CANON-R114), the self-elimination cost is one buried ring extraction instead of an entire stack cap.
     5. Update all counts and recompute regions.
   - All eliminated rings from steps 3 and 4 are credited to P.

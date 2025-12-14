@@ -15,7 +15,6 @@
 
 import express from 'express';
 import request from 'supertest';
-import { errorHandler } from '../../../src/server/middleware/errorHandler';
 
 // Keep metrics side effects lightweight for this integration test.
 jest.mock('../../../src/server/services/MetricsService', () => ({
@@ -29,8 +28,11 @@ describe('Rate limiter + errorHandler integration', () => {
   let originalBypassIPs: string | undefined;
   let originalBypassUserPattern: string | undefined;
   let rateLimiterModule: typeof import('../../../src/server/middleware/rateLimiter');
+  let errorHandler: typeof import('../../../src/server/middleware/errorHandler').errorHandler;
 
   beforeEach(() => {
+    jest.useRealTimers();
+
     // Ensure load-test bypass env vars from other suites (or developer shells)
     // cannot disable rate limiting for this integration test.
     originalBypassEnabled = process.env.RATE_LIMIT_BYPASS_ENABLED;
@@ -41,13 +43,20 @@ describe('Rate limiter + errorHandler integration', () => {
     delete process.env.RATE_LIMIT_BYPASS_IPS;
     delete process.env.RATE_LIMIT_BYPASS_USER_PATTERN;
 
-    // Defensive: other suites may have mocked the rate limiter module (or
-    // initialized Redis-backed limiters) in the same Jest worker process.
-    // Always pull the real module implementation and re-initialize memory
-    // limiters so this integration test is deterministic.
-    rateLimiterModule = jest.requireActual(
-      '../../../src/server/middleware/rateLimiter'
-    ) as typeof import('../../../src/server/middleware/rateLimiter');
+    // Defensive: other suites may have mocked modules or left stateful singletons
+    // (like module-level limiter caches) in the shared Jest worker process.
+    // Load fresh actual modules inside an isolated module registry.
+    jest.isolateModules(() => {
+      jest.unmock('../../../src/server/middleware/errorHandler');
+      jest.unmock('../../../src/server/middleware/rateLimiter');
+
+      errorHandler = require('../../../src/server/middleware/errorHandler')
+        .errorHandler as typeof import('../../../src/server/middleware/errorHandler').errorHandler;
+
+      rateLimiterModule =
+        require('../../../src/server/middleware/rateLimiter') as typeof import('../../../src/server/middleware/rateLimiter');
+    });
+
     rateLimiterModule.initializeMemoryRateLimiters();
     rateLimiterModule.__testResetRateLimiters();
   });

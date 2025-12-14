@@ -2100,12 +2100,9 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
                 aria-label="Chat message"
                 className="flex-1 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-emerald-500"
               />
-              <button
-                type="submit"
-                className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1 rounded text-xs font-medium"
-              >
+              <Button type="submit" size="sm">
                 Send
-              </button>
+              </Button>
             </form>
           </div>
         </aside>

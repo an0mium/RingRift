@@ -731,19 +731,13 @@ export function VictoryModal({
           <div
             className={`${!effectiveReducedMotion ? 'buttons-animate' : ''} flex gap-3 justify-center flex-wrap relative z-10`.trim()}
           >
-            <button
-              onClick={onReturnToLobby}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900"
-            >
+            <Button type="button" size="lg" onClick={onReturnToLobby}>
               Return to Lobby
-            </button>
+            </Button>
 
-            <button
-              onClick={onClose}
-              className="px-6 py-3 bg-slate-700 text-slate-100 rounded-lg hover:bg-slate-600 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 focus:ring-offset-slate-900"
-            >
+            <Button type="button" variant="secondary" size="lg" onClick={onClose}>
               Close
-            </button>
+            </Button>
           </div>
         </div>
       </Dialog>

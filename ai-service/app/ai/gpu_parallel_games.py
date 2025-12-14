@@ -4396,11 +4396,8 @@ def _find_eligible_territory_cap(
 ) -> Optional[Tuple[int, int, int]]:
     """Find an eligible stack for territory self-elimination.
 
-    Per RR-CANON-R145: Eligible targets for territory processing are:
-    - Multicolor stacks (player controls but other colors buried)
-    - Single-color stacks of height > 1
-
-    Height-1 standalone rings are NOT eligible for territory elimination.
+    Per RR-CANON-R145: All controlled stacks outside the region are eligible,
+    including height-1 standalone rings.
 
     Optimized 2025-12-13: Use numpy to find eligible stack without .item() calls.
 
@@ -4421,9 +4418,9 @@ def _find_eligible_territory_cap(
     stack_owner_np = state.stack_owner[game_idx].cpu().numpy()
     stack_height_np = state.stack_height[game_idx].cpu().numpy()
 
-    # Per RR-CANON-R145: Height-1 standalone rings are NOT eligible
-    # Eligible: player owns stack AND height > 1
-    eligible = (stack_owner_np == player) & (stack_height_np > 1)
+    # Per RR-CANON-R145: All controlled stacks are eligible (including height-1)
+    # Eligible: player owns stack AND height >= 1
+    eligible = (stack_owner_np == player) & (stack_height_np >= 1)
 
     # Apply exclusions if any
     if excluded_positions:
@@ -4690,8 +4687,8 @@ def compute_territory_batch(
     2. The single-color boundary requirement (R141)
     3. The color-disconnection criterion (R142)
 
-    Cap eligibility is checked per RR-CANON-R145: height-1 standalone rings
-    are NOT eligible for territory elimination cost.
+    Cap eligibility is checked per RR-CANON-R145: all controlled stacks
+    (including height-1 standalone rings) are eligible for territory elimination cost.
 
     Args:
         state: BatchGameState to modify

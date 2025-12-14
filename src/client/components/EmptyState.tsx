@@ -1,4 +1,5 @@
 import React from 'react';
+import { Button } from './ui/Button';
 
 export interface EmptyStateProps {
   /** Main heading text */
@@ -36,13 +37,13 @@ export function EmptyState({ title, description, icon, action, className = '' }:
       <h3 className="text-sm font-medium text-slate-300">{title}</h3>
       {description && <p className="mt-1 text-xs text-slate-500 max-w-xs">{description}</p>}
       {action && (
-        <button
+        <Button
           type="button"
           onClick={action.onClick}
-          className="mt-4 px-4 py-2 min-h-[44px] text-sm font-medium rounded-md bg-amber-600 hover:bg-amber-500 text-white transition touch-manipulation focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 focus:ring-offset-slate-900"
+          className="mt-4 min-h-[44px] touch-manipulation"
         >
           {action.label}
-        </button>
+        </Button>
       )}
     </div>
   );

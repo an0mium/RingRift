@@ -34,7 +34,7 @@
 ### Victory Thresholds
 
 - **Ring Elimination (RR-CANON-R061):** `victoryThreshold = round(ringsPerPlayer × (2/3 + 1/3 × (numPlayers - 1)))` — scales with player count (e.g., 18/24/30 for square8 with 2/3/4 players; 72/96/120 for square19; 96/128/160 for hex).
-- **Territory (RR-CANON-R062):** `territoryVictoryThreshold = floor(totalSpaces / 2) + 1`
+- **Territory (RR-CANON-R062-v2):** Dual condition: `territorySpaces >= floor(totalSpaces / numPlayers) + 1` AND `territorySpaces > sum(opponents' territory)`
 - **LPS (RR-CANON-R172):** Player is only one with "real actions" for 2 consecutive full rounds
 
 ---

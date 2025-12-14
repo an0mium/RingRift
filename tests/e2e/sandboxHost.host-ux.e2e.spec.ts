@@ -49,7 +49,7 @@ test.describe('sandbox host @host-ux', () => {
   });
 
   test('supports preset deep links and ring placement count dialog', async ({ page }) => {
-    await page.goto('/sandbox?preset=learn-basics');
+    await goToSandbox(page, '/sandbox?preset=learn-basics');
 
     const board = page.getByTestId('board-view');
     await expect(board).toBeVisible({ timeout: 30_000 });

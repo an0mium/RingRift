@@ -83,7 +83,7 @@ logger = logging.getLogger(__name__)
 
 from app.models import AIConfig, BoardType, GameState, Move, MoveType, Position
 from app.game_engine import GameEngine
-from app.ai.neural_net import NeuralNetAI, INVALID_MOVE_INDEX
+from app.ai.neural_net import NeuralNetAI, INVALID_MOVE_INDEX, encode_move_for_board
 from app.rules.serialization import deserialize_game_state
 
 
@@ -342,8 +342,8 @@ def _process_gpu_selfplay_record(
                 encoder, current_state, history_frames, history_length
             )
 
-            # Encode the actual move as the policy target
-            action_idx = encoder.encode_move(move, current_state.board)
+            # Encode the actual move as the policy target (board-aware encoding)
+            action_idx = encode_move_for_board(move, current_state.board)
             if action_idx == INVALID_MOVE_INDEX:
                 # Skip invalid moves but still apply to continue
                 base_features, _ = encoder._extract_features(current_state)
@@ -888,8 +888,8 @@ def process_jsonl_file(
                     if len(history_frames) > history_length + 1:
                         history_frames.pop(0)
 
-                    # Encode action (sparse)
-                    action_idx = encoder.encode_move(move, current_state.board)
+                    # Encode action (sparse, board-aware encoding)
+                    action_idx = encode_move_for_board(move, current_state.board)
                     if action_idx == INVALID_MOVE_INDEX:
                         # Skip invalid moves
                         current_state = GameEngine.apply_move(current_state, move)

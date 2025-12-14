@@ -141,11 +141,10 @@ describe('isStackEligibleForElimination', () => {
   });
 
   describe('territory context (RR-CANON-R145)', () => {
-    it('rejects height-1 standalone stacks', () => {
+    it('allows height-1 standalone stacks', () => {
       const height1 = createStack({ x: 0, y: 0 }, [1]);
       const result = isStackEligibleForElimination(height1, 'territory', 1);
-      expect(result.eligible).toBe(false);
-      expect(result.reason.toLowerCase()).toContain('height-1');
+      expect(result.eligible).toBe(true);
     });
 
     it('allows multicolor stacks', () => {
@@ -216,10 +215,9 @@ describe('enumerateEligibleStacks', () => {
     const lineEligible = enumerateEligibleStacks(board, 1, 'line');
     expect(lineEligible.length).toBe(3);
 
-    // Territory: P1 stacks excluding height-1 (2)
+    // Territory: all P1 stacks including height-1 (3)
     const territoryEligible = enumerateEligibleStacks(board, 1, 'territory');
-    expect(territoryEligible.length).toBe(2);
-    expect(territoryEligible.some((s) => s.stackHeight === 1)).toBe(false);
+    expect(territoryEligible.length).toBe(3);
   });
 
   it('respects excludePositions', () => {
@@ -305,7 +303,7 @@ describe('eliminateFromStack', () => {
       expect(result.updatedStack?.controllingPlayer).toBe(2);
     });
 
-    it('rejects height-1 stacks', () => {
+    it('allows height-1 stacks', () => {
       const stack = createStack({ x: 0, y: 0 }, [1]);
       const board = createBoardWithStacks([stack]);
 
@@ -317,8 +315,9 @@ describe('eliminateFromStack', () => {
       };
 
       const result = eliminateFromStack(params);
-      expect(result.success).toBe(false);
-      expect(result.error?.toLowerCase()).toContain('height-1');
+      expect(result.success).toBe(true);
+      expect(result.ringsEliminated).toBe(1);
+      expect(result.updatedStack).toBeNull();
     });
   });
 

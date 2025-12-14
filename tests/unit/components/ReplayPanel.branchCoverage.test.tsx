@@ -318,7 +318,7 @@ describe('ReplayPanel', () => {
     it('handles close replay', () => {
       render(<ReplayPanel defaultCollapsed={false} />);
 
-      fireEvent.click(screen.getByText('✕ Close'));
+      fireEvent.click(screen.getByRole('button', { name: /close/i }));
 
       expect(mockUnloadGame).toHaveBeenCalled();
     });

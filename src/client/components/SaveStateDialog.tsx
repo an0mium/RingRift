@@ -4,6 +4,7 @@ import type { LoadableScenario } from '../sandbox/scenarioTypes';
 import { saveCurrentGameState, exportScenarioToFile } from '../sandbox/statePersistence';
 import { Dialog } from './ui/Dialog';
 import { InlineAlert } from './ui/InlineAlert';
+import { Button } from './ui/Button';
 
 export interface SaveStateDialogProps {
   isOpen: boolean;
@@ -134,21 +135,12 @@ export const SaveStateDialog: React.FC<SaveStateDialogProps> = ({
         {error && <InlineAlert variant="error">{error}</InlineAlert>}
 
         <div className="flex justify-end gap-3 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors disabled:opacity-50"
-            disabled={saving}
-          >
+          <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={saving || !name.trim()}
-          >
+          </Button>
+          <Button type="submit" disabled={saving || !name.trim()}>
             {saving ? 'Saving...' : 'Save'}
-          </button>
+          </Button>
         </div>
       </form>
     </Dialog>

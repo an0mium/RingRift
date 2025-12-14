@@ -44,6 +44,13 @@ AI_SERVICE_ROOT = SCRIPT_DIR.parent
 PROJECT_ROOT = AI_SERVICE_ROOT.parent
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
+# Import model lineage tracking
+try:
+    from scripts.model_lineage import register_model, update_performance
+    HAS_LINEAGE = True
+except ImportError:
+    HAS_LINEAGE = False
+
 # Paths
 MODELS_DIR = AI_SERVICE_ROOT / "models"
 PROMOTED_DIR = MODELS_DIR / "promoted"
@@ -211,6 +218,23 @@ def publish_best_alias(
 
     if verbose:
         print(f"[model_promotion] Published alias {alias} -> {best_model_path.name}")
+
+    # Track in lineage database
+    if HAS_LINEAGE:
+        try:
+            model_id = register_model(
+                model_path=str(best_model_path),
+                board_type=board_type,
+                num_players=num_players,
+                architecture="neural_net",
+            )
+            update_performance(model_id, "elo", elo_rating, context="promotion")
+            update_performance(model_id, "games_played", games_played, context="promotion")
+            if verbose:
+                print(f"[model_promotion] Tracked in lineage: {model_id}")
+        except Exception as e:
+            if verbose:
+                print(f"[model_promotion] Lineage tracking failed: {e}")
 
     return [cpu_dst, mps_dst, meta_dst]
 

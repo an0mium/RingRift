@@ -92,7 +92,7 @@ At minimum, your engine must maintain:
   - `controllingPlayer = rings[top]`
   - `capHeight = number of consecutive rings from the top that equal controllingPlayer`.
   - **Single-ring elimination (for line processing):** When rules require eliminating "one ring" for line processing, remove the top ring from any controlled stack (including height-1 standalone rings). Any controlled stack is an eligible target.
-  - **Entire cap elimination (for territory processing):** When territory processing requires eliminating the "entire cap" or "stack cap", eliminate all `capHeight` rings from the top. Eligible targets must be either multicolour stacks or single-colour stacks of height > 1. **Height-1 standalone rings are NOT eligible for territory processing.** For mixed-color stacks, this exposes buried rings of other colors. For single-color stacks with height > 1, this eliminates all rings (removing the stack).
+  - **Entire cap elimination (for territory processing):** When territory processing requires eliminating the "entire cap" or "stack cap", eliminate all `capHeight` rings from the top. **All controlled stacks outside the region are eligible**, including multicolour stacks, single-colour stacks of height > 1, and height-1 standalone rings. For mixed-color stacks, this exposes buried rings of other colors. For single-color stacks (any height), this eliminates all rings (removing the stack).
   - **Entire cap elimination (for forced elimination):** When forced elimination occurs (player had no valid actions but still controls stacks), eliminate all `capHeight` rings from the top of **any** controlled stack—**including height-1 standalone rings**. All controlled stacks are eligible targets for forced elimination.
 
 You must maintain `capHeight` and `stackHeight` correctly after **placement**, **movement**, **overtaking**, and **elimination**.
@@ -437,7 +437,7 @@ After all line processing is complete:
 
 4. **Mandatory self-elimination:**
    - `P` must eliminate the **entire cap** (all consecutive top rings of `P`'s colour) from a `P`-controlled stack **outside** this region.
-   - **Cap eligibility for territory processing:** An eligible stack cap for `P` must be either: (1) a **multicolour stack** that `P` controls (with other players' rings buried beneath `P`'s cap), or (2) a **single-colour stack of height > 1** consisting entirely of `P`'s colour. A height-1 standalone ring is **NOT** an eligible cap target for territory processing. For multicolour stacks (e.g., `[P, P, Q, P]`), eliminating the cap (top 2 rings) exposes buried rings. For single-colour stacks (e.g., `[P, P, P]`), the entire stack is eliminated. Note: Line processing has different, less restrictive rules—see Section 5.3.
+   - **Cap eligibility for territory processing:** **All controlled stacks outside the region are eligible** cap targets for `P`, including: (1) **multicolour stacks** (with other players' rings buried beneath `P`'s cap), (2) **single-colour stacks of height > 1** consisting entirely of `P`'s colour, and (3) **height-1 standalone rings**. For multicolour stacks (e.g., `[P, P, Q, P]`), eliminating the cap (top 2 rings) exposes buried rings. For single-colour stacks (any height), the entire stack is eliminated.
    - **Exception for recovery actions:** When territory processing is triggered by a recovery action, the self-elimination cost is one buried ring extraction per region, not an entire stack cap.
 
 5. Update all ring/territory counters and derived stats.

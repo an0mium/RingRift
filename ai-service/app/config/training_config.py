@@ -146,21 +146,23 @@ class NeuralNetConfig:
     """
 
     # Model architecture
-    hidden_layers: List[int] = field(default_factory=lambda: [256, 128, 64])
+    # Optimized via hyperparameter tuning (Dec 2024)
+    hidden_layers: List[int] = field(default_factory=lambda: [512, 512, 512, 512, 512])
     input_channels: int = 17
     policy_head_channels: int = 32
     value_head_channels: int = 32
 
-    # Training hyperparameters
-    batch_size: int = 256
-    learning_rate: float = 0.001
-    weight_decay: float = 1e-4
+    # Training hyperparameters (optimized via random/bayesian search)
+    batch_size: int = 64
+    learning_rate: float = 0.0009
+    weight_decay: float = 0.00028
     epochs: int = 100
     warmup_epochs: int = 5
+    dropout: float = 0.135
 
-    # Loss weights
-    policy_weight: float = 1.0
-    value_weight: float = 1.0
+    # Loss weights (from hyperparameter tuning)
+    policy_weight: float = 1.66
+    value_weight: float = 1.82
 
     # Data configuration
     board_type: str = "square8"

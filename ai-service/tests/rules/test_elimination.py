@@ -108,13 +108,13 @@ class TestIsStackEligibleForElimination:
     class TestTerritoryContext:
         """Tests for territory context (RR-CANON-R145)."""
 
-        def test_rejects_height_1_standalone_stacks(self):
+        def test_allows_height_1_standalone_stacks(self):
+            """Height-1 standalone stacks are now eligible for territory processing."""
             height_1 = [1]
             result = is_stack_eligible_for_elimination(
                 height_1, 1, EliminationContext.TERRITORY, 1
             )
-            assert not result.eligible
-            assert "height-1" in result.reason.lower()
+            assert result.eligible
 
         def test_allows_multicolor_stacks(self):
             multicolor = [2, 1, 1]  # P1 controls with P2 buried
@@ -203,10 +203,10 @@ class TestEnumerateEligibleStacks:
         line_eligible = enumerate_eligible_stacks(stacks, 1, EliminationContext.LINE)
         assert len(line_eligible) == 3
 
-        # Territory: P1 stacks excluding height-1 (2)
+        # Territory: all P1 stacks including height-1 (3)
         territory_eligible = enumerate_eligible_stacks(stacks, 1, EliminationContext.TERRITORY)
-        assert len(territory_eligible) == 2
-        assert (0, 0) not in territory_eligible
+        assert len(territory_eligible) == 3
+        assert (0, 0) in territory_eligible  # height-1 is now eligible
 
     def test_respects_exclude_positions(self):
         stacks = {
@@ -232,9 +232,10 @@ class TestHasEligibleEliminationTarget:
         stacks = {(0, 0): {"rings": [1, 1], "controlling_player": 1}}
         assert has_eligible_elimination_target(stacks, 1, EliminationContext.TERRITORY)
 
-    def test_returns_false_when_no_eligible_stacks_exist(self):
+    def test_returns_true_for_height_1_in_territory_context(self):
+        """Height-1 stacks are now eligible for territory elimination."""
         stacks = {(0, 0): {"rings": [1], "controlling_player": 1}}  # height-1
-        assert not has_eligible_elimination_target(stacks, 1, EliminationContext.TERRITORY)
+        assert has_eligible_elimination_target(stacks, 1, EliminationContext.TERRITORY)
 
     def test_respects_exclude_positions(self):
         stacks = {(0, 0): {"rings": [1, 1], "controlling_player": 1}}
@@ -288,7 +289,8 @@ class TestEliminateFromStack:
             assert result.rings_eliminated == 2
             assert result.updated_stack == [2]
 
-        def test_rejects_height_1_stacks(self):
+        def test_accepts_height_1_stacks(self):
+            """Height-1 stacks are now eligible for territory elimination."""
             rings = [1]
 
             result = eliminate_from_stack(
@@ -298,8 +300,9 @@ class TestEliminateFromStack:
                 player=1,
             )
 
-            assert not result.success
-            assert "height-1" in result.error.lower()
+            assert result.success
+            assert result.rings_eliminated == 1
+            assert result.updated_stack is None  # Stack fully eliminated
 
     class TestForcedContext:
         """Tests for forced elimination."""

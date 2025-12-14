@@ -178,6 +178,8 @@ export function Dialog({
     .filter(Boolean)
     .join(' ');
 
+  const dialogClasses = ['relative', className].filter(Boolean).join(' ');
+
   return (
     <div
       className={overlayClasses}
@@ -200,7 +202,7 @@ export function Dialog({
       />
       <div
         ref={dialogRef}
-        className={className}
+        className={dialogClasses}
         role={role}
         aria-modal="true"
         onKeyDown={onKeyDown}

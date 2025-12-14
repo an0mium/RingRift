@@ -433,26 +433,25 @@ describe('territoryProcessing branch coverage', () => {
    * RR-CANON-R022/R082: Stack cap eligibility tests
    *
    * Territory processing requires eliminating an entire cap from an ELIGIBLE stack.
-   * Eligible stacks must be either:
+   * All controlled stacks are eligible, including:
    * (1) Multicolor stacks (stackHeight > capHeight) - player controls with buried rings of other colors
    * (2) Single-color stacks with height > 1 (stackHeight === capHeight && stackHeight > 1)
+   * (3) Height-1 standalone rings
    *
-   * Height-1 standalone rings are NOT eligible for territory processing.
-   *
-   * Note: Forced elimination allows ANY controlled stack including standalone rings.
+   * Forced elimination also allows ANY controlled stack including standalone rings.
    */
   describe('Stack cap eligibility for territory processing (RR-CANON-R082)', () => {
-    it('rejects height-1 standalone ring as sole outside stack', () => {
+    it('accepts height-1 standalone ring as sole outside stack', () => {
       const board = makeBoardState();
-      // Only outside stack is a height-1 standalone ring - NOT eligible
+      // Height-1 standalone ring IS now eligible per RR-CANON-R145
       addStack(board, pos(0, 0), 1, [1]);
       const region = makeTerritory([pos(5, 5)], 1);
       const ctx: TerritoryProcessingContext = { player: 1 };
 
       const result = canProcessTerritoryRegion(board, region, ctx);
 
-      // Should NOT be processable - no eligible cap target
-      expect(result).toBe(false);
+      // Should be processable - height-1 standalone rings are now eligible
+      expect(result).toBe(true);
     });
 
     it('accepts multicolor stack (player rings on top, other color buried)', () => {
@@ -505,9 +504,9 @@ describe('territoryProcessing branch coverage', () => {
       expect(result).toBe(true);
     });
 
-    it('rejects when multiple standalone rings exist but none eligible', () => {
+    it('accepts when multiple standalone rings exist (all now eligible)', () => {
       const board = makeBoardState();
-      // Multiple height-1 standalone rings - none eligible
+      // Multiple height-1 standalone rings - all now eligible per RR-CANON-R145
       addStack(board, pos(0, 0), 1, [1]);
       addStack(board, pos(1, 0), 1, [1]);
       addStack(board, pos(2, 0), 1, [1]);
@@ -516,38 +515,38 @@ describe('territoryProcessing branch coverage', () => {
 
       const result = canProcessTerritoryRegion(board, region, ctx);
 
-      // None of the stacks are eligible
-      expect(result).toBe(false);
+      // All stacks are eligible now
+      expect(result).toBe(true);
     });
 
-    it('accepts when one eligible stack exists among standalone rings', () => {
+    it('accepts when multiple stacks exist with various heights (all eligible)', () => {
       const board = makeBoardState();
-      // Mix of ineligible (height-1) and one eligible (height-2)
-      addStack(board, pos(0, 0), 1, [1]); // Ineligible
-      addStack(board, pos(1, 0), 1, [1]); // Ineligible
-      addStack(board, pos(2, 0), 1, [1, 1]); // Eligible
+      // All controlled stacks are now eligible regardless of height
+      addStack(board, pos(0, 0), 1, [1]); // Eligible (height-1)
+      addStack(board, pos(1, 0), 1, [1]); // Eligible (height-1)
+      addStack(board, pos(2, 0), 1, [1, 1]); // Eligible (height-2)
       const region = makeTerritory([pos(5, 5)], 1);
       const ctx: TerritoryProcessingContext = { player: 1 };
 
       const result = canProcessTerritoryRegion(board, region, ctx);
 
-      // One eligible stack exists
+      // All controlled stacks are eligible
       expect(result).toBe(true);
     });
 
     it('only considers stacks OUTSIDE the region for eligibility', () => {
       const board = makeBoardState();
-      // Eligible stack is INSIDE the region - doesn't count
+      // Stack inside the region - doesn't count for eligibility
       addStack(board, pos(5, 5), 1, [1, 1]);
-      // Only outside stack is ineligible
+      // Outside stack (height-1 is now eligible)
       addStack(board, pos(0, 0), 1, [1]);
       const region = makeTerritory([pos(5, 5)], 1);
       const ctx: TerritoryProcessingContext = { player: 1 };
 
       const result = canProcessTerritoryRegion(board, region, ctx);
 
-      // The eligible stack is inside the region, so cannot be used
-      expect(result).toBe(false);
+      // The outside height-1 stack is now eligible, so region is processable
+      expect(result).toBe(true);
     });
 
     it('considers stacks outside region boundary for eligibility', () => {

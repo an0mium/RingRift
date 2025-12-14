@@ -103,8 +103,8 @@ describe('EmptyState', () => {
     render(<EmptyState title="Empty" action={{ label: 'Click me', onClick: () => {} }} />);
 
     const button = screen.getByRole('button');
-    expect(button).toHaveClass('bg-amber-600');
-    expect(button).toHaveClass('hover:bg-amber-500');
+    expect(button).toHaveClass('bg-emerald-600');
+    expect(button).toHaveClass('hover:bg-emerald-500');
     expect(button).toHaveClass('text-white');
   });
 });

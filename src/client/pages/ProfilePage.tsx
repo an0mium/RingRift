@@ -6,6 +6,7 @@ import { User } from '../../shared/types/user';
 import { Game, GameResult } from '../../shared/types/game';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { InlineAlert } from '../components/ui/InlineAlert';
+import { Button } from '../components/ui/Button';
 import { extractErrorMessage } from '../utils/errorReporting';
 import { formatVictoryReason } from '../adapters/gameViewModels';
 import { RatingHistoryChart } from '../components/RatingHistoryChart';
@@ -95,13 +96,9 @@ export default function ProfilePage() {
               </p>
             </div>
             {!isEditing && currentUser?.id === profile.id && (
-              <button
-                type="button"
-                onClick={() => setIsEditing(true)}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium transition-colors"
-              >
+              <Button type="button" variant="secondary" onClick={() => setIsEditing(true)}>
                 Edit Profile
-              </button>
+              </Button>
             )}
           </div>
 
@@ -126,23 +123,18 @@ export default function ProfilePage() {
               </div>
               {error && <InlineAlert variant="error">{error}</InlineAlert>}
               <div className="flex gap-3">
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium transition-colors"
-                >
-                  Save Changes
-                </button>
-                <button
+                <Button type="submit">Save Changes</Button>
+                <Button
                   type="button"
+                  variant="secondary"
                   onClick={() => {
                     setIsEditing(false);
                     setEditForm({ username: profile.username });
                     setError(null);
                   }}
-                  className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium transition-colors"
                 >
                   Cancel
-                </button>
+                </Button>
               </div>
             </form>
           ) : (

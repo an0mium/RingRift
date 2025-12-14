@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
+import { ButtonLink } from '../components/ui/ButtonLink';
 import { InlineAlert } from '../components/ui/InlineAlert';
 import { extractErrorMessage } from '../utils/errorReporting';
 
@@ -151,26 +152,17 @@ export default function RegisterPage() {
             The local sandbox runs entirely in your browser. It’s ideal for exploring movement,
             captures, lines, and territory before committing to an account.
           </p>
-          <Link
-            to="/sandbox"
-            className="inline-flex items-center justify-center px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm font-semibold text-white"
-          >
+          <ButtonLink to="/sandbox" className="w-full sm:w-auto">
             Play Local Sandbox Game
-          </Link>
+          </ButtonLink>
 
           <div className="flex flex-wrap gap-2">
-            <Link
-              to="/sandbox?preset=learn-basics"
-              className="inline-flex items-center justify-center px-4 py-2 rounded-md border border-emerald-500/40 bg-slate-900/60 hover:border-emerald-400/70 hover:bg-slate-900 text-sm font-semibold text-emerald-200"
-            >
+            <ButtonLink to="/sandbox?preset=learn-basics" variant="outline" className="flex-1">
               Learn the Basics
-            </Link>
-            <Link
-              to="/help"
-              className="inline-flex items-center justify-center px-4 py-2 rounded-md border border-slate-600 bg-slate-900/40 hover:bg-slate-900 text-sm font-semibold text-slate-200"
-            >
+            </ButtonLink>
+            <ButtonLink to="/help" variant="secondary" className="flex-1">
               Help Topics
-            </Link>
+            </ButtonLink>
           </div>
         </div>
       </div>

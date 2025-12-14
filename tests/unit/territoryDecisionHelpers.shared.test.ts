@@ -355,11 +355,12 @@ describe('territoryDecisionHelpers – shared territory decision enumeration and
       expect(lineMoves.length).toBe(1);
       expect(lineMoves[0].eliminationContext).toBe('line');
 
-      // Territory elimination context: height-1 rings are NOT eligible (per RR-CANON-R145)
+      // Territory elimination context: height-1 rings ARE now eligible (per RR-CANON-R145)
       const territoryMoves = enumerateTerritoryEliminationMoves(state, 1, {
         eliminationContext: 'territory',
       });
-      expect(territoryMoves.length).toBe(0);
+      expect(territoryMoves.length).toBe(1);
+      expect(territoryMoves[0].eliminationContext).toBe('territory');
     });
 
     it('line elimination removes exactly ONE ring, not entire cap', () => {
@@ -590,7 +591,7 @@ describe('territoryDecisionHelpers – shared territory decision enumeration and
       const a: Position = { x: 0, y: 0 };
       const aKey = positionToString(a);
 
-      // Height-1 stack should NOT be eligible with default context
+      // Height-1 stack IS eligible with default context (territory rules now allow it)
       board.stacks.set(aKey, {
         position: a,
         rings: [1],
@@ -599,9 +600,9 @@ describe('territoryDecisionHelpers – shared territory decision enumeration and
         controllingPlayer: 1,
       } as any);
 
-      // No scope provided means default to territory rules
+      // No scope provided means default to territory rules - height-1 now eligible
       const defaultMoves = enumerateTerritoryEliminationMoves(state, 1);
-      expect(defaultMoves.length).toBe(0); // Height-1 not eligible
+      expect(defaultMoves.length).toBe(1); // Height-1 now eligible
     });
 
     it('multiple stacks with mixed eligibility are correctly filtered by context', () => {
@@ -646,13 +647,13 @@ describe('territoryDecisionHelpers – shared territory decision enumeration and
       });
       expect(lineMoves.length).toBe(3);
 
-      // Territory context: only b and c eligible (not height-1 standalone at a)
+      // Territory context: all 3 stacks eligible (including height-1 standalone at a)
       const territoryMoves = enumerateTerritoryEliminationMoves(state, 1, {
         eliminationContext: 'territory',
       });
-      expect(territoryMoves.length).toBe(2);
+      expect(territoryMoves.length).toBe(3);
       const territoryKeys = territoryMoves.map((m) => positionToString(m.to!)).sort();
-      expect(territoryKeys).toEqual([bKey, cKey].sort());
+      expect(territoryKeys).toEqual([aKey, bKey, cKey].sort());
     });
   });
 });
