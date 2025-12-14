@@ -43,12 +43,30 @@ def _env_bool(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _gather_files(project_root: Path) -> List[Path]:
+_BEST_ALIAS_PTH_RE = re.compile(
+    r"^ringrift_best_[a-z0-9]+_[234]p(?:_[a-z0-9]+)?\.pth$"
+)
+
+
+def _is_best_alias_checkpoint(path: Path) -> bool:
+    """Return True when path looks like a runtime `ringrift_best_*` alias file.
+
+    This intentionally excludes timestamped snapshot checkpoints like:
+      ringrift_best_sq8_2p_20251214_010416.pth
+    """
+
+    return bool(_BEST_ALIAS_PTH_RE.match(path.name))
+
+
+def _gather_files(project_root: Path, *, include_snapshot_checkpoints: bool) -> List[Path]:
     candidates: list[Path] = []
 
     models_dir = project_root / "ai-service" / "models"
     if models_dir.exists():
-        candidates.extend(sorted(models_dir.glob("ringrift_best_*.pth")))
+        best_checkpoints = sorted(models_dir.glob("ringrift_best_*.pth"))
+        if not include_snapshot_checkpoints:
+            best_checkpoints = [p for p in best_checkpoints if _is_best_alias_checkpoint(p)]
+        candidates.extend(best_checkpoints)
         candidates.extend(sorted(models_dir.glob("ringrift_best_*.meta.json")))
 
         nnue_dir = models_dir / "nnue"
@@ -242,13 +260,24 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="When used with --validate-health, exit non-zero if any missing artifact counts are reported.",
     )
+    parser.add_argument(
+        "--include-snapshot-checkpoints",
+        action="store_true",
+        help=(
+            "Also sync timestamped ringrift_best_* snapshot checkpoints (large). "
+            "Default behaviour only syncs runtime ringrift_best_* alias files."
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--verbose", action="store_true")
 
     args = parser.parse_args(argv)
 
     project_root = Path(__file__).resolve().parents[2]
-    files = _gather_files(project_root)
+    files = _gather_files(
+        project_root,
+        include_snapshot_checkpoints=bool(args.include_snapshot_checkpoints),
+    )
     if not files:
         print("No artifacts found to sync.", file=sys.stderr)
         return 1
