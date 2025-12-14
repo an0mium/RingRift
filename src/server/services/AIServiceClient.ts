@@ -140,8 +140,11 @@ export interface MoveResponse {
   thinking_time_ms: number;
   ai_type: string;
   difficulty: number;
+  heuristic_profile_id?: string;
+  use_neural_net?: boolean;
   nn_model_id?: string;
   nn_checkpoint?: string;
+  nnue_checkpoint?: string;
 }
 
 export interface EvaluationRequest {
@@ -425,8 +428,11 @@ export class AIServiceClient {
             thinkingTime: response.data.thinking_time_ms,
             evaluation: response.data.evaluation,
             latencyMs: Math.round(duration),
+            heuristicProfileId: response.data.heuristic_profile_id,
+            useNeuralNet: response.data.use_neural_net,
             nnModelId: response.data.nn_model_id,
             nnCheckpoint: response.data.nn_checkpoint,
+            nnueCheckpoint: response.data.nnue_checkpoint,
           });
 
           return response.data;

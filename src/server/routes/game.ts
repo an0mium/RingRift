@@ -311,8 +311,11 @@ sandboxHelperRoutes.post(
         thinkingTimeMs: response.thinking_time_ms,
         aiType: response.ai_type,
         difficulty: response.difficulty,
+        heuristicProfileId: response.heuristic_profile_id,
+        useNeuralNet: response.use_neural_net,
         nnModelId: response.nn_model_id,
         nnCheckpoint: response.nn_checkpoint,
+        nnueCheckpoint: response.nnue_checkpoint,
       });
     } catch (err) {
       const message =
