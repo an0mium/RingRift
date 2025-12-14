@@ -2331,7 +2331,10 @@ class P2POrchestrator:
     async def _request_peer_manifest(self, peer_info: NodeInfo) -> Optional[NodeDataManifest]:
         """Request data manifest from a peer node."""
         try:
-            timeout = ClientTimeout(total=30)
+            # Keep manifest requests snappy: these are advisory and should not
+            # stall leader loops or external callers (e.g. the improvement
+            # daemon). Prefer faster failure and rely on periodic retries.
+            timeout = ClientTimeout(total=10, sock_connect=3, sock_read=7)
             async with ClientSession(timeout=timeout) as session:
                 for url in self._urls_for_peer(peer_info, "/data_manifest"):
                     try:
@@ -2358,9 +2361,19 @@ class P2POrchestrator:
             self.local_data_manifest = local_manifest
         cluster_manifest.node_manifests[self.node_id] = local_manifest
 
-        # Collect from peers in parallel
+        # Collect from peers in parallel.
+        #
+        # Only probe peers that are currently alive and not retired; terminated
+        # or long-dead nodes should not stall manifest collection. NAT-blocked
+        # peers can't accept inbound /data_manifest, so they are excluded too.
         with self.peers_lock:
-            peers = list(self.peers.values())
+            peers = [
+                p
+                for p in self.peers.values()
+                if p.is_alive()
+                and not bool(getattr(p, "retired", False))
+                and not bool(getattr(p, "nat_blocked", False))
+            ]
 
         tasks = [self._request_peer_manifest(peer) for peer in peers]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -4497,13 +4510,35 @@ class P2POrchestrator:
                     "leader_id": self.leader_id,
                 }, status=400)
 
-            # Collect cluster manifest (refreshes data from all nodes)
+            refresh_raw = str(request.query.get("refresh", "") or "").strip().lower()
+            refresh = refresh_raw in {"1", "true", "yes", "y"}
+
+            # Default to returning the cached manifest to keep this endpoint
+            # fast and usable by daemons with tight timeouts.
+            if not refresh:
+                with self.manifest_lock:
+                    cached = self.cluster_data_manifest
+                if cached:
+                    return web.json_response({
+                        "cluster_manifest": cached.to_dict(),
+                        "cached": True,
+                    })
+                # Manifest collection loop runs shortly after startup; callers
+                # can retry or pass ?refresh=1 to force.
+                return web.json_response({
+                    "cluster_manifest": None,
+                    "cached": True,
+                    "error": "manifest_not_ready",
+                })
+
+            # Forced refresh: collect and update cache.
             cluster_manifest = await self._collect_cluster_manifest()
             with self.manifest_lock:
                 self.cluster_data_manifest = cluster_manifest
 
             return web.json_response({
                 "cluster_manifest": cluster_manifest.to_dict(),
+                "cached": False,
             })
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)

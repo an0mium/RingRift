@@ -336,7 +336,7 @@ async def get_p2p_cluster_status() -> Optional[Dict[str, Any]]:
         headers = {"Authorization": f"Bearer {P2P_AUTH_TOKEN}"} if P2P_AUTH_TOKEN else {}
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                f"{P2P_ORCHESTRATOR_URL}/cluster_data_manifest",
+                f"{P2P_ORCHESTRATOR_URL}/cluster_data_manifest?refresh=0",
                 headers=headers,
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as resp:
