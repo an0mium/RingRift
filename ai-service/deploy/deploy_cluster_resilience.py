@@ -240,16 +240,29 @@ def _build_tailscale_coordinator_urls(
         cfg = hosts.get(voter_id)
         if not isinstance(cfg, dict):
             continue
-        tailscale_ip = cfg.get("tailscale_ip")
+
+        # Prefer Tailscale IPs when present (best for NAT traversal), but also
+        # include the public/ssh host as a fallback so nodes without Tailscale
+        # connectivity can still reach the quorum.
+        tailscale_ip = str(cfg.get("tailscale_ip") or "").strip()
+        ssh_host_raw = str(cfg.get("ssh_host") or "").strip()
+        ssh_host = ssh_host_raw.split("@", 1)[-1].strip() if ssh_host_raw else ""
+
         if tailscale_ip:
             urls.append(f"http://{tailscale_ip}:{p2p_port}")
-        else:
-            # Fall back to ssh_host if no Tailscale IP
-            ssh_host = cfg.get("ssh_host")
-            if ssh_host:
-                urls.append(f"http://{ssh_host}:{p2p_port}")
+        if ssh_host and ssh_host != tailscale_ip:
+            urls.append(f"http://{ssh_host}:{p2p_port}")
 
-    return ",".join(urls)
+    # De-dupe while preserving order.
+    seen: set[str] = set()
+    uniq: List[str] = []
+    for url in urls:
+        if url in seen:
+            continue
+        seen.add(url)
+        uniq.append(url)
+
+    return ",".join(uniq)
 
 
 def _remote_path_assignment(path: str) -> str:
