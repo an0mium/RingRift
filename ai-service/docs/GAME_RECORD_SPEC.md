@@ -1,6 +1,6 @@
 # RingRift Game Record Specification
 
-> **Doc Status (2025-12-04): Active (Phase 1–2 implemented)**  
+> **Doc Status (2025-12-14): Active (Phase 1–2 implemented)**  
 > Core GameRecord types and JSONL format are implemented in both Python and TypeScript, and online games now populate canonical GameRecords via `GameRecordRepository` while self-play generators can emit `GameRecord` JSONL for training.
 
 ## Overview
@@ -51,7 +51,7 @@ This document specifies the canonical format for storing complete RingRift games
 {
   "metadata": {
     "board_type": "square8" | "square19" | "hexagonal",
-    "board_size": 8 | 19 | 11,
+    "board_size": 8 | 19 | 25,  // hex uses radius-12 (25×25 grid)
 
     "players": [
       {

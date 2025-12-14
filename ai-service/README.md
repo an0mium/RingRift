@@ -947,6 +947,42 @@ The TypeScript side uses the [`SeededRNG`](../src/shared/utils/rng.ts:1) class (
 - Review difficulty setting (higher = slower)
 - Consider adjusting timeout in AIServiceClient
 
+## Documentation
+
+### Core Documentation
+
+| Document                                            | Description                          |
+| --------------------------------------------------- | ------------------------------------ |
+| [AI Improvement Plan](AI_IMPROVEMENT_PLAN.md)       | Technical improvement roadmap        |
+| [Training Data Registry](TRAINING_DATA_REGISTRY.md) | Canonical vs legacy data tracking    |
+| [AGENTS.md](AGENTS.md)                              | Development guidelines for this repo |
+
+### Training & Pipeline
+
+| Document                                               | Description                           |
+| ------------------------------------------------------ | ------------------------------------- |
+| [Unified AI Loop](docs/UNIFIED_AI_LOOP.md)             | Single-daemon improvement coordinator |
+| [Pipeline Orchestrator](docs/PIPELINE_ORCHESTRATOR.md) | SSH-based training pipeline           |
+| [AI Training Plan](docs/AI_TRAINING_PLAN.md)           | CMA-ES and neural network training    |
+| [Distributed Selfplay](docs/DISTRIBUTED_SELFPLAY.md)   | Remote worker setup                   |
+
+### Infrastructure & Deployment
+
+| Document                                                           | Description                     |
+| ------------------------------------------------------------------ | ------------------------------- |
+| [Deploy README](deploy/README.md)                                  | Deployment scripts and services |
+| [Cloud Infrastructure](docs/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md) | AWS/cloud deployment            |
+| [Cluster Monitoring](scripts/monitoring/README.md)                 | CloudWatch and alerting         |
+| [GPU Pipeline Roadmap](docs/GPU_PIPELINE_ROADMAP.md)               | GPU acceleration strategy       |
+
+### Specifications
+
+| Document                                                  | Description                  |
+| --------------------------------------------------------- | ---------------------------- |
+| [Game Record Spec](docs/GAME_RECORD_SPEC.md)              | Canonical game record format |
+| [Game Replay Database](docs/GAME_REPLAY_DATABASE_SPEC.md) | SQLite schema for replays    |
+| [Game Notation Spec](docs/GAME_NOTATION_SPEC.md)          | Algebraic notation system    |
+
 ## License
 
 Part of the RingRift project. See main project LICENSE.
