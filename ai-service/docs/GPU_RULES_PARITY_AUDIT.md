@@ -19,8 +19,7 @@ This document provides a comprehensive audit of the GPU implementation against c
 
 **Remaining Gaps:**
 
-- LPS Victory: Uses material-based check instead of 3-consecutive-rounds canonical rule
-- Marker Removal on Landing: Simplified implementation
+- Marker Removal on Landing: Simplified implementation (minor edge case)
 
 **Target:** 100% rules parity while maintaining 5-10x speedup over CPU-only path
 
@@ -71,10 +70,9 @@ RING_PLACEMENT → MOVEMENT → LINE_PROCESSING → TERRITORY_PROCESSING → (ne
 
 ### 2.2 Medium Gaps (Training Quality Impact: MEDIUM)
 
-| Gap                           | Canonical Behavior                    | GPU Implementation                       | Impact                   | Location                                       |
-| ----------------------------- | ------------------------------------- | ---------------------------------------- | ------------------------ | ---------------------------------------------- |
-| **LPS Victory (3-round)**     | 3 consecutive rounds without progress | Material-based (only player with stacks) | Slightly different logic | `gpu_parallel_games.py:check_victory_batch()`  |
-| **Marker Removal on Landing** | Remove marker, eliminate top ring     | Simplified                               | May miss eliminations    | `gpu_parallel_games.py:apply_movement_batch()` |
+| Gap                           | Canonical Behavior                | GPU Implementation | Impact                | Location                                       |
+| ----------------------------- | --------------------------------- | ------------------ | --------------------- | ---------------------------------------------- |
+| **Marker Removal on Landing** | Remove marker, eliminate top ring | Simplified         | May miss eliminations | `gpu_parallel_games.py:apply_movement_batch()` |
 
 ### 2.3 Ring Count Update (2025-12-12)
 
@@ -106,7 +104,7 @@ Updated locations:
 | **Overlength Line Choice** | 2025-12-12 | Probabilistic Option 1/2 selection (30% Option 2) per RR-CANON-R122                             |
 | **Cap Eligibility**        | 2025-12-12 | Context-aware: line vs territory vs forced elimination (`_find_eligible_territory_cap`)         |
 | **Recovery Cascade**       | 2025-12-12 | Territory processing after line formation in recovery phase                                     |
-| **LPS Victory (basic)**    | 2025-12-12 | Material-based last-player-standing check (not 3-round canonical)                               |
+| **LPS Victory (full)**     | 2025-12-14 | Full round-based tracking per RR-CANON-R172 with configurable threshold                         |
 
 ---
 
@@ -162,7 +160,7 @@ my_height = state.stack_height[g, y, x].item()  # Forces sync
 | **P1**   | Vectorize evaluation loops     | 🔄 PENDING  | Per-game Python loops still present             |
 | ~~P1~~   | ~~Overlength line choice~~     | ✅ COMPLETE | Probabilistic Option 1/2 (30% Option 2)         |
 | ~~P2~~   | ~~Recovery cascade~~           | ✅ COMPLETE | Territory processing after recovery lines       |
-| **P2**   | LPS 3-round victory            | 🔄 PENDING  | Current: material-based; Canonical: 3-round     |
+| ~~P2~~   | ~~LPS 3-round victory~~        | ✅ COMPLETE | Round-based with configurable threshold         |
 | ~~P3~~   | ~~Cap eligibility contexts~~   | ✅ COMPLETE | Context-aware for line/territory/FE             |
 
 ### 4.2 Remaining Work
@@ -174,11 +172,9 @@ my_height = state.stack_height[g, y, x].item()  # Forces sync
 3. Batch FSM transitions by phase
 4. Target: 10-20x speedup (currently 6.56x)
 
-**LPS 3-Round Victory (P2):**
+**LPS 3-Round Victory (P2):** ✅ COMPLETE
 
-1. Track rounds without material changes
-2. Detect 3 consecutive rounds without progress
-3. Low priority - current material-based check covers most cases
+Full round-based tracking implemented with configurable threshold via `lps_victory_rounds` parameter.
 
 ---
 
@@ -345,7 +341,7 @@ two_in_row = (h_pairs.sum(dim=(1,2)) + v_pairs.sum(dim=(1,2)) +
 | -------------------- | ------------------ | -------- | ---------------- |
 | CUDA Speedup         | 6.56x              | 6.56x    | 10-20x           |
 | MPS Speedup          | 1.75x (batch≥500)  | 1.75x    | 3-5x             |
-| Rules Parity         | ~65%               | **~95%** | 100%             |
+| Rules Parity         | ~65%               | **~98%** | 100%             |
 | Parity Tests Passing | 32/32              | 32/32    | 100+             |
 
 ### 6.3 Known Issues
@@ -353,7 +349,7 @@ two_in_row = (h_pairs.sum(dim=(1,2)) + v_pairs.sum(dim=(1,2)) +
 | Issue                 | Severity | Status | Notes                           |
 | --------------------- | -------- | ------ | ------------------------------- |
 | Per-game Python loops | MEDIUM   | OPEN   | Performance bottleneck          |
-| LPS 3-round check     | LOW      | OPEN   | Material-based check works well |
+| ~~LPS 3-round check~~ | LOW      | FIXED  | Full round tracking implemented |
 | Marker landing elim   | LOW      | OPEN   | Simplified, may miss edge cases |
 
 ---
