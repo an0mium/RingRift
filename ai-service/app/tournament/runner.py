@@ -133,6 +133,8 @@ class TournamentRunner:
         max_workers: int = 4,
         max_moves: int = 500,
         seed: Optional[int] = None,
+        persist_to_unified_elo: bool = True,
+        tournament_id: Optional[str] = None,
     ):
         """Initialize tournament runner.
 
@@ -143,6 +145,8 @@ class TournamentRunner:
             max_workers: Maximum parallel workers for local execution.
             max_moves: Maximum moves per game before timeout.
             seed: Random seed for reproducibility.
+            persist_to_unified_elo: If True, persist results to unified Elo database.
+            tournament_id: Optional tournament ID for tracking.
         """
         self.agent_registry = agent_registry
         self.scheduler = scheduler
@@ -151,9 +155,20 @@ class TournamentRunner:
         self.max_moves = max_moves
         self.seed = seed
         self._rng = random.Random(seed)
+        self.persist_to_unified_elo = persist_to_unified_elo
+        self.tournament_id = tournament_id
 
         self.results: Optional[TournamentResults] = None
         self._match_executor: Optional[Callable] = None
+        self._unified_elo_db = None
+
+        # Try to initialize unified Elo database if persistence enabled
+        if self.persist_to_unified_elo:
+            try:
+                from .unified_elo_db import get_elo_database
+                self._unified_elo_db = get_elo_database()
+            except ImportError:
+                pass
 
     def set_match_executor(
         self,
@@ -291,6 +306,23 @@ class TournamentRunner:
         else:
             # Multiplayer: use ranking-based update
             self.elo_calculator.update_multiplayer_ratings(result.rankings)
+
+        # Persist to unified Elo database if enabled
+        if self._unified_elo_db is not None:
+            try:
+                # Convert rankings to 0-indexed positions (0=1st, 1=2nd, etc.)
+                rankings = [pos - 1 if pos > 0 else 0 for pos in result.rankings]
+                self._unified_elo_db.record_match_and_update(
+                    participant_ids=result.agent_ids,
+                    rankings=rankings,
+                    board_type=match.board_type.value,
+                    num_players=match.num_players,
+                    tournament_id=self.tournament_id or "default",
+                    game_length=result.game_length,
+                    duration_sec=result.duration_sec,
+                )
+            except Exception:
+                pass  # Silently ignore persistence errors
 
         # Store result
         self.results.add_result(result)

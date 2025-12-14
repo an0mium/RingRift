@@ -210,10 +210,9 @@ class GameEngine:
             last_move = game_state.move_history[-1] if game_state.move_history else None
             attacker_pos = last_move.to if last_move and last_move.to else None
 
-            if attacker_pos is None:
-                moves = []
-            else:
-                move_number = len(game_state.move_history) + 1
+            move_number = len(game_state.move_history) + 1
+            moves = []
+            if attacker_pos is not None:
                 moves = enumerate_capture_moves_py(
                     game_state,
                     player_number,
@@ -221,19 +220,28 @@ class GameEngine:
                     move_number=move_number,
                     kind="initial",
                 )
-
-                # RR-CANON-R073: capture is optional; declining must be recorded.
-                moves.append(
-                    Move(
-                        id=f"skip-capture-{move_number}",
-                        type=MoveType.SKIP_CAPTURE,
-                        player=player_number,
-                        to=Position(x=0, y=0),
-                        timestamp=game_state.last_move_at,
-                        thinkTime=0,
-                        moveNumber=move_number,
-                    )
+            else:
+                # Defensive: CAPTURE should normally follow a movement move
+                # with a landing position. Even if the attacker position is
+                # unavailable (corrupt history / legacy states), CAPTURE is an
+                # optional window and declining it must still be recordable.
+                _debug(
+                    "[GameEngine] CAPTURE phase: missing attacker position; "
+                    "surfacing SKIP_CAPTURE only\n"
                 )
+
+            # RR-CANON-R073: capture is optional; declining must be recorded.
+            moves.append(
+                Move(
+                    id=f"skip-capture-{move_number}",
+                    type=MoveType.SKIP_CAPTURE,
+                    player=player_number,
+                    to=Position(x=0, y=0),
+                    timestamp=game_state.last_move_at,
+                    thinkTime=0,
+                    moveNumber=move_number,
+                )
+            )
 
         elif phase == GamePhase.CHAIN_CAPTURE:
             moves = GameEngine._get_capture_moves(game_state, player_number)

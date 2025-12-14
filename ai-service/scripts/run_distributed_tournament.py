@@ -183,6 +183,14 @@ class TournamentState:
 # Elo Rating System
 # ============================================================================
 
+# Import unified Elo database for persistent tracking
+try:
+    from app.tournament import get_elo_database, EloDatabase
+    UNIFIED_ELO_AVAILABLE = True
+except ImportError:
+    UNIFIED_ELO_AVAILABLE = False
+
+
 def expected_score(rating_a: float, rating_b: float) -> float:
     """Calculate expected score for player A against player B."""
     return 1.0 / (1.0 + 10 ** ((rating_b - rating_a) / 400))
@@ -194,7 +202,7 @@ def update_elo(
     score_a: float,
     k: float = 32.0,
 ) -> Tuple[float, float]:
-    """Update Elo ratings after a match."""
+    """Update Elo ratings after a match (local calculation only)."""
     expected_a = expected_score(rating_a, rating_b)
     expected_b = 1.0 - expected_a
     score_b = 1.0 - score_a
@@ -203,6 +211,44 @@ def update_elo(
     new_b = rating_b + k * (score_b - expected_b)
 
     return new_a, new_b
+
+
+def persist_match_to_unified_elo(
+    tier_a: str,
+    tier_b: str,
+    winner: Optional[int],
+    board_type: str,
+    num_players: int,
+    tournament_id: str,
+    game_length: int = 0,
+    duration_sec: float = 0.0,
+) -> None:
+    """Persist match result to unified Elo database."""
+    if not UNIFIED_ELO_AVAILABLE:
+        return
+
+    try:
+        db = get_elo_database()
+
+        # Determine rankings based on winner
+        if winner == 1:
+            rankings = [0, 1]  # tier_a won
+        elif winner == 2:
+            rankings = [1, 0]  # tier_b won
+        else:
+            rankings = [0, 0]  # draw
+
+        db.record_match_and_update(
+            participant_ids=[tier_a, tier_b],
+            rankings=rankings,
+            board_type=board_type,
+            num_players=num_players,
+            tournament_id=tournament_id,
+            game_length=game_length,
+            duration_sec=duration_sec,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to persist match to unified Elo: {e}")
 
 
 # ============================================================================
@@ -555,6 +601,18 @@ class DistributedTournament:
             stats_b.draws += 1
 
         self.state.matches.append(result)
+
+        # Persist to unified Elo database
+        persist_match_to_unified_elo(
+            tier_a=tier_a,
+            tier_b=tier_b,
+            winner=result.winner,
+            board_type=self.state.board_type,
+            num_players=self.num_players,
+            tournament_id=self.state.tournament_id,
+            game_length=result.game_length,
+            duration_sec=result.duration_sec,
+        )
 
     def run_matchup(
         self,

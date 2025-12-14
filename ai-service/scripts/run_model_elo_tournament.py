@@ -425,7 +425,7 @@ def play_nn_vs_nn_game(
 
 
 def run_model_matchup(
-    conn: sqlite3.Connection,
+    db: EloDatabase,
     model_a: Dict[str, Any],
     model_b: Dict[str, Any],
     board_type: str,
@@ -522,27 +522,17 @@ def run_model_matchup(
             results["draws"] += 1
             winner = "draw"
 
-        # Record match in database
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO match_history (model_a, model_b, board_type, num_players, winner, game_length, duration_sec, timestamp, tournament_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            model_a["model_id"], model_b["model_id"], board_type, num_players,
-            winner, result["game_length"], result["duration_sec"],
-            time.time(), tournament_id
-        ))
-        conn.commit()
-
-        # Update Elo
+        # Update Elo and record match using unified database
         update_elo_after_match(
-            conn,
+            db,
             model_a["model_id"],
             model_b["model_id"],
             winner,
             board_type,
             num_players,
             tournament_id,
+            game_length=result.get("game_length", 0),
+            duration_sec=result.get("duration_sec", 0.0),
         )
 
     return results
@@ -552,75 +542,25 @@ def run_model_matchup(
 # Persistent Elo Database
 # ============================================
 
-ELO_DB_PATH = AI_SERVICE_ROOT / "data" / "elo_leaderboard.db"
+# Default to unified Elo database for cross-script consistency
+ELO_DB_PATH = AI_SERVICE_ROOT / "data" / "unified_elo.db"
+LEGACY_ELO_DB_PATH = AI_SERVICE_ROOT / "data" / "elo_leaderboard.db"
+
+# Import unified Elo database module
+from app.tournament.unified_elo_db import (
+    EloDatabase,
+    get_elo_database,
+    UnifiedEloRating,
+)
+UNIFIED_DB_AVAILABLE = True
 
 
-def init_elo_database(db_path: Path = ELO_DB_PATH) -> sqlite3.Connection:
-    """Initialize SQLite database for persistent Elo storage."""
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path))
-    cursor = conn.cursor()
+def init_elo_database(db_path: Path = ELO_DB_PATH) -> EloDatabase:
+    """Initialize unified Elo database.
 
-    # Models table - all known models
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS models (
-            model_id TEXT PRIMARY KEY,
-            model_path TEXT,
-            board_type TEXT,
-            num_players INTEGER,
-            model_version TEXT,
-            created_at REAL,
-            last_seen REAL
-        )
-    """)
-
-    # Elo ratings table - current ratings (unique per model+board_type+num_players combo)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS elo_ratings (
-            model_id TEXT,
-            board_type TEXT,
-            num_players INTEGER,
-            rating REAL DEFAULT 1500.0,
-            games_played INTEGER DEFAULT 0,
-            wins INTEGER DEFAULT 0,
-            losses INTEGER DEFAULT 0,
-            draws INTEGER DEFAULT 0,
-            last_update REAL,
-            PRIMARY KEY (model_id, board_type, num_players),
-            FOREIGN KEY (model_id) REFERENCES models(model_id)
-        )
-    """)
-
-    # Match history table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS match_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            model_a TEXT,
-            model_b TEXT,
-            board_type TEXT,
-            num_players INTEGER,
-            winner TEXT,
-            game_length INTEGER,
-            duration_sec REAL,
-            timestamp REAL,
-            tournament_id TEXT
-        )
-    """)
-
-    # Rating history table (for tracking Elo over time)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS rating_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            model_id TEXT,
-            rating REAL,
-            games_played INTEGER,
-            timestamp REAL,
-            tournament_id TEXT
-        )
-    """)
-
-    conn.commit()
-    return conn
+    Uses the unified EloDatabase class for consistent schema across all tournament scripts.
+    """
+    return EloDatabase(db_path)
 
 
 def discover_models(
@@ -719,88 +659,70 @@ def get_baseline_players(board_type: str, num_players: int) -> List[Dict[str, An
     return baselines
 
 
-def register_models(conn: sqlite3.Connection, models: List[Dict[str, Any]]):
+def register_models(db: EloDatabase, models: List[Dict[str, Any]]):
     """Register discovered models in the database."""
-    cursor = conn.cursor()
-    now = time.time()
-
     for m in models:
-        # Insert or update model
-        cursor.execute("""
-            INSERT INTO models (model_id, model_path, board_type, num_players, model_version, created_at, last_seen)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(model_id) DO UPDATE SET last_seen = ?
-        """, (
-            m["model_id"], m["model_path"], m["board_type"], m["num_players"],
-            m["version"], m["created_at"], now, now
-        ))
+        # Determine AI type from model path
+        model_path = m.get("model_path", "")
+        if model_path.startswith("__BASELINE_RANDOM__"):
+            ai_type = "random"
+            participant_type = "baseline"
+        elif model_path.startswith("__BASELINE_HEURISTIC__"):
+            ai_type = "heuristic"
+            participant_type = "baseline"
+        elif model_path.startswith("__BASELINE_MCTS"):
+            ai_type = "mcts"
+            participant_type = "baseline"
+        else:
+            ai_type = "neural_net"
+            participant_type = "model"
 
-        # Initialize Elo rating if not exists
-        # Use INSERT OR IGNORE for compatibility with both old (model_id PK) and new (composite PK) schemas
-        cursor.execute("""
-            INSERT OR IGNORE INTO elo_ratings (model_id, board_type, num_players, rating, games_played, last_update)
-            VALUES (?, ?, ?, 1500.0, 0, ?)
-        """, (m["model_id"], m["board_type"], m["num_players"], now))
-
-    conn.commit()
+        db.register_participant(
+            participant_id=m["model_id"],
+            participant_type=participant_type,
+            ai_type=ai_type,
+            use_neural_net=(ai_type == "neural_net"),
+            model_path=m.get("model_path"),
+            model_version=m.get("version"),
+        )
 
 
 def get_leaderboard(
-    conn: sqlite3.Connection,
+    db: EloDatabase,
     board_type: str = None,
     num_players: int = None,
     limit: int = 50,
 ) -> List[Dict[str, Any]]:
     """Get current Elo leaderboard."""
-    cursor = conn.cursor()
-
-    query = """
-        SELECT e.model_id, e.board_type, e.num_players, e.rating, e.games_played,
-               e.wins, e.losses, e.draws, e.last_update, m.model_version
-        FROM elo_ratings e
-        JOIN models m ON e.model_id = m.model_id
-        WHERE 1=1
-    """
-    params = []
-
-    if board_type:
-        query += " AND e.board_type = ?"
-        params.append(board_type)
-    if num_players:
-        query += " AND e.num_players = ?"
-        params.append(num_players)
-
-    query += " ORDER BY e.rating DESC LIMIT ?"
-    params.append(limit)
-
-    cursor.execute(query, params)
+    rows = db.get_leaderboard(board_type=board_type, num_players=num_players, min_games=0, limit=limit)
 
     results = []
-    for row in cursor.fetchall():
-        games = row[4]
-        wins = row[5]
+    for row in rows:
+        games = row.get("games_played", 0)
+        wins = row.get("wins", 0)
         win_rate = (wins / games * 100) if games > 0 else 0
 
         results.append({
             "rank": len(results) + 1,
-            "model_id": row[0],
-            "board_type": row[1],
-            "num_players": row[2],
-            "rating": round(row[3], 1),
+            "model_id": row.get("participant_id"),  # Keep as model_id for backward compat
+            "participant_id": row.get("participant_id"),
+            "board_type": row.get("board_type"),
+            "num_players": row.get("num_players"),
+            "rating": round(row.get("rating", 1500.0), 1),
             "games_played": games,
             "wins": wins,
-            "losses": row[6],
-            "draws": row[7],
+            "losses": row.get("losses", 0),
+            "draws": row.get("draws", 0),
             "win_rate": round(win_rate, 1),
-            "version": row[9],
-            "last_update": datetime.fromtimestamp(row[8]).isoformat() if row[8] else None,
+            "version": row.get("model_version", "unknown"),
+            "last_update": datetime.fromtimestamp(row["last_update"]).isoformat() if row.get("last_update") else None,
         })
 
     return results
 
 
 def update_elo_after_match(
-    conn: sqlite3.Connection,
+    db: EloDatabase,
     model_a: str,
     model_b: str,
     winner: str,  # model_a, model_b, or "draw"
@@ -808,78 +730,30 @@ def update_elo_after_match(
     num_players: int,
     tournament_id: str = None,
     k_factor: float = 32.0,
+    game_length: int = 0,
+    duration_sec: float = 0.0,
 ):
-    """Update Elo ratings after a match (using composite key: model_id + board_type + num_players)."""
-    cursor = conn.cursor()
-
-    # Get current ratings (using composite key for per-config Elo)
-    cursor.execute(
-        "SELECT rating, games_played, wins, losses, draws FROM elo_ratings WHERE model_id = ? AND board_type = ? AND num_players = ?",
-        (model_a, board_type, num_players)
-    )
-    row_a = cursor.fetchone()
-    cursor.execute(
-        "SELECT rating, games_played, wins, losses, draws FROM elo_ratings WHERE model_id = ? AND board_type = ? AND num_players = ?",
-        (model_b, board_type, num_players)
-    )
-    row_b = cursor.fetchone()
-
-    if not row_a or not row_b:
-        print(f"Warning: Model not found in database for {board_type}/{num_players}p: {model_a if not row_a else model_b}")
-        return
-
-    rating_a, games_a, wins_a, losses_a, draws_a = row_a
-    rating_b, games_b, wins_b, losses_b, draws_b = row_b
-
-    # Calculate expected scores
-    expected_a = 1.0 / (1.0 + 10 ** ((rating_b - rating_a) / 400.0))
-    expected_b = 1.0 - expected_a
-
-    # Determine actual scores
+    """Update Elo ratings after a match using unified EloDatabase."""
+    # Determine rankings from winner
     if winner == model_a:
-        score_a, score_b = 1.0, 0.0
-        wins_a += 1
-        losses_b += 1
+        is_draw = False
     elif winner == model_b:
-        score_a, score_b = 0.0, 1.0
-        losses_a += 1
-        wins_b += 1
-    else:  # draw
-        score_a, score_b = 0.5, 0.5
-        draws_a += 1
-        draws_b += 1
+        # Swap so winner is first in the call
+        model_a, model_b = model_b, model_a
+        is_draw = False
+    else:
+        is_draw = True
 
-    # Update ratings
-    new_rating_a = rating_a + k_factor * (score_a - expected_a)
-    new_rating_b = rating_b + k_factor * (score_b - expected_b)
-
-    now = time.time()
-
-    # Update database (using composite key)
-    cursor.execute("""
-        UPDATE elo_ratings
-        SET rating = ?, games_played = games_played + 1, wins = ?, losses = ?, draws = ?, last_update = ?
-        WHERE model_id = ? AND board_type = ? AND num_players = ?
-    """, (new_rating_a, wins_a, losses_a, draws_a, now, model_a, board_type, num_players))
-
-    cursor.execute("""
-        UPDATE elo_ratings
-        SET rating = ?, games_played = games_played + 1, wins = ?, losses = ?, draws = ?, last_update = ?
-        WHERE model_id = ? AND board_type = ? AND num_players = ?
-    """, (new_rating_b, wins_b, losses_b, draws_b, now, model_b, board_type, num_players))
-
-    # Record rating history (includes board_type/num_players context via tournament_id format)
-    cursor.execute("""
-        INSERT INTO rating_history (model_id, rating, games_played, timestamp, tournament_id)
-        VALUES (?, ?, ?, ?, ?)
-    """, (model_a, new_rating_a, games_a + 1, now, f"{tournament_id}_{board_type}_{num_players}p"))
-
-    cursor.execute("""
-        INSERT INTO rating_history (model_id, rating, games_played, timestamp, tournament_id)
-        VALUES (?, ?, ?, ?, ?)
-    """, (model_b, new_rating_b, games_b + 1, now, f"{tournament_id}_{board_type}_{num_players}p"))
-
-    conn.commit()
+    db.record_two_player_result(
+        winner_id=model_a,
+        loser_id=model_b,
+        board_type=board_type,
+        num_players=num_players,
+        tournament_id=tournament_id or "model_elo_tournament",
+        is_draw=is_draw,
+        game_length=game_length,
+        duration_sec=duration_sec,
+    )
 
 
 def print_leaderboard(leaderboard: List[Dict[str, Any]], title: str = "Elo Leaderboard"):
@@ -892,12 +766,15 @@ def print_leaderboard(leaderboard: List[Dict[str, Any]], title: str = "Elo Leade
         print("  No models found in leaderboard.")
         return
 
-    print(f"{'Rank':<6}{'Model':<50}{'Elo':>8}{'Games':>8}{'Win%':>8}{'Ver':>8}")
-    print("-" * 88)
+    print(f"{'Rank':<6}{'Model':<50}{'Elo':>8}{'Games':>8}{'Win%':>8}{'Type':>10}")
+    print("-" * 90)
 
     for entry in leaderboard:
-        model_short = entry["model_id"][:48] if len(entry["model_id"]) > 48 else entry["model_id"]
-        print(f"{entry['rank']:<6}{model_short:<50}{entry['rating']:>8.1f}{entry['games_played']:>8}{entry['win_rate']:>7.1f}%{entry['version']:>8}")
+        # Support both model_id and participant_id keys
+        model_id = entry.get("model_id") or entry.get("participant_id", "unknown")
+        model_short = model_id[:48] if len(model_id) > 48 else model_id
+        version = entry.get("version") or entry.get("participant_type", "?")
+        print(f"{entry['rank']:<6}{model_short:<50}{entry['rating']:>8.1f}{entry['games_played']:>8}{entry['win_rate']:>7.1f}%{version:>10}")
 
     print(f"\nTotal models: {len(leaderboard)}")
 
@@ -924,7 +801,7 @@ def run_all_config_tournaments(args):
     import uuid
 
     db_path = Path(args.db) if args.db else ELO_DB_PATH
-    conn = init_elo_database(db_path)
+    db = init_elo_database(db_path)
     models_dir = AI_SERVICE_ROOT / "models"
 
     print(f"\n{'='*80}")
@@ -961,10 +838,10 @@ def run_all_config_tournaments(args):
             continue
 
         # Register models
-        register_models(conn, models)
+        register_models(db, models)
 
         if args.leaderboard_only:
-            leaderboard = get_leaderboard(conn, board_type, num_players)
+            leaderboard = get_leaderboard(db, board_type, num_players)
             print_leaderboard(leaderboard, f"Elo Leaderboard - {config_label}")
             continue
 
@@ -994,7 +871,7 @@ def run_all_config_tournaments(args):
 
             try:
                 results = run_model_matchup(
-                    conn=conn,
+                    db=db,
                     model_a=m1,
                     model_b=m2,
                     board_type=board_type,
@@ -1013,7 +890,7 @@ def run_all_config_tournaments(args):
         print(f"  Completed {games_completed} games in {config_elapsed:.1f}s")
 
         # Show updated leaderboard
-        leaderboard = get_leaderboard(conn, board_type, num_players, limit=10)
+        leaderboard = get_leaderboard(db, board_type, num_players, limit=10)
         print_leaderboard(leaderboard, f"Top 10 - {config_label}")
 
     overall_elapsed = time.time() - overall_start
@@ -1023,12 +900,12 @@ def run_all_config_tournaments(args):
     print(f"Total games: {total_games_all}")
     print(f"Total time: {overall_elapsed:.1f}s")
 
-    conn.close()
+    db.close()
 
 
 def generate_elo_based_matchups(
     models: List[Dict[str, Any]],
-    conn: sqlite3.Connection,
+    db: EloDatabase,
     board_type: str,
     num_players: int,
     max_elo_diff: int = 200,
@@ -1039,19 +916,10 @@ def generate_elo_based_matchups(
     games provide more Elo information than one-sided blowouts.
     """
     # Get current Elo ratings for all models
-    cursor = conn.cursor()
     model_elos = {}
-
     for model in models:
-        cursor.execute(
-            "SELECT rating FROM elo_ratings WHERE model_id = ? AND board_type = ? AND num_players = ?",
-            (model["model_id"], board_type, num_players)
-        )
-        row = cursor.fetchone()
-        if row:
-            model_elos[model["model_id"]] = row[0]
-        else:
-            model_elos[model["model_id"]] = 1500.0  # Default
+        rating = db.get_rating(model["model_id"], board_type, num_players)
+        model_elos[model["model_id"]] = rating.rating
 
     # Sort models by Elo
     sorted_models = sorted(models, key=lambda m: model_elos.get(m["model_id"], 1500), reverse=True)
@@ -1091,7 +959,7 @@ def generate_elo_based_matchups(
 
 
 def archive_low_elo_models(
-    conn: sqlite3.Connection,
+    db: EloDatabase,
     board_type: str,
     num_players: int,
     elo_threshold: int = 1400,
@@ -1102,11 +970,12 @@ def archive_low_elo_models(
     Archived models are marked in the database and excluded from future tournaments.
     Returns list of archived model IDs.
     """
+    conn = db._get_connection()
     cursor = conn.cursor()
 
-    # Find models to archive
+    # Find models to archive (using unified schema with participant_id)
     cursor.execute("""
-        SELECT model_id, rating, games_played
+        SELECT participant_id, rating, games_played
         FROM elo_ratings
         WHERE board_type = ? AND num_players = ?
           AND rating < ? AND games_played >= ?
@@ -1152,8 +1021,9 @@ def archive_low_elo_models(
     return archived
 
 
-def is_model_archived(conn: sqlite3.Connection, model_id: str, board_type: str, num_players: int) -> bool:
+def is_model_archived(db: EloDatabase, model_id: str, board_type: str, num_players: int) -> bool:
     """Check if a model has been archived."""
+    conn = db._get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute("""
@@ -1192,7 +1062,7 @@ def main():
         return
 
     db_path = Path(args.db) if args.db else ELO_DB_PATH
-    conn = init_elo_database(db_path)
+    db = init_elo_database(db_path)
 
     # Discover models
     models_dir = AI_SERVICE_ROOT / "models"
@@ -1212,10 +1082,10 @@ def main():
         print(f"Using top {args.top_n} most recent models")
 
     # Register models
-    register_models(conn, models)
+    register_models(db, models)
 
     # Filter out archived models
-    active_models = [m for m in models if not is_model_archived(conn, m["model_id"], args.board, args.players)]
+    active_models = [m for m in models if not is_model_archived(db, m["model_id"], args.board, args.players)]
     if len(active_models) < len(models):
         print(f"Filtered out {len(models) - len(active_models)} archived models")
         models = active_models
@@ -1223,7 +1093,7 @@ def main():
     # Handle archiving if requested
     if args.archive:
         archived = archive_low_elo_models(
-            conn, args.board, args.players,
+            db, args.board, args.players,
             elo_threshold=args.archive_threshold,
             min_games=50,
         )
@@ -1235,23 +1105,23 @@ def main():
             models = [m for m in models if m["model_id"] not in archived]
 
     # Show leaderboard
-    leaderboard = get_leaderboard(conn, args.board, args.players)
+    leaderboard = get_leaderboard(db, args.board, args.players)
     print_leaderboard(leaderboard, f"Current Elo Leaderboard - {args.board} {args.players}p")
 
     if args.leaderboard_only:
-        conn.close()
+        db.close()
         return
 
     if len(models) < 2:
         print("\nNeed at least 2 models to run a tournament!")
-        conn.close()
+        db.close()
         return
 
     # Generate matchups (Elo-based or round-robin)
     if args.elo_matchmaking:
         print(f"\nUsing Elo-based matchmaking (max diff: {args.elo_range})")
         matchups = generate_elo_based_matchups(
-            models, conn, args.board, args.players, args.elo_range
+            models, db, args.board, args.players, args.elo_range
         )
     else:
         # Standard round-robin matchups
@@ -1278,7 +1148,7 @@ def main():
             print(f"  ... and {len(matchups) - 5} more")
 
         print("\nAdd --run flag to execute games and update Elo ratings.")
-        conn.close()
+        db.close()
         return
 
     # Run the tournament
@@ -1298,7 +1168,7 @@ def main():
 
         try:
             results = run_model_matchup(
-                conn=conn,
+                db=db,
                 model_a=m1,
                 model_b=m2,
                 board_type=args.board,
@@ -1321,7 +1191,7 @@ def main():
             continue
 
     # Show final leaderboard
-    final_leaderboard = get_leaderboard(conn, args.board, args.players, limit=100)
+    final_leaderboard = get_leaderboard(db, args.board, args.players, limit=100)
     print_leaderboard(final_leaderboard, f"Final Elo Leaderboard - {args.board} {args.players}p (Tournament {tournament_id})")
 
     # Summary
@@ -1329,7 +1199,7 @@ def main():
     print(f"\nTournament completed in {elapsed:.1f} seconds")
     print(f"Total games played: {games_completed}")
 
-    conn.close()
+    db.close()
 
 
 if __name__ == "__main__":

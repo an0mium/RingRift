@@ -5812,6 +5812,41 @@ print(json.dumps(result))
         for rank, (agent, stats) in enumerate(ranked, 1):
             print(f"  {rank}. {agent}: Elo={stats['elo']}, W/L/D={stats['wins']}/{stats['losses']}/{stats['draws']}")
 
+        # Persist results to unified Elo database
+        try:
+            from app.tournament import get_elo_database
+            db = get_elo_database()
+
+            for result in state.results:
+                agent1 = result.get("agent1")
+                agent2 = result.get("agent2")
+                winner = result.get("winner")
+
+                if not agent1 or not agent2:
+                    continue
+
+                # Determine rankings
+                if winner == agent1:
+                    rankings = [0, 1]
+                elif winner == agent2:
+                    rankings = [1, 0]
+                else:
+                    rankings = [0, 0]
+
+                db.record_match_and_update(
+                    participant_ids=[agent1, agent2],
+                    rankings=rankings,
+                    board_type=state.board_type,
+                    num_players=state.num_players,
+                    tournament_id=state.job_id,
+                    game_length=result.get("game_length", 0),
+                    duration_sec=result.get("duration_sec", 0.0),
+                )
+
+            print(f"[P2P] Persisted {len(state.results)} matches to unified Elo database")
+        except Exception as e:
+            print(f"[P2P] Warning: Failed to persist to unified Elo database: {e}")
+
     # ============================================
     # Improvement Loop Handlers
     # ============================================
