@@ -1232,10 +1232,21 @@ NNUE_EPOCHS = 30
 # but this keeps the continuous daemon deterministic and fast by default.
 NNUE_GATE_MIN_REL_IMPROVEMENT = 0.0  # 0.0 => require strictly lower val loss
 
+# NNUE Model Size Configurations
+# Train multiple sizes and select best performing one
+NNUE_MODEL_SIZES = {
+    "small": {"hidden_dim": 128, "num_hidden_layers": 2, "epochs": 40},
+    "medium": {"hidden_dim": 256, "num_hidden_layers": 2, "epochs": 30},
+    "large": {"hidden_dim": 512, "num_hidden_layers": 2, "epochs": 25},
+}
+# Train all sizes every N training cycles (to find optimal size)
+NNUE_TRAIN_ALL_SIZES_INTERVAL = 3
 
-def _nnue_model_id(board: str, num_players: int) -> str:
-    # Canonical NNUE ids: nnue_<board>_<numPlayers>p (matches ladder_config.py)
-    return f"nnue_{board}_{num_players}p"
+
+def _nnue_model_id(board: str, num_players: int, size: str = "") -> str:
+    # Canonical NNUE ids: nnue_<board>_<numPlayers>p[_<size>] (matches ladder_config.py)
+    base = f"nnue_{board}_{num_players}p"
+    return f"{base}_{size}" if size else base
 
 
 def _atomic_copy(src: Path, dst: Path) -> None:

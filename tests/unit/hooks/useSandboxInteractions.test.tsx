@@ -87,6 +87,11 @@ function TestHarness({ engine, contextOverrides }: HarnessProps) {
     handleCellContextMenu,
     maybeRunSandboxAiIfNeeded,
     clearSelection: hookClearSelection,
+    ringPlacementCountPrompt,
+    closeRingPlacementCountPrompt,
+    confirmRingPlacementCountPrompt,
+    recoveryChoicePromptOpen,
+    resolveRecoveryChoice,
   } = useSandboxInteractions({
     selected,
     setSelected,
@@ -101,6 +106,12 @@ function TestHarness({ engine, contextOverrides }: HarnessProps) {
       <div data-testid="valid-targets">
         {validTargets.length > 0 ? validTargets.map((t) => `${t.x},${t.y}`).join(';') : 'none'}
       </div>
+      <div data-testid="ring-placement-prompt">
+        {ringPlacementCountPrompt
+          ? `${ringPlacementCountPrompt.position.x},${ringPlacementCountPrompt.position.y}:${ringPlacementCountPrompt.maxCount}:${ringPlacementCountPrompt.isStackPlacement ? 'stack' : 'empty'}`
+          : 'none'}
+      </div>
+      <div data-testid="recovery-choice-open">{recoveryChoicePromptOpen ? 'open' : 'closed'}</div>
       <button data-testid="click-0-0" onClick={() => handleCellClick(pos(0, 0))}>
         Click 0,0
       </button>
@@ -115,6 +126,18 @@ function TestHarness({ engine, contextOverrides }: HarnessProps) {
       </button>
       <button data-testid="contextmenu-0-0" onClick={() => handleCellContextMenu(pos(0, 0))}>
         ContextMenu 0,0
+      </button>
+      <button data-testid="confirm-placement-2" onClick={() => confirmRingPlacementCountPrompt(2)}>
+        Confirm Placement 2
+      </button>
+      <button data-testid="close-placement-prompt" onClick={closeRingPlacementCountPrompt}>
+        Close Placement Prompt
+      </button>
+      <button
+        data-testid="resolve-recovery-option2"
+        onClick={() => resolveRecoveryChoice('option2')}
+      >
+        Resolve Recovery Option 2
       </button>
       <button data-testid="run-ai" onClick={() => maybeRunSandboxAiIfNeeded()}>
         Run AI
@@ -740,15 +763,6 @@ describe('useSandboxInteractions', () => {
   });
 
   describe('handleCellContextMenu', () => {
-    beforeEach(() => {
-      // Mock window.prompt
-      jest.spyOn(window, 'prompt').mockImplementation(() => null);
-    });
-
-    afterEach(() => {
-      jest.restoreAllMocks();
-    });
-
     it('should do nothing without engine', async () => {
       mockContext.sandboxEngine = null;
       (SandboxContextModule.useSandbox as jest.Mock).mockReturnValue(mockContext);
@@ -759,7 +773,8 @@ describe('useSandboxInteractions', () => {
         screen.getByTestId('contextmenu-0-0').click();
       });
 
-      expect(window.prompt).not.toHaveBeenCalled();
+      expect(mockEngine.tryPlaceRings).not.toHaveBeenCalled();
+      expect(screen.getByTestId('ring-placement-prompt').textContent).toBe('none');
     });
 
     it('should do nothing outside ring_placement phase', async () => {
@@ -775,34 +790,58 @@ describe('useSandboxInteractions', () => {
         screen.getByTestId('contextmenu-0-0').click();
       });
 
-      expect(window.prompt).not.toHaveBeenCalled();
+      expect(mockEngine.tryPlaceRings).not.toHaveBeenCalled();
+      expect(screen.getByTestId('ring-placement-prompt').textContent).toBe('none');
     });
 
-    it('should prompt for ring count during placement phase', async () => {
+    it('should open a ring placement prompt during placement phase', async () => {
       const placementState = createTestGameState({
         currentPhase: 'ring_placement',
         currentPlayer: 1,
         gameStatus: 'active',
+        players: [
+          {
+            id: '1',
+            username: 'Player',
+            type: 'human',
+            playerNumber: 1,
+            isReady: true,
+            timeRemaining: 600,
+            ringsInHand: 5,
+            eliminatedRings: 0,
+            territorySpaces: 0,
+          },
+        ],
       });
 
-      mockEngine = createMockEngine({ gameState: placementState });
+      mockEngine = createMockEngine({
+        gameState: placementState,
+        validLandingPositions: [pos(1, 1)],
+      });
       mockContext = createMockSandboxContext(mockEngine);
       (SandboxContextModule.useSandbox as jest.Mock).mockReturnValue(mockContext);
-
-      (window.prompt as jest.Mock).mockReturnValue('2');
 
       render(<TestHarness />);
 
       await act(async () => {
         screen.getByTestId('contextmenu-0-0').click();
+      });
+
+      expect(mockEngine.tryPlaceRings).not.toHaveBeenCalled();
+      expect(screen.getByTestId('ring-placement-prompt').textContent).toBe('0,0:5:empty');
+
+      await act(async () => {
+        screen.getByTestId('confirm-placement-2').click();
         await Promise.resolve();
       });
 
-      expect(window.prompt).toHaveBeenCalled();
-      expect(mockEngine.tryPlaceRings).toHaveBeenCalledWith(pos(0, 0), 2);
+      await waitFor(() => {
+        expect(mockEngine.tryPlaceRings).toHaveBeenCalledWith(pos(0, 0), 2);
+      });
+      expect(screen.getByTestId('selected').textContent).toBe('0,0');
     });
 
-    it('should do nothing if prompt is cancelled', async () => {
+    it('should not attempt placement when the prompt is closed', async () => {
       const placementState = createTestGameState({
         currentPhase: 'ring_placement',
         currentPlayer: 1,
@@ -813,61 +852,53 @@ describe('useSandboxInteractions', () => {
       mockContext = createMockSandboxContext(mockEngine);
       (SandboxContextModule.useSandbox as jest.Mock).mockReturnValue(mockContext);
 
-      (window.prompt as jest.Mock).mockReturnValue(null);
-
       render(<TestHarness />);
 
       await act(async () => {
         screen.getByTestId('contextmenu-0-0').click();
       });
 
+      expect(screen.getByTestId('ring-placement-prompt').textContent).not.toBe('none');
+
+      await act(async () => {
+        screen.getByTestId('close-placement-prompt').click();
+      });
+
       expect(mockEngine.tryPlaceRings).not.toHaveBeenCalled();
+      expect(screen.getByTestId('ring-placement-prompt').textContent).toBe('none');
     });
 
-    it('should reject invalid ring counts', async () => {
+    it('should expose the max ring count for UI validation', async () => {
       const placementState = createTestGameState({
         currentPhase: 'ring_placement',
         currentPlayer: 1,
         gameStatus: 'active',
+        players: [
+          {
+            id: '1',
+            username: 'Player',
+            type: 'human',
+            playerNumber: 1,
+            isReady: true,
+            timeRemaining: 600,
+            ringsInHand: 5,
+            eliminatedRings: 0,
+            territorySpaces: 0,
+          },
+        ],
       });
 
       mockEngine = createMockEngine({ gameState: placementState });
       mockContext = createMockSandboxContext(mockEngine);
       (SandboxContextModule.useSandbox as jest.Mock).mockReturnValue(mockContext);
 
-      // Test with invalid input
-      (window.prompt as jest.Mock).mockReturnValue('abc');
-
       render(<TestHarness />);
 
       await act(async () => {
         screen.getByTestId('contextmenu-0-0').click();
       });
 
-      expect(mockEngine.tryPlaceRings).not.toHaveBeenCalled();
-    });
-
-    it('should reject out-of-range ring counts', async () => {
-      const placementState = createTestGameState({
-        currentPhase: 'ring_placement',
-        currentPlayer: 1,
-        gameStatus: 'active',
-      });
-
-      mockEngine = createMockEngine({ gameState: placementState });
-      mockContext = createMockSandboxContext(mockEngine);
-      (SandboxContextModule.useSandbox as jest.Mock).mockReturnValue(mockContext);
-
-      // Test with 0 (out of range)
-      (window.prompt as jest.Mock).mockReturnValue('0');
-
-      render(<TestHarness />);
-
-      await act(async () => {
-        screen.getByTestId('contextmenu-0-0').click();
-      });
-
-      expect(mockEngine.tryPlaceRings).not.toHaveBeenCalled();
+      expect(screen.getByTestId('ring-placement-prompt').textContent).toBe('0,0:5:empty');
     });
   });
 
@@ -1125,19 +1156,15 @@ describe('useSandboxInteractions', () => {
       mockContext = createMockSandboxContext(mockEngine);
       (SandboxContextModule.useSandbox as jest.Mock).mockReturnValue(mockContext);
 
-      const promptSpy = jest.spyOn(window, 'prompt').mockReturnValue(null);
-
       render(<TestHarness />);
 
       await act(async () => {
         screen.getByTestId('contextmenu-0-0').click();
       });
 
-      // Should not prompt or attempt placement with no rings
-      expect(promptSpy).not.toHaveBeenCalled();
+      // Should not open prompt or attempt placement with no rings
       expect(mockEngine.tryPlaceRings).not.toHaveBeenCalled();
-
-      promptSpy.mockRestore();
+      expect(screen.getByTestId('ring-placement-prompt').textContent).toBe('none');
     });
 
     it('should handle context menu placement failure gracefully', async () => {
@@ -1152,17 +1179,21 @@ describe('useSandboxInteractions', () => {
       mockContext = createMockSandboxContext(mockEngine);
       (SandboxContextModule.useSandbox as jest.Mock).mockReturnValue(mockContext);
 
-      jest.spyOn(window, 'prompt').mockReturnValue('2');
-
       render(<TestHarness />);
 
       await act(async () => {
         screen.getByTestId('contextmenu-0-0').click();
+      });
+
+      await act(async () => {
+        screen.getByTestId('confirm-placement-2').click();
         await Promise.resolve();
       });
 
-      // Placement was attempted but failed - selection should not be set
-      expect(mockEngine.tryPlaceRings).toHaveBeenCalled();
+      // Placement was attempted but failed - selection should not be set.
+      await waitFor(() => {
+        expect(mockEngine.tryPlaceRings).toHaveBeenCalledWith(pos(0, 0), 2);
+      });
       expect(screen.getByTestId('selected').textContent).toBe('none');
     });
 
@@ -1259,8 +1290,6 @@ describe('useSandboxInteractions', () => {
       mockContext = createMockSandboxContext(mockEngine);
       (SandboxContextModule.useSandbox as jest.Mock).mockReturnValue(mockContext);
 
-      jest.spyOn(window, 'prompt').mockReturnValue('1');
-
       render(<TestHarness />);
 
       await act(async () => {
@@ -1268,12 +1297,11 @@ describe('useSandboxInteractions', () => {
         await Promise.resolve();
       });
 
-      // Should prompt with 1-ring max message for occupied cell
-      expect(window.prompt).toHaveBeenCalledWith(
-        'Place how many rings on this stack? (canonical: 1)',
-        '1'
-      );
-      expect(mockEngine.tryPlaceRings).toHaveBeenCalledWith(pos(0, 0), 1);
+      await waitFor(() => {
+        expect(mockEngine.tryPlaceRings).toHaveBeenCalledWith(pos(0, 0), 1);
+      });
+      expect(screen.getByTestId('ring-placement-prompt').textContent).toBe('none');
+      expect(screen.getByTestId('selected').textContent).toBe('0,0');
     });
 
     it('should not run AI loop when game status is not active', async () => {
@@ -1310,7 +1338,7 @@ describe('useSandboxInteractions', () => {
       expect(mockEngine.maybeRunAITurn).not.toHaveBeenCalled();
     });
 
-    it('should handle context menu with too many rings requested', async () => {
+    it('should constrain the placement prompt to rings in hand', async () => {
       const placementState = createTestGameState({
         currentPhase: 'ring_placement',
         currentPlayer: 1,
@@ -1334,17 +1362,14 @@ describe('useSandboxInteractions', () => {
       mockContext = createMockSandboxContext(mockEngine);
       (SandboxContextModule.useSandbox as jest.Mock).mockReturnValue(mockContext);
 
-      // Request more rings than available
-      jest.spyOn(window, 'prompt').mockReturnValue('10');
-
       render(<TestHarness />);
 
       await act(async () => {
         screen.getByTestId('contextmenu-0-0').click();
       });
 
-      // Should not attempt placement with invalid count
       expect(mockEngine.tryPlaceRings).not.toHaveBeenCalled();
+      expect(screen.getByTestId('ring-placement-prompt').textContent).toBe('0,0:5:empty');
     });
 
     it('should handle double-click success on occupied cell', async () => {

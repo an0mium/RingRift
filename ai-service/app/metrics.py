@@ -105,6 +105,38 @@ DRAW_RATE: Final[Gauge] = Gauge(
     labelnames=("board_type", "num_players"),
 )
 
+# Training data diversity metrics
+TRAINING_SAMPLES_BY_PHASE: Final[Counter] = Counter(
+    "ringrift_training_samples_by_phase_total",
+    "Training samples by game phase (opening/midgame/endgame).",
+    labelnames=("board_type", "num_players", "phase"),
+)
+
+TRAINING_SAMPLES_BY_MOVE_NUMBER: Final[Histogram] = Histogram(
+    "ringrift_training_sample_move_number",
+    "Distribution of move numbers in training samples.",
+    labelnames=("board_type", "num_players"),
+    buckets=(5, 10, 20, 30, 50, 75, 100, 150, 200, 300),
+)
+
+TRAINING_DATA_RECENCY: Final[Gauge] = Gauge(
+    "ringrift_training_data_recency_hours",
+    "Age of oldest training sample in hours.",
+    labelnames=("board_type", "num_players"),
+)
+
+TRAINING_UNIQUE_POSITIONS: Final[Gauge] = Gauge(
+    "ringrift_training_unique_positions",
+    "Number of unique positions in training buffer.",
+    labelnames=("board_type", "num_players"),
+)
+
+TRAINING_POSITION_ENTROPY: Final[Gauge] = Gauge(
+    "ringrift_training_position_entropy",
+    "Entropy of position distribution in training buffer (higher = more diverse).",
+    labelnames=("board_type", "num_players"),
+)
+
 # Pre-initialize one labeled time series for the core /ai/move metrics so the
 # /metrics endpoint exposes histogram buckets even before the first request.
 # This keeps smoke tests and local Prometheus setups stable.
@@ -172,6 +204,12 @@ __all__ = [
     "GAME_DURATION_SECONDS",
     "WIN_RATE_BY_PLAYER",
     "DRAW_RATE",
+    "TRAINING_SAMPLES_BY_PHASE",
+    "TRAINING_SAMPLES_BY_MOVE_NUMBER",
+    "TRAINING_DATA_RECENCY",
+    "TRAINING_UNIQUE_POSITIONS",
+    "TRAINING_POSITION_ENTROPY",
     "observe_ai_move_start",
     "record_game_outcome",
+    "record_training_sample",
 ]

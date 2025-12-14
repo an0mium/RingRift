@@ -303,8 +303,19 @@ def run_single_game(
     think_time_scale: float = 1.0,
     nn_model_id: Optional[str] = None,
     fail_fast: bool = False,
+    num_players: int = 2,
+    filler_ai_type: str = "Random",
+    filler_difficulty: int = 1,
 ) -> MatchResult:
-    """Run a single game between two AI tiers."""
+    """Run a single game between two AI tiers (with optional filler AIs for 3-4 player games).
+
+    In multiplayer games:
+    - Player 1: tier_a
+    - Player 2: tier_b
+    - Players 3-4: filler_ai_type (Random/Heuristic)
+
+    Winner is reported as 1 if tier_a won, 2 if tier_b won, None for filler/draw.
+    """
     def _tiebreak_winner(final_state: Any) -> Optional[int]:
         players = getattr(final_state, "players", None) or []
         if not players:
@@ -335,15 +346,16 @@ def run_single_game(
     game_id = str(uuid.uuid4())[:8]
     start_time = time.time()
 
-    state = create_initial_state(board_type, num_players=2)
+    state = create_initial_state(board_type, num_players=num_players)
     engine = GameEngine()
 
+    # Create main competing AIs (tier_a as P1, tier_b as P2)
     ai_a = create_ai_for_tier(
         tier_a,
         1,
         seed,
         board_type=board_type,
-        num_players=2,
+        num_players=num_players,
         think_time_scale=think_time_scale,
         nn_model_id=nn_model_id,
     )
@@ -352,25 +364,46 @@ def run_single_game(
         2,
         seed + 1,
         board_type=board_type,
-        num_players=2,
+        num_players=num_players,
         think_time_scale=think_time_scale,
         nn_model_id=nn_model_id,
     )
 
+    # Map player numbers to their AIs
+    ai_map: Dict[int, Any] = {1: ai_a, 2: ai_b}
+
+    # Create filler AIs for 3-4 player games
+    filler_ai_class = RandomAI if filler_ai_type == "Random" else HeuristicAI
+    for p_num in range(3, num_players + 1):
+        filler_config = AIConfig(
+            difficulty=filler_difficulty,
+            randomness=0.1 if filler_ai_type == "Random" else 0.05,
+            think_time=0,
+            rng_seed=seed + p_num,
+        )
+        ai_map[p_num] = filler_ai_class(p_num, filler_config)
+
     move_count = 0
     winner_override: Optional[int] = None
     while state.game_status == GameStatus.ACTIVE and move_count < max_moves:
-        current_ai = ai_a if state.current_player == 1 else ai_b
+        current_player = state.current_player
+        current_ai = ai_map.get(current_player)
+
+        if current_ai is None:
+            logger.error(f"No AI for player {current_player}")
+            break
 
         try:
             move = current_ai.select_move(state)
             if move is None:
-                requirement = GameEngine.get_phase_requirement(state, state.current_player)
+                requirement = GameEngine.get_phase_requirement(state, current_player)
                 if requirement is not None:
                     move = GameEngine.synthesize_bookkeeping_move(requirement, state)
 
             if move is None:
-                winner_override = 2 if state.current_player == 1 else 1
+                # Current player cannot move - they lose, pick another winner
+                # For simplicity in multiplayer, just use tiebreak
+                winner_override = _tiebreak_winner(state)
                 break
             state = engine.apply_move(state, move)
             move_count += 1
@@ -378,21 +411,30 @@ def run_single_game(
             if fail_fast:
                 raise
             logger.warning(f"Error in game {game_id}: {e}")
-            winner_override = 2 if state.current_player == 1 else 1
+            winner_override = _tiebreak_winner(state)
             break
 
     duration = time.time() - start_time
 
-    winner = winner_override
-    if winner is None and state.winner in (1, 2):
-        winner = int(state.winner)
-    if winner is None:
-        winner = _tiebreak_winner(state)
+    # Determine the actual winner player number
+    actual_winner = winner_override
+    if actual_winner is None and state.winner is not None:
+        actual_winner = int(state.winner)
+    if actual_winner is None:
+        actual_winner = _tiebreak_winner(state)
+
+    # Convert to tier winner (1=tier_a, 2=tier_b, None=filler/draw)
+    tier_winner: Optional[int] = None
+    if actual_winner == 1:
+        tier_winner = 1  # tier_a won
+    elif actual_winner == 2:
+        tier_winner = 2  # tier_b won
+    # else: filler AI won or draw - tier_winner stays None
 
     return MatchResult(
         tier_a=tier_a,
         tier_b=tier_b,
-        winner=winner,
+        winner=tier_winner,
         game_length=move_count,
         duration_sec=duration,
         worker=worker_name,
@@ -428,6 +470,9 @@ class DistributedTournament:
         worker_label: Optional[str] = None,
         fail_fast: bool = False,
         tournament_id: Optional[str] = None,
+        num_players: int = 2,
+        filler_ai_type: str = "Random",
+        filler_difficulty: int = 1,
     ):
         self.tiers = sorted(tiers, key=lambda t: int(t[1:]))
         self.games_per_matchup = games_per_matchup
@@ -442,6 +487,9 @@ class DistributedTournament:
         self.report_path = Path(report_path) if report_path else None
         self.worker_label = worker_label
         self.fail_fast = fail_fast
+        self.num_players = num_players
+        self.filler_ai_type = filler_ai_type
+        self.filler_difficulty = filler_difficulty
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         if resume_file and os.path.exists(resume_file):
@@ -535,6 +583,9 @@ class DistributedTournament:
                 think_time_scale=self.think_time_scale,
                 nn_model_id=self.nn_model_id,
                 fail_fast=self.fail_fast,
+                num_players=self.num_players,
+                filler_ai_type=self.filler_ai_type,
+                filler_difficulty=self.filler_difficulty,
             )
 
             if game_idx % 2 == 1:
@@ -966,6 +1017,26 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Abort the tournament on the first matchup/game exception.",
     )
+    parser.add_argument(
+        "--num-players",
+        type=int,
+        default=2,
+        choices=[2, 3, 4],
+        help="Number of players per game (default: 2). For 3-4 players, filler slots use --filler-ai.",
+    )
+    parser.add_argument(
+        "--filler-ai",
+        type=str,
+        default="Random",
+        choices=["Random", "Heuristic"],
+        help="AI type for extra player slots in 3-4 player games (default: Random).",
+    )
+    parser.add_argument(
+        "--filler-difficulty",
+        type=int,
+        default=1,
+        help="Difficulty level for filler AI (default: 1).",
+    )
     return parser.parse_args()
 
 
@@ -1096,6 +1167,9 @@ def main() -> None:
         worker_label=args.worker_label,
         fail_fast=fail_fast,
         tournament_id=args.tournament_id,
+        num_players=args.num_players,
+        filler_ai_type=args.filler_ai,
+        filler_difficulty=args.filler_difficulty,
     )
 
     report = tournament.run()

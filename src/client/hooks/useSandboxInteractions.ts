@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { Position, PlayerChoice, PlayerChoiceResponseFor } from '../../shared/types/game';
 import { positionToString, positionsEqual } from '../../shared/types/game';
 import { useSandbox } from '../contexts/SandboxContext';
@@ -43,6 +43,29 @@ export function useSandboxInteractions({
   // animation and contextual toasts when the user clicks illegal sources
   // or targets during movement/capture/chain_capture phases.
   const { shakingCellKey, triggerInvalidMove, analyzeInvalidMove } = useInvalidMoveFeedback();
+
+  const [ringPlacementCountPrompt, setRingPlacementCountPrompt] = useState<{
+    position: Position;
+    maxCount: number;
+    isStackPlacement: boolean;
+  } | null>(null);
+
+  const [recoveryChoicePromptOpen, setRecoveryChoicePromptOpen] = useState(false);
+  const recoveryChoiceResolverRef = useRef<((choice: 'option1' | 'option2' | null) => void) | null>(
+    null
+  );
+
+  const requestRecoveryChoice = () =>
+    new Promise<'option1' | 'option2' | null>((resolve) => {
+      recoveryChoiceResolverRef.current = resolve;
+      setRecoveryChoicePromptOpen(true);
+    });
+
+  const resolveRecoveryChoice = (choice: 'option1' | 'option2' | null) => {
+    recoveryChoiceResolverRef.current?.(choice);
+    recoveryChoiceResolverRef.current = null;
+    setRecoveryChoicePromptOpen(false);
+  };
 
   const runSandboxAiTurnLoop = async () => {
     const engine = sandboxEngine;
@@ -102,6 +125,10 @@ export function useSandboxInteractions({
   // available (Stage 2 harness), otherwise fall back to the legacy
   // LocalSandboxState controller.
   const handleCellClick = (pos: Position) => {
+    if (ringPlacementCountPrompt || recoveryChoicePromptOpen) {
+      return;
+    }
+
     // When a territory region_order choice is pending, treat clicks inside
     // any highlighted region as selecting that region. This mirrors the
     // board-driven UX for ring_elimination and capture_direction choices.
@@ -539,15 +566,20 @@ export function useSandboxInteractions({
               const option2Move = matchingRecoveryMoves.find((m) => m.option === 2);
 
               if (option1Move && option2Move) {
-                // Use confirm for a simple UX in sandbox mode
-                const chooseOption2 = window.confirm(
-                  'Overlength recovery line detected!\n\n' +
-                    'OPTION 2 (Free): Collapse minimum markers - no buried ring extracted\n' +
-                    'OPTION 1 (Cost): Collapse all markers - extract 1 buried ring\n\n' +
-                    'Click OK for FREE Option 2, or Cancel for Option 1 (cost).'
-                );
+                const choice = await requestRecoveryChoice();
 
-                selectedMove = chooseOption2 ? option2Move : option1Move;
+                if (choice === 'option2') {
+                  selectedMove = option2Move;
+                } else if (choice === 'option1') {
+                  selectedMove = option1Move;
+                } else {
+                  if (sourcePos) {
+                    setSelected(sourcePos);
+                    const targets = engine.getValidLandingPositionsForCurrentPlayer(sourcePos);
+                    setValidTargets(targets);
+                  }
+                  return;
+                }
               }
             }
 
@@ -623,6 +655,10 @@ export function useSandboxInteractions({
     const engine = sandboxEngine;
     if (!engine) return;
 
+    if (ringPlacementCountPrompt || recoveryChoicePromptOpen) {
+      return;
+    }
+
     const state = engine.getGameState();
     if (state.currentPhase !== 'ring_placement') {
       return;
@@ -686,6 +722,10 @@ export function useSandboxInteractions({
     const engine = sandboxEngine;
     if (!engine) return;
 
+    if (ringPlacementCountPrompt || recoveryChoicePromptOpen) {
+      return;
+    }
+
     const state = engine.getGameState();
     if (state.currentPhase !== 'ring_placement') {
       return;
@@ -707,31 +747,26 @@ export function useSandboxInteractions({
       return;
     }
 
-    const promptLabel = isOccupied
-      ? 'Place how many rings on this stack? (canonical: 1)'
-      : `Place how many rings on this empty cell? (1–${maxPerPlacement})`;
+    if (maxPerPlacement <= 1) {
+      void (async () => {
+        const placed = await engine.tryPlaceRings(pos, 1);
+        if (!placed) {
+          return;
+        }
 
-    const raw = window.prompt(promptLabel, Math.min(2, maxPerPlacement).toString());
-    if (!raw) {
+        setSelected(pos);
+        const targets = engine.getValidLandingPositionsForCurrentPlayer(pos);
+        setValidTargets(targets);
+        setSandboxTurn((t) => t + 1);
+      })();
       return;
     }
 
-    const parsed = Number.parseInt(raw, 10);
-    if (!Number.isFinite(parsed) || parsed < 1 || parsed > maxPerPlacement) {
-      return;
-    }
-
-    void (async () => {
-      const placed = await engine.tryPlaceRings(pos, parsed);
-      if (!placed) {
-        return;
-      }
-
-      setSelected(pos);
-      const targets = engine.getValidLandingPositionsForCurrentPlayer(pos);
-      setValidTargets(targets);
-      setSandboxTurn((t) => t + 1);
-    })();
+    setRingPlacementCountPrompt({
+      position: pos,
+      maxCount: maxPerPlacement,
+      isStackPlacement: isOccupied,
+    });
   };
 
   /**
@@ -748,6 +783,33 @@ export function useSandboxInteractions({
     }
   };
 
+  const closeRingPlacementCountPrompt = () => {
+    setRingPlacementCountPrompt(null);
+  };
+
+  const confirmRingPlacementCountPrompt = (count: number) => {
+    const engine = sandboxEngine;
+    const prompt = ringPlacementCountPrompt;
+    if (!engine || !prompt) {
+      setRingPlacementCountPrompt(null);
+      return;
+    }
+
+    setRingPlacementCountPrompt(null);
+
+    void (async () => {
+      const placed = await engine.tryPlaceRings(prompt.position, count);
+      if (!placed) {
+        return;
+      }
+
+      setSelected(prompt.position);
+      const targets = engine.getValidLandingPositionsForCurrentPlayer(prompt.position);
+      setValidTargets(targets);
+      setSandboxTurn((t) => t + 1);
+    })();
+  };
+
   return {
     shakingCellKey,
     handleCellClick,
@@ -755,5 +817,10 @@ export function useSandboxInteractions({
     handleCellContextMenu,
     maybeRunSandboxAiIfNeeded,
     clearSelection,
+    ringPlacementCountPrompt,
+    closeRingPlacementCountPrompt,
+    confirmRingPlacementCountPrompt,
+    recoveryChoicePromptOpen,
+    resolveRecoveryChoice,
   };
 }

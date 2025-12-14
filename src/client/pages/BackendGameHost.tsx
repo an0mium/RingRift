@@ -13,6 +13,7 @@ import { EvaluationPanel } from '../components/EvaluationPanel';
 import { BoardControlsOverlay } from '../components/BoardControlsOverlay';
 import { ResignButton } from '../components/ResignButton';
 import { RingPlacementCountDialog } from '../components/RingPlacementCountDialog';
+import { Button } from '../components/ui/Button';
 import {
   ScreenReaderAnnouncer,
   useGameAnnouncements,
@@ -162,6 +163,7 @@ interface BackendConnectionShellState {
   isConnecting: boolean;
   error: string | null;
   lastHeartbeatAt: number | null;
+  reconnect: () => void;
 }
 
 function useBackendConnectionShell(routeGameId: string): BackendConnectionShellState {
@@ -188,6 +190,12 @@ function useBackendConnectionShell(routeGameId: string): BackendConnectionShellS
     isConnecting,
     error,
     lastHeartbeatAt,
+    reconnect: () => {
+      if (!routeGameId) {
+        return;
+      }
+      void connectToGame(routeGameId);
+    },
   };
 }
 
@@ -1359,15 +1367,36 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
 
   const reconnectionBanner =
     connectionStatus !== 'connected' && gameState ? (
-      <div className="bg-amber-500/20 border border-amber-500/50 text-amber-200 px-4 py-2 rounded mb-4 flex items-center justify-between">
-        <span>
-          {connectionStatus === 'reconnecting'
-            ? 'Connection lost. Attempting to reconnect…'
-            : connectionStatus === 'connecting'
-              ? 'Connecting to game server…'
-              : 'Disconnected from server. Moves are paused.'}
-        </span>
-        <div className="animate-spin h-4 w-4 border-2 border-amber-500 border-t-transparent rounded-full" />
+      <div
+        className="bg-amber-500/20 border border-amber-500/50 text-amber-200 px-4 py-2 rounded mb-4 flex flex-wrap items-center justify-between gap-2"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="flex items-center gap-3">
+          <div className="animate-spin h-4 w-4 border-2 border-amber-500 border-t-transparent rounded-full" />
+          <span>
+            {connectionStatus === 'reconnecting'
+              ? 'Connection lost. Attempting to reconnect…'
+              : connectionStatus === 'connecting'
+                ? 'Connecting to game server…'
+                : 'Disconnected from server. Moves are paused.'}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={connection.reconnect}
+            disabled={isConnecting}
+          >
+            Retry
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => navigate('/lobby')}>
+            Lobby
+          </Button>
+        </div>
       </div>
     ) : null;
 

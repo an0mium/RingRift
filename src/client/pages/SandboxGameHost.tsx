@@ -13,6 +13,8 @@ import { ScenarioPickerModal } from '../components/ScenarioPickerModal';
 import { SelfPlayBrowser } from '../components/SelfPlayBrowser';
 import { EvaluationPanel } from '../components/EvaluationPanel';
 import { SaveStateDialog } from '../components/SaveStateDialog';
+import { RingPlacementCountDialog } from '../components/RingPlacementCountDialog';
+import { RecoveryLineChoiceDialog } from '../components/RecoveryLineChoiceDialog';
 import { ReplayPanel } from '../components/ReplayPanel';
 import { HistoryPlaybackPanel } from '../components/HistoryPlaybackPanel';
 import { OnboardingModal } from '../components/OnboardingModal';
@@ -836,6 +838,11 @@ export const SandboxGameHost: React.FC = () => {
     maybeRunSandboxAiIfNeeded,
     clearSelection: clearSandboxSelection,
     shakingCellKey: sandboxShakingCellKey,
+    ringPlacementCountPrompt: sandboxRingPlacementCountPrompt,
+    closeRingPlacementCountPrompt,
+    confirmRingPlacementCountPrompt,
+    recoveryChoicePromptOpen: sandboxRecoveryChoicePromptOpen,
+    resolveRecoveryChoice: resolveSandboxRecoveryChoice,
   } = useSandboxInteractions({
     selected,
     setSelected,
@@ -3278,6 +3285,26 @@ export const SandboxGameHost: React.FC = () => {
             </div>
           </aside>
         </main>
+
+        <RingPlacementCountDialog
+          isOpen={!!sandboxRingPlacementCountPrompt}
+          maxCount={sandboxRingPlacementCountPrompt?.maxCount ?? 1}
+          defaultCount={
+            sandboxRingPlacementCountPrompt?.isStackPlacement
+              ? 1
+              : Math.min(2, sandboxRingPlacementCountPrompt?.maxCount ?? 1)
+          }
+          isStackPlacement={sandboxRingPlacementCountPrompt?.isStackPlacement ?? false}
+          onClose={closeRingPlacementCountPrompt}
+          onConfirm={confirmRingPlacementCountPrompt}
+        />
+
+        <RecoveryLineChoiceDialog
+          isOpen={sandboxRecoveryChoicePromptOpen}
+          onChooseOption1={() => resolveSandboxRecoveryChoice('option1')}
+          onChooseOption2={() => resolveSandboxRecoveryChoice('option2')}
+          onClose={() => resolveSandboxRecoveryChoice(null)}
+        />
 
         {showBoardControls && (
           <BoardControlsOverlay

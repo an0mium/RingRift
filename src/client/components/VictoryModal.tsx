@@ -24,6 +24,7 @@ import { logRulesUxEvent, newOverlaySessionId } from '../utils/rulesUxTelemetry'
 import type { GameEndExplanation } from '../../shared/engine/gameEndExplanation';
 import { useAccessibility } from '../contexts/AccessibilityContext';
 import { Dialog } from './ui/Dialog';
+import { Button } from './ui/Button';
 import { getPlayerIndicatorPatternClass, getPlayerTheme } from '../utils/playerTheme';
 
 /**
@@ -284,12 +285,9 @@ function RematchSection({
   // Local/sandbox game: simple rematch button
   if (onRematch && !onRequestRematch) {
     return (
-      <button
-        onClick={onRematch}
-        className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-slate-900"
-      >
+      <Button type="button" size="lg" onClick={onRematch}>
         Play Again
-      </button>
+      </Button>
     );
   }
 
@@ -323,12 +321,9 @@ function RematchSection({
         <div className="px-4 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-slate-300 text-sm">
           Rematch request expired
         </div>
-        <button
-          onClick={onRequestRematch}
-          className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-slate-900"
-        >
+        <Button type="button" size="lg" onClick={onRequestRematch}>
           Request Rematch
-        </button>
+        </Button>
       </div>
     );
   }
@@ -347,18 +342,17 @@ function RematchSection({
           </p>
         </div>
         <div className="flex gap-3">
-          <button
-            onClick={() => onAcceptRematch?.(requestId)}
-            className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-slate-900"
-          >
+          <Button type="button" size="lg" onClick={() => onAcceptRematch?.(requestId)}>
             Accept
-          </button>
-          <button
+          </Button>
+          <Button
+            type="button"
+            size="lg"
+            variant="danger"
             onClick={() => onDeclineRematch?.(requestId)}
-            className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-slate-900"
           >
             Decline
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -380,12 +374,9 @@ function RematchSection({
 
   // No pending request - show request button
   return (
-    <button
-      onClick={onRequestRematch}
-      className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-slate-900"
-    >
+    <Button type="button" size="lg" onClick={onRequestRematch}>
       Request Rematch
-    </button>
+    </Button>
   );
 }
 

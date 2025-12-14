@@ -244,6 +244,10 @@ class GameRecord:
     failure_debug: Optional[Dict[str, Any]] = None
     # Source tracking for data quality auditing
     source: str = "run_self_play_soak.py"
+    # DB recording diagnostics (when --record-db is enabled)
+    db_recorded: bool = False
+    db_game_id: Optional[str] = None
+    db_record_error: Optional[str] = None
 
 
 def _record_invariant_violation(
@@ -1040,6 +1044,7 @@ def run_self_play_soak(
     # already and training data doesn't need TS phase alignment
     replay_db = get_or_create_db(record_db_path, enforce_canonical_history=False) if record_db_path else None
     games_recorded = 0
+    fail_on_anomaly = bool(getattr(args, "fail_on_anomaly", False))
 
     # Lean DB mode: skip storing full state history for each move (~100x smaller)
     # Default is True (lean enabled), --no-lean-db disables it
@@ -1829,9 +1834,129 @@ def run_self_play_soak(
                 initial_state=training_initial_state,
                 failure_debug=failure_debug,
             )
+            # Record full game to database if enabled.
+            if (not skipped) and replay_db and initial_state_for_recording is not None:
+                # Only record completed games; skip any partial/aborted runs.
+                if state.game_status != GameStatus.COMPLETED:
+                    rec.db_record_error = f"not_completed_status:{state.game_status.value}"
+                    skipped = True
+                else:
+                    # Validate recorded history in trace_mode before committing.
+                    ok, err = _validate_history_trace(
+                        initial_state_for_recording,
+                        game_moves_for_recording,
+                    )
+                    if not ok:
+                        rec.db_record_error = f"trace_replay_failure:{err}"
+                        skipped = True
+                        dump_dir = os.getenv("RINGRIFT_SOAK_FAILURE_DIR")
+                        if dump_dir:
+                            try:
+                                os.makedirs(dump_dir, exist_ok=True)
+                                dump_path = os.path.join(
+                                    dump_dir,
+                                    f"trace_failure_game_{game_idx}.json",
+                                )
+
+                                # Build a replay trace with phases/players to aid debugging.
+                                replay_trace = []
+                                replay_error = None
+                                try:
+                                    trace_state = initial_state_for_recording
+                                    for idx, mv in enumerate(game_moves_for_recording):
+                                        replay_trace.append(
+                                            {
+                                                "idx": idx,
+                                                "move_number": getattr(mv, "move_number", None),
+                                                "type": mv.type.value,
+                                                "player": mv.player,
+                                                "phase_before": (
+                                                    getattr(trace_state, "current_phase", None).value
+                                                    if trace_state and getattr(trace_state, "current_phase", None)
+                                                    else None
+                                                ),
+                                                "current_player": getattr(trace_state, "current_player", None),
+                                            }
+                                        )
+                                        trace_state = GameEngine.apply_move(trace_state, mv, trace_mode=True)  # type: ignore[arg-type]
+                                except Exception as rexc:  # pragma: no cover - defensive
+                                    replay_error = f"{type(rexc).__name__}:{rexc}"
+
+                                with open(dump_path, "w", encoding="utf-8") as f:
+                                    json.dump(
+                                        {
+                                            "error": err,
+                                            "game_index": game_idx,
+                                            "moves": [
+                                                m.model_dump(mode="json")  # type: ignore[attr-defined]
+                                                for m in game_moves_for_recording
+                                            ],
+                                            "initial_state": (
+                                                initial_state_for_recording.model_dump(  # type: ignore[attr-defined]
+                                                    mode="json"
+                                                )
+                                                if initial_state_for_recording
+                                                else None
+                                            ),
+                                            "replay_trace": replay_trace,
+                                            "replay_error": replay_error,
+                                        },
+                                        f,
+                                    )
+                            except Exception:
+                                # Best-effort only.
+                                pass
+                    else:
+                        try:
+                            if profile_timing:
+                                t_db_start = time.time()
+                            game_id = record_completed_game_with_parity_check(
+                                db=replay_db,
+                                initial_state=initial_state_for_recording,
+                                final_state=state,
+                                moves=game_moves_for_recording,
+                                metadata={
+                                    "source": "selfplay_soak",
+                                    "engine_mode": engine_mode,
+                                    "difficulty_band": difficulty_band,
+                                    "termination_reason": termination_reason,
+                                    "rng_seed": game_seed,
+                                    # Golden-game and diagnostics hooks:
+                                    # persist invariant violation counts and pie-rule
+                                    # usage so downstream tooling can mine interesting
+                                    # traces (for example, games that exercised the
+                                    # swap rule or violated invariants).
+                                    "invariant_violations_by_type": per_game_violations,
+                                    "swap_sides_moves": swap_sides_moves_for_game,
+                                    "used_pie_rule": swap_sides_moves_for_game > 0,
+                                    # Per-player AI metadata for analysis and debugging:
+                                    # keys like player_{pnum}_ai_type, player_{pnum}_difficulty
+                                    **per_player_ai_metadata,
+                                },
+                                # Lean mode: skip storing full state history for each move
+                                # to reduce DB size ~100x while preserving training data
+                                store_history_entries=not lean_db_enabled,
+                            )
+                            rec.db_recorded = True
+                            rec.db_game_id = game_id
+                            if profile_timing:
+                                timing_totals["db_record"] += time.time() - t_db_start
+                            games_recorded += 1
+                        except ParityValidationError as pve:
+                            # Parity validation failed - skip this game but continue.
+                            rec.db_record_error = f"parity_divergence:{pve}"
+                            skipped = True
+                        except Exception as exc:  # pragma: no cover - defensive
+                            # DB recording must never break the soak loop
+                            rec.db_record_error = f"{type(exc).__name__}:{exc}"
+                            skipped = True
+
+            # Mirror any DB-derived skip status onto the record.
+            rec.skipped = bool(rec.skipped or skipped)
+
+            # Emit per-game JSONL record after attempting DB recording so that
+            # db_record_error/db_game_id fields reflect reality.
             log_f.write(json.dumps(asdict(rec)) + "\n")
-            # Ensure per-game records are visible to tail/analysis tools even
-            # while a long soak is still in progress.
             log_f.flush()
             records.append(rec)
 
@@ -1843,142 +1968,6 @@ def run_self_play_soak(
                     records_so_far=records,
                 )
 
-            if skipped:
-                print(
-                    f"[soak-skip] game {game_idx} skipped: reason={termination_reason}",
-                    file=sys.stderr,
-                )
-                # Skip recording/metrics; continue to next game
-                continue
-
-            # Record full game to database if enabled
-            if replay_db and initial_state_for_recording is not None:
-                # Only record completed games; skip any partial/aborted runs.
-                if state.game_status != GameStatus.COMPLETED:
-                    print(
-                        f"[record-db] Skipping game {game_idx} "
-                        f"because game_status={state.game_status.value} "
-                        f"termination_reason={termination_reason}",
-                        file=sys.stderr,
-                    )
-                    continue
-
-                # Validate recorded history in trace_mode before committing.
-                ok, err = _validate_history_trace(
-                    initial_state_for_recording,
-                    game_moves_for_recording,
-                )
-                if not ok:
-                    dump_dir = os.getenv("RINGRIFT_SOAK_FAILURE_DIR")
-                    if dump_dir:
-                        try:
-                            os.makedirs(dump_dir, exist_ok=True)
-                            dump_path = os.path.join(
-                                dump_dir,
-                                f"trace_failure_game_{game_idx}.json",
-                            )
-
-                            # Build a replay trace with phases/players to aid debugging.
-                            replay_trace = []
-                            replay_error = None
-                            try:
-                                state = initial_state_for_recording
-                                for idx, mv in enumerate(game_moves_for_recording):
-                                    replay_trace.append(
-                                        {
-                                            "idx": idx,
-                                            "move_number": getattr(mv, "move_number", None),
-                                            "type": mv.type.value,
-                                            "player": mv.player,
-                                            "phase_before": (
-                                                getattr(state, "current_phase", None).value
-                                                if state and getattr(state, "current_phase", None)
-                                                else None
-                                            ),
-                                            "current_player": getattr(state, "current_player", None),
-                                        }
-                                    )
-                                    state = GameEngine.apply_move(state, mv, trace_mode=True)  # type: ignore[arg-type]
-                            except Exception as rexc:  # pragma: no cover - defensive
-                                replay_error = f"{type(rexc).__name__}:{rexc}"
-
-                            with open(dump_path, "w", encoding="utf-8") as f:
-                                json.dump(
-                                    {
-                                        "error": err,
-                                        "game_index": game_idx,
-                                        "moves": [
-                                            m.model_dump(mode="json")  # type: ignore[attr-defined]
-                                            for m in game_moves_for_recording
-                                        ],
-                                        "initial_state": (
-                                            initial_state_for_recording.model_dump(  # type: ignore[attr-defined]
-                                                mode="json"
-                                            )
-                                            if initial_state_for_recording
-                                            else None
-                                        ),
-                                        "replay_trace": replay_trace,
-                                        "replay_error": replay_error,
-                                    },
-                                    f,
-                                )
-                        except Exception:
-                            # Best-effort only.
-                            pass
-                    print(
-                        f"[record-db] Skipping game {game_idx} due to trace replay failure: {err}",
-                        file=sys.stderr,
-                    )
-                    continue
-
-                try:
-                    if profile_timing:
-                        t_db_start = time.time()
-                    game_id = record_completed_game_with_parity_check(
-                        db=replay_db,
-                        initial_state=initial_state_for_recording,
-                        final_state=state,
-                        moves=game_moves_for_recording,
-                        metadata={
-                            "source": "selfplay_soak",
-                            "engine_mode": engine_mode,
-                            "difficulty_band": difficulty_band,
-                            "termination_reason": termination_reason,
-                            "rng_seed": game_seed,
-                            # Golden-game and diagnostics hooks:
-                            # persist invariant violation counts and pie-rule
-                            # usage so downstream tooling can mine interesting
-                            # traces (for example, games that exercised the
-                            # swap rule or violated invariants).
-                            "invariant_violations_by_type": per_game_violations,
-                            "swap_sides_moves": swap_sides_moves_for_game,
-                            "used_pie_rule": swap_sides_moves_for_game > 0,
-                            # Per-player AI metadata for analysis and debugging:
-                            # keys like player_{pnum}_ai_type, player_{pnum}_difficulty
-                            **per_player_ai_metadata,
-                        },
-                        # Lean mode: skip storing full state history for each move
-                        # to reduce DB size ~100x while preserving training data
-                        store_history_entries=not lean_db_enabled,
-                    )
-                    if profile_timing:
-                        timing_totals["db_record"] += time.time() - t_db_start
-                    games_recorded += 1
-                except ParityValidationError as pve:
-                    # Parity validation failed - skip this game but continue.
-                    print(
-                        f"[PARITY ERROR] Skipping game {game_idx} due to TS parity divergence: {pve}",
-                        file=sys.stderr,
-                    )
-                    continue
-                except Exception as exc:  # pragma: no cover - defensive
-                    # DB recording must never break the soak loop
-                    print(
-                        f"[record-db] Failed to record game {game_idx}: " f"{type(exc).__name__}: {exc}",
-                        file=sys.stderr,
-                    )
-
             # Record game completion for progress reporting
             game_duration = time.time() - game_start_time
             progress_reporter.record_game(
@@ -1986,8 +1975,11 @@ def run_self_play_soak(
                 duration_sec=game_duration,
             )
             if skipped:
-                # Note: skipped games do not increment games_recorded; loop continues
-                continue
+                detail = rec.db_record_error or rec.termination_reason
+                print(
+                    f"[soak-skip] game {game_idx} skipped: reason={detail}",
+                    file=sys.stderr,
+                )
 
             if args.verbose and (game_idx + 1) % args.verbose == 0:
                 print(
@@ -2012,6 +2004,11 @@ def run_self_play_soak(
                 GameEngine.clear_cache()
                 clear_model_cache()
                 gc.collect()
+
+            if skipped:
+                if fail_on_anomaly:
+                    break
+                continue
 
     # Emit final progress summary
     progress_reporter.finish()
@@ -2103,6 +2100,8 @@ def _summarise(
     invariant_violations_by_id: Dict[str, int] = {}
     total_swap_sides_moves = 0
     games_with_swap_sides = 0
+    db_recorded_games = 0
+    db_record_error_games = 0
 
     for r in records:
         by_status[r.status] = by_status.get(r.status, 0) + 1
@@ -2135,6 +2134,11 @@ def _summarise(
         if swap_moves > 0:
             total_swap_sides_moves += swap_moves
             games_with_swap_sides += 1
+
+        if getattr(r, "db_recorded", False):
+            db_recorded_games += 1
+        if getattr(r, "db_record_error", None):
+            db_record_error_games += 1
 
         for v_type, count in getattr(
             r,
@@ -2169,6 +2173,8 @@ def _summarise(
         "swap_sides_games": games_with_swap_sides,
         "swap_sides_games_fraction": (games_with_swap_sides / total) if total else 0.0,
         "avg_swap_sides_moves_per_game": (total_swap_sides_moves / total) if total else 0.0,
+        "db_recorded_games": db_recorded_games,
+        "db_record_error_games": db_record_error_games,
     }
 
     if invariant_samples is not None:
@@ -2487,10 +2493,21 @@ def _has_anomalies(records: List[GameRecord]) -> bool:
         "illegal_move_for_phase:",
         "phase_move_mismatch:",
     )
-    return any(
-        (rec.termination_reason in anomalous_reasons) or rec.termination_reason.startswith(anomalous_prefixes)
-        for rec in records
-    )
+
+    def _is_bad_status(reason: str) -> bool:
+        if not reason.startswith("status:"):
+            return False
+        # status:completed or status:completed:<victory_type> are normal.
+        return not reason.startswith("status:completed")
+
+    for rec in records:
+        if getattr(rec, "db_record_error", None):
+            return True
+        if _is_bad_status(rec.termination_reason):
+            return True
+        if (rec.termination_reason in anomalous_reasons) or rec.termination_reason.startswith(anomalous_prefixes):
+            return True
+    return False
 
 
 def _parse_args() -> argparse.Namespace:

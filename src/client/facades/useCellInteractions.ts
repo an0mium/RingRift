@@ -29,6 +29,16 @@ export interface CellInteractionOptions {
   onInvalidMove?: (position: Position, reason: string) => void;
   /** Callback when interaction is blocked (spectator, disconnected) */
   onInteractionBlocked?: (reason: string) => void;
+  /**
+   * Optional async prompt for selecting a custom ring placement count.
+   * When omitted, the handler falls back to a sensible default (2 on empty
+   * cells when legal, otherwise 1).
+   */
+  requestRingPlacementCount?: (context: {
+    maxCount: number;
+    hasStack: boolean;
+    defaultCount: number;
+  }) => Promise<number | null>;
 }
 
 /**
@@ -73,7 +83,7 @@ export function useCellInteractions(
   facade: GameFacade | null,
   options: CellInteractionOptions = {}
 ): CellInteractionState & CellInteractionHandlers {
-  const { onInvalidMove, onInteractionBlocked } = options;
+  const { onInvalidMove, onInteractionBlocked, requestRingPlacementCount } = options;
 
   // Selection state
   const [selected, setSelected] = useState<Position | undefined>();
@@ -338,36 +348,42 @@ export function useCellInteractions(
 
       const counts = placeMovesAtPos.map((m) => m.placementCount ?? 1);
       const maxCount = Math.max(...counts);
+      const defaultCount = hasStack ? 1 : Math.min(2, maxCount);
 
-      const promptLabel = hasStack
-        ? 'Place how many rings on this stack? (canonical: 1)'
-        : `Place how many rings on this empty cell? (1–${maxCount})`;
+      const submitPlacement = (count: number) => {
+        const chosen = placeMovesAtPos.find((m) => (m.placementCount ?? 1) === count);
+        if (!chosen) {
+          return;
+        }
 
-      const raw = window.prompt(promptLabel, Math.min(2, maxCount).toString());
-      if (!raw) {
+        facade.submitMove({
+          type: 'place_ring',
+          to: chosen.to,
+          placementCount: chosen.placementCount,
+          placedOnStack: chosen.placedOnStack,
+        } as PartialMove);
+
+        clearSelection();
+      };
+
+      if (maxCount <= 1) {
+        submitPlacement(1);
         return;
       }
 
-      const parsed = Number.parseInt(raw, 10);
-      if (!Number.isFinite(parsed) || parsed < 1 || parsed > maxCount) {
+      if (requestRingPlacementCount) {
+        void requestRingPlacementCount({ maxCount, hasStack, defaultCount }).then((count) => {
+          if (!Number.isFinite(count)) {
+            return;
+          }
+          submitPlacement(Math.max(1, Math.min(maxCount, Math.floor(count))));
+        });
         return;
       }
 
-      const chosen = placeMovesAtPos.find((m) => (m.placementCount ?? 1) === parsed);
-      if (!chosen) {
-        return;
-      }
-
-      facade.submitMove({
-        type: 'place_ring',
-        to: chosen.to,
-        placementCount: chosen.placementCount,
-        placedOnStack: chosen.placedOnStack,
-      } as PartialMove);
-
-      clearSelection();
+      submitPlacement(defaultCount);
     },
-    [facade, clearSelection, onInteractionBlocked]
+    [facade, clearSelection, onInteractionBlocked, requestRingPlacementCount]
   );
 
   return {

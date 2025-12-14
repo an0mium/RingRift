@@ -76,7 +76,13 @@ function PhasesStep(_: StepProps) {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-bold text-slate-100 text-center">Three Simple Phases</h2>
+      <div className="space-y-1 text-center">
+        <h2 className="text-xl font-bold text-slate-100">Three Core Phases</h2>
+        <p className="text-sm text-slate-400">
+          Other phases (chain captures, line/territory processing, forced elimination) appear when
+          triggered.
+        </p>
+      </div>
       <div className="space-y-3">
         {phases.map((phase) => (
           <div key={phase.id} className="flex items-center gap-3 bg-slate-800/50 rounded-lg p-3">
