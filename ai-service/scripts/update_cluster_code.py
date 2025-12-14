@@ -43,8 +43,8 @@ class HostResult:
     had_local_changes: bool = False
 
 
-_GIT_LOG_LINE_RE = re.compile(r"^[0-9a-f]{7,40}\\s")
-_PORCELAIN_LINE_RE = re.compile(r"^[!?MADRCU\\s]{2}\\s")
+_GIT_LOG_LINE_RE = re.compile(r"^[0-9a-f]{7,40}\s")
+_PORCELAIN_LINE_RE = re.compile(r"^[!?MADRCU\s]{2}\s")
 
 
 def _extract_git_log_line(output: str) -> str | None:
