@@ -13,6 +13,9 @@ jest.mock('../../src/server/middleware/rateLimiter', () => ({
   authRegisterRateLimiter: (_req: any, _res: any, next: any) => next(),
   authPasswordResetRateLimiter: (_req: any, _res: any, next: any) => next(),
   rateLimiter: (_req: any, _res: any, next: any) => next(),
+  userSearchRateLimiter: (_req: any, _res: any, next: any) => next(),
+  userRatingRateLimiter: (_req: any, _res: any, next: any) => next(),
+  dataExportRateLimiter: (_req: any, _res: any, next: any) => next(),
 }));
 
 // Mocked database client, defaulting to the shared prismaStub.
@@ -253,7 +256,8 @@ describe('User account deletion HTTP route', () => {
     // because the email no longer exists; both this and ACCOUNT_DEACTIVATED
     // represent a blocked login, which satisfies S-05.E.1 for this slice.
     expect(
-      res.body.error.code === 'AUTH_ACCOUNT_DEACTIVATED' || res.body.error.code === 'AUTH_INVALID_CREDENTIALS'
+      res.body.error.code === 'AUTH_ACCOUNT_DEACTIVATED' ||
+        res.body.error.code === 'AUTH_INVALID_CREDENTIALS'
     ).toBe(true);
 
     // No new tokens should be issued.

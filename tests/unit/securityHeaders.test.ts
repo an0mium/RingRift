@@ -308,6 +308,9 @@ describe('Origin Validation Middleware - Production Mode', () => {
     // Mock config to simulate production mode
     jest.doMock('../../src/server/config', () => ({
       config: {
+        logging: {
+          level: 'info',
+        },
         isDevelopment: false,
         isProduction: true,
         server: {
@@ -340,6 +343,9 @@ describe('Origin Validation Middleware - Production Mode', () => {
   it('should allow requests with allowed origin in production mode', async () => {
     jest.doMock('../../src/server/config', () => ({
       config: {
+        logging: {
+          level: 'info',
+        },
         isDevelopment: false,
         isProduction: true,
         server: {
@@ -369,6 +375,9 @@ describe('Origin Validation Middleware - Production Mode', () => {
   it('should allow requests without origin header in production mode (server-to-server)', async () => {
     jest.doMock('../../src/server/config', () => ({
       config: {
+        logging: {
+          level: 'info',
+        },
         isDevelopment: false,
         isProduction: true,
         server: {
@@ -396,6 +405,9 @@ describe('Origin Validation Middleware - Production Mode', () => {
   it('should use Referer header when Origin header is missing in production mode', async () => {
     jest.doMock('../../src/server/config', () => ({
       config: {
+        logging: {
+          level: 'info',
+        },
         isDevelopment: false,
         isProduction: true,
         server: {
@@ -426,6 +438,9 @@ describe('Origin Validation Middleware - Production Mode', () => {
   it('should reject when Referer origin is disallowed in production mode', async () => {
     jest.doMock('../../src/server/config', () => ({
       config: {
+        logging: {
+          level: 'info',
+        },
         isDevelopment: false,
         isProduction: true,
         server: {
@@ -455,6 +470,9 @@ describe('Origin Validation Middleware - Production Mode', () => {
   it('should skip validation for HEAD requests in production mode', async () => {
     jest.doMock('../../src/server/config', () => ({
       config: {
+        logging: {
+          level: 'info',
+        },
         isDevelopment: false,
         isProduction: true,
         server: {
@@ -494,6 +512,9 @@ describe('HSTS Configuration - Production Mode', () => {
     // Mock config to simulate production mode for helmet HSTS configuration.
     jest.doMock('../../src/server/config', () => ({
       config: {
+        logging: {
+          level: 'info',
+        },
         isDevelopment: false,
         isProduction: true,
         server: {
@@ -548,6 +569,9 @@ describe('CORS Regex Origin Matching', () => {
     // When isDevelopment is true, 127.0.0.1:* should be allowed
     jest.doMock('../../src/server/config', () => ({
       config: {
+        logging: {
+          level: 'info',
+        },
         isDevelopment: true,
         isProduction: false,
         server: {
@@ -575,6 +599,10 @@ describe('CORS Regex Origin Matching', () => {
   it('should reject non-localhost origins in development mode', async () => {
     jest.doMock('../../src/server/config', () => ({
       config: {
+        nodeEnv: 'development',
+        logging: {
+          level: 'info',
+        },
         isDevelopment: true,
         isProduction: false,
         server: {
@@ -602,10 +630,20 @@ describe('CORS Regex Origin Matching', () => {
 
 describe('CORS Console Warning', () => {
   it('should log warning for rejected origins in non-production mode', async () => {
-    const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = jest.fn();
+
+    jest.doMock('../../src/server/utils/logger', () => ({
+      logger: {
+        warn: warnSpy,
+      },
+    }));
 
     jest.doMock('../../src/server/config', () => ({
       config: {
+        nodeEnv: 'development',
+        logging: {
+          level: 'info',
+        },
         isDevelopment: true,
         isProduction: false,
         server: {
@@ -626,11 +664,13 @@ describe('CORS Console Warning', () => {
 
     await request(app).get('/test').set('Origin', 'http://rejected-origin.com');
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[CORS] Rejected origin: http://rejected-origin.com')
+    expect(warnSpy).toHaveBeenCalledWith(
+      'CORS rejected origin',
+      expect.objectContaining({
+        origin: 'http://rejected-origin.com',
+        event: 'cors_rejected',
+      })
     );
-
-    consoleSpy.mockRestore();
   });
 });
 
