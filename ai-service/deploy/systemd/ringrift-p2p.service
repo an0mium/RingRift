@@ -10,6 +10,9 @@ WorkingDirectory=/root/ringrift/ai-service
 Environment=PYTHONPATH=/root/ringrift/ai-service
 Environment=HOME=/root
 EnvironmentFile=-/etc/ringrift/node.conf
+# If a previous manual/rogue orchestrator is still holding the P2P port, kill it
+# so the managed systemd unit can start cleanly (prevents bind-failure loops).
+ExecStartPre=/bin/bash -lc 'if command -v ss >/dev/null 2>&1; then pid="$(ss -ltnpH 2>/dev/null | sed -n "s/.*:$P2P_PORT .*pid=\\([0-9][0-9]*\\).*/\\1/p" | head -1)"; if [ -n "$pid" ]; then args="$(ps -p "$pid" -o args= 2>/dev/null || true)"; if echo "$args" | grep -q "p2p_orchestrator.py"; then echo "[ringrift-p2p] Killing rogue p2p_orchestrator pid=$pid (port=$P2P_PORT)"; kill "$pid" 2>/dev/null || true; sleep 2; kill -9 "$pid" 2>/dev/null || true; fi; fi; fi'
 ExecStart=/bin/bash -lc 'PY="/root/ringrift/ai-service/venv/bin/python"; if [ ! -x "$PY" ]; then PY="/usr/bin/python3"; fi; exec "$PY" "/root/ringrift/ai-service/scripts/p2p_orchestrator.py" --node-id "$NODE_ID" --port "$P2P_PORT" --peers "$COORDINATOR_URL" --ringrift-path "/root/ringrift"'
 Restart=always
 RestartSec=10

@@ -5054,10 +5054,11 @@ class P2POrchestrator:
                 json_mod.dump(weights, f)
                 weights_file = f.name
 
+            ai_service_path = str(Path(self.ringrift_path) / "ai-service")
             cmd = [
                 sys.executable, "-c", f"""
 import sys
-sys.path.insert(0, '{self.ringrift_path / "ai-service"}')
+sys.path.insert(0, '{ai_service_path}')
 from app.game_engine import GameEngine
 from app.ai.heuristic_ai import HeuristicAI
 from app.models import AIConfig, BoardType, GameStatus
@@ -5102,7 +5103,7 @@ print(wins / total)
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, "PYTHONPATH": str(self.ringrift_path / "ai-service")},
+                env={**os.environ, "PYTHONPATH": ai_service_path},
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
 
