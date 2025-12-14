@@ -829,6 +829,11 @@ class TrainingScheduler:
 
     async def start_training(self, config_key: str) -> bool:
         """Start a training run for the given configuration."""
+        # Skip local training if disabled
+        if DISABLE_LOCAL_TASKS:
+            print(f"[Training] Skipping local training (RINGRIFT_DISABLE_LOCAL_TASKS=true)")
+            return False
+
         if self.state.training_in_progress:
             return False
 
