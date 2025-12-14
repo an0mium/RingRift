@@ -10003,6 +10003,124 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         except Exception as e:
             return web.json_response([{"error": str(e)}])
 
+    async def _get_victory_type_stats(self) -> Dict[Tuple[str, int, str], int]:
+        """Aggregate victory types from recent game data.
+
+        Returns dict mapping (board_type, num_players, victory_type) -> count.
+        Caches results for 5 minutes to avoid excessive I/O.
+        """
+        import json
+        from collections import defaultdict
+
+        cache_key = "_victory_stats_cache"
+        cache_time_key = "_victory_stats_cache_time"
+        cache_ttl = 300  # 5 minutes
+
+        # Check cache
+        now = time.time()
+        if hasattr(self, cache_key) and hasattr(self, cache_time_key):
+            if now - getattr(self, cache_time_key) < cache_ttl:
+                return getattr(self, cache_key)
+
+        stats: Dict[Tuple[str, int, str], int] = defaultdict(int)
+
+        # Scan recent game files (last 24 hours)
+        ai_root = Path(self.ringrift_path) / "ai-service"
+        data_dirs = [
+            ai_root / "data" / "games" / "daemon_sync",
+            ai_root / "data" / "selfplay",
+        ]
+
+        cutoff_time = now - 86400  # 24 hours ago
+
+        for data_dir in data_dirs:
+            if not data_dir.exists():
+                continue
+            for jsonl_path in data_dir.rglob("*.jsonl"):
+                try:
+                    # Skip files older than 24h
+                    if jsonl_path.stat().st_mtime < cutoff_time:
+                        continue
+                    with open(jsonl_path, "r") as f:
+                        for line in f:
+                            try:
+                                game = json.loads(line)
+                                board_type = game.get("board_type", "unknown")
+                                num_players = game.get("num_players", 0)
+                                victory_type = game.get("victory_type", "unknown")
+                                if victory_type and victory_type != "unknown":
+                                    stats[(board_type, num_players, victory_type)] += 1
+                            except json.JSONDecodeError:
+                                continue
+                except Exception:
+                    continue
+
+        # Update cache
+        setattr(self, cache_key, dict(stats))
+        setattr(self, cache_time_key, now)
+
+        return dict(stats)
+
+    async def handle_victory_table(self, request: web.Request) -> web.Response:
+        """GET /victory/table - Victory type breakdown for Grafana Infinity.
+
+        Returns victory type counts by board config in table format.
+        Supports optional query params:
+            - board_type: filter by board type
+            - num_players: filter by player count
+        """
+        try:
+            board_type_filter = request.query.get("board_type")
+            num_players_filter = request.query.get("num_players")
+            if num_players_filter:
+                try:
+                    num_players_filter = int(num_players_filter)
+                except ValueError:
+                    num_players_filter = None
+
+            stats = await self._get_victory_type_stats()
+
+            # Group by config for table display
+            config_stats: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+            for (board_type, num_players, victory_type), count in stats.items():
+                # Apply filters
+                if board_type_filter and board_type != board_type_filter:
+                    continue
+                if num_players_filter and num_players != num_players_filter:
+                    continue
+                config = f"{board_type}_{num_players}p"
+                config_stats[config][victory_type] = count
+
+            # Build table rows
+            table_data = []
+            for config in sorted(config_stats.keys()):
+                vt_counts = config_stats[config]
+                total = sum(vt_counts.values())
+                row = {
+                    "Config": config,
+                    "Total": total,
+                    "Territory": vt_counts.get("territory", 0),
+                    "LPS": vt_counts.get("lps", 0),
+                    "Elimination": vt_counts.get("elimination", 0),
+                    "RingElim": vt_counts.get("ring_elimination", 0),
+                    "Stalemate": vt_counts.get("stalemate", 0),
+                }
+                # Add percentages
+                if total > 0:
+                    row["Territory%"] = round(100 * vt_counts.get("territory", 0) / total, 1)
+                    row["LPS%"] = round(100 * vt_counts.get("lps", 0) / total, 1)
+                    row["Elimination%"] = round(100 * vt_counts.get("elimination", 0) / total, 1)
+                    row["RingElim%"] = round(100 * vt_counts.get("ring_elimination", 0) / total, 1)
+                    row["Stalemate%"] = round(100 * vt_counts.get("stalemate", 0) / total, 1)
+                else:
+                    row["Territory%"] = row["LPS%"] = row["Elimination%"] = row["RingElim%"] = row["Stalemate%"] = 0
+                table_data.append(row)
+
+            return web.json_response(table_data)
+
+        except Exception as e:
+            return web.json_response([{"error": str(e)}])
+
     async def handle_api_training_status(self, request: web.Request) -> web.Response:
         """Get training pipeline status including NNUE, CMAES, and auto-promotion state.
 
@@ -13714,6 +13832,7 @@ print(json.dumps({{
         app.router.add_get('/api/elo/leaderboard', self.handle_api_elo_leaderboard)
         app.router.add_get('/elo/table', self.handle_elo_table)
         app.router.add_get('/nodes/table', self.handle_nodes_table)
+        app.router.add_get('/victory/table', self.handle_victory_table)
         app.router.add_get('/api/training/status', self.handle_api_training_status)
         app.router.add_get('/api/canonical/health', self.handle_api_canonical_health)
         app.router.add_get('/api/canonical/jobs', self.handle_api_canonical_jobs_list)
