@@ -12,6 +12,7 @@ import { GameHistoryPanel } from '../components/GameHistoryPanel';
 import { EvaluationPanel } from '../components/EvaluationPanel';
 import { BoardControlsOverlay } from '../components/BoardControlsOverlay';
 import { ResignButton } from '../components/ResignButton';
+import { RingPlacementCountDialog } from '../components/RingPlacementCountDialog';
 import {
   ScreenReaderAnnouncer,
   useGameAnnouncements,
@@ -551,6 +552,12 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
   // Selection + valid target highlighting
   const [selected, setSelected] = useState<Position | undefined>();
   const [validTargets, setValidTargets] = useState<Position[]>([]);
+
+  const [ringPlacementCountPrompt, setRingPlacementCountPrompt] = useState<{
+    maxCount: number;
+    hasStack: boolean;
+    placeMovesAtPos: Move[];
+  } | null>(null);
 
   // Diagnostics / host-level error banner
   const [fatalGameError, setFatalGameError] = useState<{
@@ -1228,22 +1235,37 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     const counts = placeMovesAtPos.map((m) => m.placementCount ?? 1);
     const maxCount = Math.max(...counts);
 
-    const promptLabel = hasStack
-      ? 'Place how many rings on this stack? (canonical: 1)'
-      : `Place how many rings on this empty cell? (1–${maxCount})`;
+    if (maxCount <= 1) {
+      const chosen =
+        placeMovesAtPos.find((m) => (m.placementCount ?? 1) === 1) || placeMovesAtPos[0];
+      if (!chosen) return;
 
-    const raw = window.prompt(promptLabel, Math.min(2, maxCount).toString());
-    if (!raw) {
+      submitMove({
+        type: 'place_ring',
+        to: chosen.to,
+        placementCount: chosen.placementCount,
+        placedOnStack: chosen.placedOnStack,
+      } as PartialMove);
+
+      setSelected(undefined);
+      setValidTargets([]);
       return;
     }
 
-    const parsed = Number.parseInt(raw, 10);
-    if (!Number.isFinite(parsed) || parsed < 1 || parsed > maxCount) {
-      return;
-    }
+    setRingPlacementCountPrompt({
+      maxCount,
+      hasStack,
+      placeMovesAtPos,
+    });
+  };
 
-    const chosen = placeMovesAtPos.find((m) => (m.placementCount ?? 1) === parsed);
+  const handleConfirmRingPlacementCount = (count: number) => {
+    const prompt = ringPlacementCountPrompt;
+    if (!prompt) return;
+
+    const chosen = prompt.placeMovesAtPos.find((m) => (m.placementCount ?? 1) === count);
     if (!chosen) {
+      setRingPlacementCountPrompt(null);
       return;
     }
 
@@ -1256,6 +1278,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
 
     setSelected(undefined);
     setValidTargets([]);
+    setRingPlacementCountPrompt(null);
   };
 
   // Handle resignation
@@ -2052,6 +2075,19 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
           </div>
         </aside>
       </main>
+
+      <RingPlacementCountDialog
+        isOpen={!!ringPlacementCountPrompt}
+        maxCount={ringPlacementCountPrompt?.maxCount ?? 1}
+        defaultCount={
+          ringPlacementCountPrompt?.hasStack
+            ? 1
+            : Math.min(2, ringPlacementCountPrompt?.maxCount ?? 1)
+        }
+        isStackPlacement={ringPlacementCountPrompt?.hasStack ?? false}
+        onClose={() => setRingPlacementCountPrompt(null)}
+        onConfirm={handleConfirmRingPlacementCount}
+      />
 
       {showBoardControls && (
         <BoardControlsOverlay
