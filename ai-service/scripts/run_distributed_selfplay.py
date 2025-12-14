@@ -278,6 +278,17 @@ def parse_board_type(name: str) -> BoardType:
     raise ValueError(f"Unknown board type: {name}")
 
 
+@dataclass
+class PlayerAssignment:
+    """Track AI assignment for a player including model info."""
+    player_number: int
+    ai_type: str
+    difficulty: int
+    model_id: Optional[str] = None
+    model_path: Optional[str] = None
+    elo_estimate: Optional[float] = None
+
+
 def build_ai_pool(
     game_index: int,
     player_numbers: List[int],
@@ -285,29 +296,72 @@ def build_ai_pool(
     base_seed: Optional[int],
     board_type: BoardType,
     difficulty_band: str,
-) -> Dict[int, Any]:
-    """Build AI instances for all players in a game."""
+    model_pool: Optional[List[ModelPoolEntry]] = None,
+) -> Tuple[Dict[int, Any], List[PlayerAssignment]]:
+    """Build AI instances for all players in a game.
+
+    Args:
+        game_index: Index of this game for seeding
+        player_numbers: List of player numbers to create AIs for
+        engine_mode: "descent-only", "mixed", or "diverse"
+        base_seed: Base random seed
+        board_type: Board type for heuristic config
+        difficulty_band: "light" or "full" difficulty range
+        model_pool: Optional pool of models for diverse mode
+
+    Returns:
+        Tuple of (ai_by_player dict, player_assignments list)
+        The assignments list tracks which model was assigned to each player
+        for Elo tracking purposes.
+    """
     ai_by_player: Dict[int, Any] = {}
+    assignments: List[PlayerAssignment] = []
+
+    game_rng = random.Random((base_seed + game_index) if base_seed is not None else None)
 
     if engine_mode == "descent-only":
         from app.ai.descent_ai import DescentAI
 
+        # In descent-only mode, optionally use different neural models per player
+        descent_models = []
+        if model_pool:
+            descent_models = get_models_for_ai_type(model_pool, "descent")
+
         for pnum in player_numbers:
+            # Pick a random neural model if available
+            model_id = None
+            model_path = None
+            elo_estimate = None
+            if descent_models:
+                chosen = game_rng.choice(descent_models)
+                model_id = chosen.model_id
+                model_path = chosen.path if chosen.path else None
+                elo_estimate = chosen.elo_estimate
+
             cfg = AIConfig(
                 difficulty=5,
                 think_time=0,
                 randomness=0.1,
                 rngSeed=(base_seed or 0) + pnum + game_index,
+                nn_model_id=model_id,
             )
             ai_by_player[pnum] = DescentAI(pnum, cfg)
-        return ai_by_player
+            assignments.append(PlayerAssignment(
+                player_number=pnum,
+                ai_type="descent",
+                difficulty=5,
+                model_id=model_id,
+                model_path=model_path,
+                elo_estimate=elo_estimate,
+            ))
 
-    # Mixed mode
+        return ai_by_player, assignments
+
+    # Mixed mode - use diverse AI types from difficulty profiles
+    # In "diverse" mode, also vary the neural models used
     difficulty_choices = [1, 2, 4, 5, 6, 7, 8, 9, 10]
     if difficulty_band == "light":
         difficulty_choices = [1, 2, 4, 5]
-
-    game_rng = random.Random((base_seed + game_index) if base_seed is not None else None)
 
     for pnum in player_numbers:
         difficulty = game_rng.choice(difficulty_choices)
@@ -316,9 +370,24 @@ def build_ai_pool(
 
         heuristic_profile_id = None
         heuristic_eval_mode = None
+        model_id = None
+        model_path = None
+        elo_estimate = None
+
         if ai_type == AIType.HEURISTIC:
             heuristic_profile_id = profile.get("profile_id")
             heuristic_eval_mode = TRAINING_HEURISTIC_EVAL_MODE_BY_BOARD.get(board_type, "full")
+
+        # For neural-capable AI types, randomly select a model from the pool
+        if model_pool and engine_mode == "diverse":
+            ai_type_str = ai_type.value.lower() if hasattr(ai_type, 'value') else str(ai_type).lower()
+            compatible_models = get_models_for_ai_type(model_pool, ai_type_str)
+
+            if compatible_models:
+                chosen = game_rng.choice(compatible_models)
+                model_id = chosen.model_id
+                model_path = chosen.path if chosen.path else None
+                elo_estimate = chosen.elo_estimate
 
         cfg = AIConfig(
             difficulty=difficulty,
@@ -327,10 +396,21 @@ def build_ai_pool(
             rngSeed=game_rng.randrange(0, 2**31),
             heuristic_profile_id=heuristic_profile_id,
             heuristic_eval_mode=heuristic_eval_mode,
+            nn_model_id=model_id,
         )
         ai_by_player[pnum] = _create_ai_instance(ai_type, pnum, cfg)
 
-    return ai_by_player
+        ai_type_name = ai_type.value if hasattr(ai_type, 'value') else str(ai_type)
+        assignments.append(PlayerAssignment(
+            player_number=pnum,
+            ai_type=ai_type_name,
+            difficulty=difficulty,
+            model_id=model_id,
+            model_path=model_path,
+            elo_estimate=elo_estimate,
+        ))
+
+    return ai_by_player, assignments
 
 
 def extract_training_samples(
@@ -393,8 +473,15 @@ def run_single_game(
     config: WorkerConfig,
     game_index: int,
     env: Any,
+    model_pool: Optional[List[ModelPoolEntry]] = None,
 ) -> Tuple[Optional[GameState], List[GameState], List[Any], Dict[str, Any]]:
     """Run a single self-play game.
+
+    Args:
+        config: Worker configuration
+        game_index: Index of this game
+        env: Game environment
+        model_pool: Optional pool of models for diverse selfplay
 
     Returns:
         Tuple of (final_state, state_history, move_history, game_info)
@@ -410,13 +497,14 @@ def run_single_game(
         return None, [], [], {}
 
     player_numbers = [p.player_number for p in state.players]
-    ai_by_player = build_ai_pool(
+    ai_by_player, assignments = build_ai_pool(
         game_index,
         player_numbers,
         config.engine_mode,
         config.seed,
         config.board_type,
         config.difficulty_band,
+        model_pool=model_pool,
     )
 
     state_history: List[GameState] = [state.model_copy(deep=True)]
@@ -452,12 +540,24 @@ def run_single_game(
         if move_count >= config.max_moves or done:
             break
 
+    # Build player assignment info for Elo tracking
+    player_info = {}
+    for assign in assignments:
+        player_info[f"player_{assign.player_number}"] = {
+            "ai_type": assign.ai_type,
+            "difficulty": assign.difficulty,
+            "model_id": assign.model_id,
+            "elo_estimate": assign.elo_estimate,
+        }
+
     game_info = {
         "game_id": game_id,
         "game_index": game_index,
         "move_count": move_count,
         "winner": state.winner,
         "status": state.game_status.value,
+        "player_assignments": player_info,
+        "engine_mode": config.engine_mode,
     }
 
     return state, state_history, move_history, game_info
@@ -527,6 +627,12 @@ def run_worker(config: WorkerConfig) -> WorkerStats:
     )
     env = make_env(env_config)
 
+    # Scan model pool for diverse selfplay
+    model_pool: Optional[List[ModelPoolEntry]] = None
+    if config.engine_mode in ("diverse", "descent-only"):
+        model_pool = scan_model_pool(include_baselines=(config.engine_mode == "diverse"))
+        logger.info(f"Loaded model pool with {len(model_pool)} entries for {config.engine_mode} mode")
+
     # Load checkpoint if resuming
     checkpoint = load_checkpoint(config)
     start_game = 0
@@ -543,7 +649,7 @@ def run_worker(config: WorkerConfig) -> WorkerStats:
     logger.info(
         f"Worker {config.worker_id} starting: "
         f"{config.num_games} games, board={config.board_type.value}, "
-        f"output={config.output_uri}"
+        f"engine_mode={config.engine_mode}, output={config.output_uri}"
     )
 
     games_completed = start_game
@@ -553,8 +659,10 @@ def run_worker(config: WorkerConfig) -> WorkerStats:
             logger.info("Shutdown requested, stopping gracefully...")
             break
 
-        # Run single game
-        final_state, state_history, move_history, game_info = run_single_game(config, game_idx, env)
+        # Run single game with model pool for diverse assignment
+        final_state, state_history, move_history, game_info = run_single_game(
+            config, game_idx, env, model_pool=model_pool
+        )
 
         if final_state is None:
             continue
@@ -567,7 +675,7 @@ def run_worker(config: WorkerConfig) -> WorkerStats:
         if winner is not None:
             wins_by_player[winner] = wins_by_player.get(winner, 0) + 1
 
-        # Extract training samples
+        # Extract training samples with player assignment metadata for Elo tracking
         samples = extract_training_samples(
             game_id=game_info["game_id"],
             state_history=state_history,
@@ -580,6 +688,7 @@ def run_worker(config: WorkerConfig) -> WorkerStats:
                 "engine_mode": config.engine_mode,
                 "difficulty_band": config.difficulty_band,
                 "seed": config.seed,
+                "player_assignments": game_info.get("player_assignments", {}),
             },
         )
 
@@ -672,9 +781,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--engine-mode",
-        choices=["mixed", "descent-only"],
+        choices=["mixed", "descent-only", "diverse"],
         default="mixed",
-        help="AI engine mode (default: mixed)",
+        help=(
+            "AI engine mode: 'mixed' uses difficulty-based AI types, "
+            "'descent-only' uses only neural descent, "
+            "'diverse' uses all AI types with random model assignments for richer Elo calibration "
+            "(default: mixed)"
+        ),
     )
     parser.add_argument(
         "--difficulty-band",
