@@ -117,9 +117,14 @@ def _run_ssh(
     stdin_bytes: Optional[bytes] = None,
     dry_run: bool = True,
     login_shell: bool = True,
+    wrap_in_bash: bool = True,
 ) -> None:
-    shell_args = ["bash", "-lc" if login_shell else "-c", script]
-    cmd = _ssh_base_cmd(target) + shell_args
+    if wrap_in_bash:
+        shell_args = ["bash", "-lc" if login_shell else "-c", script]
+        cmd = _ssh_base_cmd(target) + shell_args
+    else:
+        # Let ssh run the command through the remote user's default shell.
+        cmd = _ssh_base_cmd(target) + [script]
     printable = " ".join(shlex.quote(p) for p in cmd)
     if dry_run:
         print(f"[DRY-RUN] {printable}")
@@ -220,6 +225,7 @@ def main() -> None:
                 stdin_bytes=token_bytes,
                 dry_run=not args.apply,
                 login_shell=False,
+                wrap_in_bash=False,
             )
 
         if is_macos:
