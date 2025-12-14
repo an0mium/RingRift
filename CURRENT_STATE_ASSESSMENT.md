@@ -237,7 +237,7 @@ Games were reaching `gameStatus=active` with no valid candidate moves per the `i
 | --------------------- | ----- | ---------------------------------------------------------------- |
 | TypeScript CI-gated   | 2,987 | ✅ Passing                                                       |
 | TypeScript diagnostic | ~170  | Skipped (intentional)                                            |
-| Python                | 836   | ✅ Passing                                                       |
+| Python                | 1,727 | ✅ Passing                                                       |
 | Contract vectors      | 81    | ✅ All vectors green; DB replay parity still under investigation |
 
 ### 4.2 Test Categories
@@ -283,7 +283,7 @@ Documented in `docs/TEST_CATEGORIES.md`:
 | Component             | Score | Notes                             |
 | --------------------- | ----- | --------------------------------- |
 | Rules Engine (TS)     | 4.7/5 | Excellent, minor doc gaps         |
-| Rules Engine (Python) | 4.5/5 | Stable, 836 tests passing         |
+| Rules Engine (Python) | 4.5/5 | Stable, 1,727 tests passing       |
 | Test Suite            | 4.0/5 | Comprehensive, well-documented    |
 | Observability         | 4.5/5 | 3 dashboards, k6 load tests       |
 | Documentation         | 4.0/5 | Comprehensive index               |

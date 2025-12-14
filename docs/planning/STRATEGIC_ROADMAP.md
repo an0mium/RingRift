@@ -1,13 +1,13 @@
 # RingRift Strategic Roadmap
 
-> **Doc Status (2025-12-04): Active (roadmap & SLOs)**
+> **Doc Status (2025-12-13): Active (roadmap & SLOs)**
 >
 > - Canonical phased roadmap and performance/scale SLO reference.
 > - Not a rules or lifecycle SSoT; for rules semantics defer to `ringrift_complete_rules.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/architecture/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
 > - Relationship to goals: For the canonical statement of RingRift’s product/technical goals, v1.0 success criteria, and scope boundaries, see [`PROJECT_GOALS.md`](PROJECT_GOALS.md:1). This roadmap operationalises those goals into phases, milestones, and SLOs and should be read as the **“how we plan to get there”** companion to [`PROJECT_GOALS.md`](PROJECT_GOALS.md:1).
 
 **Version:** 3.3
-**Last Updated:** December 5, 2025
+**Last Updated:** December 13, 2025
 **Status:** Engine/Rules Beta (Orchestrator at 100% in CI, tests stabilized)
 **Philosophy:** Robustness, Parity, and Scale
 
@@ -19,7 +19,7 @@
 
 - ✅ Canonical turn orchestrator in `src/shared/engine/orchestration/`
 - ✅ Backend and sandbox adapters for gradual rollout
-- ✅ Contract testing framework with 100% Python parity on 54 test vectors
+- ✅ Contract testing framework with 100% Python parity on 81 test vectors
 - ✅ Extensive TypeScript and Python test suites validating rules, hosts, AI integration, and E2E flows (for up-to-date test counts and coverage metrics, see [`CURRENT_STATE_ASSESSMENT.md`](CURRENT_STATE_ASSESSMENT.md:1))
 
 **Goal:** Production-Ready Multiplayer Game
@@ -197,7 +197,7 @@ These metrics restate and operationalise the v1.0 success criteria defined in [`
 
 - [x] **Fix forced elimination divergence for territory processing** – Align explicit `ELIMINATE_RINGS_FROM_STACK` moves and host-level forced elimination sequences between Python and TypeScript engines. Implementation complete; see [`docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md:1) and tests under [`ai-service/tests/test_territory_forced_elimination_divergence.py`](ai-service/tests/test_territory_forced_elimination_divergence.py:1) and [`ai-service/tests/test_generate_territory_dataset_smoke.py`](ai-service/tests/test_generate_territory_dataset_smoke.py:1). **Owner modes:** Debug + Code.
 
-- [x] **Contract test framework for cross-language parity** – Contract test infrastructure complete with 54 test vectors across multiple categories and 100% Python parity. See [`tests/contracts/contractVectorRunner.test.ts`](tests/contracts/contractVectorRunner.test.ts:1) and [`ai-service/tests/contracts/test_contract_vectors.py`](ai-service/tests/contracts/test_contract_vectors.py:1).
+- [x] **Contract test framework for cross-language parity** – Contract test infrastructure complete with 81 test vectors across multiple categories and 100% Python parity. See [`tests/contracts/contractVectorRunner.test.ts`](tests/contracts/contractVectorRunner.test.ts:1) and [`ai-service/tests/contracts/test_contract_vectors.py`](ai-service/tests/contracts/test_contract_vectors.py:1).
 
 - [ ] **Canonical replay/data gate (DB + goldens)** – Regenerate canonical DBs via `ai-service/scripts/generate_canonical_selfplay.py` (start with `canonical_square8.db`), archive parity/history gate summaries alongside the DBs, refresh the CI golden replay pack, and update `ai-service/TRAINING_DATA_REGISTRY.md` after gating.
 

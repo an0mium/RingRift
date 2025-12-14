@@ -1,13 +1,13 @@
 # RingRift Project Goals
 
-> **Doc Status (2025-12-10): Active (project direction SSoT)**
+> **Doc Status (2025-12-13): Active (project direction SSoT)**
 >
 > - Single authoritative source for product/technical goals and non-goals.
 > - Not a rules or lifecycle SSoT; for rules semantics defer to `ringrift_complete_rules.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/architecture/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
 >
 > **Version:** 1.1  
 > **Created:** 2025-11-26  
-> **Last Updated:** 2025-12-10  
+> **Last Updated:** 2025-12-13  
 > **Status:** Authoritative source for project direction
 >
 > This document is the **single authoritative source** for RingRift’s product and technical goals. When other documents conflict with this one regarding project direction or success criteria, this document takes precedence.

@@ -2,14 +2,14 @@
 
 > **Status:** Consolidated assessment document
 > **Purpose:** Single reference for project health, metrics, and status
-> **Last Updated:** 2025-12-11
+> **Last Updated:** 2025-12-13
 > **SSoT:** This document consolidates status from detailed assessment docs; canonical rules remain in RULES_CANONICAL_SPEC.md
 
 ## Executive Summary
 
 | Area                     | Status             | Key Metric                                        |
 | ------------------------ | ------------------ | ------------------------------------------------- |
-| **Test Health**          | ✅ Excellent       | 2,987 TS + 836 Python tests passing               |
+| **Test Health**          | ✅ Excellent       | 2,987 TS + 1,727 Python tests passing             |
 | **Parity**               | ✅ Complete        | 81/81 contract vectors, 387 parity tests          |
 | **Coverage**             | ✅ Exceeds Targets | 84%+ function coverage on aggregates              |
 | **Architecture**         | ✅ Sound           | Discriminated unions, error hierarchy implemented |
@@ -36,7 +36,7 @@
 
 | Suite             | Count | Status         |
 | ----------------- | ----- | -------------- |
-| AI service tests  | 836   | ✅ All passing |
+| AI service tests  | 1,727 | ✅ All passing |
 | Shadow validation | 32    | ✅ All passing |
 
 ### Coverage Summary

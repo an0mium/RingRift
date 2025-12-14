@@ -632,7 +632,7 @@ The WebSocket layer sits on top of `GameEngine` and `PlayerInteractionManager`, 
 
 ## 🧪 Testing Strategy
 
-> **Test Status (2025-12-13):** 2,987 TypeScript tests passing (CI-gated), 836 Python tests passing, 81 contract vectors at 100% parity. React component coverage remains effectively zero; a DecisionUI harness now anchors PlayerChoice coverage, but broader client/UI suites (BoardView/GameHUD/VictoryModal) are still needed. See `CURRENT_STATE_ASSESSMENT.md` for up-to-date coverage details.
+> **Test Status (2025-12-13):** 2,987 TypeScript tests passing (CI-gated), 1,727 Python tests passing, 81 contract vectors at 100% parity. Component test coverage has grown significantly (60 suites, 1,189 tests). See `CURRENT_STATE_ASSESSMENT.md` for up-to-date coverage details.
 
 ### Backend Testing
 

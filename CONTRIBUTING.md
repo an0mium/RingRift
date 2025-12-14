@@ -153,7 +153,7 @@ All historical development phases have been completed. For detailed historical c
 - ✅ 6 domain aggregates (Placement, Movement, Capture, Line, Territory, Victory)
 - ✅ Backend adapter (`TurnEngineAdapter.ts`, 326 lines)
 - ✅ Sandbox adapter (`SandboxOrchestratorAdapter.ts`, 476 lines)
-- ✅ Python contract tests with 100% parity on 54 vectors
+- ✅ Python contract tests with 100% parity on 81 vectors
 - ✅ ~1,176 lines legacy code removed (PASS20)
 - ✅ AI difficulty ladder (1-10) with service-backed choices
 - ✅ 3 Grafana dashboards with 22 monitoring panels
@@ -765,8 +765,8 @@ useGlobalGameShortcuts({
 **Quality Gates:**
 
 - All 2,987+ TypeScript tests passing
-- All 836+ Python tests passing
-- 54 contract vectors at 100% parity
+- All 1,727+ Python tests passing
+- 81 contract vectors at 100% parity
 - No P0 bugs open
 - Load test SLOs met with headroom
 
