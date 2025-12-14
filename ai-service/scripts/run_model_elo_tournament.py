@@ -87,6 +87,7 @@ def create_ai_from_model(
             board_type=board_type,
             difficulty=7,
             mcts_iterations=mcts_sims,
+            use_neural_net=False,  # Pure heuristic MCTS for baselines
         )
         return MCTSAI(player_number, config)
 
