@@ -31,6 +31,7 @@ sys.path.insert(
 )
 
 # Import after path is set
+from app.models import BoardType
 from scripts.evaluate_ai_models import (
     AI_TYPE_BASELINE_HEURISTIC,
     AI_TYPE_CMAES_HEURISTIC,
@@ -116,13 +117,13 @@ class TestCreateAI:
 
     def test_create_random_ai(self) -> None:
         """Test creating a Random AI."""
-        ai = create_ai(AI_TYPE_RANDOM, player_num=1)
+        ai = create_ai(AI_TYPE_RANDOM, player_num=1, board_type=BoardType.SQUARE8)
         assert ai is not None
         assert ai.player_number == 1
 
     def test_create_baseline_heuristic_ai(self) -> None:
         """Test creating a Baseline Heuristic AI."""
-        ai = create_ai(AI_TYPE_BASELINE_HEURISTIC, player_num=1)
+        ai = create_ai(AI_TYPE_BASELINE_HEURISTIC, player_num=1, board_type=BoardType.SQUARE8)
         assert ai is not None
         assert ai.player_number == 1
         # Check config has heuristic profile
@@ -130,26 +131,26 @@ class TestCreateAI:
 
     def test_create_minimax_ai(self) -> None:
         """Test creating a Minimax AI."""
-        ai = create_ai(AI_TYPE_MINIMAX, player_num=1, mm_depth=3)
+        ai = create_ai(AI_TYPE_MINIMAX, player_num=1, board_type=BoardType.SQUARE8, mm_depth=3)
         assert ai is not None
         assert ai.player_number == 1
 
     def test_create_neural_network_ai(self) -> None:
         """Test creating a Neural Network AI (DescentAI)."""
         # This should work even without a checkpoint (uses default weights)
-        ai = create_ai(AI_TYPE_NEURAL_NETWORK, player_num=1)
+        ai = create_ai(AI_TYPE_NEURAL_NETWORK, player_num=1, board_type=BoardType.SQUARE8)
         assert ai is not None
         assert ai.player_number == 1
 
     def test_create_ai_player2(self) -> None:
         """Test creating AI for player 2."""
-        ai = create_ai(AI_TYPE_RANDOM, player_num=2)
+        ai = create_ai(AI_TYPE_RANDOM, player_num=2, board_type=BoardType.SQUARE8)
         assert ai.player_number == 2
 
     def test_create_ai_invalid_type(self) -> None:
         """Test that invalid AI type raises ValueError."""
         with pytest.raises(ValueError, match="Unknown AI type"):
-            create_ai("invalid_ai_type", player_num=1)
+            create_ai("invalid_ai_type", player_num=1, board_type=BoardType.SQUARE8)
 
     def test_create_cmaes_ai_fallback(self) -> None:
         """Test CMA-ES AI creation falls back gracefully if weights missing."""
@@ -160,7 +161,7 @@ class TestCreateAI:
             'scripts.evaluate_ai_models.load_cmaes_weights',
             return_value={"material": 1.0, "position": 0.5}
         ):
-            ai = create_ai(AI_TYPE_CMAES_HEURISTIC, player_num=1)
+            ai = create_ai(AI_TYPE_CMAES_HEURISTIC, player_num=1, board_type=BoardType.SQUARE8)
             assert ai is not None
             assert ai.config.heuristic_profile_id == "cmaes_optimized"
 

@@ -1129,9 +1129,21 @@ class P2POrchestrator:
 
         leader_id = self.leader_id
         if leader_id:
-            for peer in peers_snapshot:
-                if peer.node_id == leader_id and self._is_leader_eligible(peer, conflict_keys):
-                    return peer
+            # Only treat persisted leader_id as "effective" when:
+            # - we still consider the lease valid, and
+            # - the peer currently reports itself as a leader (via heartbeats).
+            #
+            # Otherwise, stale leader_ids can cause the cluster to get stuck
+            # leaderless (e.g. after restarts/partitions) and break leader-proxy APIs.
+            if self._is_leader_lease_valid():
+                for peer in peers_snapshot:
+                    if (
+                        peer.node_id == leader_id
+                        and peer.role == NodeRole.LEADER
+                        and peer.is_alive()
+                        and self._is_leader_eligible(peer, conflict_keys)
+                    ):
+                        return peer
 
         eligible_leaders = [
             peer for peer in peers_snapshot
@@ -1278,10 +1290,36 @@ class P2POrchestrator:
                 self.local_jobs[job.job_id] = job
 
             # Load leader
-            cursor.execute("SELECT value FROM state WHERE key = 'leader_id'")
-            row = cursor.fetchone()
-            if row:
-                self.leader_id = row[0]
+            cursor.execute("SELECT key, value FROM state")
+            state_rows = {row[0]: row[1] for row in cursor.fetchall() if row and row[0]}
+            raw_leader_id = state_rows.get("leader_id")
+            if raw_leader_id:
+                self.leader_id = raw_leader_id
+
+            raw_lease_id = state_rows.get("leader_lease_id")
+            if raw_lease_id:
+                self.leader_lease_id = raw_lease_id
+
+            raw_lease_expires = state_rows.get("leader_lease_expires")
+            if raw_lease_expires:
+                try:
+                    self.leader_lease_expires = float(raw_lease_expires)
+                except Exception:
+                    pass
+
+            raw_last_renewal = state_rows.get("last_lease_renewal")
+            if raw_last_renewal:
+                try:
+                    self.last_lease_renewal = float(raw_last_renewal)
+                except Exception:
+                    pass
+
+            raw_role = state_rows.get("role")
+            if raw_role:
+                try:
+                    self.role = NodeRole(str(raw_role))
+                except Exception:
+                    pass
 
             conn.close()
             print(f"[P2P] Loaded state: {len(self.peers)} peers, {len(self.local_jobs)} jobs")
@@ -1313,9 +1351,18 @@ class P2POrchestrator:
                           job.num_players, job.engine_mode, job.pid, job.started_at, job.status))
 
             # Save leader
-            cursor.execute("""
-                INSERT OR REPLACE INTO state (key, value) VALUES ('leader_id', ?)
-            """, (self.leader_id,))
+            role_value = self.role.value if hasattr(self.role, "value") else str(self.role)
+            state_payload = [
+                ("leader_id", self.leader_id),
+                ("leader_lease_id", self.leader_lease_id or ""),
+                ("leader_lease_expires", str(float(self.leader_lease_expires or 0.0))),
+                ("last_lease_renewal", str(float(self.last_lease_renewal or 0.0))),
+                ("role", role_value),
+            ]
+            cursor.executemany(
+                "INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)",
+                state_payload,
+            )
 
             conn.commit()
             conn.close()
@@ -3361,12 +3408,18 @@ class P2POrchestrator:
                 peers = {k: v.to_dict() for k, v in self.peers.items()}
 
             effective_leader = self._get_leader_peer()
+            effective_leader_id = effective_leader.node_id if effective_leader else None
             return web.json_response({
                 "success": True,
                 "self": self.self_info.to_dict(),
                 "peers": peers,
-                "leader_id": (effective_leader.node_id if effective_leader else self.leader_id),
-                "effective_leader_id": (effective_leader.node_id if effective_leader else None),
+                # IMPORTANT: only advertise a leader_id when it is actually reachable
+                # and currently reporting itself as leader. Persisted/stale leader_id
+                # values are surfaced separately so bootstrapping nodes don't get
+                # stuck pointing at a non-leader.
+                "leader_id": effective_leader_id,
+                "effective_leader_id": effective_leader_id,
+                "last_known_leader_id": self.leader_id,
                 "relay_node": self.node_id,
                 "commands": commands_to_send,
             })
@@ -8658,7 +8711,14 @@ print(json.dumps({{
         if self.leader_id and self.leader_id != self.node_id:
             with self.peers_lock:
                 leader = self.peers.get(self.leader_id)
-            if leader and self._is_leader_eligible(leader, conflict_keys):
+            leader_ok = (
+                leader is not None
+                and leader.is_alive()
+                and leader.role == NodeRole.LEADER
+                and self._is_leader_eligible(leader, conflict_keys)
+                and self._is_leader_lease_valid()
+            )
+            if leader_ok:
                 return
             # Drop stale/ineligible leader so we don't keep advertising it.
             self.leader_id = None

@@ -1,6 +1,6 @@
 # RingRift Current State Assessment
 
-**Assessment Date:** 2025-12-11
+**Assessment Date:** 2025-12-13
 **Project Health Status:** GREEN
 **Purpose:** Authoritative snapshot of implementation status, architecture, and quality metrics
 
@@ -177,7 +177,7 @@ Python is explicitly a **host adapter** over canonical TS semantics—all rules 
 
 The contract testing framework ensures TypeScript and Python engines produce identical results:
 
-- **54 test vectors** across 8+ categories (legacy contract suite remains green)
+- **81 test vectors** across 18 files (v2 format, 100% parity)
 - **DB replay parity:** active investigation; CanonicalReplayEngine surfaces recorded divergences in self-play DBs
 - Categories covered:
   - Placement, movement, capture, chain_capture
@@ -233,12 +233,12 @@ Games were reaching `gameStatus=active` with no valid candidate moves per the `i
 
 ### 4.1 Test Counts
 
-| Category              | Count | Status                                                              |
-| --------------------- | ----- | ------------------------------------------------------------------- |
-| TypeScript CI-gated   | 2,987 | ✅ Passing                                                          |
-| TypeScript diagnostic | ~170  | Skipped (intentional)                                               |
-| Python                | 836   | ✅ Passing                                                          |
-| Contract vectors      | 54    | ✅ Legacy vectors green; DB replay parity still under investigation |
+| Category              | Count | Status                                                           |
+| --------------------- | ----- | ---------------------------------------------------------------- |
+| TypeScript CI-gated   | 2,987 | ✅ Passing                                                       |
+| TypeScript diagnostic | ~170  | Skipped (intentional)                                            |
+| Python                | 836   | ✅ Passing                                                       |
+| Contract vectors      | 81    | ✅ All vectors green; DB replay parity still under investigation |
 
 ### 4.2 Test Categories
 

@@ -5,20 +5,20 @@
 ![RingRift CI/CD](https://github.com/an0mium/RingRift/actions/workflows/ci.yml/badge.svg)
 ![Parity CI Gate](https://github.com/an0mium/RingRift/actions/workflows/parity-ci.yml/badge.svg)
 
-**Doc Status (2025-12-07): Active (project overview & navigation)**
+**Doc Status (2025-12-13): Active (project overview & navigation)**
 
 - High-level project overview, setup, and API surface.
 - Not a rules or lifecycle SSoT. For rules semantics, defer to `RULES_CANONICAL_SPEC.md` plus the shared TypeScript rules engine under `src/shared/engine/` (helpers → domain aggregates → turn orchestrator → contracts + v2 contract vectors). For lifecycle semantics (move/decision/WebSocket), defer to `docs/architecture/CANONICAL_ENGINE_API.md` plus shared TS/WebSocket types and schemas.
 
 ⚠️ **PROJECT STATUS: STABLE BETA – ENGINE COMPLETE, PRODUCTION VALIDATION IN PROGRESS** ⚠️
 
-> **Important:** The canonical turn orchestrator is 100% rolled out with 54 contract vectors at 100% TS↔Python parity. All 14 development waves are complete. Current focus is on **production validation**, **scaling tests**, and **documentation cleanup**. See [CODEBASE_REVIEW_2025_12_11.md](./docs/CODEBASE_REVIEW_2025_12_11.md) and [NEXT_STEPS_2025_12_11.md](./docs/NEXT_STEPS_2025_12_11.md) for code‑verified status.
+> **Important:** The canonical turn orchestrator is 100% rolled out with 81 contract vectors at 100% TS↔Python parity. All 14 development waves are complete. Current focus is on **production validation**, **scaling tests**, and **documentation cleanup**. See [CODEBASE_REVIEW_2025_12_11.md](./docs/CODEBASE_REVIEW_2025_12_11.md) and [NEXT_STEPS_2025_12_11.md](./docs/NEXT_STEPS_2025_12_11.md) for code‑verified status.
 
 A web-based multiplayer implementation of the RingRift strategy game supporting 2-4 players with flexible human/AI combinations across multiple board configurations.
 
 ## 📋 Current Status
 
-**Last checked:** 2025-12-07 (aligned with current scripts/config; rerun below commands for fresh numbers)
+**Last checked:** 2025-12-13 (aligned with current scripts/config; rerun below commands for fresh numbers)
 
 ### Key Metrics
 
@@ -26,7 +26,7 @@ A web-based multiplayer implementation of the RingRift strategy game supporting 
 | --------------------------- | -------------------------- |
 | TypeScript tests (CI-gated) | 2,987 passing              |
 | Python tests                | 836 passing                |
-| Contract vectors            | 54 (100% TS↔Python parity) |
+| Contract vectors            | 81 (100% TS↔Python parity) |
 | Line coverage               | ~69%                       |
 | Canonical phases            | 8                          |
 | Development waves complete  | 14/14                      |
@@ -50,7 +50,7 @@ A web-based multiplayer implementation of the RingRift strategy game supporting 
 - ✅ **Session Management** - Robust `GameSessionManager` with distributed locking
 - ✅ **Rules Facade** - `RulesBackendFacade` abstracting Python/TS engine parity
 - ✅ TypeScript type system and architecture
-- ✅ Canonical rules engine SSoT in TypeScript (`src/shared/engine/**`) with eight canonical phases (`ring_placement`, `movement`, `capture`, `chain_capture`, `line_processing`, `territory_processing`, `forced_elimination`, `game_over`); Python mirror passes v2 contract vectors (54, 0 mismatches) and parity CI gate
+- ✅ Canonical rules engine SSoT in TypeScript (`src/shared/engine/**`) with eight canonical phases (`ring_placement`, `movement`, `capture`, `chain_capture`, `line_processing`, `territory_processing`, `forced_elimination`, `game_over`); Python mirror passes v2 contract vectors (81, 0 mismatches) and parity CI gate
 - ✅ Comprehensive game rules documentation
 - ✅ Server and client scaffolding
 - ✅ **Marker system** - Placement, flipping, collapsing fully functional
@@ -127,7 +127,7 @@ To understand the project and know which documents are authoritative for each ar
   - `KNOWN_ISSUES.md` – Current P0/P1 bugs and gaps.
 
 - **Architecture & Design**
-  - `ARCHITECTURE_ASSESSMENT.md` – Comprehensive architecture review and future design plans.
+  - `docs/archive/plans/ARCHITECTURE_ASSESSMENT.md` – Comprehensive architecture review and future design plans (historical).
   - `AI_ARCHITECTURE.md` – AI Service architecture, assessment, and improvement plans (with cross-links to training pipelines and incidents).
   - `RULES_ENGINE_ARCHITECTURE.md` – Python Rules Engine architecture and rollout strategy.
 
@@ -292,9 +292,9 @@ The codebase currently provides:
 **To contribute or continue development, please review:**
 
 1. [CURRENT_STATE_ASSESSMENT.md](./CURRENT_STATE_ASSESSMENT.md) - Factual, code-verified analysis of the current state
-2. [ARCHITECTURE_ASSESSMENT.md](./ARCHITECTURE_ASSESSMENT.md) - Architecture and refactoring axes (supersedes older codebase evaluation docs)
+2. [docs/ARCHITECTURAL_IMPROVEMENT_PLAN.md](./docs/ARCHITECTURAL_IMPROVEMENT_PLAN.md) - Architecture improvements and refactoring progress
 3. [KNOWN_ISSUES.md](./KNOWN_ISSUES.md) - Specific bugs, missing features, and prioritization
-4. [STRATEGIC_ROADMAP.md](./STRATEGIC_ROADMAP.md) - Phased implementation plan and milestones
+4. [docs/planning/STRATEGIC_ROADMAP.md](./docs/planning/STRATEGIC_ROADMAP.md) - Phased implementation plan and milestones
 5. [CONTRIBUTING.md](./CONTRIBUTING.md) - Development priorities and guidelines
 
 ---
@@ -476,7 +476,7 @@ For contributors looking for the most impactful work, the near-term focus areas 
 5. **Production validation & data hygiene**
    - Run sustained load/scaling tests, complete the security hardening review, and keep replay DBs gated via parity/history checks (backup/restore and secrets-rotation drills should stay active). ML-backed AI agents remain future work once the above is stable.
 
-For a detailed, task-level view, see `TODO.md` and `STRATEGIC_ROADMAP.md`.
+For a detailed, task-level view, see `TODO.md` and `docs/planning/STRATEGIC_ROADMAP.md`.
 
 ## 🎮 Game Features
 
@@ -632,7 +632,7 @@ The WebSocket layer sits on top of `GameEngine` and `PlayerInteractionManager`, 
 
 ## 🧪 Testing Strategy
 
-> **Test Status (2025-12-07):** 2,987 TypeScript tests passing (CI-gated), 836 Python tests passing, 54 contract vectors at 100% parity. React component coverage remains effectively zero; a DecisionUI harness now anchors PlayerChoice coverage, but broader client/UI suites (BoardView/GameHUD/VictoryModal) are still needed. See `CURRENT_STATE_ASSESSMENT.md` for up-to-date coverage details.
+> **Test Status (2025-12-13):** 2,987 TypeScript tests passing (CI-gated), 836 Python tests passing, 81 contract vectors at 100% parity. React component coverage remains effectively zero; a DecisionUI harness now anchors PlayerChoice coverage, but broader client/UI suites (BoardView/GameHUD/VictoryModal) are still needed. See `CURRENT_STATE_ASSESSMENT.md` for up-to-date coverage details.
 
 ### Backend Testing
 
@@ -751,9 +751,9 @@ npm test
 
 ### Development Guides
 
-- Architecture assessment: `ARCHITECTURE_ASSESSMENT.md`
+- Architecture improvement: `docs/ARCHITECTURAL_IMPROVEMENT_PLAN.md`
 - Current state assessment: `CURRENT_STATE_ASSESSMENT.md`
-- Strategic roadmap: `STRATEGIC_ROADMAP.md`
+- Strategic roadmap: `docs/planning/STRATEGIC_ROADMAP.md`
 - Playable game implementation plan (historical): `archive/PLAYABLE_GAME_IMPLEMENTATION_PLAN.md`
 - Test documentation: `tests/README.md`
 

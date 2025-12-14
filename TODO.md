@@ -101,7 +101,7 @@ Created the canonical turn orchestrator architecture:
 - Contract schemas in `src/shared/engine/contracts/`
 - Backend adapter: `TurnEngineAdapter.ts` (326 lines)
 - Sandbox adapter: `SandboxOrchestratorAdapter.ts` (476 lines)
-- Python contract test runner with 100% parity on 54 vectors
+- Python contract test runner with 100% parity on 81 vectors
 
 **Documentation:**
 
@@ -282,7 +282,7 @@ Operational drills completed:
 - All 96 parity tests passing
 - Phase transitions, movement, capture, line, territory all aligned
 - Forced elimination parity verified
-- Contract vectors expanded to 54 with swap_sides coverage
+- Contract vectors expanded to 81 across 18 files (v2 format)
 
 ---
 
@@ -611,7 +611,7 @@ SandboxGameHost integration requires mapping existing state to hooks:
 | Task                      | Priority | Status      |
 | ------------------------- | -------- | ----------- |
 | Rules/FAQ scenario matrix | P0       | ✅ Complete |
-| Contract vector expansion | P1       | 54 vectors  |
+| Contract vector expansion | P1       | 81 vectors  |
 | Golden replay framework   | P1       | ✅ Complete |
 | E2E multiplayer coverage  | P1       | In Progress |
 
