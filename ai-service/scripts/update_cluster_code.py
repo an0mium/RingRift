@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -40,6 +41,38 @@ class HostResult:
     commit: str
     message: str
     had_local_changes: bool = False
+
+
+_GIT_LOG_LINE_RE = re.compile(r"^[0-9a-f]{7,40}\\s")
+_PORCELAIN_LINE_RE = re.compile(r"^[!?MADRCU\\s]{2}\\s")
+
+
+def _extract_git_log_line(output: str) -> str | None:
+    """Return the first line that looks like `git log --oneline -1` output.
+
+    Some hosts (e.g. managed SSH providers) emit login banners on stdout
+    before the command output. We ignore those by scanning for a commit hash.
+    """
+    if not output:
+        return None
+    for line in output.splitlines():
+        if _GIT_LOG_LINE_RE.match(line.strip()):
+            return line.strip()
+    return None
+
+
+def _extract_porcelain_lines(output: str) -> str:
+    """Extract only `git status --porcelain` lines from SSH output.
+
+    This avoids treating SSH login banners as "local changes".
+    """
+    if not output:
+        return ""
+    lines: list[str] = []
+    for line in output.splitlines():
+        if _PORCELAIN_LINE_RE.match(line):
+            lines.append(line)
+    return "\n".join(lines)
 
 
 def load_hosts_config() -> dict[str, Any]:
@@ -125,12 +158,13 @@ async def get_host_status(name: str, host_config: dict[str, Any]) -> HostResult:
         if not success:
             return HostResult(name=name, success=False, commit="", message=f"unreachable: {output}")
 
-        commit = output.split()[0] if output else "unknown"
-        commit_msg = " ".join(output.split()[1:]) if output else ""
+        commit_line = _extract_git_log_line(output)
+        commit = commit_line.split()[0] if commit_line else "unknown"
+        commit_msg = " ".join(commit_line.split()[1:]) if commit_line else ""
 
         # Check for local changes
         _, status_output = await run_ssh_command(ssh_cmd, f"cd {path} && git status --porcelain")
-        has_changes = bool(status_output.strip())
+        has_changes = bool(_extract_porcelain_lines(status_output).strip())
 
         return HostResult(
             name=name,
@@ -156,7 +190,7 @@ async def update_host(
 
         # Check for local changes first
         _, status_output = await run_ssh_command(ssh_cmd, f"cd {path} && git status --porcelain")
-        has_changes = bool(status_output.strip())
+        has_changes = bool(_extract_porcelain_lines(status_output).strip())
 
         if has_changes:
             if force_reset:
@@ -200,8 +234,9 @@ async def update_host(
         if not success:
             return HostResult(name=name, success=False, commit="", message="updated but couldn't get commit")
 
-        commit = output.split()[0] if output else "unknown"
-        commit_msg = " ".join(output.split()[1:]) if output else ""
+        commit_line = _extract_git_log_line(output)
+        commit = commit_line.split()[0] if commit_line else "unknown"
+        commit_msg = " ".join(commit_line.split()[1:]) if commit_line else ""
 
         return HostResult(
             name=name,
