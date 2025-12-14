@@ -105,6 +105,7 @@ ts-replay-dumps-local/
 ai-service/ts-replay-dumps-local/
 ai-service/tmp_state_*.json
 results/ops/
+results/tournaments/ssh_tournament_*/
 
 # Public model artifacts (deployed out-of-band; do not commit)
 public/models/
@@ -174,6 +175,7 @@ ai-service-sync.zip
 ai-service/data/games/
 ai-service/data/quality_games/
 ai-service/data/canonical/
+ai-service/data/gh200_sync/
 
 # Runtime ladder overrides / logs (local-only)
 ai-service/data/ladder_runtime_overrides.json

@@ -109,6 +109,18 @@ SYNC_STAGING_RESTART = os.environ.get("RINGRIFT_SYNC_STAGING_RESTART", "1").lowe
     "yes",
     "on",
 )
+SYNC_STAGING_VALIDATE_HEALTH = os.environ.get("RINGRIFT_SYNC_STAGING_VALIDATE_HEALTH", "").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+SYNC_STAGING_FAIL_ON_MISSING = os.environ.get("RINGRIFT_SYNC_STAGING_FAIL_ON_MISSING", "").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 
 
 async def get_p2p_cluster_status() -> Optional[Dict[str, Any]]:
@@ -176,6 +188,10 @@ def maybe_sync_staging(reason: str) -> bool:
         services = os.environ.get("RINGRIFT_STAGING_RESTART_SERVICES")
         if services:
             cmd.extend(["--restart-services", services])
+    if SYNC_STAGING_VALIDATE_HEALTH:
+        cmd.append("--validate-health")
+    if SYNC_STAGING_FAIL_ON_MISSING:
+        cmd.append("--fail-on-missing")
 
     success, output = run_command(cmd, timeout=900)
     if success:

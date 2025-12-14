@@ -46,9 +46,12 @@ sys.path.insert(0, str(AI_SERVICE_ROOT))
 # Paths
 MODELS_DIR = AI_SERVICE_ROOT / "models"
 PROMOTED_DIR = MODELS_DIR / "promoted"
-PROMOTED_CONFIG_PATH = AI_SERVICE_ROOT / "data" / "promoted_models.json"
+PROMOTION_RUNTIME_DIR = AI_SERVICE_ROOT / "runs" / "promotion"
+PROMOTED_CONFIG_SEED_PATH = AI_SERVICE_ROOT / "data" / "promoted_models.json"
+PROMOTION_LOG_SEED_PATH = AI_SERVICE_ROOT / "data" / "model_promotion_history.json"
+PROMOTED_CONFIG_PATH = PROMOTION_RUNTIME_DIR / "promoted_models.json"
 ELO_DB_PATH = AI_SERVICE_ROOT / "data" / "elo_leaderboard.db"
-PROMOTION_LOG_PATH = AI_SERVICE_ROOT / "data" / "model_promotion_history.json"
+PROMOTION_LOG_PATH = PROMOTION_RUNTIME_DIR / "model_promotion_history.json"
 
 # Sandbox config path (TypeScript side)
 SANDBOX_CONFIG_PATH = PROJECT_ROOT / "src" / "shared" / "config" / "ai_models.json"
@@ -102,7 +105,7 @@ def _atomic_copy(src: Path, dst: Path) -> None:
     os.replace(tmp, dst)
 
 
-def _write_json_atomic(path: Path, payload: Dict[str, Any]) -> None:
+def _write_json_atomic(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + f".tmp_{uuid.uuid4().hex}")
     tmp.write_text(json.dumps(payload, indent=2, sort_keys=True))
@@ -250,10 +253,10 @@ def update_promoted_config(promoted_models: List[PromotedModel]) -> bool:
     }
 
     try:
-        PROMOTED_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(PROMOTED_CONFIG_PATH, "w") as f:
-            json.dump(config, f, indent=2)
+        _write_json_atomic(PROMOTED_CONFIG_PATH, config)
         print(f"[model_promotion] Updated config: {PROMOTED_CONFIG_PATH}")
+        if PROMOTED_CONFIG_SEED_PATH.exists():
+            print(f"[model_promotion] Note: seed file remains at {PROMOTED_CONFIG_SEED_PATH} (runtime writes to runs/)")
         return True
     except Exception as e:
         print(f"[model_promotion] Error updating config: {e}")
@@ -289,8 +292,11 @@ def log_promotion(promoted_model: PromotedModel) -> None:
     """Append promotion to history log."""
     try:
         history = []
-        if PROMOTION_LOG_PATH.exists():
-            with open(PROMOTION_LOG_PATH) as f:
+        source_path = PROMOTION_LOG_PATH
+        if not source_path.exists() and PROMOTION_LOG_SEED_PATH.exists():
+            source_path = PROMOTION_LOG_SEED_PATH
+        if source_path.exists():
+            with open(source_path) as f:
                 history = json.load(f)
 
         history.append(asdict(promoted_model))
@@ -299,8 +305,7 @@ def log_promotion(promoted_model: PromotedModel) -> None:
         if len(history) > 1000:
             history = history[-1000:]
 
-        with open(PROMOTION_LOG_PATH, "w") as f:
-            json.dump(history, f, indent=2)
+        _write_json_atomic(PROMOTION_LOG_PATH, history)
     except Exception as e:
         print(f"[model_promotion] Warning: Could not log promotion: {e}")
 

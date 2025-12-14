@@ -791,7 +791,11 @@ class P2POrchestrator:
         # matters for port-mapped environments like Vast.ai.
         self.advertise_host = (advertise_host or os.environ.get(ADVERTISE_HOST_ENV, "")).strip()
         if not self.advertise_host:
-            self.advertise_host = self._get_local_ip()
+            # Prefer a stable mesh address (Tailscale) when available so nodes
+            # behind NAT remain reachable and the cluster converges on a single
+            # view of peer endpoints.
+            ts_ip = self._get_tailscale_ip()
+            self.advertise_host = ts_ip or self._get_local_ip()
         self.advertise_port = advertise_port if advertise_port is not None else self._infer_advertise_port()
 
         # Optional auth token used to protect mutating endpoints and cluster control.

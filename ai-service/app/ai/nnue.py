@@ -667,3 +667,161 @@ class NNUEEvaluator:
             return my_eval
 
         return (my_eval - max_opponent_eval) / 2.0
+
+
+# =============================================================================
+# Batch Feature Extraction for GPU States
+# =============================================================================
+
+
+def extract_features_from_gpu_batch_vectorized(
+    stack_owner: "torch.Tensor",      # (batch, H, W)
+    stack_height: "torch.Tensor",     # (batch, H, W)
+    territory_owner: "torch.Tensor",  # (batch, H, W)
+    current_player: "torch.Tensor",   # (batch,)
+    num_players: int = 2,
+) -> "torch.Tensor":
+    """Fully vectorized batch feature extraction from GPU tensors.
+
+    Extracts NNUE features directly from GPU batch state tensors for
+    efficient batch evaluation during NNUE-guided selfplay.
+
+    Feature planes (12 total) - PERSPECTIVE ROTATED:
+    - Planes 0-3: Ring/stack presence (plane 0 = current player)
+    - Planes 4-7: Stack height normalized (plane 4 = current player)
+    - Planes 8-11: Territory ownership (plane 8 = current player)
+
+    Args:
+        stack_owner: (batch, H, W) tensor of stack owners (0=empty, 1-4=player)
+        stack_height: (batch, H, W) tensor of stack heights (0-5)
+        territory_owner: (batch, H, W) tensor of territory owners
+        current_player: (batch,) tensor of current player per game
+        num_players: Number of players in the game
+
+    Returns:
+        (batch, feature_dim) tensor of features
+    """
+    batch_size = stack_owner.shape[0]
+    H, W = stack_owner.shape[1], stack_owner.shape[2]
+    device = stack_owner.device
+
+    # Initialize features: (batch, 12, H, W)
+    features = torch.zeros(batch_size, FEATURE_PLANES, H, W, device=device)
+
+    # Create player indices: (num_players,) = [1, 2, ..., num_players]
+    players = torch.arange(1, num_players + 1, device=device)
+
+    # Current player expanded: (batch, 1)
+    cp = current_player.unsqueeze(1)
+
+    # Compute rotation for all players: (batch, num_players)
+    # For player p: rotated = 0 if p == cp, else ((p - cp) % num_players)
+    is_current = (players.unsqueeze(0) == cp)  # (batch, num_players)
+    rotation = torch.where(
+        is_current,
+        torch.zeros(batch_size, num_players, dtype=torch.long, device=device),
+        (players.unsqueeze(0) - cp) % num_players
+    )  # (batch, num_players)
+
+    # For each player, scatter their features to the rotated plane
+    for p_idx, p in enumerate(range(1, num_players + 1)):
+        # Masks for this player: (batch, H, W)
+        owner_mask = (stack_owner == p).float()
+        height_feature = torch.clamp((stack_height * owner_mask) / 5.0, 0, 1)
+        territory_mask = (territory_owner == p).float()
+
+        # Get rotation for this player: (batch,)
+        rot = rotation[:, p_idx]
+
+        # Scatter to appropriate planes using advanced indexing
+        batch_idx = torch.arange(batch_size, device=device)
+
+        # Planes 0-3: Ring presence
+        features[batch_idx, rot] = owner_mask
+
+        # Planes 4-7: Stack height
+        features[batch_idx, 4 + rot] = height_feature
+
+        # Planes 8-11: Territory
+        features[batch_idx, 8 + rot] = territory_mask
+
+    # Flatten to (batch, feature_dim)
+    return features.view(batch_size, -1)
+
+
+class BatchNNUEEvaluator:
+    """Batch NNUE evaluator for GPU selfplay.
+
+    Evaluates multiple game states in parallel using the NNUE model.
+    """
+
+    def __init__(
+        self,
+        board_type: BoardType,
+        num_players: int = 2,
+        model_path: Optional[str] = None,
+        device: Optional["torch.device"] = None,
+    ):
+        self.board_type = board_type
+        self.num_players = num_players
+        self.device = device or torch.device("cpu")
+
+        # Load NNUE model
+        self.model: Optional[NNUEModel] = None
+        self.available = False
+
+        if model_path is None:
+            model_path = get_nnue_model_path(board_type, num_players)
+
+        if model_path and Path(model_path).exists():
+            try:
+                self.model = NNUEModel(
+                    input_dim=get_feature_dim(board_type),
+                    hidden_dim=256,
+                    num_hidden_layers=2,
+                )
+                checkpoint = torch.load(model_path, map_location=self.device)
+                if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+                    self.model.load_state_dict(checkpoint["model_state_dict"])
+                else:
+                    self.model.load_state_dict(checkpoint)
+                self.model.to(self.device)
+                self.model.eval()
+                self.available = True
+                logger.info(f"BatchNNUEEvaluator loaded model from {model_path}")
+            except Exception as e:
+                logger.warning(f"Failed to load NNUE model: {e}")
+
+    def evaluate_batch(
+        self,
+        stack_owner: "torch.Tensor",
+        stack_height: "torch.Tensor",
+        territory_owner: "torch.Tensor",
+        current_player: "torch.Tensor",
+    ) -> "torch.Tensor":
+        """Evaluate a batch of game states.
+
+        Args:
+            stack_owner: (batch, H, W) tensor
+            stack_height: (batch, H, W) tensor
+            territory_owner: (batch, H, W) tensor
+            current_player: (batch,) tensor
+
+        Returns:
+            (batch,) tensor of evaluation scores in centipawn-like range
+        """
+        if not self.available or self.model is None:
+            # Return zeros if model not available
+            return torch.zeros(stack_owner.shape[0], device=self.device)
+
+        # Extract features
+        features = extract_features_from_gpu_batch_vectorized(
+            stack_owner, stack_height, territory_owner,
+            current_player, self.num_players
+        )
+
+        # Evaluate with model
+        with torch.no_grad():
+            scores = self.model(features).squeeze(-1)  # (batch,)
+
+        return scores * 1000.0  # Scale to centipawn-like range

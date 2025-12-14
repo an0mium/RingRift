@@ -649,6 +649,23 @@ async def get_ai_move(request: MoveRequest):
         except Exception:
             nnue_checkpoint = None
 
+        # Reflect the effective (not merely requested) neural backend usage in
+        # the API response. Search-based agents may gracefully fall back to
+        # heuristic evaluation when checkpoints are unavailable, and callers
+        # (including the sandbox host) should be able to distinguish that case
+        # without inferring it indirectly from checkpoint names.
+        effective_use_neural_net = False
+        try:
+            if ai_type == AIType.MINIMAX:
+                effective_use_neural_net = bool(getattr(ai, "use_nnue", False))
+            elif ai_type in (AIType.MCTS, AIType.DESCENT, AIType.NEURAL_DEMO):
+                effective_use_neural_net = getattr(ai, "neural_net", None) is not None
+            else:
+                effective_use_neural_net = False
+        except Exception:
+            # Preserve backward compatible behaviour on unexpected AI types.
+            effective_use_neural_net = bool(use_neural_net)
+
         return MoveResponse(
             move=move,
             evaluation=evaluation,
@@ -656,7 +673,7 @@ async def get_ai_move(request: MoveRequest):
             ai_type=ai_type.value,
             difficulty=request.difficulty,
             heuristic_profile_id=heuristic_profile_id,
-            use_neural_net=use_neural_net,
+            use_neural_net=effective_use_neural_net,
             nn_model_id=nn_model_id,
             nn_checkpoint=nn_checkpoint,
             nnue_checkpoint=nnue_checkpoint,

@@ -59,11 +59,29 @@ def _gather_files(project_root: Path) -> List[Path]:
     for rel in (
         "trained_heuristic_profiles.json",
         "ladder_runtime_overrides.json",
-        "promoted_models.json",
     ):
         path = data_dir / rel
         if path.exists():
             candidates.append(path)
+
+    # Promoted model mapping is written to ai-service/runs/promotion/ at runtime
+    # (avoid dirtying git checkouts on worker nodes). Fall back to the seed file.
+    promotion_runtime = project_root / "ai-service" / "runs" / "promotion" / "promoted_models.json"
+    promotion_seed = data_dir / "promoted_models.json"
+    if promotion_runtime.exists():
+        candidates.append(promotion_runtime)
+    elif promotion_seed.exists():
+        candidates.append(promotion_seed)
+
+    # Promotion history log (optional).
+    promotion_log_runtime = (
+        project_root / "ai-service" / "runs" / "promotion" / "model_promotion_history.json"
+    )
+    promotion_log_seed = data_dir / "model_promotion_history.json"
+    if promotion_log_runtime.exists():
+        candidates.append(promotion_log_runtime)
+    elif promotion_log_seed.exists():
+        candidates.append(promotion_log_seed)
 
     # De-dup while preserving deterministic ordering.
     seen: set[Path] = set()

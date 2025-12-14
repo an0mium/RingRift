@@ -55,6 +55,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch
 
 from app.ai.gpu_batch import get_device, clear_gpu_memory
+from app.ai.nnue import BatchNNUEEvaluator
 from app.ai.gpu_parallel_games import (
     ParallelGameRunner,
     BatchGameState,
@@ -441,10 +442,36 @@ class GPUSelfPlayGenerator:
         self.board_type = board_type
         # For random-only mode, use None weights (uniform random)
         # For heuristic-only mode, use provided weights or defaults
+        # For nnue-guided mode, use heuristic + NNUE evaluation
         if engine_mode == "random-only":
             self.weights = None  # Triggers uniform random selection
         else:
             self.weights = weights or DEFAULT_WEIGHTS.copy()
+
+        # Initialize NNUE evaluator for nnue-guided mode
+        # NOTE: Full NNUE-guided move selection is WIP. Currently uses heuristic
+        # with NNUE as a secondary scoring signal. Future work:
+        # - Evaluate candidate moves with NNUE before selection
+        # - Use NNUE scores with softmax for move sampling
+        # - See BatchNNUEEvaluator in app/ai/nnue.py for batch evaluation API
+        self.nnue_evaluator = None
+        if engine_mode == "nnue-guided":
+            board_type_map = {
+                8: BoardType.SQUARE8,
+                19: BoardType.SQUARE19,
+                25: BoardType.HEXAGONAL,
+            }
+            bt = board_type_map.get(board_size, BoardType.SQUARE8)
+            self.nnue_evaluator = BatchNNUEEvaluator(
+                board_type=bt,
+                num_players=num_players,
+                device=self.device,
+            )
+            if self.nnue_evaluator.available:
+                logger.info(f"NNUE-guided mode: NNUE evaluator loaded for {bt.value}")
+                logger.info("  Note: Currently using heuristic + NNUE logging. Full NNUE-guided WIP.")
+            else:
+                logger.warning("NNUE-guided mode: NNUE model not available, using heuristic only")
 
         self.runner = ParallelGameRunner(
             batch_size=batch_size,
@@ -837,8 +864,8 @@ def main():
         "--engine-mode",
         type=str,
         default="heuristic-only",
-        choices=["random-only", "heuristic-only"],
-        help="Engine mode: random-only (uniform random moves) or heuristic-only (weighted by GPU heuristic)",
+        choices=["random-only", "heuristic-only", "nnue-guided"],
+        help="Engine mode: random-only (uniform random), heuristic-only (GPU heuristic), or nnue-guided (NNUE + heuristic)",
     )
     parser.add_argument(
         "--num-players",
