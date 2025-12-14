@@ -66,9 +66,10 @@ export function PlaybackControls({
   );
 
   const buttonClass =
-    'px-2 py-1 rounded border border-slate-600 text-xs ' +
+    'px-3 py-2 min-h-[44px] rounded border border-slate-600 text-xs ' +
     'disabled:opacity-40 disabled:cursor-not-allowed ' +
-    'hover:border-slate-400 hover:bg-slate-700/50 transition';
+    'hover:border-slate-400 hover:bg-slate-700/50 transition ' +
+    'touch-manipulation';
 
   return (
     <div className={`space-y-2 ${className}`}>

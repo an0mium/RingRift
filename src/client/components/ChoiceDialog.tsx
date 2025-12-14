@@ -185,7 +185,7 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
               onSelectOption(c, opt);
             }}
             onFocus={() => handleOptionFocus(index)}
-            className="w-full text-left px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900"
+            className="w-full text-left px-3 py-2 min-h-[44px] rounded bg-slate-800 hover:bg-slate-700 text-xs border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900 touch-manipulation"
             role="option"
             aria-selected={index === focusedOptionIndex}
           >
@@ -268,7 +268,7 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
                 onSelectOption(c, opt);
               }}
               onFocus={() => handleOptionFocus(index)}
-              className="w-full text-left px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900"
+              className="w-full text-left px-3 py-2 min-h-[44px] rounded bg-slate-800 hover:bg-slate-700 text-xs border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900 touch-manipulation"
               role="option"
               aria-selected={index === focusedOptionIndex}
             >

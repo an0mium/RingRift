@@ -1,6 +1,6 @@
 # Secrets Management Guide
 
-> **Doc Status (2025-11-27): Active**
+> **Doc Status (2025-12-13): Active**
 >
 > **Role:** Canonical guide for how RingRift manages application secrets across environments (development, staging, production), including required environment variables, validation, rotation, and operational procedures.
 >
@@ -109,6 +109,13 @@ For production deployments, consider:
 - **AWS Secrets Manager** - AWS-native with rotation support
 - **HashiCorp Vault** - Enterprise-grade secret management
 - **Docker Swarm Secrets** - For Docker Swarm deployments
+
+**Current Infrastructure Status (2025-12-13):**
+
+- AWS infrastructure exists for AI training (ECS, SQS, S3) in `ai-service/infrastructure/terraform/`
+- AWS Secrets Manager is **not yet configured** in terraform
+- For production deployment, add AWS Secrets Manager resources to the terraform configuration
+- See `ai-service/infrastructure/README.md` for existing AWS setup
 
 Example with Docker Secrets:
 

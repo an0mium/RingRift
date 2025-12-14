@@ -1,6 +1,6 @@
 # RingRift Rules / FAQ → Test Scenario Matrix
 
-> **Doc Status (2025-11-30): Active**
+> **Doc Status (2025-12-13): Active**
 >
 > - This file is the **canonical map** from RingRift’s rules/FAQ documents to concrete Jest test suites and parity harnesses.
 > - It intentionally focuses on **which tests cover which rules/FAQ scenarios**; it does **not** redefine rules semantics or engine APIs.
