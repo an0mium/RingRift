@@ -113,8 +113,8 @@ class GPUMinimaxTester:
                 state = self._create_varied_position(board_type, seed=42 + i)
 
                 # Get moves from both AIs
-                gpu_ai.reset_for_new_game(rng_seed=42 + i)
-                cpu_ai.reset_for_new_game(rng_seed=42 + i)
+                gpu_ai.reset_for_new_game()
+                cpu_ai.reset_for_new_game()
 
                 gpu_move = gpu_ai.select_move(state)
                 cpu_move = cpu_ai.select_move(state)
@@ -177,7 +177,7 @@ class GPUMinimaxTester:
 
         for i in range(num_positions):
             state = self._create_varied_position(board_type, seed=100 + i)
-            gpu_ai.reset_for_new_game(rng_seed=100 + i)
+            gpu_ai.reset_for_new_game()
 
             t0 = time.time()
             _ = gpu_ai.select_move(state)
@@ -193,7 +193,7 @@ class GPUMinimaxTester:
 
         for i in range(num_positions):
             state = self._create_varied_position(board_type, seed=100 + i)
-            cpu_ai.reset_for_new_game(rng_seed=100 + i)
+            cpu_ai.reset_for_new_game()
 
             t0 = time.time()
             _ = cpu_ai.select_move(state)
@@ -247,8 +247,8 @@ class GPUMinimaxTester:
                 gpu_minimax = GPUMinimaxAI(player_number=2, config=minimax_config)
                 minimax_player = 2
 
-            gpu_minimax.reset_for_new_game(rng_seed=42 + game_idx)
-            heuristic.reset_for_new_game(rng_seed=42 + game_idx + 1000)
+            gpu_minimax.reset_for_new_game()
+            heuristic.reset_for_new_game()
 
             state = create_initial_state(board_type=board_type, num_players=2)
 
@@ -384,8 +384,8 @@ class GPUMinimaxTester:
             try:
                 ai1 = GPUMinimaxAI(player_number=1, config=config)
                 ai2 = GPUMinimaxAI(player_number=2, config=config)
-                ai1.reset_for_new_game(rng_seed=42 + game_idx)
-                ai2.reset_for_new_game(rng_seed=42 + game_idx + 500)
+                ai1.reset_for_new_game()
+                ai2.reset_for_new_game()
 
                 state = create_initial_state(board_type=board_type, num_players=2)
 

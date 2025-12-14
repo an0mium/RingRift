@@ -697,9 +697,9 @@ class GPUMinimaxAI(MinimaxAI):
             self._pending_nnue_init = False
             self.use_nnue = False
 
-    def reset_for_new_game(self, rng_seed: Optional[int] = None) -> None:
+    def reset_for_new_game(self, *, rng_seed: Optional[int] = None) -> None:
         """Reset state for a new game."""
-        super().reset_for_new_game(rng_seed)
+        super().reset_for_new_game(rng_seed=rng_seed)
         self._clear_leaf_buffer()
         self._board_type = None
         self._board_size = None
