@@ -73,6 +73,7 @@ class DynamicNodeInfo:
     failure_reason: Optional[str] = None
     vast_instance_id: Optional[str] = None   # For Vast.ai API queries
     aws_instance_id: Optional[str] = None    # For AWS CLI queries (ec2 instance id)
+    aws_region: Optional[str] = None         # Optional explicit region for the instance id
     tailscale_ip: Optional[str] = None       # Discovered mesh IP (100.x) when available
 
     @property
@@ -127,6 +128,8 @@ class DynamicHostRegistry:
                             self._nodes[name].vast_instance_id = props["vast_instance_id"]
                         if "aws_instance_id" in props:
                             self._nodes[name].aws_instance_id = props["aws_instance_id"]
+                        if "aws_region" in props:
+                            self._nodes[name].aws_region = str(props["aws_region"]).strip() or None
                         if "tailscale_ip" in props:
                             self._nodes[name].tailscale_ip = props["tailscale_ip"]
                         elif name.startswith("vast-"):
@@ -162,6 +165,7 @@ class DynamicHostRegistry:
                             node.dynamic_port = node_data.get("dynamic_port")
                             node.vast_instance_id = node_data.get("vast_instance_id")
                             node.aws_instance_id = node_data.get("aws_instance_id")
+                            node.aws_region = node_data.get("aws_region")
                             node.tailscale_ip = node_data.get("tailscale_ip")
                             # Don't restore state - re-check on startup
                             node.state = NodeState.UNKNOWN
@@ -184,6 +188,7 @@ class DynamicHostRegistry:
                             "dynamic_port": node.dynamic_port,
                             "vast_instance_id": node.vast_instance_id,
                             "aws_instance_id": node.aws_instance_id,
+                            "aws_region": node.aws_region,
                             "tailscale_ip": node.tailscale_ip,
                             "state": node.state.value,
                             "last_success_time": node.last_success_time,
@@ -499,60 +504,81 @@ class DynamicHostRegistry:
         try:
             import asyncio
 
-            region = (
+            region_env = (
                 os.environ.get("AWS_REGION")
                 or os.environ.get("AWS_DEFAULT_REGION")
                 or ""
             ).strip()
 
-            cmd = ["aws", "ec2", "describe-instances", "--instance-ids", *instance_ids, "--output", "json"]
-            if region:
-                cmd.extend(["--region", region])
+            # Group instance IDs by region so mixed-region clusters can still
+            # refresh IPs reliably without depending on a single default region.
+            by_region: Dict[str, List[str]] = {}
+            id_to_node: Dict[str, str] = {}
+            with self._lock:
+                for node_id, node in self._nodes.items():
+                    if not node.aws_instance_id:
+                        continue
+                    instance_id = str(node.aws_instance_id)
+                    region = (node.aws_region or region_env or "").strip()
+                    by_region.setdefault(region, []).append(instance_id)
+                    id_to_node[instance_id] = node_id
 
-            def _run() -> subprocess.CompletedProcess[str]:
-                return subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            updated = 0
+            for region, region_instance_ids in by_region.items():
+                cmd = [
+                    "aws",
+                    "ec2",
+                    "describe-instances",
+                    "--instance-ids",
+                    *region_instance_ids,
+                    "--output",
+                    "json",
+                ]
+                if region:
+                    cmd.extend(["--region", region])
 
-            result = await asyncio.to_thread(_run)
-            if result.returncode != 0:
-                return 0
+                def _run_region() -> subprocess.CompletedProcess[str]:
+                    return subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
-            payload = json.loads(result.stdout or "{}")
+                result = await asyncio.to_thread(_run_region)
+                if result.returncode != 0:
+                    continue
+
+                payload = json.loads(result.stdout or "{}")
+
+                reservations = payload.get("Reservations") or []
+                with self._lock:
+                    for reservation in reservations:
+                        instances = reservation.get("Instances") or []
+                        for inst in instances:
+                            instance_id = str(inst.get("InstanceId") or "")
+                            if not instance_id or instance_id not in id_to_node:
+                                continue
+                            public_ip = inst.get("PublicIpAddress") or ""
+                            if not public_ip:
+                                continue
+                            node_id = id_to_node[instance_id]
+                            node = self._nodes.get(node_id)
+                            if not node:
+                                continue
+                            if public_ip != node.dynamic_host:
+                                logger.info(
+                                    f"AWS CLI: {node_id} IP updated to {public_ip}:{node.static_port} "
+                                    f"(region={region or 'default'})"
+                                )
+                                node.dynamic_host = public_ip
+                                node.dynamic_port = node.static_port
+                                node.consecutive_failures = 0
+                                node.state = NodeState.UNKNOWN
+                                updated += 1
+
+            if updated:
+                self._save_state()
+            return updated
         except FileNotFoundError:
             return 0
         except Exception:
             return 0
-
-        updated = 0
-        with self._lock:
-            id_to_node = {
-                str(node.aws_instance_id): node_id
-                for node_id, node in self._nodes.items()
-                if node.aws_instance_id
-            }
-
-            reservations = payload.get("Reservations") or []
-            for reservation in reservations:
-                instances = reservation.get("Instances") or []
-                for inst in instances:
-                    instance_id = str(inst.get("InstanceId") or "")
-                    if not instance_id or instance_id not in id_to_node:
-                        continue
-                    public_ip = inst.get("PublicIpAddress") or ""
-                    if not public_ip:
-                        continue
-                    node_id = id_to_node[instance_id]
-                    node = self._nodes[node_id]
-                    if public_ip != node.dynamic_host:
-                        logger.info(f"AWS CLI: {node_id} IP updated to {public_ip}:{node.static_port}")
-                        node.dynamic_host = public_ip
-                        node.dynamic_port = node.static_port
-                        node.consecutive_failures = 0
-                        node.state = NodeState.UNKNOWN
-                        updated += 1
-
-        if updated:
-            self._save_state()
-        return updated
 
     async def update_tailscale_ips(self) -> int:
         """Discover and record Tailscale IPs for nodes via `tailscale status --json`.

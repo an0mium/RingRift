@@ -49,6 +49,12 @@ if _log_file:
     except Exception as e:
         logger.warning(f"Failed to add file logger { _log_file }: {e}")
 
+# If a node reports hundreds/thousands of selfplay processes, it almost always
+# indicates job tracking was lost and stale processes are accumulating.
+RUNAWAY_SELFPLAY_PROCESS_THRESHOLD = int(
+    os.environ.get("RINGRIFT_RUNAWAY_SELFPLAY_PROCESS_THRESHOLD", "128") or 128
+)
+
 
 def _acquire_singleton_lock(node_id: str):
     """Acquire a non-blocking singleton lock so we don't run duplicate daemons.
@@ -662,6 +668,123 @@ class NodeResilience:
             logger.error(f"GPU health check failed: {e}")
             return True
 
+    def _count_selfplay_processes(self) -> int:
+        """Count selfplay-related processes (best-effort) to detect runaway states."""
+        patterns = [
+            "run_self_play_soak.py",
+            "run_hybrid_selfplay.py",
+            "run_gpu_selfplay.py",
+            "run_random_selfplay.py",
+        ]
+        pids: set[int] = set()
+        for pattern in patterns:
+            try:
+                out = subprocess.run(
+                    ["pgrep", "-f", pattern],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if out.returncode != 0:
+                    continue
+                for tok in (out.stdout or "").strip().split():
+                    try:
+                        pids.add(int(tok))
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+        # Never count ourselves.
+        pids.discard(int(os.getpid()))
+        return len(pids)
+
+    def _kill_selfplay_processes(self) -> int:
+        """Kill selfplay-related processes (only used for runaway recovery)."""
+        patterns = [
+            "run_self_play_soak.py",
+            "run_hybrid_selfplay.py",
+            "run_gpu_selfplay.py",
+            "run_random_selfplay.py",
+        ]
+        before = self._count_selfplay_processes()
+        for pattern in patterns:
+            try:
+                # First try SIGTERM.
+                subprocess.run(
+                    ["pkill", "-TERM", "-f", pattern],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+            except Exception:
+                pass
+        time.sleep(2)
+        for pattern in patterns:
+            try:
+                # Then SIGKILL any stragglers.
+                subprocess.run(
+                    ["pkill", "-KILL", "-f", pattern],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+            except Exception:
+                pass
+
+        after = self._count_selfplay_processes()
+        return max(0, before - after)
+
+    def check_runaway_selfplay(self) -> bool:
+        """Detect runaway selfplay counts and trigger a restart sweep.
+
+        Returns True when no runaway condition is detected.
+        """
+        # Prefer the orchestrator-reported job counts when available.
+        if self.check_p2p_health():
+            try:
+                url = f"http://localhost:{self.config.p2p_port}/status"
+                with urllib.request.urlopen(url, timeout=5) as response:
+                    data = json.loads(response.read().decode())
+                count = int(data.get("selfplay_jobs", 0) or 0)
+                if count < RUNAWAY_SELFPLAY_PROCESS_THRESHOLD:
+                    return True
+
+                logger.error(
+                    f"Runaway selfplay detected via P2P status: {count} >= {RUNAWAY_SELFPLAY_PROCESS_THRESHOLD}"
+                )
+
+                headers = {"Content-Type": "application/json"}
+                token = _load_cluster_auth_token()
+                if token:
+                    headers["Authorization"] = f"Bearer {token}"
+                req = urllib.request.Request(
+                    f"http://localhost:{self.config.p2p_port}/restart_stuck_jobs",
+                    data=b"{}",
+                    headers=headers,
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    _ = resp.read()
+                logger.info("Requested /restart_stuck_jobs for runaway recovery")
+                return False
+            except Exception as e:
+                logger.warning(f"Runaway selfplay check (via P2P) failed: {e}")
+
+        # Fallback: count processes directly.
+        try:
+            count = self._count_selfplay_processes()
+            if count < RUNAWAY_SELFPLAY_PROCESS_THRESHOLD:
+                return True
+            logger.error(
+                f"Runaway selfplay detected via process table: {count} >= {RUNAWAY_SELFPLAY_PROCESS_THRESHOLD}"
+            )
+            killed_est = self._kill_selfplay_processes()
+            logger.warning(f"Runaway recovery: issued pkill sweep (killed_est={killed_est})")
+            return False
+        except Exception as e:
+            logger.warning(f"Runaway selfplay check (via pgrep) failed: {e}")
+            return True
+
     def run_once(self) -> None:
         """Run a single check cycle."""
         now = time.time()
@@ -671,6 +794,9 @@ class NodeResilience:
 
         # Check GPU health and kill stuck processes
         self.check_gpu_health()
+
+        # Detect runaway selfplay states (lost tracking / manual runaway processes)
+        self.check_runaway_selfplay()
 
         # Check P2P health
         p2p_healthy = self.check_p2p_health()
