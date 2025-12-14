@@ -77,8 +77,13 @@ class TournamentResult:
         return self.p1_wins / decisive if decisive > 0 else 0.5
 
 
-def create_game_state(board_type: BoardType = BoardType.SQUARE8) -> GameState:
-    """Create a fresh game state."""
+def create_game_state(board_type: BoardType = BoardType.SQUARE8, num_players: int = 2) -> GameState:
+    """Create a fresh game state.
+
+    Args:
+        board_type: Board type for the game
+        num_players: Number of players (2, 3, or 4)
+    """
     size = 8 if board_type == BoardType.SQUARE8 else 19
     if board_type == BoardType.HEXAGONAL:
         size = 5
@@ -92,32 +97,24 @@ def create_game_state(board_type: BoardType = BoardType.SQUARE8) -> GameState:
         eliminatedRings={},
     )
 
-    players = [
-        Player(
-            id="p1",
-            username="AI1",
-            type="ai",
-            playerNumber=1,
-            isReady=True,
-            timeRemaining=600000,
-            aiDifficulty=4,
-            ringsInHand=20,
-            eliminatedRings=0,
-            territorySpaces=0,
-        ),
-        Player(
-            id="p2",
-            username="AI2",
-            type="ai",
-            playerNumber=2,
-            isReady=True,
-            timeRemaining=600000,
-            aiDifficulty=4,
-            ringsInHand=20,
-            eliminatedRings=0,
-            territorySpaces=0,
-        ),
-    ]
+    # Create players based on num_players
+    rings_per_player = 20 if num_players == 2 else (14 if num_players == 3 else 10)
+    players = []
+    for i in range(num_players):
+        players.append(
+            Player(
+                id=f"p{i+1}",
+                username=f"AI{i+1}",
+                type="ai",
+                playerNumber=i + 1,
+                isReady=True,
+                timeRemaining=600000,
+                aiDifficulty=4,
+                ringsInHand=rings_per_player,
+                eliminatedRings=0,
+                territorySpaces=0,
+            )
+        )
 
     return GameState(
         id=str(uuid.uuid4()),
@@ -132,7 +129,7 @@ def create_game_state(board_type: BoardType = BoardType.SQUARE8) -> GameState:
         createdAt=datetime.now(),
         lastMoveAt=datetime.now(),
         isRated=False,
-        maxPlayers=2,
+        maxPlayers=num_players,
         totalRingsInPlay=0,
         totalRingsEliminated=0,
         victoryThreshold=3,
@@ -147,48 +144,61 @@ def run_game(
     ai1,
     ai2,
     board_type: BoardType = BoardType.SQUARE8,
+    num_players: int = 2,
     swap_sides: bool = False,
     max_moves: int = 300,
     verbose: bool = False,
 ) -> MatchResult:
-    """Run a single game between two AI instances.
+    """Run a single game between two AI configurations.
+
+    For multiplayer (3-4 players):
+    - ai1 plays odd players (1, 3)
+    - ai2 plays even players (2, 4)
+    - swap_sides reverses this assignment
 
     Args:
-        ai1: First AI instance (plays as P1 unless swap_sides)
-        ai2: Second AI instance (plays as P2 unless swap_sides)
+        ai1: First AI factory/instance (plays odd positions unless swap_sides)
+        ai2: Second AI factory/instance (plays even positions unless swap_sides)
         board_type: Board type for the game
-        swap_sides: If True, ai1 plays as P2 and ai2 plays as P1
+        num_players: Number of players (2, 3, or 4)
+        swap_sides: If True, reverses ai1/ai2 player assignments
         max_moves: Maximum moves before declaring draw
         verbose: Print game progress
 
     Returns:
-        MatchResult with winner (from ai1's perspective), moves, and duration
+        MatchResult with winner (1=ai1 won, 2=ai2 won, None=draw)
     """
-    game = create_game_state(board_type)
+    game = create_game_state(board_type, num_players)
     engine = DefaultRulesEngine()
 
     start_time = time.time()
     moves = 0
 
-    # Swap AI assignments if requested
-    p1_ai, p2_ai = (ai2, ai1) if swap_sides else (ai1, ai2)
+    # Create AI instances for each player
+    # Odd players (1, 3) get ai1, even players (2, 4) get ai2 unless swapped
+    ais = {}
+    for p in range(1, num_players + 1):
+        is_odd = (p % 2 == 1)
+        if swap_sides:
+            ais[p] = ai2 if is_odd else ai1
+        else:
+            ais[p] = ai1 if is_odd else ai2
 
     while game.game_status == GameStatus.ACTIVE and moves < max_moves:
-        current_ai = p1_ai if game.current_player == 1 else p2_ai
-        current_ai.player_number = game.current_player
+        current_player = game.current_player
+        current_ai = ais[current_player]
+        current_ai.player_number = current_player
 
         try:
             move = current_ai.select_move(game)
         except Exception as e:
             if verbose:
-                print(f"Error in select_move: {e}")
-            # Opponent wins on error
-            winner = 2 if game.current_player == 1 else 1
+                print(f"Error in select_move for P{current_player}: {e}")
+            # Game ends on error - no winner determined
             break
 
         if not move:
-            # No valid moves - opponent wins
-            winner = 2 if game.current_player == 1 else 1
+            # No valid moves - game should handle this
             break
 
         game = engine.apply_move(game, move)
@@ -197,14 +207,16 @@ def run_game(
     duration = time.time() - start_time
 
     # Determine winner
-    if game.game_status == GameStatus.ACTIVE:
-        winner = None  # Draw due to max moves
-    else:
-        winner = game.winner
-
-    # Translate winner back to ai1/ai2 perspective
-    if swap_sides and winner is not None:
-        winner = 3 - winner  # Flip 1<->2
+    winner = None
+    if game.game_status != GameStatus.ACTIVE and game.winner:
+        game_winner = game.winner
+        # Translate to ai1/ai2 perspective
+        # ai1 wins if winning player was assigned to ai1
+        is_winner_odd = (game_winner % 2 == 1)
+        if swap_sides:
+            winner = 2 if is_winner_odd else 1
+        else:
+            winner = 1 if is_winner_odd else 2
 
     return MatchResult(
         winner=winner,
@@ -221,6 +233,7 @@ def run_tournament(
     p2_label: str,
     num_games: int = 10,
     board_type: BoardType = BoardType.SQUARE8,
+    num_players: int = 2,
     verbose: bool = False,
 ) -> TournamentResult:
     """Run a tournament between two AI configurations.
@@ -232,6 +245,7 @@ def run_tournament(
         p2_label: Label for AI2
         num_games: Number of games to play
         board_type: Board type for games
+        num_players: Number of players per game (2, 3, or 4)
         verbose: Print game-by-game results
 
     Returns:
@@ -251,7 +265,14 @@ def run_tournament(
         # Alternate sides for fairness
         swap = (i % 2 == 1)
 
-        result = run_game(ai1, ai2, board_type, swap_sides=swap, verbose=verbose)
+        result = run_game(
+            ai1,
+            ai2,
+            board_type,
+            num_players=num_players,
+            swap_sides=swap,
+            verbose=verbose,
+        )
 
         if result.winner == 1:
             p1_wins += 1
@@ -310,6 +331,13 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Board type (default: square8)",
     )
     parser.add_argument(
+        "--num-players",
+        type=int,
+        default=2,
+        choices=[2, 3, 4],
+        help="Number of players (default: 2)",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Print game-by-game results",
@@ -334,11 +362,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     }
     board_type = board_map[args.board]
     difficulty = max(4, args.difficulty)  # NNUE requires D4+
+    num_players = args.num_players
 
     print("=" * 60)
     print("NNUE Evaluation Tournament")
     print("=" * 60)
     print(f"Board type: {args.board}")
+    print(f"Players: {num_players}")
     print(f"Difficulty: {difficulty}")
     print(f"Games per matchup: {args.games}")
     print()
@@ -369,6 +399,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         f"Minimax+Heuristic D{difficulty}",
         num_games=args.games,
         board_type=board_type,
+        num_players=num_players,
         verbose=args.verbose,
     )
     results.append(result1)
@@ -393,6 +424,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         f"HeuristicAI D{difficulty}",
         num_games=args.games,
         board_type=board_type,
+        num_players=num_players,
         verbose=args.verbose,
     )
     results.append(result2)
@@ -416,6 +448,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.output:
         output_data = {
             "board_type": args.board,
+            "num_players": num_players,
             "difficulty": difficulty,
             "games_per_matchup": args.games,
             "timestamp": datetime.now().isoformat(),
