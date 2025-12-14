@@ -1,6 +1,6 @@
 # RingRift Documentation (Quick Index)
 
-**Last Updated:** 2025-12-12
+**Last Updated:** 2025-12-13
 
 This is a lightweight navigation page. For the full catalog, see `DOCUMENTATION_INDEX.md` at the repo root.
 

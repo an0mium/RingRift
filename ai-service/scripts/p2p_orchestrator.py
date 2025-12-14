@@ -811,6 +811,20 @@ class P2POrchestrator:
                 f"--require-auth set but {AUTH_TOKEN_ENV}/{AUTH_TOKEN_FILE_ENV}/--auth-token is empty"
             )
 
+        # Optional split-brain mitigation: require a majority of "voter" nodes
+        # to be visible before assuming or renewing leadership.
+        #
+        # Voters can be configured via:
+        # - env: RINGRIFT_P2P_VOTERS="node-a,node-b,..."
+        # - ai-service/config/distributed_hosts.yaml: per-host `p2p_voter: true`
+        self.voter_node_ids: List[str] = self._load_voter_node_ids()
+        self.voter_quorum_size: int = (len(self.voter_node_ids) // 2 + 1) if self.voter_node_ids else 0
+        if self.voter_node_ids:
+            print(
+                f"[P2P] Voter quorum enabled: voters={len(self.voter_node_ids)}, "
+                f"quorum={self.voter_quorum_size} ({', '.join(self.voter_node_ids)})"
+            )
+
         # Node state
         self.role = NodeRole.FOLLOWER
         self.leader_id: Optional[str] = None
@@ -985,6 +999,19 @@ class P2POrchestrator:
             except RuntimeError:
                 pass
             return False
+        if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
+            print("[P2P] Leadership without voter quorum, stepping down")
+            self.role = NodeRole.FOLLOWER
+            self.leader_id = None
+            self.leader_lease_id = ""
+            self.leader_lease_expires = 0.0
+            self.last_lease_renewal = 0.0
+            self._save_state()
+            try:
+                asyncio.get_running_loop().create_task(self._start_election())
+            except RuntimeError:
+                pass
+            return False
         return True
 
     def _detect_build_version(self) -> str:
@@ -1085,6 +1112,68 @@ class P2POrchestrator:
 
         return int(self.port)
 
+    def _load_voter_node_ids(self) -> List[str]:
+        """Load the set of P2P voter node_ids (for quorum-based leadership).
+
+        If no voters are configured, returns an empty list and quorum checks are
+        disabled (backwards compatible).
+        """
+        env = (os.environ.get("RINGRIFT_P2P_VOTERS") or "").strip()
+        if env:
+            voters = [t.strip() for t in env.split(",") if t.strip()]
+            return sorted(set(voters))
+
+        cfg_path = Path(self.ringrift_path) / "ai-service" / "config" / "distributed_hosts.yaml"
+        if not cfg_path.exists():
+            return []
+
+        try:
+            import yaml  # type: ignore
+        except Exception:
+            return []
+
+        try:
+            data = yaml.safe_load(cfg_path.read_text()) or {}
+        except Exception:
+            return []
+
+        hosts = data.get("hosts", {}) or {}
+        voters: List[str] = []
+        for node_id, cfg in hosts.items():
+            if not isinstance(cfg, dict):
+                continue
+            raw = cfg.get("p2p_voter", False)
+            if raw is True:
+                voters.append(str(node_id))
+                continue
+            if isinstance(raw, (int, float)) and int(raw) == 1:
+                voters.append(str(node_id))
+                continue
+            if isinstance(raw, str) and raw.strip().lower() in {"1", "true", "yes", "y"}:
+                voters.append(str(node_id))
+        return sorted(set(voters))
+
+    def _has_voter_quorum(self) -> bool:
+        """Return True if we currently see a majority of voter nodes alive."""
+        voters = list(getattr(self, "voter_node_ids", []) or [])
+        if not voters:
+            return True
+        quorum = int(getattr(self, "voter_quorum_size", 0) or 0)
+        if quorum <= 0:
+            quorum = len(voters) // 2 + 1
+
+        alive = 0
+        with self.peers_lock:
+            peers = dict(self.peers)
+        for node_id in voters:
+            if node_id == self.node_id:
+                alive += 1
+                continue
+            peer = peers.get(node_id)
+            if peer and peer.is_alive():
+                alive += 1
+        return alive >= quorum
+
     def _parse_peer_address(self, peer_addr: str) -> Tuple[str, str, int]:
         """Parse `--peers` entries.
 
@@ -1119,6 +1208,41 @@ class P2POrchestrator:
     def _url_for_peer(self, peer: NodeInfo, path: str) -> str:
         scheme = (getattr(peer, "scheme", None) or "http").lower()
         return f"{scheme}://{peer.host}:{peer.port}{path}"
+
+    def _urls_for_peer(self, peer: NodeInfo, path: str) -> List[str]:
+        """Return candidate URLs for reaching a peer.
+
+        Includes both the observed reachable endpoint (`host`/`port`) and the
+        peer's self-reported endpoint (`reported_host`/`reported_port`) when
+        available. This improves resilience in mixed network environments
+        (public IP vs overlay networks like Tailscale, port-mapped listeners).
+        """
+        scheme = (getattr(peer, "scheme", None) or "http").lower()
+        urls: List[str] = []
+
+        def _add(host: Any, port: Any) -> None:
+            try:
+                h = str(host or "").strip()
+                p = int(port)
+            except Exception:
+                return
+            if not h or p <= 0:
+                return
+            url = f"{scheme}://{h}:{p}{path}"
+            if url not in urls:
+                urls.append(url)
+
+        _add(getattr(peer, "host", ""), getattr(peer, "port", 0))
+
+        rh = (getattr(peer, "reported_host", "") or "").strip()
+        try:
+            rp = int(getattr(peer, "reported_port", 0) or 0)
+        except Exception:
+            rp = 0
+        if rh and rp and (rh != str(getattr(peer, "host", "")).strip() or rp != int(getattr(peer, "port", 0) or 0)):
+            _add(rh, rp)
+
+        return urls
 
     def _auth_headers(self) -> Dict[str, str]:
         if not self.auth_token:
@@ -2047,11 +2171,12 @@ class P2POrchestrator:
                 result = await self._handle_sync_pull_request(
                     source_host=source_peer.host,
                     source_port=source_peer.port,
+                    source_reported_host=(getattr(source_peer, "reported_host", "") or None),
+                    source_reported_port=(getattr(source_peer, "reported_port", 0) or None),
                     source_node_id=job.source_node,
                     files=job.files,
                 )
             else:
-                url = self._url_for_peer(target_peer, "/sync/pull")
                 payload = {
                     "job_id": job.job_id,
                     # Back-compat: target will prefer source_node_id lookup.
@@ -2060,17 +2185,33 @@ class P2POrchestrator:
                     "source_node_id": job.source_node,
                     "files": job.files,
                 }
+                rh = (getattr(source_peer, "reported_host", "") or "").strip()
+                rp = int(getattr(source_peer, "reported_port", 0) or 0)
+                if rh and rp and (rh != source_peer.host or rp != source_peer.port):
+                    payload["source_reported_host"] = rh
+                    payload["source_reported_port"] = rp
 
                 timeout = ClientTimeout(total=600)
                 async with ClientSession(timeout=timeout) as session:
-                    async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
-                        if resp.status != 200:
-                            job.status = "failed"
-                            job.error_message = f"HTTP {resp.status}"
-                            if self.current_sync_plan:
-                                self.current_sync_plan.jobs_failed += 1
-                            return False
-                        result = await resp.json()
+                    result = None
+                    last_err: Optional[str] = None
+                    for url in self._urls_for_peer(target_peer, "/sync/pull"):
+                        try:
+                            async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
+                                if resp.status != 200:
+                                    last_err = f"http_{resp.status}"
+                                    continue
+                                result = await resp.json()
+                                break
+                        except Exception as e:
+                            last_err = str(e)
+                            continue
+                    if result is None:
+                        job.status = "failed"
+                        job.error_message = last_err or "sync_pull_failed"
+                        if self.current_sync_plan:
+                            self.current_sync_plan.jobs_failed += 1
+                        return False
 
             ok = bool(result.get("success"))
             job.status = "completed" if ok else "failed"
@@ -2102,8 +2243,15 @@ class P2POrchestrator:
             print(f"[P2P] Sync job {job.job_id[:8]} failed: {e}")
             return False
 
-    async def _handle_sync_pull_request(self, source_host: str, source_port: int,
-                                         source_node_id: str, files: List[str]) -> Dict[str, Any]:
+    async def _handle_sync_pull_request(
+        self,
+        source_host: str,
+        source_port: int,
+        source_node_id: str,
+        files: List[str],
+        source_reported_host: Optional[str] = None,
+        source_reported_port: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """
         Handle incoming request to pull files from a source node.
         Pulls files over the P2P HTTP channel to avoid SSH/rsync dependencies.
@@ -2116,14 +2264,31 @@ class P2POrchestrator:
         files_completed = 0
         errors: List[str] = []
 
-        # Back-compat: if caller passed an SSH-like port (22), try DEFAULT_PORT too.
-        ports_to_try: List[int] = []
-        try:
-            ports_to_try.append(int(source_port))
-        except Exception:
-            ports_to_try.append(DEFAULT_PORT)
-        if DEFAULT_PORT not in ports_to_try:
-            ports_to_try.append(DEFAULT_PORT)
+        # Multi-path sources: prefer observed endpoint but allow a self-reported
+        # endpoint (e.g. Tailscale) when the public route fails.
+        candidate_sources: List[Tuple[str, int]] = []
+        seen_sources: Set[Tuple[str, int]] = set()
+
+        def _add_source(host: Optional[str], port: Optional[int]) -> None:
+            if not host:
+                return
+            h = str(host).strip()
+            if not h:
+                return
+            try:
+                p = int(port or 0)
+            except Exception:
+                return
+            if p <= 0:
+                return
+            key = (h, p)
+            if key in seen_sources:
+                return
+            seen_sources.add(key)
+            candidate_sources.append(key)
+
+        _add_source(source_host, source_port)
+        _add_source(source_reported_host, source_reported_port)
 
         timeout = ClientTimeout(total=None, sock_connect=HTTP_CONNECT_TIMEOUT, sock_read=600)
 
@@ -2150,36 +2315,48 @@ class P2POrchestrator:
                 last_err: Optional[str] = None
                 success = False
 
-                for port in ports_to_try:
-                    url = f"http://{source_host}:{port}/sync/file"
+                for host, base_port in candidate_sources:
+                    # Back-compat: if caller passed an SSH-like port (22), try DEFAULT_PORT too.
+                    ports_to_try: List[int] = []
                     try:
-                        async with session.get(
-                            url,
-                            params={"path": rel_path},
-                            headers=self._auth_headers(),
-                        ) as resp:
-                            if resp.status != 200:
-                                text = ""
-                                try:
-                                    text = (await resp.text())[:200]
-                                except Exception:
+                        ports_to_try.append(int(base_port))
+                    except Exception:
+                        ports_to_try.append(DEFAULT_PORT)
+                    if DEFAULT_PORT not in ports_to_try:
+                        ports_to_try.append(DEFAULT_PORT)
+
+                    for port in ports_to_try:
+                        url = f"http://{host}:{port}/sync/file"
+                        try:
+                            async with session.get(
+                                url,
+                                params={"path": rel_path},
+                                headers=self._auth_headers(),
+                            ) as resp:
+                                if resp.status != 200:
                                     text = ""
-                                last_err = f"{resp.status} {text}".strip()
-                                continue
+                                    try:
+                                        text = (await resp.text())[:200]
+                                    except Exception:
+                                        text = ""
+                                    last_err = f"{resp.status} {text}".strip()
+                                    continue
 
-                            with open(tmp_path, "wb") as out_f:
-                                async for chunk in resp.content.iter_chunked(1024 * 1024):
-                                    out_f.write(chunk)
-                                    bytes_transferred += len(chunk)
+                                with open(tmp_path, "wb") as out_f:
+                                    async for chunk in resp.content.iter_chunked(1024 * 1024):
+                                        out_f.write(chunk)
+                                        bytes_transferred += len(chunk)
 
-                            tmp_path.replace(dest_path)
-                            files_completed += 1
-                            success = True
-                            break
+                                tmp_path.replace(dest_path)
+                                files_completed += 1
+                                success = True
+                                break
 
-                    except Exception as e:
-                        last_err = str(e)
-                        continue
+                        except Exception as e:
+                            last_err = str(e)
+                            continue
+                    if success:
+                        break
 
                 if not success:
                     errors.append(f"{rel_path}: {last_err or 'download_failed'}")
@@ -2310,20 +2487,40 @@ class P2POrchestrator:
             return False
 
         try:
-            # Request cleanup via HTTP endpoint
-            url = self._url_for_peer(node, "/cleanup/files")
+            if getattr(node, "nat_blocked", False):
+                cmd_id = self._enqueue_relay_command(
+                    node_id,
+                    "cleanup_files",
+                    {"files": list(files or []), "reason": "post_sync_cleanup"},
+                )
+                if cmd_id:
+                    print(f"[P2P] Enqueued relay cleanup_files for {node_id} ({len(files)} files)")
+                    return True
+                print(f"[P2P] Relay queue full for {node_id}; skipping cleanup_files enqueue")
+                return False
+
             timeout = ClientTimeout(total=60)
             async with ClientSession(timeout=timeout) as session:
-                async with session.post(
-                    url,
-                    json={"files": files, "reason": "post_sync_cleanup"},
-                    headers=self._auth_headers()
-                ) as resp:
-                    if resp.status == 200:
-                        result = await resp.json()
-                        freed_bytes = result.get("freed_bytes", 0)
-                        print(f"[P2P] Cleanup on {node_id}: freed {freed_bytes / 1e6:.1f}MB")
-                        return True
+                last_err: Optional[str] = None
+                for url in self._urls_for_peer(node, "/cleanup/files"):
+                    try:
+                        async with session.post(
+                            url,
+                            json={"files": files, "reason": "post_sync_cleanup"},
+                            headers=self._auth_headers(),
+                        ) as resp:
+                            if resp.status != 200:
+                                last_err = f"http_{resp.status}"
+                                continue
+                            result = await resp.json()
+                            freed_bytes = result.get("freed_bytes", 0)
+                            print(f"[P2P] Cleanup on {node_id}: freed {freed_bytes / 1e6:.1f}MB")
+                            return True
+                    except Exception as e:
+                        last_err = str(e)
+                        continue
+                if last_err:
+                    print(f"[P2P] Cleanup files request failed on {node_id}: {last_err}")
         except Exception as e:
             print(f"[P2P] Failed to cleanup files on {node_id}: {e}")
         return False
@@ -3075,6 +3272,18 @@ class P2POrchestrator:
         # Get diversity metrics
         diversity_metrics = self._get_diversity_metrics()
 
+        voter_ids = list(getattr(self, "voter_node_ids", []) or [])
+        voters_alive = 0
+        if voter_ids:
+            peer_map = {p.node_id: p for p in peers_snapshot}
+            for vid in voter_ids:
+                if vid == self.node_id:
+                    voters_alive += 1
+                    continue
+                peer = peer_map.get(vid)
+                if peer and peer.is_alive():
+                    voters_alive += 1
+
         return web.json_response({
             "node_id": self.node_id,
             "role": self.role.value,
@@ -3082,6 +3291,10 @@ class P2POrchestrator:
             "effective_leader_id": (effective_leader.node_id if effective_leader else None),
             "leaders_reported": leaders_reported,
             "leaders_eligible": leaders_eligible,
+            "voter_node_ids": voter_ids,
+            "voter_quorum_size": int(getattr(self, "voter_quorum_size", 0) or 0),
+            "voters_alive": voters_alive,
+            "voter_quorum_ok": self._has_voter_quorum(),
             "self": self.self_info.to_dict(),
             "peers": peers,
             "local_jobs": jobs,
@@ -3106,6 +3319,8 @@ class P2POrchestrator:
                 peers_snapshot = [p for p in self.peers.values() if p.node_id != self.node_id]
             conflict_keys = self._endpoint_conflict_keys([self.self_info] + peers_snapshot)
             eligible = self._is_leader_eligible(self.self_info, conflict_keys, require_alive=False)
+            if eligible and getattr(self, "voter_node_ids", []):
+                eligible = self._has_voter_quorum()
 
             # If our ID is higher, we respond with "ALIVE" (Bully algorithm)
             if self.node_id > candidate_id and eligible:
@@ -5114,6 +5329,8 @@ print(json.dumps(result))
             result = await self._handle_sync_pull_request(
                 source_host=source_host,
                 source_port=source_port,
+                source_reported_host=(data.get("source_reported_host") or getattr(peer, "reported_host", "") or None),
+                source_reported_port=(data.get("source_reported_port") or getattr(peer, "reported_port", 0) or None),
                 source_node_id=source_node_id,
                 files=files,
             )
@@ -6761,14 +6978,36 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 dispatched += 1
             else:
                 try:
-                    url = f"http://{node.host}:{node.port}/pipeline/selfplay_worker"
-                    async with ClientSession(timeout=ClientTimeout(total=30)) as session:
-                        async with session.post(url, json={"job_id": f"{job_id}-{node_id}",
-                            "board_type": board_type, "num_players": num_players,
-                            "num_games": games_per_node, "seed": node_seed},
-                            headers=self._get_auth_headers()) as resp:
-                            if resp.status == 200:
-                                dispatched += 1
+                    if getattr(node, "nat_blocked", False):
+                        payload = {
+                            "job_id": f"{job_id}-{node_id}",
+                            "board_type": board_type,
+                            "num_players": num_players,
+                            "num_games": games_per_node,
+                            "seed": node_seed,
+                        }
+                        cmd_id = self._enqueue_relay_command(node_id, "canonical_selfplay", payload)
+                        if cmd_id:
+                            dispatched += 1
+                        else:
+                            print(f"[P2P] Relay queue full; skipping canonical selfplay enqueue for {node_id}")
+                    else:
+                        payload = {
+                            "job_id": f"{job_id}-{node_id}",
+                            "board_type": board_type,
+                            "num_players": num_players,
+                            "num_games": games_per_node,
+                            "seed": node_seed,
+                        }
+                        async with ClientSession(timeout=ClientTimeout(total=30)) as session:
+                            for url in self._urls_for_peer(node, "/pipeline/selfplay_worker"):
+                                try:
+                                    async with session.post(url, json=payload, headers=self._get_auth_headers()) as resp:
+                                        if resp.status == 200:
+                                            dispatched += 1
+                                            break
+                                except Exception:
+                                    continue
                 except Exception as e:
                     print(f"[P2P] Failed to dispatch selfplay to {node_id}: {e}")
 
@@ -8436,6 +8675,55 @@ print(json.dumps({{
                 elif cmd_type == "cleanup":
                     asyncio.create_task(self._cleanup_local_disk())
                     ok = True
+                elif cmd_type == "restart_stuck_jobs":
+                    asyncio.create_task(self._restart_local_stuck_jobs())
+                    ok = True
+                elif cmd_type == "cleanup_files":
+                    files = payload.get("files", []) or []
+                    reason = str(payload.get("reason") or "relay")
+                    if not isinstance(files, list) or not files:
+                        ok = False
+                        err = "no_files"
+                    else:
+                        data_dir = self.get_data_directory()
+                        freed_bytes = 0
+                        deleted_count = 0
+                        data_root = data_dir.resolve()
+                        for file_path in files:
+                            full_path = data_dir / (str(file_path or "").lstrip("/"))
+                            try:
+                                resolved = full_path.resolve()
+                                resolved.relative_to(data_root)
+                            except Exception:
+                                continue
+                            if not resolved.exists():
+                                continue
+                            try:
+                                size = resolved.stat().st_size
+                                resolved.unlink()
+                                freed_bytes += size
+                                deleted_count += 1
+                            except Exception:
+                                continue
+                        print(
+                            f"[P2P] Relay cleanup_files: {deleted_count} files deleted, "
+                            f"{freed_bytes / 1e6:.1f}MB freed (reason={reason})"
+                        )
+                        ok = True
+                elif cmd_type == "canonical_selfplay":
+                    job_id = str(payload.get("job_id") or "")
+                    board_type = str(payload.get("board_type") or "square8")
+                    num_players = int(payload.get("num_players") or 2)
+                    num_games = int(payload.get("num_games") or payload.get("games_per_node") or 500)
+                    seed = int(payload.get("seed") or 0)
+                    if not job_id:
+                        ok = False
+                        err = "missing_job_id"
+                    else:
+                        asyncio.create_task(
+                            self._run_local_canonical_selfplay(job_id, board_type, num_players, num_games, seed)
+                        )
+                        ok = True
                 else:
                     ok = False
                     err = f"unknown_command_type:{cmd_type}"
@@ -8680,6 +8968,9 @@ print(json.dumps({{
         """Heuristic: leaders must be directly reachable and uniquely addressable."""
         if require_alive and not peer.is_alive():
             return False
+        voters = list(getattr(self, "voter_node_ids", []) or [])
+        if voters and peer.node_id not in voters:
+            return False
         if int(getattr(peer, "consecutive_failures", 0) or 0) >= MAX_CONSECUTIVE_FAILURES:
             return False
         if getattr(peer, "nat_blocked", False):
@@ -8770,6 +9061,13 @@ print(json.dumps({{
         # NAT-blocked nodes cannot act as a leader because peers can't reach them.
         if getattr(self.self_info, "nat_blocked", False):
             return
+        # Optional quorum gating: only configured voters may lead, and only when
+        # a majority of voters are currently visible.
+        if getattr(self, "voter_node_ids", []):
+            if self.node_id not in self.voter_node_ids:
+                return
+            if not self._has_voter_quorum():
+                return
 
         with self.peers_lock:
             peers_snapshot = [p for p in self.peers.values() if p.node_id != self.node_id]
@@ -8851,6 +9149,9 @@ print(json.dumps({{
         if getattr(self.self_info, "nat_blocked", False):
             print(f"[P2P] Refusing leadership while NAT-blocked: {self.node_id}")
             return
+        if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
+            print(f"[P2P] Refusing leadership without voter quorum: {self.node_id}")
+            return
         import uuid
         print(f"[P2P] I am now the leader: {self.node_id}")
         self.role = NodeRole.LEADER
@@ -8885,6 +9186,15 @@ print(json.dumps({{
     async def _renew_leader_lease(self):
         """Renew our leadership lease and broadcast to peers."""
         if self.role != NodeRole.LEADER:
+            return
+        if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
+            print(f"[P2P] Lost voter quorum; stepping down: {self.node_id}")
+            self.role = NodeRole.FOLLOWER
+            self.leader_id = None
+            self.leader_lease_id = ""
+            self.leader_lease_expires = 0.0
+            self.last_lease_renewal = 0.0
+            self._save_state()
             return
 
         now = time.time()
@@ -9304,10 +9614,19 @@ print(json.dumps({{
                 return
             timeout = ClientTimeout(total=HTTP_TOTAL_TIMEOUT)
             async with ClientSession(timeout=timeout) as session:
-                url = self._url_for_peer(node, "/cleanup")
-                async with session.post(url, json={}, headers=self._auth_headers()) as resp:
-                    if resp.status == 200:
-                        print(f"[P2P] Cleanup requested on {node.node_id}")
+                last_err: Optional[str] = None
+                for url in self._urls_for_peer(node, "/cleanup"):
+                    try:
+                        async with session.post(url, json={}, headers=self._auth_headers()) as resp:
+                            if resp.status == 200:
+                                print(f"[P2P] Cleanup requested on {node.node_id}")
+                                return
+                            last_err = f"http_{resp.status}"
+                    except Exception as e:
+                        last_err = str(e)
+                        continue
+                if last_err:
+                    print(f"[P2P] Cleanup request failed on {node.node_id}: {last_err}")
         except Exception as e:
             print(f"[P2P] Failed to request cleanup from {node.node_id}: {e}")
 
@@ -9380,18 +9699,32 @@ print(json.dumps({{
     async def _request_job_restart(self, node: NodeInfo):
         """Request a remote node to restart its stuck selfplay jobs."""
         try:
+            if getattr(node, "nat_blocked", False):
+                cmd_id = self._enqueue_relay_command(node.node_id, "restart_stuck_jobs", {})
+                if cmd_id:
+                    print(f"[P2P] Enqueued relay restart_stuck_jobs for {node.node_id}")
+                else:
+                    print(f"[P2P] Relay queue full for {node.node_id}; skipping restart enqueue")
+                return
             timeout = ClientTimeout(total=HTTP_TOTAL_TIMEOUT)
             async with ClientSession(timeout=timeout) as session:
-                url = self._url_for_peer(node, "/restart_stuck_jobs")
-                async with session.post(url, json={}, headers=self._auth_headers()) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        if data.get("success"):
-                            print(f"[P2P] Job restart requested on {node.node_id}")
-                        else:
-                            print(f"[P2P] Job restart failed on {node.node_id}: {data.get('error')}")
-                    else:
-                        print(f"[P2P] Job restart request failed with status {resp.status}")
+                last_err: Optional[str] = None
+                for url in self._urls_for_peer(node, "/restart_stuck_jobs"):
+                    try:
+                        async with session.post(url, json={}, headers=self._auth_headers()) as resp:
+                            if resp.status != 200:
+                                last_err = f"http_{resp.status}"
+                                continue
+                            data = await resp.json()
+                            if data.get("success"):
+                                print(f"[P2P] Job restart requested on {node.node_id}")
+                                return
+                            last_err = str(data.get("error") or "restart_failed")
+                    except Exception as e:
+                        last_err = str(e)
+                        continue
+                if last_err:
+                    print(f"[P2P] Job restart request failed on {node.node_id}: {last_err}")
         except Exception as e:
             print(f"[P2P] Failed to request job restart from {node.node_id}: {e}")
 
@@ -9732,7 +10065,6 @@ print(json.dumps({{
 
             timeout = ClientTimeout(total=10)
             async with ClientSession(timeout=timeout) as session:
-                url = self._url_for_peer(node, "/start_job")
                 payload = {
                     "job_id": job_id,
                     "job_type": job_type.value,
@@ -9740,13 +10072,23 @@ print(json.dumps({{
                     "num_players": num_players,
                     "engine_mode": engine_mode,
                 }
-                async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        if data.get("success"):
-                            print(f"[P2P] Started remote {board_type} {num_players}p job on {node.node_id}")
-                        else:
-                            print(f"[P2P] Failed to start remote job: {data.get('error')}")
+                last_err: Optional[str] = None
+                for url in self._urls_for_peer(node, "/start_job"):
+                    try:
+                        async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
+                            if resp.status != 200:
+                                last_err = f"http_{resp.status}"
+                                continue
+                            data = await resp.json()
+                            if data.get("success"):
+                                print(f"[P2P] Started remote {board_type} {num_players}p job on {node.node_id}")
+                                return
+                            last_err = str(data.get("error") or "start_failed")
+                    except Exception as e:
+                        last_err = str(e)
+                        continue
+                if last_err:
+                    print(f"[P2P] Failed to start remote job on {node.node_id}: {last_err}")
         except Exception as e:
             print(f"[P2P] Failed to request remote job from {node.node_id}: {e}")
 

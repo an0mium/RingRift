@@ -1,6 +1,6 @@
 # RingRift AI Service
 
-> **Doc Status (2025-12-06): Active (Python AI microservice, AI host/adapter only)**
+> **Doc Status (2025-12-13): Active (Python AI microservice, AI host/adapter only)**
 >
 > - Role: primary reference for the Python AI microservice API surface, difficulty ladder, and integration with the Node.js backend. It describes the AI host, not the game rules themselves.
 > - Not a semantics or lifecycle SSoT: the Python rules engine inside this service is a **host/adapter** over the canonical rules SSoT (the written spec in `RULES_CANONICAL_SPEC.md` plus `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) and its shared TypeScript implementation under `src/shared/engine/**` and `src/shared/engine/contracts/**`, with cross-language behaviour anchored by the v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`. For canonical rules semantics and lifecycle/API contracts, defer to [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md), [`ringrift_complete_rules.md`](../ringrift_complete_rules.md), [`RULES_ENGINE_ARCHITECTURE.md`](../RULES_ENGINE_ARCHITECTURE.md), [`RULES_IMPLEMENTATION_MAPPING.md`](../RULES_IMPLEMENTATION_MAPPING.md), and [`docs/CANONICAL_ENGINE_API.md`](../docs/CANONICAL_ENGINE_API.md).

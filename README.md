@@ -25,17 +25,17 @@ A web-based multiplayer implementation of the RingRift strategy game supporting 
 | Metric                      | Value                      |
 | --------------------------- | -------------------------- |
 | TypeScript tests (CI-gated) | 2,987 passing              |
-| Python tests                | 836 passing                |
+| Python tests                | 1,727 passing              |
 | Contract vectors            | 81 (100% TS↔Python parity) |
 | Line coverage               | ~69%                       |
 | Canonical phases            | 8                          |
 | Development waves complete  | 14/14                      |
 
-### Recent Updates (2025-12-07)
+### Recent Updates (2025-12-13)
 
-- Added a **DecisionUI PlayerChoice harness** (`tests/unit/DecisionUI.choiceDialog.harness.test.tsx`) to exercise `capture_direction`, `line_reward_option`, `region_order`, `ring_elimination`, and `line_order` choice routing (with countdown handling) without the brittle BackendGameHost wiring. Client/component coverage is still very low but now has an initial anchor suite.
-- Backfilled a **hex line → territory FAQ scenario** (`tests/scenarios/FAQ_Q20_line_then_territory.hex.test.ts`) and recorded it in `docs/rules/RULES_SCENARIO_MATRIX.md` to keep the scenario matrix aligned with the rules/FAQ set.
-- Added **square8/square19 line → territory FAQ variants** (`tests/scenarios/FAQ_Q20_line_then_territory.square8.test.ts`) to cover the combined line_reward + territory region pipeline on square boards (both variants in one suite) and keep the scenario matrix current.
+- **Component test coverage expansion**: Added 152 new tests across 4 previously untested components (SandboxTouchControlsPanel, MoveAnalysisPanel, EvaluationGraph, RatingHistoryChart). Total component test suites now at 60 with 1,189 tests.
+- **Documentation hygiene pass**: Updated dates and metrics across all key docs.
+- **Python test suite growth**: Python AI service tests expanded from 836 to 1,727 tests covering parity, training, and AI improvements.
 
 ### Commands
 

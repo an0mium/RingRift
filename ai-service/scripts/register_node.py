@@ -64,6 +64,25 @@ def get_public_ip() -> Optional[str]:
     return None
 
 
+def get_tailscale_ip() -> Optional[str]:
+    """Get this machine's Tailscale IPv4 (100.x) if available."""
+    try:
+        result = subprocess.run(
+            ["tailscale", "ip", "-4"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        ip = (result.stdout or "").strip().splitlines()[0].strip()
+        return ip or None
+    except FileNotFoundError:
+        return None
+    except Exception:
+        return None
+
+
 def get_local_ip() -> Optional[str]:
     """Get this machine's local IP address."""
     try:
@@ -93,6 +112,7 @@ def register_with_coordinator(
     host: str,
     port: int,
     vast_instance_id: Optional[str] = None,
+    tailscale_ip: Optional[str] = None,
 ) -> bool:
     """Register this node with the P2P coordinator."""
     url = f"{coordinator_url.rstrip('/')}/register"
@@ -104,6 +124,8 @@ def register_with_coordinator(
     }
     if vast_instance_id:
         payload["vast_instance_id"] = vast_instance_id
+    if tailscale_ip:
+        payload["tailscale_ip"] = tailscale_ip
 
     try:
         data = json.dumps(payload).encode("utf-8")
@@ -141,6 +163,7 @@ def register_with_any_coordinator(
     host: str,
     port: int,
     vast_instance_id: Optional[str] = None,
+    tailscale_ip: Optional[str] = None,
 ) -> bool:
     for coordinator_url in coordinator_urls:
         if register_with_coordinator(
@@ -149,6 +172,7 @@ def register_with_any_coordinator(
             host=host,
             port=port,
             vast_instance_id=vast_instance_id,
+            tailscale_ip=tailscale_ip,
         ):
             return True
     return False
@@ -170,6 +194,8 @@ def main():
 
     args = parser.parse_args()
 
+    tailscale_ip = get_tailscale_ip()
+
     # Determine IP
     if args.host:
         host = args.host
@@ -179,13 +205,13 @@ def main():
             print("Failed to detect local IP")
             sys.exit(1)
     elif args.auto_ip:
-        host = get_public_ip()
+        host = get_public_ip() or tailscale_ip
         if not host:
             print("Failed to detect public IP")
             sys.exit(1)
     else:
         # Try public first, fall back to local
-        host = get_public_ip() or get_local_ip()
+        host = get_public_ip() or tailscale_ip or get_local_ip()
         if not host:
             print("Failed to detect IP address")
             sys.exit(1)
@@ -202,6 +228,7 @@ def main():
         host=host,
         port=port,
         vast_instance_id=args.vast_id,
+        tailscale_ip=tailscale_ip,
     )
 
     sys.exit(0 if success else 1)

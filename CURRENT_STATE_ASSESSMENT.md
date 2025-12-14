@@ -28,7 +28,7 @@ RingRift is a **stable beta** turn-based board game implementation with a consol
 | Metric                               | Value                                                  |
 | ------------------------------------ | ------------------------------------------------------ |
 | TypeScript tests (CI-gated)          | 2,987 passing                                          |
-| Python tests                         | 836 passing                                            |
+| Python tests                         | 1,727 passing                                          |
 | Contract vectors                     | 81 across 18 files (v2 format)                         |
 | DB replay parity (TS↔Python replays) | In progress; CanonicalReplayEngine powering TS harness |
 | Line coverage                        | ~69%                                                   |

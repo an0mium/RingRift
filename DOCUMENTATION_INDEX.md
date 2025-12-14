@@ -93,15 +93,18 @@ Rules engine implementation and parity documentation.
 
 AI service and training documentation.
 
-| Document                                                                                     | Purpose                            |
-| -------------------------------------------------------------------------------------------- | ---------------------------------- |
-| [AI_DIFFICULTY_ANALYSIS.md](docs/ai/AI_DIFFICULTY_ANALYSIS.md)                               | Difficulty level analysis          |
-| [AI_LARGE_BOARD_PERFORMANCE_ASSESSMENT.md](docs/ai/AI_LARGE_BOARD_PERFORMANCE_ASSESSMENT.md) | Large board performance            |
-| [AI_TRAINING_AND_DATASETS.md](docs/ai/AI_TRAINING_AND_DATASETS.md)                           | Training pipelines and datasets    |
-| [AI_TRAINING_ASSESSMENT_FINAL.md](docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md)                   | Training assessment                |
-| [AI_TRAINING_PREPARATION_GUIDE.md](docs/ai/AI_TRAINING_PREPARATION_GUIDE.md)                 | Training preparation               |
-| [AI_TRAINING_PIPELINE_PLAN.md](ai-service/docs/AI_TRAINING_PIPELINE_PLAN.md)                 | Comprehensive AI training pipeline |
-| [AI_PIPELINE_PARITY_FIXES.md](docs/ai/AI_PIPELINE_PARITY_FIXES.md)                           | TS↔Python parity fixes (Dec 2025)  |
+| Document                                                                                         | Purpose                            |
+| ------------------------------------------------------------------------------------------------ | ---------------------------------- |
+| [AI_DIFFICULTY_ANALYSIS.md](docs/ai/AI_DIFFICULTY_ANALYSIS.md)                                   | Difficulty level analysis          |
+| [AI_LARGE_BOARD_PERFORMANCE_ASSESSMENT.md](docs/ai/AI_LARGE_BOARD_PERFORMANCE_ASSESSMENT.md)     | Large board performance            |
+| [AI_TRAINING_AND_DATASETS.md](docs/ai/AI_TRAINING_AND_DATASETS.md)                               | Training pipelines and datasets    |
+| [AI_TRAINING_ASSESSMENT_FINAL.md](docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md)                       | Training assessment                |
+| [AI_TRAINING_PREPARATION_GUIDE.md](docs/ai/AI_TRAINING_PREPARATION_GUIDE.md)                     | Training preparation               |
+| [AI_TRAINING_PIPELINE_PLAN.md](ai-service/docs/AI_TRAINING_PIPELINE_PLAN.md)                     | Comprehensive AI training pipeline |
+| [AI_PIPELINE_PARITY_FIXES.md](docs/ai/AI_PIPELINE_PARITY_FIXES.md)                               | TS↔Python parity fixes (Dec 2025)  |
+| [AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md](docs/ai/AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md) | Tier training and promotion design |
+| [AI_CALIBRATION_RUNBOOK.md](docs/ai/AI_CALIBRATION_RUNBOOK.md)                                   | Difficulty calibration procedures  |
+| [AI_LADDER_PRODUCTION_RUNBOOK.md](docs/ai/AI_LADDER_PRODUCTION_RUNBOOK.md)                       | Production run quick-start guide   |
 
 ### /docs/testing/
 
