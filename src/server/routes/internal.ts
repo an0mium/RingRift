@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { HealthCheckService, isServiceReady } from '../services/HealthCheckService';
 import { httpLogger } from '../utils/logger';
+import { internalHealthRateLimiter, alertWebhookRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
@@ -17,7 +18,7 @@ const router = Router();
  *       200:
  *         description: Service is live
  */
-router.get('/health/live', (_req: Request, res: Response) => {
+router.get('/health/live', internalHealthRateLimiter, (_req: Request, res: Response) => {
   const status = HealthCheckService.getLivenessStatus();
   res.status(200).json(status);
 });
@@ -37,7 +38,7 @@ router.get('/health/live', (_req: Request, res: Response) => {
  *       503:
  *         description: Service is not ready
  */
-router.get('/health/ready', async (_req: Request, res: Response) => {
+router.get('/health/ready', internalHealthRateLimiter, async (_req: Request, res: Response) => {
   const status = await HealthCheckService.getReadinessStatus();
   const httpStatus = isServiceReady(status) ? 200 : 503;
   res.status(httpStatus).json(status);
@@ -50,7 +51,7 @@ router.get('/health/ready', async (_req: Request, res: Response) => {
  * bounded subset of the payload so that local monitoring stacks can deliver
  * alerts without external integrations.
  */
-router.post('/alert-webhook', (req: Request, res: Response) => {
+router.post('/alert-webhook', alertWebhookRateLimiter, (req: Request, res: Response) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
   const receiver = typeof body.receiver === 'string' ? body.receiver.slice(0, 200) : undefined;
   const status = typeof body.status === 'string' ? body.status.slice(0, 50) : undefined;

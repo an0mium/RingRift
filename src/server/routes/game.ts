@@ -199,6 +199,9 @@ router.post(
  * Guarded to test/development environments to avoid exposing raw evaluation
  * of arbitrary positions in production.
  */
+// Maximum size for serialized game state in sandbox endpoints (100KB)
+const MAX_SERIALIZED_STATE_SIZE = 100 * 1024;
+
 sandboxHelperRoutes.post(
   '/sandbox/evaluate',
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -209,6 +212,16 @@ sandboxHelperRoutes.post(
     const body = (req.body || {}) as { state?: SerializedGameState };
     if (!body.state) {
       throw createError('Missing serialized sandbox state', 400, 'INVALID_REQUEST');
+    }
+
+    // Validate payload size to prevent memory exhaustion
+    const stateSize = JSON.stringify(body.state).length;
+    if (stateSize > MAX_SERIALIZED_STATE_SIZE) {
+      throw createError(
+        `Serialized state too large (${stateSize} bytes, max ${MAX_SERIALIZED_STATE_SIZE})`,
+        400,
+        'PAYLOAD_TOO_LARGE'
+      );
     }
 
     const gameState = deserializeGameState(body.state);
@@ -268,6 +281,16 @@ sandboxHelperRoutes.post(
 
     if (!body.state) {
       throw createError('Missing serialized sandbox state', 400, 'INVALID_REQUEST');
+    }
+
+    // Validate payload size to prevent memory exhaustion
+    const stateSize = JSON.stringify(body.state).length;
+    if (stateSize > MAX_SERIALIZED_STATE_SIZE) {
+      throw createError(
+        `Serialized state too large (${stateSize} bytes, max ${MAX_SERIALIZED_STATE_SIZE})`,
+        400,
+        'PAYLOAD_TOO_LARGE'
+      );
     }
 
     const gameState = deserializeGameState(body.state);

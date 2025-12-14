@@ -225,6 +225,22 @@ export const getRateLimitConfigs = (): Record<string, RateLimitConfig> => ({
     duration: getEnvNumber('RATE_LIMIT_CLIENT_ERRORS_DURATION', 60), // per minute
     blockDuration: getEnvNumber('RATE_LIMIT_CLIENT_ERRORS_BLOCK_DURATION', 300), // 5 min block
   },
+
+  // Internal health check endpoints - lenient but prevents probe flooding
+  internalHealth: {
+    keyPrefix: 'internal_health_limit',
+    points: getEnvNumber('RATE_LIMIT_INTERNAL_HEALTH_POINTS', 30), // requests
+    duration: getEnvNumber('RATE_LIMIT_INTERNAL_HEALTH_DURATION', 60), // per minute
+    blockDuration: getEnvNumber('RATE_LIMIT_INTERNAL_HEALTH_BLOCK_DURATION', 60), // 1 min block
+  },
+
+  // Alert webhook - conservative to prevent log flooding attacks
+  alertWebhook: {
+    keyPrefix: 'alert_webhook_limit',
+    points: getEnvNumber('RATE_LIMIT_ALERT_WEBHOOK_POINTS', 10), // requests
+    duration: getEnvNumber('RATE_LIMIT_ALERT_WEBHOOK_DURATION', 60), // per minute
+    blockDuration: getEnvNumber('RATE_LIMIT_ALERT_WEBHOOK_BLOCK_DURATION', 300), // 5 min block
+  },
 });
 
 // Cache the configs to avoid re-parsing env vars on every request
@@ -278,6 +294,21 @@ export const initializeRateLimiters = (redis: RedisClientType | null) => {
     limiterCount: Object.keys(rateLimiters).length,
     configs: Object.fromEntries(Object.entries(configs).map(([k, v]) => [k, v.points])),
   });
+
+  // Production safety: warn if rate limit bypass is enabled
+  if (isRateLimitBypassEnabled()) {
+    const isProduction = process.env.NODE_ENV === 'production';
+    const level = isProduction ? 'error' : 'warn';
+    logger[level](
+      `SECURITY: Rate limit bypass is ENABLED. ${isProduction ? 'This is dangerous in production!' : 'Acceptable for testing only.'}`,
+      {
+        event: 'rate_limit_bypass_enabled',
+        bypassPattern: process.env.RATE_LIMIT_BYPASS_USER_PATTERN || 'loadtest.*@loadtest\\.local',
+        bypassIPs: process.env.RATE_LIMIT_BYPASS_IPS || '(none)',
+        isProduction,
+      }
+    );
+  }
 };
 
 /**
@@ -517,6 +548,10 @@ export const clientErrorsRateLimiter = createRateLimiter('clientErrors', {
     return req.ip || 'unknown';
   },
 });
+
+// Internal route rate limiters
+export const internalHealthRateLimiter = createRateLimiter('internalHealth');
+export const alertWebhookRateLimiter = createRateLimiter('alertWebhook');
 
 /**
  * Rate limiter that differentiates between authenticated and anonymous users.
