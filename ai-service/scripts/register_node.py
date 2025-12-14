@@ -6,16 +6,16 @@ Useful for Vast.ai instances that get new IPs on restart.
 
 Usage:
     # Register with a specific P2P coordinator
-    python scripts/register_node.py --node-id vast-5090-quad --coordinator http://192.222.53.22:8770
+    python scripts/register_node.py --node-id <node-id> --coordinator http://<coordinator-ip>:8770
 
     # Auto-detect IP and register
-    python scripts/register_node.py --node-id vast-5090-quad --coordinator http://192.222.53.22:8770 --auto-ip
+    python scripts/register_node.py --node-id <node-id> --coordinator http://<coordinator-ip>:8770 --auto-ip
 
     # Include Vast instance ID for API-based updates
-    python scripts/register_node.py --node-id vast-5090-quad --coordinator http://192.222.53.22:8770 --vast-id 28654132
+    python scripts/register_node.py --node-id <node-id> --coordinator http://<coordinator-ip>:8770 --vast-id <instance-id>
 
 Example cron entry (register every 5 minutes):
-    */5 * * * * python /root/ringrift/ai-service/scripts/register_node.py --node-id vast-5090-quad --coordinator http://192.222.53.22:8770 --auto-ip
+    */5 * * * * python /path/to/ai-service/scripts/register_node.py --node-id <node-id> --coordinator http://<coordinator-ip>:8770 --auto-ip
 """
 from __future__ import annotations
 

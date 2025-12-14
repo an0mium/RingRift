@@ -2637,7 +2637,7 @@ def main():
         help=(
             "Comma-separated list of seed P2P nodes to discover the current leader "
             "(used when --p2p-leader is not set). Example: "
-            "http://54.198.219.106:8770,http://192.222.53.22:8770"
+            "http://<node1-ip>:8770,http://<node2-ip>:8770"
         ),
     )
     parser.add_argument(

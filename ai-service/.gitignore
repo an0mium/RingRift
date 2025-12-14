@@ -13,6 +13,10 @@ config/p2p_hosts.yaml
 scripts/sync_to_mbp64.sh
 scripts/sync_selfplay_data.sh
 scripts/sync_to_mac_studio.sh
+scripts/sync_gh200_data.sh
+scripts/migrate_vast_to_gh200.sh
+scripts/backup_models.sh
+scripts/auto_consolidate_nfs.sh
 
 # Orchestrator state and logs contain host-specific data
 logs/orchestrator/cluster_state.json
@@ -40,3 +44,4 @@ docs/AI_TRAINING_PIPELINE_PLAN.md
 # Analysis reports with cluster IPs and machine details (regenerated per session)
 docs/SELFPLAY_MACHINE_ANALYSIS_*.md
 docs/DISTRIBUTED_SELFPLAY.md
+docs/CLUSTER_MIGRATION_PLAN.md

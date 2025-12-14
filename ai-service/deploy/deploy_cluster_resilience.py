@@ -11,7 +11,7 @@ It installs/updates:
 
 Usage (dry-run by default):
   python3 ai-service/deploy/deploy_cluster_resilience.py \\
-    --coordinator-url "http://192.222.53.22:8770,http://54.198.219.106:8770"
+    --coordinator-url "http://<voter1-ip>:8770,http://<voter2-ip>:8770"
 
 Recommended: Use --use-tailscale to auto-build coordinator URLs from config:
   python3 ai-service/deploy/deploy_cluster_resilience.py --apply --use-tailscale
@@ -22,7 +22,7 @@ Recommended: Use --use-tailscale to auto-build coordinator URLs from config:
 
 Apply with explicit coordinator URL:
   python3 ai-service/deploy/deploy_cluster_resilience.py --apply \\
-    --coordinator-url "http://192.222.53.22:8770,http://54.198.219.106:8770"
+    --coordinator-url "http://<voter1-ip>:8770,http://<voter2-ip>:8770"
 
 Force-sync code (overwrites local changes) for broken/dirty workers:
   python3 ai-service/deploy/deploy_cluster_resilience.py --apply --force-sync --use-tailscale

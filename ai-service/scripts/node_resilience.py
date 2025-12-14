@@ -9,10 +9,10 @@ This script runs as a background daemon on each node and ensures:
 
 Usage:
     # Run as daemon
-    python scripts/node_resilience.py --node-id vast-5090-quad --coordinator http://192.222.53.22:8770
+    python scripts/node_resilience.py --node-id <node-id> --coordinator http://<coordinator-ip>:8770
 
     # Run once (for cron)
-    python scripts/node_resilience.py --node-id vast-5090-quad --coordinator http://192.222.53.22:8770 --once
+    python scripts/node_resilience.py --node-id <node-id> --coordinator http://<coordinator-ip>:8770 --once
 """
 from __future__ import annotations
 

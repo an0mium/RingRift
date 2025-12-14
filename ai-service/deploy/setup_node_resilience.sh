@@ -5,7 +5,7 @@
 #   ./setup_node_resilience.sh <node-id> <coordinator-url>
 #
 # Example:
-#   ./setup_node_resilience.sh vast-5090-quad http://192.222.53.22:8770
+#   ./setup_node_resilience.sh <node-id> http://<coordinator-ip>:8770
 
 set -e
 

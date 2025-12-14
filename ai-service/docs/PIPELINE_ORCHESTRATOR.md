@@ -382,42 +382,23 @@ python scripts/pipeline_orchestrator.py --phase resources
 
 ```yaml
 hosts:
-  mac-studio:
-    ssh_host: '100.107.168.125' # Tailscale IP
-    ssh_user: 'armand'
-    ssh_key: '~/.ssh/id_cluster'
-    ringrift_path: '~/Development/RingRift'
-    memory_gb: 96
-    gpu: 'M3 Max/Ultra (MPS)'
-    role: 'nn_training_mps'
-    status: 'ready'
-
-  aws-staging:
-    ssh_host: '54.198.219.106'
+  # Example configuration - actual IPs stored in config/distributed_hosts.yaml (gitignored)
+  example-gpu-node:
+    ssh_host: '<host-ip>' # Public IP or Tailscale IP
     ssh_user: 'ubuntu'
-    ssh_key: '~/.ssh/ringrift-staging-key.pem'
-    ringrift_path: '/home/ubuntu/ringrift'
-    memory_gb: 128
-    role: 'selfplay_cmaes'
-    status: 'ready'
-
-  lambda-h100:
-    ssh_host: '209.20.157.81'
-    ssh_user: 'ubuntu'
-    ringrift_path: '~/ringrift'
+    ssh_key: '~/.ssh/your-key.pem'
+    ringrift_path: '~/ringrift/ai-service'
     memory_gb: 256
     gpu: 'NVIDIA H100 (80GB)'
     role: 'nn_training_primary'
     status: 'ready'
 
-  vast-5090-quad:
-    ssh_host: '211.72.13.202'
-    ssh_port: 45875
-    ssh_user: 'root'
-    ringrift_path: '~/ringrift'
-    memory_gb: 1024
-    gpu: '4x RTX 5090 (128GB)'
-    role: 'nn_training_primary'
+  example-selfplay-node:
+    ssh_host: '<host-ip>'
+    ssh_user: 'ubuntu'
+    ringrift_path: '~/ringrift/ai-service'
+    memory_gb: 128
+    role: 'selfplay'
     status: 'ready'
 ```
 
