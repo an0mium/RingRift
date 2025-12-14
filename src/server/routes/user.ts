@@ -8,7 +8,11 @@ import {
 import { ErrorCodes } from '../errors';
 import { AuthenticatedRequest, getAuthUserId } from '../middleware/auth';
 import { createError, asyncHandler } from '../middleware/errorHandler';
-import { dataExportRateLimiter, userRatingRateLimiter } from '../middleware/rateLimiter';
+import {
+  dataExportRateLimiter,
+  userRatingRateLimiter,
+  userSearchRateLimiter,
+} from '../middleware/rateLimiter';
 import { httpLogger } from '../utils/logger';
 import {
   UpdateProfileSchema,
@@ -606,6 +610,7 @@ router.get(
  */
 router.get(
   '/search',
+  userSearchRateLimiter,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     // Validate query parameters with schema
     const queryResult = UserSearchQuerySchema.safeParse(req.query);
@@ -624,28 +629,34 @@ router.get(
       throw createError('Database not available', 500, 'DATABASE_UNAVAILABLE');
     }
 
-    const users = await prisma.user.findMany({
-      where: {
-        username: {
-          contains: q,
-          mode: 'insensitive',
+    const searchResult = await withQueryTimeoutStrict(
+      prisma.user.findMany({
+        where: {
+          username: {
+            contains: q,
+            mode: 'insensitive',
+          },
+          isActive: true,
         },
-        isActive: true,
-      },
-      select: {
-        id: true,
-        username: true,
-        rating: true,
-        gamesPlayed: true,
-        gamesWon: true,
-      },
-      take: limit,
-      orderBy: { rating: 'desc' },
-    });
+        select: {
+          id: true,
+          username: true,
+          rating: true,
+          gamesPlayed: true,
+          gamesWon: true,
+        },
+        take: limit,
+        orderBy: { rating: 'desc' },
+      })
+    );
+
+    if (!searchResult.success) {
+      throw createError('Search query timed out', 504, ErrorCodes.SERVER_GATEWAY_TIMEOUT);
+    }
 
     res.json({
       success: true,
-      data: { users },
+      data: { users: searchResult.data },
     });
   })
 );

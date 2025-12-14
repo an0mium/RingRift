@@ -97,10 +97,10 @@ export type GameListingQueryInput = z.infer<typeof GameListingQuerySchema>;
 export const UserSearchQuerySchema = z.object({
   q: z
     .string()
-    .min(1, 'Search query is required')
-    .max(100, 'Search query too long')
+    .min(2, 'Search query must be at least 2 characters')
+    .max(50, 'Search query too long')
     .transform((val) => sanitizeString(val)),
-  limit: z.coerce.number().int().min(1).max(50).default(10),
+  limit: z.coerce.number().int().min(1).max(20).default(10),
 });
 
 export type UserSearchQueryInput = z.infer<typeof UserSearchQuerySchema>;
