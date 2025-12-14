@@ -133,11 +133,18 @@ class AIType(str, Enum):
 
     GPU_MINIMAX is a GPU-accelerated minimax variant that uses batched leaf
     evaluation for improved performance on CUDA/MPS hardware.
+
+    Multiplayer minimax variants:
+    - MINIMAX: Paranoid search (assumes all opponents collude against you)
+    - MAXN: Max-N search (each player maximizes their own score)
+    - BRS: Best-Reply Search (greedy best replies, faster but shallower)
     """
     RANDOM = "random"
     HEURISTIC = "heuristic"
     MINIMAX = "minimax"
     GPU_MINIMAX = "gpu_minimax"
+    MAXN = "maxn"
+    BRS = "brs"
     MCTS = "mcts"
     DESCENT = "descent"
     NEURAL_DEMO = "neural_demo"

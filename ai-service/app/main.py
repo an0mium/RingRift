@@ -1688,6 +1688,14 @@ def _create_ai_instance(ai_type: AIType, player_number: int, config: AIConfig):
         from .ai.gpu_minimax_ai import GPUMinimaxAI
 
         return GPUMinimaxAI(player_number, config)
+    elif ai_type == AIType.MAXN:
+        from .ai.maxn_ai import MaxNAI
+
+        return MaxNAI(player_number, config)
+    elif ai_type == AIType.BRS:
+        from .ai.maxn_ai import BRSAI
+
+        return BRSAI(player_number, config)
     elif ai_type == AIType.MCTS:
         from .ai.mcts_ai import MCTSAI
 
