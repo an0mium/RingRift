@@ -2000,6 +2000,278 @@
       ],
       "title": "Loop Errors (1h)",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 40 },
+      "id": 200,
+      "panels": [],
+      "title": "Self-Improvement Analytics",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Training and validation loss over time - shows if training is converging",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "pointSize": 5, "showPoints": "auto" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Validation Loss" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 41 },
+      "id": 201,
+      "options": {
+        "legend": { "calcs": ["min", "max", "last"], "displayMode": "table", "placement": "bottom" }
+      },
+      "targets": [
+        {
+          "expr": "ringrift_training_loss",
+          "legendFormat": "Train Loss: {{config}}",
+          "refId": "A"
+        },
+        {
+          "expr": "ringrift_training_val_loss",
+          "legendFormat": "Val Loss: {{config}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Training Loss Curve",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Data freshness per configuration - alerts when data becomes stale",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 6 },
+              { "color": "orange", "value": 12 },
+              { "color": "red", "value": 24 }
+            ]
+          },
+          "unit": "h"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 41 },
+      "id": 202,
+      "options": {
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        { "expr": "ringrift_data_freshness_hours", "legendFormat": "{{config}}", "refId": "A" }
+      ],
+      "title": "Data Freshness (hours since newest data)",
+      "type": "bargauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Games generated per hour by configuration",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 30, "lineWidth": 2 },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 49 },
+      "id": 203,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "right" }
+      },
+      "targets": [
+        { "expr": "ringrift_selfplay_games_per_hour", "legendFormat": "{{config}}", "refId": "A" }
+      ],
+      "title": "Selfplay Throughput (games/hour)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Elo improvement efficiency - how much Elo gain per GPU hour spent",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "green", "value": 10 }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 6, "w": 4, "x": 8, "y": 49 },
+      "id": 204,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "targets": [{ "expr": "ringrift_elo_per_gpu_hour", "legendFormat": "", "refId": "A" }],
+      "title": "Elo/GPU-Hour",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Total estimated cost in USD",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 100 },
+              { "color": "red", "value": 500 }
+            ]
+          },
+          "unit": "currencyUSD"
+        }
+      },
+      "gridPos": { "h": 6, "w": 4, "x": 12, "y": 49 },
+      "id": 205,
+      "options": { "colorMode": "background", "graphMode": "area" },
+      "targets": [{ "expr": "ringrift_estimated_cost_usd", "legendFormat": "", "refId": "A" }],
+      "title": "Total Cost (USD)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Promotion success rate - ratio of successful promotions to total attempts",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.3 },
+              { "color": "green", "value": 0.6 }
+            ]
+          },
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": { "h": 6, "w": 4, "x": 16, "y": 49 },
+      "id": 206,
+      "options": { "colorMode": "background", "graphMode": "area" },
+      "targets": [{ "expr": "ringrift_promotion_success_rate", "legendFormat": "", "refId": "A" }],
+      "title": "Promotion Success Rate",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Model evaluation confidence based on games played",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "green", "value": 0.8 }
+            ]
+          },
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": { "h": 6, "w": 4, "x": 20, "y": 49 },
+      "id": 207,
+      "options": { "colorMode": "background", "graphMode": "area" },
+      "targets": [
+        { "expr": "ringrift_eval_confidence", "legendFormat": "{{config}}", "refId": "A" }
+      ],
+      "title": "Evaluation Confidence",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Best Elo rating achieved per board configuration",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 10, "lineWidth": 2 },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 55 },
+      "id": 208,
+      "options": {
+        "legend": { "calcs": ["last", "max"], "displayMode": "table", "placement": "right" }
+      },
+      "targets": [{ "expr": "ringrift_best_elo", "legendFormat": "{{config}}", "refId": "A" }],
+      "title": "Best Elo by Configuration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Orchestrator and node uptime",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 3600 },
+              { "color": "green", "value": 86400 }
+            ]
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 55 },
+      "id": 209,
+      "options": { "colorMode": "background", "graphMode": "area" },
+      "targets": [
+        { "expr": "ringrift_orchestrator_uptime_seconds", "legendFormat": "", "refId": "A" }
+      ],
+      "title": "Orchestrator Uptime",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Average Elo gain when models are promoted",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "yellow", "value": null },
+              { "color": "green", "value": 20 }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 55 },
+      "id": 210,
+      "options": { "colorMode": "background", "graphMode": "area" },
+      "targets": [{ "expr": "ringrift_promotion_elo_gain", "legendFormat": "", "refId": "A" }],
+      "title": "Avg Elo Gain on Promotion",
+      "type": "stat"
     }
   ],
   "refresh": "30s",

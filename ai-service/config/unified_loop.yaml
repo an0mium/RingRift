@@ -132,6 +132,15 @@ configurations:
   - board_type: 'hexagonal'
     num_players: [2, 3, 4]
 
+# External drive sync (Mac Studio only)
+external_drive_sync:
+  enabled: true
+  target_dir: '/Volumes/RingRift-Data/selfplay_repository'
+  sync_interval_seconds: 300 # 5 minutes
+  sync_models: true
+  run_analysis: true
+  quarantine_bad_data: true
+
 # Alerting thresholds (for Grafana alerts)
 alerting:
   sync_failure_threshold: 5 # Alert after N consecutive sync failures

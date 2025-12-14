@@ -1346,6 +1346,79 @@ class UnifiedAILoop:
             except asyncio.TimeoutError:
                 pass
 
+    async def _external_drive_sync_loop(self):
+        """External drive sync loop - syncs data to Mac Studio external drive."""
+        # Check if external drive sync is enabled in config
+        config_path = AI_SERVICE_ROOT / "config" / "unified_loop.yaml"
+        if not config_path.exists():
+            return
+
+        try:
+            with open(config_path) as f:
+                full_config = yaml.safe_load(f) or {}
+
+            ext_config = full_config.get("external_drive_sync", {})
+            if not ext_config.get("enabled", False):
+                print("[ExternalDriveSync] Disabled in config")
+                return
+
+            target_dir = Path(ext_config.get("target_dir", "/Volumes/RingRift-Data/selfplay_repository"))
+            sync_interval = ext_config.get("sync_interval_seconds", 300)
+            sync_models = ext_config.get("sync_models", True)
+            run_analysis = ext_config.get("run_analysis", True)
+
+            # Check if target directory parent exists (drive is mounted)
+            if not target_dir.parent.exists():
+                print(f"[ExternalDriveSync] External drive not mounted at {target_dir.parent}")
+                return
+
+            print(f"[ExternalDriveSync] Starting with target={target_dir}, interval={sync_interval}s")
+
+        except Exception as e:
+            print(f"[ExternalDriveSync] Config error: {e}")
+            return
+
+        while self._running:
+            try:
+                # Run external_drive_sync_daemon.py --once
+                cmd = [
+                    sys.executable,
+                    str(AI_SERVICE_ROOT / "scripts" / "external_drive_sync_daemon.py"),
+                    "--once",
+                    "--target", str(target_dir),
+                    "--config", str(AI_SERVICE_ROOT / "config" / "distributed_hosts.yaml"),
+                ]
+
+                if not sync_models:
+                    cmd.append("--no-models")
+                if not run_analysis:
+                    cmd.append("--no-analysis")
+
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=AI_SERVICE_ROOT,
+                )
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=1800)
+
+                if process.returncode == 0:
+                    print(f"[ExternalDriveSync] Cycle complete")
+                else:
+                    print(f"[ExternalDriveSync] Error: {stderr.decode()[:200]}")
+
+            except asyncio.TimeoutError:
+                print("[ExternalDriveSync] Sync timed out")
+            except Exception as e:
+                print(f"[ExternalDriveSync] Error: {e}")
+
+            # Wait for next cycle
+            try:
+                await asyncio.wait_for(self._shutdown_event.wait(), timeout=sync_interval)
+                break
+            except asyncio.TimeoutError:
+                pass
+
     async def run(self):
         """Main entry point - runs all loops concurrently."""
         self._running = True
@@ -1372,7 +1445,7 @@ class UnifiedAILoop:
             print("[UnifiedLoop] Dry run complete - exiting")
             return
 
-        # Start all loops including metrics
+        # Start all loops including metrics and external drive sync
         await asyncio.gather(
             self._data_collection_loop(),
             self._evaluation_loop(),
@@ -1380,6 +1453,7 @@ class UnifiedAILoop:
             self._promotion_loop(),
             self._curriculum_loop(),
             self._metrics_loop(),
+            self._external_drive_sync_loop(),
         )
 
         print("[UnifiedLoop] Shutdown complete")

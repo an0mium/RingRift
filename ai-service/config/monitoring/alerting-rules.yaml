@@ -1,0 +1,199 @@
+# RingRift AI Loop Alerting Rules
+# Configure these in Prometheus or Alertmanager
+
+groups:
+  - name: ringrift-ai-loop
+    interval: 30s
+    rules:
+      # ==========================================================================
+      # Critical Alerts - Immediate attention required
+      # ==========================================================================
+
+      - alert: AILoopDown
+        expr: up{job="ringrift-ai-loop"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'RingRift AI Loop is down'
+          description: 'The unified AI loop on {{ $labels.instance }} has been down for more than 5 minutes.'
+          runbook: "Check if the process crashed. Run: ssh lambda_h100 'systemctl status ringrift-ai-loop'"
+
+      - alert: NoGamesSynced
+        expr: increase(ringrift_games_synced_total[30m]) == 0
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'No games synced in 30 minutes'
+          description: 'No new games have been synced from any host in the last 30 minutes. Data pipeline may be broken.'
+          runbook: 'Check network connectivity to selfplay hosts. Verify selfplay workers are running.'
+
+      - alert: AllHostsFailed
+        expr: ringrift_hosts_active == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'All hosts are unreachable'
+          description: 'All selfplay hosts are unreachable. No data collection is possible.'
+          runbook: 'Check network connectivity. Verify hosts are running. Check SSH keys.'
+
+      # ==========================================================================
+      # High Severity Alerts - Needs attention soon
+      # ==========================================================================
+
+      - alert: TrainingStuck
+        expr: ringrift_training_in_progress == 1 and (time() - ringrift_training_in_progress) > 7200
+        for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: 'Training has been running for over 2 hours'
+          description: 'Training for {{ $labels.config }} has been running for more than 2 hours. It may be stuck.'
+          runbook: "Check training logs. Consider killing the training process if it's stuck."
+
+      - alert: HighSyncErrorRate
+        expr: rate(ringrift_sync_errors_total[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: high
+        annotations:
+          summary: 'High sync error rate'
+          description: 'Sync error rate is {{ $value | humanize }} errors/sec for {{ $labels.host }}.'
+          runbook: 'Check connectivity to {{ $labels.host }}. Verify disk space and permissions.'
+
+      - alert: GamesPendingThresholdExceeded
+        expr: sum(ringrift_games_pending_training) > 5000
+        for: 1h
+        labels:
+          severity: high
+        annotations:
+          summary: 'Too many games pending training'
+          description: '{{ $value }} games are pending training. Training may not be keeping up with data generation.'
+          runbook: 'Check if training is running. Consider increasing training frequency or reducing data generation.'
+
+      - alert: HostConsecutiveFailures
+        expr: ringrift_hosts_failed > 3
+        for: 15m
+        labels:
+          severity: high
+        annotations:
+          summary: 'Multiple hosts have consecutive failures'
+          description: '{{ $value }} hosts have experienced consecutive sync failures.'
+          runbook: 'Check network connectivity. Review host logs for errors.'
+
+      # ==========================================================================
+      # Warning Alerts - Monitor closely
+      # ==========================================================================
+
+      - alert: NoPromotionsIn24h
+        expr: increase(ringrift_promotions_total[24h]) == 0 and increase(ringrift_training_runs_total[24h]) > 0
+        for: 24h
+        labels:
+          severity: warning
+        annotations:
+          summary: 'No model promotions in 24 hours'
+          description: 'Training has run but no models have been promoted in the last 24 hours. Model may not be improving.'
+          runbook: 'Review Elo trends. Check if promotion threshold is too high. Consider reducing threshold.'
+
+      - alert: EloDecline
+        expr: avg_over_time(ringrift_elo_trend[1h]) < -10
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Elo is declining for {{ $labels.config }}'
+          description: 'Elo trend for {{ $labels.config }} has been negative for 2 hours. Model may be regressing.'
+          runbook: 'Review recent training data quality. Check for data corruption. Consider reverting to previous model.'
+
+      - alert: SlowSyncDuration
+        expr: histogram_quantile(0.95, sum(rate(ringrift_sync_duration_seconds_bucket[10m])) by (le, host)) > 120
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Slow sync duration for {{ $labels.host }}'
+          description: 'p95 sync duration for {{ $labels.host }} is {{ $value | humanize }}s.'
+          runbook: 'Check network bandwidth. Consider using incremental sync if not already.'
+
+      - alert: LowActiveHosts
+        expr: ringrift_hosts_active < 5 and ringrift_hosts_active > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Low number of active hosts'
+          description: 'Only {{ $value }} hosts are active. Data generation capacity is reduced.'
+          runbook: 'Check connectivity to offline hosts. Verify hosts are running.'
+
+      - alert: UnbalancedCurriculum
+        expr: max(ringrift_curriculum_weight) / min(ringrift_curriculum_weight) > 3
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Curriculum weights are highly unbalanced'
+          description: 'Some configurations have much higher training weights than others. Model may be overfitting to certain configs.'
+          runbook: 'Review Elo by configuration. Consider manual curriculum adjustment.'
+
+      # ==========================================================================
+      # Informational Alerts - For awareness
+      # ==========================================================================
+
+      - alert: ModelPromoted
+        expr: increase(ringrift_promotions_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: 'Model promoted for {{ $labels.config }}'
+          description: 'A new model has been promoted for {{ $labels.config }}.'
+
+      - alert: TrainingStarted
+        expr: changes(ringrift_training_in_progress[5m]) > 0 and ringrift_training_in_progress == 1
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: 'Training started for {{ $labels.config }}'
+          description: 'Training has started for {{ $labels.config }}.'
+
+      - alert: CurriculumRebalanced
+        expr: increase(ringrift_curriculum_rebalances_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: 'Curriculum weights rebalanced'
+          description: 'Training curriculum weights have been rebalanced based on Elo performance.'
+
+# Alertmanager routing configuration example
+# alertmanager_config:
+#   global:
+#     slack_api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+#
+#   route:
+#     group_by: ['alertname', 'severity']
+#     group_wait: 30s
+#     group_interval: 5m
+#     repeat_interval: 4h
+#     receiver: 'slack-notifications'
+#     routes:
+#       - match:
+#           severity: critical
+#         receiver: 'slack-critical'
+#         repeat_interval: 30m
+#
+#   receivers:
+#     - name: 'slack-notifications'
+#       slack_configs:
+#         - channel: '#ringrift-alerts'
+#           title: '{{ .GroupLabels.alertname }}'
+#           text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+#
+#     - name: 'slack-critical'
+#       slack_configs:
+#         - channel: '#ringrift-critical'
+#           title: 'CRITICAL: {{ .GroupLabels.alertname }}'
+#           text: '{{ range .Alerts }}{{ .Annotations.description }}\nRunbook: {{ .Annotations.runbook }}{{ end }}'
