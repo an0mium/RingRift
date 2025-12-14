@@ -1647,10 +1647,14 @@ def main():
 
         os.setsid()
 
-        # Redirect stdout/stderr to log file
+        # Redirect stdout/stderr to log file with line buffering
         with open(LOG_FILE, "a") as log:
             os.dup2(log.fileno(), sys.stdout.fileno())
             os.dup2(log.fileno(), sys.stderr.fileno())
+
+        # Enable line buffering for real-time log monitoring
+        sys.stdout = open(sys.stdout.fileno(), mode='w', buffering=1, closefd=False)
+        sys.stderr = open(sys.stderr.fileno(), mode='w', buffering=1, closefd=False)
 
         asyncio.run(run_daemon(foreground=False))
     else:
