@@ -3,6 +3,7 @@ RingRift AI Service - FastAPI Application
 Provides AI move selection and position evaluation endpoints
 """
 
+import asyncio
 import logging
 import time
 import os
@@ -158,6 +159,10 @@ def sanitize_error_detail(error: Exception, fallback: str = "Internal server err
     if IS_PRODUCTION:
         return fallback
     return str(error)
+
+
+# AI operation timeout (seconds) - prevents hanging requests
+AI_OPERATION_TIMEOUT = float(os.getenv("RINGRIFT_AI_TIMEOUT", "30.0"))
 
 
 # Mount replay router for game database access
@@ -580,11 +585,28 @@ async def get_ai_move(request: MoveRequest):
             if cache_key is not None:
                 _put_cached_ai(cache_key, ai)
 
-        # Get move from AI
-        move = ai.select_move(request.game_state)
+        # Get move from AI with timeout protection
+        try:
+            move = await asyncio.wait_for(
+                asyncio.to_thread(ai.select_move, request.game_state),
+                timeout=AI_OPERATION_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(
+                status_code=504,
+                detail=f"AI move selection timed out after {AI_OPERATION_TIMEOUT}s"
+            )
 
-        # Evaluate position
-        evaluation = ai.evaluate_position(request.game_state)
+        # Evaluate position with timeout protection
+        try:
+            evaluation = await asyncio.wait_for(
+                asyncio.to_thread(ai.evaluate_position, request.game_state),
+                timeout=AI_OPERATION_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            # Use a default evaluation if timeout - move was already selected
+            evaluation = 0.0
+            logger.warning("AI position evaluation timed out, using default")
 
         thinking_time = int((time.time() - start_time) * 1000)
 
