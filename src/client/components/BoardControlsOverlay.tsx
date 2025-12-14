@@ -1,7 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
+import { Dialog } from './ui/Dialog';
 
 export type BoardControlsOverlayMode = 'backend' | 'sandbox' | 'spectator';
 
@@ -23,8 +24,6 @@ export interface BoardControlsOverlayProps {
 const sectionTitleClass = 'text-sm font-semibold text-slate-100 mb-1 flex items-center gap-2';
 const bodyTextClass = 'text-xs text-slate-300';
 const listClass = 'list-disc list-inside space-y-1 text-xs text-slate-300';
-const FOCUSABLE_SELECTORS =
-  'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
 
 function ModeBadge({ mode }: { mode: BoardControlsOverlayMode }) {
   if (mode === 'sandbox') {
@@ -218,47 +217,7 @@ export const BoardControlsOverlay: React.FC<BoardControlsOverlayProps> = ({
   hasAIDebug: _hasAIDebug, // currently unused but kept for forward-compatibility
   onClose,
 }) => {
-  const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
-  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
-
-  // Focus management and keyboard handling
-  useEffect(() => {
-    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
-    closeButtonRef.current?.focus();
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        onClose();
-        return;
-      }
-
-      // Trap focus within the overlay
-      if (event.key === 'Tab' && dialogRef.current) {
-        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS);
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (!first || !last) return;
-
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      previouslyFocusedRef.current?.focus();
-    };
-  }, [onClose]);
 
   const title =
     mode === 'sandbox' ? 'Sandbox board controls & shortcuts' : 'Board controls & shortcuts';
@@ -269,21 +228,18 @@ export const BoardControlsOverlay: React.FC<BoardControlsOverlayProps> = ({
       : 'How to select stacks, apply moves, and use keyboard shortcuts during online games.';
 
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="board-controls-title"
-      aria-describedby="board-controls-description"
-      data-testid="board-controls-overlay"
-      onClick={onClose}
+    <Dialog
+      isOpen
+      onClose={onClose}
+      labelledBy="board-controls-title"
+      describedBy="board-controls-description"
+      overlayTestId="board-controls-overlay"
+      overlayClassName="z-40 items-center justify-center"
+      backdropClassName="bg-slate-950/70 backdrop-blur-sm"
+      initialFocusRef={closeButtonRef}
+      className="w-full max-w-3xl mx-4"
     >
-      <Card
-        ref={dialogRef}
-        padded
-        className="max-w-3xl w-full mx-4 space-y-5 pointer-events-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <Card padded className="space-y-5">
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <h2
@@ -331,6 +287,6 @@ export const BoardControlsOverlay: React.FC<BoardControlsOverlayProps> = ({
           paths documented elsewhere in the app.
         </p>
       </Card>
-    </div>
+    </Dialog>
   );
 };

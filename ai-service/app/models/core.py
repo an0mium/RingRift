@@ -413,7 +413,10 @@ class GameState(BaseModel):
     total_rings_in_play: int = Field(alias="totalRingsInPlay")
     total_rings_eliminated: int = Field(alias="totalRingsEliminated")
     victory_threshold: int = Field(alias="victoryThreshold")
+    # Legacy: >50% threshold, kept for backward compatibility
     territory_victory_threshold: int = Field(alias="territoryVictoryThreshold")
+    # New: floor(totalSpaces / numPlayers) + 1. Victory also requires > opponents combined.
+    territory_victory_minimum: Optional[int] = Field(None, alias="territoryVictoryMinimum")
     chain_capture_state: Optional[ChainCaptureState] = Field(
         None,
         alias="chainCaptureState",

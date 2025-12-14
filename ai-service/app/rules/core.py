@@ -94,14 +94,36 @@ def get_victory_threshold(
     return round(rings_per_player * (2/3 + (1/3) * (num_players - 1)))
 
 
+def get_territory_victory_minimum(board_type: BoardType, num_players: int) -> int:
+    """
+    Calculate the minimum territory required for victory.
+
+    Per RR-CANON-R062-v2:
+    territoryVictoryMinimum = floor(totalSpaces / numPlayers) + 1
+
+    Victory also requires more territory than all opponents combined.
+    This dual-condition rule makes territory victory more achievable in
+    multiplayer games while maintaining balance.
+
+    Args:
+        board_type: The board type.
+        num_players: Number of players in the game.
+
+    Returns:
+        Minimum territory spaces required for victory consideration.
+    """
+    total_spaces = BOARD_CONFIGS[board_type].total_spaces
+    return (total_spaces // num_players) + 1
+
+
 def get_territory_victory_threshold(board_type: BoardType) -> int:
     """
-    Calculate the territory victory threshold for the given board type.
+    DEPRECATED: Use get_territory_victory_minimum() with num_players.
 
-    Per RR-CANON-R062:
+    Legacy >50% threshold for 2-player games and backward compatibility.
+
+    Per RR-CANON-R062 (legacy):
     territoryVictoryThreshold = floor(totalSpaces / 2) + 1
-
-    This is >50% of all board spaces.
     """
     total_spaces = BOARD_CONFIGS[board_type].total_spaces
     return (total_spaces // 2) + 1

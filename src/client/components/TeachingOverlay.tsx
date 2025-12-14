@@ -14,6 +14,7 @@ import {
   TEACHING_TOPICS_COPY,
 } from '../utils/rulesUxTelemetry';
 import type { FSMDecisionSurfaceViewModel } from '../adapters/gameViewModels';
+import { Dialog } from './ui/Dialog';
 
 export type TeachingTopic =
   | 'ring_placement'
@@ -356,6 +357,7 @@ export function TeachingOverlay({
   const hasShownForSessionRef = useRef<string | null>(null);
   const hasDismissedForSessionRef = useRef<string | null>(null);
   const prevIsOpenRef = useRef(false);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const selectedScenario: TeachingScenarioMetadata | undefined = useMemo(() => {
     if (!currentFlowId || currentStepIndex == null) {
@@ -538,7 +540,7 @@ export function TeachingOverlay({
 
   // Close on Escape key
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || position === 'center') return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -548,181 +550,188 @@ export function TeachingOverlay({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, position]);
 
   if (!isOpen || !content) return null;
 
-  const positionClasses =
-    position === 'center'
-      ? 'fixed inset-0 flex items-center justify-center'
-      : 'fixed bottom-4 right-4';
+  const cardClasses = `relative bg-slate-900 border border-slate-600 rounded-xl shadow-2xl max-w-md w-full mx-4 overflow-hidden ${className}`;
 
-  return (
-    <div className={positionClasses} style={{ zIndex: 60 }}>
-      {/* Backdrop for center position */}
-      {position === 'center' && (
-        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      )}
-
-      {/* Content Card */}
-      <div
-        className={`relative bg-slate-900 border border-slate-600 rounded-xl shadow-2xl max-w-md w-full mx-4 overflow-hidden ${className}`}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="teaching-title"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 bg-slate-800/80 border-b border-slate-700">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">{content.icon}</span>
-            <h2 id="teaching-title" className="text-lg font-bold text-slate-100">
-              {content.title}
-            </h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
-            aria-label="Close"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
+  const cardBody = (
+    <>
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 bg-slate-800/80 border-b border-slate-700">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">{content.icon}</span>
+          <h2 id="teaching-title" className="text-lg font-bold text-slate-100">
+            {content.title}
+          </h2>
         </div>
+        <button
+          ref={closeButtonRef}
+          type="button"
+          onClick={onClose}
+          className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+          aria-label="Close"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M6 18L18 6M6 6l12 12"
+            />
+          </svg>
+        </button>
+      </div>
 
-        {/* Description */}
-        <div className="px-4 py-3">
-          <p className="text-sm text-slate-300 leading-relaxed">{content.description}</p>
-        </div>
+      {/* Description */}
+      <div className="px-4 py-3">
+        <p className="text-sm text-slate-300 leading-relaxed">{content.description}</p>
+      </div>
 
-        {/* FSM-Aware Current Situation (when active) */}
-        {fsmAwareTips.length > 0 && (
-          <div className="px-4 pb-4">
-            <h3 className="text-xs font-semibold text-amber-400 uppercase tracking-wide mb-2">
-              Current Situation (FSM)
-            </h3>
-            <ul className="space-y-2 bg-amber-900/20 rounded-lg p-3 border border-amber-700/30">
-              {fsmAwareTips.map((tip, idx) => (
-                <li key={`fsm-${idx}`} className="flex items-start gap-2 text-sm text-amber-200">
-                  <span className="text-amber-400 mt-0.5">→</span>
-                  <span>{tip}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {/* Tips */}
+      {/* FSM-Aware Current Situation (when active) */}
+      {fsmAwareTips.length > 0 && (
         <div className="px-4 pb-4">
-          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
-            Tips
+          <h3 className="text-xs font-semibold text-amber-400 uppercase tracking-wide mb-2">
+            Current Situation (FSM)
           </h3>
-          <ul className="space-y-2">
-            {content.tips.map((tip, idx) => (
-              <li key={idx} className="flex items-start gap-2 text-sm text-slate-400">
-                <span className="text-emerald-400 mt-0.5">•</span>
+          <ul className="space-y-2 bg-amber-900/20 rounded-lg p-3 border border-amber-700/30">
+            {fsmAwareTips.map((tip, idx) => (
+              <li key={`fsm-${idx}`} className="flex items-start gap-2 text-sm text-amber-200">
+                <span className="text-amber-400 mt-0.5">→</span>
                 <span>{tip}</span>
               </li>
             ))}
           </ul>
         </div>
+      )}
 
-        {/* Related teaching scenarios for this topic (flows & steps) */}
-        {relatedScenarios.length > 0 && (
-          <div className="px-4 pb-4">
-            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
-              Related teaching steps
-            </h3>
-            <ul className="space-y-1.5">
-              {relatedScenarios.map((scenario) => {
-                const isActive =
-                  currentFlowId === scenario.flowId && currentStepIndex === scenario.stepIndex;
+      {/* Tips */}
+      <div className="px-4 pb-4">
+        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Tips</h3>
+        <ul className="space-y-2">
+          {content.tips.map((tip, idx) => (
+            <li key={idx} className="flex items-start gap-2 text-sm text-slate-400">
+              <span className="text-emerald-400 mt-0.5">•</span>
+              <span>{tip}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
 
-                return (
-                  <li key={scenario.scenarioId}>
-                    <button
-                      type="button"
-                      onClick={() => handleScenarioSelect(scenario)}
-                      className={`w-full text-left rounded-lg border px-3 py-2 text-xs transition ${
-                        isActive
-                          ? 'border-emerald-500 bg-emerald-900/40 text-emerald-50'
-                          : 'border-slate-700 bg-slate-900/60 text-slate-200 hover:border-slate-400'
-                      }`}
-                      data-testid="teaching-related-step"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="font-semibold text-slate-100">
-                          {scenario.flowId} · Step {scenario.stepIndex}
-                        </div>
-                        {isActive && (
-                          <span className="text-[10px] uppercase tracking-wide text-emerald-300">
-                            Selected
-                          </span>
-                        )}
+      {/* Related teaching scenarios for this topic (flows & steps) */}
+      {relatedScenarios.length > 0 && (
+        <div className="px-4 pb-4">
+          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
+            Related teaching steps
+          </h3>
+          <ul className="space-y-1.5">
+            {relatedScenarios.map((scenario) => {
+              const isActive =
+                currentFlowId === scenario.flowId && currentStepIndex === scenario.stepIndex;
+
+              return (
+                <li key={scenario.scenarioId}>
+                  <button
+                    type="button"
+                    onClick={() => handleScenarioSelect(scenario)}
+                    className={`w-full text-left rounded-lg border px-3 py-2 text-xs transition ${
+                      isActive
+                        ? 'border-emerald-500 bg-emerald-900/40 text-emerald-50'
+                        : 'border-slate-700 bg-slate-900/60 text-slate-200 hover:border-slate-400'
+                    }`}
+                    data-testid="teaching-related-step"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-semibold text-slate-100">
+                        {scenario.flowId} · Step {scenario.stepIndex}
                       </div>
-                      <div className="text-slate-400">{scenario.learningObjectiveShort}</div>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+                      {isActive && (
+                        <span className="text-[10px] uppercase tracking-wide text-emerald-300">
+                          Selected
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-slate-400">{scenario.learningObjectiveShort}</div>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
 
-            {selectedScenario && (
-              <div
-                className="mt-3 rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-2 text-xs text-slate-200"
-                data-testid="teaching-step-details"
-              >
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                  Step details
-                </div>
-                <div className="mt-1 font-semibold text-slate-100">
-                  {selectedScenario.flowId} · Step {selectedScenario.stepIndex}
-                </div>
-                <p className="mt-1 text-slate-300">{selectedScenario.learningObjectiveShort}</p>
-                <p className="mt-1 text-slate-400">
-                  Play this scenario from the sandbox presets to practice this situation with a real
-                  board.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleMarkStepUnderstood}
-                  className="mt-2 inline-flex items-center justify-center rounded-md border border-emerald-500 bg-emerald-700/30 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-600/40"
-                >
-                  Mark as understood
-                </button>
+          {selectedScenario && (
+            <div
+              className="mt-3 rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-2 text-xs text-slate-200"
+              data-testid="teaching-step-details"
+            >
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                Step details
               </div>
-            )}
-          </div>
-        )}
-
-        {/* Related Phases Badge */}
-        {content.relatedPhases && content.relatedPhases.length > 0 && (
-          <div className="px-4 pb-3 flex items-center gap-2">
-            <span className="text-[10px] text-slate-500 uppercase">Applies to:</span>
-            {content.relatedPhases.map((phase) => (
-              <span
-                key={phase}
-                className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700"
+              <div className="mt-1 font-semibold text-slate-100">
+                {selectedScenario.flowId} · Step {selectedScenario.stepIndex}
+              </div>
+              <p className="mt-1 text-slate-300">{selectedScenario.learningObjectiveShort}</p>
+              <p className="mt-1 text-slate-400">
+                Play this scenario from the sandbox presets to practice this situation with a real
+                board.
+              </p>
+              <button
+                type="button"
+                onClick={handleMarkStepUnderstood}
+                className="mt-2 inline-flex items-center justify-center rounded-md border border-emerald-500 bg-emerald-700/30 px-3 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-600/40"
               >
-                {phase.replace('_', ' ')}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Footer hint */}
-        <div className="px-4 py-2 bg-slate-800/50 border-t border-slate-700/50 text-center">
-          <span className="text-[10px] text-slate-500">
-            Press <kbd className="px-1 py-0.5 bg-slate-700 rounded text-[9px]">Esc</kbd> or click
-            outside to close
-          </span>
+                Mark as understood
+              </button>
+            </div>
+          )}
         </div>
+      )}
+
+      {/* Related Phases Badge */}
+      {content.relatedPhases && content.relatedPhases.length > 0 && (
+        <div className="px-4 pb-3 flex items-center gap-2">
+          <span className="text-[10px] text-slate-500 uppercase">Applies to:</span>
+          {content.relatedPhases.map((phase) => (
+            <span
+              key={phase}
+              className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700"
+            >
+              {phase.replace('_', ' ')}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Footer hint */}
+      <div className="px-4 py-2 bg-slate-800/50 border-t border-slate-700/50 text-center">
+        <span className="text-[10px] text-slate-500">
+          Press <kbd className="px-1 py-0.5 bg-slate-700 rounded text-[9px]">Esc</kbd> or click
+          outside to close
+        </span>
+      </div>
+    </>
+  );
+
+  if (position === 'center') {
+    return (
+      <Dialog
+        isOpen={isOpen}
+        onClose={onClose}
+        labelledBy="teaching-title"
+        initialFocusRef={closeButtonRef}
+        overlayClassName="z-[60] items-center justify-center"
+        backdropClassName="bg-black/50 backdrop-blur-sm"
+        className={cardClasses}
+      >
+        {cardBody}
+      </Dialog>
+    );
+  }
+
+  return (
+    <div className="fixed bottom-4 right-4" style={{ zIndex: 60 }}>
+      <div className={cardClasses} role="dialog" aria-labelledby="teaching-title">
+        {cardBody}
       </div>
     </div>
   );

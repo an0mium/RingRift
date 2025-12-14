@@ -66,6 +66,7 @@ import {
 } from '../sandbox/sandboxRulesUxTelemetry';
 import { getGameOverBannerText } from '../utils/gameCopy';
 import { buildTestFixtureFromGameState, exportGameStateToFile } from '../sandbox/statePersistence';
+import { getSandboxAiDiagnostics } from '../sandbox/sandboxAiDiagnostics';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useBoardOverlays } from '../hooks/useBoardViewProps';
 import { useSandboxPersistence } from '../hooks/useSandboxPersistence';
@@ -1062,6 +1063,29 @@ export const SandboxGameHost: React.FC = () => {
     } catch (err) {
       console.error('Failed to export sandbox AI trace', err);
       toast.error('Failed to export sandbox AI trace; see console for details.');
+    }
+  };
+
+  const handleCopySandboxAiMeta = async () => {
+    try {
+      const meta = getSandboxAiDiagnostics();
+      const payload = JSON.stringify(meta, null, 2);
+
+      if (
+        typeof navigator !== 'undefined' &&
+        navigator.clipboard &&
+        navigator.clipboard.writeText
+      ) {
+        await navigator.clipboard.writeText(payload);
+        toast.success('Sandbox AI metadata copied to clipboard');
+      } else {
+        // eslint-disable-next-line no-console
+        console.log('Sandbox AI metadata', meta);
+        toast.success('Sandbox AI metadata logged to console (clipboard API unavailable).');
+      }
+    } catch (err) {
+      console.error('Failed to export sandbox AI metadata', err);
+      toast.error('Failed to export sandbox AI metadata; see console for details.');
     }
   };
 
@@ -2763,6 +2787,105 @@ export const SandboxGameHost: React.FC = () => {
                           {sandboxEvaluationError}
                         </p>
                       )}
+                    </div>
+                  )}
+
+                  {developerToolsEnabled && sandboxGameState && (
+                    <div className="p-4 border border-slate-700 rounded-2xl bg-slate-900/60 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <h2 className="font-semibold">AI Ladder Diagnostics (sandbox)</h2>
+                        <button
+                          type="button"
+                          onClick={handleCopySandboxAiMeta}
+                          className="px-3 py-1 rounded-full border border-slate-600 text-xs font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-200 transition"
+                        >
+                          Copy
+                        </button>
+                      </div>
+
+                      {(() => {
+                        const byPlayer = getSandboxAiDiagnostics();
+                        const aiPlayers = sandboxGameState.players.filter((p) => p.type === 'ai');
+
+                        if (aiPlayers.length === 0) {
+                          return (
+                            <p className="text-xs text-slate-400">No AI players in this sandbox.</p>
+                          );
+                        }
+
+                        return (
+                          <div className="space-y-2">
+                            {aiPlayers.map((player) => {
+                              const configuredDifficulty =
+                                config.aiDifficulties[player.playerNumber - 1] ??
+                                DEFAULT_AI_DIFFICULTY;
+                              const meta = byPlayer[player.playerNumber];
+                              const timeLabel =
+                                meta && typeof meta.timestamp === 'number'
+                                  ? new Date(meta.timestamp).toLocaleTimeString()
+                                  : '';
+
+                              return (
+                                <div
+                                  key={player.playerNumber}
+                                  className="rounded-xl border border-slate-700 bg-slate-950/40 p-3"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-xs font-semibold">
+                                      P{player.playerNumber} · D{configuredDifficulty}
+                                    </span>
+                                    <span className="text-[10px] text-slate-500">{timeLabel}</span>
+                                  </div>
+
+                                  {!meta ? (
+                                    <p className="mt-2 text-[10px] text-slate-400">
+                                      No sandbox AI metadata recorded yet (trigger an AI turn).
+                                    </p>
+                                  ) : (
+                                    <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
+                                      <span className="text-slate-400">Source</span>
+                                      <span className="text-slate-200">{meta.source}</span>
+                                      <span className="text-slate-400">AI Type</span>
+                                      <span className="text-slate-200">{meta.aiType ?? '—'}</span>
+                                      <span className="text-slate-400">useNeuralNet</span>
+                                      <span className="text-slate-200">
+                                        {meta.useNeuralNet === null ||
+                                        meta.useNeuralNet === undefined
+                                          ? '—'
+                                          : meta.useNeuralNet
+                                            ? 'true'
+                                            : 'false'}
+                                      </span>
+                                      <span className="text-slate-400">Heuristic Profile</span>
+                                      <span className="text-slate-200">
+                                        {meta.heuristicProfileId ?? '—'}
+                                      </span>
+                                      <span className="text-slate-400">NN Model</span>
+                                      <span className="text-slate-200">
+                                        {meta.nnModelId ?? '—'}
+                                      </span>
+                                      <span className="text-slate-400">NN Checkpoint</span>
+                                      <span className="text-slate-200">
+                                        {meta.nnCheckpoint ?? '—'}
+                                      </span>
+                                      <span className="text-slate-400">NNUE Checkpoint</span>
+                                      <span className="text-slate-200">
+                                        {meta.nnueCheckpoint ?? '—'}
+                                      </span>
+                                      {meta.error && (
+                                        <>
+                                          <span className="text-slate-400">Error</span>
+                                          <span className="text-amber-300">{meta.error}</span>
+                                        </>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>

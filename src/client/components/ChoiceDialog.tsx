@@ -9,9 +9,7 @@ import {
 } from '../../shared/types/game';
 import { getChoiceViewModel, type ChoiceViewModel } from '../adapters/choiceViewModels';
 import { getCountdownSeverity } from '../utils/countdown';
-
-const FOCUSABLE_SELECTORS =
-  'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
+import { Dialog } from './ui/Dialog';
 
 const OPTION_BUTTON_SELECTOR = '[data-choice-option]';
 
@@ -62,32 +60,23 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
 
   // Reset focused option when choice changes
   useEffect(() => {
+    setIsSubmitting(false);
     setFocusedOptionIndex(0);
-  }, [choice?.id]);
+    if (typeof window === 'undefined') return;
 
-  // Focus trap and keyboard handling
-  useEffect(() => {
-    if (!choice) return;
+    const timeout = window.setTimeout(() => {
+      const optionButtons = getOptionButtons();
+      optionButtons[0]?.focus();
+    }, 0);
 
-    const dialogEl = dialogRef.current;
-    if (!dialogEl) return;
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [choice?.id, getOptionButtons]);
 
-    // Focus first focusable element
-    const focusable = Array.from(dialogEl.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS));
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-
-    if (first) {
-      first.focus();
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Escape key closes dialog (if onCancel is provided)
-      if (event.key === 'Escape' && onCancel && !isSubmitting) {
-        event.preventDefault();
-        onCancel();
-        return;
-      }
+  const handleDialogKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.defaultPrevented) return;
 
       // Arrow key navigation between option buttons
       const optionButtons = getOptionButtons();
@@ -104,32 +93,10 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
 
         setFocusedOptionIndex(newIndex);
         optionButtons[newIndex]?.focus();
-        return;
       }
-
-      // Focus trapping with Tab key
-      if (event.key !== 'Tab' || focusable.length === 0) return;
-
-      const active = document.activeElement as HTMLElement | null;
-      if (!active) return;
-
-      const isShift = event.shiftKey;
-
-      if (isShift && active === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!isShift && active === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    dialogEl.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      dialogEl.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [choice, onCancel, isSubmitting, focusedOptionIndex, getOptionButtons]);
+    },
+    [focusedOptionIndex, getOptionButtons]
+  );
 
   // Update focused option index when an option button receives focus
   const handleOptionFocus = useCallback((index: number) => {
@@ -431,18 +398,26 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
 
   if (!content) return null;
 
+  const canCancel = Boolean(onCancel) && !isSubmitting;
+  const describedBy = resolvedChoiceViewModel?.copy.description
+    ? 'choice-dialog-description'
+    : undefined;
+
   return (
-    <div
-      ref={dialogRef}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/60"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="choice-dialog-title"
-      aria-describedby={
-        resolvedChoiceViewModel?.copy.description ? 'choice-dialog-description' : undefined
-      }
+    <Dialog
+      isOpen
+      onClose={() => onCancel?.()}
+      closeOnEscape={canCancel}
+      closeOnBackdropClick={false}
+      labelledBy="choice-dialog-title"
+      describedBy={describedBy}
+      className="w-full max-w-md mx-4"
     >
-      <div className="w-full max-w-md mx-4 p-4 rounded-md bg-slate-900 border border-slate-700 shadow-lg">
+      <div
+        ref={dialogRef}
+        className="p-4 rounded-md bg-slate-900 border border-slate-700 shadow-lg"
+        onKeyDown={handleDialogKeyDown}
+      >
         {resolvedChoiceViewModel && (
           <div className="mb-3">
             <div className="text-[11px] uppercase tracking-wide text-emerald-300/80">
@@ -507,6 +482,6 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
           )}
         </div>
       </div>
-    </div>
+    </Dialog>
   );
 };

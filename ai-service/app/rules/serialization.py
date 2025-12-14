@@ -341,6 +341,9 @@ def serialize_game_state(state: GameState) -> Dict[str, Any]:
         "gameStatus": state.game_status.value,
         "victoryThreshold": state.victory_threshold,
         "territoryVictoryThreshold": state.territory_victory_threshold,
+        # New per RR-CANON-R062-v2: floor(totalSpaces / numPlayers) + 1
+        **({"territoryVictoryMinimum": state.territory_victory_minimum}
+           if state.territory_victory_minimum is not None else {}),
         # Preserve elimination accounting for parity/state bundle inspection.
         "totalRingsEliminated": state.total_rings_eliminated,
         "totalRingsInPlay": state.total_rings_in_play,
@@ -359,6 +362,7 @@ def deserialize_game_state(data: Dict[str, Any]) -> GameState:
     from app.rules.core import (
         get_rings_per_player,
         get_territory_victory_threshold,
+        get_territory_victory_minimum,
         get_victory_threshold,
     )
 
@@ -455,6 +459,7 @@ def deserialize_game_state(data: Dict[str, Any]) -> GameState:
         totalRingsEliminated=data.get("totalRingsEliminated", total_rings_eliminated_default),
         victoryThreshold=data.get("victoryThreshold", victory_threshold_default),
         territoryVictoryThreshold=data.get("territoryVictoryThreshold", territory_threshold_default),
+        territoryVictoryMinimum=data.get("territoryVictoryMinimum"),  # Optional for backward compat
         chainCaptureState=chain_capture_state,
         mustMoveFromStackKey=None,
         zobristHash=None,

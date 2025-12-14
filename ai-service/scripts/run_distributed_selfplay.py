@@ -233,6 +233,8 @@ class WorkerConfig:
     checkpoint_path: Optional[str]
     sample_every_n_moves: int
     gc_interval: int
+    telemetry_path: Optional[str] = None
+    telemetry_interval: int = 50
 
 
 @dataclass
@@ -248,6 +250,146 @@ class WorkerStats:
     games_per_second: float
     samples_per_second: float
     storage_stats: Dict[str, Any]
+
+
+class Telemetry:
+    """Real-time telemetry for distributed selfplay monitoring.
+
+    Tracks metrics like win rates, game lengths, and throughput,
+    and periodically writes them to a JSON file for monitoring dashboards.
+    """
+
+    def __init__(
+        self,
+        worker_id: str,
+        output_path: Optional[str] = None,
+        log_interval: int = 50,
+    ):
+        self.worker_id = worker_id
+        self.output_path = output_path
+        self.log_interval = log_interval
+        self.start_time = time.time()
+
+        # Metrics
+        self.games_completed = 0
+        self.samples_generated = 0
+        self.wins_by_player: Dict[int, int] = {}
+        self.game_lengths: List[int] = []
+        self.draws = 0
+
+        # Rolling window for recent stats (last 100 games)
+        self._recent_lengths: List[int] = []
+        self._recent_winners: List[int] = []
+        self._max_recent = 100
+
+    def record_game(
+        self,
+        winner: int,
+        move_count: int,
+        samples_count: int,
+    ) -> None:
+        """Record a completed game."""
+        self.games_completed += 1
+        self.samples_generated += samples_count
+        self.game_lengths.append(move_count)
+
+        if winner == 0:
+            self.draws += 1
+        else:
+            self.wins_by_player[winner] = self.wins_by_player.get(winner, 0) + 1
+
+        # Rolling window
+        self._recent_lengths.append(move_count)
+        self._recent_winners.append(winner)
+        if len(self._recent_lengths) > self._max_recent:
+            self._recent_lengths.pop(0)
+            self._recent_winners.pop(0)
+
+        # Periodic logging and export
+        if self.games_completed % self.log_interval == 0:
+            self._log_progress()
+            if self.output_path:
+                self._write_metrics()
+
+    def _log_progress(self) -> None:
+        """Log current progress with detailed metrics."""
+        elapsed = time.time() - self.start_time
+        games_per_sec = self.games_completed / elapsed if elapsed > 0 else 0
+        samples_per_sec = self.samples_generated / elapsed if elapsed > 0 else 0
+
+        # Win rates
+        total_decided = sum(self.wins_by_player.values())
+        win_rates = {}
+        for p, wins in sorted(self.wins_by_player.items()):
+            win_rates[f"P{p}"] = f"{100 * wins / total_decided:.1f}%" if total_decided > 0 else "N/A"
+
+        # Recent game lengths
+        recent_avg = sum(self._recent_lengths) / len(self._recent_lengths) if self._recent_lengths else 0
+        recent_std = (
+            (sum((x - recent_avg) ** 2 for x in self._recent_lengths) / len(self._recent_lengths)) ** 0.5
+            if len(self._recent_lengths) > 1 else 0
+        )
+
+        logger.info(
+            f"[{self.worker_id}] Games: {self.games_completed} | "
+            f"Samples: {self.samples_generated} | "
+            f"{games_per_sec:.2f} g/s | "
+            f"Win rates: {win_rates} | "
+            f"Moves: {recent_avg:.1f}±{recent_std:.1f}"
+        )
+
+    def _write_metrics(self) -> None:
+        """Write metrics to JSON file for monitoring."""
+        elapsed = time.time() - self.start_time
+        total_decided = sum(self.wins_by_player.values())
+
+        metrics = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "worker_id": self.worker_id,
+            "elapsed_seconds": elapsed,
+            "games_completed": self.games_completed,
+            "samples_generated": self.samples_generated,
+            "games_per_second": self.games_completed / elapsed if elapsed > 0 else 0,
+            "samples_per_second": self.samples_generated / elapsed if elapsed > 0 else 0,
+            "draws": self.draws,
+            "draw_rate": self.draws / self.games_completed if self.games_completed > 0 else 0,
+            "wins_by_player": self.wins_by_player,
+            "win_rates": {
+                p: wins / total_decided if total_decided > 0 else 0
+                for p, wins in self.wins_by_player.items()
+            },
+            "avg_game_length": sum(self.game_lengths) / len(self.game_lengths) if self.game_lengths else 0,
+            "recent_avg_length": sum(self._recent_lengths) / len(self._recent_lengths) if self._recent_lengths else 0,
+        }
+
+        try:
+            with open(self.output_path, "w") as f:
+                json.dump(metrics, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to write telemetry: {e}")
+
+    def get_final_stats(self) -> Dict[str, Any]:
+        """Get final statistics for summary."""
+        elapsed = time.time() - self.start_time
+        total_decided = sum(self.wins_by_player.values())
+
+        return {
+            "worker_id": self.worker_id,
+            "games_completed": self.games_completed,
+            "samples_generated": self.samples_generated,
+            "elapsed_seconds": elapsed,
+            "games_per_second": self.games_completed / elapsed if elapsed > 0 else 0,
+            "draws": self.draws,
+            "win_rates": {
+                p: wins / total_decided if total_decided > 0 else 0
+                for p, wins in self.wins_by_player.items()
+            },
+            "avg_game_length": sum(self.game_lengths) / len(self.game_lengths) if self.game_lengths else 0,
+            "length_std": (
+                (sum((x - sum(self.game_lengths) / len(self.game_lengths)) ** 2 for x in self.game_lengths) / len(self.game_lengths)) ** 0.5
+                if len(self.game_lengths) > 1 else 0
+            ),
+        }
 
 
 class GracefulShutdown:
@@ -650,11 +792,24 @@ def run_worker(config: WorkerConfig) -> WorkerStats:
         wins_by_player = checkpoint.get("wins_by_player", {})
         logger.info(f"Resuming from checkpoint: {start_game} games completed")
 
+    # Initialize telemetry for real-time monitoring
+    telemetry = Telemetry(
+        worker_id=config.worker_id,
+        output_path=config.telemetry_path,
+        log_interval=config.telemetry_interval,
+    )
+    # Restore telemetry state from checkpoint
+    telemetry.games_completed = start_game
+    telemetry.samples_generated = samples_generated
+    telemetry.wins_by_player = wins_by_player.copy()
+
     logger.info(
         f"Worker {config.worker_id} starting: "
         f"{config.num_games} games, board={config.board_type.value}, "
         f"engine_mode={config.engine_mode}, output={config.output_uri}"
     )
+    if config.telemetry_path:
+        logger.info(f"Telemetry enabled: {config.telemetry_path}")
 
     games_completed = start_game
 
@@ -696,20 +851,22 @@ def run_worker(config: WorkerConfig) -> WorkerStats:
             },
         )
 
+        # Telemetry (best-effort) for real-time monitoring dashboards
+        try:
+            winner_value = game_info.get("winner")
+            winner_int = int(winner_value) if winner_value is not None else 0
+            telemetry.record_game(
+                winner=winner_int,
+                move_count=int(game_info.get("move_count", 0) or 0),
+                samples_count=len(samples),
+            )
+        except Exception as e:
+            logger.debug(f"Telemetry record failed: {e}")
+
         # Write samples to storage
         for sample in samples:
             storage.write_training_sample(sample)
             samples_generated += 1
-
-        # Progress logging
-        if games_completed % 10 == 0:
-            elapsed = time.time() - start_time
-            games_per_sec = games_completed / elapsed if elapsed > 0 else 0
-            logger.info(
-                f"Progress: {games_completed}/{config.num_games} games, "
-                f"{samples_generated} samples, "
-                f"{games_per_sec:.2f} games/sec"
-            )
 
         # Checkpointing
         if config.checkpoint_interval > 0 and games_completed % config.checkpoint_interval == 0:
@@ -729,6 +886,17 @@ def run_worker(config: WorkerConfig) -> WorkerStats:
     # Final flush and close
     storage.flush()
     storage.close()
+
+    # Log final telemetry summary
+    final_telemetry = telemetry.get_final_stats()
+    logger.info(
+        f"[{config.worker_id}] Final: {final_telemetry['games_completed']} games, "
+        f"{final_telemetry['samples_generated']} samples, "
+        f"{final_telemetry['games_per_second']:.2f} g/s, "
+        f"avg_length={final_telemetry['avg_game_length']:.1f}±{final_telemetry['length_std']:.1f}"
+    )
+    if config.telemetry_path:
+        telemetry._write_metrics()  # Final metrics write
 
     # Compute stats
     elapsed = time.time() - start_time
@@ -837,6 +1005,20 @@ def parse_args() -> argparse.Namespace:
         help="Worker ID (auto-generated if not provided)",
     )
 
+    # Telemetry options
+    parser.add_argument(
+        "--telemetry-path",
+        type=str,
+        default=None,
+        help="Path for telemetry JSON file (real-time metrics for monitoring)",
+    )
+    parser.add_argument(
+        "--telemetry-interval",
+        type=int,
+        default=50,
+        help="Log telemetry every N games (default: 50)",
+    )
+
     return parser.parse_args()
 
 
@@ -863,6 +1045,8 @@ def main():
         checkpoint_path=args.checkpoint_path,
         sample_every_n_moves=args.sample_interval,
         gc_interval=args.gc_interval,
+        telemetry_path=args.telemetry_path,
+        telemetry_interval=args.telemetry_interval,
     )
 
     logger.info(f"Starting distributed self-play worker: {worker_id}")

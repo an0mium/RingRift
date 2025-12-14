@@ -7,7 +7,7 @@ import {
   RulesOptions,
 } from '../types/game';
 import { generateGameSeed } from '../utils/rng';
-import { computeRingEliminationVictoryThreshold } from './core';
+import { computeRingEliminationVictoryThreshold, computeTerritoryVictoryMinimum } from './core';
 import { LPS_DEFAULT_REQUIRED_ROUNDS } from './lpsTracking';
 
 /**
@@ -95,7 +95,11 @@ export function createInitialGameState(
       effectiveRingsPerPlayer,
       players.length
     ),
+    // Legacy threshold (kept for backward compatibility with older code)
     territoryVictoryThreshold: Math.floor(config.totalSpaces / 2) + 1,
+    // New dynamic threshold per RR-CANON-R062-v2
+    // Victory requires BOTH: territory >= minimum AND territory > opponents combined
+    territoryVictoryMinimum: computeTerritoryVictoryMinimum(config.totalSpaces, players.length),
     lpsRoundsRequired: effectiveLpsRoundsRequired,
   };
 }

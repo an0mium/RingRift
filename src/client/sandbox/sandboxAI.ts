@@ -22,6 +22,7 @@ import {
   isSandboxAiStallDiagnosticsEnabled,
   isSandboxAiParityModeEnabled,
 } from '../../shared/utils/envFlags';
+import { recordSandboxAiDiagnostics, type SandboxAiDecisionSource } from './sandboxAiDiagnostics';
 
 const SANDBOX_AI_CAPTURE_DEBUG_ENABLED = isSandboxAiCaptureDebugEnabled();
 const SANDBOX_AI_STALL_DIAGNOSTICS_ENABLED = isSandboxAiStallDiagnosticsEnabled();
@@ -170,7 +171,18 @@ async function tryRequestSandboxAIMove(payload: {
   state: ReturnType<typeof serializeGameState>;
   difficulty: number;
   playerNumber: number;
-}): Promise<Move | null> {
+}): Promise<{
+  move: Move;
+  evaluation?: unknown;
+  thinkingTimeMs?: number | null;
+  aiType?: string;
+  difficulty?: number;
+  heuristicProfileId?: string | null;
+  useNeuralNet?: boolean | null;
+  nnModelId?: string | null;
+  nnCheckpoint?: string | null;
+  nnueCheckpoint?: string | null;
+} | null> {
   if (typeof fetch !== 'function') {
     return null;
   }
@@ -188,8 +200,72 @@ async function tryRequestSandboxAIMove(payload: {
       return null;
     }
 
-    const data = (await response.json()) as { move?: Move | null } | null;
-    return data?.move ?? null;
+    const raw = (await response.json()) as unknown;
+    if (!raw || typeof raw !== 'object') {
+      return null;
+    }
+
+    const data = raw as Record<string, unknown>;
+    const move = data.move as Move | null | undefined;
+    if (!move) {
+      return null;
+    }
+
+    const aiType = typeof data.aiType === 'string' ? data.aiType : undefined;
+    const difficulty = typeof data.difficulty === 'number' ? data.difficulty : undefined;
+
+    const heuristicProfileId =
+      typeof data.heuristicProfileId === 'string'
+        ? data.heuristicProfileId
+        : data.heuristicProfileId === null
+          ? null
+          : undefined;
+
+    const useNeuralNet =
+      typeof data.useNeuralNet === 'boolean'
+        ? data.useNeuralNet
+        : data.useNeuralNet === null
+          ? null
+          : undefined;
+
+    const nnModelId =
+      typeof data.nnModelId === 'string'
+        ? data.nnModelId
+        : data.nnModelId === null
+          ? null
+          : undefined;
+    const nnCheckpoint =
+      typeof data.nnCheckpoint === 'string'
+        ? data.nnCheckpoint
+        : data.nnCheckpoint === null
+          ? null
+          : undefined;
+    const nnueCheckpoint =
+      typeof data.nnueCheckpoint === 'string'
+        ? data.nnueCheckpoint
+        : data.nnueCheckpoint === null
+          ? null
+          : undefined;
+
+    const thinkingTimeMs =
+      typeof data.thinkingTimeMs === 'number'
+        ? data.thinkingTimeMs
+        : data.thinkingTimeMs === null
+          ? null
+          : undefined;
+
+    return {
+      move,
+      evaluation: data.evaluation,
+      thinkingTimeMs,
+      aiType,
+      difficulty,
+      heuristicProfileId,
+      useNeuralNet,
+      nnModelId,
+      nnCheckpoint,
+      nnueCheckpoint,
+    };
   } catch {
     return null;
   }
@@ -223,6 +299,17 @@ interface SandboxAITurnTraceEntry {
   forcedEliminationAttempted?: boolean | undefined;
   forcedEliminationEliminated?: boolean | undefined;
   consecutiveNoopAITurns?: number | undefined;
+  aiDecisionSource?: SandboxAiDecisionSource | undefined;
+  aiDifficultyRequested?: number | undefined;
+  serviceAiType?: string | undefined;
+  serviceDifficulty?: number | undefined;
+  heuristicProfileId?: string | null | undefined;
+  useNeuralNet?: boolean | null | undefined;
+  nnModelId?: string | null | undefined;
+  nnCheckpoint?: string | null | undefined;
+  nnueCheckpoint?: string | null | undefined;
+  thinkingTimeMs?: number | null | undefined;
+  serviceError?: string | undefined;
 }
 
 declare global {
@@ -660,6 +747,17 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
   let debugSimpleMoveCount: number | null = null;
   let debugForcedEliminationAttempted = false;
   let debugForcedEliminationEliminated = false;
+  let debugAiDecisionSource: SandboxAiDecisionSource = 'local';
+  let debugAiDifficultyRequested: number | null = null;
+  let debugServiceAiType: string | null = null;
+  let debugServiceDifficulty: number | null = null;
+  let debugServiceHeuristicProfileId: string | null = null;
+  let debugServiceUseNeuralNet: boolean | null = null;
+  let debugServiceNnModelId: string | null = null;
+  let debugServiceNnCheckpoint: string | null = null;
+  let debugServiceNnueCheckpoint: string | null = null;
+  let debugServiceThinkingTimeMs: number | null = null;
+  let debugServiceError: string | null = null;
 
   try {
     const gameState = hooks.getGameState();
@@ -679,6 +777,7 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
     // Get AI difficulty for current player (if available)
     const aiDifficulty = hooks.getAIDifficulty?.(current.playerNumber);
     const effectiveDifficulty = clampDifficulty(aiDifficulty, 4);
+    debugAiDifficultyRequested = effectiveDifficulty;
 
     // Service-backed sandbox AI: when available, request a canonical move from
     // the backend which proxies to the Python AI service. This enables the
@@ -689,18 +788,29 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
     // heuristics can be compared against backend fallback policies.
     if (!parityMode) {
       const stateForService = hooks.getGameState();
-      const serviceMove = await tryRequestSandboxAIMove({
+      const serviceResult = await tryRequestSandboxAIMove({
         state: serializeGameState(stateForService),
         difficulty: effectiveDifficulty,
         playerNumber: current.playerNumber,
       });
 
-      if (serviceMove) {
+      if (serviceResult) {
+        const serviceMove = serviceResult.move;
+        debugServiceAiType = serviceResult.aiType ?? null;
+        debugServiceDifficulty = serviceResult.difficulty ?? null;
+        debugServiceHeuristicProfileId = serviceResult.heuristicProfileId ?? null;
+        debugServiceUseNeuralNet = serviceResult.useNeuralNet ?? null;
+        debugServiceNnModelId = serviceResult.nnModelId ?? null;
+        debugServiceNnCheckpoint = serviceResult.nnCheckpoint ?? null;
+        debugServiceNnueCheckpoint = serviceResult.nnueCheckpoint ?? null;
+        debugServiceThinkingTimeMs = serviceResult.thinkingTimeMs ?? null;
+
         const candidates = hooks.getValidMovesForCurrentPlayer();
         const desiredKey = moveMatchKey(serviceMove);
         const matched = candidates.find((cand) => moveMatchKey(cand) === desiredKey);
 
         if (matched) {
+          debugAiDecisionSource = 'service';
           const stateForMove = hooks.getGameState();
           const moveNumber = stateForMove.history.length + 1;
           const applied: Move = {
@@ -717,6 +827,12 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
           hooks.setLastAIMove(lastAIMove);
           return;
         }
+
+        debugAiDecisionSource = 'mismatch';
+        debugServiceError = 'service_move_not_in_candidates';
+      } else {
+        debugAiDecisionSource = 'unavailable';
+        debugServiceError = 'service_unavailable';
       }
     }
 
@@ -1869,6 +1985,41 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
           forcedEliminationAttempted: debugForcedEliminationAttempted || undefined,
           forcedEliminationEliminated: debugForcedEliminationEliminated || undefined,
           consecutiveNoopAITurns: sandboxConsecutiveNoopAITurns || undefined,
+          aiDecisionSource: debugAiDecisionSource,
+          aiDifficultyRequested: debugAiDifficultyRequested ?? undefined,
+          serviceAiType:
+            debugAiDecisionSource === 'service' || debugAiDecisionSource === 'mismatch'
+              ? (debugServiceAiType ?? undefined)
+              : undefined,
+          serviceDifficulty:
+            debugAiDecisionSource === 'service' || debugAiDecisionSource === 'mismatch'
+              ? (debugServiceDifficulty ?? undefined)
+              : undefined,
+          heuristicProfileId:
+            debugAiDecisionSource === 'service' || debugAiDecisionSource === 'mismatch'
+              ? (debugServiceHeuristicProfileId ?? undefined)
+              : undefined,
+          useNeuralNet:
+            debugAiDecisionSource === 'service' || debugAiDecisionSource === 'mismatch'
+              ? (debugServiceUseNeuralNet ?? undefined)
+              : undefined,
+          nnModelId:
+            debugAiDecisionSource === 'service' || debugAiDecisionSource === 'mismatch'
+              ? (debugServiceNnModelId ?? undefined)
+              : undefined,
+          nnCheckpoint:
+            debugAiDecisionSource === 'service' || debugAiDecisionSource === 'mismatch'
+              ? (debugServiceNnCheckpoint ?? undefined)
+              : undefined,
+          nnueCheckpoint:
+            debugAiDecisionSource === 'service' || debugAiDecisionSource === 'mismatch'
+              ? (debugServiceNnueCheckpoint ?? undefined)
+              : undefined,
+          thinkingTimeMs:
+            debugAiDecisionSource === 'service' || debugAiDecisionSource === 'mismatch'
+              ? (debugServiceThinkingTimeMs ?? undefined)
+              : undefined,
+          serviceError: debugServiceError ?? undefined,
         };
 
         traceBuffer.push(turnEntry);
@@ -1901,6 +2052,36 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
           }
         }
       }
+    }
+
+    if (
+      debugIsAiTurn &&
+      debugPlayerNumber !== null &&
+      debugBoardType !== null &&
+      debugAiDifficultyRequested !== null
+    ) {
+      recordSandboxAiDiagnostics({
+        timestamp: Date.now(),
+        gameId: beforeStateForHistory.id,
+        boardType: debugBoardType,
+        numPlayers: afterStateForHistory.players.length,
+        playerNumber: debugPlayerNumber,
+        requestedDifficulty: debugAiDifficultyRequested,
+        source: debugAiDecisionSource,
+        ...(debugAiDecisionSource === 'service' || debugAiDecisionSource === 'mismatch'
+          ? {
+              aiType: debugServiceAiType ?? undefined,
+              difficulty: debugServiceDifficulty ?? undefined,
+              heuristicProfileId: debugServiceHeuristicProfileId,
+              useNeuralNet: debugServiceUseNeuralNet,
+              nnModelId: debugServiceNnModelId,
+              nnCheckpoint: debugServiceNnCheckpoint,
+              nnueCheckpoint: debugServiceNnueCheckpoint,
+              thinkingTimeMs: debugServiceThinkingTimeMs,
+            }
+          : {}),
+        ...(debugServiceError ? { error: debugServiceError } : {}),
+      });
     }
 
     // History entries for AI-driven actions are recorded by the canonical

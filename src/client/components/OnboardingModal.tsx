@@ -6,15 +6,13 @@ import {
   newHelpSessionId,
   sendRulesUxEvent,
 } from '../utils/rulesUxTelemetry';
+import { Dialog } from './ui/Dialog';
 
 interface OnboardingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onStartTutorial: () => void;
 }
-
-const FOCUSABLE_SELECTORS =
-  'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
 
 interface StepProps {
   onVictoryConceptClick?: (conceptId: string) => void;
@@ -173,9 +171,8 @@ const STEPS: Array<(props: StepProps) => React.ReactElement> = [
  * Displays a multi-step introduction to RingRift's core concepts.
  */
 export function OnboardingModal({ isOpen, onClose, onStartTutorial }: OnboardingModalProps) {
-  const dialogRef = useRef<HTMLDivElement | null>(null);
-  const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
+  const primaryButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const isLastStep = currentStep === STEPS.length - 1;
   const isFirstStep = currentStep === 0;
@@ -261,9 +258,7 @@ export function OnboardingModal({ isOpen, onClose, onStartTutorial }: Onboarding
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isOpen) return;
 
-      if (e.key === 'Escape') {
-        onClose();
-      } else if (e.key === 'ArrowRight' || e.key === 'Enter') {
+      if (e.key === 'ArrowRight' || e.key === 'Enter') {
         if (isLastStep) {
           onStartTutorial();
         } else {
@@ -276,51 +271,7 @@ export function OnboardingModal({ isOpen, onClose, onStartTutorial }: Onboarding
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, isLastStep, isFirstStep, onClose, onStartTutorial]);
-
-  // Focus trap
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const dialogEl = dialogRef.current;
-    previouslyFocusedElementRef.current = (document.activeElement as HTMLElement | null) ?? null;
-
-    if (!dialogEl) return;
-
-    const focusable = Array.from(dialogEl.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS));
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-
-    if (first) {
-      first.focus();
-    }
-
-    const handleTabKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Tab' || focusable.length === 0) return;
-
-      const active = document.activeElement as HTMLElement | null;
-      if (!active) return;
-
-      const isShift = event.shiftKey;
-
-      if (isShift && active === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!isShift && active === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    dialogEl.addEventListener('keydown', handleTabKey);
-
-    return () => {
-      dialogEl.removeEventListener('keydown', handleTabKey);
-      if (previouslyFocusedElementRef.current) {
-        previouslyFocusedElementRef.current.focus();
-      }
-    };
-  }, [isOpen]);
+  }, [isOpen, isLastStep, isFirstStep, onStartTutorial]);
 
   const handleVictoryConceptClick = (conceptId: string) => {
     const boardType = ONBOARDING_BOARD_TYPE;
@@ -355,75 +306,73 @@ export function OnboardingModal({ isOpen, onClose, onStartTutorial }: Onboarding
 
   const CurrentStepComponent = STEPS[currentStep];
 
-  const handleBackdropClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) {
-      onClose();
-    }
-  };
-
   return (
-    <div
-      ref={dialogRef}
-      className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="onboarding-title"
-      onClick={handleBackdropClick}
+    <Dialog
+      isOpen={isOpen}
+      onClose={onClose}
+      labelledBy="onboarding-title"
+      initialFocusRef={primaryButtonRef}
+      backdropClassName="bg-black/70 backdrop-blur-sm"
+      className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl max-w-lg w-full mx-4 p-6 relative overflow-hidden"
     >
-      <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl max-w-lg w-full mx-4 p-6 relative overflow-hidden">
-        {/* Skip button */}
+      <h2 id="onboarding-title" className="sr-only">
+        RingRift onboarding
+      </h2>
+
+      {/* Skip button */}
+      <button
+        onClick={onClose}
+        className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 text-sm transition-colors"
+        aria-label="Skip introduction"
+      >
+        Skip
+      </button>
+
+      {/* Content */}
+      <div className="min-h-[280px] flex flex-col justify-center py-4">
+        <CurrentStepComponent onVictoryConceptClick={handleVictoryConceptClick} />
+      </div>
+
+      {/* Step indicator */}
+      <StepIndicator currentStep={currentStep} totalSteps={STEPS.length} />
+
+      {/* Navigation buttons */}
+      <div className="flex justify-between items-center mt-6">
         <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 text-sm transition-colors"
-          aria-label="Skip introduction"
+          onClick={() => setCurrentStep((s) => Math.max(s - 1, 0))}
+          disabled={isFirstStep}
+          className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+            isFirstStep
+              ? 'text-slate-600 cursor-not-allowed'
+              : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800'
+          }`}
         >
-          Skip
+          Back
         </button>
 
-        {/* Content */}
-        <div className="min-h-[280px] flex flex-col justify-center py-4">
-          <CurrentStepComponent onVictoryConceptClick={handleVictoryConceptClick} />
-        </div>
-
-        {/* Step indicator */}
-        <StepIndicator currentStep={currentStep} totalSteps={STEPS.length} />
-
-        {/* Navigation buttons */}
-        <div className="flex justify-between items-center mt-6">
+        {isLastStep ? (
           <button
-            onClick={() => setCurrentStep((s) => Math.max(s - 1, 0))}
-            disabled={isFirstStep}
-            className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
-              isFirstStep
-                ? 'text-slate-600 cursor-not-allowed'
-                : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800'
-            }`}
+            ref={primaryButtonRef}
+            onClick={onStartTutorial}
+            className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900"
           >
-            Back
+            Start Playing
           </button>
-
-          {isLastStep ? (
-            <button
-              onClick={onStartTutorial}
-              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900"
-            >
-              Start Playing
-            </button>
-          ) : (
-            <button
-              onClick={() => setCurrentStep((s) => Math.min(s + 1, STEPS.length - 1))}
-              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900"
-            >
-              Next
-            </button>
-          )}
-        </div>
-
-        {/* Keyboard hint */}
-        <p className="text-center text-xs text-slate-500 mt-4">
-          Use arrow keys to navigate, Enter to continue
-        </p>
+        ) : (
+          <button
+            ref={primaryButtonRef}
+            onClick={() => setCurrentStep((s) => Math.min(s + 1, STEPS.length - 1))}
+            className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+          >
+            Next
+          </button>
+        )}
       </div>
-    </div>
+
+      {/* Keyboard hint */}
+      <p className="text-center text-xs text-slate-500 mt-4">
+        Use arrow keys to navigate, Enter to continue
+      </p>
+    </Dialog>
   );
 }

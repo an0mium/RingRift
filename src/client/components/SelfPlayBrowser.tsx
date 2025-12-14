@@ -8,6 +8,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { LoadableScenario } from '../sandbox/scenarioTypes';
 import type { BoardType, Move, Position } from '../../shared/types/game';
+import { Dialog } from './ui/Dialog';
 
 // API response types matching the backend service
 interface SelfPlayGameSummary {
@@ -53,9 +54,6 @@ interface SelfPlayGameDetail extends SelfPlayGameSummary {
     finalTerritorySpaces: number | null;
   }>;
 }
-
-const FOCUSABLE_SELECTORS =
-  'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
 
 export interface SelfPlayBrowserProps {
   isOpen: boolean;
@@ -147,7 +145,7 @@ export const SelfPlayBrowser: React.FC<SelfPlayBrowserProps> = ({
   const [sourceFilter, setSourceFilter] = useState<string | 'all'>('all');
   const [hasWinnerFilter, setHasWinnerFilter] = useState<boolean | 'all'>('all');
 
-  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const databaseSelectRef = useRef<HTMLSelectElement | null>(null);
 
   // Load available databases
   useEffect(() => {
@@ -243,48 +241,6 @@ export const SelfPlayBrowser: React.FC<SelfPlayBrowserProps> = ({
 
     loadGames();
   }, [selectedDb, boardTypeFilter, playerCountFilter, sourceFilter, hasWinnerFilter]);
-
-  // Focus trap
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const dialogEl = dialogRef.current;
-    if (!dialogEl) return;
-
-    const focusable = Array.from(dialogEl.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS));
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-
-    if (first) {
-      first.focus();
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        onClose();
-        return;
-      }
-
-      if (event.key !== 'Tab' || focusable.length === 0) return;
-
-      const active = document.activeElement as HTMLElement | null;
-      if (!active) return;
-
-      const isShift = event.shiftKey;
-
-      if (isShift && active === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!isShift && active === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    dialogEl.addEventListener('keydown', handleKeyDown);
-    return () => dialogEl.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
 
   const handleLoadGame = useCallback(
     async (game: SelfPlayGameSummary) => {
@@ -403,190 +359,184 @@ export const SelfPlayBrowser: React.FC<SelfPlayBrowserProps> = ({
   );
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="selfplay-browser-title"
+    <Dialog
+      isOpen={isOpen}
+      onClose={onClose}
+      labelledBy="selfplay-browser-title"
+      initialFocusRef={databaseSelectRef}
+      className="bg-slate-900 rounded-2xl border border-slate-700 w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl"
     >
-      <div
-        ref={dialogRef}
-        className="bg-slate-900 rounded-2xl border border-slate-700 w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl"
-      >
-        {/* Header */}
-        <div className="p-4 border-b border-slate-700 flex justify-between items-center">
-          <h2 id="selfplay-browser-title" className="text-xl font-bold text-white">
-            Self-Play Game Browser
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white transition-colors p-1"
-            aria-label="Close"
-          >
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
-        </div>
+      {/* Header */}
+      <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+        <h2 id="selfplay-browser-title" className="text-xl font-bold text-white">
+          Self-Play Game Browser
+        </h2>
+        <button
+          onClick={onClose}
+          className="text-slate-400 hover:text-white transition-colors p-1"
+          aria-label="Close"
+        >
+          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M6 18L18 6M6 6l12 12"
+            />
+          </svg>
+        </button>
+      </div>
 
-        {/* Database Selector */}
-        <div className="p-3 border-b border-slate-700">
-          <label className="block text-sm text-slate-400 mb-1">Database</label>
+      {/* Database Selector */}
+      <div className="p-3 border-b border-slate-700">
+        <label className="block text-sm text-slate-400 mb-1">Database</label>
+        <select
+          ref={databaseSelectRef}
+          value={selectedDb || ''}
+          onChange={(e) => setSelectedDb(e.target.value || null)}
+          className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          disabled={databases.length === 0}
+        >
+          {databases.length === 0 ? (
+            <option value="">No databases found</option>
+          ) : (
+            databases.map((db) => (
+              <option key={db.path} value={db.path}>
+                {db.name} ({db.gameCount} games)
+              </option>
+            ))
+          )}
+        </select>
+      </div>
+
+      {/* Filters */}
+      <div className="p-3 border-b border-slate-700 flex gap-3 flex-wrap">
+        <div>
+          <label className="block text-xs text-slate-400 mb-1">Board Type</label>
           <select
-            value={selectedDb || ''}
-            onChange={(e) => setSelectedDb(e.target.value || null)}
-            className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-600 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            disabled={databases.length === 0}
+            value={boardTypeFilter}
+            onChange={(e) => setBoardTypeFilter(e.target.value as BoardType | 'all')}
+            className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-600 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
-            {databases.length === 0 ? (
-              <option value="">No databases found</option>
-            ) : (
-              databases.map((db) => (
-                <option key={db.path} value={db.path}>
-                  {db.name} ({db.gameCount} games)
-                </option>
-              ))
-            )}
+            <option value="all">All</option>
+            <option value="square8">Square 8x8</option>
+            <option value="square19">Square 19x19</option>
+            <option value="hex">Hex</option>
           </select>
         </div>
-
-        {/* Filters */}
-        <div className="p-3 border-b border-slate-700 flex gap-3 flex-wrap">
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">Board Type</label>
-            <select
-              value={boardTypeFilter}
-              onChange={(e) => setBoardTypeFilter(e.target.value as BoardType | 'all')}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-600 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            >
-              <option value="all">All</option>
-              <option value="square8">Square 8x8</option>
-              <option value="square19">Square 19x19</option>
-              <option value="hex">Hex</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">Players</label>
-            <select
-              value={playerCountFilter}
-              onChange={(e) =>
-                setPlayerCountFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))
-              }
-              className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-600 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            >
-              <option value="all">All</option>
-              <option value="2">2P</option>
-              <option value="3">3P</option>
-              <option value="4">4P</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">Source</label>
-            <select
-              value={sourceFilter}
-              onChange={(e) => setSourceFilter(e.target.value)}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-600 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            >
-              <option value="all">All</option>
-              {uniqueSources.map((src) => (
-                <option key={src} value={src}>
-                  {src}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">Outcome</label>
-            <select
-              value={String(hasWinnerFilter)}
-              onChange={(e) =>
-                setHasWinnerFilter(e.target.value === 'all' ? 'all' : e.target.value === 'true')
-              }
-              className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-600 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            >
-              <option value="all">All</option>
-              <option value="true">Has Winner</option>
-              <option value="false">Draw/Incomplete</option>
-            </select>
-          </div>
+        <div>
+          <label className="block text-xs text-slate-400 mb-1">Players</label>
+          <select
+            value={playerCountFilter}
+            onChange={(e) =>
+              setPlayerCountFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))
+            }
+            className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-600 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          >
+            <option value="all">All</option>
+            <option value="2">2P</option>
+            <option value="3">3P</option>
+            <option value="4">4P</option>
+          </select>
         </div>
-
-        {/* Error Message */}
-        {error && (
-          <div className="mx-4 mt-3 p-3 rounded-lg bg-red-900/30 border border-red-700 text-red-300 text-sm">
-            {error}
-            <button onClick={() => setError(null)} className="ml-2 text-red-400 hover:text-red-200">
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        {/* Game List */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {loading ? (
-            <div className="text-center text-slate-400 py-8">Loading games...</div>
-          ) : games.length === 0 ? (
-            <div className="text-center text-slate-400 py-8">
-              {selectedDb ? 'No games match your filters.' : 'Select a database to browse games.'}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <div className="text-sm text-slate-400 mb-3">
-                Showing {games.length} game{games.length !== 1 ? 's' : ''}
-              </div>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-slate-400 border-b border-slate-700">
-                    <th className="py-2 px-2">Board</th>
-                    <th className="py-2 px-2">Players</th>
-                    <th className="py-2 px-2">Moves</th>
-                    <th className="py-2 px-2">Winner</th>
-                    <th className="py-2 px-2">Source</th>
-                    <th className="py-2 px-2">Date</th>
-                    <th className="py-2 px-2"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {games.map((game) => (
-                    <tr
-                      key={game.gameId}
-                      className="border-b border-slate-800 hover:bg-slate-800/50"
-                    >
-                      <td className="py-2 px-2 text-white">{game.boardType}</td>
-                      <td className="py-2 px-2 text-white">{game.numPlayers}P</td>
-                      <td className="py-2 px-2 text-slate-300">{game.totalMoves}</td>
-                      <td className="py-2 px-2">
-                        {game.winner !== null ? (
-                          <span className="text-emerald-400">P{game.winner}</span>
-                        ) : (
-                          <span className="text-slate-500">-</span>
-                        )}
-                      </td>
-                      <td className="py-2 px-2 text-slate-400">{game.source || '-'}</td>
-                      <td className="py-2 px-2 text-slate-400">{formatDate(game.createdAt)}</td>
-                      <td className="py-2 px-2">
-                        <button
-                          onClick={() => handleLoadGame(game)}
-                          disabled={loadingGame === game.gameId}
-                          className="px-3 py-1 text-xs rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors"
-                        >
-                          {loadingGame === game.gameId ? 'Loading...' : 'Load'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+        <div>
+          <label className="block text-xs text-slate-400 mb-1">Source</label>
+          <select
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value)}
+            className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-600 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          >
+            <option value="all">All</option>
+            {uniqueSources.map((src) => (
+              <option key={src} value={src}>
+                {src}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-slate-400 mb-1">Outcome</label>
+          <select
+            value={String(hasWinnerFilter)}
+            onChange={(e) =>
+              setHasWinnerFilter(e.target.value === 'all' ? 'all' : e.target.value === 'true')
+            }
+            className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-600 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          >
+            <option value="all">All</option>
+            <option value="true">Has Winner</option>
+            <option value="false">Draw/Incomplete</option>
+          </select>
         </div>
       </div>
-    </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="mx-4 mt-3 p-3 rounded-lg bg-red-900/30 border border-red-700 text-red-300 text-sm">
+          {error}
+          <button onClick={() => setError(null)} className="ml-2 text-red-400 hover:text-red-200">
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Game List */}
+      <div className="flex-1 overflow-y-auto p-4">
+        {loading ? (
+          <div className="text-center text-slate-400 py-8">Loading games...</div>
+        ) : games.length === 0 ? (
+          <div className="text-center text-slate-400 py-8">
+            {selectedDb ? 'No games match your filters.' : 'Select a database to browse games.'}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="text-sm text-slate-400 mb-3">
+              Showing {games.length} game{games.length !== 1 ? 's' : ''}
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-400 border-b border-slate-700">
+                  <th className="py-2 px-2">Board</th>
+                  <th className="py-2 px-2">Players</th>
+                  <th className="py-2 px-2">Moves</th>
+                  <th className="py-2 px-2">Winner</th>
+                  <th className="py-2 px-2">Source</th>
+                  <th className="py-2 px-2">Date</th>
+                  <th className="py-2 px-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {games.map((game) => (
+                  <tr key={game.gameId} className="border-b border-slate-800 hover:bg-slate-800/50">
+                    <td className="py-2 px-2 text-white">{game.boardType}</td>
+                    <td className="py-2 px-2 text-white">{game.numPlayers}P</td>
+                    <td className="py-2 px-2 text-slate-300">{game.totalMoves}</td>
+                    <td className="py-2 px-2">
+                      {game.winner !== null ? (
+                        <span className="text-emerald-400">P{game.winner}</span>
+                      ) : (
+                        <span className="text-slate-500">-</span>
+                      )}
+                    </td>
+                    <td className="py-2 px-2 text-slate-400">{game.source || '-'}</td>
+                    <td className="py-2 px-2 text-slate-400">{formatDate(game.createdAt)}</td>
+                    <td className="py-2 px-2">
+                      <button
+                        onClick={() => handleLoadGame(game)}
+                        disabled={loadingGame === game.gameId}
+                        className="px-3 py-1 text-xs rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors"
+                      >
+                        {loadingGame === game.gameId ? 'Loading...' : 'Load'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </Dialog>
   );
 };
 

@@ -1468,11 +1468,18 @@ def train_model(
                 config.board_type.name,
             )
 
+    hex_in_channels = 0
+    hex_num_players = num_players
+    if use_hex_model:
+        hex_in_channels = 10 * (config.history_length + 1)
+        hex_num_players = MAX_PLAYERS if multi_player else num_players
+
     if not distributed or is_main_process():
         if use_hex_model:
             logger.info(
                 f"Initializing HexNeuralNet_v2 with board_size={board_size}, "
-                f"policy_size={policy_size}, in_channels=40"
+                f"policy_size={policy_size}, in_channels={hex_in_channels}, "
+                f"num_players={hex_num_players}"
             )
         else:
             logger.info(
@@ -1483,8 +1490,7 @@ def train_model(
     # Initialize model based on board type and multi-player mode
     if use_hex_model:
         # HexNeuralNet_v2 for hexagonal boards with multi-player support
-        # Hex uses 10 base channels * (history_length + 1) = 40 channels
-        hex_in_channels = 10 * (config.history_length + 1)
+        # Hex uses 10 base channels * (history_length + 1) frames
         model = HexNeuralNet_v2(
             in_channels=hex_in_channels,
             global_features=20,  # Must match _extract_features() which returns 20 globals
@@ -1492,7 +1498,7 @@ def train_model(
             num_filters=192,    # v2 uses 192 filters for richer representations
             board_size=board_size,
             policy_size=policy_size,
-            num_players=MAX_PLAYERS if multi_player else num_players,
+            num_players=hex_num_players,
         )
     elif model_version == 'v3':
         # V3 architecture with spatial policy heads and rank distribution output

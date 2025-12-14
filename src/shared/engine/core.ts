@@ -139,6 +139,37 @@ export function computeRingEliminationVictoryThreshold(
 }
 
 /**
+ * Calculate the minimum territory spaces required for territory victory.
+ * Rule Reference: RR-CANON-R062-v2 – Territory victory threshold (dynamic).
+ *
+ * The new territory victory rule requires BOTH:
+ *   1. Territory >= floor(totalSpaces / numPlayers) + 1 (this function)
+ *   2. Territory > sum of all opponent territories (checked at evaluation)
+ *
+ * This dual-condition rule makes territory victory more achievable in
+ * multiplayer games while maintaining balance through the dominance check.
+ *
+ * @param totalSpaces - Total number of spaces on the board
+ * @param numPlayers - Number of players in the game
+ * @returns Minimum territory spaces required for victory consideration
+ */
+export function computeTerritoryVictoryMinimum(totalSpaces: number, numPlayers: number): number {
+  return Math.floor(totalSpaces / numPlayers) + 1;
+}
+
+/**
+ * @deprecated Use computeTerritoryVictoryMinimum with numPlayers for new games.
+ * Legacy territory threshold: >50% of total spaces.
+ * Rule Reference: RR-CANON-R062 (legacy)
+ *
+ * @param totalSpaces - Total number of spaces on the board
+ * @returns Legacy >50% threshold for backward compatibility
+ */
+export function computeTerritoryVictoryThresholdLegacy(totalSpaces: number): number {
+  return Math.floor(totalSpaces / 2) + 1;
+}
+
+/**
  * Calculate cap height for a ring stack.
  *
  * Rule Reference: RR-CANON-R145 - Cap height is consecutive rings of

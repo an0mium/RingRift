@@ -13,6 +13,8 @@ function isTopmostDialog(dialogId: number) {
 export interface DialogProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Role for the dialog element (default: dialog). */
+  role?: 'dialog' | 'alertdialog' | undefined;
   /**
    * Optional ID of the element that labels the dialog. When omitted, callers
    * should provide an accessible name via aria-label.
@@ -22,6 +24,8 @@ export interface DialogProps {
   describedBy?: string | undefined;
   /** Optional accessible label when labelledBy is not provided. */
   ariaLabel?: string | undefined;
+  /** Optional override for the dialog role (default: "dialog"). */
+  role?: 'dialog' | 'alertdialog' | undefined;
   /** When true (default), Escape closes the dialog. */
   closeOnEscape?: boolean | undefined;
   /** When true (default), clicking the backdrop closes the dialog. */
@@ -41,6 +45,8 @@ export interface DialogProps {
   backdropClassName?: string | undefined;
   /** Optional extra classes for the dialog container. */
   className?: string | undefined;
+  /** Optional keydown handler attached to the dialog container. */
+  onKeyDown?: React.KeyboardEventHandler<HTMLDivElement> | undefined;
   children: React.ReactNode;
 }
 
@@ -50,6 +56,7 @@ export function Dialog({
   labelledBy,
   describedBy,
   ariaLabel,
+  role = 'dialog',
   closeOnEscape = true,
   closeOnBackdropClick = true,
   initialFocusRef,
@@ -58,6 +65,7 @@ export function Dialog({
   overlayClassName,
   backdropClassName,
   className,
+  onKeyDown,
   children,
 }: DialogProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -104,8 +112,7 @@ export function Dialog({
       focusable[0]?.focus();
     };
 
-    // Allow the dialog content to mount before focusing.
-    const focusTimeout = typeof window !== 'undefined' ? window.setTimeout(focusDialog, 0) : null;
+    focusDialog();
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
@@ -150,9 +157,6 @@ export function Dialog({
     document.addEventListener('keydown', handleKeyDown);
 
     return () => {
-      if (typeof window !== 'undefined' && focusTimeout !== null) {
-        window.clearTimeout(focusTimeout);
-      }
       document.removeEventListener('keydown', handleKeyDown);
 
       if (typeof document !== 'undefined') {
@@ -166,11 +170,13 @@ export function Dialog({
   if (!isOpen) return null;
 
   const overlayClasses = [
-    'fixed inset-0 flex items-center justify-center',
-    overlayClassName ?? 'z-50',
-  ].join(' ');
+    'fixed inset-0 flex',
+    overlayClassName ?? 'z-50 items-center justify-center',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
-  const backdropClasses = ['absolute inset-0 bg-black/60 backdrop-blur-sm', backdropClassName]
+  const backdropClasses = ['absolute inset-0', backdropClassName ?? 'bg-black/60 backdrop-blur-sm']
     .filter(Boolean)
     .join(' ');
 
@@ -179,6 +185,15 @@ export function Dialog({
       className={overlayClasses}
       role="presentation"
       {...(overlayTestId ? { 'data-testid': overlayTestId } : {})}
+      onClick={
+        closeOnBackdropClick
+          ? (event) => {
+              if (event.target === event.currentTarget) {
+                onClose();
+              }
+            }
+          : undefined
+      }
     >
       <div
         className={backdropClasses}
@@ -188,8 +203,9 @@ export function Dialog({
       <div
         ref={dialogRef}
         className={className}
-        role="dialog"
+        role={role}
         aria-modal="true"
+        onKeyDown={onKeyDown}
         {...(labelledBy ? { 'aria-labelledby': labelledBy } : {})}
         {...(describedBy ? { 'aria-describedby': describedBy } : {})}
         {...(!labelledBy && ariaLabel ? { 'aria-label': ariaLabel } : {})}

@@ -814,7 +814,9 @@ def run_remote_job(job: JobConfig, host_config: Dict, *, timeout_seconds: int) -
         "-o",
         "ConnectTimeout=10",
         "-o",
-        "ServerAliveInterval=60",
+        "ServerAliveInterval=10",
+        "-o",
+        "ServerAliveCountMax=6",
         "-o",
         "BatchMode=yes",
     ]
@@ -835,7 +837,11 @@ def run_remote_job(job: JobConfig, host_config: Dict, *, timeout_seconds: int) -
             run_args["timeout"] = int(timeout_seconds)
         result = subprocess.run(ssh_cmd, **run_args)
         success = result.returncode == 0
-        output = result.stdout + result.stderr
+        output = (
+            f"[ssh] target={ssh_target} returncode={result.returncode}\n"
+            + (result.stdout or "")
+            + (result.stderr or "")
+        )
 
         if success:
             print(f"[{ssh_host.upper()}] Job {job.job_id} completed successfully")

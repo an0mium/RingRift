@@ -9,9 +9,7 @@ import {
   filterScenarios,
 } from '../sandbox/scenarioLoader';
 import { importScenarioFromFile, exportScenarioToFile } from '../sandbox/statePersistence';
-
-const FOCUSABLE_SELECTORS =
-  'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
+import { Dialog } from './ui/Dialog';
 
 type TabType = 'curated' | 'vectors' | 'custom';
 
@@ -43,8 +41,8 @@ export const ScenarioPickerModal: React.FC<ScenarioPickerModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<ScenarioCategory | 'all'>('all');
-  const dialogRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   // Load scenarios when modal opens
   useEffect(() => {
@@ -72,48 +70,6 @@ export const ScenarioPickerModal: React.FC<ScenarioPickerModalProps> = ({
 
     loadAll();
   }, [isOpen]);
-
-  // Focus trap
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const dialogEl = dialogRef.current;
-    if (!dialogEl) return;
-
-    const focusable = Array.from(dialogEl.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS));
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-
-    if (first) {
-      first.focus();
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        onClose();
-        return;
-      }
-
-      if (event.key !== 'Tab' || focusable.length === 0) return;
-
-      const active = document.activeElement as HTMLElement | null;
-      if (!active) return;
-
-      const isShift = event.shiftKey;
-
-      if (isShift && active === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!isShift && active === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    dialogEl.addEventListener('keydown', handleKeyDown);
-    return () => dialogEl.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
 
   const handleDelete = useCallback((id: string) => {
     deleteCustomScenario(id);
@@ -167,185 +123,182 @@ export const ScenarioPickerModal: React.FC<ScenarioPickerModalProps> = ({
       : filteredScenarios;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="scenario-picker-title"
+    <Dialog
+      isOpen={isOpen}
+      onClose={onClose}
+      labelledBy="scenario-picker-title"
+      initialFocusRef={searchInputRef}
+      className="bg-slate-900 rounded-2xl border border-slate-700 w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl"
     >
-      <div
-        ref={dialogRef}
-        className="bg-slate-900 rounded-2xl border border-slate-700 w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl"
-      >
-        {/* Header */}
-        <div className="p-4 border-b border-slate-700 flex justify-between items-center">
-          <h2 id="scenario-picker-title" className="text-xl font-bold text-white">
-            Load Scenario
-          </h2>
+      {/* Header */}
+      <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+        <h2 id="scenario-picker-title" className="text-xl font-bold text-white">
+          Load Scenario
+        </h2>
+        <button
+          onClick={onClose}
+          className="text-slate-400 hover:text-white transition-colors p-1"
+          aria-label="Close"
+        >
+          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M6 18L18 6M6 6l12 12"
+            />
+          </svg>
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-slate-700">
+        {(['curated', 'vectors', 'custom'] as TabType[]).map((tab) => (
           <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white transition-colors p-1"
-            aria-label="Close"
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === tab
+                ? 'text-emerald-400 border-b-2 border-emerald-400'
+                : 'text-slate-400 hover:text-white'
+            }`}
           >
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
+            {tab === 'curated'
+              ? 'Learning (Rules / FAQ)'
+              : tab === 'vectors'
+                ? 'Test Scenarios'
+                : 'My Scenarios'}
+            <span className="ml-1 text-xs opacity-60">({scenarios[tab].length})</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="p-3 border-b border-slate-700 flex gap-3 flex-wrap">
+        <input
+          ref={searchInputRef}
+          type="text"
+          placeholder="Search scenarios..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="flex-1 min-w-[200px] px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-600 text-sm text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+        />
+        <select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value as ScenarioCategory | 'all')}
+          className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-600 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+        >
+          <option value="all">All Categories</option>
+          {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </select>
+        {activeTab === 'custom' && developerToolsEnabled && (
+          <>
+            <button
+              onClick={handleImportClick}
+              className="px-3 py-1.5 rounded-lg bg-slate-700 border border-slate-600 text-sm text-white hover:bg-slate-600 transition-colors"
+            >
+              Import JSON
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json"
+              onChange={handleFileChange}
+              className="hidden"
+              aria-hidden="true"
+            />
+          </>
+        )}
+      </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="mx-4 mt-3 p-3 rounded-lg bg-red-900/30 border border-red-700 text-red-300 text-sm">
+          {error}
+          <button onClick={() => setError(null)} className="ml-2 text-red-400 hover:text-red-200">
+            Dismiss
           </button>
         </div>
+      )}
 
-        {/* Tabs */}
-        <div className="flex border-b border-slate-700">
-          {(['curated', 'vectors', 'custom'] as TabType[]).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
-                activeTab === tab
-                  ? 'text-emerald-400 border-b-2 border-emerald-400'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              {tab === 'curated'
-                ? 'Learning (Rules / FAQ)'
-                : tab === 'vectors'
-                  ? 'Test Scenarios'
-                  : 'My Scenarios'}
-              <span className="ml-1 text-xs opacity-60">({scenarios[tab].length})</span>
-            </button>
-          ))}
-        </div>
+      {/* Scenario List */}
+      <div className="flex-1 overflow-y-auto p-4">
+        {loading ? (
+          <div className="text-center text-slate-400 py-8">Loading scenarios...</div>
+        ) : filteredScenarios.length === 0 ? (
+          <div className="text-center text-slate-400 py-8">
+            {activeTab === 'custom'
+              ? 'No saved scenarios yet. Save a game state or import a JSON file to see it here.'
+              : activeTab === 'curated'
+                ? 'No curated scenarios available yet.'
+                : 'No scenarios match your filters.'}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {activeTab === 'curated' && onboardingScenarios.length > 0 && (
+              <section className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-emerald-400">Onboarding</p>
+                    <p className="text-xs text-slate-400">
+                      Recommended rules and FAQ scenarios for first-time players.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-3">
+                  {onboardingScenarios.map((scenario) => (
+                    <ScenarioCard
+                      key={scenario.id}
+                      scenario={scenario}
+                      onSelect={() => {
+                        try {
+                          onSelectScenario(scenario);
+                        } finally {
+                          onClose();
+                        }
+                      }}
+                      developerToolsEnabled={developerToolsEnabled}
+                      showRulesSnippet={!!scenario.rulesSnippet}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
 
-        {/* Filters */}
-        <div className="p-3 border-b border-slate-700 flex gap-3 flex-wrap">
-          <input
-            type="text"
-            placeholder="Search scenarios..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="flex-1 min-w-[200px] px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-600 text-sm text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-          />
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value as ScenarioCategory | 'all')}
-            className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-600 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          >
-            <option value="all">All Categories</option>
-            {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
-          {activeTab === 'custom' && developerToolsEnabled && (
-            <>
-              <button
-                onClick={handleImportClick}
-                className="px-3 py-1.5 rounded-lg bg-slate-700 border border-slate-600 text-sm text-white hover:bg-slate-600 transition-colors"
-              >
-                Import JSON
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".json"
-                onChange={handleFileChange}
-                className="hidden"
-                aria-hidden="true"
-              />
-            </>
-          )}
-        </div>
-
-        {/* Error Message */}
-        {error && (
-          <div className="mx-4 mt-3 p-3 rounded-lg bg-red-900/30 border border-red-700 text-red-300 text-sm">
-            {error}
-            <button onClick={() => setError(null)} className="ml-2 text-red-400 hover:text-red-200">
-              Dismiss
-            </button>
+            <div className="grid gap-3">
+              {nonOnboardingScenarios.map((scenario) => (
+                <ScenarioCard
+                  key={scenario.id}
+                  scenario={scenario}
+                  onSelect={() => {
+                    try {
+                      onSelectScenario(scenario);
+                    } finally {
+                      onClose();
+                    }
+                  }}
+                  onDelete={
+                    activeTab === 'custom' && developerToolsEnabled
+                      ? () => handleDelete(scenario.id)
+                      : undefined
+                  }
+                  onExport={
+                    activeTab === 'custom' && developerToolsEnabled
+                      ? () => handleExport(scenario)
+                      : undefined
+                  }
+                  developerToolsEnabled={developerToolsEnabled}
+                />
+              ))}
+            </div>
           </div>
         )}
-
-        {/* Scenario List */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {loading ? (
-            <div className="text-center text-slate-400 py-8">Loading scenarios...</div>
-          ) : filteredScenarios.length === 0 ? (
-            <div className="text-center text-slate-400 py-8">
-              {activeTab === 'custom'
-                ? 'No saved scenarios yet. Save a game state or import a JSON file to see it here.'
-                : activeTab === 'curated'
-                  ? 'No curated scenarios available yet.'
-                  : 'No scenarios match your filters.'}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {activeTab === 'curated' && onboardingScenarios.length > 0 && (
-                <section className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-emerald-400">Onboarding</p>
-                      <p className="text-xs text-slate-400">
-                        Recommended rules and FAQ scenarios for first-time players.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid gap-3">
-                    {onboardingScenarios.map((scenario) => (
-                      <ScenarioCard
-                        key={scenario.id}
-                        scenario={scenario}
-                        onSelect={() => {
-                          try {
-                            onSelectScenario(scenario);
-                          } finally {
-                            onClose();
-                          }
-                        }}
-                        developerToolsEnabled={developerToolsEnabled}
-                        showRulesSnippet={!!scenario.rulesSnippet}
-                      />
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              <div className="grid gap-3">
-                {nonOnboardingScenarios.map((scenario) => (
-                  <ScenarioCard
-                    key={scenario.id}
-                    scenario={scenario}
-                    onSelect={() => {
-                      try {
-                        onSelectScenario(scenario);
-                      } finally {
-                        onClose();
-                      }
-                    }}
-                    onDelete={
-                      activeTab === 'custom' && developerToolsEnabled
-                        ? () => handleDelete(scenario.id)
-                        : undefined
-                    }
-                    onExport={
-                      activeTab === 'custom' && developerToolsEnabled
-                        ? () => handleExport(scenario)
-                        : undefined
-                    }
-                    developerToolsEnabled={developerToolsEnabled}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
       </div>
-    </div>
+    </Dialog>
   );
 };
 

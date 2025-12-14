@@ -924,18 +924,42 @@ class GameEngine:
                 game_state.current_phase = GamePhase.GAME_OVER
                 return
 
-        # 2. Territory Victory
+        # 2. Territory Victory per RR-CANON-R062-v2
+        # Victory requires BOTH:
+        #   a) Territory >= floor(totalSpaces / numPlayers) + 1 (territory_victory_minimum)
+        #   b) Territory > sum of all opponent territories
         territory_counts = {}
         for p_id in game_state.board.collapsed_spaces.values():
             if p_id not in territory_counts:
                 territory_counts[p_id] = 0
             territory_counts[p_id] += 1
 
-        for p_id, count in territory_counts.items():
-            if count >= game_state.territory_victory_threshold:
+        # Get minimum threshold (use new field, fall back to legacy for old states)
+        from app.rules.core import get_territory_victory_minimum
+        territory_minimum = (
+            game_state.territory_victory_minimum
+            if game_state.territory_victory_minimum is not None
+            else game_state.territory_victory_threshold
+        )
+
+        for player in game_state.players:
+            player_territory = territory_counts.get(player.player_number, 0)
+
+            # Check condition 1: meets minimum threshold
+            if player_territory < territory_minimum:
+                continue
+
+            # Check condition 2: more territory than all opponents combined
+            opponent_territory = sum(
+                territory_counts.get(p.player_number, 0)
+                for p in game_state.players
+                if p.player_number != player.player_number
+            )
+
+            if player_territory > opponent_territory:
                 game_state.game_status = GameStatus.COMPLETED
-                game_state.winner = p_id
-                game_state.current_player = p_id  # TS parity: winner stays current
+                game_state.winner = player.player_number
+                game_state.current_player = player.player_number  # TS parity: winner stays current
                 game_state.current_phase = GamePhase.GAME_OVER
                 return
 

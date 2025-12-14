@@ -23,6 +23,7 @@ import {
 import { logRulesUxEvent, newOverlaySessionId } from '../utils/rulesUxTelemetry';
 import type { GameEndExplanation } from '../../shared/engine/gameEndExplanation';
 import { PLAYER_COLOR_PALETTES } from '../contexts/AccessibilityContext';
+import { Dialog } from './ui/Dialog';
 
 /**
  * Status of a pending rematch request.
@@ -410,69 +411,15 @@ export function VictoryModal({
   currentUserId,
   isSandbox,
 }: VictoryModalProps) {
-  const dialogRef = useRef<HTMLDivElement | null>(null);
-  const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
   const overlaySessionIdRef = useRef<string | null>(null);
   const weirdStateImpressionLoggedRef = useRef<string | null>(null);
   const { currentTopic, isOpen: isTeachingOpen, showTopic, hideTopic } = useTeachingOverlay();
 
-  // Keyboard navigation (Escape to close)
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [isOpen, onClose]);
-
-  // Focus trap within the modal and focus restoration
+  // Reset per-session impression tracking whenever the modal closes.
   useEffect(() => {
     if (!isOpen) {
       weirdStateImpressionLoggedRef.current = null;
-      return;
     }
-
-    const dialogEl = dialogRef.current;
-    previouslyFocusedElementRef.current = (document.activeElement as HTMLElement | null) ?? null;
-
-    if (!dialogEl) return;
-
-    const focusable = Array.from(dialogEl.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS));
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-
-    if (first) {
-      first.focus();
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Tab' || focusable.length === 0) return;
-
-      const active = document.activeElement as HTMLElement | null;
-      if (!active) return;
-
-      const isShift = event.shiftKey;
-
-      if (isShift && active === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!isShift && active === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    dialogEl.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      dialogEl.removeEventListener('keydown', handleKeyDown);
-      if (previouslyFocusedElementRef.current) {
-        previouslyFocusedElementRef.current.focus();
-      }
-    };
   }, [isOpen]);
 
   // Rules-UX telemetry: emit weird_state_banner_impression for weird-state victories
@@ -646,12 +593,6 @@ export function VictoryModal({
         }
       : null;
 
-  const handleBackdropClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) {
-      onClose();
-    }
-  };
-
   const handleWeirdStateHelpClick = () => {
     if (
       !surfaceableWeirdStateInfo ||
@@ -687,100 +628,109 @@ export function VictoryModal({
   const showConfetti = !isDraw && effectiveGameResult?.reason !== 'abandonment';
 
   return (
-    <div
-      ref={dialogRef}
-      className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 backdrop-blur-sm modal-backdrop-animate"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="victory-title"
-      aria-describedby="victory-description"
-      onClick={handleBackdropClick}
-    >
-      {/* Confetti particles for celebration */}
-      {showConfetti && <ConfettiParticles />}
+    <>
+      <Dialog
+        isOpen={isOpen}
+        onClose={onClose}
+        labelledBy="victory-title"
+        describedBy="victory-description"
+        backdropClassName="bg-black/70 backdrop-blur-sm modal-backdrop-animate"
+        className="w-full max-w-3xl mx-4"
+      >
+        {/* Confetti particles for celebration */}
+        {showConfetti && <ConfettiParticles />}
 
-      <div className="victory-modal modal-content-animate bg-slate-900 border border-slate-700 rounded-xl shadow-2xl max-w-3xl w-full mx-4 p-6 space-y-6 relative overflow-hidden">
-        {/* Shimmer effect overlay for victories */}
-        {showConfetti && (
-          <div
-            className="absolute inset-0 victory-shimmer pointer-events-none"
-            aria-hidden="true"
-          />
-        )}
+        <div
+          className="victory-modal modal-content-animate bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full p-6 space-y-6 relative overflow-hidden"
+          data-testid="victory-modal"
+        >
+          {/* Shimmer effect overlay for victories */}
+          {showConfetti && (
+            <div
+              className="absolute inset-0 victory-shimmer pointer-events-none"
+              aria-hidden="true"
+            />
+          )}
 
-        {/* Header with celebration animation */}
-        <div className="text-center space-y-2 relative z-10">
-          {/* Animated Trophy */}
-          <AnimatedTrophy victoryCondition={effectiveGameResult?.reason ?? 'ring_elimination'} />
+          {/* Header with celebration animation */}
+          <div className="text-center space-y-2 relative z-10">
+            {/* Animated Trophy */}
+            <AnimatedTrophy victoryCondition={effectiveGameResult?.reason ?? 'ring_elimination'} />
 
-          <h1
-            id="victory-title"
-            className={`winner-text-animate text-4xl font-bold ${
-              userWon ? 'text-green-400 winner-glow' : userLost ? 'text-red-400' : 'text-slate-100'
-            }`}
-          >
-            {title}
-          </h1>
-          <p
-            id="victory-description"
-            className="winner-text-animate text-slate-300 text-lg"
-            style={{ animationDelay: '300ms' }}
-          >
-            {description}
-          </p>
-          {surfaceableWeirdStateInfo && weirdStateTeachingTopic && (
-            <div className="mt-2">
-              <button
-                type="button"
-                onClick={handleWeirdStateHelpClick}
-                className="text-sm text-sky-300 hover:text-sky-200 underline decoration-dotted"
-              >
-                What happened?
-              </button>
+            <h1
+              id="victory-title"
+              className={`winner-text-animate text-4xl font-bold ${
+                userWon
+                  ? 'text-green-400 winner-glow'
+                  : userLost
+                    ? 'text-red-400'
+                    : 'text-slate-100'
+              }`}
+            >
+              {title}
+            </h1>
+            <p
+              id="victory-description"
+              className="winner-text-animate text-slate-300 text-lg"
+              style={{ animationDelay: '300ms' }}
+            >
+              {description}
+            </p>
+            {surfaceableWeirdStateInfo && weirdStateTeachingTopic && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={handleWeirdStateHelpClick}
+                  className="text-sm text-sky-300 hover:text-sky-200 underline decoration-dotted"
+                >
+                  What happened?
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Statistics Table with staggered animation */}
+          <div className="stats-animate relative z-10">
+            <FinalStatsTable stats={finalStats} winner={winner} />
+          </div>
+
+          {/* Game Details with staggered animation */}
+          <div className="summary-animate relative z-10">
+            <GameSummary summary={gameSummary} />
+          </div>
+
+          {/* Rematch section */}
+          {(onRematch || onRequestRematch) && (
+            <div className="buttons-animate flex justify-center relative z-10">
+              <RematchSection
+                rematchStatus={rematchStatus}
+                onRematch={onRematch}
+                onRequestRematch={onRequestRematch}
+                onAcceptRematch={onAcceptRematch}
+                onDeclineRematch={onDeclineRematch}
+              />
             </div>
           )}
-        </div>
 
-        {/* Statistics Table with staggered animation */}
-        <div className="stats-animate relative z-10">
-          <FinalStatsTable stats={finalStats} winner={winner} />
-        </div>
+          {/* Action Buttons with staggered animation */}
+          <div className="buttons-animate flex gap-3 justify-center flex-wrap relative z-10">
+            <button
+              onClick={onReturnToLobby}
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+            >
+              Return to Lobby
+            </button>
 
-        {/* Game Details with staggered animation */}
-        <div className="summary-animate relative z-10">
-          <GameSummary summary={gameSummary} />
-        </div>
-
-        {/* Rematch section */}
-        {(onRematch || onRequestRematch) && (
-          <div className="buttons-animate flex justify-center relative z-10">
-            <RematchSection
-              rematchStatus={rematchStatus}
-              onRematch={onRematch}
-              onRequestRematch={onRequestRematch}
-              onAcceptRematch={onAcceptRematch}
-              onDeclineRematch={onDeclineRematch}
-            />
+            <button
+              onClick={onClose}
+              className="px-6 py-3 bg-slate-700 text-slate-100 rounded-lg hover:bg-slate-600 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+            >
+              Close
+            </button>
           </div>
-        )}
-
-        {/* Action Buttons with staggered animation */}
-        <div className="buttons-animate flex gap-3 justify-center flex-wrap relative z-10">
-          <button
-            onClick={onReturnToLobby}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900"
-          >
-            Return to Lobby
-          </button>
-
-          <button
-            onClick={onClose}
-            className="px-6 py-3 bg-slate-700 text-slate-100 rounded-lg hover:bg-slate-600 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 focus:ring-offset-slate-900"
-          >
-            Close
-          </button>
         </div>
-      </div>
+      </Dialog>
+
       {currentTopic && (
         <TeachingOverlay
           topic={currentTopic}
@@ -790,6 +740,6 @@ export function VictoryModal({
           weirdStateOverlayContext={teachingWeirdStateContext}
         />
       )}
-    </div>
+    </>
   );
 }

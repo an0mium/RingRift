@@ -63,9 +63,9 @@
  */
 
 import type { GameState, BoardState, BoardType, Position, Player } from '../../types/game';
-import { positionToString } from '../../types/game';
+import { positionToString, BOARD_CONFIGS } from '../../types/game';
 import type { MovementBoardView } from '../core';
-import { hasAnyLegalMoveOrCaptureFromOnBoard } from '../core';
+import { hasAnyLegalMoveOrCaptureFromOnBoard, computeTerritoryVictoryMinimum } from '../core';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Helper Functions
@@ -380,24 +380,45 @@ export function evaluateVictory(state: GameState): VictoryResult {
     };
   }
 
-  // 2) Territory-control victory: strictly more than 50% of the board's
-  // spaces are controlled as territory by a single player.
+  // 2) Territory-control victory per RR-CANON-R062-v2.
+  // Victory requires BOTH:
+  //   a) Territory >= floor(totalSpaces / numPlayers) + 1 (territoryVictoryMinimum)
+  //   b) Territory > sum of all opponent territories
   //
   // Use board.collapsedSpaces as the authoritative source of territory counts.
   // This avoids relying on potentially stale territorySpaces counters and
   // matches the Python engine's victory check.
   const territoryCounts = countTerritoryByPlayer(state);
-  const territoryWinner = Array.from(territoryCounts.entries()).find(
-    ([, count]) => count >= state.territoryVictoryThreshold
-  );
-  if (territoryWinner) {
-    const winner = territoryWinner[0];
-    return {
-      isGameOver: true,
-      winner,
-      reason: 'territory_control',
-      handCountsAsEliminated: false,
-    };
+
+  // Get minimum threshold (use new field, fall back to computation for old states)
+  const totalSpaces = BOARD_CONFIGS[state.boardType]?.totalSpaces ?? 64;
+  const territoryMinimum =
+    state.territoryVictoryMinimum ??
+    state.territoryVictoryThreshold ??
+    computeTerritoryVictoryMinimum(totalSpaces, players.length);
+
+  // Check each player for territory victory
+  for (const player of players) {
+    const playerTerritory = territoryCounts.get(player.playerNumber) ?? 0;
+
+    // Check condition 1: meets minimum threshold
+    if (playerTerritory < territoryMinimum) {
+      continue;
+    }
+
+    // Check condition 2: more territory than all opponents combined
+    const opponentTerritory = players
+      .filter((p) => p.playerNumber !== player.playerNumber)
+      .reduce((sum, p) => sum + (territoryCounts.get(p.playerNumber) ?? 0), 0);
+
+    if (playerTerritory > opponentTerritory) {
+      return {
+        isGameOver: true,
+        winner: player.playerNumber,
+        reason: 'territory_control',
+        handCountsAsEliminated: false,
+      };
+    }
   }
 
   // 3) Early Last-Player-Standing (R172): if exactly one player has stacks
@@ -623,18 +644,31 @@ export function checkScoreThreshold(state: GameState): VictoryResult | null {
     };
   }
 
-  // Check territory control threshold
+  // Check territory control threshold per RR-CANON-R062-v2.
+  // Victory requires BOTH: territory >= minimum AND territory > opponents combined.
   const territoryCounts = countTerritoryByPlayer(state);
-  const territoryWinner = players.find(
-    (p) => (territoryCounts.get(p.playerNumber) ?? 0) >= state.territoryVictoryThreshold
-  );
-  if (territoryWinner) {
-    return {
-      isGameOver: true,
-      winner: territoryWinner.playerNumber,
-      reason: 'territory_control',
-      handCountsAsEliminated: false,
-    };
+  const totalSpaces = BOARD_CONFIGS[state.boardType]?.totalSpaces ?? 64;
+  const territoryMinimum =
+    state.territoryVictoryMinimum ??
+    state.territoryVictoryThreshold ??
+    computeTerritoryVictoryMinimum(totalSpaces, players.length);
+
+  for (const player of players) {
+    const playerTerritory = territoryCounts.get(player.playerNumber) ?? 0;
+    if (playerTerritory < territoryMinimum) {
+      continue;
+    }
+    const opponentTerritory = players
+      .filter((p) => p.playerNumber !== player.playerNumber)
+      .reduce((sum, p) => sum + (territoryCounts.get(p.playerNumber) ?? 0), 0);
+    if (playerTerritory > opponentTerritory) {
+      return {
+        isGameOver: true,
+        winner: player.playerNumber,
+        reason: 'territory_control',
+        handCountsAsEliminated: false,
+      };
+    }
   }
 
   return null;

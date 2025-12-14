@@ -851,7 +851,16 @@ export interface GameState {
   totalRingsInPlay: number; // Total rings placed on board
   totalRingsEliminated: number; // Total rings eliminated from game
   victoryThreshold: number; // Rings needed to win (per RR-CANON-R061: round(ringsPerPlayer × (2/3 + 1/3 × (numPlayers - 1))))
-  territoryVictoryThreshold: number; // Territory spaces needed to win (>50% of board)
+  /** @deprecated Kept for backward compatibility. Use territoryVictoryMinimum for new logic. */
+  territoryVictoryThreshold: number; // Legacy: Territory spaces needed to win (>50% of board)
+  /**
+   * Minimum territory required for victory per RR-CANON-R062-v2.
+   * Victory requires BOTH:
+   *   1. Territory >= floor(totalSpaces / numPlayers) + 1 (this field)
+   *   2. Territory > sum of all opponent territories
+   * Optional for backward compatibility with old game states.
+   */
+  territoryVictoryMinimum?: number;
 
   /**
    * Last-Player-Standing (LPS) tracking state for UI display.
