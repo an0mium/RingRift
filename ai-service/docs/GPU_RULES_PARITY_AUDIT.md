@@ -15,11 +15,11 @@ This document provides a comprehensive audit of the GPU implementation against c
 
 - Phase 1 COMPLETE: 6.56x speedup achieved on CUDA (A10 GPU)
 - Phase 2 COMPLETE: Shadow validation infrastructure complete
-- **~95% rules parity** (all critical mechanics implemented)
+- **100% rules parity** (all critical mechanics implemented)
 
 **Remaining Gaps:**
 
-- Marker Removal on Landing: Simplified implementation (minor edge case)
+- None - all critical mechanics now implemented
 
 **Target:** 100% rules parity while maintaining 5-10x speedup over CPU-only path
 
@@ -70,9 +70,7 @@ RING_PLACEMENT → MOVEMENT → LINE_PROCESSING → TERRITORY_PROCESSING → (ne
 
 ### 2.2 Medium Gaps (Training Quality Impact: MEDIUM)
 
-| Gap                           | Canonical Behavior                | GPU Implementation | Impact                | Location                                       |
-| ----------------------------- | --------------------------------- | ------------------ | --------------------- | ---------------------------------------------- |
-| **Marker Removal on Landing** | Remove marker, eliminate top ring | Simplified         | May miss eliminations | `gpu_parallel_games.py:apply_movement_batch()` |
+**All medium gaps have been resolved.** See Section 2.4 for completed fixes.
 
 ### 2.3 Ring Count Update (2025-12-12)
 
@@ -92,19 +90,20 @@ Updated locations:
 
 ### 2.4 Fixed Gaps (Completed)
 
-| Gap                        | Fix Date   | Notes                                                                                           |
-| -------------------------- | ---------- | ----------------------------------------------------------------------------------------------- |
-| Line length (square8 3-4p) | 2025-12-11 | Now player-count-aware per RR-CANON-R120                                                        |
-| Adjacency calculation      | 2025-12-11 | Vectorized using tensor operations                                                              |
-| Victory threshold formula  | 2025-12-11 | Uses RR-CANON-R061 formula                                                                      |
-| Buried rings tracking      | 2025-12-11 | Fixed indexing bugs                                                                             |
-| Recovery Stack-Strike V1   | 2025-12-12 | Recovery can now target opponent stacks, eliminates top ring                                    |
-| **Chain Captures**         | 2025-12-12 | Full chain capture loop per RR-CANON-R103 (`generate_chain_capture_moves_from_position`)        |
-| **Territory Processing**   | 2025-12-12 | Full flood-fill with region finding, disconnection, cap eligibility (`compute_territory_batch`) |
-| **Overlength Line Choice** | 2025-12-12 | Probabilistic Option 1/2 selection (30% Option 2) per RR-CANON-R122                             |
-| **Cap Eligibility**        | 2025-12-12 | Context-aware: line vs territory vs forced elimination (`_find_eligible_territory_cap`)         |
-| **Recovery Cascade**       | 2025-12-12 | Territory processing after line formation in recovery phase                                     |
-| **LPS Victory (full)**     | 2025-12-14 | Full round-based tracking per RR-CANON-R172 with configurable threshold                         |
+| Gap                        | Fix Date   | Notes                                                                                            |
+| -------------------------- | ---------- | ------------------------------------------------------------------------------------------------ |
+| Line length (square8 3-4p) | 2025-12-11 | Now player-count-aware per RR-CANON-R120                                                         |
+| Adjacency calculation      | 2025-12-11 | Vectorized using tensor operations                                                               |
+| Victory threshold formula  | 2025-12-11 | Uses RR-CANON-R061 formula                                                                       |
+| Buried rings tracking      | 2025-12-11 | Fixed indexing bugs                                                                              |
+| Recovery Stack-Strike V1   | 2025-12-12 | Recovery can now target opponent stacks, eliminates top ring                                     |
+| **Chain Captures**         | 2025-12-12 | Full chain capture loop per RR-CANON-R103 (`generate_chain_capture_moves_from_position`)         |
+| **Territory Processing**   | 2025-12-12 | Full flood-fill with region finding, disconnection, cap eligibility (`compute_territory_batch`)  |
+| **Overlength Line Choice** | 2025-12-12 | Probabilistic Option 1/2 selection (30% Option 2) per RR-CANON-R122                              |
+| **Cap Eligibility**        | 2025-12-12 | Context-aware: line vs territory vs forced elimination (`_find_eligible_territory_cap`)          |
+| **Recovery Cascade**       | 2025-12-12 | Territory processing after line formation in recovery phase                                      |
+| **LPS Victory (full)**     | 2025-12-14 | Full round-based tracking per RR-CANON-R172 with configurable threshold                          |
+| **Marker Landing (full)**  | 2025-12-14 | Landing on ANY marker (own or opponent) now removes marker + costs 1 ring per RR-CANON-R091/R092 |
 
 ---
 
@@ -341,16 +340,16 @@ two_in_row = (h_pairs.sum(dim=(1,2)) + v_pairs.sum(dim=(1,2)) +
 | -------------------- | ------------------ | -------- | ---------------- |
 | CUDA Speedup         | 6.56x              | 6.56x    | 10-20x           |
 | MPS Speedup          | 1.75x (batch≥500)  | 1.75x    | 3-5x             |
-| Rules Parity         | ~65%               | **~98%** | 100%             |
+| Rules Parity         | ~65%               | **100%** | 100%             |
 | Parity Tests Passing | 32/32              | 32/32    | 100+             |
 
 ### 6.3 Known Issues
 
-| Issue                 | Severity | Status | Notes                           |
-| --------------------- | -------- | ------ | ------------------------------- |
-| Per-game Python loops | MEDIUM   | OPEN   | Performance bottleneck          |
-| ~~LPS 3-round check~~ | LOW      | FIXED  | Full round tracking implemented |
-| Marker landing elim   | LOW      | OPEN   | Simplified, may miss edge cases |
+| Issue                   | Severity | Status | Notes                                      |
+| ----------------------- | -------- | ------ | ------------------------------------------ |
+| Per-game Python loops   | MEDIUM   | OPEN   | Performance bottleneck                     |
+| ~~LPS 3-round check~~   | LOW      | FIXED  | Full round tracking implemented            |
+| ~~Marker landing elim~~ | LOW      | FIXED  | Full marker landing per RR-CANON-R091/R092 |
 
 ---
 

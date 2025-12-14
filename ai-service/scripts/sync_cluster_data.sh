@@ -18,6 +18,7 @@
 #   --dry-run       Show what would be synced without actually syncing
 #   --no-tailscale  Skip Tailscale fallback attempts
 #   --no-http-check Skip HTTP health checks before SSH
+#   --include-daemon  Include daemon selfplay data (GPU-generated games from data/selfplay/daemon_*)
 #   -h, --help      Show this help message
 #
 # Resilient Connection Methods:
@@ -58,6 +59,9 @@ USE_HTTP_CHECK=true
 SSH_CONNECT_TIMEOUT=15
 HTTP_CHECK_TIMEOUT=5
 
+# Data source settings
+INCLUDE_DAEMON_DATA=false
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -81,6 +85,7 @@ while [[ $# -gt 0 ]]; do
         --config) CONFIG_FILE="$2"; shift 2 ;;
         --no-tailscale) USE_TAILSCALE=false; shift ;;
         --no-http-check) USE_HTTP_CHECK=false; shift ;;
+        --include-daemon) INCLUDE_DAEMON_DATA=true; shift ;;
         --help|-h)
             head -45 "$0" | tail -n +2 | sed 's/^# //' | sed 's/^#//'
             exit 0
@@ -100,6 +105,7 @@ echo "  Config: $CONFIG_FILE"
 [[ "$DRY_RUN" == "true" ]] && echo "  Mode: DRY RUN"
 [[ "$USE_TAILSCALE" == "true" ]] && echo "  Tailscale fallback: enabled"
 [[ "$USE_HTTP_CHECK" == "true" ]] && echo "  HTTP health check: enabled"
+[[ "$INCLUDE_DAEMON_DATA" == "true" ]] && echo "  Include daemon selfplay: enabled"
 echo "============================================="
 
 # Verify config file exists
@@ -200,6 +206,28 @@ do_rsync_sync() {
         if rsync -avz --progress -e "ssh $ssh_opts" "$ssh_user@$ssh_host:/dev/shm/games/"*.jsonl "$dest/" 2>/dev/null; then
             synced_any=true
         fi
+    fi
+
+    # Sync daemon selfplay data (GPU-generated games)
+    if [[ "$INCLUDE_DAEMON_DATA" == "true" ]]; then
+        local daemon_dest="$dest/daemon"
+        mkdir -p "$daemon_dest"
+
+        # Sync all daemon_* directories
+        for daemon_dir in square8_2p square8_3p square8_4p square19_2p square19_3p square19_4p hexagonal_2p hexagonal_3p hexagonal_4p; do
+            local remote_daemon="$remote_path/data/selfplay/daemon_${daemon_dir}"
+            if rsync -avz --progress -e "ssh $ssh_opts" "$ssh_user@$ssh_host:$remote_daemon/*.jsonl" "$daemon_dest/${daemon_dir}/" 2>/dev/null; then
+                synced_any=true
+            fi
+        done
+
+        # Also sync asymmetric variants
+        for daemon_dir in square8_2p_asymmetric square8_3p_asymmetric square8_4p_asymmetric square19_2p_asymmetric square19_3p_asymmetric square19_4p_asymmetric hexagonal_2p_asymmetric hexagonal_3p_asymmetric hexagonal_4p_asymmetric; do
+            local remote_daemon="$remote_path/data/selfplay/daemon_${daemon_dir}"
+            if rsync -avz --progress -e "ssh $ssh_opts" "$ssh_user@$ssh_host:$remote_daemon/*.jsonl" "$daemon_dest/${daemon_dir}/" 2>/dev/null; then
+                synced_any=true
+            fi
+        done
     fi
 
     if [[ "$synced_any" == "true" ]]; then

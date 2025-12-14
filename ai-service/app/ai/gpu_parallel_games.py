@@ -3540,17 +3540,26 @@ def apply_movement_moves_batch_vectorized(
             flip_players = players_exp[is_opponent_marker]
             state.marker_owner[flip_games, flip_y, flip_x] = flip_players.to(state.marker_owner.dtype)
 
-    # Handle landing on own marker (collapse cost)
+    # Handle landing on ANY marker (per RR-CANON-R091/R092)
+    # Landing on any marker (own or opponent) removes it and costs 1 ring (cap-elimination)
     dest_marker = state.marker_owner[game_indices, to_y, to_x]
+    landing_on_any_marker = dest_marker != 0
     landing_on_own_marker = dest_marker == players
-    landing_ring_cost = landing_on_own_marker.int()
+    landing_ring_cost = landing_on_any_marker.int()
 
-    if landing_on_own_marker.any():
-        collapse_games = game_indices[landing_on_own_marker]
-        collapse_y = to_y[landing_on_own_marker]
-        collapse_x = to_x[landing_on_own_marker]
-        state.is_collapsed[collapse_games, collapse_y, collapse_x] = True
-        state.marker_owner[collapse_games, collapse_y, collapse_x] = 0
+    if landing_on_any_marker.any():
+        marker_games = game_indices[landing_on_any_marker]
+        marker_y = to_y[landing_on_any_marker]
+        marker_x = to_x[landing_on_any_marker]
+        # Remove the marker
+        state.marker_owner[marker_games, marker_y, marker_x] = 0
+        # Only collapse if landing on OWN marker
+        own_marker_mask = landing_on_own_marker[landing_on_any_marker]
+        if own_marker_mask.any():
+            collapse_games = marker_games[own_marker_mask]
+            collapse_y = marker_y[own_marker_mask]
+            collapse_x = marker_x[own_marker_mask]
+            state.is_collapsed[collapse_games, collapse_y, collapse_x] = True
 
     # Clear origin
     state.stack_owner[game_indices, from_y, from_x] = 0
