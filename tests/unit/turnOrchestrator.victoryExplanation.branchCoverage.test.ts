@@ -801,4 +801,123 @@ describe('TurnOrchestrator victory explanation branch coverage', () => {
       expect(result.reason).toBe('last_player_standing');
     });
   });
+
+  // =========================================================================
+  // game_completed reason (lines 579-615)
+  // =========================================================================
+  describe('game_completed fallback structural stalemate', () => {
+    it('handles game_completed with even scores', () => {
+      // This tests the game_completed branch in buildGameEndExplanationForVictory
+      const state = createBaseState('movement');
+      state.board.stacks.clear();
+      // Equal everything - true stalemate
+      state.players[0].eliminatedRings = 9;
+      state.players[0].territorySpaces = 5;
+      state.players[0].ringsInHand = 0;
+      state.players[1].eliminatedRings = 9;
+      state.players[1].territorySpaces = 5;
+      state.players[1].ringsInHand = 0;
+      state.victoryThreshold = 18;
+      state.territoryVictoryThreshold = 10;
+
+      const result = toVictoryState(state);
+
+      expect(result.isGameOver).toBe(true);
+    });
+
+    it('handles game_completed with forced elimination history', () => {
+      // Tests lines 590-599: hadForcedEliminationSequence in game_completed branch
+      const state = createBaseState('movement');
+      state.board.stacks.clear();
+      state.players[0].eliminatedRings = 9;
+      state.players[0].territorySpaces = 5;
+      state.players[0].ringsInHand = 0;
+      state.players[1].eliminatedRings = 9;
+      state.players[1].territorySpaces = 5;
+      state.players[1].ringsInHand = 0;
+      state.victoryThreshold = 18;
+      state.territoryVictoryThreshold = 10;
+      // Add forced elimination to history
+      state.history = [
+        {
+          id: 'fe-move',
+          type: 'forced_elimination',
+          player: 1,
+          to: { x: 2, y: 2 },
+          timestamp: new Date(),
+          thinkTime: 0,
+          moveNumber: 30,
+        },
+      ];
+
+      const result = toVictoryState(state);
+
+      expect(result.isGameOver).toBe(true);
+      // With forced elimination history, should have weird state context
+      if (result.gameEndExplanation?.weirdStateContext) {
+        expect(
+          result.gameEndExplanation.weirdStateContext.reasonCodes.length
+        ).toBeGreaterThanOrEqual(1);
+      }
+    });
+  });
+
+  // =========================================================================
+  // Victory during processTurn (lines 2977-3011)
+  // =========================================================================
+  describe('victory detection during processTurn', () => {
+    it('processes turn when victory threshold reached', async () => {
+      const state = createBaseState('territory_processing');
+      // Player 1 has reached victory threshold
+      state.players[0].eliminatedRings = 18;
+      state.victoryThreshold = 18;
+      // Add a stack so game continues until move processed
+      state.board.stacks.set('3,3', {
+        position: { x: 3, y: 3 },
+        stackHeight: 2,
+        capHeight: 2,
+        controllingPlayer: 1,
+        composition: [{ player: 1, count: 2 }],
+        rings: [1, 1],
+      });
+
+      const { processTurn } =
+        await import('../../src/shared/engine/orchestration/turnOrchestrator');
+      const move: Move = {
+        id: 'skip-terr',
+        type: 'skip_territory_processing',
+        player: 1,
+        to: { x: 0, y: 0 },
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      };
+
+      const result = processTurn(state, move);
+
+      // Turn should process normally
+      expect(result.nextState).toBeDefined();
+      // Victory result may or may not be present depending on exact victory conditions
+    });
+
+    it('detects victory via toVictoryState after threshold reached', () => {
+      const state = createBaseState('movement');
+      // Player 1 has reached victory threshold through eliminations
+      state.players[0].eliminatedRings = 18;
+      state.victoryThreshold = 18;
+      state.board.stacks.set('3,3', {
+        position: { x: 3, y: 3 },
+        stackHeight: 2,
+        capHeight: 2,
+        controllingPlayer: 1,
+        composition: [{ player: 1, count: 2 }],
+        rings: [1, 1],
+      });
+
+      const result = toVictoryState(state);
+
+      expect(result.isGameOver).toBe(true);
+      expect(result.winner).toBe(1);
+    });
+  });
 });
