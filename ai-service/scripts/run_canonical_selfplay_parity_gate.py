@@ -457,6 +457,14 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--keep-distributed-remote-artifacts",
+        action="store_true",
+        help=(
+            "When using --hosts, keep per-job remote DB/JSONL artifacts after fetching. "
+            "Default is to clean them up to avoid filling remote disks."
+        ),
+    )
+    parser.add_argument(
         "--parity-timeout-seconds",
         type=int,
         default=0,
@@ -545,6 +553,8 @@ def main() -> None:
             "2",
             "--fetch-jsonl",
         ]
+        if not args.keep_distributed_remote_artifacts:
+            cmd.append("--cleanup-remote")
         if args.distributed_job_timeout_seconds and args.distributed_job_timeout_seconds > 0:
             cmd += ["--job-timeout-seconds", str(args.distributed_job_timeout_seconds)]
         if args.distributed_fetch_timeout_seconds and args.distributed_fetch_timeout_seconds > 0:
