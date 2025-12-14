@@ -121,8 +121,9 @@ const auditLogger = winston.createLogger({
   ],
 });
 
-// Also log to console in development for visibility
-if (!config.isProduction) {
+// Also log to console in development for visibility (but keep tests quiet).
+const isTestEnv = process.env.NODE_ENV === 'test' || config.isTest;
+if (!config.isProduction && !isTestEnv) {
   auditLogger.add(
     new winston.transports.Console({
       format: winston.format.combine(
@@ -191,7 +192,7 @@ export function audit(
   options: AuditOptions = {}
 ): void {
   const now = Date.now();
-  const context = getRequestContext();
+  const context = typeof getRequestContext === 'function' ? getRequestContext() : undefined;
 
   const entry: AuditLogEntry = {
     event,
@@ -205,7 +206,9 @@ export function audit(
   const userId = options.userId || context?.userId;
   if (userId) entry.userId = userId;
 
-  if (options.email) entry.email = redactEmail(options.email);
+  if (options.email && typeof redactEmail === 'function') {
+    entry.email = redactEmail(options.email);
+  }
 
   const requestId = options.req?.requestId || context?.requestId;
   if (requestId) entry.requestId = requestId;

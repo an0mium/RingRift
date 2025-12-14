@@ -87,7 +87,7 @@ export const DIFFICULTY_DESCRIPTORS: readonly DifficultyDescriptor[] = [
   {
     id: 6,
     name: 'Advanced (D6 – Neural MCTS)',
-    shortDescription: 'Neural-guided MCTS that punishes shallow plans and weak structures.',
+    shortDescription: 'Strong neural-guided MCTS that punishes shallow plans and weak structures.',
     detailedDescription:
       'Backed by the canonical D6 MCTS profile (neural value/policy guidance). Avoids most obvious tactical shots, punishes over-extensions, and steadily converts small advantages over many moves. Games often feel tense and technical.',
     recommendedAudience:

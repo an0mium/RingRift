@@ -1,11 +1,22 @@
 import type { BoardState, GameState } from '../../shared/types/game';
 
-function mapToRecord<V>(map: Map<string, V>): Record<string, V> {
+function mapToRecord<V>(
+  map: Map<string, V> | Record<string, V> | null | undefined
+): Record<string, V> {
   const out: Record<string, V> = {};
-  for (const [key, value] of map.entries()) {
-    out[key] = value;
+
+  if (!map) {
+    return out;
   }
-  return out;
+
+  if (map instanceof Map) {
+    for (const [key, value] of map.entries()) {
+      out[key] = value;
+    }
+    return out;
+  }
+
+  return map;
 }
 
 function toPythonWireBoardState(board: BoardState): Record<string, unknown> {

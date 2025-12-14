@@ -687,7 +687,7 @@ export class BoardManager {
       let current = '';
       let lowestF = Infinity;
       for (const node of openSet) {
-        const f = fScore.get(node) || Infinity;
+        const f = fScore.get(node) ?? Infinity;
         if (f < lowestF) {
           lowestF = f;
           current = node;
@@ -723,9 +723,9 @@ export class BoardManager {
           continue;
         }
 
-        const tentativeG = (gScore.get(current) || 0) + 1;
+        const tentativeG = (gScore.get(current) ?? 0) + 1;
 
-        if (!gScore.has(neighborKey) || tentativeG < (gScore.get(neighborKey) || Infinity)) {
+        if (!gScore.has(neighborKey) || tentativeG < (gScore.get(neighborKey) ?? Infinity)) {
           cameFrom.set(neighborKey, current);
           gScore.set(neighborKey, tentativeG);
           fScore.set(neighborKey, tentativeG + this.calculateDistance(neighbor, to));
