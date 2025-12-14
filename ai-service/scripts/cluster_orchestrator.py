@@ -47,6 +47,12 @@ SYNC_INTERVAL = 6  # Sync every 6 iterations (30 minutes at 5-min interval)
 ELO_CALIBRATION_INTERVAL = 72  # Run Elo tournament every 72 iterations (6 hours at 5-min interval)
 ELO_CALIBRATION_GAMES = 50  # Games per config for Elo calibration
 
+# Auto-scaling configuration
+AUTO_SCALE_INTERVAL = 12  # Check for underutilized hosts every 12 iterations (1 hour at 5-min interval)
+UNDERUTILIZED_CPU_THRESHOLD = 30  # CPU usage below this % is considered underutilized
+UNDERUTILIZED_PYTHON_JOBS = 10  # Fewer than this many python jobs is considered underutilized
+SCALE_UP_GAMES_PER_HOST = 50  # Number of games to start on underutilized host
+
 
 @dataclass
 class HostConfig:
@@ -665,6 +671,114 @@ def trigger_elo_calibration(hosts: List[HostConfig], statuses: Dict[str, HostSta
         return False
 
 
+def trigger_auto_scale_selfplay(
+    hosts: List[HostConfig], statuses: Dict[str, HostStatus], dry_run: bool = False
+) -> int:
+    """Identify underutilized hosts and start canonical self-play on them.
+
+    A host is considered underutilized if:
+    - CPU usage < UNDERUTILIZED_CPU_THRESHOLD
+    - Python jobs < UNDERUTILIZED_PYTHON_JOBS
+    - Disk usage < 85%
+    - Memory usage < 70%
+
+    Returns the number of hosts scaled up.
+    """
+    scaled_count = 0
+
+    # Board types to cycle through for canonical self-play
+    board_configs = [
+        {"board": "square8", "players": 2},
+        {"board": "square8", "players": 3},
+        {"board": "square8", "players": 4},
+        {"board": "square19", "players": 2},
+        {"board": "hex", "players": 2},
+    ]
+
+    underutilized_hosts = []
+    for host in hosts:
+        if not host.enabled:
+            continue
+        status = statuses.get(host.name)
+        if not status or not status.reachable:
+            continue
+
+        # Check if underutilized
+        is_underutilized = (
+            status.cpu_percent < UNDERUTILIZED_CPU_THRESHOLD
+            and status.python_jobs < UNDERUTILIZED_PYTHON_JOBS
+            and status.disk_percent < 85
+            and status.memory_percent < 70
+        )
+
+        if is_underutilized:
+            underutilized_hosts.append((host, status))
+
+    if not underutilized_hosts:
+        log("Auto-scale: No underutilized hosts found")
+        return 0
+
+    log(f"Auto-scale: Found {len(underutilized_hosts)} underutilized host(s)")
+
+    for idx, (host, status) in enumerate(underutilized_hosts):
+        # Cycle through board configs
+        cfg = board_configs[idx % len(board_configs)]
+
+        log(
+            f"  {host.name}: CPU={status.cpu_percent:.0f}%, "
+            f"jobs={status.python_jobs}, scaling up with {cfg['board']} {cfg['players']}p"
+        )
+
+        # Build SSH command
+        ssh_base = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15"]
+        if host.ssh_key:
+            ssh_base.extend(["-i", os.path.expanduser(host.ssh_key)])
+        if host.ssh_port != 22:
+            ssh_base.extend(["-p", str(host.ssh_port)])
+
+        target = f"{host.ssh_user}@{host.ssh_host}"
+        ringrift_path = host.ringrift_path
+
+        # Start canonical self-play
+        db_name = f"canonical_{cfg['board']}.db"
+        summary_name = f"db_health.autoscale_{cfg['board']}_{cfg['players']}p.json"
+        log_file = f"/tmp/autoscale_selfplay_{cfg['board']}_{cfg['players']}p.log"
+
+        remote_cmd = (
+            f"cd {ringrift_path} && "
+            f"source venv/bin/activate 2>/dev/null || true && "
+            f"nohup python3 scripts/generate_canonical_selfplay.py "
+            f"--board-type {cfg['board']} "
+            f"--num-players {cfg['players']} "
+            f"--num-games {SCALE_UP_GAMES_PER_HOST} "
+            f"--db data/games/{db_name} "
+            f"--summary {summary_name} "
+            f"> {log_file} 2>&1 & "
+            f"echo 'Auto-scale selfplay started'"
+        )
+
+        cmd = ssh_base + [target, remote_cmd]
+
+        if dry_run:
+            log(f"  [DRY-RUN] Would run: {' '.join(cmd[:6])}...")
+            scaled_count += 1
+        else:
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    log(f"  {host.name}: Auto-scale selfplay started")
+                    scaled_count += 1
+                else:
+                    log(f"  {host.name}: Auto-scale failed: {result.stderr}", "WARN")
+            except subprocess.TimeoutExpired:
+                log(f"  {host.name}: SSH timeout during auto-scale", "WARN")
+            except Exception as e:
+                log(f"  {host.name}: Auto-scale error: {e}", "WARN")
+
+    log(f"Auto-scale complete: {scaled_count} host(s) scaled up")
+    return scaled_count
+
+
 def main():
     parser = argparse.ArgumentParser(description="Enhanced Cluster Orchestrator")
     parser.add_argument("--dry-run", action="store_true", help="Don't execute commands")
@@ -677,6 +791,10 @@ def main():
     parser.add_argument("--no-elo-calibration", action="store_true", help="Disable periodic Elo calibration")
     parser.add_argument("--elo-interval", type=int, default=ELO_CALIBRATION_INTERVAL,
                         help=f"Elo calibration interval in iterations (default: {ELO_CALIBRATION_INTERVAL})")
+    parser.add_argument("--auto-scale-now", action="store_true", help="Run auto-scale check immediately")
+    parser.add_argument("--no-auto-scale", action="store_true", help="Disable automatic scaling of underutilized hosts")
+    parser.add_argument("--auto-scale-interval", type=int, default=AUTO_SCALE_INTERVAL,
+                        help=f"Auto-scale check interval in iterations (default: {AUTO_SCALE_INTERVAL})")
     args = parser.parse_args()
 
     # Acquire lockfile to prevent multiple instances
@@ -724,6 +842,17 @@ def main():
         if trigger_elo_calibration(hosts, statuses, args.dry_run):
             state.last_elo_calibration = datetime.now().isoformat()
             save_state(state)
+        return
+
+    # Force auto-scale if requested
+    if args.auto_scale_now:
+        log("Forcing auto-scale check...")
+        # Need to collect statuses first
+        statuses: Dict[str, HostStatus] = {}
+        for host in hosts:
+            if host.enabled:
+                statuses[host.name] = check_host_status(host)
+        trigger_auto_scale_selfplay(hosts, statuses, args.dry_run)
         return
 
     while True:
@@ -786,6 +915,11 @@ def main():
             log(f"Starting periodic Elo calibration (every {args.elo_interval} iterations)...")
             if trigger_elo_calibration(hosts, statuses, args.dry_run):
                 state.last_elo_calibration = datetime.now().isoformat()
+
+        # Periodic auto-scale check (every auto_scale_interval iterations)
+        if not args.no_auto_scale and state.iteration % args.auto_scale_interval == 0:
+            log(f"Starting auto-scale check (every {args.auto_scale_interval} iterations)...")
+            trigger_auto_scale_selfplay(hosts, statuses, args.dry_run)
 
         save_state(state)
 
