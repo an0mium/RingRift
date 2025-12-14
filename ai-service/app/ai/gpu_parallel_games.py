@@ -1346,16 +1346,19 @@ class BatchGameState:
         now = datetime.now()
 
         # Compute canonical victory thresholds for shadow validation.
-        # Per RR-CANON-R061/R062 these depend on the board type and player count.
+        # Per RR-CANON-R061/R062-v2 these depend on the board type and player count.
         from app.rules.core import (
             get_rings_per_player,
+            get_territory_victory_minimum,
             get_territory_victory_threshold,
             get_victory_threshold,
         )
 
         rings_per_player = get_rings_per_player(board_type)
         victory_threshold = get_victory_threshold(board_type, self.num_players)
-        territory_threshold = get_territory_victory_threshold(board_type)
+        territory_victory_threshold = get_territory_victory_threshold(board_type)
+        # Per RR-CANON-R062-v2: Use player-count-aware minimum threshold
+        territory_victory_minimum = get_territory_victory_minimum(board_type, self.num_players)
         total_rings_in_play = rings_per_player * self.num_players
         total_rings_eliminated = int(
             self.eliminated_rings[game_idx, 1 : self.num_players + 1].sum().item()
@@ -1412,7 +1415,8 @@ class BatchGameState:
             totalRingsInPlay=total_rings_in_play,
             totalRingsEliminated=total_rings_eliminated,
             victoryThreshold=victory_threshold,
-            territoryVictoryThreshold=territory_threshold,
+            territoryVictoryThreshold=territory_victory_threshold,
+            territoryVictoryMinimum=territory_victory_minimum,
             lpsRoundIndex=int(self.lps_round_index[game_idx].item()),
             lpsCurrentRoundActorMask=lps_actor_mask,
             lpsExclusivePlayerForCompletedRound=lps_exclusive_player,
@@ -1572,7 +1576,7 @@ class BatchGameState:
         if winner > 0:
             from app.models import BoardType
             from app.rules.core import (
-                get_territory_victory_threshold,
+                get_territory_victory_minimum,
                 get_victory_threshold,
             )
 
@@ -1586,12 +1590,19 @@ class BatchGameState:
                 board_type,
                 self.num_players,
             )
-            territory_victory_threshold = get_territory_victory_threshold(board_type)
+            # Per RR-CANON-R062-v2: Use player-count-aware minimum threshold
+            territory_victory_minimum = get_territory_victory_minimum(board_type, self.num_players)
 
-            # Territory victory (RR-CANON-R171/R062)
+            # Territory victory per RR-CANON-R062-v2 (dual condition)
+            player_territory = self.territory_count[game_idx, winner].item()
+            total_territory = sum(
+                self.territory_count[game_idx, p].item()
+                for p in range(1, self.num_players + 1)
+            )
+            opponents_territory = total_territory - player_territory
             if (
-                self.territory_count[game_idx, winner].item()
-                >= territory_victory_threshold
+                player_territory >= territory_victory_minimum
+                and player_territory > opponents_territory
             ):
                 return ("territory", None)
 
@@ -4928,10 +4939,10 @@ def evaluate_positions_batch(
     max_dist = center_dist.max()
     center_bonus = (max_dist - center_dist) / max_dist  # 1.0 at center, 0.0 at corners
 
-    # Canonical victory thresholds (RR-CANON-R061/R062).
+    # Canonical victory thresholds (RR-CANON-R061/R062-v2).
     # Keep this in sync with app.rules.core.BOARD_CONFIGS.
     from app.models import BoardType
-    from app.rules.core import get_territory_victory_threshold, get_victory_threshold
+    from app.rules.core import get_territory_victory_minimum, get_victory_threshold
 
     board_type_map = {
         8: BoardType.SQUARE8,
@@ -4939,7 +4950,8 @@ def evaluate_positions_batch(
         13: BoardType.HEXAGONAL,
     }
     board_type = board_type_map.get(board_size, BoardType.SQUARE8)
-    territory_victory_threshold = get_territory_victory_threshold(board_type)
+    # Per RR-CANON-R062-v2: Use player-count-aware minimum threshold
+    territory_victory_minimum = get_territory_victory_minimum(board_type, num_players)
     ring_victory_threshold = get_victory_threshold(board_type, num_players)
 
     # Weight mapping: support both old 8-weight format and new 45-weight format
@@ -5059,7 +5071,7 @@ def evaluate_positions_batch(
             opp_eliminated = state.eliminated_rings[:, opponent].float()
 
             # Victory proximity threat
-            opp_territory_progress = opp_territory / territory_victory_threshold
+            opp_territory_progress = opp_territory / territory_victory_minimum
             opp_elim_progress = opp_eliminated / ring_victory_threshold
             opponent_victory_threat += torch.max(opp_territory_progress, opp_elim_progress)
 
@@ -5172,7 +5184,7 @@ def evaluate_positions_batch(
 
         # === VICTORY PROXIMITY ===
         # How close to winning (normalized 0-1)
-        territory_progress = territory / territory_victory_threshold
+        territory_progress = territory / territory_victory_minimum
         elim_progress = eliminated_rings / ring_victory_threshold
         victory_proximity = torch.max(territory_progress, elim_progress)
 
@@ -5353,6 +5365,8 @@ class ParallelGameRunner:
         self.board_type = board_type
         self.use_heuristic_selection = use_heuristic_selection
         self.weight_noise = weight_noise
+        self.use_policy_selection = False
+        self.policy_model: Optional["RingRiftNNUEWithPolicy"] = None
         # Default LPS victory rounds to 3 if not specified
         self.lps_victory_rounds = lps_victory_rounds if lps_victory_rounds is not None else 3
         self.rings_per_player = rings_per_player
@@ -5423,6 +5437,57 @@ class ParallelGameRunner:
             board_type=self.board_type,
         )
 
+    def load_policy_model(self, model_path: Optional[str] = None) -> bool:
+        """Load policy model for policy-based move selection.
+
+        Args:
+            model_path: Path to policy model checkpoint. If None, uses default.
+
+        Returns:
+            True if model loaded successfully, False otherwise.
+        """
+        try:
+            from .nnue_policy import RingRiftNNUEWithPolicy
+            from ..models import BoardType
+
+            if model_path is None:
+                board_type_str = self.board_type or "square8"
+                model_path = os.path.join(
+                    os.path.dirname(__file__), "..", "..",
+                    "models", "nnue", f"nnue_policy_{board_type_str}_{self.num_players}p.pt"
+                )
+                model_path = os.path.normpath(model_path)
+
+            if not os.path.exists(model_path):
+                logger.debug(f"Policy model not found at {model_path}")
+                return False
+
+            # Load checkpoint (weights_only=False for our trusted checkpoints with numpy scalars)
+            checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+            hidden_dim = checkpoint.get("hidden_dim", 256)
+            num_hidden_layers = checkpoint.get("num_hidden_layers", 2)
+
+            # Determine board type
+            board_type_str = self.board_type or "square8"
+            board_type = BoardType(board_type_str)
+
+            self.policy_model = RingRiftNNUEWithPolicy(
+                board_type=board_type,
+                hidden_dim=hidden_dim,
+                num_hidden_layers=num_hidden_layers,
+            )
+            self.policy_model.load_state_dict(checkpoint["model_state_dict"])
+            self.policy_model.to(self.device)
+            self.policy_model.eval()
+            self.use_policy_selection = True
+
+            logger.info(f"ParallelGameRunner: Loaded policy model from {model_path}")
+            return True
+
+        except Exception as e:
+            logger.warning(f"Failed to load policy model: {e}")
+            return False
+
     def _select_moves(
         self,
         moves: "BatchMoves",
@@ -5430,10 +5495,14 @@ class ParallelGameRunner:
     ) -> torch.Tensor:
         """Select moves using configured selection strategy.
 
-        Uses heuristic-based selection if use_heuristic_selection is True,
-        otherwise uses fast center-bias selection.
+        Selection priority:
+        1. Policy-based selection (if policy model loaded)
+        2. Heuristic-based selection (if use_heuristic_selection=True)
+        3. Fast center-bias selection (default)
         """
-        if self.use_heuristic_selection:
+        if self.use_policy_selection and self.policy_model is not None:
+            return self._select_moves_policy(moves, active_mask)
+        elif self.use_heuristic_selection:
             return select_moves_heuristic(
                 moves, self.state, active_mask, temperature=1.0
             )
@@ -5441,6 +5510,301 @@ class ParallelGameRunner:
             return select_moves_vectorized(
                 moves, active_mask, self.board_size, temperature=1.0
             )
+
+    def _select_moves_policy(
+        self,
+        moves: "BatchMoves",
+        active_mask: torch.Tensor,
+        temperature: float = 1.0,
+    ) -> torch.Tensor:
+        """Select moves using policy network scores (batched).
+
+        Uses vectorized operations for efficient batch inference:
+        1. Extract features for all active games in parallel
+        2. Run single batch forward pass through policy model
+        3. Score and sample all moves using vectorized operations
+
+        Falls back to center-bias if policy evaluation fails.
+        """
+        device = moves.device
+        batch_size = active_mask.shape[0]
+
+        # Initialize output: -1 for games with no moves
+        selected = torch.full((batch_size,), -1, dtype=torch.int64, device=device)
+
+        if moves.total_moves == 0 or self.policy_model is None:
+            return selected
+
+        try:
+            from ..models import BoardType
+            from .nnue import get_feature_dim
+
+            board_type_str = self.board_type or "square8"
+            board_type = BoardType(board_type_str)
+
+            # Get active game indices that have moves
+            active_indices = torch.where(active_mask)[0]
+            moves_per_game = moves.moves_per_game[active_indices]
+            games_with_moves = active_indices[moves_per_game > 0]
+
+            if len(games_with_moves) == 0:
+                return selected
+
+            # === Batched Feature Extraction ===
+            # Extract features for all active games in one pass using vectorized ops
+            feature_dim = get_feature_dim(board_type)
+            num_active = len(games_with_moves)
+            features_batch = self._extract_features_batched(
+                games_with_moves, board_type, feature_dim, device
+            )
+
+            if features_batch is None:
+                raise RuntimeError("Batched feature extraction failed")
+
+            # === Batched Policy Inference ===
+            with torch.no_grad():
+                _, from_logits_batch, to_logits_batch = self.policy_model(
+                    features_batch, return_policy=True
+                )
+                # from_logits_batch: (num_active, H*W)
+                # to_logits_batch: (num_active, H*W)
+
+            # === Vectorized Move Scoring ===
+            # Score all moves across all games in parallel
+            center = self.board_size // 2
+            center_idx = center * self.board_size + center
+            num_positions = self.board_size * self.board_size
+
+            for local_idx, g_idx in enumerate(games_with_moves):
+                g = g_idx.item()
+                move_start = moves.move_offsets[g].item()
+                move_count = moves.moves_per_game[g].item()
+
+                if move_count == 0:
+                    continue
+
+                # Get from/to positions for all moves of this game
+                from_y = moves.from_y[move_start:move_start + move_count]
+                from_x = moves.from_x[move_start:move_start + move_count]
+                to_y = moves.to_y[move_start:move_start + move_count]
+                to_x = moves.to_x[move_start:move_start + move_count]
+
+                # Compute flat indices vectorized (use center for negative coords)
+                from_idx = torch.where(
+                    from_y >= 0,
+                    from_y * self.board_size + from_x,
+                    torch.full_like(from_y, center_idx)
+                ).long()
+                to_idx = torch.where(
+                    to_y >= 0,
+                    to_y * self.board_size + to_x,
+                    torch.full_like(to_y, center_idx)
+                ).long()
+
+                # Clamp indices to valid range
+                from_idx = from_idx.clamp(0, num_positions - 1)
+                to_idx = to_idx.clamp(0, num_positions - 1)
+
+                # Get logits for this game
+                from_logits = from_logits_batch[local_idx]
+                to_logits = to_logits_batch[local_idx]
+
+                # Compute move scores vectorized
+                move_scores = from_logits[from_idx] + to_logits[to_idx]
+
+                # Sample move with temperature
+                probs = torch.softmax(move_scores / temperature, dim=0)
+                selected_local = torch.multinomial(probs, 1).item()
+                selected[g] = selected_local
+
+        except Exception as e:
+            logger.debug(f"Policy selection failed, falling back to center-bias: {e}")
+            return select_moves_vectorized(
+                moves, active_mask, self.board_size, temperature=temperature
+            )
+
+        return selected
+
+    def _extract_features_batched(
+        self,
+        game_indices: torch.Tensor,
+        board_type: "BoardType",
+        feature_dim: int,
+        device: torch.device,
+    ) -> Optional[torch.Tensor]:
+        """Extract NNUE features for multiple games using vectorized operations.
+
+        This is much more efficient than the per-game extraction as it uses
+        batch tensor operations instead of Python loops.
+
+        Args:
+            game_indices: Tensor of game indices to extract features for
+            board_type: Board type enum
+            feature_dim: Expected feature dimension
+            device: Target device
+
+        Returns:
+            Tensor of shape (num_games, feature_dim) or None on failure
+        """
+        try:
+            num_games = len(game_indices)
+            board_size = self.board_size
+            num_positions = board_size * board_size
+
+            # Initialize features tensor
+            features = torch.zeros(
+                (num_games, feature_dim), dtype=torch.float32, device=device
+            )
+
+            # Get state tensors for selected games
+            current_player = self.state.current_player[game_indices]  # (N,)
+            current_player = torch.where(
+                current_player < 1,
+                torch.ones_like(current_player),
+                current_player
+            )
+
+            # Extract game state slices: (N, H, W)
+            stack_owner = self.state.stack_owner[game_indices]
+            stack_height = self.state.stack_height[game_indices]
+            territory_owner = self.state.territory_owner[game_indices]
+
+            # Create position indices (flat)
+            y_coords = torch.arange(board_size, device=device).view(-1, 1).expand(
+                board_size, board_size
+            )
+            x_coords = torch.arange(board_size, device=device).view(1, -1).expand(
+                board_size, board_size
+            )
+            pos_indices = (y_coords * board_size + x_coords).flatten()  # (H*W,)
+
+            # Process each player's perspective
+            # For each game g and position (y,x), we compute:
+            #   plane_offset = (owner - current_player[g]) % 4
+            # Then set appropriate feature planes
+
+            for g_local in range(num_games):
+                cp = current_player[g_local].item()
+
+                # Ring and stack features
+                owner_slice = stack_owner[g_local].flatten()  # (H*W,)
+                height_slice = stack_height[g_local].flatten()  # (H*W,)
+
+                # Find occupied positions
+                occupied = (owner_slice > 0) & (height_slice > 0)
+                occupied_idx = torch.where(occupied)[0]
+
+                if len(occupied_idx) > 0:
+                    owners = owner_slice[occupied_idx]
+                    heights = height_slice[occupied_idx]
+                    positions = pos_indices[occupied_idx]
+
+                    # Compute plane offsets (rotate perspective)
+                    plane_offsets = ((owners - cp) % self.num_players).long()
+
+                    # Set ring features (planes 0-3)
+                    ring_indices = plane_offsets * num_positions + positions
+                    valid_ring = ring_indices < feature_dim
+                    features[g_local].scatter_(
+                        0, ring_indices[valid_ring], torch.ones_like(ring_indices[valid_ring], dtype=torch.float32)
+                    )
+
+                    # Set stack height features (planes 4-7)
+                    stack_indices = (4 + plane_offsets) * num_positions + positions
+                    valid_stack = stack_indices < feature_dim
+                    heights_scaled = torch.clamp(heights.float() / 5.0, 0.0, 1.0)
+                    features[g_local].scatter_(
+                        0, stack_indices[valid_stack], heights_scaled[valid_stack]
+                    )
+
+                # Territory features (planes 8-11)
+                territory_slice = territory_owner[g_local].flatten()
+                territory_occupied = territory_slice > 0
+                territory_idx = torch.where(territory_occupied)[0]
+
+                if len(territory_idx) > 0:
+                    territory_owners = territory_slice[territory_idx]
+                    territory_positions = pos_indices[territory_idx]
+
+                    territory_offsets = ((territory_owners - cp) % self.num_players).long()
+                    territory_plane_indices = (8 + territory_offsets) * num_positions + territory_positions
+                    valid_territory = territory_plane_indices < feature_dim
+                    features[g_local].scatter_(
+                        0,
+                        territory_plane_indices[valid_territory],
+                        torch.ones_like(
+                            territory_plane_indices[valid_territory],
+                            dtype=torch.float32,
+                        ),
+                    )
+
+            return features
+
+        except Exception as e:
+            logger.debug(f"Batched feature extraction failed: {e}")
+            return None
+
+    def _extract_features_for_game(
+        self,
+        game_idx: int,
+        board_type: "BoardType",
+    ) -> Optional["np.ndarray"]:
+        """Extract NNUE features from batch state for a single game.
+
+        This is a simplified implementation that extracts features game-by-game.
+        A more efficient implementation would batch this extraction.
+        """
+        try:
+            import numpy as np
+            from .nnue import get_feature_dim
+
+            feature_dim = get_feature_dim(board_type)
+            features = np.zeros(feature_dim, dtype=np.float32)
+            board_size = self.board_size
+            num_positions = board_size * board_size
+
+            current_player = self.state.current_player[game_idx].item()
+            if current_player < 1:
+                current_player = 1
+
+            # Extract stack ownership for each player (simplified)
+            # Planes 0-3: Ring presence, 4-7: Stack presence, 8-11: Territory
+            for y in range(board_size):
+                for x in range(board_size):
+                    pos_idx = y * board_size + x
+                    owner = self.state.stack_owner[game_idx, y, x].item()
+                    height = self.state.stack_height[game_idx, y, x].item()
+
+                    if owner > 0 and height > 0:
+                        # Rotate perspective so current player is always plane 0
+                        plane_offset = ((owner - current_player) % self.num_players)
+                        if plane_offset < 0:
+                            plane_offset += 4
+
+                        # Set ring and stack features
+                        ring_plane = plane_offset * num_positions + pos_idx
+                        stack_plane = (4 + plane_offset) * num_positions + pos_idx
+
+                        if ring_plane < feature_dim:
+                            features[ring_plane] = 1.0
+                        if stack_plane < feature_dim:
+                            features[stack_plane] = min(float(height) / 5.0, 1.0)
+
+                    # Territory
+                    territory_owner = self.state.territory_owner[game_idx, y, x].item()
+                    if territory_owner > 0:
+                        plane_offset = ((territory_owner - current_player) % self.num_players)
+                        if plane_offset < 0:
+                            plane_offset += 4
+                        territory_plane = (8 + plane_offset) * num_positions + pos_idx
+                        if territory_plane < feature_dim:
+                            features[territory_plane] = 1.0
+
+            return features
+
+        except Exception as e:
+            logger.debug(f"Feature extraction failed for game {game_idx}: {e}")
+            return None
 
     @torch.no_grad()
     def run_games(
@@ -6701,18 +7065,18 @@ class ParallelGameRunner:
 
         Implements canonical rules:
         - RR-CANON-R170: Ring-elimination victory (eliminatedRingsTotal >= victoryThreshold)
-        - RR-CANON-R171: Territory-control victory (territorySpaces >= territoryVictoryThreshold)
+        - RR-CANON-R171: Territory-control victory (dual condition: threshold AND dominance)
         - RR-CANON-R172: Last-player-standing (round-based exclusive real actions)
 
-        Victory thresholds per RR-CANON-R061/R062:
+        Victory thresholds per RR-CANON-R061/R062-v2:
         - victoryThreshold = round(ringsPerPlayer × (2/3 + 1/3 × (numPlayers - 1)))
-        - territoryVictoryThreshold = floor(totalSpaces / 2) + 1
+        - territoryVictoryMinimum = floor(totalSpaces / numPlayers) + 1 [plus dominance check]
         """
         active_mask = self.state.get_active_mask()
 
         # Canonical thresholds depend on board type and player count (RR-CANON-R061/R062).
         from app.models import BoardType
-        from app.rules.core import get_territory_victory_threshold, get_victory_threshold
+        from app.rules.core import get_territory_victory_minimum, get_victory_threshold
 
         board_type_map = {
             8: BoardType.SQUARE8,
@@ -6721,7 +7085,8 @@ class ParallelGameRunner:
         }
         board_type = board_type_map.get(self.board_size, BoardType.SQUARE8)
         ring_elimination_threshold = get_victory_threshold(board_type, self.num_players)
-        territory_victory_threshold = get_territory_victory_threshold(board_type)
+        # Per RR-CANON-R062-v2: Use player-count-aware minimum threshold
+        territory_victory_minimum = get_territory_victory_minimum(board_type, self.num_players)
 
         for p in range(1, self.num_players + 1):
             # Check ring-elimination victory (RR-CANON-R170)
@@ -6730,8 +7095,18 @@ class ParallelGameRunner:
             # rings_caused_eliminated[:, p] tracks rings that player p CAUSED to be eliminated
             ring_elimination_victory = self.state.rings_caused_eliminated[:, p] >= ring_elimination_threshold
 
-            # Check territory victory (RR-CANON-R171)
-            territory_victory = self.state.territory_count[:, p] >= territory_victory_threshold
+            # Check territory victory per RR-CANON-R062-v2 (dual condition)
+            # Condition 1: Territory >= floor(totalSpaces / numPlayers) + 1
+            player_territory = self.state.territory_count[:, p]
+            meets_threshold = player_territory >= territory_victory_minimum
+
+            # Condition 2: Territory > sum of all opponents' territory
+            total_territory = self.state.territory_count[:, 1:self.num_players + 1].sum(dim=1)
+            opponents_territory = total_territory - player_territory
+            dominates_opponents = player_territory > opponents_territory
+
+            # Victory requires BOTH conditions
+            territory_victory = meets_threshold & dominates_opponents
 
             # RR-CANON-R172 (LPS) is applied at turn start via the LPS round
             # tracker (see _update_lps_round_tracking_for_current_player).

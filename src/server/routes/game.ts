@@ -336,6 +336,65 @@ sandboxHelperRoutes.post(
 );
 
 /**
+ * Sandbox helper for inspecting the effective AI ladder configuration and
+ * artifact availability from the Python AI service.
+ *
+ * Proxies `/internal/ladder/health` so the sandbox UI can verify that the
+ * expected NN/NNUE checkpoints + heuristic profiles are available for the
+ * current board type / player count.
+ */
+sandboxHelperRoutes.get(
+  '/sandbox/ai/ladder/health',
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const enabled = config.isTest || config.isDevelopment || config.featureFlags.sandboxAi.enabled;
+
+    if (!enabled) {
+      throw createError('Not found', 404, 'NOT_FOUND');
+    }
+
+    const rawBoardType = typeof req.query.boardType === 'string' ? req.query.boardType : undefined;
+    const rawNumPlayers =
+      typeof req.query.numPlayers === 'string' ? req.query.numPlayers : undefined;
+    const rawDifficulty =
+      typeof req.query.difficulty === 'string' ? req.query.difficulty : undefined;
+
+    const boardType = rawBoardType;
+    const numPlayers =
+      rawNumPlayers !== undefined
+        ? Math.max(2, Math.min(4, parseInt(rawNumPlayers, 10)))
+        : undefined;
+    const difficulty =
+      rawDifficulty !== undefined
+        ? Math.max(1, Math.min(10, parseInt(rawDifficulty, 10)))
+        : undefined;
+
+    const aiClient = getAIServiceClient();
+    try {
+      const data = await aiClient.getLadderHealth({
+        boardType,
+        numPlayers: Number.isFinite(numPlayers as number) ? numPlayers : undefined,
+        difficulty: Number.isFinite(difficulty as number) ? difficulty : undefined,
+      });
+      res.status(200).json(data);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'AI Service failed to fetch ladder health';
+      logger.warn('Sandbox AI ladder health request failed', {
+        boardType,
+        numPlayers,
+        difficulty,
+        error: message,
+      });
+      res.status(503).json({
+        error:
+          'Sandbox AI ladder health is unavailable. Ensure the AI service is running and sandbox AI endpoints are enabled.',
+        details: message,
+      });
+    }
+  })
+);
+
+/**
  * @openapi
  * /games:
  *   get:

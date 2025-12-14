@@ -350,7 +350,7 @@ describe('GameHUD', () => {
       screen.getByText(/Ring Elimination – Eliminate enough rings to win/i)
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Territory Control – Own more than half the board as territory/i)
+      screen.getByText(/Territory Control – Dominate the board with your territory/i)
     ).toBeInTheDocument();
     expect(
       screen.getByText(/Last Player Standing – Dominate the board for 3 rounds/i)
@@ -410,7 +410,8 @@ describe('GameHUD', () => {
     fireEvent.mouseEnter(territoryTrigger);
     tooltip = screen.getByRole('tooltip');
     expect(tooltip).toHaveTextContent(/Territory = spaces you permanently control/i);
-    expect(tooltip).toHaveTextContent(/own more than 50%/i);
+    expect(tooltip).toHaveTextContent(/fair share/i);
+    expect(tooltip).toHaveTextContent(/more territory than all opponents combined/i);
     fireEvent.mouseLeave(territoryTrigger);
     expect(screen.queryByRole('tooltip')).toBeNull();
 

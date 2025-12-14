@@ -84,7 +84,8 @@ At minimum, your engine must maintain:
     - `totalRingsInPlay` (initial total over all players, board type)
     - `totalRingsEliminated`
     - `victoryThreshold` = round(ringsPerPlayer × (2/3 + 1/3 × (numPlayers - 1)))
-    - `territoryVictoryThreshold` = floor(totalSpaces/2) + 1
+    - `territoryVictoryMinimum` = floor(totalSpaces / numPlayers) + 1
+    - `territoryVictoryThreshold` = floor(totalSpaces/2) + 1 _(legacy, kept for backward compat)_
 
 - **Stacks, cap height, control**
   - `stackHeight = rings.length`
@@ -468,12 +469,16 @@ For player `P`:
   - hexagonal (96 rings/player): 2P = 96, 3P = 128, 4P = 160
 - This cannot occur for multiple players simultaneously by construction.
 
-### 7.2 Territory-control victory
+### 7.2 Territory-control victory (RR-CANON-R062-v2)
 
 For player `P`:
 
 - Let `territorySpaces[P]` = number of cells where `collapsedSpaces[pos] == P`.
-- If `territorySpaces[P] ≥ territoryVictoryThreshold` (>50% of board space), `P` wins.
+- Let `opponentTerritory` = sum of `territorySpaces[Q]` for all opponents Q ≠ P.
+- Player `P` wins by territory when BOTH conditions are met:
+  1. `territorySpaces[P] >= territoryVictoryMinimum` (i.e., `>= floor(totalSpaces / numPlayers) + 1`)
+  2. `territorySpaces[P] > opponentTerritory` (strict dominance over all opponents combined)
+- This dual-condition rule makes territory victory achievable in multiplayer games while requiring clear dominance.
 
 ### 7.3 Last-player-standing victory
 
@@ -607,7 +612,7 @@ The **elimination turn** `eliminationTurn[P]` is defined as:
 The winner (rank 1) is determined by whichever victory condition triggered:
 
 1. **Ring-elimination victory (Section 7.1):** The player who reached `eliminatedRingsTotal ≥ victoryThreshold` is 1st.
-2. **Territory-control victory (Section 7.2):** The player who reached `territorySpaces ≥ territoryVictoryThreshold` is 1st.
+2. **Territory-control victory (Section 7.2):** The player who satisfied both territory conditions (minimum threshold AND dominance) is 1st.
 3. **Last-player-standing victory (Section 7.3):** The sole player with real actions for 3 consecutive rounds is 1st.
 4. **Stalemate (Section 7.4):** The player ranked highest by the tiebreaker cascade (§8.3) is 1st.
 
@@ -703,7 +708,7 @@ function computeFinalRanks(winner: PlayerId, players: PlayerRankingData[]): Map<
 
 #### Example 2: 3-player territory victory with tiebreaker
 
-- Player 2 reaches 50%+ territory on turn 60.
+- On turn 60, Player 2 has 30 territory on 64-space board: 30 >= floor(64/3)+1 = 22 (meets minimum), and 30 > 15+12 = 27 (dominates opponents combined).
 - At game end: Player 1 has 15 territory, 10 eliminations; Player 3 has 12 territory, 14 eliminations.
 - Ranking: Player 2 is 1st. Player 1 (15 territory) beats Player 3 (12 territory) on Priority 1.
 - Result: Player 2 is 1st, Player 1 is 2nd, Player 3 is 3rd.

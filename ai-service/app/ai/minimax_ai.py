@@ -16,17 +16,19 @@ evaluation while maintaining fast CPU inference suitable for alpha-beta
 search.
 """
 
-from typing import Optional, List
+from typing import Optional, List, Tuple
 import logging
 import os
 import time
 
+import torch
+
 from .bounded_transposition_table import BoundedTranspositionTable
 from .heuristic_ai import HeuristicAI
 from .game_state_utils import infer_num_players
-from .nnue import NNUEEvaluator
+from .nnue import NNUEEvaluator, extract_features_from_gamestate, get_board_size
 from .zobrist import ZobristHash
-from ..models import GameState, Move, MoveType, AIConfig, GamePhase
+from ..models import GameState, Move, MoveType, AIConfig, GamePhase, BoardType
 from ..rules.mutable_state import MutableGameState
 
 # Environment variable to enable zero-sum evaluation for minimax.
@@ -131,6 +133,96 @@ class MinimaxAI(HeuristicAI):
                 f"MinimaxAI(player={player_number}, difficulty={config.difficulty}): "
                 "using heuristic evaluation"
             )
+
+        # Policy model for move ordering (optional, D4+ when enabled)
+        # The policy head predicts which moves are likely good, enabling
+        # better move ordering for more effective alpha-beta pruning.
+        self.policy_model: Optional["RingRiftNNUEWithPolicy"] = None
+        self.use_policy_ordering: bool = False
+        self._pending_policy_init: bool = False
+
+        use_policy_config = getattr(config, "use_policy_ordering", None)
+        should_use_policy = (
+            config.difficulty >= 4 and
+            (use_policy_config if use_policy_config is not None else True) and
+            not disable_nn_env
+        )
+
+        if should_use_policy:
+            self._pending_policy_init = True
+            logger.debug(
+                f"MinimaxAI(player={player_number}): "
+                "Policy move ordering will be initialized on first move"
+            )
+
+    def _init_policy_model(self, board_type: BoardType, num_players: int) -> None:
+        """Initialize policy model for move ordering."""
+        if not self._pending_policy_init:
+            return
+
+        self._pending_policy_init = False
+
+        try:
+            from .nnue_policy import RingRiftNNUEWithPolicy
+
+            # Try to load policy model checkpoint
+            model_path = os.path.join(
+                os.path.dirname(__file__), "..", "..",
+                "models", "nnue", f"nnue_policy_{board_type.value}_{num_players}p.pt"
+            )
+            model_path = os.path.normpath(model_path)
+
+            if os.path.exists(model_path):
+                checkpoint = torch.load(model_path, map_location="cpu")
+                state_dict = checkpoint
+                hidden_dim = 256
+                num_hidden_layers = 2
+
+                if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+                    state_dict = checkpoint["model_state_dict"]
+                    hidden_dim = int(checkpoint.get("hidden_dim") or hidden_dim)
+                    num_hidden_layers = int(checkpoint.get("num_hidden_layers") or num_hidden_layers)
+
+                if isinstance(state_dict, dict):
+                    try:
+                        accumulator_weight = state_dict.get("accumulator.weight")
+                        if accumulator_weight is not None and hasattr(accumulator_weight, "shape"):
+                            hidden_dim = int(accumulator_weight.shape[0])
+                    except Exception:
+                        pass
+
+                    try:
+                        import re
+
+                        layer_indices = set()
+                        for key in state_dict:
+                            match = re.match(r"hidden\.(\d+)\.weight$", key)
+                            if match:
+                                layer_indices.add(int(match.group(1)))
+                        if layer_indices:
+                            num_hidden_layers = len(layer_indices)
+                    except Exception:
+                        pass
+
+                self.policy_model = RingRiftNNUEWithPolicy(
+                    board_type=board_type,
+                    hidden_dim=hidden_dim,
+                    num_hidden_layers=num_hidden_layers,
+                )
+                if not isinstance(state_dict, dict):
+                    raise TypeError(f"Unexpected policy checkpoint: {type(state_dict).__name__}")
+                self.policy_model.load_state_dict(state_dict)
+                self.policy_model.eval()
+                self.use_policy_ordering = True
+                logger.info(
+                    f"MinimaxAI: Loaded policy model from {model_path}"
+                )
+            else:
+                logger.debug(
+                    f"MinimaxAI: No policy model found at {model_path}"
+                )
+        except Exception as e:
+            logger.warning(f"Failed to load policy model: {e}")
 
     def evaluate_position(self, game_state: GameState) -> float:
         """
@@ -264,6 +356,11 @@ class MinimaxAI(HeuristicAI):
             except Exception as e:
                 logger.warning(f"Failed to initialize NNUE evaluator: {e}")
                 self.use_nnue = False
+
+        # Lazy policy model initialization on first move
+        if getattr(self, '_pending_policy_init', False):
+            board_type = game_state.board.type
+            self._init_policy_model(board_type, num_players)
 
         # Check if should pick random move based on randomness setting
         if self.should_pick_random_move():
@@ -765,8 +862,8 @@ class MinimaxAI(HeuristicAI):
 
         is_me = (current_player_num == self.player_number)
 
-        # Move ordering with Killer Heuristic
-        ordered_moves = self._order_moves_with_killers(valid_moves, depth)
+        # Move ordering with Killer Heuristic (and policy if available)
+        ordered_moves = self._order_moves_with_killers(valid_moves, depth, state)
 
         if is_me:
             max_eval = float('-inf')
@@ -989,9 +1086,19 @@ class MinimaxAI(HeuristicAI):
         return self.evaluate_position(immutable)
 
     def _order_moves_with_killers(
-        self, valid_moves: List[Move], depth: int
+        self,
+        valid_moves: List[Move],
+        depth: int,
+        state: Optional[MutableGameState] = None,
     ) -> List[Move]:
-        """Order moves with killer heuristic for better pruning."""
+        """Order moves with killer heuristic and optional policy scoring.
+
+        Move ordering priority:
+        1. Killer moves (from previous search)
+        2. Policy-ranked moves (if policy model available)
+        3. Capture moves
+        4. Other moves
+        """
         killer_moves_at_depth = self.killer_moves.get(depth) or []
 
         killers = []
@@ -1009,18 +1116,94 @@ class MinimaxAI(HeuristicAI):
             else:
                 others.append(move)
 
-        # Sort others by priority (captures first)
-        others.sort(
-            key=lambda m: 1 if m.type in [
-                "overtaking_capture",
-                "chain_capture",
-                "line_formation",
-                "territory_claim"
-            ] else 0,
-            reverse=True
-        )
+        # If policy model available and we have state, use policy for ordering
+        if (
+            depth >= 2
+            and self.use_policy_ordering
+            and self.policy_model is not None
+            and state is not None
+            and others
+        ):
+            try:
+                others = self._order_by_policy(others, state)
+            except Exception as e:
+                logger.debug(f"Policy ordering failed, using heuristic: {e}")
+                # Fall back to capture-first ordering
+                others.sort(
+                    key=lambda m: 1 if m.type in [
+                        "overtaking_capture",
+                        "chain_capture",
+                        "line_formation",
+                        "territory_claim"
+                    ] else 0,
+                    reverse=True
+                )
+        else:
+            # Sort others by priority (captures first)
+            others.sort(
+                key=lambda m: 1 if m.type in [
+                    "overtaking_capture",
+                    "chain_capture",
+                    "line_formation",
+                    "territory_claim"
+                ] else 0,
+                reverse=True
+            )
 
         return killers + others
+
+    def _order_by_policy(
+        self,
+        moves: List[Move],
+        state: MutableGameState,
+    ) -> List[Move]:
+        """Order moves by policy network scores (best first)."""
+        from .nnue_policy import pos_to_flat_index
+
+        if not moves or self.policy_model is None:
+            return moves
+
+        # Extract features from state
+        immutable = state.to_immutable()
+        board_type = immutable.board.type
+        board_size = get_board_size(board_type)
+        current_player = immutable.current_player or self.player_number
+
+        features = extract_features_from_gamestate(immutable, current_player)
+        features_tensor = torch.from_numpy(features[None, ...]).float()
+
+        # Get policy logits
+        with torch.no_grad():
+            _, from_logits, to_logits = self.policy_model(features_tensor, return_policy=True)
+            from_logits = from_logits[0].numpy()  # Shape: (H*W,)
+            to_logits = to_logits[0].numpy()  # Shape: (H*W,)
+
+        # Score each move
+        center = board_size // 2
+        center_idx = center * board_size + center
+        scored_moves = []
+
+        for move in moves:
+            from_pos = getattr(move, 'from_pos', None)
+            if from_pos is None:
+                from_idx = center_idx
+            else:
+                from_idx = pos_to_flat_index(from_pos, board_size, board_type)
+
+            to_pos = getattr(move, 'to', None)
+            if to_pos is None:
+                to_pos = from_pos
+            if to_pos is None:
+                to_idx = center_idx
+            else:
+                to_idx = pos_to_flat_index(to_pos, board_size, board_type)
+
+            score = from_logits[from_idx] + to_logits[to_idx]
+            scored_moves.append((score, move))
+
+        # Sort by score descending (best moves first)
+        scored_moves.sort(key=lambda x: x[0], reverse=True)
+        return [m for _, m in scored_moves]
 
     def _moves_equal(self, move1: Move, move2: Move) -> bool:
         """Check if two moves are equal for killer move matching."""

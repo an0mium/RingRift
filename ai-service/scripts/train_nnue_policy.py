@@ -1,0 +1,659 @@
+#!/usr/bin/env python
+"""Train NNUE with Policy Head for RingRift.
+
+This script trains the NNUE network with both value and policy heads.
+The policy head learns to predict the move that was played from each
+position, providing move guidance for search algorithms.
+
+Training data is extracted from self-play game databases (SQLite), where
+each position is labeled with:
+- Game outcome (for value head)
+- The move that was played (for policy head)
+
+Usage:
+    # Train on a single database
+    python scripts/train_nnue_policy.py --db data/games/selfplay.db --epochs 50
+
+    # Train with custom loss weights
+    python scripts/train_nnue_policy.py --db data/games/*.db \\
+        --value-weight 1.0 --policy-weight 0.5 --epochs 100
+
+    # Fine-tune from existing value-only model
+    python scripts/train_nnue_policy.py --db data/games/selfplay.db \\
+        --pretrained models/nnue/nnue_square8_2p.pt --freeze-value
+
+Output:
+    - Model checkpoint: models/nnue/nnue_policy_{board_type}.pt
+    - Training report: {run_dir}/nnue_policy_training_report.json
+"""
+
+from __future__ import annotations
+
+import argparse
+import glob
+import json
+import logging
+import os
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+
+# Set up path for imports
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+import torch
+from torch.utils.data import DataLoader, random_split
+
+from app.ai.nnue import RingRiftNNUE, clear_nnue_cache
+from app.ai.nnue_policy import (
+    RingRiftNNUEWithPolicy,
+    NNUEPolicyTrainer,
+    NNUEPolicyDataset,
+    NNUEPolicyDatasetConfig,
+)
+from app.models import BoardType
+from app.training.seed_utils import seed_all
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+def parse_board_type(value: str) -> BoardType:
+    """Parse board type string to enum."""
+    mapping = {
+        "square8": BoardType.SQUARE8,
+        "sq8": BoardType.SQUARE8,
+        "square19": BoardType.SQUARE19,
+        "sq19": BoardType.SQUARE19,
+        "hexagonal": BoardType.HEXAGONAL,
+        "hex": BoardType.HEXAGONAL,
+    }
+    key = value.lower()
+    if key not in mapping:
+        raise ValueError(f"Unknown board type: {value}")
+    return mapping[key]
+
+
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Train NNUE with policy head for RingRift",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+
+    # Data sources
+    parser.add_argument(
+        "--db",
+        type=str,
+        nargs="+",
+        default=[],
+        help="Path(s) to SQLite game database(s). Supports glob patterns.",
+    )
+
+    # Board configuration
+    parser.add_argument(
+        "--board-type",
+        type=str,
+        default="square8",
+        help="Board type: square8, square19, or hexagonal (default: square8)",
+    )
+    parser.add_argument(
+        "--num-players",
+        type=int,
+        default=2,
+        help="Number of players (default: 2)",
+    )
+
+    # Training parameters
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=100,
+        help="Number of training epochs (default: 100)",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=256,
+        help="Training batch size (default: 256)",
+    )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=3e-4,
+        help="Learning rate (default: 3e-4)",
+    )
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        default=1e-4,
+        help="Weight decay for L2 regularization (default: 1e-4)",
+    )
+    parser.add_argument(
+        "--val-split",
+        type=float,
+        default=0.1,
+        help="Validation set fraction (default: 0.1)",
+    )
+    parser.add_argument(
+        "--early-stopping-patience",
+        type=int,
+        default=15,
+        help="Early stopping patience in epochs (default: 15)",
+    )
+
+    # Loss weights
+    parser.add_argument(
+        "--value-weight",
+        type=float,
+        default=1.0,
+        help="Weight for value loss (default: 1.0)",
+    )
+    parser.add_argument(
+        "--policy-weight",
+        type=float,
+        default=1.0,
+        help="Weight for policy loss (default: 1.0)",
+    )
+
+    # Model architecture
+    parser.add_argument(
+        "--hidden-dim",
+        type=int,
+        default=256,
+        help="NNUE hidden layer dimension (default: 256)",
+    )
+    parser.add_argument(
+        "--num-hidden-layers",
+        type=int,
+        default=2,
+        help="Number of NNUE hidden layers (default: 2)",
+    )
+
+    # Pre-training / fine-tuning
+    parser.add_argument(
+        "--pretrained",
+        type=str,
+        default=None,
+        help="Path to pretrained value-only NNUE model for fine-tuning",
+    )
+    parser.add_argument(
+        "--freeze-value",
+        action="store_true",
+        help="Freeze value weights when fine-tuning from pretrained model",
+    )
+
+    # Sampling configuration
+    parser.add_argument(
+        "--sample-every-n",
+        type=int,
+        default=2,
+        help="Sample every Nth position from games (default: 2)",
+    )
+    parser.add_argument(
+        "--min-game-length",
+        type=int,
+        default=10,
+        help="Minimum game length to include (default: 10)",
+    )
+    parser.add_argument(
+        "--max-samples",
+        type=int,
+        default=None,
+        help="Maximum number of training samples (default: all)",
+    )
+    parser.add_argument(
+        "--max-moves-per-position",
+        type=int,
+        default=128,
+        help="Maximum legal moves to encode per position (default: 128)",
+    )
+
+    # Output
+    parser.add_argument(
+        "--run-dir",
+        type=str,
+        default=None,
+        help="Output directory for reports (default: runs/nnue_policy_{timestamp})",
+    )
+    parser.add_argument(
+        "--save-path",
+        type=str,
+        default=None,
+        help="Custom path for model checkpoint",
+    )
+
+    # Other
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for reproducibility (default: 42)",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        help="Device to train on (default: auto-detect)",
+    )
+
+    return parser.parse_args(argv)
+
+
+def collate_policy_batch(batch):
+    """Custom collate function for policy dataset batches."""
+    features = torch.stack([b[0] for b in batch])
+    values = torch.stack([b[1] for b in batch])
+    from_indices = torch.stack([b[2] for b in batch])
+    to_indices = torch.stack([b[3] for b in batch])
+    move_mask = torch.stack([b[4] for b in batch])
+    target_idx = torch.stack([b[5] for b in batch])
+    return features, values, from_indices, to_indices, move_mask, target_idx
+
+
+def train_nnue_policy(
+    db_paths: List[str],
+    board_type: BoardType,
+    num_players: int,
+    epochs: int,
+    batch_size: int,
+    learning_rate: float,
+    weight_decay: float,
+    val_split: float,
+    early_stopping_patience: int,
+    hidden_dim: int,
+    num_hidden_layers: int,
+    value_weight: float,
+    policy_weight: float,
+    sample_every_n: int,
+    min_game_length: int,
+    max_samples: Optional[int],
+    max_moves_per_position: int,
+    save_path: str,
+    device: torch.device,
+    seed: int,
+    pretrained_path: Optional[str] = None,
+    freeze_value: bool = False,
+) -> Dict[str, Any]:
+    """Train NNUE policy model and return training report."""
+    seed_all(seed)
+
+    # Create dataset
+    config = NNUEPolicyDatasetConfig(
+        board_type=board_type,
+        num_players=num_players,
+        sample_every_n_moves=sample_every_n,
+        min_game_length=min_game_length,
+        max_moves_per_position=max_moves_per_position,
+    )
+    dataset = NNUEPolicyDataset(
+        db_paths=db_paths,
+        config=config,
+        max_samples=max_samples,
+    )
+
+    if len(dataset) == 0:
+        logger.error("No training samples found!")
+        return {"error": "No training samples"}
+
+    logger.info(f"Dataset size: {len(dataset)} samples")
+
+    # Split into train/val
+    val_size = int(len(dataset) * val_split)
+    train_size = len(dataset) - val_size
+    train_dataset, val_dataset = random_split(
+        dataset,
+        [train_size, val_size],
+        generator=torch.Generator().manual_seed(seed),
+    )
+
+    logger.info(f"Train size: {len(train_dataset)}, Val size: {len(val_dataset)}")
+
+    # Create data loaders
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=0,
+        collate_fn=collate_policy_batch,
+        pin_memory=device.type != "cpu",
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,
+        collate_fn=collate_policy_batch,
+        pin_memory=device.type != "cpu",
+    )
+
+    # Create model
+    if pretrained_path and os.path.exists(pretrained_path):
+        logger.info(f"Loading pretrained model from {pretrained_path}")
+        try:
+            checkpoint = torch.load(pretrained_path, map_location="cpu")
+            state_dict = checkpoint
+            if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+                state_dict = checkpoint["model_state_dict"]
+            if not isinstance(state_dict, dict):
+                raise TypeError(f"Unexpected checkpoint type: {type(state_dict).__name__}")
+            inferred_hidden_dim = hidden_dim
+            inferred_num_hidden_layers = num_hidden_layers
+
+            try:
+                accumulator_weight = state_dict.get("accumulator.weight")
+                if accumulator_weight is not None and hasattr(accumulator_weight, "shape"):
+                    inferred_hidden_dim = int(accumulator_weight.shape[0])
+            except Exception:
+                pass
+
+            try:
+                import re
+
+                layer_indices = set()
+                for key in state_dict:
+                    match = re.match(r"hidden\.(\d+)\.weight$", key)
+                    if match:
+                        layer_indices.add(int(match.group(1)))
+                if layer_indices:
+                    inferred_num_hidden_layers = len(layer_indices)
+            except Exception:
+                pass
+
+            value_model = RingRiftNNUE(
+                board_type=board_type,
+                hidden_dim=inferred_hidden_dim,
+                num_hidden_layers=inferred_num_hidden_layers,
+            )
+            value_model.load_state_dict(state_dict)
+            value_model.eval()
+        except Exception as e:
+            logger.warning(f"Failed to load pretrained model, starting fresh: {e}")
+            value_model = None
+
+        if value_model is None:
+            model = RingRiftNNUEWithPolicy(
+                board_type=board_type,
+                hidden_dim=hidden_dim,
+                num_hidden_layers=num_hidden_layers,
+            )
+        else:
+            model = RingRiftNNUEWithPolicy.from_value_only(
+                value_model, freeze_value_weights=freeze_value
+            )
+            logger.info(f"Initialized from pretrained model (freeze_value={freeze_value})")
+    else:
+        model = RingRiftNNUEWithPolicy(
+            board_type=board_type,
+            hidden_dim=hidden_dim,
+            num_hidden_layers=num_hidden_layers,
+        )
+
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logger.info(f"Model parameters: {total_params:,} total, {trainable_params:,} trainable")
+
+    # Create trainer
+    trainer = NNUEPolicyTrainer(
+        model=model,
+        device=device,
+        learning_rate=learning_rate,
+        weight_decay=weight_decay,
+        value_weight=value_weight,
+        policy_weight=policy_weight,
+    )
+
+    # Training loop
+    best_val_loss = float("inf")
+    best_epoch = 0
+    epochs_without_improvement = 0
+    history: Dict[str, List[float]] = {
+        "train_loss": [],
+        "train_value_loss": [],
+        "train_policy_loss": [],
+        "val_loss": [],
+        "val_value_loss": [],
+        "val_policy_loss": [],
+        "val_policy_accuracy": [],
+    }
+
+    for epoch in range(epochs):
+        # Training
+        model.train()
+        train_losses = []
+        train_value_losses = []
+        train_policy_losses = []
+
+        for batch in train_loader:
+            features, values, from_idx, to_idx, mask, target = batch
+            features = features.to(device)
+            values = values.to(device)
+            from_idx = from_idx.to(device)
+            to_idx = to_idx.to(device)
+            mask = mask.to(device)
+            target = target.to(device)
+
+            total_loss, value_loss, policy_loss = trainer.train_step(
+                features, values, from_idx, to_idx, mask, target
+            )
+            train_losses.append(total_loss)
+            train_value_losses.append(value_loss)
+            train_policy_losses.append(policy_loss)
+
+        avg_train_loss = np.mean(train_losses)
+        avg_train_value = np.mean(train_value_losses)
+        avg_train_policy = np.mean(train_policy_losses)
+
+        # Validation
+        val_losses = []
+        val_value_losses = []
+        val_policy_losses = []
+        val_accuracies = []
+
+        for batch in val_loader:
+            features, values, from_idx, to_idx, mask, target = batch
+            features = features.to(device)
+            values = values.to(device)
+            from_idx = from_idx.to(device)
+            to_idx = to_idx.to(device)
+            mask = mask.to(device)
+            target = target.to(device)
+
+            total_loss, value_loss, policy_loss, accuracy = trainer.validate(
+                features, values, from_idx, to_idx, mask, target
+            )
+            val_losses.append(total_loss)
+            val_value_losses.append(value_loss)
+            val_policy_losses.append(policy_loss)
+            val_accuracies.append(accuracy)
+
+        avg_val_loss = np.mean(val_losses)
+        avg_val_value = np.mean(val_value_losses)
+        avg_val_policy = np.mean(val_policy_losses)
+        avg_val_accuracy = np.mean(val_accuracies)
+
+        trainer.update_scheduler(avg_val_loss)
+
+        # Record history
+        history["train_loss"].append(avg_train_loss)
+        history["train_value_loss"].append(avg_train_value)
+        history["train_policy_loss"].append(avg_train_policy)
+        history["val_loss"].append(avg_val_loss)
+        history["val_value_loss"].append(avg_val_value)
+        history["val_policy_loss"].append(avg_val_policy)
+        history["val_policy_accuracy"].append(avg_val_accuracy)
+
+        logger.info(
+            f"Epoch {epoch+1}/{epochs}: "
+            f"train={avg_train_loss:.4f} (v={avg_train_value:.4f}, p={avg_train_policy:.4f}), "
+            f"val={avg_val_loss:.4f} (v={avg_val_value:.4f}, p={avg_val_policy:.4f}), "
+            f"policy_acc={avg_val_accuracy:.4f}"
+        )
+
+        # Check for improvement
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            best_epoch = epoch + 1
+            epochs_without_improvement = 0
+
+            # Save best model
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            checkpoint = {
+                "model_state_dict": model.state_dict(),
+                "board_type": board_type.value,
+                "hidden_dim": hidden_dim,
+                "num_hidden_layers": num_hidden_layers,
+                "epoch": epoch + 1,
+                "val_loss": avg_val_loss,
+                "val_policy_accuracy": avg_val_accuracy,
+                "architecture_version": model.ARCHITECTURE_VERSION,
+                "has_policy_head": True,
+            }
+            torch.save(checkpoint, save_path)
+            logger.info(f"Saved best model to {save_path}")
+        else:
+            epochs_without_improvement += 1
+            if epochs_without_improvement >= early_stopping_patience:
+                logger.info(f"Early stopping at epoch {epoch+1}")
+                break
+
+    # Training report
+    report = {
+        "board_type": board_type.value,
+        "num_players": num_players,
+        "dataset_size": len(dataset),
+        "train_size": len(train_dataset),
+        "val_size": len(val_dataset),
+        "model_params_total": total_params,
+        "model_params_trainable": trainable_params,
+        "hidden_dim": hidden_dim,
+        "num_hidden_layers": num_hidden_layers,
+        "value_weight": value_weight,
+        "policy_weight": policy_weight,
+        "epochs_trained": epoch + 1,
+        "best_epoch": best_epoch,
+        "best_val_loss": best_val_loss,
+        "final_val_policy_accuracy": history["val_policy_accuracy"][-1],
+        "save_path": save_path,
+        "pretrained_path": pretrained_path,
+        "freeze_value": freeze_value,
+        "history": history,
+    }
+
+    return report
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """Main entry point."""
+    args = parse_args(argv)
+
+    # Parse board type
+    board_type = parse_board_type(args.board_type)
+
+    # Expand glob patterns in database paths
+    db_paths: List[str] = []
+    for pattern in args.db:
+        expanded = glob.glob(pattern)
+        if expanded:
+            db_paths.extend(expanded)
+        elif os.path.exists(pattern):
+            db_paths.append(pattern)
+        else:
+            logger.warning(f"Database not found: {pattern}")
+
+    if not db_paths:
+        logger.error("No database paths provided. Use --db")
+        return 1
+
+    # Set up device
+    if args.device:
+        device = torch.device(args.device)
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
+    logger.info(f"Using device: {device}")
+
+    # Set up output paths
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    run_dir = args.run_dir or os.path.join(PROJECT_ROOT, "runs", f"nnue_policy_{timestamp}")
+    os.makedirs(run_dir, exist_ok=True)
+
+    save_path = args.save_path or os.path.join(
+        PROJECT_ROOT, "models", "nnue", f"nnue_policy_{board_type.value}_{args.num_players}p.pt"
+    )
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    # Train
+    logger.info("Starting NNUE policy training...")
+    report = train_nnue_policy(
+        db_paths=db_paths,
+        board_type=board_type,
+        num_players=args.num_players,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        learning_rate=args.learning_rate,
+        weight_decay=args.weight_decay,
+        val_split=args.val_split,
+        early_stopping_patience=args.early_stopping_patience,
+        hidden_dim=args.hidden_dim,
+        num_hidden_layers=args.num_hidden_layers,
+        value_weight=args.value_weight,
+        policy_weight=args.policy_weight,
+        sample_every_n=args.sample_every_n,
+        min_game_length=args.min_game_length,
+        max_samples=args.max_samples,
+        max_moves_per_position=args.max_moves_per_position,
+        save_path=save_path,
+        device=device,
+        seed=args.seed,
+        pretrained_path=args.pretrained,
+        freeze_value=args.freeze_value,
+    )
+
+    # Add metadata to report
+    report["run_dir"] = run_dir
+    report["db_paths"] = db_paths
+    report["created_at"] = datetime.now(timezone.utc).isoformat()
+
+    # Save report
+    report_path = os.path.join(run_dir, "nnue_policy_training_report.json")
+    with open(report_path, "w") as f:
+        def convert(obj):
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            if isinstance(obj, (np.float32, np.float64)):
+                return float(obj)
+            if isinstance(obj, (np.int32, np.int64)):
+                return int(obj)
+            return obj
+        json.dump(report, f, indent=2, default=convert)
+    logger.info(f"Saved training report to {report_path}")
+
+    # Clear NNUE cache so new model is loaded
+    clear_nnue_cache()
+
+    logger.info("NNUE policy training complete!")
+    logger.info(f"  Model saved to: {save_path}")
+    best_loss = report.get('best_val_loss')
+    logger.info(f"  Best validation loss: {best_loss:.4f}" if best_loss is not None else "  Best validation loss: N/A")
+    final_acc = report.get('final_val_policy_accuracy')
+    logger.info(f"  Final policy accuracy: {final_acc:.4f}" if final_acc is not None else "  Final policy accuracy: N/A")
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

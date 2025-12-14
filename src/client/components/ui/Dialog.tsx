@@ -24,8 +24,6 @@ export interface DialogProps {
   describedBy?: string | undefined;
   /** Optional accessible label when labelledBy is not provided. */
   ariaLabel?: string | undefined;
-  /** Optional override for the dialog role (default: "dialog"). */
-  role?: 'dialog' | 'alertdialog' | undefined;
   /** When true (default), Escape closes the dialog. */
   closeOnEscape?: boolean | undefined;
   /** When true (default), clicking the backdrop closes the dialog. */

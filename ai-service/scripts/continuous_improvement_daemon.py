@@ -208,19 +208,19 @@ def maybe_sync_staging(reason: str) -> bool:
 
 # Board type configurations for balanced training
 BOARD_CONFIGS = [
-    {"board": "square8", "players": 2, "priority": 1.0, "min_games": 10000},
-    {"board": "square8", "players": 3, "priority": 0.3, "min_games": 3000},
-    {"board": "square8", "players": 4, "priority": 0.2, "min_games": 2000},
-    {"board": "square19", "players": 2, "priority": 0.5, "min_games": 5000},
-    {"board": "square19", "players": 3, "priority": 0.2, "min_games": 2000},
-    {"board": "square19", "players": 4, "priority": 0.1, "min_games": 1000},
-    {"board": "hexagonal", "players": 2, "priority": 0.4, "min_games": 4000},
-    {"board": "hexagonal", "players": 3, "priority": 0.2, "min_games": 2000},
-    {"board": "hexagonal", "players": 4, "priority": 0.1, "min_games": 1000},
+    {"board": "square8", "players": 2, "priority": 1.0, "min_games": 2000},
+    {"board": "square8", "players": 3, "priority": 0.3, "min_games": 1000},
+    {"board": "square8", "players": 4, "priority": 0.2, "min_games": 500},
+    {"board": "square19", "players": 2, "priority": 0.5, "min_games": 1500},
+    {"board": "square19", "players": 3, "priority": 0.2, "min_games": 800},
+    {"board": "square19", "players": 4, "priority": 0.1, "min_games": 400},
+    {"board": "hexagonal", "players": 2, "priority": 0.4, "min_games": 1500},
+    {"board": "hexagonal", "players": 3, "priority": 0.2, "min_games": 800},
+    {"board": "hexagonal", "players": 4, "priority": 0.1, "min_games": 400},
 ]
 
 # Training thresholds
-MIN_NEW_GAMES_FOR_TRAINING = 2000  # Train after this many new games
+MIN_NEW_GAMES_FOR_TRAINING = 500  # Train after this many new games
 TRAINING_COOLDOWN_SECONDS = 1800   # 30 min between training runs
 TOURNAMENT_GAMES = 50              # Games per model comparison
 PROMOTION_THRESHOLD = 0.55         # Win rate needed for promotion

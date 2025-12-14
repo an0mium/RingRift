@@ -105,18 +105,18 @@ Short description (used in [`TeachingOverlay.TEACHING_CONTENT.victory_eliminatio
 
 **HUD one‑liner**
 
-- `"Win by controlling more than half of all board spaces as territory."`
+- `"Win by dominating territory – control more than your fair share AND more than all opponents combined."`
 
 **Tooltip (multi‑line)**
 
 - Line 1: `"Territory spaces are collapsed cells you permanently own."`
-- Line 2: `"If your territory spaces exceed 50% of all board spaces during territory processing, you win immediately."`
+- Line 2: `"Territory victory requires two conditions: (1) control at least your fair share of the board (1/N of spaces in an N-player game), AND (2) control more territory than all opponents combined."`
 - Line 3: `"Claiming a region usually requires eliminating rings from a stack you control outside that region (mandatory self‑elimination cost)."`
 
 **TeachingOverlay victory topic – territory**
 Description (used in [`TeachingOverlay.TEACHING_CONTENT.victory_territory`](src/client/components/TeachingOverlay.tsx:107)):
 
-- `"Win by owning more than half of all board spaces as Territory. Territory comes from collapsing marker lines and resolving disconnected regions, and once a space becomes Territory it can’t be captured back."`
+- `"Win by dominating Territory. You need to control at least your fair share of the board (1/N spaces in N-player) AND more territory than all opponents combined. Territory comes from collapsing marker lines and resolving disconnected regions, and once a space becomes Territory it can't be captured back."`
 
 ### 3.3 Last Player Standing (LPS)
 
@@ -237,7 +237,7 @@ For scenarios like `learn.lines.formation.Rules_11_2_Q7_Q20` in [`curated.json`]
 **TeachingOverlay – Territory description**
 Used in [`TeachingOverlay.TEACHING_CONTENT.territory`](src/client/components/TeachingOverlay.tsx:84):
 
-- `"Territory spaces are collapsed cells that you permanently own. When a disconnected region of your pieces is processed, all of its spaces become your Territory and its rings are eliminated, at the cost of eliminating the entire cap from one of your other stacks (recovery actions pay with a buried ring instead). If your Territory passes more than half of the board, you win immediately."`
+- `"Territory spaces are collapsed cells that you permanently own. When a disconnected region of your pieces is processed, all of its spaces become your Territory and its rings are eliminated, at the cost of eliminating the entire cap from one of your other stacks (recovery actions pay with a buried ring instead). You win by Territory when you control at least your fair share (1/N of the board) AND more than all opponents combined."`
 
 **Sandbox phase copy – Territory Processing**
 Used in [`SandboxGameHost.PHASE_COPY.territory_processing.summary`](src/client/pages/SandboxGameHost.tsx:258):

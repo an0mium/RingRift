@@ -66,10 +66,11 @@ describe('BoardControlsOverlay', () => {
     expect(keyboardSection).toHaveAttribute('aria-label', 'Keyboard shortcuts');
     expect(screen.queryByText(/play RingRift entirely without a mouse/i)).not.toBeInTheDocument();
 
-    // Overlay itself should expose dialog semantics.
-    const overlay = screen.getByTestId('board-controls-overlay');
-    expect(overlay).toHaveAttribute('role', 'dialog');
-    expect(overlay).toHaveAttribute('aria-modal', 'true');
-    expect(overlay).toHaveAttribute('aria-labelledby', 'board-controls-title');
+    // Dialog container should expose modal semantics (overlay is presentational).
+    expect(screen.getByTestId('board-controls-overlay')).toBeInTheDocument();
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveAttribute('aria-labelledby', 'board-controls-title');
   });
 });

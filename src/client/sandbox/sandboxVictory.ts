@@ -61,7 +61,9 @@ function computePlayerVictoryStats(state: GameState): PlayerVictoryStats[] {
  * and sandbox aligned on:
  *
  * - Ring-elimination victory: players[].eliminatedRings >= victoryThreshold.
- * - Territory-control victory: players[].territorySpaces >= territoryVictoryThreshold.
+ * - Territory-control victory (RR-CANON-R062-v2): BOTH conditions must be met:
+ *   1. players[].territorySpaces >= floor(totalSpaces / numPlayers) + 1
+ *   2. players[].territorySpaces > sum of all opponents' territory
  * - Bare-board global stalemate: territory → eliminated rings (including
  *   conceptual hand→eliminated when appropriate) → markers → last actor.
  *

@@ -35,7 +35,7 @@ During the game you:
 You win by achieving **any one** of three victory conditions:
 
 1. Eliminating enough rings to reach the Ring Elimination victory threshold (depends on player count).
-2. Controlling more than half of all board spaces as your territory.
+2. Controlling enough territory to dominate the board (at least floor(totalSpaces/numPlayers)+1 AND more than all opponents combined).
 3. Becoming the **Last Player Standing** in terms of "real actions".
 
 If nobody can move at all (including forced eliminations), the game ends in a
@@ -52,19 +52,19 @@ There are three standard boards:
 - **8×8 square** (simplified version)
   - 64 spaces.
   - Each player has **18 rings**.
-  - Territory victory: **>32** collapsed spaces.
+  - Territory victory: minimum **33** (2p), **22** (3p), **17** (4p) AND more than opponents combined.
   - Lines: **4+** markers (2-player) or **3+** markers (3–4 player).
 
 - **19×19 square** (full version)
   - 361 spaces.
   - **72 rings** per player.
-  - Territory victory: **>180** spaces.
+  - Territory victory: minimum **181** (2p), **121** (3p), **91** (4p) AND more than opponents combined.
   - Lines: **4+** markers in a row.
 
 - **Hexagonal** (radius 12; 13 cells per side)
   - 469 spaces.
   - **96 rings** per player.
-  - Territory victory: **>234** spaces.
+  - Territory victory: minimum **235** (2p), **157** (3p), **118** (4p) AND more than opponents combined.
   - Lines: **4+** markers along hex directions.
 
 These parameters (size, rings per player, line length, adjacency) come from
@@ -344,17 +344,19 @@ can meet this condition simultaneously**.
 
 ### 5.2 Territory Victory
 
-You win by controlling **more than 50%** of all board spaces as your own
-collapsed territory.
+You win by satisfying **both** conditions:
 
-Thresholds:
+1. **Minimum threshold:** Your territory >= floor(totalSpaces / numPlayers) + 1
+2. **Dominance:** Your territory > all opponents' territories combined
 
-- 8×8: >32 collapsed spaces.
-- 19×19: >180.
-- Hex: >234.
+Minimum thresholds by board and player count:
 
-Again, because each threshold is more than half the board, only one player
-can satisfy this at a time.
+- 8×8 (64 spaces): 33 (2p), 22 (3p), 17 (4p)
+- 19×19 (361 spaces): 181 (2p), 121 (3p), 91 (4p)
+- Hex (469 spaces): 235 (2p), 157 (3p), 118 (4p)
+
+Because the dominance condition requires strictly more territory than all
+opponents combined, only one player can satisfy this at a time.
 
 ### 5.3 Last Player Standing (LPS)
 

@@ -524,7 +524,9 @@ function LpsTrackingIndicator({
 /**
  * Victory progress indicator showing ring elimination and territory control progress.
  * Per RR-CANON-R061: victoryThreshold = round(ringsPerPlayer × (2/3 + 1/3 × (numPlayers - 1)))
- * Per RR-CANON-R062: territoryThreshold = floor(totalSpaces/2)+1
+ * Per RR-CANON-R062-v2: Territory victory requires BOTH:
+ *   - territoryMinimum = floor(totalSpaces/numPlayers)+1 AND
+ *   - territory > sum of all opponents' territory
  */
 function VictoryProgressIndicator({
   victoryProgress,
@@ -1213,10 +1215,10 @@ export function VictoryConditionsPanel({ className = '' }: { className?: string 
           <span className="mt-0.5">•</span>
           <div className="flex-1">
             <div className="flex items-center gap-1">
-              <span>Territory Control – Own more than half the board as territory!</span>
+              <span>Territory Control – Dominate the board with your territory!</span>
               <Tooltip
                 content={
-                  'Territory = spaces you permanently control.\n\nTo claim a region:\n1. Isolate a group of spaces by surrounding them\n2. Spend the cap from an eligible stack outside the region\n   (multicolor stacks or stacks taller than 1 ring)\n\nWhen you own more than 50% of all spaces, you win instantly!'
+                  'Territory = spaces you permanently control.\n\nTo claim a region:\n1. Isolate a group of spaces by surrounding them\n2. Spend the cap from an eligible stack outside the region\n   (multicolor stacks or stacks taller than 1 ring)\n\nWin by controlling at least your fair share (1/N of board) AND more territory than all opponents combined!'
                 }
               >
                 <span

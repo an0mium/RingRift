@@ -177,7 +177,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
       - `eliminatedRings` (credited to that player).
       - `territorySpaces`.
     - Turn/phase: `currentPlayer`, `currentPhase` ∈ { `ring_placement`, `movement`, `capture`, `chain_capture`, `line_processing`, `territory_processing`, `forced_elimination` } during active play, and `game_over` once victory/stalemate is reached. `game_over` is terminal-only and MUST NOT be used for move recording or phase traversal.
-    - Victory metadata: `totalRingsInPlay`, `totalRingsEliminated`, `victoryThreshold`, `territoryVictoryThreshold`.
+    - Victory metadata: `totalRingsInPlay`, `totalRingsEliminated`, `victoryThreshold`, `territoryVictoryMinimum` (and legacy `territoryVictoryThreshold` for backward compatibility).
     - History: `moveHistory` (implementation-defined structure).
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §1.3, §2, §7; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§4, 13, 15.2.
 
@@ -226,9 +226,13 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - Rationale: In multi-player games, a player must eliminate more rings to win, proportional to the total rings controlled by opponents.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §1.3, §7.1; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§1.3, 13.1, 16.3, 16.9.4.5.
 
-- **[RR-CANON-R062] Territory-control victory threshold.**
-  - `territoryVictoryThreshold = floor(totalSpaces / 2) + 1`.
-  - A player wins by Territory when their `territorySpaces[P]` reaches or exceeds `territoryVictoryThreshold`.
+- **[RR-CANON-R062] Territory-control victory threshold (v2).**
+  - `territoryVictoryMinimum = floor(totalSpaces / numPlayers) + 1`.
+  - A player P wins by Territory when BOTH conditions are satisfied:
+    1. `territorySpaces[P] >= territoryVictoryMinimum`
+    2. `territorySpaces[P] > sum(territorySpaces[Q])` for all opponents Q ≠ P
+  - This dual-condition rule makes territory victory achievable in multiplayer games (where >50% is impossible) while requiring clear dominance.
+  - Legacy: The old `territoryVictoryThreshold = floor(totalSpaces / 2) + 1` is maintained for backward compatibility with 2-player serialized states but is not used for victory checks.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §1.3, §7.2; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§13.2, 16.2.
 
 ---
@@ -917,8 +921,10 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md:409) §7.1; [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1204) §§13.1, 16.9.4.5.
 
 - **[RR-CANON-R171] Territory-control victory.**
-  - After a full turn, if any player P has `territorySpaces[P] ≥ territoryVictoryThreshold`, that player wins immediately by Territory.
-  - Multiple players cannot simultaneously satisfy this because thresholds are >50% of total spaces.
+  - After a full turn, if any player P satisfies BOTH conditions in RR-CANON-R062 (v2), that player wins immediately by Territory:
+    1. `territorySpaces[P] >= territoryVictoryMinimum`
+    2. `territorySpaces[P] > sum(territorySpaces[Q])` for all opponents Q
+  - Multiple players cannot simultaneously satisfy this because condition 2 requires strict dominance over all opponents combined.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md:417) §7.2; [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1220) §§13.2, 16.2.
 
 - **[RR-CANON-R172] Last-player-standing victory.**
@@ -1028,7 +1034,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - P4: territory=0, elimRings=5, markers=0, never permanently eliminated (still has buried rings).
     - Cascade: P4 never permanently eliminated → P4 rank 2. P1 permanently eliminated later than P3 → P1 rank 3, P3 rank 4.
   - **Example 3 (Territory victory with tie):**
-    - P1 reaches `territoryVictoryThreshold` → P1 wins (rank 1).
+    - P1 satisfies territory victory conditions (>= minimum AND > opponents combined) → P1 wins (rank 1).
     - P2: territory=10, elimRings=8, markers=4, never permanently eliminated.
     - P3: territory=10, elimRings=8, markers=4, never permanently eliminated.
     - Tied on all criteria → P2 and P3 share rank 2. Final: P1=1, P2=2, P3=2.

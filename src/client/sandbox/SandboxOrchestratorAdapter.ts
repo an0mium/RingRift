@@ -30,6 +30,7 @@ import {
   isSandboxAiStallDiagnosticsEnabled,
   isTestEnvironment,
 } from '../../shared/utils/envFlags';
+import { recordSandboxAiDiagnostics } from './sandboxAiDiagnostics';
 import type {
   ProcessTurnResult,
   PendingDecision,
@@ -839,18 +840,65 @@ export class SandboxOrchestratorAdapter {
               : 5;
 
           const stateForService = this.stateAccessor.getGameState();
-          const serviceMove = await this.tryRequestSandboxAIMove({
+          const serviceResult = await this.tryRequestSandboxAIMove({
             state: serializeGameState(stateForService),
             difficulty,
             playerNumber: decision.player,
           });
 
-          if (serviceMove) {
-            const desiredKey = this.moveMatchKey(serviceMove);
+          if (serviceResult) {
+            const desiredKey = this.moveMatchKey(serviceResult.move);
             const matched = decision.options.find((opt) => this.moveMatchKey(opt) === desiredKey);
             if (matched) {
+              recordSandboxAiDiagnostics({
+                timestamp: Date.now(),
+                gameId: stateForService.id,
+                boardType: stateForService.boardType,
+                numPlayers: stateForService.players.length,
+                playerNumber: decision.player,
+                requestedDifficulty: difficulty,
+                source: 'service',
+                aiType: serviceResult.aiType,
+                difficulty: serviceResult.difficulty,
+                heuristicProfileId: serviceResult.heuristicProfileId,
+                useNeuralNet: serviceResult.useNeuralNet,
+                nnModelId: serviceResult.nnModelId,
+                nnCheckpoint: serviceResult.nnCheckpoint,
+                nnueCheckpoint: serviceResult.nnueCheckpoint,
+                thinkingTimeMs: serviceResult.thinkingTimeMs,
+              });
               return matched;
             }
+
+            recordSandboxAiDiagnostics({
+              timestamp: Date.now(),
+              gameId: stateForService.id,
+              boardType: stateForService.boardType,
+              numPlayers: stateForService.players.length,
+              playerNumber: decision.player,
+              requestedDifficulty: difficulty,
+              source: 'mismatch',
+              aiType: serviceResult.aiType,
+              difficulty: serviceResult.difficulty,
+              heuristicProfileId: serviceResult.heuristicProfileId,
+              useNeuralNet: serviceResult.useNeuralNet,
+              nnModelId: serviceResult.nnModelId,
+              nnCheckpoint: serviceResult.nnCheckpoint,
+              nnueCheckpoint: serviceResult.nnueCheckpoint,
+              thinkingTimeMs: serviceResult.thinkingTimeMs,
+              error: 'service_move_not_in_candidates',
+            });
+          } else {
+            recordSandboxAiDiagnostics({
+              timestamp: Date.now(),
+              gameId: stateForService.id,
+              boardType: stateForService.boardType,
+              numPlayers: stateForService.players.length,
+              playerNumber: decision.player,
+              requestedDifficulty: difficulty,
+              source: 'unavailable',
+              error: 'service_unavailable',
+            });
           }
 
           return this.autoSelectDecision(decision);
@@ -950,13 +998,13 @@ export class SandboxOrchestratorAdapter {
       String(move.player),
       positionKey(move.from),
       positionKey(move.to),
-      positionKey((rec as any).captureTarget),
+      positionKey(rec['captureTarget']),
       String(buildAmount),
       String(placementCount),
       String(recoveryOption),
-      positionsKey((rec as any).collapsedMarkers),
-      formedLinesKey((rec as any).formedLines),
-      territoriesKey((rec as any).disconnectedRegions),
+      positionsKey(rec['collapsedMarkers']),
+      formedLinesKey(rec['formedLines']),
+      territoriesKey(rec['disconnectedRegions']),
       eliminationContext,
       eliminationFromStackPos,
     ].join('|');
@@ -966,7 +1014,18 @@ export class SandboxOrchestratorAdapter {
     state: ReturnType<typeof serializeGameState>;
     difficulty: number;
     playerNumber: number;
-  }): Promise<Move | null> {
+  }): Promise<{
+    move: Move;
+    evaluation?: unknown;
+    thinkingTimeMs?: number | null;
+    aiType?: string;
+    difficulty?: number;
+    heuristicProfileId?: string | null;
+    useNeuralNet?: boolean | null;
+    nnModelId?: string | null;
+    nnCheckpoint?: string | null;
+    nnueCheckpoint?: string | null;
+  } | null> {
     if (typeof fetch !== 'function') {
       return null;
     }
@@ -984,8 +1043,72 @@ export class SandboxOrchestratorAdapter {
         return null;
       }
 
-      const data = (await response.json()) as { move?: Move | null } | null;
-      return data?.move ?? null;
+      const raw = (await response.json()) as unknown;
+      if (!raw || typeof raw !== 'object') {
+        return null;
+      }
+
+      const data = raw as Record<string, unknown>;
+      const move = data.move as Move | null | undefined;
+      if (!move) {
+        return null;
+      }
+
+      const aiType = typeof data.aiType === 'string' ? data.aiType : undefined;
+      const difficulty = typeof data.difficulty === 'number' ? data.difficulty : undefined;
+
+      const heuristicProfileId =
+        typeof data.heuristicProfileId === 'string'
+          ? data.heuristicProfileId
+          : data.heuristicProfileId === null
+            ? null
+            : undefined;
+
+      const useNeuralNet =
+        typeof data.useNeuralNet === 'boolean'
+          ? data.useNeuralNet
+          : data.useNeuralNet === null
+            ? null
+            : undefined;
+
+      const nnModelId =
+        typeof data.nnModelId === 'string'
+          ? data.nnModelId
+          : data.nnModelId === null
+            ? null
+            : undefined;
+      const nnCheckpoint =
+        typeof data.nnCheckpoint === 'string'
+          ? data.nnCheckpoint
+          : data.nnCheckpoint === null
+            ? null
+            : undefined;
+      const nnueCheckpoint =
+        typeof data.nnueCheckpoint === 'string'
+          ? data.nnueCheckpoint
+          : data.nnueCheckpoint === null
+            ? null
+            : undefined;
+
+      const thinkingTimeMs =
+        typeof data.thinkingTimeMs === 'number'
+          ? data.thinkingTimeMs
+          : data.thinkingTimeMs === null
+            ? null
+            : undefined;
+
+      return {
+        move,
+        evaluation: data.evaluation,
+        thinkingTimeMs,
+        aiType,
+        difficulty,
+        heuristicProfileId,
+        useNeuralNet,
+        nnModelId,
+        nnCheckpoint,
+        nnueCheckpoint,
+      };
     } catch {
       return null;
     }

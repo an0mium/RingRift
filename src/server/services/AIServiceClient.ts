@@ -167,6 +167,12 @@ export interface PositionEvaluationApiResponse {
   generated_at: string;
 }
 
+export interface LadderHealthQuery {
+  boardType?: BoardType | string;
+  numPlayers?: number;
+  difficulty?: number;
+}
+
 export interface LineRewardChoiceRequestPayload {
   game_state?: Record<string, unknown>;
   player_number: number;
@@ -1085,6 +1091,44 @@ export class AIServiceClient {
       );
 
       return false;
+    }
+  }
+
+  /**
+   * Fetch the AI-service internal ladder health report (config + artifact presence).
+   *
+   * Intended for developer diagnostics (sandbox wiring, staging sync validation).
+   */
+  async getLadderHealth(query: LadderHealthQuery = {}): Promise<Record<string, unknown>> {
+    const startTime = performance.now();
+    try {
+      return await this.circuitBreaker.execute(async () => {
+        const params: Record<string, string | number> = {};
+        if (query.boardType) {
+          params.board_type = String(query.boardType);
+        }
+        if (typeof query.numPlayers === 'number' && !Number.isNaN(query.numPlayers)) {
+          params.num_players = query.numPlayers;
+        }
+        if (typeof query.difficulty === 'number' && !Number.isNaN(query.difficulty)) {
+          params.difficulty = query.difficulty;
+        }
+
+        const response = await this.client.get<Record<string, unknown>>('/internal/ladder/health', {
+          params,
+        });
+
+        const latencyMs = Math.round(performance.now() - startTime);
+        this.updateServiceStatus('healthy', undefined, latencyMs);
+        return response.data;
+      });
+    } catch (error) {
+      const latencyMs = Math.round(performance.now() - startTime);
+      const message = error instanceof Error ? error.message : 'Ladder health check failed';
+
+      this.updateServiceStatus('unhealthy', message, latencyMs);
+
+      throw new Error(`AI Service ladder health check failed: ${message}`);
     }
   }
 

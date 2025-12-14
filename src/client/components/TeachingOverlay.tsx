@@ -192,7 +192,8 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
     description: TEACHING_TOPICS_COPY.victory_territory.body,
     tips: [
       'Territory is permanent: once claimed, those spaces never return to neutral.',
-      'On an 8×8 board, you need at least 33 Territory spaces to win.',
+      'Territory victory requires BOTH: at least your fair share of the board (1/N in N-player) AND more territory than all opponents combined.',
+      'On an 8×8 2-player board, you need at least 33 Territory spaces. In 3-player, you need 22+ AND more than both opponents combined.',
       'Territory victories often come from big line/region resolutions rather than single moves.',
     ],
   },

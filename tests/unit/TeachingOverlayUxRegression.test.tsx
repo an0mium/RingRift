@@ -93,8 +93,9 @@ describe('TeachingOverlay UX regression – rules-aware copy', () => {
     const dialog = screen.getByRole('dialog');
     const text = dialog.textContent || '';
 
-    // Territory victory is based on owning more than half of all board spaces as Territory.
-    expect(text).toMatch(/owning more than half of all board spaces as Territory/i);
+    // Territory victory requires both a fair-share floor and an "exceeds opponents combined" condition.
+    expect(text).toMatch(/fair share/i);
+    expect(text).toMatch(/more territory than all opponents combined/i);
 
     // Territory is permanent once claimed.
     expect(text).toMatch(/once a space becomes Territory it can.?t be captured back/i);

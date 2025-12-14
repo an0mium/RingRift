@@ -423,7 +423,7 @@ export const ONBOARDING_COPY: OnboardingCopy = {
       id: 'onboarding.victory.territory',
       title: 'Territory Control',
       // UX_RULES_COPY_SPEC.md §3.2 – TeachingOverlay victory topic – territory
-      body: 'Win by owning more than half of all board spaces as Territory. Territory comes from collapsing marker lines and resolving disconnected regions, and once a space becomes Territory it can’t be captured back.',
+      body: 'Win by dominating Territory. You need to control at least your fair share of the board (1/N spaces in N-player) AND more territory than all opponents combined. Territory comes from collapsing marker lines and resolving disconnected regions, and once a space becomes Territory it can’t be captured back.',
     },
     {
       id: 'onboarding.victory.lps',
@@ -476,7 +476,7 @@ export const TEACHING_TOPICS_COPY: Record<string, TeachingTopicCopy> = {
     topicId: 'territory',
     heading: 'Territory',
     // UX_RULES_COPY_SPEC.md §7 – TeachingOverlay – Territory description
-    body: 'Territory spaces are collapsed cells that you permanently own. When a disconnected region of your pieces is processed, all of its spaces become your Territory and its rings are eliminated, at the cost of eliminating the entire cap from an eligible stack outside the region (multicolor stacks or single-color stacks with height > 1; standalone rings are NOT eligible). Recovery actions pay with a buried ring instead. If your Territory passes more than half of the board, you win immediately.',
+    body: 'Territory spaces are collapsed cells that you permanently own. When a disconnected region of your pieces is processed, all of its spaces become your Territory and its rings are eliminated, at the cost of eliminating the entire cap from an eligible stack outside the region (multicolor stacks or single-color stacks with height > 1; standalone rings are NOT eligible). Recovery actions pay with a buried ring instead. You win by Territory when you control at least your fair share (1/N of the board) AND more than all opponents combined.',
   },
   active_no_moves: {
     topicId: 'active_no_moves',
@@ -500,7 +500,7 @@ export const TEACHING_TOPICS_COPY: Record<string, TeachingTopicCopy> = {
     topicId: 'victory_territory',
     heading: 'Victory: Territory',
     // UX_RULES_COPY_SPEC.md §3.2 – TeachingOverlay victory topic – territory
-    body: 'Win by owning more than half of all board spaces as Territory. Territory comes from collapsing marker lines and resolving disconnected regions, and once a space becomes Territory it can’t be captured back.',
+    body: 'Win by dominating Territory. You need to control at least your fair share of the board (1/N spaces in N-player) AND more territory than all opponents combined. Territory comes from collapsing marker lines and resolving disconnected regions, and once a space becomes Territory it can’t be captured back.',
   },
   victory_stalemate: {
     topicId: 'victory_stalemate',

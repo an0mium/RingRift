@@ -492,7 +492,7 @@ describe('VictoryModal', () => {
       />
     );
 
-    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(document, { key: 'Escape' });
 
     expect(mockOnClose).toHaveBeenCalledTimes(1);
   });

@@ -431,6 +431,8 @@ class GPUSelfPlayGenerator:
         board_type: Optional[str] = None,
         use_heuristic_selection: bool = False,
         weight_noise: float = 0.0,
+        use_policy: bool = False,
+        policy_model_path: Optional[str] = None,
     ):
         self.board_size = board_size
         self.num_players = num_players
@@ -495,6 +497,15 @@ class GPUSelfPlayGenerator:
             logger.info(f"Shadow validation ENABLED: sample_rate={shadow_sample_rate}, threshold={shadow_threshold}")
         else:
             logger.info("Shadow validation disabled")
+
+        # Load policy model if requested
+        self.use_policy = use_policy
+        if use_policy:
+            if self.runner.load_policy_model(policy_model_path):
+                logger.info("Policy-based move selection ENABLED")
+            else:
+                logger.warning("Policy model not available, falling back to heuristic/center-bias")
+                self.use_policy = False
 
         # Statistics
         self.total_games = 0
@@ -743,6 +754,8 @@ def run_gpu_selfplay(
     output_db: Optional[str] = None,
     use_heuristic_selection: bool = False,
     weight_noise: float = 0.0,
+    use_policy: bool = False,
+    policy_model_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run GPU-accelerated self-play generation.
 
@@ -797,7 +810,10 @@ def run_gpu_selfplay(
     if shadow_validation:
         logger.info(f"  Sample rate: {shadow_sample_rate:.1%}")
         logger.info(f"  Threshold: {shadow_threshold:.2%}")
-    logger.info(f"Move selection: {'heuristic-based' if use_heuristic_selection else 'center-bias random'}")
+    if use_policy:
+        logger.info(f"Move selection: policy-guided" + (f" ({policy_model_path})" if policy_model_path else ""))
+    else:
+        logger.info(f"Move selection: {'heuristic-based' if use_heuristic_selection else 'center-bias random'}")
     logger.info(f"Weight noise: {weight_noise:.1%}" if weight_noise > 0 else "Weight noise: disabled")
     logger.info(f"Output: {output_dir}")
     logger.info("")
@@ -818,6 +834,8 @@ def run_gpu_selfplay(
         board_type=board_type,
         use_heuristic_selection=use_heuristic_selection,
         weight_noise=weight_noise,
+        use_policy=use_policy,
+        policy_model_path=policy_model_path,
     )
 
     # Generate games
@@ -984,6 +1002,18 @@ def main():
         help="Multiplicative noise (0.0-1.0) for heuristic weights to increase training diversity. "
              "Each weight is multiplied by uniform(1-noise, 1+noise). Default: 0.0 (no noise)",
     )
+    parser.add_argument(
+        "--use-policy",
+        action="store_true",
+        help="Use policy network for move selection instead of heuristic/center-bias. "
+             "Loads the trained policy model from models/nnue/nnue_policy_{board}_{num_players}p.pt",
+    )
+    parser.add_argument(
+        "--policy-model",
+        type=str,
+        default=None,
+        help="Path to custom policy model (default: auto-detect based on board type)",
+    )
 
     args = parser.parse_args()
 
@@ -1029,6 +1059,8 @@ def main():
         output_db=args.output_db,
         use_heuristic_selection=args.use_heuristic,
         weight_noise=args.weight_noise,
+        use_policy=args.use_policy,
+        policy_model_path=args.policy_model,
     )
 
 

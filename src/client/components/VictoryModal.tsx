@@ -391,9 +391,6 @@ function RematchSection({
 /**
  * Victory Modal Component
  */
-const FOCUSABLE_SELECTORS =
-  'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
-
 export function VictoryModal({
   isOpen,
   gameResult,

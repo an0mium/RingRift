@@ -62,16 +62,9 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
   useEffect(() => {
     setIsSubmitting(false);
     setFocusedOptionIndex(0);
-    if (typeof window === 'undefined') return;
-
-    const timeout = window.setTimeout(() => {
-      const optionButtons = getOptionButtons();
-      optionButtons[0]?.focus();
-    }, 0);
-
-    return () => {
-      window.clearTimeout(timeout);
-    };
+    if (!choice?.id) return;
+    const optionButtons = getOptionButtons();
+    optionButtons[0]?.focus();
   }, [choice?.id, getOptionButtons]);
 
   const handleDialogKeyDown = useCallback(
@@ -411,12 +404,13 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
       closeOnBackdropClick={false}
       labelledBy="choice-dialog-title"
       describedBy={describedBy}
+      overlayClassName="z-40 items-center justify-center"
       className="w-full max-w-md mx-4"
+      onKeyDown={handleDialogKeyDown}
     >
       <div
         ref={dialogRef}
         className="p-4 rounded-md bg-slate-900 border border-slate-700 shadow-lg"
-        onKeyDown={handleDialogKeyDown}
       >
         {resolvedChoiceViewModel && (
           <div className="mb-3">

@@ -22,6 +22,7 @@ from app.rules.core import (
     get_effective_line_length,
     get_victory_threshold,
     get_territory_victory_threshold,
+    get_territory_victory_minimum,
     get_rings_per_player,
 )
 
@@ -94,9 +95,36 @@ class TestBoardConfigParity:
         (BoardType.HEXAGONAL, 235),  # floor(469/2) + 1
     ])
     def test_territory_threshold_matches(self, board_type, expected_threshold):
-        """Verify territory victory threshold matches RR-CANON-R062."""
+        """Verify territory victory threshold matches RR-CANON-R062 (legacy 50% rule)."""
         calculated = get_territory_victory_threshold(board_type)
         assert calculated == expected_threshold
+
+    @pytest.mark.parametrize("board_type,num_players,expected_minimum", [
+        # square8: 64 spaces
+        (BoardType.SQUARE8, 2, 33),   # floor(64/2) + 1
+        (BoardType.SQUARE8, 3, 22),   # floor(64/3) + 1
+        (BoardType.SQUARE8, 4, 17),   # floor(64/4) + 1
+        # square19: 361 spaces
+        (BoardType.SQUARE19, 2, 181),  # floor(361/2) + 1
+        (BoardType.SQUARE19, 3, 121),  # floor(361/3) + 1
+        (BoardType.SQUARE19, 4, 91),   # floor(361/4) + 1
+        # hexagonal: 469 spaces
+        (BoardType.HEXAGONAL, 2, 235),  # floor(469/2) + 1
+        (BoardType.HEXAGONAL, 3, 157),  # floor(469/3) + 1
+        (BoardType.HEXAGONAL, 4, 118),  # floor(469/4) + 1
+    ])
+    def test_territory_victory_minimum_matches(self, board_type, num_players, expected_minimum):
+        """Verify territory victory minimum matches RR-CANON-R062-v2.
+
+        Per RR-CANON-R062-v2: territoryVictoryMinimum = floor(totalSpaces / numPlayers) + 1
+        This is the first condition for territory victory. The second condition is that
+        the player's territory must exceed all opponents' territory combined.
+        """
+        calculated = get_territory_victory_minimum(board_type, num_players)
+        assert calculated == expected_minimum, (
+            f"Territory minimum mismatch for {board_type.value} {num_players}p: "
+            f"expected {expected_minimum}, got {calculated}"
+        )
 
 
 # =============================================================================

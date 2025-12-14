@@ -380,6 +380,11 @@ export const SandboxGameHost: React.FC = () => {
   // Save state dialog (kept separate from scenarios hook)
   const [showSaveStateDialog, setShowSaveStateDialog] = useState(false);
 
+  // AI ladder health (AI service internal) – loaded on-demand from the devtools panel.
+  const [aiLadderHealth, setAiLadderHealth] = useState<Record<string, unknown> | null>(null);
+  const [aiLadderHealthError, setAiLadderHealthError] = useState<string | null>(null);
+  const [aiLadderHealthLoading, setAiLadderHealthLoading] = useState(false);
+
   // Board overlay visibility configuration - using extracted hook
   // Start with movement grid overlay enabled by default; it helps
   // players understand valid moves and adjacency patterns.
@@ -1086,6 +1091,68 @@ export const SandboxGameHost: React.FC = () => {
     } catch (err) {
       console.error('Failed to export sandbox AI metadata', err);
       toast.error('Failed to export sandbox AI metadata; see console for details.');
+    }
+  };
+
+  const handleRefreshAiLadderHealth = async () => {
+    if (!sandboxGameState) {
+      toast.error('No sandbox game is currently active.');
+      return;
+    }
+    if (typeof fetch !== 'function') {
+      toast.error('Fetch API unavailable.');
+      return;
+    }
+
+    setAiLadderHealthLoading(true);
+    setAiLadderHealthError(null);
+    try {
+      const params = new URLSearchParams({
+        boardType: sandboxGameState.boardType,
+        numPlayers: String(sandboxGameState.players.length),
+      });
+      const response = await fetch(`/api/games/sandbox/ai/ladder/health?${params.toString()}`);
+      if (!response.ok) {
+        const details = await response.text().catch(() => '');
+        throw new Error(details || `HTTP ${response.status}`);
+      }
+
+      const data = (await response.json()) as Record<string, unknown>;
+      setAiLadderHealth(data);
+      toast.success('AI ladder health loaded');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load AI ladder health';
+      setAiLadderHealthError(message);
+      toast.error('Failed to load AI ladder health; see console for details.');
+      console.error('Failed to load AI ladder health', err);
+    } finally {
+      setAiLadderHealthLoading(false);
+    }
+  };
+
+  const handleCopyAiLadderHealth = async () => {
+    if (!aiLadderHealth) {
+      toast.error('AI ladder health has not been loaded yet.');
+      return;
+    }
+
+    try {
+      const payload = JSON.stringify(aiLadderHealth, null, 2);
+      if (
+        typeof navigator !== 'undefined' &&
+        navigator.clipboard &&
+        navigator.clipboard.writeText
+      ) {
+        await navigator.clipboard.writeText(payload);
+        toast.success('AI ladder health copied to clipboard');
+      } else {
+        // eslint-disable-next-line no-console
+        console.log('AI ladder health', aiLadderHealth);
+        toast.success('AI ladder health logged to console (clipboard API unavailable).');
+      }
+    } catch (err) {
+      console.error('Failed to copy AI ladder health', err);
+      toast.error('Failed to copy AI ladder health; see console for details.');
     }
   };
 
@@ -2886,6 +2953,149 @@ export const SandboxGameHost: React.FC = () => {
                           </div>
                         );
                       })()}
+                    </div>
+                  )}
+
+                  {developerToolsEnabled && sandboxGameState && (
+                    <div className="p-4 border border-slate-700 rounded-2xl bg-slate-900/60 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <h2 className="font-semibold">AI Service Ladder Health</h2>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleRefreshAiLadderHealth}
+                            disabled={aiLadderHealthLoading}
+                            className="px-3 py-1 rounded-full border border-slate-600 text-xs font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-200 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                          >
+                            {aiLadderHealthLoading ? 'Loading…' : 'Refresh'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCopyAiLadderHealth}
+                            disabled={!aiLadderHealth}
+                            className="px-3 py-1 rounded-full border border-slate-600 text-xs font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-200 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                          >
+                            Copy
+                          </button>
+                        </div>
+                      </div>
+
+                      {aiLadderHealthError && (
+                        <p
+                          className="text-xs text-amber-400"
+                          data-testid="sandbox-ai-ladder-health-error"
+                        >
+                          {aiLadderHealthError}
+                        </p>
+                      )}
+
+                      {!aiLadderHealth ? (
+                        <p className="text-xs text-slate-400">
+                          Click Refresh to query `/internal/ladder/health` from the AI service.
+                        </p>
+                      ) : (
+                        (() => {
+                          const anyHealth = aiLadderHealth as any;
+                          const summary = (anyHealth?.summary ?? {}) as Record<string, unknown>;
+                          const tiers = Array.isArray(anyHealth?.tiers)
+                            ? (anyHealth.tiers as any[])
+                            : [];
+
+                          return (
+                            <div className="space-y-3">
+                              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
+                                <span className="text-slate-400">Missing heuristic profiles</span>
+                                <span className="text-slate-200">
+                                  {String(summary.missing_heuristic_profiles ?? '—')}
+                                </span>
+                                <span className="text-slate-400">Missing NNUE checkpoints</span>
+                                <span className="text-slate-200">
+                                  {String(summary.missing_nnue_checkpoints ?? '—')}
+                                </span>
+                                <span className="text-slate-400">Missing NN checkpoints</span>
+                                <span className="text-slate-200">
+                                  {String(summary.missing_neural_checkpoints ?? '—')}
+                                </span>
+                                <span className="text-slate-400">Overridden tiers</span>
+                                <span className="text-slate-200">
+                                  {String(summary.overridden_tiers ?? '—')}
+                                </span>
+                              </div>
+
+                              <div className="overflow-auto border border-slate-800 rounded-xl bg-slate-950/40">
+                                <table className="w-full text-[10px]">
+                                  <thead className="text-slate-400">
+                                    <tr className="border-b border-slate-800">
+                                      <th className="text-left font-semibold px-2 py-1">D</th>
+                                      <th className="text-left font-semibold px-2 py-1">AI</th>
+                                      <th className="text-left font-semibold px-2 py-1">NN</th>
+                                      <th className="text-left font-semibold px-2 py-1">
+                                        Heuristic
+                                      </th>
+                                      <th className="text-left font-semibold px-2 py-1">Model</th>
+                                      <th className="text-left font-semibold px-2 py-1">
+                                        Artifacts
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="text-slate-200">
+                                    {tiers.map((tier) => {
+                                      const difficulty = tier?.difficulty;
+                                      const aiType = tier?.ai_type;
+                                      const useNeuralNet = tier?.use_neural_net;
+                                      const heuristicProfile = tier?.heuristic_profile_id;
+                                      const modelId = tier?.model_id;
+                                      const artifacts = tier?.artifacts ?? {};
+                                      const heuristicOk = artifacts?.heuristic_profile?.available;
+                                      const nnueOk = artifacts?.nnue?.file?.exists;
+                                      const nnOk = artifacts?.neural_net?.chosen?.exists;
+
+                                      const artifactLabelParts: string[] = [];
+                                      if (typeof heuristicOk === 'boolean') {
+                                        artifactLabelParts.push(
+                                          `H:${heuristicOk ? 'ok' : 'missing'}`
+                                        );
+                                      }
+                                      if (typeof nnueOk === 'boolean') {
+                                        artifactLabelParts.push(
+                                          `NNUE:${nnueOk ? 'ok' : 'missing'}`
+                                        );
+                                      }
+                                      if (typeof nnOk === 'boolean') {
+                                        artifactLabelParts.push(`NN:${nnOk ? 'ok' : 'missing'}`);
+                                      }
+
+                                      return (
+                                        <tr
+                                          key={String(difficulty)}
+                                          className="border-b border-slate-900/60"
+                                        >
+                                          <td className="px-2 py-1">{difficulty}</td>
+                                          <td className="px-2 py-1">{aiType ?? '—'}</td>
+                                          <td className="px-2 py-1">
+                                            {useNeuralNet === true
+                                              ? 'yes'
+                                              : useNeuralNet === false
+                                                ? 'no'
+                                                : '—'}
+                                          </td>
+                                          <td className="px-2 py-1">{heuristicProfile ?? '—'}</td>
+                                          <td className="px-2 py-1">{modelId ?? '—'}</td>
+                                          <td className="px-2 py-1">
+                                            {artifactLabelParts.length > 0
+                                              ? artifactLabelParts.join(' ')
+                                              : '—'}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          );
+                        })()
+                      )}
                     </div>
                   )}
                 </div>

@@ -368,7 +368,12 @@ class HeuristicEvaluator:
         return self.fast_geo.get_all_board_keys(board.type)
 
     def _victory_proximity_base(self, game_state: GameState, player) -> float:
-        """Compute base victory proximity for a player."""
+        """Compute base victory proximity for a player.
+
+        Territory victory uses the dual-condition rule (RR-CANON-R062-v2):
+          1. Territory >= floor(totalSpaces / numPlayers) + 1
+          2. Territory > sum of all opponents' territory
+        """
         lps_player = getattr(game_state, "lps_consecutive_exclusive_player", None)
         lps_rounds = getattr(game_state, "lps_consecutive_exclusive_rounds", 0)
         if lps_player == getattr(player, "player_number", None) and isinstance(
@@ -392,9 +397,32 @@ class HeuristicEvaluator:
                 return self.WEIGHT_VICTORY_THRESHOLD_BONUS * (0.90 + 0.09 * frac)
 
         rings_needed = game_state.victory_threshold - player.eliminated_rings
-        territory_needed = (
-            game_state.territory_victory_threshold - player.territory_spaces
+
+        # Territory victory: dual-condition rule (RR-CANON-R062-v2)
+        # Get minimum threshold (use new field, fall back to computation for old states)
+        from app.rules.core import BOARD_CONFIGS
+
+        board_config = BOARD_CONFIGS.get(game_state.board.type)
+        total_spaces = board_config.total_spaces if board_config else 64
+        num_players = len(game_state.players)
+        territory_minimum = getattr(
+            game_state,
+            "territory_victory_minimum",
+            (total_spaces // num_players) + 1,
         )
+
+        # Calculate opponent territory sum
+        player_number = getattr(player, "player_number", None)
+        opponent_territory = sum(
+            p.territory_spaces
+            for p in game_state.players
+            if getattr(p, "player_number", None) != player_number
+        )
+
+        # Territory needed is the worse of: (1) reaching minimum, (2) exceeding opponents
+        territory_needed_for_minimum = territory_minimum - player.territory_spaces
+        territory_needed_for_dominance = opponent_territory + 1 - player.territory_spaces
+        territory_needed = max(territory_needed_for_minimum, territory_needed_for_dominance)
 
         if rings_needed <= 0 or territory_needed <= 0:
             return self.WEIGHT_VICTORY_THRESHOLD_BONUS

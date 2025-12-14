@@ -120,7 +120,11 @@ describe('VictoryModal render', () => {
     expect(screen.getByText(/Victory/i)).toBeInTheDocument();
 
     // Backdrop click closes modal
-    fireEvent.click(screen.getByRole('dialog'));
+    const dialog = screen.getByRole('dialog');
+    const overlay = dialog.parentElement;
+    const backdrop = overlay?.querySelector<HTMLElement>('[aria-hidden="true"]') ?? null;
+    expect(backdrop).toBeInTheDocument();
+    fireEvent.click(backdrop as HTMLElement);
     expect(onClose).toHaveBeenCalled();
   });
 

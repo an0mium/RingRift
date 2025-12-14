@@ -1002,9 +1002,15 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     }
   }
 
-  // Compute victory progress per RR-CANON-R061 (ring elimination) and RR-CANON-R062 (territory)
+  // Compute victory progress per RR-CANON-R061 (ring elimination) and RR-CANON-R062-v2 (territory)
   const ringThreshold = gameState.victoryThreshold;
-  const territoryThreshold = gameState.territoryVictoryThreshold;
+
+  // Territory victory: dual-condition rule (RR-CANON-R062-v2)
+  // Use new field if available, fall back to computation
+  const boardConfig = BOARD_CONFIGS[gameState.boardType];
+  const totalSpaces = boardConfig?.totalSpaces ?? 64;
+  const territoryMinimum =
+    gameState.territoryVictoryMinimum ?? Math.floor(totalSpaces / gameState.players.length) + 1;
 
   // Find leading player for ring elimination
   const ringLeader = [...gameState.players]
@@ -1015,6 +1021,33 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
   const territoryLeader = [...gameState.players]
     .filter((p) => p.territorySpaces > 0)
     .sort((a, b) => b.territorySpaces - a.territorySpaces)[0];
+
+  // Calculate opponent territory for dominance check
+  const opponentTerritorySum = territoryLeader
+    ? gameState.players
+        .filter((p) => p.playerNumber !== territoryLeader.playerNumber)
+        .reduce((sum, p) => sum + p.territorySpaces, 0)
+    : 0;
+
+  // Territory progress: worst of the two conditions determines overall progress
+  const territoryProgressInfo = territoryLeader
+    ? (() => {
+        const minimumProgress = (territoryLeader.territorySpaces / territoryMinimum) * 100;
+        // For dominance: need > opponents, so target is (opponentSum + 1)
+        const dominanceTarget = opponentTerritorySum + 1;
+        const dominanceProgress =
+          dominanceTarget > 0 ? (territoryLeader.territorySpaces / dominanceTarget) * 100 : 100;
+        // Overall progress is the worse of the two conditions
+        const overallPercentage = Math.round(Math.min(minimumProgress, dominanceProgress));
+        return {
+          playerNumber: territoryLeader.playerNumber,
+          spaces: territoryLeader.territorySpaces,
+          percentage: Math.min(overallPercentage, 100),
+          meetsMinimum: territoryLeader.territorySpaces >= territoryMinimum,
+          dominatesOpponents: territoryLeader.territorySpaces > opponentTerritorySum,
+        };
+      })()
+    : null;
 
   const victoryProgress = {
     ringElimination: {
@@ -1028,14 +1061,8 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
         : null,
     },
     territory: {
-      threshold: territoryThreshold,
-      leader: territoryLeader
-        ? {
-            playerNumber: territoryLeader.playerNumber,
-            spaces: territoryLeader.territorySpaces,
-            percentage: Math.round((territoryLeader.territorySpaces / territoryThreshold) * 100),
-          }
-        : null,
+      threshold: territoryMinimum, // Use new minimum, not legacy threshold
+      leader: territoryProgressInfo,
     },
   };
 

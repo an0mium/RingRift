@@ -41,9 +41,7 @@ describe('SettingsModal', () => {
 
   describe('Rendering', () => {
     it('does not render when isOpen is false', () => {
-      const { container } = render(
-        <SettingsModal isOpen={false} onClose={jest.fn()} />
-      );
+      const { container } = render(<SettingsModal isOpen={false} onClose={jest.fn()} />);
 
       expect(container.firstChild).toBeNull();
     });
@@ -89,12 +87,14 @@ describe('SettingsModal', () => {
       const onClose = jest.fn();
       render(<SettingsModal isOpen={true} onClose={onClose} />);
 
-      // Find backdrop (element with aria-hidden="true" and click handler)
-      const backdrop = screen.getByRole('dialog').querySelector('[aria-hidden="true"]');
-      if (backdrop) {
-        fireEvent.click(backdrop);
-        expect(onClose).toHaveBeenCalledTimes(1);
-      }
+      const dialog = screen.getByRole('dialog');
+      const overlay = dialog.parentElement;
+      expect(overlay).toBeTruthy();
+
+      const backdrop = overlay?.querySelector<HTMLElement>('[aria-hidden="true"]') ?? null;
+      expect(backdrop).toBeInTheDocument();
+      fireEvent.click(backdrop as HTMLElement);
+      expect(onClose).toHaveBeenCalledTimes(1);
     });
 
     it('calls onClose when Escape key is pressed', () => {
@@ -115,9 +115,7 @@ describe('SettingsModal', () => {
     });
 
     it('resets body overflow when modal closes', () => {
-      const { rerender } = render(
-        <SettingsModal isOpen={true} onClose={jest.fn()} />
-      );
+      const { rerender } = render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
 
       expect(document.body.style.overflow).toBe('hidden');
 
@@ -127,9 +125,7 @@ describe('SettingsModal', () => {
     });
 
     it('cleans up body overflow on unmount', () => {
-      const { unmount } = render(
-        <SettingsModal isOpen={true} onClose={jest.fn()} />
-      );
+      const { unmount } = render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
 
       expect(document.body.style.overflow).toBe('hidden');
 
@@ -278,31 +274,28 @@ describe('SettingsModal', () => {
     it('has backdrop with blur effect', () => {
       render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
 
-      const backdrop = screen.getByRole('dialog').querySelector('.backdrop-blur-sm');
-      expect(backdrop).toBeInTheDocument();
+      const dialog = screen.getByRole('dialog');
+      const overlay = dialog.parentElement;
+      expect(overlay?.querySelector('.backdrop-blur-sm')).toBeInTheDocument();
     });
 
     it('has rounded modal content', () => {
       render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
 
-      const content = screen.getByRole('dialog').querySelector('.rounded-xl');
-      expect(content).toBeInTheDocument();
+      expect(screen.getByRole('dialog')).toHaveClass('rounded-xl');
     });
 
     it('has max-width constraint', () => {
       render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
 
-      const content = screen.getByRole('dialog').querySelector('.max-w-lg');
-      expect(content).toBeInTheDocument();
+      expect(screen.getByRole('dialog')).toHaveClass('max-w-lg');
     });
   });
 
   describe('Edge Cases', () => {
     it('handles rapid open/close', () => {
       const onClose = jest.fn();
-      const { rerender } = render(
-        <SettingsModal isOpen={true} onClose={onClose} />
-      );
+      const { rerender } = render(<SettingsModal isOpen={true} onClose={onClose} />);
 
       expect(screen.getByRole('dialog')).toBeInTheDocument();
 

@@ -17,9 +17,7 @@ describe('TeachingOverlay basic rendering', () => {
   it('renders when open and calls onClose', () => {
     const onClose = jest.fn();
 
-    render(
-      <TeachingOverlay topic="territory" isOpen={true} onClose={onClose} position="center" />
-    );
+    render(<TeachingOverlay topic="territory" isOpen={true} onClose={onClose} position="center" />);
 
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /territory/i })).toBeInTheDocument();
@@ -33,7 +31,7 @@ describe('TeachingOverlay basic rendering', () => {
 
     render(<TeachingOverlay topic="territory" isOpen={true} onClose={onClose} position="center" />);
 
-    fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' });
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' });
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });

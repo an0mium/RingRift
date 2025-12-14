@@ -5,6 +5,7 @@ import { gameApi } from '../services/api';
 import { BoardType, CreateGameRequest, Game } from '../../shared/types/game';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { Button } from '../components/ui/Button';
+import { Dialog } from '../components/ui/Dialog';
 import { Select } from '../components/ui/Select';
 import type { ClientToServerEvents, ServerToClientEvents } from '../../shared/types/websocket';
 import { readEnv } from '../../shared/utils/envFlags';
@@ -452,6 +453,7 @@ export default function LobbyPage() {
   const [filters, setFilters] = useState<LobbyFilters>({});
   const [sortBy, setSortBy] = useState<SortOption>('created');
   const [showDifficultyInfo, setShowDifficultyInfo] = useState(false);
+  const difficultyInfoCloseButtonRef = useRef<HTMLButtonElement | null>(null);
   const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const [showFindMatchForm, setShowFindMatchForm] = useState(false);
@@ -1039,54 +1041,61 @@ export default function LobbyPage() {
               </Button>
             </div>
           </form>
-          {showDifficultyInfo && (
-            <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/80">
-              <div className="max-w-xl w-full mx-4 rounded-2xl bg-slate-900 border border-slate-700 shadow-xl p-4 space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-lg font-semibold text-white">About AI difficulty levels</h3>
-                    <p className="text-xs text-slate-300">
-                      Difficulty levels use the same 1–10 ladder as the AI service and are
-                      calibrated on compact Square‑8 2-player games. Tiers D2, D4, D6, and D8 are
-                      the main anchors for casual, intermediate, advanced, and near‑expert play (see
-                      the Human Calibration Guide).
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowDifficultyInfo(false)}
-                    className="ml-2 text-slate-400 hover:text-slate-100"
-                    aria-label="Close difficulty information"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <div className="max-h-80 overflow-y-auto mt-2 space-y-2">
-                  {DIFFICULTY_DESCRIPTORS.filter((d) => d.id <= 8).map((descriptor) => (
-                    <div
-                      key={descriptor.id}
-                      className="p-2 rounded-xl border border-slate-700 bg-slate-800/60 text-xs text-slate-200"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="font-semibold text-slate-100">
-                          {descriptor.name}{' '}
-                          <span className="text-slate-400">(D{descriptor.id})</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400">
-                          {descriptor.recommendedAudience}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-slate-200">{descriptor.detailedDescription}</p>
+          <Dialog
+            isOpen={showDifficultyInfo}
+            onClose={() => setShowDifficultyInfo(false)}
+            labelledBy="difficulty-info-title"
+            describedBy="difficulty-info-description"
+            initialFocusRef={difficultyInfoCloseButtonRef}
+            overlayClassName="z-40 items-center justify-center"
+            backdropClassName="bg-slate-950/80"
+            className="max-w-xl w-full mx-4 rounded-2xl bg-slate-900 border border-slate-700 shadow-xl p-4 space-y-3"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 id="difficulty-info-title" className="text-lg font-semibold text-white">
+                  About AI difficulty levels
+                </h3>
+                <p id="difficulty-info-description" className="text-xs text-slate-300">
+                  Difficulty levels use the same 1–10 ladder as the AI service and are calibrated on
+                  compact Square‑8 2-player games. Tiers D2, D4, D6, and D8 are the main anchors for
+                  casual, intermediate, advanced, and near‑expert play (see the Human Calibration
+                  Guide).
+                </p>
+              </div>
+              <button
+                ref={difficultyInfoCloseButtonRef}
+                type="button"
+                onClick={() => setShowDifficultyInfo(false)}
+                className="ml-2 text-slate-400 hover:text-slate-100"
+                aria-label="Close difficulty information"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="max-h-80 overflow-y-auto mt-2 space-y-2">
+              {DIFFICULTY_DESCRIPTORS.filter((d) => d.id <= 8).map((descriptor) => (
+                <div
+                  key={descriptor.id}
+                  className="p-2 rounded-xl border border-slate-700 bg-slate-800/60 text-xs text-slate-200"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-semibold text-slate-100">
+                      {descriptor.name} <span className="text-slate-400">(D{descriptor.id})</span>
                     </div>
-                  ))}
-                  <div className="pt-2 border-t border-slate-700 text-[11px] text-slate-400">
-                    Experimental tiers D9–D10 are intended for internal testing and may change
-                    between releases. They are not currently part of the human-calibrated ladder.
+                    <span className="text-[10px] text-slate-400">
+                      {descriptor.recommendedAudience}
+                    </span>
                   </div>
+                  <p className="mt-1 text-slate-200">{descriptor.detailedDescription}</p>
                 </div>
+              ))}
+              <div className="pt-2 border-t border-slate-700 text-[11px] text-slate-400">
+                Experimental tiers D9–D10 are intended for internal testing and may change between
+                releases. They are not currently part of the human-calibrated ladder.
               </div>
             </div>
-          )}
+          </Dialog>
         </section>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">

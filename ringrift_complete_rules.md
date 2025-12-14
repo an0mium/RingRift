@@ -303,7 +303,7 @@ The game's rich strategic depth, tension and drama emerge from the interplay bet
 RingRift is a territory control and ring elimination game where you'll build stacks, capture rings, claim territory, and form temporary alliances. To win, either:
 
 - Eliminate a number of rings equal to two thirds of your starting rings plus one third of your opponents' combined starting rings (threshold varies by player count)
-- Control more than 50% of the board as territory
+- Control enough territory to dominate (at least floor(totalSpaces/numPlayers)+1 AND more than all opponents combined)
 - Win by last-player-standing: be the only player with legal actions for **three consecutive full rounds**, taking at least one real action on each of your turns while all other players have no real actions (see Section 13.3 for details)
 
 #### Start With The Simpler Version
@@ -1476,11 +1476,18 @@ Note: The threshold formula `round((2/3) × ringsPerPlayer + (1/3) × opponentsC
 
 ### 13.2 Territory Victory (Primary Victory Path)
 
-• Threshold:
-• A player wins by controlling more than 50% of the total board spaces as collapsed territory claimed in their color.
-• Thresholds: >180 spaces (19×19), >234 spaces (Hexagonal), >32 spaces (8×8).
+• **Dual-Condition Rule (RR-CANON-R062-v2):** A player wins by Territory when BOTH conditions are met:
 
-Note: With more than 50% of territory required for victory, simultaneous victory of multiple players is impossible. This creates a clear, unambiguous victory condition regardless of player count.
+1. **Minimum threshold:** `territorySpaces >= floor(totalSpaces / numPlayers) + 1`
+2. **Dominance:** `territorySpaces > sum of all opponents' territory`
+
+• **Thresholds by board and player count:**
+
+- 8×8 (64 spaces): 2p ≥33, 3p ≥22, 4p ≥17
+- 19×19 (361 spaces): 2p ≥181, 3p ≥121, 4p ≥91
+- Hexagonal (469 spaces): 2p ≥235, 3p ≥157, 4p ≥118
+
+Note: Simultaneous territory victory by multiple players is impossible because condition 2 requires strict dominance over all opponents combined.
 
 ### 13.3 Last Player Standing
 
@@ -1760,7 +1767,7 @@ A complete turn in RingRift consists of the following phases, which must be exec
       - For each eligible line, collapse markers and (for exact‑length and Option‑1 overlength lines) eliminate one ring from any controlled stack as described in Section 11.2. Option 2 (partial collapse with no elimination) is always available for overlength lines.
     - Check for disconnected regions → collapse any regions you choose to process → eliminate **entire cap** from an eligible stack per processed region (recovery: one buried ring instead), subject to the prerequisites in Section 12.2. Eligible targets for territory are multicolor stacks or single-color stacks of height > 1.
 5.  **Victory Check**
-    - If rings eliminated >= victory threshold (round((2/3) × ringsPerPlayer + (1/3) × opponentsCombinedStartingRings)) or >50% of board territory controlled, game ends
+    - If rings eliminated >= victory threshold (round((2/3) × ringsPerPlayer + (1/3) × opponentsCombinedStartingRings)) or territory victory conditions met (see Section 13.2), game ends
     - Otherwise, next player's turn
 
 ```mermaid
@@ -2055,8 +2062,8 @@ A17: No. Even on an entirely empty board, when you place your first ring, it mus
 
 A18:
 • Ring Elimination Victory: This condition is exclusive and cannot be met simultaneously by more than one player due to the nature of Elimination captures.
-• Territory Victory: Similarly, this condition cannot be met by multiple players simultaneously since it requires controlling more than 50% of the board.
-• Priority of Victory Conditions: If a player achieves both victory conditions in the same turn (e.g., reaching the elimination threshold and >50% territory control), the Ring Elimination Victory takes precedence, but this is largely academic as they've won either way.
+• Territory Victory: Similarly, this condition cannot be met by multiple players simultaneously since it requires strict dominance (more territory than all opponents combined).
+• Priority of Victory Conditions: If a player achieves both victory conditions in the same turn (e.g., reaching the elimination threshold and meeting territory victory conditions), the Ring Elimination Victory takes precedence, but this is largely academic as they've won either way.
 • If no player reaches either the Elimination or Territory Control threshold: The game will resolve either through "Last Player Standing" or, if necessary, the tie-breakers listed under Stalemate Resolution.
 
 #### Q19: Can RingRift be played with 2 or 4 players? (Player Count Variations)
@@ -2069,7 +2076,7 @@ A19: Yes, RingRift can be played with 2, 3, or 4 players, though 3 players is th
 
 • 4 Players: The 19×19 version can accommodate 4 players, each using 72 rings (288 total). Victory threshold is 120 rings for 19×19 (30 for 8×8). Four-player games create the richest alliance dynamics and strategic depth, but with longer playtimes.
 
-Regardless of player count, the core mechanics remain the same, and victory can also be achieved through territory control (>50% of collapsed spaces) or by being the last player with legal moves.
+Regardless of player count, the core mechanics remain the same, and victory can also be achieved through territory control (meeting the dual-condition rule in Section 13.2) or by being the last player with legal moves.
 
 #### Q20: How do territory disconnection rules differ between the 8×8 and 19×19 versions?
 
@@ -2087,7 +2094,7 @@ A21: The victory threshold varies by player count using the formula: `round((2/3
 • **19×19 (72 rings/player):** 72 (2p), 96 (3p), 120 (4p) rings
 • **Hexagonal (96 rings/player):** 96 (2p), 128 (3p), 160 (4p) rings
 
-Additionally, a player can win by claiming more than 50% of the board as collapsed territory, regardless of player count.
+Additionally, a player can win by satisfying the territory victory dual-condition rule (Section 13.2): territory >= floor(totalSpaces/numPlayers)+1 AND more territory than all opponents combined.
 
 If no player reaches these thresholds, victory can be achieved by being the last player able to make legal moves. In case of a stalemate, the tiebreaker sequence remains: most collapsed spaces, most eliminated rings, most remaining markers.
 
@@ -2149,12 +2156,12 @@ Note that by definition, any stack you control must have at least one ring of yo
 3. (Optional) Begin Overtaking capture from the landing position only → chain captures (mandatory once started)
 4. Check for lines of required length (**3+ for 8×8 in 3–4p games**, **4+ for 8×8 in 2p games**, **4+ for 19×19/Hex**) → collapse → eliminate one ring per line (with graduated rewards for longer lines).
 5. Check for disconnected regions → collapse → eliminate entire cap from eligible stack per region (recovery: one buried ring instead). Eligible targets for territory are multicolor stacks or single-color stacks of height > 1.
-6. Victory check: elimination threshold reached (varies by player count), >50% territory control, or last player standing.
+6. Victory check: elimination threshold reached (varies by player count), territory victory conditions met (see Section 13.2), or last player standing.
 
 **Victory Conditions:**
 
 - Eliminate rings equal to the victory threshold: round((2/3) × ringsPerPlayer + (1/3) × opponentsCombinedStartingRings). For 2-player games this equals ringsPerPlayer (72 for 19×19, 18 for 8×8, 96 for Hexagonal); for 3+ players it is higher.
-- Control >50% of board as collapsed territory (>180 spaces in 19×19, >32 in 8×8)
+- Territory victory: control territory >= floor(totalSpaces/numPlayers)+1 AND more than all opponents combined
 - Be the last player able to make legal moves
 
 ### 16.3 Overview of Simplifications on 8x8

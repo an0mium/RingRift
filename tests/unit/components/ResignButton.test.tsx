@@ -74,11 +74,10 @@ describe('ResignButton', () => {
     render(<ResignButton onResign={onResign} />);
 
     await user.click(screen.getByTestId('resign-button'));
-    const dialog = screen.getByRole('alertdialog');
-    expect(dialog).toBeInTheDocument();
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
 
-    // Click on the backdrop (the outer div with the dialog role)
-    fireEvent.click(dialog);
+    // Click the fullscreen overlay/backdrop, not the dialog content.
+    fireEvent.click(screen.getByTestId('resign-dialog-overlay'));
 
     await waitFor(() => {
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();

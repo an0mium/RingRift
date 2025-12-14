@@ -289,6 +289,124 @@ describe('TurnOrchestrator victory explanation branch coverage', () => {
       }
     });
 
+    it('requires dual-condition: threshold met but no dominance = no victory (RR-CANON-R062-v2)', () => {
+      // RR-CANON-R062-v2: Territory victory requires BOTH:
+      // 1. territory >= floor(totalSpaces / numPlayers) + 1
+      // 2. territory > sum of all opponents' territory
+      const state = createBaseState('movement');
+      // Player 1 meets threshold (12 >= 10) but does NOT have dominance
+      state.players[0].territorySpaces = 12;
+      state.territoryVictoryThreshold = 10;
+      // Player 2 has MORE territory than Player 1 - no dominance for P1
+      state.players[1].territorySpaces = 15;
+      // Set up collapsed spaces: P1 has 12, P2 has 15
+      for (let x = 0; x < 12; x += 1) {
+        const y = x < 8 ? 0 : 1;
+        const xPos = x < 8 ? x : x - 8;
+        state.board.collapsedSpaces.set(positionToString({ x: xPos, y }), 1);
+      }
+      for (let x = 0; x < 15; x += 1) {
+        const y = x < 8 ? 7 : 6;
+        const xPos = x < 8 ? x : x - 8;
+        state.board.collapsedSpaces.set(positionToString({ x: xPos, y }), 2);
+      }
+      // Keep stacks on board (not bare board)
+      state.board.stacks.set('3,3', {
+        position: { x: 3, y: 3 },
+        stackHeight: 2,
+        controllingPlayer: 1,
+        composition: [{ player: 1, count: 2 }],
+        rings: [1, 1],
+      });
+      state.board.stacks.set('4,4', {
+        position: { x: 4, y: 4 },
+        stackHeight: 2,
+        controllingPlayer: 2,
+        composition: [{ player: 2, count: 2 }],
+        rings: [2, 2],
+      });
+
+      const result = toVictoryState(state);
+
+      // Game should NOT be over via territory victory because P1 lacks dominance
+      // P1 has 12 (>= threshold 10) BUT 12 < 15 (P2's territory)
+      expect(result.isGameOver).toBe(false);
+      expect(result.reason).not.toBe('territory_control');
+    });
+
+    it('requires dual-condition: dominance but below threshold = no victory (RR-CANON-R062-v2)', () => {
+      // RR-CANON-R062-v2: Territory victory requires BOTH conditions
+      const state = createBaseState('movement');
+      // Player 1 has dominance but is below threshold
+      state.players[0].territorySpaces = 8;
+      state.territoryVictoryThreshold = 10;
+      // Player 2 has fewer territory spaces - P1 has dominance
+      state.players[1].territorySpaces = 3;
+      // Set up collapsed spaces: P1 has 8, P2 has 3
+      for (let x = 0; x < 8; x += 1) {
+        state.board.collapsedSpaces.set(positionToString({ x, y: 0 }), 1);
+      }
+      for (let x = 0; x < 3; x += 1) {
+        state.board.collapsedSpaces.set(positionToString({ x, y: 7 }), 2);
+      }
+      // Keep stacks on board
+      state.board.stacks.set('3,3', {
+        position: { x: 3, y: 3 },
+        stackHeight: 2,
+        controllingPlayer: 1,
+        composition: [{ player: 1, count: 2 }],
+        rings: [1, 1],
+      });
+      state.board.stacks.set('4,4', {
+        position: { x: 4, y: 4 },
+        stackHeight: 2,
+        controllingPlayer: 2,
+        composition: [{ player: 2, count: 2 }],
+        rings: [2, 2],
+      });
+
+      const result = toVictoryState(state);
+
+      // Game should NOT be over via territory victory because P1 is below threshold
+      // P1 has 8 (< threshold 10) even though 8 > 3 (dominance)
+      expect(result.isGameOver).toBe(false);
+      expect(result.reason).not.toBe('territory_control');
+    });
+
+    it('dual-condition met: threshold AND dominance = victory (RR-CANON-R062-v2)', () => {
+      // RR-CANON-R062-v2: Both conditions met = victory
+      const state = createBaseState('movement');
+      // Player 1 meets threshold AND has dominance
+      state.players[0].territorySpaces = 12;
+      state.territoryVictoryThreshold = 10;
+      // Player 2 has fewer territory spaces
+      state.players[1].territorySpaces = 5;
+      // Set up collapsed spaces: P1 has 12, P2 has 5
+      for (let x = 0; x < 12; x += 1) {
+        const y = x < 8 ? 0 : 1;
+        const xPos = x < 8 ? x : x - 8;
+        state.board.collapsedSpaces.set(positionToString({ x: xPos, y }), 1);
+      }
+      for (let x = 0; x < 5; x += 1) {
+        state.board.collapsedSpaces.set(positionToString({ x, y: 7 }), 2);
+      }
+      // Keep stacks on board
+      state.board.stacks.set('3,3', {
+        position: { x: 3, y: 3 },
+        stackHeight: 2,
+        controllingPlayer: 1,
+        composition: [{ player: 1, count: 2 }],
+        rings: [1, 1],
+      });
+
+      const result = toVictoryState(state);
+
+      // Game SHOULD be over: P1 has 12 (>= 10 threshold) AND 12 > 5 (dominance)
+      expect(result.isGameOver).toBe(true);
+      expect(result.winner).toBe(1);
+      expect(result.reason).toBe('territory_control');
+    });
+
     it('handles bare board stalemate with territory tiebreak', () => {
       const state = createBaseState('movement');
       // Neither player at threshold but territory tiebreak needed

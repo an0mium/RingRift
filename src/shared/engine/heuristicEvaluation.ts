@@ -7,6 +7,7 @@ import type {
   MarkerInfo,
   BoardState,
 } from '../types/game';
+import { BOARD_CONFIGS } from '../types/game';
 import { getMovementDirectionsForBoardType, Direction } from './core';
 
 /**
@@ -709,16 +710,35 @@ function evaluateLinePotential(
 }
 
 /**
- /**
-  * Unweighted victory proximity base score for an arbitrary player.
-  * Mirrors the Python _victory_proximity_base_for_player helper.
-  */
+ * Unweighted victory proximity base score for an arbitrary player.
+ * Mirrors the Python _victory_proximity_base_for_player helper.
+ *
+ * Territory victory uses the dual-condition rule (RR-CANON-R062-v2):
+ *   1. Territory >= floor(totalSpaces / numPlayers) + 1
+ *   2. Territory > sum of all opponents' territory
+ */
 function victoryProximityBaseForPlayer(state: GameState, playerNumber: number): number {
   const player = state.players.find((p) => p.playerNumber === playerNumber);
   if (!player) return 0;
 
   const ringsNeeded = state.victoryThreshold - player.eliminatedRings;
-  const territoryNeeded = state.territoryVictoryThreshold - player.territorySpaces;
+
+  // Territory victory: dual-condition rule
+  // Get minimum threshold (use new field, fall back to computation for old states)
+  const boardConfig = BOARD_CONFIGS[state.boardType];
+  const totalSpaces = boardConfig?.totalSpaces ?? 64;
+  const territoryMinimum =
+    state.territoryVictoryMinimum ?? Math.floor(totalSpaces / state.players.length) + 1;
+
+  // Calculate opponent territory sum
+  const opponentTerritory = state.players
+    .filter((p) => p.playerNumber !== playerNumber)
+    .reduce((sum, p) => sum + p.territorySpaces, 0);
+
+  // Territory needed is the worse of: (1) reaching minimum, (2) exceeding opponents
+  const territoryNeededForMinimum = territoryMinimum - player.territorySpaces;
+  const territoryNeededForDominance = opponentTerritory + 1 - player.territorySpaces;
+  const territoryNeeded = Math.max(territoryNeededForMinimum, territoryNeededForDominance);
 
   if (ringsNeeded <= 0 || territoryNeeded <= 0) {
     return 1000.0;

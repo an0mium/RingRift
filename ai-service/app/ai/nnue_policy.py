@@ -1,0 +1,730 @@
+"""NNUE with Policy Head for move prediction.
+
+This module extends the base NNUE architecture with policy outputs
+for move prediction. The policy head outputs "from" and "to" heatmaps
+over board positions, enabling efficient move scoring.
+
+For a given move, the policy score is computed as:
+    score(move) = from_logits[from_pos] + to_logits[to_pos]
+
+This design keeps the network small while providing useful move guidance.
+
+Training:
+- Value loss: MSE on game outcome
+- Policy loss: Cross-entropy on actual move played
+- Combined: L = value_weight * L_value + policy_weight * L_policy
+"""
+
+from typing import List, Optional, Tuple
+
+import numpy as np
+import torch
+import torch.nn as nn
+
+from ..models import BoardType, Position
+from .nnue import (
+    ClippedReLU,
+    RingRiftNNUE,
+    get_board_size,
+    get_feature_dim,
+)
+
+
+class RingRiftNNUEWithPolicy(nn.Module):
+    """NNUE network with both value and policy heads.
+
+    Extends RingRiftNNUE with policy outputs for move prediction.
+    The policy head outputs "from" and "to" heatmaps over board positions.
+
+    Architecture:
+    - Same accumulator and hidden layers as RingRiftNNUE
+    - Value head: Linear(32, 1) + tanh -> scalar in [-1, 1]
+    - From head: Linear(32, H*W) -> from position logits
+    - To head: Linear(32, H*W) -> to position logits
+    """
+
+    ARCHITECTURE_VERSION = "v1.1.0"
+
+    def __init__(
+        self,
+        board_type: BoardType = BoardType.SQUARE8,
+        hidden_dim: int = 256,
+        num_hidden_layers: int = 2,
+    ):
+        super().__init__()
+        self.board_type = board_type
+        self.board_size = get_board_size(board_type)
+        input_dim = get_feature_dim(board_type)
+        num_positions = self.board_size * self.board_size
+
+        # Accumulator layer (same as RingRiftNNUE)
+        self.accumulator = nn.Linear(input_dim, hidden_dim, bias=True)
+
+        # Hidden layers with ClippedReLU (same as RingRiftNNUE)
+        layers: List[nn.Module] = []
+        current_dim = hidden_dim * 2
+        for _ in range(num_hidden_layers):
+            layers.append(nn.Linear(current_dim, 32))
+            layers.append(ClippedReLU())
+            current_dim = 32
+
+        self.hidden = nn.Sequential(*layers)
+
+        # Value head: single scalar output
+        self.value_head = nn.Linear(32, 1)
+
+        # Policy heads: from/to position logits
+        self.policy_hidden = nn.Sequential(
+            nn.Linear(32, 64),
+            ClippedReLU(),
+        )
+        self.from_head = nn.Linear(64, num_positions)
+        self.to_head = nn.Linear(64, num_positions)
+
+    def forward(
+        self,
+        features: torch.Tensor,
+        return_policy: bool = False,
+    ) -> torch.Tensor:
+        """Forward pass.
+
+        Args:
+            features: Shape (batch, input_dim) sparse/dense input features
+            return_policy: If True, return (value, from_logits, to_logits)
+
+        Returns:
+            If return_policy=False: Shape (batch, 1) values in [-1, 1]
+            If return_policy=True: Tuple of (value, from_logits, to_logits)
+        """
+        acc = torch.clamp(self.accumulator(features), 0.0, 1.0)
+        x = torch.cat([acc, acc], dim=-1)
+        x = self.hidden(x)
+        value = torch.tanh(self.value_head(x))
+
+        if not return_policy:
+            return value
+
+        policy_features = self.policy_hidden(x)
+        from_logits = self.from_head(policy_features)
+        to_logits = self.to_head(policy_features)
+
+        return value, from_logits, to_logits
+
+    def forward_single(self, features: np.ndarray) -> float:
+        """Convenience method for single-sample value inference."""
+        self.eval()
+        with torch.no_grad():
+            x = torch.from_numpy(features[None, ...]).float()
+            device = next(self.parameters()).device
+            x = x.to(device)
+            value = self.forward(x, return_policy=False)
+        return float(value.cpu().item())
+
+    def score_moves(
+        self,
+        features: torch.Tensor,
+        from_indices: torch.Tensor,
+        to_indices: torch.Tensor,
+        move_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Score a batch of moves given game state features.
+
+        Args:
+            features: Shape (batch, input_dim) state features
+            from_indices: Shape (batch, max_moves) flattened from position indices
+            to_indices: Shape (batch, max_moves) flattened to position indices
+            move_mask: Shape (batch, max_moves) boolean mask for valid moves
+
+        Returns:
+            Shape (batch, max_moves) move scores
+        """
+        _, from_logits, to_logits = self.forward(features, return_policy=True)
+        from_scores = torch.gather(from_logits, 1, from_indices)
+        to_scores = torch.gather(to_logits, 1, to_indices)
+        move_scores = from_scores + to_scores
+        if move_mask is not None:
+            move_scores = move_scores.masked_fill(~move_mask, float('-inf'))
+        return move_scores
+
+    def get_move_probabilities(
+        self,
+        features: torch.Tensor,
+        from_indices: torch.Tensor,
+        to_indices: torch.Tensor,
+        move_mask: Optional[torch.Tensor] = None,
+        temperature: float = 1.0,
+    ) -> torch.Tensor:
+        """Get move probabilities via softmax over legal moves.
+
+        Args:
+            features: Shape (batch, input_dim) state features
+            from_indices: Shape (batch, max_moves) flattened from position indices
+            to_indices: Shape (batch, max_moves) flattened to position indices
+            move_mask: Shape (batch, max_moves) boolean mask for valid moves
+            temperature: Softmax temperature (higher = more exploration)
+
+        Returns:
+            Shape (batch, max_moves) move probabilities
+        """
+        move_scores = self.score_moves(features, from_indices, to_indices, move_mask)
+        return torch.softmax(move_scores / temperature, dim=-1)
+
+    @classmethod
+    def from_value_only(
+        cls,
+        value_model: RingRiftNNUE,
+        freeze_value_weights: bool = False,
+    ) -> "RingRiftNNUEWithPolicy":
+        """Create a policy model from an existing value-only model.
+
+        Loads the value model weights and initializes fresh policy heads.
+        Useful for fine-tuning an existing NNUE model with policy learning.
+
+        Args:
+            value_model: Trained RingRiftNNUE model
+            freeze_value_weights: If True, freeze value weights during training
+
+        Returns:
+            RingRiftNNUEWithPolicy with copied value weights
+        """
+        inferred_layers = sum(
+            1 for module in value_model.hidden if isinstance(module, nn.Linear)
+        )
+        policy_model = cls(
+            board_type=value_model.board_type,
+            hidden_dim=value_model.accumulator.out_features,
+            num_hidden_layers=inferred_layers or 2,
+        )
+        policy_model.accumulator.load_state_dict(value_model.accumulator.state_dict())
+        policy_model.hidden.load_state_dict(value_model.hidden.state_dict())
+        policy_model.value_head.load_state_dict(value_model.output.state_dict())
+
+        if freeze_value_weights:
+            for param in policy_model.accumulator.parameters():
+                param.requires_grad = False
+            for param in policy_model.hidden.parameters():
+                param.requires_grad = False
+            for param in policy_model.value_head.parameters():
+                param.requires_grad = False
+
+        return policy_model
+
+
+def pos_to_flat_index(pos: Position, board_size: int, board_type: BoardType) -> int:
+    """Convert a Position to a flattened board index for policy heads.
+
+    Args:
+        pos: Position with x, y coordinates
+        board_size: Size of the board (e.g., 8 for square8)
+        board_type: Board type for coordinate handling
+
+    Returns:
+        Flattened index in range [0, board_size * board_size)
+    """
+    if board_type == BoardType.HEXAGONAL:
+        radius = (board_size - 1) // 2
+        cx = pos.x + radius
+        cy = pos.y + radius
+        return cy * board_size + cx
+    else:
+        return pos.y * board_size + pos.x
+
+
+def encode_moves_for_policy(
+    moves: list,
+    board_size: int,
+    board_type: BoardType,
+    max_moves: int = 256,
+    device: Optional[torch.device] = None,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Encode a list of moves for policy head input.
+
+    Args:
+        moves: List of Move objects
+        board_size: Size of the board
+        board_type: Board type
+        max_moves: Maximum number of moves to encode
+        device: Target device for tensors
+
+    Returns:
+        Tuple of (from_indices, to_indices, move_mask):
+        - from_indices: Shape (max_moves,) flattened from position indices
+        - to_indices: Shape (max_moves,) flattened to position indices
+        - move_mask: Shape (max_moves,) boolean mask for valid moves
+    """
+    center = board_size // 2
+    from_indices = torch.zeros(max_moves, dtype=torch.long, device=device)
+    to_indices = torch.zeros(max_moves, dtype=torch.long, device=device)
+    move_mask = torch.zeros(max_moves, dtype=torch.bool, device=device)
+
+    for i, move in enumerate(moves[:max_moves]):
+        from_pos = getattr(move, 'from_pos', None)
+        if from_pos is None:
+            from_idx = center * board_size + center
+        else:
+            from_idx = pos_to_flat_index(from_pos, board_size, board_type)
+
+        to_pos = getattr(move, 'to', None)
+        if to_pos is None:
+            to_pos = from_pos
+        if to_pos is None:
+            to_idx = center * board_size + center
+        else:
+            to_idx = pos_to_flat_index(to_pos, board_size, board_type)
+
+        from_indices[i] = from_idx
+        to_indices[i] = to_idx
+        move_mask[i] = True
+
+    return from_indices, to_indices, move_mask
+
+
+class NNUEPolicyTrainer:
+    """Trainer for NNUE with policy head.
+
+    Combines value loss (MSE) and policy loss (cross-entropy) for
+    joint training of value and policy networks.
+    """
+
+    def __init__(
+        self,
+        model: RingRiftNNUEWithPolicy,
+        device: torch.device,
+        learning_rate: float = 1e-3,
+        weight_decay: float = 1e-5,
+        value_weight: float = 1.0,
+        policy_weight: float = 1.0,
+    ):
+        self.model = model.to(device)
+        self.device = device
+        self.value_weight = value_weight
+        self.policy_weight = policy_weight
+
+        self.optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=learning_rate,
+            weight_decay=weight_decay,
+        )
+        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer,
+            mode="min",
+            factor=0.5,
+            patience=5,
+        )
+        self.value_criterion = nn.MSELoss()
+        self.policy_criterion = nn.CrossEntropyLoss()
+
+    def train_step(
+        self,
+        features: torch.Tensor,
+        values: torch.Tensor,
+        from_indices: torch.Tensor,
+        to_indices: torch.Tensor,
+        move_mask: torch.Tensor,
+        target_move_idx: torch.Tensor,
+    ) -> Tuple[float, float, float]:
+        """Single training step with both value and policy loss.
+
+        Args:
+            features: (batch, input_dim) state features
+            values: (batch, 1) target values
+            from_indices: (batch, max_moves) from position indices
+            to_indices: (batch, max_moves) to position indices
+            move_mask: (batch, max_moves) valid move mask
+            target_move_idx: (batch,) index of the move that was played
+
+        Returns:
+            Tuple of (total_loss, value_loss, policy_loss)
+        """
+        self.model.train()
+        self.optimizer.zero_grad()
+
+        # Forward pass with policy
+        pred_value, from_logits, to_logits = self.model(features, return_policy=True)
+
+        # Value loss
+        value_loss = self.value_criterion(pred_value, values)
+
+        # Policy loss: compute move scores and apply cross-entropy
+        from_scores = torch.gather(from_logits, 1, from_indices)
+        to_scores = torch.gather(to_logits, 1, to_indices)
+        move_scores = from_scores + to_scores
+        move_scores = move_scores.masked_fill(~move_mask, float('-inf'))
+
+        policy_loss = self.policy_criterion(move_scores, target_move_idx)
+
+        # Combined loss
+        total_loss = self.value_weight * value_loss + self.policy_weight * policy_loss
+
+        total_loss.backward()
+        self.optimizer.step()
+
+        return total_loss.item(), value_loss.item(), policy_loss.item()
+
+    def validate(
+        self,
+        features: torch.Tensor,
+        values: torch.Tensor,
+        from_indices: torch.Tensor,
+        to_indices: torch.Tensor,
+        move_mask: torch.Tensor,
+        target_move_idx: torch.Tensor,
+    ) -> Tuple[float, float, float, float]:
+        """Validate on held-out data.
+
+        Returns:
+            Tuple of (total_loss, value_loss, policy_loss, policy_accuracy)
+        """
+        self.model.eval()
+        with torch.no_grad():
+            pred_value, from_logits, to_logits = self.model(features, return_policy=True)
+
+            # Value loss
+            value_loss = self.value_criterion(pred_value, values)
+
+            # Policy loss
+            from_scores = torch.gather(from_logits, 1, from_indices)
+            to_scores = torch.gather(to_logits, 1, to_indices)
+            move_scores = from_scores + to_scores
+            move_scores = move_scores.masked_fill(~move_mask, float('-inf'))
+
+            policy_loss = self.policy_criterion(move_scores, target_move_idx)
+
+            # Policy accuracy
+            pred_move_idx = move_scores.argmax(dim=-1)
+            policy_accuracy = (pred_move_idx == target_move_idx).float().mean()
+
+            total_loss = self.value_weight * value_loss + self.policy_weight * policy_loss
+
+        return total_loss.item(), value_loss.item(), policy_loss.item(), policy_accuracy.item()
+
+    def update_scheduler(self, val_loss: float) -> None:
+        """Update learning rate scheduler based on validation loss."""
+        self.scheduler.step(val_loss)
+
+
+# =============================================================================
+# Policy Training Dataset
+# =============================================================================
+
+import gzip
+import json
+import logging
+import os
+import sqlite3
+from dataclasses import dataclass
+from torch.utils.data import Dataset
+
+from .nnue import extract_features_from_gamestate
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class NNUEPolicySample:
+    """Training sample for NNUE with policy head."""
+    features: "np.ndarray"  # Shape: (feature_dim,)
+    value: float  # Game outcome: +1 win, -1 loss, 0 draw
+    from_indices: "np.ndarray"  # Shape: (max_moves,) flattened from positions
+    to_indices: "np.ndarray"  # Shape: (max_moves,) flattened to positions
+    move_mask: "np.ndarray"  # Shape: (max_moves,) boolean valid moves
+    target_move_idx: int  # Index of the move that was played
+    player_number: int
+    game_id: str
+    move_number: int
+
+
+@dataclass
+class NNUEPolicyDatasetConfig:
+    """Configuration for policy dataset generation."""
+    board_type: BoardType = BoardType.SQUARE8
+    num_players: int = 2
+    sample_every_n_moves: int = 1
+    min_game_length: int = 10
+    max_moves_per_position: int = 128  # Max legal moves to encode
+    include_draws: bool = True
+
+
+class NNUEPolicyDataset(Dataset):
+    """PyTorch Dataset for NNUE policy training.
+
+    Loads games from SQLite, replays them to get legal moves at each
+    position, and encodes the move that was played for policy supervision.
+    """
+
+    def __init__(
+        self,
+        db_paths: List[str],
+        config: Optional[NNUEPolicyDatasetConfig] = None,
+        max_samples: Optional[int] = None,
+    ):
+        self.db_paths = db_paths
+        self.config = config or NNUEPolicyDatasetConfig()
+        self.max_samples = max_samples
+        self.board_size = get_board_size(self.config.board_type)
+        self.feature_dim = get_feature_dim(self.config.board_type)
+        self.samples: List[NNUEPolicySample] = []
+
+        self._extract_samples()
+
+    def _extract_samples(self) -> None:
+        """Extract training samples from SQLite databases."""
+        logger.info(f"Extracting policy samples from {len(self.db_paths)} databases")
+
+        for db_path in self.db_paths:
+            if not os.path.exists(db_path):
+                logger.warning(f"Database not found: {db_path}")
+                continue
+
+            try:
+                samples = self._extract_from_db(db_path)
+                self.samples.extend(samples)
+                logger.info(f"Extracted {len(samples)} policy samples from {db_path}")
+            except Exception as e:
+                logger.error(f"Failed to extract from {db_path}: {e}")
+
+            if self.max_samples and len(self.samples) >= self.max_samples:
+                self.samples = self.samples[:self.max_samples]
+                break
+
+        logger.info(f"Total policy samples: {len(self.samples)}")
+
+    def _extract_from_db(self, db_path: str) -> List[NNUEPolicySample]:
+        """Extract samples from a single database via game replay."""
+        from ..models import GameState, Move
+        from ..rules.default_engine import DefaultRulesEngine
+
+        samples: List[NNUEPolicySample] = []
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Detect schema - different databases use different column names
+        cursor.execute("PRAGMA table_info(games)")
+        columns = {row['name'] for row in cursor.fetchall()}
+        moves_col = 'total_moves' if 'total_moves' in columns else 'move_count'
+
+        # Get completed games
+        board_type_str = self.config.board_type.value.lower()
+        query = f"""
+            SELECT game_id, winner, {moves_col} as moves
+            FROM games
+            WHERE game_status = 'completed'
+              AND winner IS NOT NULL
+              AND board_type = ?
+              AND num_players = ?
+              AND {moves_col} >= ?
+        """
+        cursor.execute(query, (
+            board_type_str,
+            self.config.num_players,
+            self.config.min_game_length,
+        ))
+        games = cursor.fetchall()
+
+        engine = DefaultRulesEngine()
+
+        for game_row in games:
+            game_id = game_row['game_id']
+            winner = game_row['winner']
+
+            # Get initial state
+            cursor.execute(
+                "SELECT initial_state_json, compressed FROM game_initial_state WHERE game_id = ?",
+                (game_id,)
+            )
+            initial_row = cursor.fetchone()
+            if not initial_row:
+                continue
+
+            initial_json = initial_row['initial_state_json']
+            if initial_row['compressed']:
+                try:
+                    if isinstance(initial_json, (bytes, bytearray)):
+                        initial_json = gzip.decompress(bytes(initial_json)).decode("utf-8")
+                    else:
+                        initial_json = gzip.decompress(str(initial_json).encode("utf-8")).decode("utf-8")
+                except Exception:
+                    continue
+
+            try:
+                state_dict = json.loads(initial_json)
+                state = GameState(**state_dict)
+            except Exception:
+                continue
+
+            # Get all moves
+            cursor.execute(
+                "SELECT move_number, move_json FROM game_moves WHERE game_id = ? ORDER BY move_number",
+                (game_id,)
+            )
+            moves = cursor.fetchall()
+
+            if not moves:
+                continue
+
+            # Replay and sample
+            for move_row in moves:
+                move_number = move_row['move_number']
+                move_json_str = move_row['move_json']
+
+                # Sample every Nth position
+                if move_number % self.config.sample_every_n_moves == 0:
+                    current_player = state.current_player or 1
+
+                    # Calculate value
+                    if winner == current_player:
+                        value = 1.0
+                    elif winner is None or winner == 0:
+                        value = 0.0
+                    else:
+                        value = -1.0
+
+                    if value == 0.0 and not self.config.include_draws:
+                        pass  # Skip draws but continue replay
+                    else:
+                        # Get legal moves at this position
+                        try:
+                            legal_moves = engine.get_valid_moves(state, current_player)
+                            if legal_moves:
+                                # Parse the move that was played
+                                move_dict = json.loads(move_json_str)
+                                played_move = Move(**move_dict)
+
+                                # Find which legal move matches the played move
+                                target_idx = self._find_move_index(
+                                    played_move, legal_moves
+                                )
+
+                                if target_idx >= 0:
+                                    # Extract features
+                                    features = extract_features_from_gamestate(
+                                        state, current_player
+                                    )
+
+                                    # Encode legal moves
+                                    from_indices, to_indices, move_mask = self._encode_legal_moves(
+                                        legal_moves
+                                    )
+
+                                    sample = NNUEPolicySample(
+                                        features=features,
+                                        value=value,
+                                        from_indices=from_indices,
+                                        to_indices=to_indices,
+                                        move_mask=move_mask,
+                                        target_move_idx=target_idx,
+                                        player_number=current_player,
+                                        game_id=game_id,
+                                        move_number=move_number,
+                                    )
+                                    samples.append(sample)
+                        except Exception as e:
+                            logger.debug(f"Failed to process {game_id}:{move_number}: {e}")
+
+                # Apply move to advance state
+                try:
+                    move_dict = json.loads(move_json_str)
+                    move = Move(**move_dict)
+                    state = engine.apply_move(state, move)
+                except Exception:
+                    break
+
+                if self.max_samples and len(samples) >= self.max_samples:
+                    conn.close()
+                    return samples
+
+        conn.close()
+        return samples
+
+    def _find_move_index(self, played_move, legal_moves: list) -> int:
+        """Find the index of played_move in legal_moves.
+
+        Matches by type, from_pos, and to positions.
+        """
+        played_type = getattr(played_move, 'type', None)
+        played_from = getattr(played_move, 'from_pos', None)
+        played_to = getattr(played_move, 'to', None)
+
+        for i, legal in enumerate(legal_moves):
+            legal_type = getattr(legal, 'type', None)
+            legal_from = getattr(legal, 'from_pos', None)
+            legal_to = getattr(legal, 'to', None)
+
+            # Match by type
+            if played_type != legal_type:
+                continue
+
+            # Match by from position (if both have one)
+            if played_from is not None and legal_from is not None:
+                if played_from.x != legal_from.x or played_from.y != legal_from.y:
+                    continue
+            elif played_from is not None or legal_from is not None:
+                # One has from_pos and other doesn't
+                continue
+
+            # Match by to position (if both have one)
+            if played_to is not None and legal_to is not None:
+                if played_to.x != legal_to.x or played_to.y != legal_to.y:
+                    continue
+            elif played_to is not None or legal_to is not None:
+                continue
+
+            return i
+
+        return -1  # Not found
+
+    def _encode_legal_moves(
+        self,
+        legal_moves: list,
+    ) -> Tuple["np.ndarray", "np.ndarray", "np.ndarray"]:
+        """Encode legal moves as numpy arrays."""
+        import numpy as np
+
+        max_moves = self.config.max_moves_per_position
+        center = self.board_size // 2
+        center_idx = center * self.board_size + center
+
+        from_indices = np.zeros(max_moves, dtype=np.int64)
+        to_indices = np.zeros(max_moves, dtype=np.int64)
+        move_mask = np.zeros(max_moves, dtype=bool)
+
+        for i, move in enumerate(legal_moves[:max_moves]):
+            from_pos = getattr(move, 'from_pos', None)
+            if from_pos is None:
+                from_idx = center_idx
+            else:
+                from_idx = pos_to_flat_index(from_pos, self.board_size, self.config.board_type)
+
+            to_pos = getattr(move, 'to', None)
+            if to_pos is None:
+                to_pos = from_pos
+            if to_pos is None:
+                to_idx = center_idx
+            else:
+                to_idx = pos_to_flat_index(to_pos, self.board_size, self.config.board_type)
+
+            from_indices[i] = from_idx
+            to_indices[i] = to_idx
+            move_mask[i] = True
+
+        return from_indices, to_indices, move_mask
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, ...]:
+        """Get a single sample as tensors.
+
+        Returns:
+            Tuple of (features, value, from_indices, to_indices, move_mask, target_idx)
+        """
+        sample = self.samples[idx]
+        return (
+            torch.from_numpy(sample.features).float(),
+            torch.tensor([sample.value], dtype=torch.float32),
+            torch.from_numpy(sample.from_indices).long(),
+            torch.from_numpy(sample.to_indices).long(),
+            torch.from_numpy(sample.move_mask).bool(),
+            torch.tensor(sample.target_move_idx, dtype=torch.long),
+        )
