@@ -426,6 +426,45 @@ describe('SpectatorHUD', () => {
     });
   });
 
+  describe('Disconnected Players Banner', () => {
+    it('shows banner when a player has disconnected', () => {
+      render(
+        <SpectatorHUD
+          {...defaultProps}
+          disconnectedPlayers={[{ id: 'p1', username: 'Alice', disconnectedAt: Date.now() }]}
+        />
+      );
+
+      const banner = screen.getByTestId('disconnected-players-banner');
+      expect(banner).toBeInTheDocument();
+      expect(banner).toHaveTextContent('Alice');
+      expect(banner).toHaveTextContent('has disconnected');
+      expect(banner).toHaveTextContent('Waiting to reconnect');
+    });
+
+    it('shows correct grammar for multiple disconnected players', () => {
+      render(
+        <SpectatorHUD
+          {...defaultProps}
+          disconnectedPlayers={[
+            { id: 'p1', username: 'Alice', disconnectedAt: Date.now() },
+            { id: 'p2', username: 'Bob', disconnectedAt: Date.now() },
+          ]}
+        />
+      );
+
+      const banner = screen.getByTestId('disconnected-players-banner');
+      expect(banner).toHaveTextContent('Alice, Bob');
+      expect(banner).toHaveTextContent('have disconnected');
+    });
+
+    it('does not show banner when no players are disconnected', () => {
+      render(<SpectatorHUD {...defaultProps} disconnectedPlayers={[]} />);
+
+      expect(screen.queryByTestId('disconnected-players-banner')).not.toBeInTheDocument();
+    });
+  });
+
   describe('Active Choice Banner', () => {
     it('displays active choice banner when player is making a decision', () => {
       render(

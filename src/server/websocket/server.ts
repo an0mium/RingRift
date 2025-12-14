@@ -1472,6 +1472,7 @@ export class WebSocketServer {
             id: socket.userId ?? '',
             username: socket.username ?? '',
           },
+          reconnectionWindowMs: config.server.wsReconnectionTimeoutMs,
         },
         timestamp: new Date().toISOString(),
       });

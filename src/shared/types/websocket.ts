@@ -299,6 +299,10 @@ export type PlayerLeftPayload = GamePlayerRoomEventPayload & {
 
 export type PlayerDisconnectedPayload = GamePlayerRoomEventPayload & {
   type: 'player_disconnected';
+  data: GamePlayerRoomEventPayload['data'] & {
+    /** Time in milliseconds until the player's reconnection window expires */
+    reconnectionWindowMs?: number;
+  };
 };
 
 export type PlayerReconnectedPayload = GamePlayerRoomEventPayload & {

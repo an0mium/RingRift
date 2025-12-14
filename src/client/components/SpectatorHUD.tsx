@@ -34,6 +34,12 @@ export interface SpectatorHUDProps {
     playerNumber: number;
     timeRemaining?: number;
   };
+  /** Players who have disconnected but may reconnect */
+  disconnectedPlayers?: Array<{
+    id: string;
+    username: string;
+    disconnectedAt: number;
+  }>;
   /** Additional CSS classes */
   className?: string;
 }
@@ -147,6 +153,7 @@ export function SpectatorHUD({
   spectatorCount = 0,
   connectionStatus = 'connected',
   activeChoice,
+  disconnectedPlayers = [],
   className = '',
 }: SpectatorHUDProps) {
   const [showAnalysis, setShowAnalysis] = useState(true);
@@ -224,6 +231,25 @@ export function SpectatorHUD({
         >
           <span className={`w-2 h-2 rounded-full ${connConfig.bg} animate-pulse`} />
           <span className={`text-sm font-medium ${connConfig.color}`}>{connConfig.label}</span>
+        </div>
+      )}
+
+      {/* Disconnected Players Banner */}
+      {disconnectedPlayers.length > 0 && (
+        <div
+          className="border border-orange-500/40 rounded-lg bg-orange-900/30 p-2"
+          role="status"
+          aria-live="polite"
+          data-testid="disconnected-players-banner"
+        >
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" aria-hidden="true" />
+            <span className="text-sm text-orange-200">
+              {disconnectedPlayers.map((p) => p.username).join(', ')}{' '}
+              {disconnectedPlayers.length === 1 ? 'has' : 'have'} disconnected
+            </span>
+          </div>
+          <p className="text-xs text-orange-200/60 mt-1 ml-4">Waiting to reconnect...</p>
         </div>
       )}
 

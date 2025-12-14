@@ -398,7 +398,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       },
       onPlayerDisconnected: (payload: PlayerDisconnectedPayload) => {
         // Add the disconnected player to our tracking list
-        const { player } = payload.data;
+        const { player, reconnectionWindowMs } = payload.data;
         setDisconnectedOpponents((prev) => {
           // Avoid duplicates
           if (prev.some((p) => p.id === player.id)) return prev;
@@ -411,10 +411,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
             },
           ];
         });
-        // Show a toast notification for UX
-        toast(`${player.username ?? 'A player'} disconnected`, {
+        // Show a toast notification for UX with reconnection window info
+        const windowSecs = reconnectionWindowMs ? Math.round(reconnectionWindowMs / 1000) : 30;
+        toast(`${player.username ?? 'A player'} disconnected (${windowSecs}s to reconnect)`, {
           icon: '⚠️',
           id: `disconnect-${player.id}`,
+          duration: 5000,
         });
       },
       onPlayerReconnected: (payload: PlayerReconnectedPayload) => {
@@ -494,6 +496,23 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       }
     };
   }, []);
+
+  // Show toast when a decision is auto-resolved due to timeout
+  useEffect(() => {
+    if (decisionAutoResolved) {
+      const reason =
+        decisionAutoResolved.reason === 'timeout'
+          ? 'timed out'
+          : decisionAutoResolved.reason === 'no_options'
+            ? 'had no options'
+            : 'auto-resolved';
+      toast(`Decision ${reason} - move applied automatically`, {
+        icon: '⏱️',
+        id: 'decision-auto-resolved',
+        duration: 4000,
+      });
+    }
+  }, [decisionAutoResolved]);
 
   const respondToChoice = useCallback(
     (choice: PlayerChoice, selectedOption: unknown) => {

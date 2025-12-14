@@ -1394,12 +1394,16 @@ describe('GameContext - Player disconnect/reconnect events', () => {
         data: {
           gameId: 'game-123',
           player: { id: 'user-2', username: 'Player2' },
+          reconnectionWindowMs: 30000,
         },
         timestamp: new Date().toISOString(),
       });
     });
 
-    expect(mockToast).toHaveBeenCalledWith('Player2 disconnected', expect.any(Object));
+    expect(mockToast).toHaveBeenCalledWith(
+      'Player2 disconnected (30s to reconnect)',
+      expect.objectContaining({ icon: '⚠️', id: 'disconnect-user-2' })
+    );
   });
 
   it('should show success toast on player reconnect', async () => {
