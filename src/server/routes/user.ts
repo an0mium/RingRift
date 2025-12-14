@@ -852,17 +852,25 @@ router.get(
       }
 
       // First, get all games matching the filter criteria
-      const matchingGames = await prisma.game.findMany({
-        where: gameWhere,
-        select: {
-          id: true,
-          winnerId: true,
-          player1Id: true,
-          player2Id: true,
-          player3Id: true,
-          player4Id: true,
-        },
-      });
+      const matchingGamesResult = await withQueryTimeoutStrict(
+        prisma.game.findMany({
+          where: gameWhere,
+          select: {
+            id: true,
+            winnerId: true,
+            player1Id: true,
+            player2Id: true,
+            player3Id: true,
+            player4Id: true,
+          },
+        })
+      );
+
+      if (!matchingGamesResult.success) {
+        throw createError('Leaderboard query timed out', 504, ErrorCodes.SERVER_GATEWAY_TIMEOUT);
+      }
+
+      const matchingGames = matchingGamesResult.data;
 
       // Aggregate stats per user from matching games
       const userStats = new Map<string, { gamesPlayed: number; gamesWon: number }>();
@@ -906,18 +914,26 @@ router.get(
       }
 
       // Get user details for those who played matching games
-      const users = await prisma.user.findMany({
-        where: {
-          id: { in: userIds },
-          isActive: true,
-        },
-        select: {
-          id: true,
-          username: true,
-          rating: true,
-        },
-        orderBy: { rating: 'desc' },
-      });
+      const usersResult = await withQueryTimeoutStrict(
+        prisma.user.findMany({
+          where: {
+            id: { in: userIds },
+            isActive: true,
+          },
+          select: {
+            id: true,
+            username: true,
+            rating: true,
+          },
+          orderBy: { rating: 'desc' },
+        })
+      );
+
+      if (!usersResult.success) {
+        throw createError('Leaderboard query timed out', 504, ErrorCodes.SERVER_GATEWAY_TIMEOUT);
+      }
+
+      const users = usersResult.data;
 
       // Combine user data with filtered stats
       const usersWithStats = users
@@ -963,29 +979,45 @@ router.get(
       });
     } else {
       // No filters - use the simpler query
-      const users = await prisma.user.findMany({
-        where: {
-          isActive: true,
-          gamesPlayed: { gt: 0 },
-        },
-        select: {
-          id: true,
-          username: true,
-          rating: true,
-          gamesPlayed: true,
-          gamesWon: true,
-        },
-        orderBy: { rating: 'desc' },
-        take: limit,
-        skip: offset,
-      });
+      const usersResult = await withQueryTimeoutStrict(
+        prisma.user.findMany({
+          where: {
+            isActive: true,
+            gamesPlayed: { gt: 0 },
+          },
+          select: {
+            id: true,
+            username: true,
+            rating: true,
+            gamesPlayed: true,
+            gamesWon: true,
+          },
+          orderBy: { rating: 'desc' },
+          take: limit,
+          skip: offset,
+        })
+      );
 
-      const total = await prisma.user.count({
-        where: {
-          isActive: true,
-          gamesPlayed: { gt: 0 },
-        },
-      });
+      if (!usersResult.success) {
+        throw createError('Leaderboard query timed out', 504, ErrorCodes.SERVER_GATEWAY_TIMEOUT);
+      }
+
+      const users = usersResult.data;
+
+      const totalResult = await withQueryTimeoutStrict(
+        prisma.user.count({
+          where: {
+            isActive: true,
+            gamesPlayed: { gt: 0 },
+          },
+        })
+      );
+
+      if (!totalResult.success) {
+        throw createError('Leaderboard query timed out', 504, ErrorCodes.SERVER_GATEWAY_TIMEOUT);
+      }
+
+      const total = totalResult.data;
 
       // Add rank to each user
       const usersWithRank = users.map((user, index) => ({
@@ -1411,75 +1443,97 @@ router.get(
       throw createError('Database not available', 500, 'DATABASE_UNAVAILABLE');
     }
 
-    // Fetch user profile data (excluding sensitive fields)
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        username: true,
-        role: true,
-        rating: true,
-        gamesPlayed: true,
-        gamesWon: true,
-        createdAt: true,
-        lastLoginAt: true,
-        emailVerified: true,
-        isActive: true,
-        updatedAt: true,
-        // Note: We intentionally exclude:
-        // - passwordHash (security)
-        // - tokenVersion (internal)
-        // - verificationToken, passwordResetToken (security)
-        // - deletedAt (internal)
-      },
-    });
+    // Limit games exported to prevent excessive load
+    const MAX_EXPORT_GAMES = 1000;
+    const MAX_MOVES_PER_GAME = 500;
 
+    // Fetch user profile data (excluding sensitive fields)
+    const userResult = await withQueryTimeoutStrict(
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          username: true,
+          role: true,
+          rating: true,
+          gamesPlayed: true,
+          gamesWon: true,
+          createdAt: true,
+          lastLoginAt: true,
+          emailVerified: true,
+          isActive: true,
+          updatedAt: true,
+          // Note: We intentionally exclude:
+          // - passwordHash (security)
+          // - tokenVersion (internal)
+          // - verificationToken, passwordResetToken (security)
+          // - deletedAt (internal)
+        },
+      })
+    );
+
+    if (!userResult.success) {
+      throw createError('Export query timed out', 504, ErrorCodes.SERVER_GATEWAY_TIMEOUT);
+    }
+
+    const user = userResult.data;
     if (!user) {
       throw createError('User not found', 404, 'USER_NOT_FOUND');
     }
 
-    // Fetch all games where user participated
-    const games = await prisma.game.findMany({
-      where: {
-        OR: [
-          { player1Id: userId },
-          { player2Id: userId },
-          { player3Id: userId },
-          { player4Id: userId },
-        ],
-      },
-      select: {
-        id: true,
-        createdAt: true,
-        startedAt: true,
-        endedAt: true,
-        status: true,
-        winnerId: true,
-        boardType: true,
-        maxPlayers: true,
-        isRated: true,
-        player1Id: true,
-        player2Id: true,
-        player3Id: true,
-        player4Id: true,
-        player1: { select: { id: true, username: true } },
-        player2: { select: { id: true, username: true } },
-        player3: { select: { id: true, username: true } },
-        player4: { select: { id: true, username: true } },
-        moves: {
-          select: {
-            moveNumber: true,
-            moveType: true,
-            timestamp: true,
-            playerId: true,
-            position: true,
-          },
-          orderBy: { moveNumber: 'asc' },
+    // Fetch games where user participated (limited to prevent excessive load)
+    const gamesResult = await withQueryTimeoutStrict(
+      prisma.game.findMany({
+        where: {
+          OR: [
+            { player1Id: userId },
+            { player2Id: userId },
+            { player3Id: userId },
+            { player4Id: userId },
+          ],
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        select: {
+          id: true,
+          createdAt: true,
+          startedAt: true,
+          endedAt: true,
+          status: true,
+          winnerId: true,
+          boardType: true,
+          maxPlayers: true,
+          isRated: true,
+          player1Id: true,
+          player2Id: true,
+          player3Id: true,
+          player4Id: true,
+          player1: { select: { id: true, username: true } },
+          player2: { select: { id: true, username: true } },
+          player3: { select: { id: true, username: true } },
+          player4: { select: { id: true, username: true } },
+          moves: {
+            select: {
+              moveNumber: true,
+              moveType: true,
+              timestamp: true,
+              playerId: true,
+              position: true,
+            },
+            orderBy: { moveNumber: 'asc' },
+            take: MAX_MOVES_PER_GAME,
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: MAX_EXPORT_GAMES,
+      })
+    );
+
+    if (!gamesResult.success) {
+      throw createError('Export query timed out', 504, ErrorCodes.SERVER_GATEWAY_TIMEOUT);
+    }
+
+    const games = gamesResult.data;
+    const wasGamesTruncated = games.length >= MAX_EXPORT_GAMES;
 
     // Transform games to user-friendly format
     const formattedGames = games.map((game) => {
@@ -1560,6 +1614,13 @@ router.get(
       },
       games: formattedGames,
       preferences: {}, // Placeholder for future preferences storage
+      exportLimits: {
+        maxGames: MAX_EXPORT_GAMES,
+        maxMovesPerGame: MAX_MOVES_PER_GAME,
+        wasGamesTruncated,
+        gamesExported: formattedGames.length,
+        totalGamesPlayed: user.gamesPlayed,
+      },
     };
 
     // Set headers for file download
