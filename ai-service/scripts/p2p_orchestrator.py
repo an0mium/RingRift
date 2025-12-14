@@ -1310,7 +1310,9 @@ class P2POrchestrator:
                 status=503,
             )
 
-        target_url = self._url_for_peer(leader, request.raw_path)
+        candidate_urls = self._urls_for_peer(leader, request.raw_path)
+        if not candidate_urls:
+            candidate_urls = [self._url_for_peer(leader, request.raw_path)]
         forward_headers: Dict[str, str] = {}
         for h in ("Authorization", "X-RingRift-Auth", "Content-Type"):
             if h in request.headers:
@@ -1323,32 +1325,38 @@ class P2POrchestrator:
         # Keep leader-proxy responsive: unreachable "leaders" (often NAT/firewall)
         # should fail fast so the dashboard doesn't hang for a full minute.
         timeout = ClientTimeout(total=10)
-        try:
-            async with ClientSession(timeout=timeout) as session:
-                async with session.request(
-                    request.method,
-                    target_url,
-                    data=body,
-                    headers=forward_headers,
-                ) as resp:
-                    payload = await resp.read()
-                    content_type = resp.headers.get("Content-Type")
-                    headers: Dict[str, str] = {}
-                    if content_type:
-                        headers["Content-Type"] = content_type
-                    headers["X-RingRift-Proxied-By"] = self.node_id
-                    return web.Response(body=payload, status=resp.status, headers=headers)
-        except Exception as exc:
-            return web.json_response(
-                {
-                    "success": False,
-                    "error": "leader_proxy_failed",
-                    "message": str(exc),
-                    "leader_id": self.leader_id,
-                    "leader_url": target_url,
-                },
-                status=502,
-            )
+        last_exc: Exception | None = None
+        async with ClientSession(timeout=timeout) as session:
+            for target_url in candidate_urls:
+                try:
+                    async with session.request(
+                        request.method,
+                        target_url,
+                        data=body,
+                        headers=forward_headers,
+                    ) as resp:
+                        payload = await resp.read()
+                        content_type = resp.headers.get("Content-Type")
+                        headers: Dict[str, str] = {}
+                        if content_type:
+                            headers["Content-Type"] = content_type
+                        headers["X-RingRift-Proxied-By"] = self.node_id
+                        headers["X-RingRift-Proxied-To"] = target_url
+                        return web.Response(body=payload, status=resp.status, headers=headers)
+                except Exception as exc:
+                    last_exc = exc
+                    continue
+
+        return web.json_response(
+            {
+                "success": False,
+                "error": "leader_proxy_failed",
+                "message": str(last_exc) if last_exc else "unknown_error",
+                "leader_id": self.leader_id,
+                "attempted_urls": candidate_urls,
+            },
+            status=502,
+        )
 
     def _is_request_authorized(self, request: "web.Request") -> bool:
         if not self.auth_token:
@@ -9000,6 +9008,19 @@ print(json.dumps({{
             port = int(getattr(info, "port", DEFAULT_PORT) or DEFAULT_PORT)
         except Exception:
             port = DEFAULT_PORT
+        # Reverse proxies / relays can cause inbound peer requests to appear as loopback.
+        # Prefer the peer's self-reported advertised endpoint in that case so:
+        # - endpoint conflict detection remains meaningful, and
+        # - eligible leaders don't get filtered out as "conflicted".
+        if host in {"127.0.0.1", "localhost", "0.0.0.0", "::1"}:
+            reported_host = str(getattr(info, "reported_host", "") or "").strip()
+            try:
+                reported_port = int(getattr(info, "reported_port", 0) or 0)
+            except Exception:
+                reported_port = 0
+            if reported_host and reported_port > 0:
+                host = reported_host
+                port = reported_port
         return (scheme, host, port)
 
     def _endpoint_conflict_keys(self, peers: List[NodeInfo]) -> Set[Tuple[str, str, int]]:
@@ -9582,13 +9603,18 @@ print(json.dumps({{
 
                     print(f"[P2P] Assigning {task_type_str} task to {node.node_id} (load={node.get_load_score():.0f}%)")
 
-                    # Weighted config selection based on priority
+                    # Weighted config selection based on priority and node capabilities
                     # Use ImprovementCycleManager for dynamic data-aware diverse selection
+                    # with node-aware routing: heavy workloads -> heavy nodes
                     import random as rand_module
                     if self.improvement_cycle_manager:
-                        # Dynamic selection with AI diversity (asymmetric games, varied opponents)
-                        config = self.improvement_cycle_manager.get_next_selfplay_config(
-                            self.cluster_data_manifest
+                        # Node-aware dynamic selection: routes hex/sq19/3p/4p to powerful nodes
+                        node_gpu_power = node.gpu_power_score() if hasattr(node, 'gpu_power_score') else 0
+                        node_memory = int(getattr(node, 'memory_gb', 0) or 0)
+                        config = self.improvement_cycle_manager.get_next_selfplay_config_for_node(
+                            node_gpu_power=node_gpu_power,
+                            node_memory_gb=node_memory,
+                            cluster_data=self.cluster_data_manifest
                         )
                     else:
                         # Fallback to static weighted selection

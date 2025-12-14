@@ -473,6 +473,141 @@ class ImprovementCycleManager:
                 "asymmetric": False,
             }
 
+    def get_next_selfplay_config_for_node(
+        self,
+        node_gpu_power: float,
+        node_memory_gb: int,
+        cluster_data: Optional[Dict] = None,
+    ) -> Dict[str, Any]:
+        """Get next selfplay config optimized for a specific node's hardware.
+
+        Routes heavy workloads (hex, square19, 3p/4p) to powerful nodes and
+        light workloads (square8, 2p) to lighter nodes.
+
+        Args:
+            node_gpu_power: GPU power score (0 = CPU only, higher = more powerful)
+            node_memory_gb: Node memory in GB
+            cluster_data: Optional manifest of existing data distribution.
+
+        Returns:
+            Configuration dict matching get_next_selfplay_config output.
+        """
+        # Classify node capability tier
+        # Tier 3: Heavy (GH200, H100, 5090, >128GB memory) - gets hex/sq19/3p/4p preferentially
+        # Tier 2: Medium (3080/3090, 64-128GB) - balanced mix
+        # Tier 1: Light (<64GB, weak GPU) - gets sq8/2p preferentially
+        if node_gpu_power >= 80 or node_memory_gb >= 128:
+            tier = 3
+        elif node_gpu_power >= 30 or node_memory_gb >= 64:
+            tier = 2
+        else:
+            tier = 1
+
+        # Filter BOARD_CONFIGS based on tier
+        if tier == 3:
+            # Heavy nodes: prefer heavy workloads
+            # Boost priority for hex/sq19 and 3p/4p
+            tier_configs = []
+            for config in BOARD_CONFIGS:
+                weight = config["priority"]
+                if config["board_type"] in ("hexagonal", "square19"):
+                    weight *= 3.0  # 3x boost for large boards
+                if config["num_players"] >= 3:
+                    weight *= 2.0  # 2x boost for multiplayer
+                tier_configs.append((config, weight))
+        elif tier == 2:
+            # Medium nodes: balanced weights
+            tier_configs = [(config, config["priority"]) for config in BOARD_CONFIGS]
+        else:
+            # Light nodes: prefer sq8/2p, filter out heavy workloads
+            tier_configs = []
+            for config in BOARD_CONFIGS:
+                if config["board_type"] == "square8":
+                    weight = config["priority"] * 3.0  # 3x boost for sq8
+                    if config["num_players"] == 2:
+                        weight *= 2.0  # Additional 2x for 2p
+                    tier_configs.append((config, weight))
+                elif config["num_players"] == 2 and node_memory_gb >= 32:
+                    # Allow hex/sq19 2p only if node has reasonable memory
+                    tier_configs.append((config, config["priority"] * 0.5))
+
+            # Fallback if no configs matched
+            if not tier_configs:
+                tier_configs = [
+                    ({"board_type": "square8", "num_players": 2, "priority": 1.0, "min_games": 15000}, 1.0)
+                ]
+
+        # Apply data deficit weighting (same as get_next_selfplay_config)
+        weighted_configs = []
+        for config, tier_weight in tier_configs:
+            key = self._get_cycle_key(config["board_type"], config["num_players"])
+            cycle = self.state.cycles.get(key)
+            current_games = cycle.total_games if cycle else 0
+            deficit_ratio = max(0, 1 - current_games / config.get("min_games", 5000))
+            weight = tier_weight * (1 + deficit_ratio * 2)
+            weighted_configs.append((config, weight))
+
+        # Normalize and select
+        total_weight = sum(w for _, w in weighted_configs)
+        if total_weight > 0:
+            weighted_configs = [(c, w / total_weight) for c, w in weighted_configs]
+
+        rand = random.random()
+        cumulative = 0
+        selected_board = weighted_configs[0][0]
+        for config, weight in weighted_configs:
+            cumulative += weight
+            if rand <= cumulative:
+                selected_board = config
+                break
+
+        # Use same AI selection logic as base method
+        use_asymmetric = random.random() < 0.3
+
+        if use_asymmetric:
+            asym_weights = [c["weight"] for c in ASYMMETRIC_CONFIGS]
+            total_asym = sum(asym_weights)
+            asym_weights = [w / total_asym for w in asym_weights]
+
+            rand = random.random()
+            cumulative = 0
+            selected_asym = ASYMMETRIC_CONFIGS[0]
+            for i, weight in enumerate(asym_weights):
+                cumulative += weight
+                if rand <= cumulative:
+                    selected_asym = ASYMMETRIC_CONFIGS[i]
+                    break
+
+            return {
+                "board_type": selected_board["board_type"],
+                "num_players": selected_board["num_players"],
+                "engine_mode": "mixed",
+                "asymmetric": True,
+                "strong_config": selected_asym["strong"],
+                "weak_config": selected_asym["weak"],
+            }
+        else:
+            ai_weights = [c["weight"] for c in DIVERSE_AI_CONFIGS]
+            total_ai = sum(ai_weights)
+            ai_weights = [w / total_ai for w in ai_weights]
+
+            rand = random.random()
+            cumulative = 0
+            selected_ai = DIVERSE_AI_CONFIGS[0]
+            for i, weight in enumerate(ai_weights):
+                cumulative += weight
+                if rand <= cumulative:
+                    selected_ai = DIVERSE_AI_CONFIGS[i]
+                    break
+
+            return {
+                "board_type": selected_board["board_type"],
+                "num_players": selected_board["num_players"],
+                "engine_mode": selected_ai["engine_mode"],
+                "difficulty_band": "canonical",
+                "asymmetric": False,
+            }
+
     def get_diverse_selfplay_batch(self, batch_size: int = 10) -> List[Dict[str, Any]]:
         """Get a batch of diverse selfplay configurations.
 
