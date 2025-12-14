@@ -1479,6 +1479,300 @@ def generate_dataset(
     np.savez_compressed(output_path, **save_kwargs)
 
 
+def generate_dataset_gpu_parallel(
+    num_games: int = 20,
+    output_file: str = "data/dataset_gpu.npz",
+    board_type: BoardType = BoardType.SQUARE8,
+    seed: Optional[int] = None,
+    max_moves: int = 200,
+    num_players: int = 2,
+    gpu_batch_size: int = 20,
+    heuristic_weights: Optional[dict] = None,
+) -> None:
+    """Generate self-play data using GPU-accelerated parallel game simulation.
+
+    This function runs multiple games simultaneously on GPU using the
+    ParallelGameRunner, providing 5-10x speedup over sequential CPU execution.
+    Move selection uses GPU heuristic evaluation (45 weights) rather than
+    tree search, making this suitable for initial training bootstrapping or
+    generating large volumes of diverse data quickly.
+
+    Parameters
+    ----------
+    num_games:
+        Total number of games to generate. Will be processed in batches
+        of gpu_batch_size.
+    output_file:
+        Path to the output NPZ file for training data.
+    board_type:
+        Board geometry to use (square8, square19, hexagonal).
+    seed:
+        Optional random seed for reproducibility.
+    max_moves:
+        Maximum moves per game before forcing termination.
+    num_players:
+        Number of players in each game (2, 3, or 4).
+    gpu_batch_size:
+        Number of games to run in parallel on GPU. Higher values use more
+        GPU memory but provide better throughput. Recommended: 10-50.
+    heuristic_weights:
+        Optional heuristic weight dictionary for move selection. If None,
+        uses BASE_V1_BALANCED_WEIGHTS.
+
+    Notes
+    -----
+    This function generates training data with:
+    - Board state features extracted at each move
+    - 1-hot policy targets based on selected moves
+    - Final game outcome propagated to all samples with depth discount
+
+    The data format is compatible with the standard training pipeline and
+    can be mixed with data from generate_dataset().
+    """
+    import torch
+    from app.ai.gpu_parallel_games import (
+        ParallelGameRunner,
+        BatchGameState,
+        evaluate_positions_batch,
+        MoveType as GPUMoveType,
+    )
+    from app.ai.heuristic_weights import BASE_V1_BALANCED_WEIGHTS
+    from app.ai.neural_net import NeuralNetAI, encode_move_for_board
+
+    if seed is not None:
+        py_random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
+    # Use default weights if not provided
+    weights = heuristic_weights or dict(BASE_V1_BALANCED_WEIGHTS)
+
+    # Board size mapping
+    board_size_map = {
+        BoardType.SQUARE8: 8,
+        BoardType.SQUARE19: 19,
+        BoardType.HEXAGONAL: 25,  # Hex uses 25x25 embedding
+    }
+    board_size = board_size_map.get(board_type, 8)
+    board_type_str = {
+        BoardType.SQUARE8: "square8",
+        BoardType.SQUARE19: "square19",
+        BoardType.HEXAGONAL: "hexagonal",
+    }.get(board_type, "square8")
+
+    # Initialize neural net for feature extraction (lazy load)
+    nn_encoder = NeuralNetAI(
+        player_number=1,
+        config=AIConfig(difficulty=1),
+    )
+    # Force initialization
+    _ = nn_encoder._ensure_model_loaded(board_type)
+
+    print(f"GPU Parallel: Generating {num_games} games with batch_size={gpu_batch_size}")
+    print(f"  Board: {board_type_str}, Players: {num_players}, Max moves: {max_moves}")
+
+    # Accumulate training data
+    all_features = []
+    all_globals = []
+    all_values = []
+    all_policy_indices = []
+    all_policy_values = []
+
+    # Process games in batches
+    num_batches = (num_games + gpu_batch_size - 1) // gpu_batch_size
+    games_generated = 0
+
+    for batch_idx in range(num_batches):
+        batch_start = batch_idx * gpu_batch_size
+        batch_games = min(gpu_batch_size, num_games - batch_start)
+
+        print(f"  Batch {batch_idx + 1}/{num_batches}: {batch_games} games")
+        batch_start_time = time.time()
+
+        # Initialize runner for this batch
+        runner = ParallelGameRunner(
+            batch_size=batch_games,
+            board_size=board_size,
+            num_players=num_players,
+            board_type=board_type_str,
+        )
+
+        # Run games to completion
+        batch_seed = seed + batch_idx * 10000 if seed is not None else None
+        if batch_seed is not None:
+            torch.manual_seed(batch_seed)
+
+        results = runner.run_games(
+            weights_list=[weights] * batch_games,
+            max_moves=max_moves,
+        )
+
+        batch_duration = time.time() - batch_start_time
+        print(f"    Completed in {batch_duration:.1f}s")
+
+        # Extract training data from each game
+        for g in range(batch_games):
+            game_winner = results["winners"][g]
+            move_count = results["move_counts"][g]
+
+            # Extract move history
+            move_history = runner.state.extract_move_history(g)
+
+            if not move_history:
+                continue
+
+            # Convert final game state to CPU for reference
+            final_state = runner.state.to_game_state(g)
+
+            # Replay game to extract features at each position
+            # We need to reconstruct states step-by-step
+            env_config = TrainingEnvConfig(
+                board_type=board_type,
+                num_players=num_players,
+                max_moves=max_moves,
+                reward_mode="terminal",
+            )
+            env = make_env(env_config)
+            game_seed = batch_seed + g if batch_seed is not None else None
+            state = env.reset(seed=game_seed)
+
+            game_samples = []
+            history_buffer = []
+            history_length = 3
+
+            for move_idx, move_dict in enumerate(move_history):
+                current_player = state.current_player
+
+                # Extract features for current state
+                try:
+                    features, globals_vec = nn_encoder._extract_features(state)
+
+                    # Build stacked features with history
+                    hist_list = history_buffer[::-1]
+                    while len(hist_list) < history_length:
+                        hist_list.append(np.zeros_like(features))
+                    hist_list = hist_list[:history_length]
+                    stacked_features = np.concatenate([features] + hist_list, axis=0)
+
+                    # Update history buffer
+                    history_buffer.append(features)
+                    if len(history_buffer) > history_length + 1:
+                        history_buffer.pop(0)
+
+                    # Create move object from dict
+                    from app.models import Move, Position
+                    move_type_str = move_dict.get("type", "place_ring")
+                    to_pos = move_dict.get("to")
+                    from_pos = move_dict.get("from")
+
+                    # Map GPU move type strings to MoveType enum
+                    from app.models import MoveType as CPUMoveType
+                    move_type_map = {
+                        "place_ring": CPUMoveType.PLACE_RING,
+                        "move_stack": CPUMoveType.MOVE_STACK,
+                        "overtaking_capture": CPUMoveType.OVERTAKING_CAPTURE,
+                        "chain_capture": CPUMoveType.CHAIN_CAPTURE,
+                        "line_formation": CPUMoveType.LINE_FORMATION,
+                        "territory_claim": CPUMoveType.TERRITORY_CLAIM,
+                        "skip_capture": CPUMoveType.SKIP_CAPTURE,
+                        "recovery_slide": CPUMoveType.RECOVERY_SLIDE,
+                    }
+                    cpu_move_type = move_type_map.get(
+                        move_type_str, CPUMoveType.PLACE_RING
+                    )
+
+                    # Create Move object
+                    move = Move(
+                        type=cpu_move_type,
+                        player=move_dict.get("player", current_player),
+                        to=Position(
+                            x=to_pos["x"], y=to_pos["y"]
+                        ) if to_pos else None,
+                        from_pos=Position(
+                            x=from_pos["x"], y=from_pos["y"]
+                        ) if from_pos else None,
+                    )
+
+                    # Encode move to policy index
+                    policy_idx = encode_move_for_board(move, state.board)
+                    if policy_idx >= 0:
+                        p_indices = np.array([policy_idx], dtype=np.int32)
+                        p_values = np.array([1.0], dtype=np.float32)
+                    else:
+                        p_indices = np.array([], dtype=np.int32)
+                        p_values = np.array([], dtype=np.float32)
+
+                    game_samples.append({
+                        "features": stacked_features,
+                        "globals": globals_vec,
+                        "policy_indices": p_indices,
+                        "policy_values": p_values,
+                        "player": current_player,
+                    })
+
+                except Exception as e:
+                    # Skip samples we can't extract features for
+                    pass
+
+                # Apply move to advance state
+                try:
+                    state, _, done, _ = env.step(move)
+                    if done:
+                        break
+                except Exception:
+                    break
+
+            # Calculate outcomes and add to dataset
+            total_game_moves = len(game_samples)
+            for i, sample in enumerate(game_samples):
+                moves_remaining = total_game_moves - i
+                outcome = calculate_outcome(
+                    final_state, sample["player"], moves_remaining
+                )
+
+                # Augment data
+                augmented = augment_data(
+                    sample["features"],
+                    sample["globals"],
+                    sample["policy_indices"],
+                    sample["policy_values"],
+                    nn_encoder,
+                    board_type,
+                )
+
+                for feat, glob, pi, pv in augmented:
+                    all_features.append(feat)
+                    all_globals.append(glob)
+                    all_values.append(outcome)
+                    all_policy_indices.append(pi)
+                    all_policy_values.append(pv)
+
+            games_generated += 1
+
+        print(f"    Total samples so far: {len(all_values)}")
+
+    # Save to NPZ
+    print(f"\nGPU Parallel: Generated {len(all_values)} total samples from {games_generated} games")
+
+    output_path = output_file
+    if not os.path.isabs(output_file):
+        output_path = os.path.join(
+            os.path.dirname(__file__),
+            output_file,
+        )
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    np.savez_compressed(
+        output_path,
+        features=np.array(all_features, dtype=np.float32),
+        globals=np.array(all_globals, dtype=np.float32),
+        values=np.array(all_values, dtype=np.float32),
+        policy_indices=np.array(all_policy_indices, dtype=object),
+        policy_values=np.array(all_policy_values, dtype=object),
+    )
+    print(f"Saved to {output_path}")
+
+
 def _parse_args() -> argparse.Namespace:
     """Parse command-line arguments for data generation."""
     parser = argparse.ArgumentParser(

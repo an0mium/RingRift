@@ -176,6 +176,7 @@ ai-service/data/canonical/
 # Runtime ladder overrides / logs (local-only)
 ai-service/data/ladder_runtime_overrides.json
 ai-service/data/auto_promotion_log.json
+ai-service/data/auto_promotion_state.json
 
 # Selfplay debug artifacts (large state bundles and parity summaries)
 ai-service/data/games/*.state_bundles/
