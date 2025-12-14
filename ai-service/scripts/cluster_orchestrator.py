@@ -666,6 +666,335 @@ def sync_to_mac_studio(hosts: List[HostConfig], dry_run: bool = False) -> bool:
     return synced_count > 0
 
 
+def get_cpu_rich_hosts(hosts: List[HostConfig], statuses: Dict[str, HostStatus]) -> List[Tuple[HostConfig, HostStatus]]:
+    """Get CPU-rich hosts suitable for tournament workloads.
+
+    Prioritizes hosts with:
+    - High CPU count
+    - Low current CPU utilization (< 60%)
+    - Not GPU-constrained (or no GPU)
+    """
+    cpu_hosts = []
+    for host in hosts:
+        if not host.enabled:
+            continue
+        status = statuses.get(host.name)
+        if not status or not status.reachable:
+            continue
+        # Prefer hosts with available CPU capacity
+        if status.cpu_percent < TARGET_CPU_UTILIZATION_MIN:
+            cpu_hosts.append((host, status))
+
+    # Sort by CPU count (descending) - bigger hosts first
+    cpu_hosts.sort(key=lambda x: x[0].cpus, reverse=True)
+    return cpu_hosts
+
+
+def get_gpu_rich_hosts(hosts: List[HostConfig], statuses: Dict[str, HostStatus]) -> List[Tuple[HostConfig, HostStatus]]:
+    """Get GPU-rich hosts suitable for GPU selfplay and training.
+
+    Prioritizes hosts with:
+    - GPU available
+    - Low GPU utilization (< 60%)
+    """
+    gpu_hosts = []
+    for host in hosts:
+        if not host.enabled or not host.has_gpu:
+            continue
+        status = statuses.get(host.name)
+        if not status or not status.reachable:
+            continue
+        # Prefer hosts with available GPU capacity
+        if status.gpu_percent < TARGET_GPU_UTILIZATION_MIN:
+            gpu_hosts.append((host, status))
+
+    # Sort by GPU memory descending (bigger GPUs first)
+    gpu_hosts.sort(key=lambda x: x[0].memory_gb, reverse=True)
+    return gpu_hosts
+
+
+def trigger_diverse_tournaments(
+    hosts: List[HostConfig],
+    statuses: Dict[str, HostStatus],
+    dry_run: bool = False,
+) -> int:
+    """Start diverse tournaments on CPU-rich hosts.
+
+    Distributes tournaments across:
+    - All board types (square8, square19, hexagonal)
+    - All player counts (2, 3, 4)
+    - All AI types (random, heuristic, MCTS, neural net)
+
+    Returns number of tournaments started.
+    """
+    cpu_hosts = get_cpu_rich_hosts(hosts, statuses)
+    if not cpu_hosts:
+        log("Diverse tournaments: No CPU-rich hosts available")
+        return 0
+
+    log(f"Starting diverse tournaments on {len(cpu_hosts)} CPU-rich host(s)...")
+    tournaments_started = 0
+
+    # Distribute tournament configs across available hosts
+    for idx, (host, status) in enumerate(cpu_hosts):
+        # Each host gets a different config from the rotation
+        config = TOURNAMENT_CONFIGS[idx % len(TOURNAMENT_CONFIGS)]
+        board_type = config["board_type"]
+        num_players = config["num_players"]
+
+        log(f"  {host.name}: Assigning {board_type} {num_players}p tournament (CPU {status.cpu_percent:.0f}%)")
+
+        # Build SSH command
+        ssh_base = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15"]
+        if host.ssh_key:
+            ssh_base.extend(["-i", os.path.expanduser(host.ssh_key)])
+        if host.ssh_port != 22:
+            ssh_base.extend(["-p", str(host.ssh_port)])
+
+        target = f"{host.ssh_user}@{host.ssh_host}"
+        ringrift_path = host.ringrift_path
+        log_file = f"/tmp/tournament_{board_type}_{num_players}p.log"
+
+        # Run comprehensive Elo tournament with all AI types
+        remote_cmd = (
+            f"cd {ringrift_path} && "
+            f"({host.venv_activate}) 2>/dev/null || true && "
+            f"nohup python3 scripts/run_model_elo_tournament.py "
+            f"--board {board_type} --players {num_players} "
+            f"--games {TOURNAMENT_GAMES_PER_MATCHUP} "
+            f"--include-baselines --run "
+            f"> {log_file} 2>&1 & "
+            f"echo 'Tournament started'"
+        )
+
+        cmd = ssh_base + [target, remote_cmd]
+
+        if dry_run:
+            log(f"  [DRY-RUN] Would start {board_type} {num_players}p tournament on {host.name}")
+            tournaments_started += 1
+        else:
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    log(f"  {host.name}: Tournament started ({board_type} {num_players}p)")
+                    tournaments_started += 1
+                else:
+                    log(f"  {host.name}: Tournament start failed: {result.stderr}", "WARN")
+            except subprocess.TimeoutExpired:
+                log(f"  {host.name}: SSH timeout during tournament start", "WARN")
+            except Exception as e:
+                log(f"  {host.name}: Tournament error: {e}", "WARN")
+
+    log(f"Diverse tournaments: Started {tournaments_started} tournament(s)")
+    return tournaments_started
+
+
+def start_gpu_selfplay(
+    hosts: List[HostConfig],
+    statuses: Dict[str, HostStatus],
+    dry_run: bool = False,
+) -> int:
+    """Start GPU-accelerated selfplay on GPU-rich hosts with low utilization.
+
+    Uses hybrid selfplay (CPU MCTS + GPU neural net) for maximum throughput.
+    """
+    gpu_hosts = get_gpu_rich_hosts(hosts, statuses)
+    if not gpu_hosts:
+        log("GPU selfplay: No GPU-rich hosts available")
+        return 0
+
+    log(f"Starting GPU selfplay on {len(gpu_hosts)} GPU-rich host(s)...")
+    jobs_started = 0
+
+    # Distribute board configs across GPU hosts
+    board_configs = [
+        {"board": "square8", "players": 2, "games": 500},
+        {"board": "square8", "players": 3, "games": 300},
+        {"board": "square8", "players": 4, "games": 200},
+        {"board": "square19", "players": 2, "games": 200},
+        {"board": "hexagonal", "players": 2, "games": 300},
+    ]
+
+    for idx, (host, status) in enumerate(gpu_hosts):
+        # Calculate how many jobs to start based on GPU headroom
+        gpu_headroom = TARGET_GPU_UTILIZATION_MIN - status.gpu_percent
+        jobs_to_start = max(1, int(gpu_headroom / 15))  # ~15% GPU per job
+
+        # Don't overload
+        jobs_to_start = min(jobs_to_start, 5)
+
+        log(f"  {host.name}: GPU {status.gpu_percent:.0f}%, starting {jobs_to_start} GPU selfplay job(s)")
+
+        for job_idx in range(jobs_to_start):
+            cfg = board_configs[(idx + job_idx) % len(board_configs)]
+            seed = int(time.time()) + job_idx + idx * 100
+
+            ssh_base = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15"]
+            if host.ssh_key:
+                ssh_base.extend(["-i", os.path.expanduser(host.ssh_key)])
+            if host.ssh_port != 22:
+                ssh_base.extend(["-p", str(host.ssh_port)])
+
+            target = f"{host.ssh_user}@{host.ssh_host}"
+            ringrift_path = host.ringrift_path
+            log_file = f"/tmp/gpu_selfplay_{cfg['board']}_{cfg['players']}p_{seed}.log"
+
+            # Use hybrid selfplay for GPU-accelerated games
+            remote_cmd = (
+                f"cd {ringrift_path} && "
+                f"({host.venv_activate}) 2>/dev/null || true && "
+                f"nohup python3 scripts/run_hybrid_selfplay.py "
+                f"--board-type {cfg['board']} --num-players {cfg['players']} "
+                f"--num-games {cfg['games']} --seed {seed} "
+                f"--use-gpu --difficulty 10 "
+                f"> {log_file} 2>&1 & "
+            )
+
+            cmd = ssh_base + [target, remote_cmd]
+
+            if dry_run:
+                log(f"    [DRY-RUN] Would start GPU selfplay on {host.name}")
+                jobs_started += 1
+            else:
+                try:
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                    if result.returncode == 0:
+                        jobs_started += 1
+                    else:
+                        log(f"    {host.name}: GPU selfplay failed: {result.stderr}", "WARN")
+                except Exception as e:
+                    log(f"    {host.name}: Error: {e}", "WARN")
+
+    log(f"GPU selfplay: Started {jobs_started} job(s)")
+    return jobs_started
+
+
+def scale_to_target_utilization(
+    hosts: List[HostConfig],
+    statuses: Dict[str, HostStatus],
+    dry_run: bool = False,
+) -> Dict[str, int]:
+    """Scale up jobs to reach 60% target utilization on all hosts.
+
+    Returns dict with counts of jobs started by type.
+    """
+    results = {"tournaments": 0, "selfplay": 0, "gpu_selfplay": 0, "training": 0}
+
+    for host in hosts:
+        if not host.enabled:
+            continue
+        status = statuses.get(host.name)
+        if not status or not status.reachable:
+            continue
+
+        # Skip hosts at or above target utilization
+        cpu_underutilized = status.cpu_percent < TARGET_CPU_UTILIZATION_MIN
+        gpu_underutilized = host.has_gpu and status.gpu_percent < TARGET_GPU_UTILIZATION_MIN
+
+        if not cpu_underutilized and not gpu_underutilized:
+            continue
+
+        log(f"{host.name}: Scaling up (CPU {status.cpu_percent:.0f}%, GPU {status.gpu_percent:.0f}%)")
+
+        # For CPU-underutilized hosts: start tournaments or selfplay
+        if cpu_underutilized:
+            cpu_gap = TARGET_CPU_UTILIZATION_MIN - status.cpu_percent
+
+            # If no tournament running, start one
+            if status.elo_tournament_jobs == 0 and cpu_gap > 20:
+                # Pick a config based on host name hash for variety
+                config_idx = hash(host.name) % len(TOURNAMENT_CONFIGS)
+                cfg = TOURNAMENT_CONFIGS[config_idx]
+
+                ssh_args = _build_ssh_args(host)
+                target = f"{host.ssh_user}@{host.ssh_host}"
+                log_file = f"/tmp/auto_tournament_{cfg['board_type']}_{cfg['num_players']}p.log"
+
+                remote_cmd = (
+                    f"cd {host.ringrift_path} && "
+                    f"({host.venv_activate}) 2>/dev/null || true && "
+                    f"nohup python3 scripts/run_model_elo_tournament.py "
+                    f"--board {cfg['board_type']} --players {cfg['num_players']} "
+                    f"--games {TOURNAMENT_GAMES_PER_MATCHUP} --include-baselines --run "
+                    f"> {log_file} 2>&1 &"
+                )
+
+                if not dry_run:
+                    try:
+                        result = subprocess.run(
+                            ssh_args + [target, remote_cmd],
+                            capture_output=True, text=True, timeout=30
+                        )
+                        if result.returncode == 0:
+                            results["tournaments"] += 1
+                            log(f"  {host.name}: Started tournament ({cfg['board_type']} {cfg['num_players']}p)")
+                    except Exception as e:
+                        log(f"  {host.name}: Tournament error: {e}", "WARN")
+                else:
+                    results["tournaments"] += 1
+
+            # Also start selfplay to fill remaining CPU capacity
+            selfplay_jobs = max(1, int(cpu_gap / 15))  # ~15% CPU per job
+            started = start_selfplay_jobs(host, selfplay_jobs, dry_run)
+            results["selfplay"] += started
+
+        # For GPU-underutilized hosts: start GPU selfplay or training
+        if gpu_underutilized:
+            gpu_gap = TARGET_GPU_UTILIZATION_MIN - status.gpu_percent
+
+            # Prefer training if no training jobs running
+            if status.training_jobs == 0 and "training" in host.role:
+                action = check_training_status(host, status)
+                if action and action != "running":
+                    if start_training(host, action, dry_run):
+                        results["training"] += 1
+            else:
+                # Otherwise start GPU selfplay
+                jobs_to_start = max(1, int(gpu_gap / 20))  # ~20% GPU per job
+                for _ in range(min(jobs_to_start, 3)):
+                    cfg_idx = hash(f"{host.name}_{time.time()}") % len(TOURNAMENT_CONFIGS)
+                    cfg = TOURNAMENT_CONFIGS[cfg_idx]
+
+                    ssh_args = _build_ssh_args(host)
+                    target = f"{host.ssh_user}@{host.ssh_host}"
+                    seed = int(time.time())
+                    log_file = f"/tmp/gpu_selfplay_{cfg['board_type']}_{cfg['num_players']}p_{seed}.log"
+
+                    remote_cmd = (
+                        f"cd {host.ringrift_path} && "
+                        f"({host.venv_activate}) 2>/dev/null || true && "
+                        f"nohup python3 scripts/run_hybrid_selfplay.py "
+                        f"--board-type {cfg['board_type']} --num-players {cfg['num_players']} "
+                        f"--num-games 200 --seed {seed} --use-gpu --difficulty 10 "
+                        f"> {log_file} 2>&1 &"
+                    )
+
+                    if not dry_run:
+                        try:
+                            result = subprocess.run(
+                                ssh_args + [target, remote_cmd],
+                                capture_output=True, text=True, timeout=30
+                            )
+                            if result.returncode == 0:
+                                results["gpu_selfplay"] += 1
+                        except Exception as e:
+                            log(f"  {host.name}: GPU selfplay error: {e}", "WARN")
+                    else:
+                        results["gpu_selfplay"] += 1
+
+    return results
+
+
+def _build_ssh_args(host: HostConfig) -> List[str]:
+    """Build SSH command arguments for a host."""
+    ssh_args = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15"]
+    if host.ssh_key:
+        ssh_args.extend(["-i", os.path.expanduser(host.ssh_key)])
+    if host.ssh_port != 22:
+        ssh_args.extend(["-p", str(host.ssh_port)])
+    return ssh_args
+
+
 def trigger_elo_calibration(hosts: List[HostConfig], statuses: Dict[str, HostStatus], dry_run: bool = False) -> bool:
     """Trigger Elo calibration tournament on a GPU host.
 
@@ -888,6 +1217,15 @@ def main():
         action="store_true",
         help="Include mac/mbp hosts when auto-scaling (default: skip local hosts).",
     )
+    parser.add_argument("--tournament-interval", type=int, default=TOURNAMENT_INTERVAL,
+                        help=f"Tournament interval in iterations (default: {TOURNAMENT_INTERVAL})")
+    parser.add_argument("--no-tournaments", action="store_true", help="Disable periodic tournaments")
+    parser.add_argument("--tournaments-now", action="store_true", help="Start diverse tournaments immediately")
+    parser.add_argument("--target-utilization-now", action="store_true",
+                        help="Scale up to 60% utilization immediately")
+    parser.add_argument("--no-utilization-targeting", action="store_true",
+                        help="Disable automatic utilization targeting")
+    parser.add_argument("--gpu-selfplay-now", action="store_true", help="Start GPU selfplay immediately")
     args = parser.parse_args()
 
     # Acquire lockfile to prevent multiple instances
@@ -951,6 +1289,38 @@ def main():
             args.dry_run,
             include_local_hosts=bool(args.auto_scale_include_local_hosts),
         )
+        return
+
+    # Force tournaments if requested
+    if args.tournaments_now:
+        log("Starting diverse tournaments immediately...")
+        statuses: Dict[str, HostStatus] = {}
+        for host in hosts:
+            if host.enabled:
+                statuses[host.name] = check_host_status(host)
+        trigger_diverse_tournaments(hosts, statuses, args.dry_run)
+        return
+
+    # Force utilization targeting if requested
+    if args.target_utilization_now:
+        log("Scaling to 60% utilization target...")
+        statuses: Dict[str, HostStatus] = {}
+        for host in hosts:
+            if host.enabled:
+                statuses[host.name] = check_host_status(host)
+        results = scale_to_target_utilization(hosts, statuses, args.dry_run)
+        log(f"Started: {results['tournaments']} tournaments, {results['selfplay']} selfplay, "
+            f"{results['gpu_selfplay']} GPU selfplay, {results['training']} training")
+        return
+
+    # Force GPU selfplay if requested
+    if args.gpu_selfplay_now:
+        log("Starting GPU selfplay immediately...")
+        statuses: Dict[str, HostStatus] = {}
+        for host in hosts:
+            if host.enabled:
+                statuses[host.name] = check_host_status(host)
+        start_gpu_selfplay(hosts, statuses, args.dry_run)
         return
 
     while True:
@@ -1023,6 +1393,19 @@ def main():
                 args.dry_run,
                 include_local_hosts=bool(args.auto_scale_include_local_hosts),
             )
+
+        # Periodic diverse tournaments (every tournament_interval iterations)
+        if not args.no_tournaments and state.iteration % args.tournament_interval == 0:
+            log(f"Starting periodic diverse tournaments (every {args.tournament_interval} iterations)...")
+            trigger_diverse_tournaments(hosts, statuses, args.dry_run)
+
+        # Utilization targeting - scale to 60% on every iteration
+        if not args.no_utilization_targeting:
+            results = scale_to_target_utilization(hosts, statuses, args.dry_run)
+            if any(results.values()):
+                log(f"Utilization targeting: tournaments={results['tournaments']} selfplay={results['selfplay']} "
+                    f"gpu_selfplay={results['gpu_selfplay']} training={results['training']}")
+                state.total_jobs_started += sum(results.values())
 
         save_state(state)
 
