@@ -347,6 +347,7 @@ export const SandboxGameHost: React.FC = () => {
   const { colorVisionMode, effectiveReducedMotion } = useAccessibility();
   const { shouldShowWelcome, markWelcomeSeen, markGameCompleted, isFirstTimePlayer } =
     useFirstTimePlayer();
+  const presetParam = searchParams.get('preset');
 
   const {
     config,
@@ -1014,6 +1015,9 @@ export const SandboxGameHost: React.FC = () => {
   };
 
   const handleQuickStartPreset = (preset: (typeof QUICK_START_PRESETS)[number]) => {
+    if (preset.id === 'learn-basics') {
+      markWelcomeSeen();
+    }
     clearScenarioContext();
     resetGameUIState();
 
@@ -1035,14 +1039,44 @@ export const SandboxGameHost: React.FC = () => {
     startLocalSandboxGame(snapshot);
   };
 
+  const presetHandledRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!presetParam) {
+      presetHandledRef.current = null;
+      return;
+    }
+
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('preset');
+        return next;
+      },
+      { replace: true }
+    );
+
+    if (presetHandledRef.current === presetParam) {
+      return;
+    }
+    presetHandledRef.current = presetParam;
+
+    const preset = QUICK_START_PRESETS.find((p) => p.id === presetParam);
+    if (!preset) {
+      toast.error(`Unknown sandbox preset: ${presetParam}`);
+      return;
+    }
+
+    handleQuickStartPreset(preset);
+  }, [presetParam, setSearchParams, handleQuickStartPreset]);
+
   // Handler for starting tutorial from onboarding modal - selects "Learn the Basics"
   const handleStartTutorial = useCallback(() => {
-    markWelcomeSeen();
     const learnBasicsPreset = QUICK_START_PRESETS.find((p) => p.id === 'learn-basics');
     if (learnBasicsPreset) {
       handleQuickStartPreset(learnBasicsPreset);
     }
-  }, [markWelcomeSeen]);
+  }, [handleQuickStartPreset]);
 
   const setAllPlayerTypes = (type: LocalPlayerType) => {
     setConfig((prev) => {

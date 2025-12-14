@@ -50,6 +50,26 @@ export default function HomePage() {
         </Link>
 
         <Link
+          to="/sandbox?preset=learn-basics"
+          className="group rounded-2xl border border-emerald-500/40 bg-slate-900/70 px-5 py-6 hover:border-emerald-400/70 hover:bg-slate-900 transition-colors"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <h2 className="text-lg font-semibold text-slate-100">Learn the Basics</h2>
+            <span className="inline-flex items-center rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-200 border border-emerald-500/30">
+              Tutorial
+            </span>
+          </div>
+          <p className="mt-1 text-sm text-slate-300">
+            Jump straight into an 8×8 guided starter match. Great for first-time players who want to
+            learn placement, movement, and captures quickly.
+          </p>
+          <p className="mt-2 text-xs text-slate-500">
+            Deep link:&nbsp;
+            <code className="font-mono">/sandbox?preset=learn-basics</code>
+          </p>
+        </Link>
+
+        <Link
           to="/leaderboard"
           className="group rounded-2xl border border-slate-700 bg-slate-900/70 px-5 py-6 hover:border-amber-500/70 hover:bg-slate-900 transition-colors"
         >

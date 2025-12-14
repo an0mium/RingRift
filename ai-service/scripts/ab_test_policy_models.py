@@ -512,8 +512,24 @@ def main():
         max_moves=args.max_moves,
     )
 
-    # Output results
-    report = asdict(results)
+    # Output results - convert numpy types to Python natives for JSON serialization
+    def convert_numpy(obj):
+        """Recursively convert numpy types to Python natives."""
+        if isinstance(obj, dict):
+            return {k: convert_numpy(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_numpy(v) for v in obj]
+        elif isinstance(obj, tuple):
+            return tuple(convert_numpy(v) for v in obj)
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        elif isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        return obj
+
+    report = convert_numpy(asdict(results))
     report_json = json.dumps(report, indent=2)
 
     if args.output:

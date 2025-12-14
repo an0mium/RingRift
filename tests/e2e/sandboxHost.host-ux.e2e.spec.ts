@@ -48,6 +48,24 @@ test.describe('sandbox host @host-ux', () => {
     await page.unroute('**/api/games**');
   });
 
+  test('supports preset deep links and ring placement count dialog', async ({ page }) => {
+    await page.goto('/sandbox?preset=learn-basics');
+
+    const board = page.getByTestId('board-view');
+    await expect(board).toBeVisible({ timeout: 30_000 });
+
+    const cell = board.locator('button[data-x=\"0\"][data-y=\"0\"]').first();
+    await cell.click({ button: 'right' });
+
+    const overlay = page.getByTestId('ring-placement-count-overlay');
+    await expect(overlay).toBeVisible({ timeout: 10_000 });
+
+    await overlay.getByRole('button', { name: /Cancel/i }).click();
+    await expect(overlay).toHaveCount(0);
+
+    await assertNoErrors(page);
+  });
+
   test('runs a short human vs AI sandbox game where AI responds after a human move', async ({
     page,
   }) => {
@@ -104,7 +122,9 @@ test.describe('sandbox host @host-ux', () => {
     await page.unroute('**/api/games**');
   });
 
-  test('touch controls panel toggles valid targets and movement grid overlays', async ({ page }) => {
+  test('touch controls panel toggles valid targets and movement grid overlays', async ({
+    page,
+  }) => {
     // Force local sandbox path for deterministic overlays.
     await page.route('**/api/games**', (route) => {
       if (route.request().method() === 'POST') {
@@ -155,7 +175,9 @@ test.describe('sandbox host @host-ux', () => {
     await page.unroute('**/api/games**');
   });
 
-  test('shows stall warning banner and AI trace diagnostics via test-only helper', async ({ page }) => {
+  test('shows stall warning banner and AI trace diagnostics via test-only helper', async ({
+    page,
+  }) => {
     // Ensure we are running against a local sandbox host.
     await page.route('**/api/games**', (route) => {
       if (route.request().method() === 'POST') {

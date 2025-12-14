@@ -201,13 +201,24 @@ def run_regression_test(
         )
         ai = DescentAI(player_num, config)
 
-        # Load specific model weights
-        if ai.neural_net and os.path.exists(model_path):
+        # Trigger lazy initialization by providing board type
+        if ai.neural_net:
             try:
-                ai.neural_net.model.load_state_dict(
-                    torch.load(model_path, weights_only=True)
-                )
-                ai.neural_net.model.eval()
+                # Initialize the model architecture for this board type
+                ai.neural_net._ensure_model_initialized(board_type, test.num_players)
+
+                # Now load specific model weights if different from default
+                if os.path.exists(model_path) and ai.neural_net.model is not None:
+                    checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+                    # Handle both raw state_dict and checkpoint format
+                    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+                        ai.neural_net.model.load_state_dict(checkpoint["model_state_dict"])
+                    elif isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+                        ai.neural_net.model.load_state_dict(checkpoint["state_dict"])
+                    else:
+                        # Assume it's a raw state dict
+                        ai.neural_net.model.load_state_dict(checkpoint)
+                    ai.neural_net.model.eval()
             except Exception as e:
                 print(f"    Warning: Failed to load model {model_path}: {e}")
 
@@ -241,7 +252,7 @@ def run_regression_test(
                 break
 
             try:
-                move = ai.get_move(state)
+                move = ai.select_move(state)
                 if move:
                     state = GameEngine.apply_move(state, move)
                 else:
