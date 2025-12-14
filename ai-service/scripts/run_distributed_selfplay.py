@@ -103,6 +103,112 @@ from app.training.cloud_storage import (  # noqa: E402
 )
 from app.game_engine import GameEngine  # noqa: E402
 
+# ---------------------------------------------------------------------------
+# Model Pool for Diverse Selfplay
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ModelPoolEntry:
+    """Entry in the model pool for diverse selfplay."""
+    model_id: str
+    path: str
+    ai_types: List[str]  # Which AI types can use this model: "descent", "mcts", "minimax"
+    elo_estimate: Optional[float] = None  # Estimated Elo if known
+
+
+def scan_model_pool(
+    models_dir: Optional[str] = None,
+    include_baselines: bool = True,
+) -> List[ModelPoolEntry]:
+    """Scan for available model checkpoints to build a diverse pool.
+
+    Returns a list of ModelPoolEntry objects representing available models
+    that can be assigned to neural-based AI types in selfplay.
+
+    Args:
+        models_dir: Directory to scan for .pth files. Defaults to ai-service/models/
+        include_baselines: If True, include non-neural baselines (random, heuristic)
+
+    Returns:
+        List of ModelPoolEntry objects
+    """
+    pool: List[ModelPoolEntry] = []
+
+    # Add non-neural baselines first (always available)
+    if include_baselines:
+        pool.append(ModelPoolEntry(
+            model_id="random",
+            path="",
+            ai_types=["random"],
+            elo_estimate=800.0,
+        ))
+        pool.append(ModelPoolEntry(
+            model_id="heuristic_v1",
+            path="",
+            ai_types=["heuristic"],
+            elo_estimate=1000.0,
+        ))
+        pool.append(ModelPoolEntry(
+            model_id="minimax_heuristic",
+            path="",
+            ai_types=["minimax"],
+            elo_estimate=1200.0,
+        ))
+        pool.append(ModelPoolEntry(
+            model_id="mcts_heuristic",
+            path="",
+            ai_types=["mcts"],
+            elo_estimate=1300.0,
+        ))
+
+    # Scan for neural network checkpoints
+    if models_dir is None:
+        models_dir = os.path.join(ROOT, "models")
+
+    if os.path.isdir(models_dir):
+        for filename in os.listdir(models_dir):
+            if not filename.endswith(".pth"):
+                continue
+
+            filepath = os.path.join(models_dir, filename)
+            model_id = filename.replace(".pth", "")
+
+            # Skip MPS-specific variants (they're duplicates)
+            if "_mps" in model_id:
+                continue
+
+            # Determine which AI types can use this model
+            ai_types = ["descent", "mcts"]  # Neural models work with both
+            if "nnue" in model_id.lower():
+                ai_types.append("minimax")  # NNUE models can also be used with minimax
+
+            # Try to extract Elo estimate from filename or metadata
+            elo_estimate = None
+            meta_path = filepath.replace(".pth", ".meta.json")
+            if os.path.exists(meta_path):
+                try:
+                    with open(meta_path) as f:
+                        meta = json.load(f)
+                        elo_estimate = meta.get("elo_rating") or meta.get("elo")
+                except Exception:
+                    pass
+
+            pool.append(ModelPoolEntry(
+                model_id=model_id,
+                path=filepath,
+                ai_types=ai_types,
+                elo_estimate=elo_estimate,
+            ))
+
+    logger.info(f"Model pool: {len(pool)} entries ({len([p for p in pool if p.path])} neural)")
+    return pool
+
+
+def get_models_for_ai_type(pool: List[ModelPoolEntry], ai_type: str) -> List[ModelPoolEntry]:
+    """Filter pool to models compatible with a given AI type."""
+    return [m for m in pool if ai_type in m.ai_types]
+
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",

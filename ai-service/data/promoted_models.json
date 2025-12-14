@@ -1,5 +1,5 @@
 {
-  "updated_at": "2025-12-13T18:30:15.514954Z",
+  "updated_at": "2025-12-14T01:43:21.782316Z",
   "models": {
     "square8_2p": {
       "path": "promoted/square8_2p_best.pth",
@@ -12,7 +12,7 @@
       "model_id": "ringrift_v4_sq8_2p_20251212_094248",
       "elo_rating": 1625.7988915487879,
       "games_played": 45,
-      "promoted_at": "2025-12-13T18:30:15.510133Z"
+      "promoted_at": "2025-12-14T01:43:21.771118Z"
     }
   }
 }

@@ -1566,7 +1566,7 @@ def generate_dataset_gpu_parallel(
         config=AIConfig(difficulty=1),
     )
     # Force initialization
-    _ = nn_encoder._ensure_model_loaded(board_type)
+    nn_encoder._ensure_model_initialized(board_type)
 
     print(f"GPU Parallel: Generating {num_games} games with batch_size={gpu_batch_size}")
     print(f"  Board: {board_type_str}, Players: {num_players}, Max moves: {max_moves}")

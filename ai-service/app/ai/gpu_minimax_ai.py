@@ -291,7 +291,7 @@ class GPUMinimaxAI(MinimaxAI):
             return scored_moves
 
         except Exception as e:
-            logger.warning(f"GPU root scoring failed, falling back to CPU: {e}")
+            logger.debug(f"GPU root scoring failed, falling back to CPU: {e}")
             return self._score_and_sort_moves(game_state, valid_moves)
 
     def _get_move_priority_bonus(self, move: Move) -> float:
