@@ -673,17 +673,20 @@ def sync_to_mac_studio(hosts: List[HostConfig], dry_run: bool = False) -> bool:
 
 
 def sync_models_to_cluster(dry_run: bool = False) -> bool:
-    """Sync NN and NNUE models across all cluster hosts.
+    """Sync NN and NNUE models across all cluster hosts (bidirectional).
 
-    Uses the sync_models_to_cluster.py script to ensure model parity.
+    Uses the canonical sync_models.py script which:
+    1. Collects missing models from remote hosts to local
+    2. Distributes local models to all remote hosts
     """
     if not MODEL_SYNC_ENABLED:
         log("Model sync disabled via MODEL_SYNC_ENABLED=False")
         return False
 
-    log("Starting model sync across cluster...")
+    log("Starting bidirectional model sync across cluster...")
 
-    script_path = Path(__file__).parent / "sync_models_to_cluster.py"
+    # Use the canonical sync_models.py script
+    script_path = Path(__file__).parent / "sync_models.py"
     if not script_path.exists():
         log(f"Model sync script not found: {script_path}", "ERROR")
         return False
@@ -692,7 +695,7 @@ def sync_models_to_cluster(dry_run: bool = False) -> bool:
     if dry_run:
         cmd.append("--dry-run")
     else:
-        cmd.append("--sync")
+        cmd.append("--sync")  # Full bidirectional sync
 
     try:
         result = subprocess.run(
@@ -812,14 +815,15 @@ def trigger_diverse_tournaments(
         ringrift_path = host.ringrift_path
         log_file = f"/tmp/tournament_{board_type}_{num_players}p.log"
 
-        # Run comprehensive Elo tournament with all AI types
+        # Run comprehensive Elo tournament with all AI types and cross-inference
+        # --both-ai-types ensures games test all 4 AI combinations for robust ratings
         remote_cmd = (
             f"cd {ringrift_path} && "
             f"({host.venv_activate}) 2>/dev/null || true && "
             f"nohup python3 scripts/run_model_elo_tournament.py "
             f"--board {board_type} --players {num_players} "
             f"--games {TOURNAMENT_GAMES_PER_MATCHUP} "
-            f"--include-baselines --run "
+            f"--include-baselines --both-ai-types --run "
             f"> {log_file} 2>&1 & "
             f"echo 'Tournament started'"
         )
@@ -972,7 +976,7 @@ def scale_to_target_utilization(
                     f"({host.venv_activate}) 2>/dev/null || true && "
                     f"nohup python3 scripts/run_model_elo_tournament.py "
                     f"--board {cfg['board_type']} --players {cfg['num_players']} "
-                    f"--games {TOURNAMENT_GAMES_PER_MATCHUP} --include-baselines --run "
+                    f"--games {TOURNAMENT_GAMES_PER_MATCHUP} --include-baselines --both-ai-types --run "
                     f"> {log_file} 2>&1 &"
                 )
 
@@ -1088,13 +1092,15 @@ def trigger_elo_calibration(hosts: List[HostConfig], statuses: Dict[str, HostSta
     ringrift_path = gpu_host.ringrift_path
 
     # Run Elo tournament in background with nohup
+    # Use --both-ai-types to test all 4 AI type combinations for comprehensive ratings:
+    # descent vs descent, mcts vs mcts, mcts vs descent, descent vs mcts
     remote_cmd = (
         f"cd {ringrift_path} && "
         f"source venv/bin/activate && "
         f"nohup python3 scripts/run_model_elo_tournament.py "
-        f"--all-configs --games {ELO_CALIBRATION_GAMES} --run "
+        f"--all-configs --games {ELO_CALIBRATION_GAMES} --both-ai-types --run "
         f"> /tmp/elo_calibration_auto.log 2>&1 &"
-        f"echo 'Elo calibration started'"
+        f"echo 'Elo calibration started with cross-inference testing'"
     )
 
     cmd = ssh_base + [target, remote_cmd]

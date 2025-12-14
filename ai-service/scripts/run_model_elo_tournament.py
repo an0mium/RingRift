@@ -60,14 +60,15 @@ def create_ai_from_model(
 ) -> "BaseAI":
     """Create an AI instance from a model definition.
 
-    Supports neural network models (model_path to .pth file) and baseline players
-    (model_path starting with __BASELINE_).
+    Supports neural network models (model_path to .pth file), NNUE models (.pt files),
+    and baseline players (model_path starting with __BASELINE_).
     """
     from app.ai.base import BaseAI
     from app.ai.random_ai import RandomAI
     from app.ai.heuristic_ai import HeuristicAI
     from app.ai.mcts_ai import MCTSAI
     from app.ai.neural_net import NeuralNetAI
+    from app.ai.minimax_ai import MinimaxAI
 
     model_path = model_def.get("model_path", "")
     ai_type = model_def.get("ai_type", "neural_net")
@@ -90,6 +91,16 @@ def create_ai_from_model(
             use_neural_net=False,  # Pure heuristic MCTS for baselines
         )
         return MCTSAI(player_number, config)
+
+    elif ai_type == "nnue" or model_path.endswith(".pt"):
+        # NNUE model - use MinimaxAI with NNUE evaluation
+        config = AIConfig(
+            ai_type=AIType.MINIMAX,
+            board_type=board_type,
+            difficulty=5,  # D5 uses NNUE evaluation
+            use_neural_net=True,  # Enable NNUE
+        )
+        return MinimaxAI(player_number, config)
 
     else:
         # Neural network model - use MCTS with neural net guidance
@@ -176,12 +187,18 @@ def play_nn_vs_nn_game(
     mcts_simulations: int = 100,
     save_game_history: bool = True,
     ai_type: str = "descent",
+    ai_type_a: Optional[str] = None,
+    ai_type_b: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Play a single game between two neural network models.
 
     Returns dict with: winner (model_a, model_b, or draw), game_length, duration_sec, game_record
     If save_game_history=True, also returns full game record for training data export.
     The game_record follows canonical JSONL format suitable for NPZ conversion.
+
+    If ai_type_a and ai_type_b are provided, they are used for model A and B respectively,
+    enabling cross-inference matches (e.g., model_a uses MCTS, model_b uses Descent).
+    Otherwise, ai_type is used for both models.
     """
     import time
     import uuid
@@ -253,11 +270,16 @@ def play_nn_vs_nn_game(
     ai_configs = []
     model_paths = [model_a_path, model_b_path]
 
-    # Select AI type based on parameter
-    ai_type_enum = AIType.MCTS if ai_type == "mcts" else AIType.DESCENT
+    # Determine AI types for each player
+    # Use per-player types if provided, otherwise use the shared ai_type
+    effective_ai_type_a = ai_type_a if ai_type_a else ai_type
+    effective_ai_type_b = ai_type_b if ai_type_b else ai_type
+    ai_types = [effective_ai_type_a, effective_ai_type_b]
 
     for i in range(num_players):
         model_idx = i % 2  # Alternate models for multiplayer
+        player_ai_type = ai_types[model_idx]
+        ai_type_enum = AIType.MCTS if player_ai_type == "mcts" else AIType.DESCENT
         config = AIConfig(
             type=ai_type_enum,
             difficulty=10,
@@ -477,13 +499,20 @@ def run_model_matchup(
             play_a, play_b = model_b, model_a
             id_a, id_b = model_b["model_id"], model_a["model_id"]
 
-        # Select AI type for this game
+        # Select AI type(s) for this game
         if use_both_ai_types:
-            # Alternate between MCTS and Descent for NN evaluation diversity
-            # First half uses Descent, second half uses MCTS
-            current_ai_type = "mcts" if game_num >= games // 2 else "descent"
+            # Cross-inference evaluation: cycle through all 4 AI type combinations
+            # This ensures each NN is evaluated with both MCTS and Descent against both
+            ai_type_combos = [
+                ("descent", "descent"),   # Both use descent
+                ("mcts", "mcts"),         # Both use MCTS
+                ("mcts", "descent"),      # A uses MCTS, B uses descent
+                ("descent", "mcts"),      # A uses descent, B uses MCTS
+            ]
+            combo_idx = game_num % len(ai_type_combos)
+            ai_type_a, ai_type_b = ai_type_combos[combo_idx]
         else:
-            current_ai_type = nn_ai_type
+            ai_type_a = ai_type_b = nn_ai_type
 
         if is_baseline_match:
             # Use generic model-vs-model for baseline players
@@ -504,7 +533,8 @@ def run_model_matchup(
                 max_moves=10000,
                 mcts_simulations=50,  # Faster games
                 save_game_history=True,  # Record for training
-                ai_type=current_ai_type,
+                ai_type_a=ai_type_a,
+                ai_type_b=ai_type_b,
             )
 
         # Save game record to JSONL for training data
@@ -584,8 +614,16 @@ def discover_models(
     models_dir: Path,
     board_type: str = "square8",
     num_players: int = 2,
+    include_nnue: bool = False,
 ) -> List[Dict[str, Any]]:
-    """Discover all trained models for a given board type."""
+    """Discover all trained models for a given board type.
+
+    Args:
+        models_dir: Directory to search for NN models
+        board_type: Board type (square8, square19, hexagonal)
+        num_players: Number of players (2, 3, 4)
+        include_nnue: If True, also discover NNUE models in models/nnue/
+    """
     models = []
 
     # Look for .pth files matching the board/player config
@@ -615,7 +653,29 @@ def discover_models(
                 "version": version,
                 "size_mb": f.stat().st_size / (1024 * 1024),
                 "created_at": f.stat().st_mtime,
+                "model_type": "nn",
             })
+
+    # Also discover NNUE models if requested
+    if include_nnue:
+        nnue_dir = models_dir / "nnue"
+        if nnue_dir.exists():
+            nnue_pattern = f"nnue_{board_type}_{num_players}p"
+            for f in nnue_dir.glob("*.pt"):
+                name = f.stem
+                # Check if it matches the board/player pattern
+                if nnue_pattern in name or f"nnue_policy_{board_type}_{num_players}p" in name:
+                    models.append({
+                        "model_id": f"nnue_{name}",
+                        "model_path": str(f),
+                        "board_type": board_type,
+                        "num_players": num_players,
+                        "version": "nnue",
+                        "size_mb": f.stat().st_size / (1024 * 1024),
+                        "created_at": f.stat().st_mtime,
+                        "model_type": "nnue",
+                        "ai_type": "nnue",
+                    })
 
     return sorted(models, key=lambda x: x["created_at"], reverse=True)
 
@@ -1074,6 +1134,8 @@ def main():
     parser.add_argument("--baselines-only", action="store_true", help="Run tournament with only baseline players (for calibration)")
     parser.add_argument("--ai-type", choices=["mcts", "descent"], default="descent", help="AI type for neural networks (default: descent)")
     parser.add_argument("--both-ai-types", action="store_true", help="Use BOTH MCTS and Descent AI types (half games each) for comprehensive NN evaluation")
+    parser.add_argument("--include-nnue", action="store_true", help="Include NNUE models from models/nnue/ directory")
+    parser.add_argument("--nnue-only", action="store_true", help="Run tournament with only NNUE models")
 
     args = parser.parse_args()
 
@@ -1090,9 +1152,18 @@ def main():
     if args.baselines_only:
         models = get_baseline_players(args.board, args.players)
         print(f"\nUsing {len(models)} baseline players for {args.board} {args.players}p")
+    elif args.nnue_only:
+        # Only NNUE models
+        models = discover_models(models_dir, args.board, args.players, include_nnue=True)
+        models = [m for m in models if m.get("model_type") == "nnue"]
+        print(f"\nDiscovered {len(models)} NNUE models for {args.board} {args.players}p")
     else:
-        models = discover_models(models_dir, args.board, args.players)
-        print(f"\nDiscovered {len(models)} models for {args.board} {args.players}p")
+        models = discover_models(models_dir, args.board, args.players, include_nnue=args.include_nnue)
+        nn_count = len([m for m in models if m.get("model_type") != "nnue"])
+        nnue_count = len([m for m in models if m.get("model_type") == "nnue"])
+        print(f"\nDiscovered {nn_count} NN models for {args.board} {args.players}p")
+        if nnue_count > 0:
+            print(f"Also found {nnue_count} NNUE models")
         if args.include_baselines:
             baselines = get_baseline_players(args.board, args.players)
             models.extend(baselines)

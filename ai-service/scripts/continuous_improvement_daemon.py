@@ -502,9 +502,13 @@ BOARD_CONFIGS = [
 
 # Training thresholds
 MIN_NEW_GAMES_FOR_TRAINING = 500  # Train after this many new games
-TRAINING_COOLDOWN_SECONDS = 1800   # 30 min between training runs
+TRAINING_COOLDOWN_SECONDS = 900    # 15 min between training runs (was 30 min)
 TOURNAMENT_GAMES = 50              # Games per model comparison
 PROMOTION_THRESHOLD = 0.55         # Win rate needed for promotion
+
+# Game count cache for faster threshold checking
+GAME_COUNT_CACHE_FILE = AI_SERVICE_ROOT / "logs" / "improvement_daemon" / "game_count_cache.json"
+_game_count_cache: Dict[str, Tuple[int, float]] = {}  # path -> (count, mtime)
 
 # Selfplay configuration
 SELFPLAY_BATCH_SIZE = 100          # Games per selfplay batch
@@ -780,15 +784,106 @@ def run_command(cmd: List[str], cwd: Path = AI_SERVICE_ROOT, timeout: int = 3600
         return False, str(e)
 
 
-def count_games_in_jsonl(path: Path) -> int:
-    """Count games in a JSONL file."""
+async def run_command_async(cmd: List[str], cwd: Path = AI_SERVICE_ROOT, timeout: int = 3600) -> Tuple[bool, str]:
+    """Run a command asynchronously with timeout and capture output.
+
+    Non-blocking version of run_command using asyncio subprocess.
+    """
+    try:
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(AI_SERVICE_ROOT)
+        env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
+
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=timeout
+            )
+            output = (stdout.decode() if stdout else "") + (stderr.decode() if stderr else "")
+            return process.returncode == 0, output
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            return False, "Command timed out"
+    except Exception as e:
+        return False, str(e)
+
+
+# Semaphore for parallel selfplay (limit concurrent processes)
+PARALLEL_SELFPLAY_LIMIT = 3  # Max concurrent selfplay processes
+_selfplay_semaphore: Optional[asyncio.Semaphore] = None
+
+
+def get_selfplay_semaphore() -> asyncio.Semaphore:
+    """Get or create the selfplay semaphore."""
+    global _selfplay_semaphore
+    if _selfplay_semaphore is None:
+        _selfplay_semaphore = asyncio.Semaphore(PARALLEL_SELFPLAY_LIMIT)
+    return _selfplay_semaphore
+
+
+def count_games_in_jsonl(path: Path, use_cache: bool = True) -> int:
+    """Count games in a JSONL file with optional caching.
+
+    Uses modification time to invalidate cache entries, avoiding
+    re-reading unchanged files on every cycle.
+    """
+    global _game_count_cache
+
     if not path.exists():
         return 0
+
+    path_str = str(path)
+
     try:
+        current_mtime = path.stat().st_mtime
+
+        # Check cache if enabled
+        if use_cache and path_str in _game_count_cache:
+            cached_count, cached_mtime = _game_count_cache[path_str]
+            if cached_mtime >= current_mtime:
+                return cached_count
+
+        # Count lines (each line is one game)
         with open(path) as f:
-            return sum(1 for _ in f)
+            count = sum(1 for _ in f)
+
+        # Update cache
+        _game_count_cache[path_str] = (count, current_mtime)
+
+        return count
     except Exception:
         return 0
+
+
+def load_game_count_cache() -> None:
+    """Load game count cache from disk."""
+    global _game_count_cache
+    try:
+        if GAME_COUNT_CACHE_FILE.exists():
+            with open(GAME_COUNT_CACHE_FILE) as f:
+                data = json.load(f)
+                _game_count_cache = {k: tuple(v) for k, v in data.items()}
+    except Exception:
+        _game_count_cache = {}
+
+
+def save_game_count_cache() -> None:
+    """Save game count cache to disk."""
+    try:
+        GAME_COUNT_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(GAME_COUNT_CACHE_FILE, "w") as f:
+            json.dump({k: list(v) for k, v in _game_count_cache.items()}, f)
+    except Exception:
+        pass
 
 
 def get_training_data_stats(state: DaemonState) -> Dict[str, Dict[str, int]]:
@@ -876,11 +971,112 @@ async def run_asymmetric_selfplay(state: DaemonState, board_type: str, num_playe
     return total_games
 
 
+async def run_single_selfplay_job(
+    board_type: str,
+    num_players: int,
+    num_games: int,
+    engine_mode: str,
+    output_file: Path,
+    timeout: int,
+) -> Tuple[str, int, bool, str]:
+    """Run a single selfplay job with semaphore for rate limiting.
+
+    Returns (config_key, games_generated, success, output).
+    """
+    key = get_config_key(board_type, num_players)
+    semaphore = get_selfplay_semaphore()
+
+    async with semaphore:
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        cmd = [
+            sys.executable, "scripts/run_self_play_soak.py",
+            "--board-type", board_type,
+            "--num-players", str(num_players),
+            "--num-games", str(num_games),
+            "--engine-mode", engine_mode,
+            "--log-jsonl", str(output_file),
+            "--max-moves", "10000",
+        ]
+
+        success, output = await run_command_async(cmd, timeout=timeout)
+
+        if success:
+            games_generated = count_games_in_jsonl(output_file)
+            return key, games_generated, True, output
+        else:
+            return key, 0, False, output
+
+
+async def run_parallel_selfplay(
+    configs: List[Dict[str, Any]],
+    state: DaemonState,
+    duration_minutes: int = 10,
+) -> int:
+    """Run selfplay for multiple configs in parallel.
+
+    Uses asyncio.gather to run up to PARALLEL_SELFPLAY_LIMIT concurrent jobs.
+    """
+    if not configs:
+        return 0
+
+    timeout = duration_minutes * 60
+    tasks = []
+
+    for config in configs:
+        board_type = config["board"]
+        num_players = config["players"]
+        num_games = config.get("games", 40)
+        engine_mode = config.get("engine", random.choice(SELFPLAY_ENGINES))
+        key = get_config_key(board_type, num_players)
+
+        output_file = (
+            AI_SERVICE_ROOT / "data" / "selfplay" / f"daemon_{key}"
+            / f"games_{int(time.time())}_{random.randint(1000, 9999)}.jsonl"
+        )
+
+        tasks.append(
+            run_single_selfplay_job(
+                board_type, num_players, num_games, engine_mode, output_file, timeout
+            )
+        )
+
+    print(f"[Daemon] Running {len(tasks)} selfplay jobs in parallel (limit: {PARALLEL_SELFPLAY_LIMIT})...")
+
+    # Run all jobs (semaphore limits concurrency)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    total_games = 0
+    for result in results:
+        if isinstance(result, Exception):
+            print(f"[Daemon] Selfplay job failed with exception: {result}")
+            continue
+
+        key, games, success, output = result
+        if success and games > 0:
+            total_games += games
+
+            # Update state
+            board_type, num_players_str = key.rsplit("_", 1)
+            num_players = int(num_players_str.rstrip("p"))
+            if key not in state.board_states:
+                state.board_states[key] = BoardTypeState(board_type, num_players)
+            state.board_states[key].total_games += games
+            state.board_states[key].games_since_last_training += games
+
+            print(f"[Daemon] Parallel: {key} generated {games} games")
+        elif not success:
+            print(f"[Daemon] Parallel: {key} failed: {output[:100]}")
+
+    return total_games
+
+
 async def run_balanced_selfplay(state: DaemonState, duration_minutes: int = 10) -> int:
     """Run selfplay balanced across board types based on priority and need.
 
     Uses ImprovementCycleManager for diverse AI opponent selection when available.
     Incorporates P2P cluster data manifest if available for smarter balancing.
+    Now supports parallel execution for faster data generation.
     """
     total_games = 0
 
@@ -959,6 +1155,7 @@ async def run_balanced_selfplay(state: DaemonState, duration_minutes: int = 10) 
 
     else:
         # Fallback: Calculate weights based on priority and data deficit
+        # Now uses PARALLEL execution for faster data generation
         weights = []
         for config in BOARD_CONFIGS:
             key = get_config_key(config["board"], config["players"])
@@ -976,7 +1173,8 @@ async def run_balanced_selfplay(state: DaemonState, duration_minutes: int = 10) 
         total_weight = sum(w for _, w in weights)
         weights = [(c, w / total_weight) for c, w in weights]
 
-        # Run selfplay for each config based on weight
+        # Build list of configs to run in parallel
+        parallel_configs = []
         for config, weight in weights:
             if weight < 0.05:  # Skip very low weight configs
                 continue
@@ -984,36 +1182,17 @@ async def run_balanced_selfplay(state: DaemonState, duration_minutes: int = 10) 
             batch_games = max(10, int(SELFPLAY_BATCH_SIZE * weight * 2))
             engine = random.choice(SELFPLAY_ENGINES)
 
-            key = get_config_key(config["board"], config["players"])
-            output_file = AI_SERVICE_ROOT / "data" / "selfplay" / f"daemon_{key}" / f"games_{int(time.time())}.jsonl"
-            output_file.parent.mkdir(parents=True, exist_ok=True)
+            parallel_configs.append({
+                "board": config["board"],
+                "players": config["players"],
+                "games": batch_games,
+                "engine": engine,
+            })
 
-            cmd = [
-                sys.executable, "scripts/run_self_play_soak.py",
-                "--board-type", config["board"],
-                "--num-players", str(config["players"]),
-                "--num-games", str(batch_games),
-                "--engine-mode", engine,
-                "--log-jsonl", str(output_file),
-                "--max-moves", "10000",  # Avoid draws due to move limit
-            ]
-
-            print(f"[Daemon] Running {batch_games} {key} selfplay games with {engine}...")
-            success, output = run_command(cmd, timeout=duration_minutes * 60)
-
-            if success:
-                games_generated = count_games_in_jsonl(output_file)
-                total_games += games_generated
-
-                # Update state
-                if key not in state.board_states:
-                    state.board_states[key] = BoardTypeState(config["board"], config["players"])
-                state.board_states[key].total_games += games_generated
-                state.board_states[key].games_since_last_training += games_generated
-
-                print(f"[Daemon] Generated {games_generated} {key} games")
-            else:
-                print(f"[Daemon] Selfplay failed for {key}: {output[:200]}")
+        # Run all configs in parallel (with semaphore limiting concurrency)
+        if parallel_configs:
+            parallel_games = await run_parallel_selfplay(parallel_configs, state, duration_minutes)
+            total_games += parallel_games
 
     state.total_games_generated += total_games
     return total_games
@@ -1388,12 +1567,14 @@ async def run_cross_model_tournament(state: DaemonState, top_n: int = 10, games_
 
         # Run games using Elo tournament script (saves games to JSONL for training)
         # Use run_model_elo_tournament.py which has canonical JSONL format
+        # --both-ai-types enables cross-inference matches for comprehensive ratings
         elo_tournament_cmd = [
             sys.executable, "scripts/run_model_elo_tournament.py",
             "--board", config["board"],
             "--players", str(config["players"]),
             "--games", str(games_per_matchup),
             "--top-n", str(top_n),
+            "--both-ai-types",  # Test all MCTS/Descent combinations for robust Elo
             "--run",  # Actually run the tournament
         ]
 
@@ -2184,8 +2365,9 @@ async def check_and_run_cmaes_optimization(state: DaemonState) -> List[str]:
 # Auto-Promotion from Elo Leaderboard
 # =============================================================================
 
-# Minimum time between auto-promotion runs (seconds) = 1 hour
-AUTO_PROMOTE_INTERVAL = 60 * 60
+# Minimum time between auto-promotion runs (seconds) = 15 minutes (was 1 hour)
+# Reduced for faster feedback loop - promotions should happen more frequently
+AUTO_PROMOTE_INTERVAL = 15 * 60
 # Minimum Elo games required for promotion
 AUTO_PROMOTE_MIN_GAMES = 20
 
@@ -2331,6 +2513,26 @@ async def daemon_cycle(state: DaemonState) -> bool:
         games = await run_balanced_selfplay(state, duration_minutes=30)  # 30 min for ~40 games per config
         print(f"[Daemon] Generated {games} homogeneous selfplay games")
 
+        # Save game count cache for faster threshold checks
+        save_game_count_cache()
+
+        # EVENT-DRIVEN: Check training immediately after selfplay if threshold reached
+        # This reduces feedback latency by not waiting for Phase 2
+        if games > 0:
+            early_trained = await check_and_run_training(state)
+            if early_trained:
+                print(f"[Daemon] Early training triggered: {early_trained}")
+                # Run immediate tournament for early-trained models
+                for model_id in early_trained:
+                    result = await run_model_comparison(state, model_id)
+                    if result:
+                        print(f"[Daemon] Early tournament result: {result}")
+                # Trigger promotion check immediately after early tournament
+                promotions = await run_auto_promotion(state)
+                if promotions > 0:
+                    print(f"[Daemon] Early promotion: {promotions} model(s)")
+                    maybe_sync_staging("early_promotion")
+
         # Phase 1b: Asymmetric selfplay (every 3rd cycle for diversity)
         if state.total_cycles % 3 == 0:
             print("[Daemon] Phase 1b: Running asymmetric selfplay for diverse training data...")
@@ -2452,6 +2654,9 @@ async def run_daemon(foreground: bool = False) -> None:
         key = get_config_key(config["board"], config["players"])
         if key not in state.board_states:
             state.board_states[key] = BoardTypeState(config["board"], config["players"])
+
+    # Load game count cache for faster threshold checks
+    load_game_count_cache()
 
     print("[Daemon] Starting continuous improvement daemon...")
     print_status(state)
