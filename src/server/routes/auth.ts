@@ -14,6 +14,7 @@ import { createError, asyncHandler } from '../middleware/errorHandler';
 import { authRegisterRateLimiter, authPasswordResetRateLimiter } from '../middleware/rateLimiter';
 import { logger, httpLogger, redactEmail } from '../utils/logger';
 import {
+  audit,
   auditLoginSuccess,
   auditLoginFailed,
   auditLogout,
@@ -852,6 +853,18 @@ router.post(
         familyId: storedToken.familyId,
         tokenId: storedToken.id,
         revokedAt: storedToken.revokedAt,
+      });
+
+      // Audit log the suspicious activity
+      audit('security.suspicious.activity', 'blocked', {
+        userId: decoded.userId,
+        req,
+        reason: 'Refresh token reuse detected - potential token theft',
+        details: {
+          familyId: storedToken.familyId,
+          tokenId: storedToken.id,
+          revokedAt: storedToken.revokedAt.toISOString(),
+        },
       });
 
       // Revoke ALL tokens in this family to prevent further abuse

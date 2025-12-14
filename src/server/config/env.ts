@@ -327,6 +327,14 @@ export const EnvSchema = z.object({
   /** Metrics server port */
   METRICS_PORT: z.coerce.number().int().min(1).max(65535).default(9090),
 
+  /**
+   * API key for accessing the /metrics endpoint.
+   * When set, requests to /metrics must include this key in the
+   * Authorization header (Bearer token) or X-Metrics-Key header.
+   * If not set, the metrics endpoint is publicly accessible (dev only).
+   */
+  METRICS_API_KEY: z.string().optional(),
+
   /** Rules engine mode */
   RINGRIFT_RULES_MODE: RulesModeSchema.optional(),
 

@@ -3,6 +3,7 @@ import { RateLimiterRedis, RateLimiterMemory, RateLimiterRes } from 'rate-limite
 import { createClient } from 'redis';
 import { createError } from './errorHandler';
 import { logger } from '../utils/logger';
+import { auditRateLimitExceeded } from '../utils/auditLogger';
 import { getMetricsService } from '../services/MetricsService';
 import { type AuthenticatedRequest, getAuthUserId } from './auth';
 
@@ -513,6 +514,9 @@ const createRateLimiter = (
         error: rateLimitError instanceof Error ? rateLimitError.message : String(rateLimitError),
         msBeforeNext: rejRes.msBeforeNext,
       });
+
+      // Audit log the rate limit exceeded event
+      auditRateLimitExceeded(limiterKey, req.ip || 'unknown', req);
 
       // Record rate limit hit metric
       getMetricsService().recordRateLimitHit(req.path, limiterKey);

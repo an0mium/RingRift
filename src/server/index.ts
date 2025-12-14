@@ -120,7 +120,38 @@ app.use((req, res, next) => {
 // Prometheus metrics endpoint
 // Uses MetricsService which consolidates all custom metrics with the default
 // Node.js metrics (memory, CPU, event loop, GC) from prom-client.
-app.get('/metrics', async (_req: Request, res: Response) => {
+//
+// SECURITY: When METRICS_API_KEY is configured, the endpoint requires
+// authentication via Bearer token or X-Metrics-Key header.
+app.get('/metrics', async (req: Request, res: Response) => {
+  // Check authentication if API key is configured
+  const metricsApiKey = config.metrics.apiKey;
+  if (metricsApiKey) {
+    const authHeader = req.headers.authorization;
+    const metricsKeyHeader = req.headers['x-metrics-key'];
+
+    const providedKey =
+      (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+        ? authHeader.slice(7)
+        : undefined) || (typeof metricsKeyHeader === 'string' ? metricsKeyHeader : undefined);
+
+    if (!providedKey || providedKey !== metricsApiKey) {
+      logger.warn('Unauthorized /metrics access attempt', {
+        ip: req.ip,
+        hasAuthHeader: !!authHeader,
+        hasMetricsKeyHeader: !!metricsKeyHeader,
+      });
+      res.status(401).json({
+        success: false,
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'Valid API key required for metrics access',
+        },
+      });
+      return;
+    }
+  }
+
   try {
     res.set('Content-Type', metricsService.getContentType());
     const metrics = await metricsService.getMetrics();

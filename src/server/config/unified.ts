@@ -193,6 +193,12 @@ const ConfigSchema = z.object({
     websocketOrigin: z.string().min(1),
     wsReconnectionTimeoutMs: z.number().int().positive(),
   }),
+  metrics: z.object({
+    /** API key for securing the /metrics endpoint */
+    apiKey: z.string().optional(),
+    /** Whether the metrics endpoint is enabled */
+    enabled: z.boolean(),
+  }),
   database: z.object({
     // Optional outside production; required in production via manual guard above.
     url: z.string().min(1).optional(),
@@ -298,6 +304,10 @@ const preliminaryConfig = {
     allowedOrigins,
     websocketOrigin,
     wsReconnectionTimeoutMs: env.WS_RECONNECTION_TIMEOUT_MS,
+  },
+  metrics: {
+    apiKey: env.METRICS_API_KEY?.trim() || undefined,
+    enabled: env.ENABLE_METRICS,
   },
   database: {
     url: databaseUrl,
