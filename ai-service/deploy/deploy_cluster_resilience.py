@@ -374,6 +374,11 @@ def main() -> None:
         help="Force `git checkout -f main && git reset --hard origin/main` on targets (overwrites local changes).",
     )
     parser.add_argument(
+        "--auto-stash",
+        action="store_true",
+        help="If target repo has local changes, `git stash` (tracked only), fast-forward, then `git stash pop` (best-effort).",
+    )
+    parser.add_argument(
         "--use-tailscale",
         action="store_true",
         help="Auto-build coordinator URLs using Tailscale IPs from config and set ADVERTISE_HOST for each node.",
@@ -474,6 +479,26 @@ def main() -> None:
                     "git fetch origin main\n"
                     "git checkout -f main\n"
                     "git reset --hard origin/main\n"
+                )
+            elif args.auto_stash:
+                git_sync = (
+                    "git fetch origin main\n"
+                    "git checkout main 2>/dev/null || true\n"
+                    "BR=\"$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)\"\n"
+                    "if [ \"$BR\" != \"main\" ]; then\n"
+                    "  echo \"[WARN] repo not on main (branch=$BR); skipping git sync (use --force-sync)\" >&2\n"
+                    "else\n"
+                    "  DIRTY=\"$(git status --porcelain --untracked-files=no 2>/dev/null || true)\"\n"
+                    "  STASHED=0\n"
+                    "  if [ -n \"$DIRTY\" ]; then\n"
+                    "    STASH_NAME=\"ringrift-autostash-$(date +%s)\"\n"
+                    "    git stash push -m \"$STASH_NAME\" >/dev/null 2>&1 && STASHED=1 || true\n"
+                    "  fi\n"
+                    "  git merge --ff-only origin/main 2>/dev/null || echo \"[WARN] non-fast-forward; skipping git sync (use --force-sync)\" >&2\n"
+                    "  if [ \"$STASHED\" = \"1\" ]; then\n"
+                    "    git stash pop >/dev/null 2>&1 || echo \"[WARN] git stash pop failed; stash preserved\" >&2\n"
+                    "  fi\n"
+                    "fi\n"
                 )
             else:
                 git_sync = (
