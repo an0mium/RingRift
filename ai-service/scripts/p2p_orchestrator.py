@@ -8951,7 +8951,8 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             lines.append("# TYPE ringrift_training_queue_size gauge")
             if hasattr(self, 'improvement_cycle_manager') and self.improvement_cycle_manager:
                 icm = self.improvement_cycle_manager
-                cycles_completed = len([c for c in icm.state.cycles.values() if c.status == 'completed'])
+                # Count total training iterations across all cycles
+                cycles_completed = sum(c.current_iteration for c in icm.state.cycles.values())
                 lines.append(f"ringrift_improvement_cycles_total {cycles_completed}")
 
             # Victory Type Metrics by board config
@@ -10069,6 +10070,8 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             - board_type: filter by board type
             - num_players: filter by player count
         """
+        from collections import defaultdict
+
         try:
             board_type_filter = request.query.get("board_type")
             num_players_filter = request.query.get("num_players")

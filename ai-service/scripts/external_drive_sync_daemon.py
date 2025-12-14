@@ -425,11 +425,31 @@ class ExternalDriveSyncDaemon:
         except Exception as e:
             self._log(f"{host.name}: rsync error: {e}", "ERROR")
 
-        # Sync .jsonl files (GPU selfplay)
+        # Sync .jsonl files from all data directories (recursive)
         jsonl_dir = host_dir / "jsonl"
         jsonl_dir.mkdir(exist_ok=True)
 
-        jsonl_cmd = f'rsync -avz --progress -e "ssh {ssh_opts}" {host.ssh_user}@{effective_host}:{host.remote_path}/data/gpu_selfplay/*.jsonl {jsonl_dir}/ 2>/dev/null'
+        # Primary: Recursive sync of ALL .jsonl files from the entire data/ directory
+        # Excludes: quarantine, logs, statistics/metrics files, toxic archives
+        jsonl_cmd = (
+            f'rsync -avz --progress '
+            f'--include="*/" '
+            f'--include="*.jsonl" '
+            f'--exclude="quarantine*" '
+            f'--exclude="*quarantine*" '
+            f'--exclude="toxic*" '
+            f'--exclude="*_stats.jsonl" '
+            f'--exclude="*_metrics.jsonl" '
+            f'--exclude="*_analysis.jsonl" '
+            f'--exclude="statistics*" '
+            f'--exclude="eval_pools*" '
+            f'--exclude="critical_positions*" '
+            f'--exclude="holdouts*" '
+            f'--exclude="*" '
+            f'-e "ssh {ssh_opts}" '
+            f'{host.ssh_user}@{effective_host}:{host.remote_path}/data/ '
+            f'{jsonl_dir}/ 2>/dev/null'
+        )
 
         try:
             process = await asyncio.create_subprocess_shell(
@@ -437,13 +457,17 @@ class ExternalDriveSyncDaemon:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            await asyncio.wait_for(process.communicate(), timeout=300)
+            await asyncio.wait_for(process.communicate(), timeout=900)  # 15 min timeout for full recursive sync
+        except Exception as e:
+            if self.verbose:
+                self._log(f"{host.name}: JSONL sync error: {e}", "WARN")
 
-            if process.returncode == 0:
-                files_synced += len(list(jsonl_dir.glob("*.jsonl")))
+        # Count all synced JSONL files recursively
+        jsonl_count = len(list(jsonl_dir.glob("**/*.jsonl")))
+        files_synced += jsonl_count
 
-        except Exception:
-            pass  # JSONL files are optional
+        if self.verbose and jsonl_count > 0:
+            self._log(f"{host.name}: synced {jsonl_count} JSONL files")
 
         # Count games in synced DBs
         games_synced = 0
@@ -454,6 +478,14 @@ class ExternalDriveSyncDaemon:
                 cursor.execute("SELECT COUNT(*) FROM games")
                 games_synced += cursor.fetchone()[0]
                 conn.close()
+            except Exception:
+                pass
+
+        # Count games in synced JSONL files (one game per line)
+        for jsonl_file in jsonl_dir.glob("**/*.jsonl"):
+            try:
+                with open(jsonl_file, 'r') as f:
+                    games_synced += sum(1 for line in f if line.strip())
             except Exception:
                 pass
 
