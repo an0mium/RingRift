@@ -53,6 +53,112 @@ from app.training.generate_data import create_initial_state
 # Game Execution with Neural Networks
 # ============================================
 
+def create_ai_from_model(
+    model_def: Dict[str, Any],
+    player_number: int,
+    board_type: BoardType,
+) -> "BaseAI":
+    """Create an AI instance from a model definition.
+
+    Supports neural network models (model_path to .pth file) and baseline players
+    (model_path starting with __BASELINE_).
+    """
+    from app.ai.base import BaseAI
+    from app.ai.random_ai import RandomAI
+    from app.ai.heuristic_ai import HeuristicAI
+    from app.ai.mcts_ai import MCTSAI
+    from app.ai.neural_net import NeuralNetAI
+
+    model_path = model_def.get("model_path", "")
+    ai_type = model_def.get("ai_type", "neural_net")
+
+    config = AIConfig(
+        ai_type=AIType.NEURAL_NET,
+        board_type=board_type,
+    )
+
+    if model_path == "__BASELINE_RANDOM__" or ai_type == "random":
+        return RandomAI(player_number, config)
+
+    elif model_path == "__BASELINE_HEURISTIC__" or ai_type == "heuristic":
+        return HeuristicAI(player_number, config)
+
+    elif model_path.startswith("__BASELINE_MCTS") or ai_type == "mcts":
+        mcts_sims = model_def.get("mcts_simulations", 100)
+        config.mcts_iterations = mcts_sims
+        return MCTSAI(player_number, config)
+
+    else:
+        # Neural network model
+        config.model_path = model_path
+        return NeuralNetAI(player_number, config)
+
+
+def play_model_vs_model_game(
+    model_a: Dict[str, Any],
+    model_b: Dict[str, Any],
+    board_type: BoardType = BoardType.SQUARE8,
+    num_players: int = 2,
+    max_moves: int = 10000,
+) -> Dict[str, Any]:
+    """Play a single game between two models (NN or baseline).
+
+    Returns dict with: winner (model_a, model_b, or draw), game_length, duration_sec
+    """
+    import uuid
+    from app.rules.default_engine import DefaultRulesEngine
+    from app.training.generate_data import create_initial_state
+
+    start_time = time.time()
+    game_id = str(uuid.uuid4())
+
+    # Create initial state
+    state = create_initial_state(board_type, num_players)
+    engine = DefaultRulesEngine()
+
+    # Create AIs for both models
+    # Model A plays as player 1, Model B plays as player 2
+    ai_a = create_ai_from_model(model_a, 1, board_type)
+    ai_b = create_ai_from_model(model_b, 2, board_type)
+
+    move_count = 0
+    while state.status == GameStatus.IN_PROGRESS and move_count < max_moves:
+        current_player = state.current_player
+        ai = ai_a if current_player == 1 else ai_b
+
+        # Get valid actions
+        valid_actions = engine.get_valid_actions(state)
+        if not valid_actions:
+            break
+
+        # Select action
+        action = ai.select_action(state, valid_actions)
+        if action is None:
+            break
+
+        # Apply action
+        state = engine.apply_action(state, action)
+        move_count += 1
+
+    duration = time.time() - start_time
+
+    # Determine winner
+    winner = "draw"
+    if state.status == GameStatus.COMPLETED:
+        if state.winner == 1:
+            winner = "model_a"
+        elif state.winner == 2:
+            winner = "model_b"
+
+    return {
+        "winner": winner,
+        "game_length": move_count,
+        "duration_sec": duration,
+        "game_id": game_id,
+        "final_status": state.status.value if hasattr(state.status, "value") else str(state.status),
+    }
+
+
 def play_nn_vs_nn_game(
     model_a_path: str,
     model_b_path: str,
@@ -338,24 +444,43 @@ def run_model_matchup(
     save_games_dir.mkdir(parents=True, exist_ok=True)
     jsonl_path = save_games_dir / f"tournament_{tournament_id}_{board_type}_{num_players}p.jsonl"
 
+    # Check if either model is a baseline (requires play_model_vs_model_game)
+    is_baseline_match = (
+        model_a.get("model_path", "").startswith("__BASELINE") or
+        model_b.get("model_path", "").startswith("__BASELINE") or
+        model_a.get("ai_type") in ("random", "heuristic", "mcts") or
+        model_b.get("ai_type") in ("random", "heuristic", "mcts")
+    )
+
     for game_num in range(games):
         # Alternate who plays first
         if game_num % 2 == 0:
-            path_a, path_b = model_a["model_path"], model_b["model_path"]
+            play_a, play_b = model_a, model_b
             id_a, id_b = model_a["model_id"], model_b["model_id"]
         else:
-            path_a, path_b = model_b["model_path"], model_a["model_path"]
+            play_a, play_b = model_b, model_a
             id_a, id_b = model_b["model_id"], model_a["model_id"]
 
-        result = play_nn_vs_nn_game(
-            model_a_path=path_a,
-            model_b_path=path_b,
-            board_type=board_type_enum,
-            num_players=num_players,
-            max_moves=10000,
-            mcts_simulations=50,  # Faster games
-            save_game_history=True,  # Record for training
-        )
+        if is_baseline_match:
+            # Use generic model-vs-model for baseline players
+            result = play_model_vs_model_game(
+                model_a=play_a,
+                model_b=play_b,
+                board_type=board_type_enum,
+                num_players=num_players,
+                max_moves=10000,
+            )
+        else:
+            # Use NN-specific game play for neural networks
+            result = play_nn_vs_nn_game(
+                model_a_path=play_a["model_path"],
+                model_b_path=play_b["model_path"],
+                board_type=board_type_enum,
+                num_players=num_players,
+                max_moves=10000,
+                mcts_simulations=50,  # Faster games
+                save_game_history=True,  # Record for training
+            )
 
         # Save game record to JSONL for training data
         game_record = result.get("game_record")
@@ -528,6 +653,62 @@ def discover_models(
             })
 
     return sorted(models, key=lambda x: x["created_at"], reverse=True)
+
+
+def get_baseline_players(board_type: str, num_players: int) -> List[Dict[str, Any]]:
+    """Get baseline player definitions for Elo calibration.
+
+    These provide anchor points for the Elo scale:
+    - random: ~800-1000 Elo (worst baseline)
+    - heuristic: ~1200-1400 Elo (decent play)
+    - mcts_100: ~1400-1600 Elo (strong baseline)
+    """
+    now = time.time()
+    baselines = [
+        {
+            "model_id": f"baseline_random_{board_type}_{num_players}p",
+            "model_path": "__BASELINE_RANDOM__",
+            "board_type": board_type,
+            "num_players": num_players,
+            "version": "baseline",
+            "size_mb": 0,
+            "created_at": now,
+            "ai_type": "random",
+        },
+        {
+            "model_id": f"baseline_heuristic_{board_type}_{num_players}p",
+            "model_path": "__BASELINE_HEURISTIC__",
+            "board_type": board_type,
+            "num_players": num_players,
+            "version": "baseline",
+            "size_mb": 0,
+            "created_at": now,
+            "ai_type": "heuristic",
+        },
+        {
+            "model_id": f"baseline_mcts_100_{board_type}_{num_players}p",
+            "model_path": "__BASELINE_MCTS_100__",
+            "board_type": board_type,
+            "num_players": num_players,
+            "version": "baseline",
+            "size_mb": 0,
+            "created_at": now,
+            "ai_type": "mcts",
+            "mcts_simulations": 100,
+        },
+        {
+            "model_id": f"baseline_mcts_500_{board_type}_{num_players}p",
+            "model_path": "__BASELINE_MCTS_500__",
+            "board_type": board_type,
+            "num_players": num_players,
+            "version": "baseline",
+            "size_mb": 0,
+            "created_at": now,
+            "ai_type": "mcts",
+            "mcts_simulations": 500,
+        },
+    ]
+    return baselines
 
 
 def register_models(conn: sqlite3.Connection, models: List[Dict[str, Any]]):
@@ -752,10 +933,18 @@ def run_all_config_tournaments(args):
         print(f"{'='*60}")
 
         # Discover models for this config
-        models = discover_models(models_dir, board_type, num_players)
-        print(f"Discovered {len(models)} models for {config_label}")
+        if args.baselines_only:
+            models = get_baseline_players(board_type, num_players)
+            print(f"Using {len(models)} baseline players for {config_label}")
+        else:
+            models = discover_models(models_dir, board_type, num_players)
+            print(f"Discovered {len(models)} models for {config_label}")
+            if args.include_baselines:
+                baselines = get_baseline_players(board_type, num_players)
+                models.extend(baselines)
+                print(f"Added {len(baselines)} baseline players")
 
-        if args.top_n:
+        if args.top_n and not args.baselines_only:
             models = models[:args.top_n]
             print(f"Using top {args.top_n} most recent models")
 
@@ -984,6 +1173,8 @@ def main():
     parser.add_argument("--elo-range", type=int, default=200, help="Max Elo difference for matchmaking (default: 200)")
     parser.add_argument("--archive-threshold", type=int, default=1400, help="Archive models below this Elo after 50+ games")
     parser.add_argument("--archive", action="store_true", help="Archive low-Elo models")
+    parser.add_argument("--include-baselines", action="store_true", help="Include baseline players (Random, Heuristic, MCTS)")
+    parser.add_argument("--baselines-only", action="store_true", help="Run tournament with only baseline players (for calibration)")
 
     args = parser.parse_args()
 
@@ -997,11 +1188,18 @@ def main():
 
     # Discover models
     models_dir = AI_SERVICE_ROOT / "models"
-    models = discover_models(models_dir, args.board, args.players)
+    if args.baselines_only:
+        models = get_baseline_players(args.board, args.players)
+        print(f"\nUsing {len(models)} baseline players for {args.board} {args.players}p")
+    else:
+        models = discover_models(models_dir, args.board, args.players)
+        print(f"\nDiscovered {len(models)} models for {args.board} {args.players}p")
+        if args.include_baselines:
+            baselines = get_baseline_players(args.board, args.players)
+            models.extend(baselines)
+            print(f"Added {len(baselines)} baseline players")
 
-    print(f"\nDiscovered {len(models)} models for {args.board} {args.players}p")
-
-    if args.top_n:
+    if args.top_n and not args.baselines_only:
         models = models[:args.top_n]
         print(f"Using top {args.top_n} most recent models")
 
