@@ -50,6 +50,15 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Light-weight significance helper (used for promotion gating).
 from app.training.significance import wilson_score_interval
 
+# Evaluation caching for pool-based promotion gating
+try:
+    from app.training.eval_cache import EvalCache, get_eval_cache
+    HAS_EVAL_CACHE = True
+except ImportError:
+    HAS_EVAL_CACHE = False
+    EvalCache = None  # type: ignore
+    get_eval_cache = None  # type: ignore
+
 # Diverse tournament orchestrator integration (for periodic Elo calibration)
 try:
     import asyncio
@@ -986,62 +995,100 @@ def evaluate_model(
             agg_draws = 0
             per_opponent: list[dict] = []
 
+            # Initialize evaluation cache if available
+            eval_cache = None
+            if HAS_EVAL_CACHE and get_eval_cache is not None:
+                try:
+                    eval_cache = get_eval_cache(str(log_dir))
+                except Exception as e:
+                    print(f"[pool-eval] cache init failed: {e}", file=sys.stderr)
+
             for idx, opp in enumerate(opponents):
                 out_path = log_dir / f"eval_iter{iteration}_{board}_{players}p_pool{idx+1}.json"
                 opp_seed = seed + 10_000 * (idx + 1)
-                cmd = [
-                    sys.executable,
-                    "scripts/evaluate_ai_models.py",
-                    "--player1",
-                    "neural_network",
-                    "--player2",
-                    "neural_network",
-                    "--checkpoint",
-                    str(iter_model),
-                    "--checkpoint2",
-                    str(opp),
-                    "--board",
-                    board,
-                    "--games",
-                    str(pool_games),
-                    "--max-moves",
-                    str(max_moves),
-                    "--seed",
-                    str(opp_seed),
-                    "--output",
-                    str(out_path),
-                    "--quiet",
-                ]
 
-                code, _, stderr = run_command(
-                    cmd,
-                    dry_run=dry_run,
-                    capture=False,
-                    timeout=7200,
-                    cwd=AI_SERVICE_ROOT,
-                )
-                if code != 0:
-                    print(f"[pool-eval] failed vs {opp.name}: {stderr[:200]}", file=sys.stderr)
-                    return False, {}
+                # Check cache first
+                cached_result = None
+                if eval_cache is not None and not dry_run:
+                    try:
+                        cached_result = eval_cache.get(
+                            iter_model, opp, board, int(players), pool_games
+                        )
+                        if cached_result is not None:
+                            print(f"[pool-eval] cache hit vs {opp.name}")
+                    except Exception as e:
+                        print(f"[pool-eval] cache lookup failed: {e}", file=sys.stderr)
 
-                if dry_run:
-                    opp_payload = {
-                        "results": {
-                            "player1_wins": int(pool_games * 0.55),
-                            "player2_wins": int(pool_games * 0.45),
-                            "draws": 0,
-                        }
-                    }
+                if cached_result is not None:
+                    # Use cached result
+                    opp_wins = cached_result.model_a_wins
+                    opp_losses = cached_result.model_b_wins
+                    opp_draws = cached_result.draws
                 else:
-                    if not out_path.exists():
-                        print(f"[pool-eval] missing output file: {out_path}", file=sys.stderr)
-                        return False, {}
-                    opp_payload = json.loads(out_path.read_text())
+                    # Run evaluation
+                    cmd = [
+                        sys.executable,
+                        "scripts/evaluate_ai_models.py",
+                        "--player1",
+                        "neural_network",
+                        "--player2",
+                        "neural_network",
+                        "--checkpoint",
+                        str(iter_model),
+                        "--checkpoint2",
+                        str(opp),
+                        "--board",
+                        board,
+                        "--games",
+                        str(pool_games),
+                        "--max-moves",
+                        str(max_moves),
+                        "--seed",
+                        str(opp_seed),
+                        "--output",
+                        str(out_path),
+                        "--quiet",
+                    ]
 
-                opp_res = opp_payload.get("results", {}) if isinstance(opp_payload, dict) else {}
-                opp_wins = int(opp_res.get("player1_wins", 0))
-                opp_losses = int(opp_res.get("player2_wins", 0))
-                opp_draws = int(opp_res.get("draws", 0))
+                    code, _, stderr = run_command(
+                        cmd,
+                        dry_run=dry_run,
+                        capture=False,
+                        timeout=7200,
+                        cwd=AI_SERVICE_ROOT,
+                    )
+                    if code != 0:
+                        print(f"[pool-eval] failed vs {opp.name}: {stderr[:200]}", file=sys.stderr)
+                        return False, {}
+
+                    if dry_run:
+                        opp_payload = {
+                            "results": {
+                                "player1_wins": int(pool_games * 0.55),
+                                "player2_wins": int(pool_games * 0.45),
+                                "draws": 0,
+                            }
+                        }
+                    else:
+                        if not out_path.exists():
+                            print(f"[pool-eval] missing output file: {out_path}", file=sys.stderr)
+                            return False, {}
+                        opp_payload = json.loads(out_path.read_text())
+
+                    opp_res = opp_payload.get("results", {}) if isinstance(opp_payload, dict) else {}
+                    opp_wins = int(opp_res.get("player1_wins", 0))
+                    opp_losses = int(opp_res.get("player2_wins", 0))
+                    opp_draws = int(opp_res.get("draws", 0))
+
+                    # Store in cache
+                    if eval_cache is not None and not dry_run:
+                        try:
+                            eval_cache.put(
+                                iter_model, opp, board, int(players), pool_games,
+                                opp_wins, opp_losses, opp_draws
+                            )
+                        except Exception as e:
+                            print(f"[pool-eval] cache store failed: {e}", file=sys.stderr)
 
                 agg_wins += opp_wins
                 agg_losses += opp_losses
@@ -1053,6 +1100,7 @@ def evaluate_model(
                         "wins": opp_wins,
                         "losses": opp_losses,
                         "draws": opp_draws,
+                        "cached": cached_result is not None,
                     }
                 )
 
@@ -1109,8 +1157,19 @@ def _select_promotion_pool_opponents(
     iter_model: Path,
     best_model: Optional[Path],
     pool_size: int,
+    diverse_sampling: bool = True,
 ) -> List[Path]:
-    """Select a best-effort pool of opponent checkpoints for promotion gating."""
+    """Select a diverse pool of opponent checkpoints for promotion gating.
+
+    When diverse_sampling=True (default), selects opponents from different
+    time periods rather than just the newest checkpoints. This prevents
+    overfitting to recent model styles and tests generalization.
+
+    Selection priority:
+    1. Previous best model (if exists)
+    2. Canonical v5 model (baseline anchor)
+    3. Diverse historical checkpoints (evenly spaced by time)
+    """
     if pool_size <= 0:
         return []
 
@@ -1146,8 +1205,10 @@ def _select_promotion_pool_opponents(
     if best_model is not None:
         exclude.add(best_model.resolve())
 
-    backup = models_dir / f"{board}_{players}p_prev_best.pth"
     pool: list[Path] = []
+
+    # Priority 1: Previous best model
+    backup = models_dir / f"{board}_{players}p_prev_best.pth"
     if backup.exists():
         try:
             resolved = backup.resolve()
@@ -1156,20 +1217,54 @@ def _select_promotion_pool_opponents(
         if resolved not in exclude and backup.stat().st_size > 0:
             pool.append(backup)
 
+    # Priority 2: Canonical v5 model (baseline anchor)
+    v5_candidates = [
+        models_dir / f"ringrift_v5_{board}_{players}p.pth",
+        models_dir / f"ringrift_v5_sq8_{players}p_2xh100.pth" if board == "square8" else None,
+    ]
+    for v5_path in v5_candidates:
+        if v5_path is None:
+            continue
+        if v5_path.exists() and len(pool) < pool_size:
+            try:
+                resolved = v5_path.resolve()
+            except Exception:
+                resolved = v5_path
+            if resolved not in exclude and v5_path.stat().st_size > 0:
+                if not any(v5_path.samefile(p) for p in pool):
+                    pool.append(v5_path)
+                    break
+
+    # Collect all candidates for diverse sampling
     candidates = [p for p in models_dir.glob("*.pth") if _is_candidate(p)]
     candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+
+    # Filter out excluded paths
+    filtered_candidates = []
     for path in candidates:
-        if len(pool) >= pool_size:
-            break
         try:
             resolved = path.resolve()
         except Exception:
             resolved = path
         if resolved in exclude:
             continue
-        if any((path.samefile(existing) for existing in pool)):  # type: ignore[arg-type]
+        if any(path.samefile(existing) for existing in pool):
             continue
-        pool.append(path)
+        filtered_candidates.append(path)
+
+    # Priority 3: Diverse historical checkpoints
+    remaining_slots = pool_size - len(pool)
+    if remaining_slots > 0 and filtered_candidates:
+        if diverse_sampling and len(filtered_candidates) > remaining_slots:
+            # Sample evenly across the time range for diversity
+            step = len(filtered_candidates) // remaining_slots
+            indices = [i * step for i in range(remaining_slots)]
+            for idx in indices:
+                if idx < len(filtered_candidates):
+                    pool.append(filtered_candidates[idx])
+        else:
+            # Just take the newest if not enough for diverse sampling
+            pool.extend(filtered_candidates[:remaining_slots])
 
     return pool[:pool_size]
 
