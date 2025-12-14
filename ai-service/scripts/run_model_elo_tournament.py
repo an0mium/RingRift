@@ -175,6 +175,7 @@ def play_nn_vs_nn_game(
     max_moves: int = 10000,
     mcts_simulations: int = 100,
     save_game_history: bool = True,
+    ai_type: str = "descent",
 ) -> Dict[str, Any]:
     """Play a single game between two neural network models.
 
@@ -252,10 +253,13 @@ def play_nn_vs_nn_game(
     ai_configs = []
     model_paths = [model_a_path, model_b_path]
 
+    # Select AI type based on parameter
+    ai_type_enum = AIType.MCTS if ai_type == "mcts" else AIType.DESCENT
+
     for i in range(num_players):
         model_idx = i % 2  # Alternate models for multiplayer
         config = AIConfig(
-            type=AIType.DESCENT,
+            type=ai_type_enum,
             difficulty=10,
             nn_model_id=model_paths[model_idx],  # Pass full path
             mcts_simulations=mcts_simulations,
@@ -432,11 +436,15 @@ def run_model_matchup(
     num_players: int,
     games: int,
     tournament_id: str,
+    nn_ai_type: str = "descent",
+    use_both_ai_types: bool = False,
     save_games_dir: Optional[Path] = None,
 ) -> Dict[str, int]:
     """Run multiple games between two models and update Elo.
 
     If save_games_dir is provided, games are saved to JSONL for training data.
+    If use_both_ai_types is True, runs half games with MCTS and half with Descent,
+    ensuring neural networks are evaluated using both inference methods.
     """
     board_type_enum = BoardType.SQUARE8
     if board_type == "square19":
@@ -469,6 +477,14 @@ def run_model_matchup(
             play_a, play_b = model_b, model_a
             id_a, id_b = model_b["model_id"], model_a["model_id"]
 
+        # Select AI type for this game
+        if use_both_ai_types:
+            # Alternate between MCTS and Descent for NN evaluation diversity
+            # First half uses Descent, second half uses MCTS
+            current_ai_type = "mcts" if game_num >= games // 2 else "descent"
+        else:
+            current_ai_type = nn_ai_type
+
         if is_baseline_match:
             # Use generic model-vs-model for baseline players
             result = play_model_vs_model_game(
@@ -488,6 +504,7 @@ def run_model_matchup(
                 max_moves=10000,
                 mcts_simulations=50,  # Faster games
                 save_game_history=True,  # Record for training
+                ai_type=current_ai_type,
             )
 
         # Save game record to JSONL for training data
@@ -878,6 +895,8 @@ def run_all_config_tournaments(args):
                     num_players=num_players,
                     games=args.games,
                     tournament_id=tournament_id,
+                    nn_ai_type=args.ai_type,
+                    use_both_ai_types=args.both_ai_types,
                 )
                 games_completed += args.games
                 print(f"A={results['model_a_wins']} B={results['model_b_wins']} D={results['draws']}")
@@ -1053,6 +1072,8 @@ def main():
     parser.add_argument("--archive", action="store_true", help="Archive low-Elo models")
     parser.add_argument("--include-baselines", action="store_true", help="Include baseline players (Random, Heuristic, MCTS)")
     parser.add_argument("--baselines-only", action="store_true", help="Run tournament with only baseline players (for calibration)")
+    parser.add_argument("--ai-type", choices=["mcts", "descent"], default="descent", help="AI type for neural networks (default: descent)")
+    parser.add_argument("--both-ai-types", action="store_true", help="Use BOTH MCTS and Descent AI types (half games each) for comprehensive NN evaluation")
 
     args = parser.parse_args()
 
@@ -1175,6 +1196,8 @@ def main():
                 num_players=args.players,
                 games=args.games,
                 tournament_id=tournament_id,
+                nn_ai_type=args.ai_type,
+                use_both_ai_types=args.both_ai_types,
             )
 
             games_completed += args.games

@@ -502,7 +502,8 @@
 	              <button id="canonStartBtn" type="button">Start canonical gate</button>
 	            </div>
 	            <div style="margin-top:6px; color: var(--muted); font-size: 12px;">
-	              Suggestion filters online nodes with <span class="mono">selfplay</span> + <span class="mono">large_boards</span>,
+	              Suggestion filters online nodes on <span class="mono">origin/main</span> with
+                <span class="mono">selfplay</span> + <span class="mono">large_boards</span>,
 	              disk &lt; 80%, mem &lt; 85%, and excludes <span class="mono">mbp*</span>/<span class="mono">mac*</span>.
 	            </div>
 	          </div>
@@ -629,6 +630,12 @@
       <div class="card span-12">
         <h2>Git</h2>
         <div id="gitBox" class="mono">Loading…</div>
+        <div class="row" style="margin-top: 10px; gap: 8px;">
+          <button class="secondary" id="gitUpdateSkewedBtn" type="button">Update skewed nodes</button>
+        </div>
+        <div class="mono" style="color: var(--muted); font-size: 11px; margin-top: 6px;">
+          Requires auth token; stops jobs and restarts orchestrators.
+        </div>
       </div>
     </div>
 
@@ -1358,8 +1365,20 @@
 
 	      async function suggestCanonHosts() {
 	        try {
-	          const cluster = await apiGet("/api/cluster/status?local=1");
+	          let cluster = null;
+            try {
+              cluster = await apiGet("/api/cluster/status");
+            } catch (e) {
+              cluster = await apiGet("/api/cluster/status?local=1");
+            }
+            let git = null;
+            try {
+              git = await apiGet("/git/status");
+            } catch (e) {
+              git = null;
+            }
 	          const peers = Array.isArray(cluster.peers) ? cluster.peers : [];
+            const targetVersion = git && git.remote_commit ? `main@${git.remote_commit}` : String((cluster.self || {}).version || "");
 
 	          const candidates = peers
 	            .filter((n) => n && n.status === "online")
@@ -1367,6 +1386,7 @@
 	              const nodeId = String(n.node_id || "");
 	              if (!nodeId) return false;
 	              if (nodeId.startsWith("mbp") || nodeId.startsWith("mac")) return false;
+                if (targetVersion && !versionsMatch(n.version, targetVersion)) return false;
 	              const caps = Array.isArray(n.capabilities) ? n.capabilities : [];
 	              if (!caps.includes("selfplay") || !caps.includes("large_boards")) return false;
 	              const disk = Number(n.disk_percent);
@@ -1393,7 +1413,11 @@
 
 	          const suggested = candidates.map((n) => String(n.node_id || "")).filter(Boolean).slice(0, 8);
 	          $("canonHosts").value = suggested.join(",");
-	          if (!suggested.length) setError("No suitable hosts found (try relaxing disk/memory filters or include Macs manually).");
+	          if (!suggested.length) {
+                setError(
+                  "No suitable hosts found. Common causes: version skew (update nodes to origin/main), high disk/mem, or no large_boards-capable nodes online."
+                );
+              }
 	        } catch (e) {
 	          setError(e.message);
 	        }
@@ -1402,6 +1426,59 @@
 	      function setCanonGames1000() {
 	        $("canonGames").value = "1000";
 	      }
+
+        async function updateSkewedNodes() {
+          if (!confirm("Update skewed nodes to origin/main?\n\nThis stops jobs and restarts orchestrators on updated nodes.")) return;
+          try {
+            const [cluster, git] = await Promise.all([
+              apiGet("/api/cluster/status"),
+              apiGet("/git/status"),
+            ]);
+
+            const targetVersion = git && git.remote_commit ? `main@${git.remote_commit}` : "";
+            if (!targetVersion) throw new Error("Cannot determine origin/main commit (git/status missing remote_commit)");
+
+            const peers = Array.isArray(cluster.peers) ? cluster.peers : [];
+            const skewedPeers = peers
+              .filter((n) => n && n.status === "online")
+              .filter((n) => !versionsMatch(n.version, targetVersion))
+              .map((n) => String(n.node_id || ""))
+              .filter(Boolean)
+              .sort();
+
+            const leaderVersion = String((cluster.self || {}).version || "");
+            const leaderId = String((cluster.self || {}).node_id || cluster.node_id || "").trim();
+            const leaderSkew = Boolean(leaderId) && !versionsMatch(leaderVersion, targetVersion);
+
+            if (!skewedPeers.length && !leaderSkew) {
+              setError("All online nodes already match origin/main.");
+              return;
+            }
+
+            const detail = `Target: ${versionKey(targetVersion)}\n\nPeers: ${skewedPeers.join(",") || "(none)"}\nLeader: ${leaderSkew ? leaderId : "ok"}\n\nProceed?`;
+            if (!confirm(detail)) return;
+
+            const node_ids = leaderSkew && leaderId ? [...skewedPeers, leaderId] : skewedPeers;
+            const resp = await apiPost("/api/cluster/git/update", {
+              node_ids,
+              include_self: leaderSkew,
+              timeout_seconds: 30,
+            });
+
+            const updatedPeers = Array.isArray(resp.updated_peers) ? resp.updated_peers : [];
+            const okPeers = updatedPeers.filter((r) => r && r.success).length;
+            const selfOk = resp.self_update ? (resp.self_update.success ? "ok" : "failed") : "skipped";
+            setError(`git update requested: peers ${okPeers}/${updatedPeers.length}, leader ${selfOk}. Refresh in ~30s.`);
+            await refreshAll(true);
+          } catch (e) {
+            if ((e.message || "").toLowerCase().includes("unauthorized")) {
+              $("authToken").focus();
+              setError("unauthorized: paste the cluster auth token (Bearer) to enable POST actions");
+              return;
+            }
+            setError(e.message);
+          }
+        }
 
 	      async function submitJob() {
         try {
@@ -1435,6 +1512,7 @@
 	      $("canonSuggestHostsBtn").addEventListener("click", suggestCanonHosts);
 	      $("canonSet1000Btn").addEventListener("click", setCanonGames1000);
 	      $("canonStartBtn").addEventListener("click", startCanonicalGate);
+        $("gitUpdateSkewedBtn").addEventListener("click", updateSkewedNodes);
         $("canonLogFileSelect").addEventListener("change", (e) => {
           state.selectedCanonLogFile = e.target.value || "";
           localStorage.setItem(CANON_LOG_FILE_KEY, state.selectedCanonLogFile);

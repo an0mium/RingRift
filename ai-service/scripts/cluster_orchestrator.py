@@ -43,6 +43,10 @@ MAC_STUDIO_HOST = os.environ.get("MAC_STUDIO_HOST", "mac-studio")
 MAC_STUDIO_DATA_DIR = "~/Development/RingRift/ai-service/data/games"
 SYNC_INTERVAL = 6  # Sync every 6 iterations (30 minutes at 5-min interval)
 
+# Model sync configuration - sync NN/NNUE models across cluster
+MODEL_SYNC_INTERVAL = 12  # Sync models every 12 iterations (1 hour at 5-min interval)
+MODEL_SYNC_ENABLED = True  # Enable automatic model syncing
+
 # Elo calibration configuration
 ELO_CALIBRATION_INTERVAL = 72  # Run Elo tournament every 72 iterations (6 hours at 5-min interval)
 ELO_CALIBRATION_GAMES = 50  # Games per config for Elo calibration
@@ -135,6 +139,7 @@ class ClusterState:
     host_statuses: Dict[str, dict] = field(default_factory=dict)
     last_sync: str = ""
     last_elo_calibration: str = ""
+    last_model_sync: str = ""  # Last model sync across cluster
     errors: List[str] = field(default_factory=list)
 
 
@@ -536,6 +541,7 @@ def save_state(state: ClusterState):
         "host_statuses": state.host_statuses,
         "last_sync": state.last_sync,
         "last_elo_calibration": state.last_elo_calibration,
+        "last_model_sync": state.last_model_sync,
         "errors": state.errors[-100:],  # Keep last 100 errors
     }, indent=2))
 
@@ -664,6 +670,57 @@ def sync_to_mac_studio(hosts: List[HostConfig], dry_run: bool = False) -> bool:
         log("Data sync: No data synced (hosts may be unreachable or have no data)")
 
     return synced_count > 0
+
+
+def sync_models_to_cluster(dry_run: bool = False) -> bool:
+    """Sync NN and NNUE models across all cluster hosts.
+
+    Uses the sync_models_to_cluster.py script to ensure model parity.
+    """
+    if not MODEL_SYNC_ENABLED:
+        log("Model sync disabled via MODEL_SYNC_ENABLED=False")
+        return False
+
+    log("Starting model sync across cluster...")
+
+    script_path = Path(__file__).parent / "sync_models_to_cluster.py"
+    if not script_path.exists():
+        log(f"Model sync script not found: {script_path}", "ERROR")
+        return False
+
+    cmd = ["python3", str(script_path)]
+    if dry_run:
+        cmd.append("--dry-run")
+    else:
+        cmd.append("--sync")
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=1800,  # 30 minutes max for full sync
+            cwd=Path(__file__).parent.parent,  # ai-service directory
+            env={**os.environ, "PYTHONPATH": str(Path(__file__).parent.parent)},
+        )
+
+        if result.returncode == 0:
+            # Extract summary from output
+            lines = result.stdout.strip().split("\n")
+            for line in lines[-10:]:
+                if "synced" in line.lower() or "Total" in line:
+                    log(f"Model sync: {line.strip()}")
+            return True
+        else:
+            log(f"Model sync failed: {result.stderr[:500]}", "ERROR")
+            return False
+
+    except subprocess.TimeoutExpired:
+        log("Model sync timed out after 30 minutes", "ERROR")
+        return False
+    except Exception as e:
+        log(f"Model sync error: {e}", "ERROR")
+        return False
 
 
 def get_cpu_rich_hosts(hosts: List[HostConfig], statuses: Dict[str, HostStatus]) -> List[Tuple[HostConfig, HostStatus]]:
@@ -1377,6 +1434,12 @@ def main():
             log(f"Starting periodic sync (every {SYNC_INTERVAL} iterations)...")
             if sync_to_mac_studio(hosts, args.dry_run):
                 state.last_sync = datetime.now().isoformat()
+
+        # Periodic model sync across cluster (every MODEL_SYNC_INTERVAL iterations)
+        if MODEL_SYNC_ENABLED and state.iteration % MODEL_SYNC_INTERVAL == 0:
+            log(f"Starting model sync (every {MODEL_SYNC_INTERVAL} iterations)...")
+            if sync_models_to_cluster(args.dry_run):
+                state.last_model_sync = datetime.now().isoformat()
 
         # Periodic Elo calibration (every elo_interval iterations)
         if not args.no_elo_calibration and state.iteration % args.elo_interval == 0:

@@ -8288,6 +8288,148 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         except Exception as e:
             return web.json_response({"success": False, "error": str(e)}, status=500)
 
+    async def handle_api_cluster_git_update(self, request: web.Request) -> web.Response:
+        """Leader-coordinated git updates for cluster nodes.
+
+        Body (JSON):
+            node_ids: list[str] | str (optional)
+                If omitted, updates all known peers (online by default).
+            include_self: bool (default False)
+                If true and (node_ids omitted or includes this node_id), also update
+                the leader node itself (performed last, triggers restart).
+            include_offline: bool (default False)
+                If true, attempt updates against offline peers as well.
+            timeout_seconds: int (default 20, max 120)
+                Per-peer request timeout.
+
+        Notes:
+            - This stops jobs and restarts orchestrators on nodes with updates
+              available. Use with care.
+        """
+        try:
+            if not self._is_leader() and request.query.get("local") != "1":
+                return await self._proxy_to_leader(request)
+
+            payload: Dict[str, Any] = {}
+            try:
+                payload = await request.json()
+            except Exception:
+                payload = {}
+
+            node_ids_raw = payload.get("node_ids") or payload.get("nodes") or []
+            node_ids: List[str] = []
+            if isinstance(node_ids_raw, str):
+                node_ids = [t.strip() for t in node_ids_raw.split(",") if t.strip()]
+            elif isinstance(node_ids_raw, list):
+                node_ids = [str(t).strip() for t in node_ids_raw if str(t).strip()]
+
+            include_self = bool(payload.get("include_self", False))
+            include_offline = bool(payload.get("include_offline", False))
+
+            timeout_seconds = float(payload.get("timeout_seconds", 20) or 20)
+            timeout_seconds = max(5.0, min(timeout_seconds, 120.0))
+
+            with self.peers_lock:
+                peers_by_id = dict(self.peers)
+
+            targets: List[NodeInfo] = []
+
+            def should_include_peer(peer: NodeInfo) -> bool:
+                if peer.node_id == self.node_id:
+                    return False
+                if not include_offline and not peer.is_alive():
+                    return False
+                return True
+
+            if node_ids:
+                for node_id in node_ids:
+                    peer = peers_by_id.get(node_id)
+                    if peer and should_include_peer(peer):
+                        targets.append(peer)
+            else:
+                for peer in peers_by_id.values():
+                    if should_include_peer(peer):
+                        targets.append(peer)
+
+            results: List[Dict[str, Any]] = []
+            timeout = ClientTimeout(total=timeout_seconds)
+            async with get_client_session(timeout) as session:
+                for peer in sorted(targets, key=lambda p: p.node_id):
+                    peer_payload: Dict[str, Any] = {
+                        "node_id": peer.node_id,
+                        "status": "online" if peer.is_alive() else "offline",
+                        "success": False,
+                        "attempted_urls": [],
+                    }
+
+                    if not include_offline and not peer.is_alive():
+                        peer_payload["error"] = "offline"
+                        results.append(peer_payload)
+                        continue
+
+                    last_error: Optional[str] = None
+                    for url in self._urls_for_peer(peer, "/git/update"):
+                        peer_payload["attempted_urls"].append(url)
+                        try:
+                            async with session.post(url, json={}, headers=self._auth_headers()) as resp:
+                                peer_payload["http_status"] = resp.status
+                                try:
+                                    data = await resp.json()
+                                except Exception:
+                                    data = {"raw": await resp.text()}
+                                peer_payload["response"] = data
+                                if resp.status == 200:
+                                    peer_payload["success"] = bool(data.get("success", True))
+                                    break
+                                last_error = (
+                                    str(data.get("error") or "")
+                                    or str(data.get("message") or "")
+                                    or f"http_{resp.status}"
+                                )
+                        except Exception as exc:
+                            last_error = str(exc)
+                            continue
+
+                    if last_error and not peer_payload.get("success"):
+                        peer_payload["error"] = last_error
+
+                    results.append(peer_payload)
+
+            self_update: Optional[Dict[str, Any]] = None
+            update_self = bool(include_self and (not node_ids or self.node_id in node_ids))
+            if update_self:
+                has_updates, local_commit, remote_commit = self._check_for_updates()
+                if not has_updates:
+                    self_update = {
+                        "node_id": self.node_id,
+                        "success": True,
+                        "message": "Already up to date",
+                        "local_commit": local_commit[:8] if local_commit else None,
+                    }
+                else:
+                    success, message = await self._perform_git_update()
+                    self_update = {
+                        "node_id": self.node_id,
+                        "success": success,
+                        "message": message,
+                        "old_commit": local_commit[:8] if local_commit else None,
+                        "new_commit": remote_commit[:8] if remote_commit else None,
+                    }
+                    if success:
+                        asyncio.create_task(self._restart_orchestrator())
+
+            return web.json_response(
+                {
+                    "success": True,
+                    "leader_id": self.node_id,
+                    "updated_peers": results,
+                    "self_update": self_update,
+                    "timestamp": time.time(),
+                }
+            )
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
     async def handle_api_selfplay_stats(self, request: web.Request) -> web.Response:
         """Get aggregated selfplay game statistics for dashboard charts."""
         try:
@@ -8374,12 +8516,12 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             num_players = int(num_players_str) if num_players_str else None
             limit = int(request.query.get("limit", "20"))
 
-            conn = init_elo_database()
+            db = init_elo_database()
 
             # If specific filter requested, return just that
             if board_type and num_players:
-                leaderboard = get_leaderboard(conn, board_type, num_players, limit=limit)
-                conn.close()
+                leaderboard = get_leaderboard(db, board_type, num_players, limit=limit)
+                db.close()
                 return web.json_response({
                     "success": True,
                     "leaderboards": {f"{board_type}_{num_players}p": leaderboard},
@@ -8389,6 +8531,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             # Otherwise return all board/player combinations
             # Query unique board_type/num_players combinations
+            conn = db._get_connection()
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT DISTINCT board_type, num_players
@@ -8404,7 +8547,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             for bt, np in configs:
                 key = f"{bt}_{np}p"
-                lb = get_leaderboard(conn, bt, np, limit=limit)
+                lb = get_leaderboard(db, bt, np, limit=limit)
                 if lb:
                     leaderboards[key] = lb
                     total_models += len(lb)
@@ -8414,7 +8557,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             cursor.execute("SELECT COUNT(*) FROM match_history")
             match_count = cursor.fetchone()[0]
 
-            conn.close()
+            db.close()
 
             return web.json_response({
                 "success": True,
@@ -11978,6 +12121,7 @@ print(json.dumps({{
         # Phase 4: REST API and Dashboard routes
         app.router.add_get('/', self.handle_root)
         app.router.add_get('/api/cluster/status', self.handle_api_cluster_status)
+        app.router.add_post('/api/cluster/git/update', self.handle_api_cluster_git_update)
         app.router.add_get('/api/selfplay/stats', self.handle_api_selfplay_stats)
         app.router.add_get('/api/elo/leaderboard', self.handle_api_elo_leaderboard)
         app.router.add_get('/api/training/status', self.handle_api_training_status)
