@@ -20,6 +20,17 @@ from app.db.game_replay import GameReplayDB
 
 logger = logging.getLogger(__name__)
 
+# Error sanitization for production - prevent stack trace leakage
+IS_PRODUCTION = os.getenv("RINGRIFT_ENV", "development").lower() == "production"
+
+
+def sanitize_error_detail(error: Exception, fallback: str = "Internal server error") -> str:
+    """Return sanitized error message for HTTP responses."""
+    if IS_PRODUCTION:
+        return fallback
+    return str(error)
+
+
 # Default database path - can be overridden via environment variable
 DEFAULT_DB_PATH = os.getenv(
     "GAME_REPLAY_DB_PATH",
@@ -250,7 +261,7 @@ async def list_games(
 
     except Exception as e:
         logger.error(f"Error listing games: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=sanitize_error_detail(e))
 
 
 @router.get("/games/{game_id}", response_model=GameMetadata)
@@ -312,7 +323,7 @@ async def get_game(game_id: str):
         raise
     except Exception as e:
         logger.error(f"Error getting game {game_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=sanitize_error_detail(e))
 
 
 @router.get("/games/{game_id}/state", response_model=ReplayStateResponse)
@@ -374,7 +385,7 @@ async def get_state_at_move(
         raise
     except Exception as e:
         logger.error(f"Error getting state for game {game_id} at move {move_number}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=sanitize_error_detail(e))
 
 
 @router.get("/games/{game_id}/moves", response_model=MovesResponse)
@@ -414,7 +425,7 @@ async def get_moves(
         raise
     except Exception as e:
         logger.error(f"Error getting moves for game {game_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=sanitize_error_detail(e))
 
 
 @router.get("/games/{game_id}/choices", response_model=ChoicesResponse)
@@ -450,7 +461,7 @@ async def get_choices(
         raise
     except Exception as e:
         logger.error(f"Error getting choices for game {game_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=sanitize_error_detail(e))
 
 
 @router.get("/stats", response_model=StatsResponse)
@@ -471,7 +482,7 @@ async def get_stats():
 
     except Exception as e:
         logger.error(f"Error getting stats: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=sanitize_error_detail(e))
 
 
 # =============================================================================
@@ -549,4 +560,4 @@ async def store_game(request: StoreGameRequest):
 
     except Exception as e:
         logger.error(f"Error storing game: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=sanitize_error_detail(e))
