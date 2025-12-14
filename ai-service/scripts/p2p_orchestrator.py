@@ -893,6 +893,14 @@ class P2POrchestrator:
         self.distributed_tournament_state: Dict[str, DistributedTournamentState] = {}
         self.ssh_tournament_runs: Dict[str, SSHTournamentRun] = {}
         self.improvement_loop_state: Dict[str, ImprovementLoopState] = {}
+        # Limit CPU-heavy CMA-ES local evaluations to avoid runaway process
+        # explosions that can starve the orchestrator (especially on relay hubs).
+        try:
+            raw = (os.environ.get("RINGRIFT_P2P_MAX_CONCURRENT_CMAES_EVALS", "") or "").strip()
+            self.max_concurrent_cmaes_evals = max(1, int(raw)) if raw else 2
+        except Exception:
+            self.max_concurrent_cmaes_evals = 2
+        self._cmaes_eval_semaphore = asyncio.Semaphore(int(self.max_concurrent_cmaes_evals))
 
         # Phase 2: Distributed data sync state
         self.local_data_manifest: Optional[NodeDataManifest] = None
@@ -5046,17 +5054,22 @@ class P2POrchestrator:
     ) -> float:
         """Evaluate weights locally by running selfplay games."""
         try:
-            # Run selfplay subprocess to evaluate weights
-            import tempfile
-            import json as json_mod
+            sem = getattr(self, "_cmaes_eval_semaphore", None)
+            if sem is None:
+                sem = asyncio.Semaphore(1)
 
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-                json_mod.dump(weights, f)
-                weights_file = f.name
+            async with sem:
+                # Run selfplay subprocess to evaluate weights
+                import tempfile
+                import json as json_mod
 
-            ai_service_path = str(Path(self.ringrift_path) / "ai-service")
-            cmd = [
-                sys.executable, "-c", f"""
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                    json_mod.dump(weights, f)
+                    weights_file = f.name
+
+                ai_service_path = str(Path(self.ringrift_path) / "ai-service")
+                cmd = [
+                    sys.executable, "-c", f"""
 import sys
 sys.path.insert(0, '{ai_service_path}')
 from app.game_engine import GameEngine
@@ -5097,24 +5110,24 @@ for i in range(total):
 
 print(wins / total)
 """
-            ]
+                ]
 
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, "PYTHONPATH": ai_service_path},
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env={**os.environ, "PYTHONPATH": ai_service_path},
+                )
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
 
-            # Clean up temp file
-            os.unlink(weights_file)
+                # Clean up temp file
+                os.unlink(weights_file)
 
-            if proc.returncode == 0:
-                return float(stdout.decode().strip())
-            else:
-                print(f"[P2P] Local eval error: {stderr.decode()}")
-                return 0.5
+                if proc.returncode == 0:
+                    return float(stdout.decode().strip())
+                else:
+                    print(f"[P2P] Local eval error: {stderr.decode()}")
+                    return 0.5
 
         except Exception as e:
             print(f"[P2P] Local CMA-ES evaluation error: {e}")

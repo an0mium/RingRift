@@ -448,6 +448,7 @@ def main() -> None:
         "RINGRIFT_P2P_LOAD_MAX_FOR_NEW_JOBS",
         "RINGRIFT_P2P_AUTO_UPDATE",
         "RINGRIFT_P2P_GIT_UPDATE_CHECK_INTERVAL",
+        "RINGRIFT_P2P_MAX_CONCURRENT_CMAES_EVALS",
     ]
     tuning_prefix_parts: List[str] = []
     for key in tuning_keys:
