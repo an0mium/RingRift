@@ -943,6 +943,17 @@ class P2POrchestrator:
         self.last_lease_renewal: float = 0.0  # when we last renewed our lease (if leader)
         self.leader_lease_id: str = ""  # unique ID for current leadership term
 
+        # Voter-backed lease grants (split-brain resistance).
+        #
+        # When quorum gating is enabled, voters act as a lightweight consensus
+        # group by granting an exclusive leader lease to a single node at a time.
+        # A leader must renew its lease with a quorum of voters; otherwise it
+        # steps down. This prevents split-brain even if multiple nodes think
+        # they are eligible leaders.
+        self.voter_grant_leader_id: str = ""
+        self.voter_grant_lease_id: str = ""
+        self.voter_grant_expires: float = 0.0
+
         # Job completion tracking for auto-restart
         self.completed_jobs: Dict[str, float] = {}  # node_id -> last job completion time
         self.jobs_started_at: Dict[str, Dict[str, float]] = {}  # node_id -> {job_id: start_time}
@@ -988,6 +999,7 @@ class P2POrchestrator:
                 if not self.leader_id:
                     self.leader_lease_id = ""
                     self.leader_lease_expires = 0.0
+                self._release_voter_grant_if_self()
                 self._save_state()
                 # Only force an election when we have no known leader; otherwise we
                 # may already be following a healthy leader and shouldn't flap.
@@ -1005,6 +1017,7 @@ class P2POrchestrator:
             self.leader_lease_id = ""
             self.leader_lease_expires = 0.0
             self.last_lease_renewal = 0.0
+            self._release_voter_grant_if_self()
             self._save_state()
             try:
                 asyncio.get_running_loop().create_task(self._start_election())
@@ -1021,6 +1034,7 @@ class P2POrchestrator:
             self.leader_lease_id = ""
             self.leader_lease_expires = 0.0
             self.last_lease_renewal = 0.0
+            self._release_voter_grant_if_self()
             self._save_state()
             try:
                 asyncio.get_running_loop().create_task(self._start_election())
@@ -1034,6 +1048,7 @@ class P2POrchestrator:
             self.leader_lease_id = ""
             self.leader_lease_expires = 0.0
             self.last_lease_renewal = 0.0
+            self._release_voter_grant_if_self()
             self._save_state()
             try:
                 asyncio.get_running_loop().create_task(self._start_election())
@@ -1233,6 +1248,92 @@ class P2POrchestrator:
             if peer and peer.is_alive():
                 alive += 1
         return alive >= quorum
+
+    def _release_voter_grant_if_self(self) -> None:
+        """Release our voter-side lease grant when stepping down.
+
+        This shortens failover time when the leader voluntarily steps down (e.g.
+        lost quorum) by not forcing other candidates to wait for the full lease
+        TTL to expire.
+        """
+        if str(getattr(self, "voter_grant_leader_id", "") or "") != self.node_id:
+            return
+        self.voter_grant_leader_id = ""
+        self.voter_grant_lease_id = ""
+        self.voter_grant_expires = 0.0
+
+    async def _acquire_voter_lease_quorum(self, lease_id: str, duration: int) -> Optional[float]:
+        """Acquire/renew an exclusive leader lease from a quorum of voters.
+
+        Returns the effective lease expiry timestamp if a quorum granted the
+        lease; otherwise returns None.
+        """
+        voter_ids = list(getattr(self, "voter_node_ids", []) or [])
+        if not voter_ids:
+            return time.time() + float(duration)
+
+        quorum = int(getattr(self, "voter_quorum_size", 0) or 0)
+        if quorum <= 0:
+            quorum = len(voter_ids) // 2 + 1
+
+        now = time.time()
+        duration = max(10, min(int(duration), int(LEADER_LEASE_DURATION * 2)))
+
+        acks = 0
+        expiries: List[float] = []
+
+        # Self-grant (as a voter).
+        if self.node_id in voter_ids:
+            self.voter_grant_leader_id = self.node_id
+            self.voter_grant_lease_id = lease_id
+            self.voter_grant_expires = now + float(duration)
+            expiries.append(self.voter_grant_expires)
+            acks += 1
+
+        with self.peers_lock:
+            peers_by_id = dict(self.peers)
+
+        timeout = ClientTimeout(total=5)
+        async with ClientSession(timeout=timeout) as session:
+            for voter_id in voter_ids:
+                if acks >= quorum:
+                    break
+                if voter_id == self.node_id:
+                    continue
+                voter = peers_by_id.get(voter_id)
+                if not voter or not voter.is_alive():
+                    continue
+
+                payload = {
+                    "leader_id": self.node_id,
+                    "lease_id": lease_id,
+                    "lease_duration": duration,
+                }
+
+                for url in self._urls_for_peer(voter, "/election/lease"):
+                    try:
+                        async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
+                            if resp.status != 200:
+                                continue
+                            data = await resp.json()
+                            if not data.get("granted"):
+                                break
+                            try:
+                                expires = float(data.get("lease_expires") or 0.0)
+                            except Exception:
+                                expires = 0.0
+                            if expires > 0:
+                                expiries.append(expires)
+                            acks += 1
+                            break
+                    except Exception:
+                        continue
+
+        if acks < quorum:
+            return None
+        if expiries:
+            return min(expiries)
+        return now + float(duration)
 
     def _parse_peer_address(self, peer_addr: str) -> Tuple[str, str, int]:
         """Parse `--peers` entries.
@@ -1557,6 +1658,19 @@ class P2POrchestrator:
                 except Exception:
                     pass
 
+            raw_grant_leader = state_rows.get("voter_grant_leader_id")
+            if raw_grant_leader:
+                self.voter_grant_leader_id = str(raw_grant_leader)
+            raw_grant_lease = state_rows.get("voter_grant_lease_id")
+            if raw_grant_lease:
+                self.voter_grant_lease_id = str(raw_grant_lease)
+            raw_grant_expires = state_rows.get("voter_grant_expires")
+            if raw_grant_expires:
+                try:
+                    self.voter_grant_expires = float(raw_grant_expires)
+                except Exception:
+                    pass
+
             # Optional persisted voter configuration (convergence helper). Only
             # apply when voters are not explicitly configured via env/config.
             raw_voters = state_rows.get("voter_node_ids")
@@ -1623,11 +1737,14 @@ class P2POrchestrator:
                 ("role", role_value),
                 ("voter_node_ids", voter_node_ids_json),
                 ("voter_config_source", voter_config_source),
+                ("voter_grant_leader_id", str(getattr(self, "voter_grant_leader_id", "") or "")),
+                ("voter_grant_lease_id", str(getattr(self, "voter_grant_lease_id", "") or "")),
+                ("voter_grant_expires", str(float(getattr(self, "voter_grant_expires", 0.0) or 0.0))),
             ]
             cursor.executemany(
                 "INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)",
                 state_payload,
-            )
+                )
 
             conn.commit()
             conn.close()
@@ -3495,6 +3612,67 @@ class P2POrchestrator:
         except Exception as e:
             return web.json_response({"error": str(e)}, status=400)
 
+    async def handle_lease_request(self, request: web.Request) -> web.Response:
+        """Voter endpoint: grant/renew an exclusive leader lease.
+
+        A leader candidate must obtain grants from a quorum of voters before it
+        may act as leader. Voters only grant to one leader at a time until the
+        lease expires (or is explicitly released by stepping down).
+        """
+        try:
+            data = await request.json()
+            leader_id = str(data.get("leader_id") or data.get("candidate_id") or "").strip()
+            lease_id = str(data.get("lease_id") or "").strip()
+            duration_raw = data.get("lease_duration", LEADER_LEASE_DURATION)
+            try:
+                duration = int(duration_raw)
+            except Exception:
+                duration = int(LEADER_LEASE_DURATION)
+            duration = max(10, min(duration, int(LEADER_LEASE_DURATION * 2)))
+
+            if not leader_id or not lease_id:
+                return web.json_response({"granted": False, "reason": "missing_fields"}, status=400)
+
+            voters = list(getattr(self, "voter_node_ids", []) or [])
+            if voters:
+                if self.node_id not in voters:
+                    return web.json_response({"granted": False, "reason": "not_a_voter"}, status=403)
+                if leader_id not in voters:
+                    return web.json_response({"granted": False, "reason": "leader_not_voter"}, status=403)
+
+            now = time.time()
+            current_leader = str(getattr(self, "voter_grant_leader_id", "") or "")
+            current_expires = float(getattr(self, "voter_grant_expires", 0.0) or 0.0)
+
+            if current_leader and current_expires > now and current_leader != leader_id:
+                return web.json_response(
+                    {
+                        "granted": False,
+                        "reason": "lease_already_granted",
+                        "current_leader_id": current_leader,
+                        "current_lease_id": str(getattr(self, "voter_grant_lease_id", "") or ""),
+                        "lease_expires": current_expires,
+                    },
+                    status=409,
+                )
+
+            self.voter_grant_leader_id = leader_id
+            self.voter_grant_lease_id = lease_id
+            self.voter_grant_expires = now + float(duration)
+            self._save_state()
+
+            return web.json_response(
+                {
+                    "granted": True,
+                    "leader_id": leader_id,
+                    "lease_id": lease_id,
+                    "lease_expires": self.voter_grant_expires,
+                    "voter_id": self.node_id,
+                }
+            )
+        except Exception as e:
+            return web.json_response({"granted": False, "error": str(e)}, status=400)
+
     async def handle_coordinator(self, request: web.Request) -> web.Response:
         """Handle coordinator announcement from new leader.
 
@@ -3523,6 +3701,24 @@ class P2POrchestrator:
                     voters_list = [t.strip() for t in incoming_voters.split(",") if t.strip()]
                 if voters_list:
                     self._maybe_adopt_voter_node_ids(voters_list, source="learned")
+
+            # Voter-side safety: if we've granted a still-valid lease to a different leader,
+            # do not accept a conflicting coordinator announcement. This prevents a voter
+            # from "following" a non-quorum leader during transient partitions.
+            voters = list(getattr(self, "voter_node_ids", []) or [])
+            if voters and self.node_id in voters:
+                grant_leader = str(getattr(self, "voter_grant_leader_id", "") or "")
+                grant_expires = float(getattr(self, "voter_grant_expires", 0.0) or 0.0)
+                if grant_leader and grant_expires > time.time() and grant_leader != new_leader:
+                    return web.json_response(
+                        {
+                            "accepted": False,
+                            "reason": "voter_lease_conflict",
+                            "granted_to": grant_leader,
+                            "granted_until": grant_expires,
+                        },
+                        status=409,
+                    )
 
             # LEARNED LESSONS - Verify the announced leader has higher priority than us
             # (Bully algorithm: higher node_id wins)
@@ -9551,14 +9747,27 @@ print(json.dumps({{
             print(f"[P2P] Refusing leadership without voter quorum: {self.node_id}")
             return
         import uuid
+        lease_id = f"{self.node_id}_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+        lease_expires = await self._acquire_voter_lease_quorum(lease_id, int(LEADER_LEASE_DURATION))
+        if getattr(self, "voter_node_ids", []):
+            if not lease_expires:
+                print(f"[P2P] Failed to obtain voter lease quorum; refusing leadership: {self.node_id}")
+                self.role = NodeRole.FOLLOWER
+                self.leader_id = None
+                self.leader_lease_id = ""
+                self.leader_lease_expires = 0.0
+                self.last_lease_renewal = 0.0
+                self._release_voter_grant_if_self()
+                self._save_state()
+                return
+
         print(f"[P2P] I am now the leader: {self.node_id}")
         self.role = NodeRole.LEADER
         self.leader_id = self.node_id
 
-        # LEARNED LESSONS - Lease-based leadership to prevent split-brain
-        # Generate unique lease ID for this leadership term
-        self.leader_lease_id = f"{self.node_id}_{int(time.time())}_{uuid.uuid4().hex[:8]}"
-        self.leader_lease_expires = time.time() + LEADER_LEASE_DURATION
+        # Lease-based leadership (voter-backed when enabled).
+        self.leader_lease_id = lease_id
+        self.leader_lease_expires = float(lease_expires or (time.time() + LEADER_LEASE_DURATION))
         self.last_lease_renewal = time.time()
 
         # Announce to all peers with lease information
@@ -9593,6 +9802,7 @@ print(json.dumps({{
             self.leader_lease_id = ""
             self.leader_lease_expires = 0.0
             self.last_lease_renewal = 0.0
+            self._release_voter_grant_if_self()
             self._save_state()
             return
 
@@ -9600,7 +9810,24 @@ print(json.dumps({{
         if now - self.last_lease_renewal < LEADER_LEASE_RENEW_INTERVAL:
             return  # Too soon to renew
 
-        self.leader_lease_expires = now + LEADER_LEASE_DURATION
+        lease_id = str(self.leader_lease_id or "")
+        if not lease_id:
+            lease_id = f"{self.node_id}_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+        lease_expires = await self._acquire_voter_lease_quorum(lease_id, int(LEADER_LEASE_DURATION))
+        if getattr(self, "voter_node_ids", []):
+            if not lease_expires:
+                print(f"[P2P] Failed to renew voter lease quorum; stepping down: {self.node_id}")
+                self.role = NodeRole.FOLLOWER
+                self.leader_id = None
+                self.leader_lease_id = ""
+                self.leader_lease_expires = 0.0
+                self.last_lease_renewal = 0.0
+                self._release_voter_grant_if_self()
+                self._save_state()
+                return
+
+        self.leader_lease_id = lease_id
+        self.leader_lease_expires = float(lease_expires or (now + LEADER_LEASE_DURATION))
         self.last_lease_renewal = now
 
         # Broadcast lease renewal to all peers
@@ -9683,6 +9910,7 @@ print(json.dumps({{
             self.leader_id = highest_leader.node_id
             self.leader_lease_id = ""
             self.leader_lease_expires = 0.0
+            self._release_voter_grant_if_self()
             self._save_state()
             return True
 
@@ -10614,6 +10842,7 @@ print(json.dumps({{
         app.router.add_post('/heartbeat', self.handle_heartbeat)
         app.router.add_get('/status', self.handle_status)
         app.router.add_post('/election', self.handle_election)
+        app.router.add_post('/election/lease', self.handle_lease_request)
         app.router.add_post('/coordinator', self.handle_coordinator)
         app.router.add_post('/start_job', self.handle_start_job)
         app.router.add_post('/stop_job', self.handle_stop_job)
