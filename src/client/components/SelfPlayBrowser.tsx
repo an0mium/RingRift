@@ -9,6 +9,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { LoadableScenario } from '../sandbox/scenarioTypes';
 import type { BoardType, Move, Position } from '../../shared/types/game';
 import { Dialog } from './ui/Dialog';
+import { StatusBanner } from './ui/StatusBanner';
+import { Button } from './ui/Button';
 
 // API response types matching the backend service
 interface SelfPlayGameSummary {
@@ -472,11 +474,18 @@ export const SelfPlayBrowser: React.FC<SelfPlayBrowserProps> = ({
 
       {/* Error Message */}
       {error && (
-        <div className="mx-4 mt-3 p-3 rounded-lg bg-red-900/30 border border-red-700 text-red-300 text-sm">
-          {error}
-          <button onClick={() => setError(null)} className="ml-2 text-red-400 hover:text-red-200">
-            Dismiss
-          </button>
+        <div className="mx-4 mt-3">
+          <StatusBanner
+            variant="error"
+            title="Error"
+            actions={
+              <Button type="button" variant="secondary" size="sm" onClick={() => setError(null)}>
+                Dismiss
+              </Button>
+            }
+          >
+            {error}
+          </StatusBanner>
         </div>
       )}
 

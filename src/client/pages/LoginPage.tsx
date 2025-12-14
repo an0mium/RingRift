@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
+import { InlineAlert } from '../components/ui/InlineAlert';
 import { extractErrorMessage, extractErrorCode } from '../utils/errorReporting';
 
 export default function LoginPage() {
@@ -92,14 +93,7 @@ export default function LoginPage() {
             />
           </div>
 
-          {error && (
-            <div
-              className="text-sm text-red-300 bg-red-900/40 border border-red-700 rounded-md px-3 py-2"
-              role="alert"
-            >
-              {error}
-            </div>
-          )}
+          {error && <InlineAlert variant="error">{error}</InlineAlert>}
 
           <Button type="submit" fullWidth disabled={isSubmitting}>
             {isSubmitting ? 'Logging in…' : 'Login'}

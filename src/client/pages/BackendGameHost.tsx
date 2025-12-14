@@ -14,6 +14,7 @@ import { BoardControlsOverlay } from '../components/BoardControlsOverlay';
 import { ResignButton } from '../components/ResignButton';
 import { RingPlacementCountDialog } from '../components/RingPlacementCountDialog';
 import { Button } from '../components/ui/Button';
+import { StatusBanner } from '../components/ui/StatusBanner';
 import {
   ScreenReaderAnnouncer,
   useGameAnnouncements,
@@ -1367,37 +1368,35 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
 
   const reconnectionBanner =
     connectionStatus !== 'connected' && gameState ? (
-      <div
-        className="bg-amber-500/20 border border-amber-500/50 text-amber-200 px-4 py-2 rounded mb-4 flex flex-wrap items-center justify-between gap-2"
-        role="status"
-        aria-live="polite"
-      >
-        <div className="flex items-center gap-3">
+      <StatusBanner
+        variant="warning"
+        icon={
           <div className="animate-spin h-4 w-4 border-2 border-amber-500 border-t-transparent rounded-full" />
-          <span>
-            {connectionStatus === 'reconnecting'
-              ? 'Connection lost. Attempting to reconnect…'
-              : connectionStatus === 'connecting'
-                ? 'Connecting to game server…'
-                : 'Disconnected from server. Moves are paused.'}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={connection.reconnect}
-            disabled={isConnecting}
-          >
-            Retry
-          </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={() => navigate('/lobby')}>
-            Lobby
-          </Button>
-        </div>
-      </div>
+        }
+        actions={
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={connection.reconnect}
+              disabled={isConnecting}
+            >
+              Retry
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => navigate('/lobby')}>
+              Lobby
+            </Button>
+          </>
+        }
+        className="mb-4"
+      >
+        {connectionStatus === 'reconnecting'
+          ? 'Connection lost. Attempting to reconnect…'
+          : connectionStatus === 'connecting'
+            ? 'Connecting to game server…'
+            : 'Disconnected from server. Moves are paused.'}
+      </StatusBanner>
     ) : null;
 
   if (error && !gameState) {
@@ -1748,65 +1747,70 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
 
       {/* Opponent disconnection banner - shown when opponents have disconnected but game continues */}
       {disconnectedOpponents.length > 0 && !gameEndedByAbandonment && !victoryState && (
-        <div className="bg-orange-500/20 border border-orange-500/50 text-orange-200 px-4 py-2 rounded mb-4 flex items-center gap-3">
-          <svg
-            className="w-5 h-5 flex-shrink-0"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-            />
-          </svg>
-          <span>
-            {disconnectedOpponents.length === 1
-              ? `${disconnectedOpponents[0].username || 'A player'} has disconnected. Waiting for reconnection…`
-              : `${disconnectedOpponents.length} players have disconnected. Waiting for reconnection…`}
-          </span>
-          <div className="ml-auto animate-pulse h-2 w-2 rounded-full bg-orange-400" />
-        </div>
+        <StatusBanner
+          variant="warning"
+          icon={
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+              />
+            </svg>
+          }
+          actions={<div className="animate-pulse h-2 w-2 rounded-full bg-amber-300" />}
+          className="mb-4"
+        >
+          {disconnectedOpponents.length === 1
+            ? `${disconnectedOpponents[0].username || 'A player'} has disconnected. Waiting for reconnection…`
+            : `${disconnectedOpponents.length} players have disconnected. Waiting for reconnection…`}
+        </StatusBanner>
       )}
 
       {/* Abandonment banner - shown when game ended due to reconnection timeout */}
       {gameEndedByAbandonment && (
-        <div className="bg-red-500/20 border border-red-500/50 text-red-200 px-4 py-2 rounded mb-4">
-          <span className="font-semibold">Game ended by abandonment.</span>
-          <span className="ml-2 text-red-300/80">
-            A player failed to reconnect within the allowed time.
-          </span>
-        </div>
+        <StatusBanner
+          variant="error"
+          title="Game ended by abandonment"
+          actions={
+            <Button type="button" variant="secondary" size="sm" onClick={() => navigate('/lobby')}>
+              Lobby
+            </Button>
+          }
+          className="mb-4"
+        >
+          A player failed to reconnect within the allowed time.
+        </StatusBanner>
       )}
 
       {gameOverBannerText && (
-        <div className="bg-emerald-900/30 border border-emerald-500/60 text-emerald-100 px-4 py-2 rounded mb-2 text-sm">
+        <StatusBanner variant="success" className="mb-2">
           {gameOverBannerText}
-        </div>
+        </StatusBanner>
       )}
 
       {fatalGameError && (
-        <div className="bg-red-500/20 border border-red-500/50 text-red-200 px-4 py-3 rounded">
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
-              <p className="font-semibold mb-1">{fatalGameError.message}</p>
-              {process.env.NODE_ENV === 'development' && fatalGameError.technical && (
-                <p className="text-xs text-red-300 font-mono mt-2">
-                  Technical: {fatalGameError.technical}
-                </p>
-              )}
-            </div>
-            <button
+        <StatusBanner
+          variant="error"
+          title={fatalGameError.message}
+          actions={
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
               onClick={() => setFatalGameError(null)}
-              className="ml-4 text-red-300 hover:text-red-100 transition"
-              aria-label="Dismiss error"
             >
-              ✕
-            </button>
-          </div>
-        </div>
+              Dismiss
+            </Button>
+          }
+        >
+          {process.env.NODE_ENV === 'development' && fatalGameError.technical ? (
+            <div className="text-xs font-mono text-red-200/90">
+              Technical: {fatalGameError.technical}
+            </div>
+          ) : null}
+        </StatusBanner>
       )}
 
       <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

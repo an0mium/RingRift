@@ -3,6 +3,7 @@ import type { GameState } from '../../shared/types/game';
 import type { LoadableScenario } from '../sandbox/scenarioTypes';
 import { saveCurrentGameState, exportScenarioToFile } from '../sandbox/statePersistence';
 import { Dialog } from './ui/Dialog';
+import { InlineAlert } from './ui/InlineAlert';
 
 export interface SaveStateDialogProps {
   isOpen: boolean;
@@ -130,14 +131,7 @@ export const SaveStateDialog: React.FC<SaveStateDialogProps> = ({
           Also export as JSON file
         </label>
 
-        {error && (
-          <div
-            className="p-3 rounded-lg bg-red-900/30 border border-red-700 text-red-300 text-sm"
-            role="alert"
-          >
-            {error}
-          </div>
-        )}
+        {error && <InlineAlert variant="error">{error}</InlineAlert>}
 
         <div className="flex justify-end gap-3 pt-2">
           <button

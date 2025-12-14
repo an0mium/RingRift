@@ -5,6 +5,7 @@ import { authApi, gameApi, userApi } from '../services/api';
 import { User } from '../../shared/types/user';
 import { Game, GameResult } from '../../shared/types/game';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { InlineAlert } from '../components/ui/InlineAlert';
 import { extractErrorMessage } from '../utils/errorReporting';
 import { formatVictoryReason } from '../adapters/gameViewModels';
 import { RatingHistoryChart } from '../components/RatingHistoryChart';
@@ -123,11 +124,7 @@ export default function ProfilePage() {
                   maxLength={20}
                 />
               </div>
-              {error && (
-                <p className="text-red-400 text-sm" role="alert">
-                  {error}
-                </p>
-              )}
+              {error && <InlineAlert variant="error">{error}</InlineAlert>}
               <div className="flex gap-3">
                 <button
                   type="submit"

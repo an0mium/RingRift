@@ -37,6 +37,12 @@ from ..models import GameState, Move, MoveType, AIConfig, BoardType, GamePhase
 from ..rules.mutable_state import MutableGameState, MoveUndo
 from ..utils.memory_config import MemoryConfig
 
+# Type hint for NNUE policy model (imported lazily to avoid circular imports)
+try:
+    from .nnue_policy import RingRiftNNUEWithPolicy
+except ImportError:
+    RingRiftNNUEWithPolicy = None  # type: ignore[misc,assignment]
+
 logger = logging.getLogger(__name__)
 
 
@@ -761,6 +767,26 @@ class MCTSAI(HeuristicAI):
         )
         self._dirichlet_applied_this_search: bool = False
 
+        # NNUE policy model for move priors (used when no neural net or as fallback)
+        # Similar to MinimaxAI's policy ordering but integrated into MCTS priors
+        self.nnue_policy_model: Optional["RingRiftNNUEWithPolicy"] = None
+        self._pending_nnue_policy_init: bool = False
+
+        # Enable NNUE policy priors by default when no neural net is available
+        # or explicitly via use_nnue_policy_priors config
+        use_nnue_policy_config = getattr(config, "use_nnue_policy_priors", None)
+        if use_nnue_policy_config is True:
+            self._pending_nnue_policy_init = True
+        elif use_nnue_policy_config is None and self.neural_net is None:
+            # Auto-enable NNUE policy as fallback when no neural net
+            self._pending_nnue_policy_init = True
+
+        if self._pending_nnue_policy_init:
+            logger.debug(
+                f"MCTSAI(player={player_number}): "
+                "NNUE policy priors will be initialized on first move"
+            )
+
     def get_last_search_root(self) -> Optional[MCTSNode]:
         """Return the root node from the most recent legacy search.
 
@@ -933,6 +959,158 @@ class MCTSAI(HeuristicAI):
         fpu_reduction = self._fpu_reduction_for_phase(phase)
         return c_puct, rave_k, fpu_reduction
 
+    # ------------------------------------------------------------------
+    # NNUE Policy Model Support
+    # ------------------------------------------------------------------
+
+    def _init_nnue_policy_model(self, board_type: BoardType, num_players: int) -> None:
+        """Initialize NNUE policy model for move priors.
+
+        This provides policy priors when no neural network is available,
+        or can be used as a faster alternative for early MCTS expansions.
+        """
+        if not self._pending_nnue_policy_init:
+            return
+
+        self._pending_nnue_policy_init = False
+
+        try:
+            from .nnue_policy import RingRiftNNUEWithPolicy
+            import re
+
+            # Try to load NNUE policy model checkpoint
+            model_path = os.path.join(
+                os.path.dirname(__file__), "..", "..",
+                "models", "nnue", f"nnue_policy_{board_type.value}_{num_players}p.pt"
+            )
+            model_path = os.path.normpath(model_path)
+
+            if os.path.exists(model_path):
+                checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+                state_dict = checkpoint
+                hidden_dim = 256
+                num_hidden_layers = 2
+
+                if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+                    state_dict = checkpoint["model_state_dict"]
+                    hidden_dim = int(checkpoint.get("hidden_dim") or hidden_dim)
+                    num_hidden_layers = int(checkpoint.get("num_hidden_layers") or num_hidden_layers)
+
+                # Infer hidden_dim from accumulator weight if available
+                if isinstance(state_dict, dict):
+                    try:
+                        accumulator_weight = state_dict.get("accumulator.weight")
+                        if accumulator_weight is not None and hasattr(accumulator_weight, "shape"):
+                            hidden_dim = int(accumulator_weight.shape[0])
+                    except Exception:
+                        pass
+
+                    # Infer num_hidden_layers from state dict keys
+                    try:
+                        layer_indices = set()
+                        for key in state_dict:
+                            match = re.match(r"hidden\.(\d+)\.weight$", key)
+                            if match:
+                                layer_indices.add(int(match.group(1)))
+                        if layer_indices:
+                            num_hidden_layers = len(layer_indices)
+                    except Exception:
+                        pass
+
+                self.nnue_policy_model = RingRiftNNUEWithPolicy(
+                    board_type=board_type,
+                    hidden_dim=hidden_dim,
+                    num_hidden_layers=num_hidden_layers,
+                )
+                if not isinstance(state_dict, dict):
+                    raise TypeError(f"Unexpected NNUE checkpoint: {type(state_dict).__name__}")
+                self.nnue_policy_model.load_state_dict(state_dict)
+                self.nnue_policy_model.eval()
+                logger.info(
+                    f"MCTSAI: Loaded NNUE policy model from {model_path} "
+                    f"(hidden={hidden_dim}, layers={num_hidden_layers})"
+                )
+            else:
+                logger.debug(
+                    f"MCTSAI: No NNUE policy model found at {model_path}"
+                )
+        except Exception as e:
+            logger.warning(f"MCTSAI: Failed to load NNUE policy model: {e}")
+
+    def _compute_nnue_policy(
+        self,
+        moves: List[Move],
+        state: GameState,
+    ) -> Dict[str, float]:
+        """Compute policy priors using NNUE policy model.
+
+        Returns a dict mapping move string -> probability (normalized).
+        """
+        from .nnue_policy import pos_to_flat_index
+        from .nnue_features import extract_features_from_gamestate, get_board_size
+
+        if not moves or self.nnue_policy_model is None:
+            return {}
+
+        # Extract features from state
+        board_type = state.board.type
+        board_size = get_board_size(board_type)
+        current_player = state.current_player or self.player_number
+
+        features = extract_features_from_gamestate(state, current_player)
+        features_tensor = torch.from_numpy(features[None, ...]).float()
+
+        # Get policy logits
+        with torch.no_grad():
+            _, from_logits, to_logits = self.nnue_policy_model(features_tensor, return_policy=True)
+            from_logits = from_logits[0].numpy()  # Shape: (H*W,)
+            to_logits = to_logits[0].numpy()  # Shape: (H*W,)
+
+        # Score each move
+        center = board_size // 2
+        center_idx = center * board_size + center
+        move_scores: Dict[str, float] = {}
+        max_score = float('-inf')
+
+        for move in moves:
+            from_pos = getattr(move, 'from_pos', None)
+            if from_pos is None:
+                from_idx = center_idx
+            else:
+                from_idx = pos_to_flat_index(from_pos, board_size, board_type)
+
+            to_pos = getattr(move, 'to', None)
+            if to_pos is None:
+                to_pos = from_pos
+            if to_pos is None:
+                to_idx = center_idx
+            else:
+                to_idx = pos_to_flat_index(to_pos, board_size, board_type)
+
+            score = float(from_logits[from_idx]) + float(to_logits[to_idx])
+            move_scores[str(move)] = score
+            if score > max_score:
+                max_score = score
+
+        # Convert to probabilities using softmax
+        if not move_scores:
+            return {}
+
+        # Subtract max for numerical stability then softmax
+        exp_scores = {}
+        total_exp = 0.0
+        for key, score in move_scores.items():
+            exp_val = math.exp(score - max_score)
+            exp_scores[key] = exp_val
+            total_exp += exp_val
+
+        # Normalize
+        if total_exp > 0:
+            for key in exp_scores:
+                exp_scores[key] /= total_exp
+
+        return exp_scores
+
     def clear_search_tree(self) -> None:
         """Clear cached search tree nodes to free memory.
 
@@ -966,6 +1144,11 @@ class MCTSAI(HeuristicAI):
 
         if not valid_moves:
             return None, None
+
+        # Initialize NNUE policy model on first move (lazy initialization)
+        if self._pending_nnue_policy_init:
+            num_players = infer_num_players(game_state)
+            self._init_nnue_policy_model(game_state.board.type, num_players)
 
         swap_move = self.maybe_select_swap_move(game_state, valid_moves)
         if swap_move is not None:
@@ -1809,6 +1992,15 @@ class MCTSAI(HeuristicAI):
         if total_prob > 0:
             for move_key in node.policy_map:
                 node.policy_map[move_key] /= total_prob
+        elif self.nnue_policy_model is not None:
+            # Fallback to NNUE policy when neural network policy unavailable
+            nnue_policy = self._compute_nnue_policy(valid_moves_state, state)
+            if nnue_policy:
+                node.policy_map = nnue_policy
+            else:
+                uniform = 1.0 / len(valid_moves_state)
+                for move in valid_moves_state:
+                    node.policy_map[str(move)] = uniform
         else:
             uniform = 1.0 / len(valid_moves_state)
             for move in valid_moves_state:
@@ -2490,6 +2682,15 @@ class MCTSAI(HeuristicAI):
         if total_prob > 0:
             for move_key in node.policy_map:
                 node.policy_map[move_key] /= total_prob
+        elif self.nnue_policy_model is not None:
+            # Fallback to NNUE policy when neural network policy unavailable
+            nnue_policy = self._compute_nnue_policy(valid_moves_state, state)
+            if nnue_policy:
+                node.policy_map = nnue_policy
+            else:
+                uniform = 1.0 / len(valid_moves_state)
+                for move in valid_moves_state:
+                    node.policy_map[str(move)] = uniform
         else:
             uniform = 1.0 / len(valid_moves_state)
             for move in valid_moves_state:
@@ -2690,16 +2891,44 @@ class MCTSAI(HeuristicAI):
         initial children. For square19/hex boards, evaluate the root once
         so early expansions focus on top-prior moves and reused roots regain
         consistent priors.
-        """
-        if not self.neural_net:
-            return
 
+        When no neural network is available but NNUE policy is loaded, uses
+        NNUE policy priors as a lightweight alternative.
+        """
         board_type = game_state.board.type
         if not self._use_progressive_widening(board_type):
             return
 
         existing_map = getattr(root, "policy_map", None)
         if isinstance(existing_map, dict) and existing_map:
+            return
+
+        # Fallback to NNUE policy when no neural net is available
+        if not self.neural_net:
+            if self.nnue_policy_model is not None:
+                try:
+                    valid_moves = self.rules_engine.get_valid_moves(
+                        game_state, game_state.current_player
+                    )
+                    nnue_policy = self._compute_nnue_policy(valid_moves, game_state)
+                    if nnue_policy:
+                        root.policy_map = nnue_policy
+                        root.untried_moves = list(valid_moves)
+                        # Sort by priors for progressive widening
+                        root.untried_moves.sort(
+                            key=lambda m: root.policy_map.get(str(m), 0.0),
+                            reverse=True,
+                        )
+                        # Update existing children
+                        for child in getattr(root, "children", []):
+                            move = getattr(child, "move", None)
+                            if move is None:
+                                continue
+                            prior = root.policy_map.get(str(move))
+                            if prior is not None:
+                                child.prior = float(prior)
+                except Exception:
+                    logger.debug("Failed to seed NNUE root priors", exc_info=True)
             return
 
         try:

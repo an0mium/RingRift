@@ -617,6 +617,29 @@ class AIConfig(BaseModel):
         ),
     )
 
+    # ------------------------------------------------------------------
+    # NNUE Policy Model Configuration
+    # ------------------------------------------------------------------
+
+    use_policy_ordering: Optional[bool] = Field(
+        default=None,
+        description=(
+            "When True, MinimaxAI uses NNUE policy model for move ordering, "
+            "evaluating high-probability moves first for better pruning. "
+            "When None, defaults to True for difficulty >= 4 if a policy "
+            "model is available."
+        ),
+    )
+    use_nnue_policy_priors: Optional[bool] = Field(
+        default=None,
+        description=(
+            "When True, MCTSAI uses NNUE policy model for move priors when "
+            "no neural network is available. Provides informed exploration "
+            "guidance without the overhead of a full neural net. "
+            "When None, defaults to True when no neural net is loaded."
+        ),
+    )
+
 
 class LineRewardChoiceOption(str, Enum):
     """Line reward choice options, mirroring TypeScript LineRewardChoice."""

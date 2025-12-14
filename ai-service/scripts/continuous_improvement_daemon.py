@@ -127,6 +127,172 @@ S3_BACKUP_ENABLED = os.environ.get("RINGRIFT_S3_BACKUP", "").lower() in ("1", "t
 S3_BACKUP_INTERVAL_HOURS = float(os.environ.get("RINGRIFT_S3_BACKUP_INTERVAL_HOURS", "6"))
 _last_s3_backup_time: Optional[float] = None
 
+# Cluster metrics reporting
+CLUSTER_METRICS_ENABLED = os.environ.get("RINGRIFT_CLUSTER_METRICS", "1").lower() in ("1", "true", "yes", "on")
+_cluster_metrics_imported = False
+try:
+    from app.metrics import report_cluster_node, GPU_HOURLY_RATES
+    _cluster_metrics_imported = True
+except ImportError:
+    pass
+
+
+def report_local_cluster_metrics() -> None:
+    """Report metrics for the local node to Prometheus."""
+    if not CLUSTER_METRICS_ENABLED or not _cluster_metrics_imported:
+        return
+
+    try:
+        import platform
+        import psutil
+
+        # Determine node identifier
+        node_id = os.environ.get("RINGRIFT_NODE_ID", platform.node())
+
+        # Determine GPU type
+        gpu_type = "unknown"
+        gpu_utilization = 0.0
+        gpu_memory_bytes = 0
+
+        # Try to get GPU info via nvidia-smi
+        try:
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                parts = result.stdout.strip().split(",")
+                if len(parts) >= 3:
+                    gpu_name = parts[0].strip().upper()
+                    if "GH200" in gpu_name:
+                        gpu_type = "GH200"
+                    elif "H100" in gpu_name:
+                        gpu_type = "H100"
+                    elif "A100" in gpu_name:
+                        gpu_type = "A100"
+                    elif "A10" in gpu_name:
+                        gpu_type = "A10"
+                    elif "4090" in gpu_name:
+                        gpu_type = "RTX_4090"
+                    elif "3090" in gpu_name or "3080" in gpu_name:
+                        gpu_type = "RTX_4090"  # Similar pricing tier
+
+                    gpu_utilization = float(parts[1].strip()) / 100.0
+                    gpu_memory_bytes = int(float(parts[2].strip()) * 1024 * 1024)  # MiB to bytes
+        except Exception:
+            pass
+
+        # Get CPU and memory info
+        cpu_utilization = psutil.cpu_percent() / 100.0
+        memory_info = psutil.virtual_memory()
+        system_memory_bytes = memory_info.used
+
+        report_cluster_node(
+            node=node_id,
+            gpu_type=gpu_type,
+            is_up=True,
+            gpu_utilization=gpu_utilization,
+            cpu_utilization=cpu_utilization,
+            gpu_memory_bytes=gpu_memory_bytes,
+            system_memory_bytes=system_memory_bytes,
+        )
+    except Exception as e:
+        print(f"[Daemon] Cluster metrics reporting failed: {e}")
+
+# =============================================================================
+# Curriculum Learning Configuration
+# =============================================================================
+#
+# Curriculum learning progressively increases training difficulty:
+# - Stage 0 (Beginner): High exploration, simple positions
+# - Stage 1 (Intermediate): Medium exploration, moderate positions
+# - Stage 2 (Advanced): Low exploration, complex positions
+#
+# Each stage has different parameters for temperature, noise, and game complexity
+
+CURRICULUM_STAGES = {
+    0: {  # Beginner
+        "name": "beginner",
+        "temperature": 2.0,           # High exploration
+        "noise_scale": 0.5,           # Moderate noise
+        "max_moves": 200,             # Shorter games
+        "games_to_advance": 2000,     # Games needed to advance
+        "description": "High exploration, shorter games",
+    },
+    1: {  # Intermediate
+        "name": "intermediate",
+        "temperature": 1.0,           # Balanced exploration
+        "noise_scale": 0.25,          # Lower noise
+        "max_moves": 300,             # Medium length games
+        "games_to_advance": 5000,     # Games needed to advance
+        "description": "Balanced exploration, medium games",
+    },
+    2: {  # Advanced
+        "name": "advanced",
+        "temperature": 0.5,           # Low exploration (exploit learned knowledge)
+        "noise_scale": 0.1,           # Minimal noise
+        "max_moves": 400,             # Full length games
+        "games_to_advance": None,     # Final stage
+        "description": "Low exploration, full games",
+    },
+}
+
+CURRICULUM_ENABLED = os.environ.get("RINGRIFT_CURRICULUM_LEARNING", "1").lower() in (
+    "1", "true", "yes", "on"
+)
+
+
+def get_curriculum_params(state: "DaemonState") -> Dict[str, Any]:
+    """Get curriculum parameters for current stage."""
+    if not CURRICULUM_ENABLED:
+        return CURRICULUM_STAGES[2]  # Use advanced params if curriculum disabled
+
+    stage = state.curriculum_state.get("stage", 0)
+    if stage >= len(CURRICULUM_STAGES):
+        stage = len(CURRICULUM_STAGES) - 1
+
+    return CURRICULUM_STAGES[stage]
+
+
+def maybe_advance_curriculum(state: "DaemonState", games_this_cycle: int) -> bool:
+    """Check if curriculum should advance to next stage."""
+    if not CURRICULUM_ENABLED:
+        return False
+
+    stage = state.curriculum_state.get("stage", 0)
+    if stage >= len(CURRICULUM_STAGES) - 1:
+        return False  # Already at final stage
+
+    params = CURRICULUM_STAGES[stage]
+    games_to_advance = params.get("games_to_advance")
+    if games_to_advance is None:
+        return False
+
+    state.curriculum_state["games_at_stage"] = (
+        state.curriculum_state.get("games_at_stage", 0) + games_this_cycle
+    )
+
+    if state.curriculum_state["games_at_stage"] >= games_to_advance:
+        # Advance to next stage
+        old_stage = stage
+        new_stage = stage + 1
+        state.curriculum_state["stage"] = new_stage
+        state.curriculum_state["games_at_stage"] = 0
+        state.curriculum_state["stage_transitions"] = state.curriculum_state.get(
+            "stage_transitions", []
+        ) + [{
+            "from": old_stage,
+            "to": new_stage,
+            "total_games": state.total_games_generated,
+            "timestamp": datetime.now().isoformat(),
+        }]
+        print(f"[Daemon] Curriculum advanced: {CURRICULUM_STAGES[old_stage]['name']} -> "
+              f"{CURRICULUM_STAGES[new_stage]['name']}")
+        return True
+
+    return False
+
 
 def run_s3_backup(models_only: bool = True) -> bool:
     """Run S3 backup if enabled and interval has passed."""
@@ -369,6 +535,15 @@ class DaemonState:
     # NNUE Policy training tracking (per board_type/num_players config)
     # Maps "square8_2p" -> {"last_train_time": float, "last_train_games": int, ...}
     nnue_policy_state: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
+    # Curriculum learning state
+    # Tracks curriculum stage and parameters for progressive training
+    curriculum_state: Dict[str, Any] = field(default_factory=lambda: {
+        "stage": 0,           # Current curriculum stage (0=beginner, 1=intermediate, 2=advanced)
+        "games_at_stage": 0,  # Games played at current stage
+        "total_stages": 3,    # Total number of stages
+        "stage_transitions": [],  # History of stage transitions
+    })
 
     # Auto-promotion tracking
     last_auto_promote_time: float = 0.0
@@ -2039,6 +2214,9 @@ async def daemon_cycle(state: DaemonState) -> bool:
 
         # Run S3 backup if enabled and interval has passed
         run_s3_backup(models_only=True)
+
+        # Report cluster metrics to Prometheus
+        report_local_cluster_metrics()
 
         return True
 

@@ -5331,6 +5331,8 @@ class ParallelGameRunner:
         board_type: Optional[str] = None,
         use_heuristic_selection: bool = False,
         weight_noise: float = 0.0,
+        temperature: float = 1.0,
+        noise_scale: float = 0.1,
     ):
         """Initialize parallel game runner.
 
@@ -5357,6 +5359,10 @@ class ParallelGameRunner:
                        Each weight is multiplied by a random factor in [1-noise, 1+noise].
                        This increases training diversity by making each game use slightly
                        different evaluation. Default 0.0 (no noise).
+            temperature: Softmax temperature for move sampling (higher = more random).
+                       Used for curriculum learning. Default 1.0.
+            noise_scale: Scale of noise added to move scores for exploration.
+                       Used for curriculum learning diversity. Default 0.1.
         """
         self.batch_size = batch_size
         self.board_size = board_size
@@ -5365,6 +5371,8 @@ class ParallelGameRunner:
         self.board_type = board_type
         self.use_heuristic_selection = use_heuristic_selection
         self.weight_noise = weight_noise
+        self.temperature = temperature
+        self.noise_scale = noise_scale
         self.use_policy_selection = False
         self.policy_model: Optional["RingRiftNNUEWithPolicy"] = None
         # Default LPS victory rounds to 3 if not specified
@@ -5508,16 +5516,18 @@ class ParallelGameRunner:
         1. Policy-based selection (if policy model loaded)
         2. Heuristic-based selection (if use_heuristic_selection=True)
         3. Fast center-bias selection (default)
+
+        Uses self.temperature for softmax temperature (curriculum learning).
         """
         if self.use_policy_selection and self.policy_model is not None:
-            return self._select_moves_policy(moves, active_mask)
+            return self._select_moves_policy(moves, active_mask, temperature=self.temperature)
         elif self.use_heuristic_selection:
             return select_moves_heuristic(
-                moves, self.state, active_mask, temperature=1.0
+                moves, self.state, active_mask, temperature=self.temperature
             )
         else:
             return select_moves_vectorized(
-                moves, active_mask, self.board_size, temperature=1.0
+                moves, active_mask, self.board_size, temperature=self.temperature
             )
 
     def _select_moves_policy(

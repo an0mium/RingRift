@@ -15,6 +15,9 @@ import { EvaluationPanel } from '../components/EvaluationPanel';
 import { SaveStateDialog } from '../components/SaveStateDialog';
 import { RingPlacementCountDialog } from '../components/RingPlacementCountDialog';
 import { RecoveryLineChoiceDialog } from '../components/RecoveryLineChoiceDialog';
+import { InlineAlert } from '../components/ui/InlineAlert';
+import { StatusBanner } from '../components/ui/StatusBanner';
+import { Button } from '../components/ui/Button';
 import { ReplayPanel } from '../components/ReplayPanel';
 import { HistoryPlaybackPanel } from '../components/HistoryPlaybackPanel';
 import { OnboardingModal } from '../components/OnboardingModal';
@@ -1998,9 +2001,7 @@ export const SandboxGameHost: React.FC = () => {
               <section className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
                 <div className="p-5 rounded-2xl bg-slate-800/70 border border-slate-700 space-y-6 text-slate-100 shadow-lg">
                   {backendSandboxError && (
-                    <div className="p-3 text-sm text-red-300 bg-red-900/40 border border-red-700 rounded-lg">
-                      {backendSandboxError}
-                    </div>
+                    <InlineAlert variant="error">{backendSandboxError}</InlineAlert>
                   )}
 
                   <div className="space-y-3">
@@ -2234,33 +2235,42 @@ export const SandboxGameHost: React.FC = () => {
         />
 
         {sandboxStallWarning && (
-          <div className="p-3 rounded-xl border border-amber-500/70 bg-amber-900/40 text-amber-100 text-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <span>{sandboxStallWarning}</span>
-            <div className="flex gap-2">
-              {developerToolsEnabled && (
-                <button
+          <StatusBanner
+            variant="warning"
+            title="Sandbox warning"
+            actions={
+              <>
+                {developerToolsEnabled && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCopySandboxTrace}
+                    className="text-[11px] px-3 py-1"
+                  >
+                    Copy AI trace
+                  </Button>
+                )}
+                <Button
                   type="button"
-                  onClick={handleCopySandboxTrace}
-                  className="px-3 py-1 rounded-lg border border-amber-300 bg-amber-800/70 text-[11px] font-semibold hover:border-amber-100 hover:bg-amber-700/80"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setSandboxStallWarning(null)}
+                  className="text-[11px] px-3 py-1"
                 >
-                  Copy AI trace
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setSandboxStallWarning(null)}
-                className="px-2 py-1 rounded-lg border border-slate-500 text-[11px] hover:border-slate-300"
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
+                  Dismiss
+                </Button>
+              </>
+            }
+          >
+            <span className="text-xs">{sandboxStallWarning}</span>
+          </StatusBanner>
         )}
 
         {sandboxGameOverBannerText && (
-          <div className="p-3 rounded-xl border border-emerald-500/70 bg-emerald-900/40 text-emerald-100 text-xs">
-            {sandboxGameOverBannerText}
-          </div>
+          <StatusBanner variant="success" title="Game over">
+            <span className="text-xs">{sandboxGameOverBannerText}</span>
+          </StatusBanner>
         )}
 
         {sandboxGameState && (

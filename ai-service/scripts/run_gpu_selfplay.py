@@ -433,6 +433,8 @@ class GPUSelfPlayGenerator:
         weight_noise: float = 0.0,
         use_policy: bool = False,
         policy_model_path: Optional[str] = None,
+        temperature: float = 1.0,
+        noise_scale: float = 0.1,
     ):
         self.board_size = board_size
         self.num_players = num_players
@@ -490,6 +492,8 @@ class GPUSelfPlayGenerator:
             board_type=board_type,
             use_heuristic_selection=use_heuristic_selection,
             weight_noise=weight_noise,
+            temperature=temperature,
+            noise_scale=noise_scale,
         )
 
         # Log shadow validation status
@@ -1013,6 +1017,22 @@ def main():
         type=str,
         default=None,
         help="Path to custom policy model (default: auto-detect based on board type)",
+    )
+
+    # Curriculum learning parameters
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=1.0,
+        help="Softmax temperature for move sampling (higher = more random). "
+             "Used for curriculum learning. Default: 1.0",
+    )
+    parser.add_argument(
+        "--noise-scale",
+        type=float,
+        default=0.1,
+        help="Scale of noise added to move scores. "
+             "Used for curriculum learning diversity. Default: 0.1",
     )
 
     args = parser.parse_args()

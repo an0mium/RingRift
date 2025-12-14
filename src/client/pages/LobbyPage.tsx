@@ -6,6 +6,7 @@ import { BoardType, CreateGameRequest, Game } from '../../shared/types/game';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { Button } from '../components/ui/Button';
 import { Dialog } from '../components/ui/Dialog';
+import { InlineAlert } from '../components/ui/InlineAlert';
 import { Select } from '../components/ui/Select';
 import type { ClientToServerEvents, ServerToClientEvents } from '../../shared/types/websocket';
 import { readEnv } from '../../shared/utils/envFlags';
@@ -800,11 +801,7 @@ export default function LobbyPage() {
       )}
 
       {/* Matchmaking error */}
-      {matchmakingError && (
-        <div className="p-3 text-sm text-red-300 bg-red-900/40 border border-red-700 rounded-lg">
-          {matchmakingError}
-        </div>
-      )}
+      {matchmakingError && <InlineAlert variant="error">{matchmakingError}</InlineAlert>}
 
       {/* Find Match Form */}
       {showFindMatchForm && !inQueue && (
@@ -848,14 +845,7 @@ export default function LobbyPage() {
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div
-                className="p-3 text-sm text-red-300 bg-red-900/40 border border-red-700 rounded-lg"
-                role="alert"
-              >
-                {error}
-              </div>
-            )}
+            {error && <InlineAlert variant="error">{error}</InlineAlert>}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -1122,9 +1112,9 @@ export default function LobbyPage() {
             </div>
 
             {joinError && (
-              <div className="p-3 mb-4 text-sm text-red-300 bg-red-900/40 border border-red-700 rounded-lg">
+              <InlineAlert variant="error" className="mb-4">
                 {joinError}
-              </div>
+              </InlineAlert>
             )}
 
             {isLoadingGames ? (

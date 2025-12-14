@@ -10,6 +10,8 @@ import {
 } from '../sandbox/scenarioLoader';
 import { importScenarioFromFile, exportScenarioToFile } from '../sandbox/statePersistence';
 import { Dialog } from './ui/Dialog';
+import { StatusBanner } from './ui/StatusBanner';
+import { Button } from './ui/Button';
 
 type TabType = 'curated' | 'vectors' | 'custom';
 
@@ -198,6 +200,7 @@ export const ScenarioPickerModal: React.FC<ScenarioPickerModalProps> = ({
         {activeTab === 'custom' && developerToolsEnabled && (
           <>
             <button
+              type="button"
               onClick={handleImportClick}
               className="px-3 py-1.5 rounded-lg bg-slate-700 border border-slate-600 text-sm text-white hover:bg-slate-600 transition-colors"
             >
@@ -217,11 +220,18 @@ export const ScenarioPickerModal: React.FC<ScenarioPickerModalProps> = ({
 
       {/* Error Message */}
       {error && (
-        <div className="mx-4 mt-3 p-3 rounded-lg bg-red-900/30 border border-red-700 text-red-300 text-sm">
-          {error}
-          <button onClick={() => setError(null)} className="ml-2 text-red-400 hover:text-red-200">
-            Dismiss
-          </button>
+        <div className="mx-4 mt-3">
+          <StatusBanner
+            variant="error"
+            title="Error"
+            actions={
+              <Button type="button" variant="secondary" size="sm" onClick={() => setError(null)}>
+                Dismiss
+              </Button>
+            }
+          >
+            {error}
+          </StatusBanner>
         </div>
       )}
 
