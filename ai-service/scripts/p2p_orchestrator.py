@@ -7363,6 +7363,126 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         except Exception as e:
             print(f"[P2P] Training monitor error for {job_id}: {e}")
 
+    async def _monitor_gpu_selfplay_and_validate(
+        self,
+        job_id: str,
+        proc: subprocess.Popen,
+        output_dir: Path,
+        board_type: str,
+        num_players: int,
+    ) -> None:
+        """Monitor GPU selfplay completion and run CPU validation.
+
+        When GPU selfplay completes, this runs import_gpu_selfplay_to_db.py to:
+        1. Replay each game with CPU GameEngine
+        2. Validate all moves against legal move lists
+        3. Discard games with invalid moves
+        4. Store only validated games in canonical DB format
+
+        This ensures GPU-generated games are safe for training.
+        """
+        try:
+            # Wait for GPU selfplay to complete (with timeout)
+            return_code = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(None, proc.wait),
+                timeout=7200,  # 2 hour max
+            )
+
+            # Update job status
+            with self.jobs_lock:
+                job = self.local_jobs.get(job_id)
+                if job:
+                    job.status = "completed" if return_code == 0 else "failed"
+
+            if return_code != 0:
+                print(f"[P2P] GPU selfplay job {job_id} failed (exit code {return_code})")
+                return
+
+            # Find the generated JSONL file
+            jsonl_files = list(output_dir.glob("*.jsonl"))
+            if not jsonl_files:
+                print(f"[P2P] GPU selfplay job {job_id}: No JSONL output found")
+                return
+
+            input_jsonl = jsonl_files[0]
+            validated_db = output_dir / "validated_games.db"
+
+            print(f"[P2P] GPU selfplay job {job_id} completed, running CPU validation...")
+
+            # Run CPU validation import
+            validate_cmd = [
+                "python3",
+                f"{self.ringrift_path}/ai-service/scripts/import_gpu_selfplay_to_db.py",
+                "--input", str(input_jsonl),
+                "--output", str(validated_db),
+            ]
+
+            env = os.environ.copy()
+            env["PYTHONPATH"] = f"{self.ringrift_path}/ai-service"
+
+            validate_proc = await asyncio.create_subprocess_exec(
+                *validate_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+                cwd=self.ringrift_path,
+            )
+
+            stdout, stderr = await asyncio.wait_for(
+                validate_proc.communicate(),
+                timeout=1800,  # 30 min validation timeout
+            )
+
+            if validate_proc.returncode == 0:
+                # Parse validation results from output
+                output_text = stdout.decode()
+                imported = 0
+                failed = 0
+                for line in output_text.split("\n"):
+                    if "Successfully imported:" in line:
+                        imported = int(line.split(":")[-1].strip())
+                    elif "Failed:" in line:
+                        failed = int(line.split(":")[-1].strip())
+
+                validation_rate = imported / (imported + failed) * 100 if (imported + failed) > 0 else 0
+
+                print(f"[P2P] GPU selfplay {job_id} CPU validation complete:")
+                print(f"[P2P]   Valid games: {imported}, Invalid: {failed}, Validation rate: {validation_rate:.1f}%")
+
+                # Track validation metrics for diversity reporting
+                if hasattr(self, 'diversity_metrics'):
+                    if "gpu_validation_stats" not in self.diversity_metrics:
+                        self.diversity_metrics["gpu_validation_stats"] = {
+                            "total_generated": 0,
+                            "total_validated": 0,
+                            "total_failed": 0,
+                        }
+                    self.diversity_metrics["gpu_validation_stats"]["total_generated"] += imported + failed
+                    self.diversity_metrics["gpu_validation_stats"]["total_validated"] += imported
+                    self.diversity_metrics["gpu_validation_stats"]["total_failed"] += failed
+
+                # Log warning if validation rate is low
+                if validation_rate < 95:
+                    print(f"[P2P] WARNING: GPU selfplay validation rate {validation_rate:.1f}% is below 95%")
+                    print(f"[P2P]   This indicates potential GPU/CPU rule divergence")
+
+            else:
+                print(f"[P2P] GPU selfplay {job_id} CPU validation failed:")
+                print(f"[P2P]   {stderr.decode()[:500]}")
+
+        except asyncio.TimeoutError:
+            print(f"[P2P] GPU selfplay job {job_id} timed out")
+            with self.jobs_lock:
+                job = self.local_jobs.get(job_id)
+                if job:
+                    job.status = "failed"
+        except Exception as e:
+            print(f"[P2P] GPU selfplay monitor error for {job_id}: {e}")
+            with self.jobs_lock:
+                job = self.local_jobs.get(job_id)
+                if job:
+                    job.status = "failed"
+
     async def _schedule_model_comparison(self, job: TrainingJob, new_model_path: str):
         """Schedule a tournament to compare new model against current baseline.
 
@@ -11390,6 +11510,12 @@ print(json.dumps({{
 
                 print(f"[P2P] Started GPU selfplay job {job_id} (PID {proc.pid}, batch={batch_size})")
                 self._save_state()
+
+                # Monitor GPU selfplay and trigger CPU validation when complete
+                asyncio.create_task(self._monitor_gpu_selfplay_and_validate(
+                    job_id, proc, output_dir, board_type, num_players
+                ))
+
                 return job
 
             elif job_type == JobType.HYBRID_SELFPLAY:
