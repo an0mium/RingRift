@@ -48,6 +48,7 @@ def play_mcts_game(
     mcts_iterations: int = 400,
     seed: int = None,
     max_moves: int = 500,
+    randomness: float = 0.15,
 ) -> Dict[str, Any]:
     """Play a single game with MCTS-only players.
 
@@ -65,13 +66,17 @@ def play_mcts_game(
     state = env.reset(seed=seed)
 
     # Create MCTS AI for each player
+    # Use varied seeds per player and game for diverse training data
     ais = {}
     for p in range(1, num_players + 1):
+        # Derive unique seed per player per game using prime multiplication
+        player_seed = ((seed or 0) * 1_000_003 + p * 97_911) & 0xFFFFFFFF if seed else None
         config = AIConfig(
             difficulty=8,  # High difficulty for strong MCTS play
-            randomness=0.05,  # Small randomness for exploration
+            randomness=randomness,  # Configurable randomness for move diversity
             searchDepth=6,
-            rngSeed=seed + p * 1000 if seed else None,
+            rngSeed=player_seed,
+            use_neural_net=False,  # Pure MCTS without neural evaluation for unbiased games
         )
         ais[p] = MCTSAI(p, config)
         # Configure MCTS iterations
@@ -144,6 +149,7 @@ def run_selfplay(
     output_dir: Path,
     mcts_iterations: int = 400,
     base_seed: int = 42,
+    randomness: float = 0.15,
 ) -> Dict[str, Any]:
     """Run multiple MCTS self-play games and save results."""
 
@@ -170,6 +176,7 @@ def run_selfplay(
                     num_players=num_players,
                     mcts_iterations=mcts_iterations,
                     seed=seed,
+                    randomness=randomness,
                 )
 
                 # Write to file
@@ -229,6 +236,8 @@ def main():
                         help="Run on all board types")
     parser.add_argument("--mcts-iterations", type=int, default=400,
                         help="MCTS iterations per move")
+    parser.add_argument("--randomness", type=float, default=0.15,
+                        help="Randomness factor for move diversity (0.0-1.0, default 0.15)")
     parser.add_argument("--output-dir", type=Path, default=Path("data/games/mcts_balanced"),
                         help="Output directory")
     parser.add_argument("--seed", type=int, default=42, help="Base random seed")
@@ -260,6 +269,7 @@ def main():
             output_dir=args.output_dir,
             mcts_iterations=args.mcts_iterations,
             base_seed=args.seed,
+            randomness=args.randomness,
         )
         all_stats[key] = stats
 
