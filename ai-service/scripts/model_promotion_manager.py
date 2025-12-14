@@ -31,6 +31,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -354,17 +355,23 @@ def sync_to_cluster_ssh(
                 print("[model_promotion] No published alias files found to sync")
             return False
 
-        for host_name, host_config in hosts.items():
+        ready_hosts = [
+            (name, cfg)
+            for name, cfg in hosts.items()
+            if cfg.get("status", "ready") == "ready"
+        ]
+        for host_name, host_config in ready_hosts:
             ssh_host = host_config.get("ssh_host")
+            tailscale_ip = host_config.get("tailscale_ip")
             ssh_user = host_config.get("ssh_user", "root")
             ssh_port = host_config.get("ssh_port", 22)
             ssh_key = host_config.get("ssh_key")
             ringrift_path = host_config.get("ringrift_path", "~/ringrift")
-            status = host_config.get("status", "ready")
-
-            if not ssh_host:
-                continue
-            if status != "ready":
+            host_candidates: List[str] = []
+            for candidate in (tailscale_ip, ssh_host):
+                if candidate and candidate not in host_candidates:
+                    host_candidates.append(str(candidate))
+            if not host_candidates:
                 continue
 
             # Normalize ringrift_path: allow configs that point at .../ai-service.
@@ -373,86 +380,100 @@ def sync_to_cluster_ssh(
                 ringrift_path_str = ringrift_path_str[: -len("/ai-service")]
             remote_models_dir = f"{ringrift_path_str}/ai-service/models"
 
-            # Build SSH command
-            ssh_cmd = ["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes"]
-            if ssh_port != 22:
-                ssh_cmd.extend(["-p", str(ssh_port)])
-            if ssh_key:
-                ssh_cmd.extend(["-i", os.path.expanduser(str(ssh_key))])
-            ssh_cmd.append(f"{ssh_user}@{ssh_host}")
-
-            # Ensure remote dir exists.
-            mkdir_cmd = f"mkdir -p {remote_models_dir}"
-
-            try:
-                mkdir_res = subprocess.run(
-                    ssh_cmd + [mkdir_cmd],
-                    capture_output=True,
-                    timeout=30,
-                    text=True,
-                )
-                if mkdir_res.returncode != 0:
-                    if verbose:
-                        print(f"[model_promotion] Failed to mkdir on {host_name}: {mkdir_res.stderr[:200]}")
-                    continue
-
-                ssh_opts = ["-o", "ConnectTimeout=10", "-o", "BatchMode=yes"]
-                if ssh_port != 22:
-                    ssh_opts.extend(["-p", str(ssh_port)])
-                if ssh_key:
-                    ssh_opts.extend(["-i", os.path.expanduser(str(ssh_key))])
-
-                rsync_cmd = [
-                    "rsync",
-                    "-az",
-                    "--timeout=120",
-                    "-e",
-                    "ssh " + " ".join(ssh_opts),
-                    *[str(p) for p in files],
-                    f"{ssh_user}@{ssh_host}:{remote_models_dir}/",
+            def _build_ssh_base_args() -> List[str]:
+                args = [
+                    "-o", "ConnectTimeout=10",
+                    "-o", "BatchMode=yes",
+                    "-o", "StrictHostKeyChecking=no",
                 ]
-                rsync_res = subprocess.run(
-                    rsync_cmd,
-                    capture_output=True,
-                    timeout=3600,
-                    text=True,
-                )
-                if rsync_res.returncode != 0:
-                    if verbose:
-                        print(f"[model_promotion] rsync failed for {host_name}: {rsync_res.stderr[:200]}")
-                    continue
+                if ssh_port != 22:
+                    args.extend(["-p", str(ssh_port)])
+                if ssh_key:
+                    args.extend(["-i", os.path.expanduser(str(ssh_key))])
+                return args
 
-                if restart_p2p:
-                    # Best-effort restart of the P2P orchestrator (if installed as systemd or launchd).
-                    restart_cmd = (
-                        "if command -v systemctl >/dev/null 2>&1; then "
-                        "sudo systemctl restart ringrift-p2p.service ringrift-resilience.service >/dev/null 2>&1 || true; "
-                        "sudo systemctl restart ringrift-p2p-orchestrator.service >/dev/null 2>&1 || true; "
-                        "fi; "
-                        "if command -v launchctl >/dev/null 2>&1; then "
-                        "launchctl kickstart -k gui/$(id -u)/com.ringrift.p2p-orchestrator >/dev/null 2>&1 || true; "
-                        "launchctl kickstart -k system/com.ringrift.p2p-orchestrator >/dev/null 2>&1 || true; "
-                        "fi"
-                    )
-                    subprocess.run(
-                        ssh_cmd + [restart_cmd],
+            synced = False
+            last_error: Optional[str] = None
+            for candidate_host in host_candidates:
+                ssh_cmd = ["ssh", *_build_ssh_base_args(), f"{ssh_user}@{candidate_host}"]
+                ssh_opts = _build_ssh_base_args()
+
+                method_note = " (via tailscale)" if candidate_host == str(tailscale_ip) else ""
+                mkdir_cmd = f"mkdir -p {remote_models_dir}"
+
+                try:
+                    mkdir_res = subprocess.run(
+                        ssh_cmd + [mkdir_cmd],
                         capture_output=True,
-                        timeout=60,
+                        timeout=45,
                         text=True,
                     )
+                    if mkdir_res.returncode != 0:
+                        last_error = (mkdir_res.stderr or mkdir_res.stdout or "").strip()[:200]
+                        continue
 
-                if verbose:
-                    print(f"[model_promotion] Synced aliases to: {host_name}")
-                success_count += 1
-            except subprocess.TimeoutExpired:
-                if verbose:
-                    print(f"[model_promotion] Timeout syncing {host_name}")
-            except Exception as e:
-                if verbose:
-                    print(f"[model_promotion] Error syncing {host_name}: {e}")
+                    rsync_base = [
+                        "rsync",
+                        "-az",
+                        "--timeout=600",
+                        "--partial",
+                        "--delay-updates",
+                        "-e",
+                        "ssh " + " ".join(ssh_opts),
+                    ]
+
+                    for attempt in range(2):
+                        rsync_cmd = [
+                            *rsync_base,
+                            *[str(p) for p in files],
+                            f"{ssh_user}@{candidate_host}:{remote_models_dir}/",
+                        ]
+                        rsync_res = subprocess.run(
+                            rsync_cmd,
+                            capture_output=True,
+                            timeout=7200,
+                            text=True,
+                        )
+                        if rsync_res.returncode == 0:
+                            synced = True
+                            break
+                        last_error = (rsync_res.stderr or rsync_res.stdout or "").strip()[:200]
+                        # Brief backoff for transient network resets.
+                        time.sleep(2.0)
+
+                    if synced:
+                        if restart_p2p:
+                            restart_cmd = (
+                                "if command -v systemctl >/dev/null 2>&1; then "
+                                "sudo systemctl restart ringrift-p2p.service ringrift-resilience.service >/dev/null 2>&1 || true; "
+                                "sudo systemctl restart ringrift-p2p-orchestrator.service >/dev/null 2>&1 || true; "
+                                "fi; "
+                                "if command -v launchctl >/dev/null 2>&1; then "
+                                "launchctl kickstart -k gui/$(id -u)/com.ringrift.p2p-orchestrator >/dev/null 2>&1 || true; "
+                                "launchctl kickstart -k system/com.ringrift.p2p-orchestrator >/dev/null 2>&1 || true; "
+                                "fi"
+                            )
+                            subprocess.run(
+                                ssh_cmd + [restart_cmd],
+                                capture_output=True,
+                                timeout=90,
+                                text=True,
+                            )
+
+                        if verbose:
+                            print(f"[model_promotion] Synced aliases to: {host_name}{method_note}")
+                        success_count += 1
+                        break
+                except subprocess.TimeoutExpired:
+                    last_error = "timeout"
+                except Exception as e:
+                    last_error = f"{type(e).__name__}: {e}"
+
+            if not synced and verbose and last_error:
+                print(f"[model_promotion] Failed to sync {host_name}: {last_error}")
 
         if verbose:
-            print(f"[model_promotion] Cluster sync complete: {success_count}/{len(hosts)} hosts")
+            print(f"[model_promotion] Cluster sync complete: {success_count}/{len(ready_hosts)} ready hosts")
         return success_count > 0
     except Exception as e:
         if verbose:

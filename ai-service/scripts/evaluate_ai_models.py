@@ -480,7 +480,7 @@ def play_single_game(
     ai_p1: BaseAI,
     ai_p2: BaseAI,
     env: Any,
-    max_moves: int = 200,
+    max_moves: int = 10000,
     p1_type: str = "",
     p2_type: str = "",
     verbose: bool = False,
