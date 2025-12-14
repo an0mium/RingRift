@@ -221,15 +221,14 @@ def _process_gpu_selfplay_record(
     List[str],         # phases
     int,               # positions_extracted
 ]:
-    """Process a GPU selfplay record without FSM validation.
+    """Process a GPU selfplay record with proper policy extraction.
 
     GPU selfplay uses bulk ring placement (all P1 rings first, then P2) which
-    doesn't match canonical FSM turn alternation. Instead of replaying, we
-    extract features from the initial state only and use the winner field
-    directly for value targets.
+    doesn't match canonical FSM turn alternation. We replay through the game
+    using _complete_remaining_phases to handle phase transitions, and extract
+    proper policy targets from the moves that were actually played.
 
-    This is a simplified extraction that produces training samples from the
-    initial game state only, suitable for neural network training.
+    This produces training samples with both value AND policy targets.
     """
     features_list: List[np.ndarray] = []
     globals_list: List[np.ndarray] = []
@@ -244,11 +243,11 @@ def _process_gpu_selfplay_record(
 
     # Extract data from record
     initial_state_dict = record.get("initial_state")
+    moves_list = record.get("moves", [])
     winner = record.get("winner", 0)
     num_players = record.get("num_players", 2)
-    move_count = record.get("move_count", 0)
 
-    if not initial_state_dict:
+    if not initial_state_dict or not moves_list:
         return (features_list, globals_list, values_list, values_mp_list,
                 num_players_list, policy_indices_list, policy_values_list,
                 move_numbers_list, total_game_moves_list, phases_list, 0)
@@ -256,51 +255,97 @@ def _process_gpu_selfplay_record(
     # Parse initial state
     initial_state = deserialize_game_state(initial_state_dict)
 
+    # Parse moves
+    moves = [parse_move(m) for m in moves_list]
+    total_moves = len(moves)
+
     # Compute value targets from winner field directly
     values_vec = np.array(
         _compute_multi_player_values_from_winner(winner, num_players),
         dtype=np.float32,
     )
 
-    # Extract features from initial state only
-    # This gives us one sample per game with the starting position
+    # Replay game and extract features with proper policy targets
+    current_state = initial_state
     history_frames: List[np.ndarray] = []
+    positions_extracted = 0
 
-    stacked, globals_vec = encode_state_with_history(
-        encoder, initial_state, history_frames, history_length
-    )
+    for move_idx, move in enumerate(moves):
+        # Sample every N moves
+        if sample_every > 1 and (move_idx % sample_every) != 0:
+            # Still need to apply move and update history
+            try:
+                base_features, _ = encoder._extract_features(current_state)
+                history_frames.append(base_features)
+                if len(history_frames) > history_length + 1:
+                    history_frames.pop(0)
+                # Complete phase transitions before applying recorded move
+                current_state = _complete_remaining_phases(current_state, move.player)
+                current_state = GameEngine.apply_move(current_state, move)
+            except Exception:
+                break  # Stop on error
+            continue
 
-    # Value from perspective of player 1 (initial player)
-    value = _value_from_winner(winner, 1, num_players)
+        try:
+            # Complete phase transitions to get to the right player/phase
+            current_state = _complete_remaining_phases(current_state, move.player)
 
-    # Phase string
-    phase_str = (
-        str(initial_state.current_phase.value)
-        if hasattr(initial_state.current_phase, "value")
-        else str(initial_state.current_phase)
-    )
+            # Encode state with history BEFORE applying the move
+            stacked, globals_vec = encode_state_with_history(
+                encoder, current_state, history_frames, history_length
+            )
 
-    # For policy, use a dummy "no action" index since we don't have
-    # the move that was actually played from initial state
-    # The training will focus on value prediction for GPU selfplay data
-    dummy_policy_idx = np.array([0], dtype=np.int32)
-    dummy_policy_val = np.array([1.0], dtype=np.float32)
+            # Encode the actual move as the policy target
+            action_idx = encoder.encode_move(move, current_state.board)
+            if action_idx == INVALID_MOVE_INDEX:
+                # Skip invalid moves but still apply to continue
+                base_features, _ = encoder._extract_features(current_state)
+                history_frames.append(base_features)
+                if len(history_frames) > history_length + 1:
+                    history_frames.pop(0)
+                current_state = GameEngine.apply_move(current_state, move)
+                continue
 
-    # Store sample
-    features_list.append(stacked)
-    globals_list.append(globals_vec)
-    values_list.append(float(value))
-    values_mp_list.append(values_vec.copy())
-    num_players_list.append(num_players)
-    policy_indices_list.append(dummy_policy_idx)
-    policy_values_list.append(dummy_policy_val)
-    move_numbers_list.append(0)
-    total_game_moves_list.append(move_count)
-    phases_list.append(phase_str)
+            # Value from perspective of current player
+            value = _value_from_winner(winner, current_state.current_player, num_players)
+
+            # Phase string
+            phase_str = (
+                str(current_state.current_phase.value)
+                if hasattr(current_state.current_phase, "value")
+                else str(current_state.current_phase)
+            )
+
+            # Store sample with proper policy target
+            features_list.append(stacked)
+            globals_list.append(globals_vec)
+            values_list.append(float(value))
+            values_mp_list.append(values_vec.copy())
+            num_players_list.append(num_players)
+            policy_indices_list.append(np.array([action_idx], dtype=np.int32))
+            policy_values_list.append(np.array([1.0], dtype=np.float32))
+            move_numbers_list.append(move_idx)
+            total_game_moves_list.append(total_moves)
+            phases_list.append(phase_str)
+
+            positions_extracted += 1
+
+            # Update history
+            base_features, _ = encoder._extract_features(current_state)
+            history_frames.append(base_features)
+            if len(history_frames) > history_length + 1:
+                history_frames.pop(0)
+
+            # Apply move for next iteration
+            current_state = GameEngine.apply_move(current_state, move)
+
+        except Exception:
+            # Stop on error - state may be desynced
+            break
 
     return (features_list, globals_list, values_list, values_mp_list,
             num_players_list, policy_indices_list, policy_values_list,
-            move_numbers_list, total_game_moves_list, phases_list, 1)
+            move_numbers_list, total_game_moves_list, phases_list, positions_extracted)
 
 
 def _move_type_from_str(type_str: str) -> Optional[MoveType]:

@@ -1036,7 +1036,7 @@ export const SandboxGameHost: React.FC = () => {
     };
 
     setConfig(snapshot);
-    startLocalSandboxGame(snapshot);
+    void startSandboxGame(snapshot);
   };
 
   const presetHandledRef = useRef<string | null>(null);

@@ -61,6 +61,7 @@ jest.mock('react-router-dom', () => ({
   // Reuse actual exports where possible, but override useNavigate
   ...jest.requireActual('react-router-dom'),
   useNavigate: () => mockNavigate,
+  useSearchParams: () => [new URLSearchParams(), jest.fn()],
 }));
 
 jest.mock('@/client/contexts/AuthContext', () => ({
