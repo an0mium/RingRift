@@ -36,8 +36,16 @@ const ConceptToPhrases: Partial<Record<ScenarioRulesConcept, readonly string[]>>
   // left without mandatory snippets here; they are covered by more general UX checks.
 };
 
+function escapeForRegex(snippet: string): string {
+  return snippet.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function toCaseInsensitiveRegex(snippet: string): RegExp {
-  return new RegExp(snippet, 'i');
+  try {
+    return new RegExp(snippet, 'i');
+  } catch {
+    return new RegExp(escapeForRegex(snippet), 'i');
+  }
 }
 
 function getScenarioText(scenario: LoadableScenario): string {
