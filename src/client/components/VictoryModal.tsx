@@ -22,6 +22,7 @@ import {
 } from '../../shared/engine/weirdStateReasons';
 import { logRulesUxEvent, newOverlaySessionId } from '../utils/rulesUxTelemetry';
 import type { GameEndExplanation } from '../../shared/engine/gameEndExplanation';
+import { PLAYER_COLOR_PALETTES } from '../contexts/AccessibilityContext';
 
 /**
  * Status of a pending rematch request.
@@ -230,8 +231,9 @@ function GameSummary({ summary }: { summary: VictoryViewModel['gameSummary'] }) 
  * Get player color based on player number
  */
 function getPlayerColor(playerNumber: number): string {
-  const colors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b']; // blue, red, green, amber
-  return colors[(playerNumber - 1) % colors.length];
+  const colors = PLAYER_COLOR_PALETTES.normal; // emerald, sky, amber, fuchsia
+  const safePlayerNumber = Number.isFinite(playerNumber) ? Math.max(1, playerNumber) : 1;
+  return colors[(safePlayerNumber - 1) % colors.length];
 }
 
 /**

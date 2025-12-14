@@ -142,6 +142,8 @@ def run_export(
         "--output",
         str(output_path),
     ]
+    if append:
+        argv.append("--append")
     if board_type in {"square8", "square19"} and not legacy_maxn_encoding:
         argv.append("--board-aware-encoding")
 

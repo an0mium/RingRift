@@ -576,10 +576,11 @@ def _build_mixed_ai_pool(
             cfg = AIConfig(
                 difficulty=2,
                 think_time=soak_think_time_ms,
-                randomness=0.05,
+                randomness=0.15,  # Increased for training diversity
                 rngSeed=(base_seed or 0) + pnum + game_index,
                 heuristic_eval_mode=heuristic_eval_mode,
                 heuristic_profile_id=custom_profile_id,  # Use custom weights if provided
+                weight_noise=0.1,  # 10% weight noise for evaluation diversity
             )
             ai_by_player[pnum] = HeuristicAI(pnum, cfg)
             ai_metadata[f"player_{pnum}_ai_type"] = "heuristic"
@@ -771,12 +772,30 @@ def _build_mixed_ai_pool(
         # to avoid crashes during lazy NeuralNetAI initialization.
         use_neural_net = bool(profile.get("use_neural_net", False))
         if use_neural_net:
-            nn_model_id = _resolve_default_nn_model_id(
+            best_model_id = _resolve_default_nn_model_id(
                 board_type,
                 len(player_numbers),
             )
-            if nn_model_id is None:
+            if best_model_id is None:
                 use_neural_net = False
+                nn_model_id = None
+            else:
+                nn_model_id = best_model_id
+                pool_size = int(nn_pool_size or 0)
+                if pool_size > 0 or nn_pool_dir:
+                    pool_ids = _scan_recent_nn_pool_model_ids(
+                        board_type=board_type,
+                        num_players=len(player_numbers),
+                        pool_dir=nn_pool_dir,
+                        pool_size=pool_size,
+                        exclude_ids={best_model_id},
+                    )
+                    candidates = [best_model_id] + list(pool_ids)
+                    # Use the per-game RNG so selection is deterministic for a given seed.
+                    nn_model_id = game_rng.choice(candidates) if candidates else best_model_id
+
+        # Apply weight noise for heuristic AIs to increase training diversity
+        weight_noise = 0.1 if ai_type == AIType.HEURISTIC else 0.0
 
         cfg = AIConfig(
             difficulty=difficulty,
@@ -788,6 +807,7 @@ def _build_mixed_ai_pool(
             heuristic_eval_mode=heuristic_eval_mode,
             use_neural_net=use_neural_net,
             allow_fresh_weights=False,
+            weight_noise=weight_noise,
         )
         ai = _create_ai_instance(ai_type, pnum, cfg)
         ai_by_player[pnum] = ai
@@ -797,6 +817,8 @@ def _build_mixed_ai_pool(
         ai_metadata[f"player_{pnum}_difficulty"] = difficulty
         if heuristic_profile_id:
             ai_metadata[f"player_{pnum}_profile_id"] = heuristic_profile_id
+        if nn_model_id:
+            ai_metadata[f"player_{pnum}_nn_model_id"] = nn_model_id
 
     return ai_by_player, ai_metadata
 
@@ -2528,8 +2550,10 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help=(
-            "When engine_mode='best-vs-pool', include up to N recent NN checkpoints "
-            "as opponents (excluding the chosen best model). Default: 0 (best vs best)."
+            "Include up to N recent NN checkpoints (excluding the chosen best model) "
+            "as alternative nn_model_id choices. In 'best-vs-pool' mode this controls "
+            "the opponent pool; in 'mixed' mode this diversifies neural tiers. "
+            "Default: 0 (only the best alias)."
         ),
     )
     parser.add_argument(
@@ -2537,7 +2561,7 @@ def _parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help=(
-            "When engine_mode='best-vs-pool', scan this directory for *.pth checkpoints "
+            "Directory to scan for *.pth checkpoints to populate the NN pool "
             "(defaults to ai-service/models/ when unset)."
         ),
     )

@@ -551,6 +551,18 @@ class AIConfig(BaseModel):
             "callers can fall back to heuristic evaluation."
         ),
     )
+    weight_noise: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "When set (0.0-1.0), HeuristicAI applies multiplicative noise to "
+            "evaluation weights for training diversity. Each WEIGHT_* constant "
+            "is multiplied by a factor in [1-noise, 1+noise]. For example, "
+            "weight_noise=0.1 means ±10% variation. Uses the AI's per-instance "
+            "RNG for reproducibility."
+        ),
+    )
 
     # ------------------------------------------------------------------
     # Self-play exploration knobs (internal only).

@@ -70,8 +70,8 @@ export default function HomePage() {
           </p>
         </Link>
 
-        <a
-          href="/sandbox"
+        <Link
+          to="/sandbox"
           className="group rounded-2xl border border-slate-800 bg-slate-950/60 px-5 py-6 hover:border-fuchsia-500/60 hover:bg-slate-950 transition-colors"
         >
           <h2 className="text-lg font-semibold text-slate-100">Rules & Diagnostics</h2>
@@ -83,7 +83,7 @@ export default function HomePage() {
             See <code className="font-mono">tests/scenarios</code> and &nbsp;
             <code className="font-mono">tests/unit</code> for the full matrix.
           </p>
-        </a>
+        </Link>
       </section>
 
       {/* Backend quick links */}

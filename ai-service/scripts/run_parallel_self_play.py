@@ -101,6 +101,7 @@ def create_ai_instance(
             randomness=0.1,  # Prevent infinite loops from deterministic ties
             think_time=1000,
             rngSeed=seed,
+            weight_noise=0.1,  # 10% weight noise for training diversity
         )
         return HeuristicAI(player_number, config)
     elif ai_type == "mcts":

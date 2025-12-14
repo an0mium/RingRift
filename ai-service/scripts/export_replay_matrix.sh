@@ -65,6 +65,7 @@ for board in "${BOARD_TYPES[@]}"; do
       --board-type "${board}"
       --num-players "${players}"
       --output "${output_path}"
+      --append
       --history-length "${HISTORY_LENGTH}"
       --sample-every "${SAMPLE_EVERY}"
     )
@@ -78,4 +79,3 @@ for board in "${BOARD_TYPES[@]}"; do
 done
 
 echo "Replay dataset export complete."
-

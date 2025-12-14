@@ -52,6 +52,8 @@ import argparse
 import json
 import logging
 import os
+import sys
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -293,6 +295,7 @@ def export_replay_dataset(
     parity_fixtures_dir: Optional[str] = None,
     exclude_recovery: bool = False,
     use_board_aware_encoding: bool = False,
+    append: bool = False,
 ) -> None:
     """
     Export training samples from a single GameReplayDB into an NPZ dataset.
@@ -313,6 +316,8 @@ def export_replay_dataset(
         use_board_aware_encoding: If True, use board-specific policy encoding
             (e.g., 7000 actions for square8). If False, use legacy MAX_N=19
             encoding (~55000 actions). Default: False for backward compat.
+        append: If True, append to an existing output NPZ (legacy behavior).
+            If False (default), archive any existing output and rebuild from scratch.
     """
     db = GameReplayDB(db_path)
     encoder = build_encoder(board_type)
@@ -581,9 +586,18 @@ def export_replay_dataset(
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
-    # Append to existing dataset if present, mirroring generate_data.py.
+    # Default is to rebuild from scratch. Use --append (or append=True) to
+    # preserve the legacy "concatenate into one NPZ" semantics.
     write_mp = True
-    if os.path.exists(output_path):
+    if os.path.exists(output_path) and not append:
+        archived = f"{output_path}.archived_{time.strftime('%Y%m%d_%H%M%S')}"
+        try:
+            os.rename(output_path, archived)
+            print(f"[export] archived existing output -> {archived}", file=sys.stderr)
+        except OSError as exc:
+            print(f"[export] Warning: failed to archive {output_path}: {exc}", file=sys.stderr)
+
+    if os.path.exists(output_path) and append:
         try:
             with np.load(output_path, allow_pickle=True) as data:
                 if "features" in data:
@@ -700,6 +714,14 @@ def _parse_args(argv: List[str] | None = None) -> argparse.Namespace:
         help="Path to output .npz dataset.",
     )
     parser.add_argument(
+        "--append",
+        action="store_true",
+        help=(
+            "Append to an existing output NPZ if present (legacy behavior). "
+            "Default is to archive any existing output and rebuild from scratch."
+        ),
+    )
+    parser.add_argument(
         "--history-length",
         type=int,
         default=3,
@@ -795,6 +817,7 @@ def main(argv: List[str] | None = None) -> int:
         parity_fixtures_dir=args.parity_fixtures_dir,
         exclude_recovery=args.exclude_recovery,
         use_board_aware_encoding=args.board_aware_encoding,
+        append=bool(args.append),
     )
     return 0
 

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { authApi, gameApi, userApi } from '../services/api';
 import { User } from '../../shared/types/user';
@@ -213,12 +214,12 @@ export default function ProfilePage() {
                     {new Date(game.createdAt).toLocaleDateString()}
                   </div>
                 </div>
-                <a
-                  href={`/game/${game.id}`}
+                <Link
+                  to={`/game/${game.id}`}
                   className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-medium rounded transition-colors"
                 >
                   View Game
-                </a>
+                </Link>
               </div>
             );
           })}

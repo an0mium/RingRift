@@ -1,5 +1,5 @@
 import React from 'react';
-import { renderToString } from 'react-dom/server';
+import { renderToString } from 'react-dom/server.node';
 import { GameEventLog } from '../../src/client/components/GameEventLog';
 import {
   GameHistoryEntry,
@@ -15,7 +15,9 @@ function pos(x: number, y: number, z?: number): Position {
   return z === undefined ? { x, y } : { x, y, z };
 }
 
-function createHistoryEntry(overrides: Partial<GameHistoryEntry> & { action: Move }): GameHistoryEntry {
+function createHistoryEntry(
+  overrides: Partial<GameHistoryEntry> & { action: Move }
+): GameHistoryEntry {
   const progress: ProgressSnapshot = { markers: 0, collapsed: 0, eliminated: 0, S: 0 };
   const now = new Date();
 
@@ -66,9 +68,7 @@ describe('GameEventLog snapshot', () => {
         type: 'process_territory_region',
         player: 1,
         to: pos(0, 0),
-        eliminatedRings: [
-          { player: 2, count: 2 },
-        ],
+        eliminatedRings: [{ player: 2, count: 2 }],
         timestamp: new Date(),
         thinkTime: 50,
         moveNumber: 3,

@@ -705,6 +705,10 @@ class GPUHeuristicEvaluator:
     ) -> torch.Tensor:
         """Evaluate batch of positions for a player using heuristics.
 
+        Uses symmetric (zero-sum) evaluation: each feature is computed as
+        (my_value - max_opponent_value) so that the sum across all players
+        is approximately zero. This prevents P1/P2 bias in self-play.
+
         Args:
             board_states: GPUBoardState with batch of positions
             player_number: Player to evaluate for (1-4)
@@ -727,19 +731,43 @@ class GPUHeuristicEvaluator:
         stack_2d = board_states.stack_owner.view(batch_size, self.board_size, self.board_size)
         center_control = ((stack_2d == player_number).float() * self.center_mask).sum(dim=(1, 2))
 
-        # Compute final score
+        # Compute max opponent values for symmetric evaluation
+        max_opp_territory = torch.zeros(batch_size, device=board_states.stack_owner.device)
+        max_opp_rings = torch.zeros(batch_size, device=board_states.stack_owner.device)
+        max_opp_center = torch.zeros(batch_size, device=board_states.stack_owner.device)
+
+        for opp in range(1, self.num_players + 1):
+            if opp == player_number:
+                continue
+            opp_territory = board_states.territory_count[:, opp].float()
+            opp_rings = board_states.rings_in_hand[:, opp].float()
+            opp_center = ((stack_2d == opp).float() * self.center_mask).sum(dim=(1, 2))
+
+            max_opp_territory = torch.maximum(max_opp_territory, opp_territory)
+            max_opp_rings = torch.maximum(max_opp_rings, opp_rings)
+            max_opp_center = torch.maximum(max_opp_center, opp_center)
+
+        # Compute final score using symmetric (relative) features
         w = self.weights
         scores = (
             (my_stacks - opp_stacks) * w["stack_count"]
-            + my_rings * w["ring_count"]
-            + my_territory * w["territory_count"]
-            + center_control * w["center_control"]
+            + (my_rings - max_opp_rings) * w["ring_count"]
+            + (my_territory - max_opp_territory) * w["territory_count"]
+            + (center_control - max_opp_center) * w["center_control"]
         )
 
-        # No stacks penalty
+        # No stacks penalty (apply to both player and check opponent situation)
+        my_no_stacks = my_stacks == 0
+        opp_no_stacks = opp_stacks == 0
         scores = torch.where(
-            my_stacks == 0,
+            my_no_stacks & ~opp_no_stacks,  # Only penalize if I have none but opponent does
             scores + w["no_stacks_penalty"],
+            scores,
+        )
+        # Bonus if opponent has no stacks but I do
+        scores = torch.where(
+            ~my_no_stacks & opp_no_stacks,
+            scores - w["no_stacks_penalty"],  # Subtract penalty = add bonus
             scores,
         )
 

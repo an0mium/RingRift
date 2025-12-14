@@ -429,6 +429,7 @@ class GPUSelfPlayGenerator:
         lps_victory_rounds: int = 3,
         rings_per_player: Optional[int] = None,
         board_type: Optional[str] = None,
+        use_heuristic_selection: bool = False,
     ):
         self.board_size = board_size
         self.num_players = num_players
@@ -484,6 +485,7 @@ class GPUSelfPlayGenerator:
             lps_victory_rounds=lps_victory_rounds,
             rings_per_player=rings_per_player,
             board_type=board_type,
+            use_heuristic_selection=use_heuristic_selection,
         )
 
         # Log shadow validation status
@@ -737,6 +739,7 @@ def run_gpu_selfplay(
     lps_victory_rounds: int = 3,
     rings_per_player: Optional[int] = None,
     output_db: Optional[str] = None,
+    use_heuristic_selection: bool = False,
 ) -> Dict[str, Any]:
     """Run GPU-accelerated self-play generation.
 
@@ -756,6 +759,7 @@ def run_gpu_selfplay(
         lps_victory_rounds: LPS victory threshold (default 3)
         rings_per_player: Starting rings per player (None = board default)
         output_db: Optional path to SQLite DB for canonical game storage
+        use_heuristic_selection: Use heuristic-based move selection instead of center-bias random
 
     Returns:
         Statistics dict
@@ -789,6 +793,7 @@ def run_gpu_selfplay(
     if shadow_validation:
         logger.info(f"  Sample rate: {shadow_sample_rate:.1%}")
         logger.info(f"  Threshold: {shadow_threshold:.2%}")
+    logger.info(f"Move selection: {'heuristic-based' if use_heuristic_selection else 'center-bias random'}")
     logger.info(f"Output: {output_dir}")
     logger.info("")
 
@@ -806,6 +811,7 @@ def run_gpu_selfplay(
         lps_victory_rounds=lps_victory_rounds,
         rings_per_player=rings_per_player,
         board_type=board_type,
+        use_heuristic_selection=use_heuristic_selection,
     )
 
     # Generate games
@@ -959,6 +965,13 @@ def main():
         help="Starting rings per player (default: board default - 18/72/96)",
     )
 
+    # Move selection mode
+    parser.add_argument(
+        "--use-heuristic",
+        action="store_true",
+        help="Use heuristic-based move selection (center distance, capture value, line potential) instead of center-bias random",
+    )
+
     args = parser.parse_args()
 
     if args.benchmark_only:
@@ -1001,6 +1014,7 @@ def main():
         lps_victory_rounds=args.lps_victory_rounds,
         rings_per_player=args.rings_per_player,
         output_db=args.output_db,
+        use_heuristic_selection=args.use_heuristic,
     )
 
 

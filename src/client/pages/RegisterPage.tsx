@@ -1,6 +1,8 @@
 import React, { useState, FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { Input } from '../components/ui/Input';
+import { Button } from '../components/ui/Button';
 import { extractErrorMessage } from '../utils/errorReporting';
 
 export default function RegisterPage() {
@@ -75,13 +77,12 @@ export default function RegisterPage() {
             <label htmlFor="email" className="block text-sm font-medium text-slate-100">
               Email
             </label>
-            <input
+            <Input
               id="email"
               type="email"
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
               placeholder="you@example.com"
             />
           </div>
@@ -90,13 +91,12 @@ export default function RegisterPage() {
             <label htmlFor="username" className="block text-sm font-medium text-slate-100">
               Username
             </label>
-            <input
+            <Input
               id="username"
               type="text"
               autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
               placeholder="ringrift-player"
             />
           </div>
@@ -105,13 +105,12 @@ export default function RegisterPage() {
             <label htmlFor="password" className="block text-sm font-medium text-slate-100">
               Password
             </label>
-            <input
+            <Input
               id="password"
               type="password"
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
               placeholder="••••••••"
             />
           </div>
@@ -120,13 +119,12 @@ export default function RegisterPage() {
             <label htmlFor="confirmPassword" className="block text-sm font-medium text-slate-100">
               Confirm password
             </label>
-            <input
+            <Input
               id="confirmPassword"
               type="password"
               autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
               placeholder="••••••••"
             />
           </div>
@@ -137,13 +135,9 @@ export default function RegisterPage() {
             </div>
           )}
 
-          <button
-            type="submit"
-            className="w-full inline-flex items-center justify-center px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm font-semibold text-white disabled:opacity-60 disabled:cursor-not-allowed"
-            disabled={isSubmitting}
-          >
+          <Button type="submit" fullWidth disabled={isSubmitting}>
             {isSubmitting ? 'Creating account…' : 'Create account'}
-          </button>
+          </Button>
 
           <p className="text-xs text-slate-400">
             Already have an account?{' '}

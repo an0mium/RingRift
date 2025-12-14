@@ -507,6 +507,7 @@ def run_selfplay(
             record_db_path.rename(archived)
             print(f"[selfplay] archived existing staging DB -> {archived}", file=sys.stderr)
 
+    engine_mode = str(config.get("selfplay_engine_mode", "mixed"))
     cmd = [
         sys.executable,
         "scripts/run_self_play_soak.py",
@@ -515,7 +516,7 @@ def run_selfplay(
         "--board-type",
         board,
         "--engine-mode",
-        "mixed",
+        engine_mode,
         "--difficulty-band",
         str(config.get("selfplay_difficulty_band", "canonical")),
         "--num-players",
@@ -529,6 +530,12 @@ def run_selfplay(
         "--log-jsonl",
         str(log_file),
     ]
+    nn_pool_size = int(config.get("selfplay_nn_pool_size", 0) or 0)
+    nn_pool_dir = config.get("selfplay_nn_pool_dir")
+    if nn_pool_size > 0:
+        cmd += ["--nn-pool-size", str(nn_pool_size)]
+    if nn_pool_dir:
+        cmd += ["--nn-pool-dir", str(nn_pool_dir)]
 
     print(f"Running selfplay: {games} games on {board} {players}p...")
     code, _, stderr = run_command(cmd, dry_run=dry_run, timeout=3600, cwd=AI_SERVICE_ROOT)
@@ -1723,6 +1730,45 @@ def main():
         ),
     )
     parser.add_argument(
+        "--selfplay-engine-mode",
+        type=str,
+        default="mixed",
+        choices=[
+            "descent-only",
+            "mixed",
+            "random-only",
+            "heuristic-only",
+            "minimax-only",
+            "mcts-only",
+            "nn-only",
+            "best-vs-pool",
+        ],
+        help=(
+            "Self-play engine selection strategy forwarded to scripts/run_self_play_soak.py "
+            "(default: mixed). Use 'best-vs-pool' for best-vs-recent-checkpoint "
+            "self-play (with seat rotation for 3–4p)."
+        ),
+    )
+    parser.add_argument(
+        "--selfplay-nn-pool-size",
+        type=int,
+        default=0,
+        help=(
+            "When set, diversify neural tiers by sampling from up to N recent "
+            "NN checkpoints (excluding the best alias). "
+            "(default: 0)"
+        ),
+    )
+    parser.add_argument(
+        "--selfplay-nn-pool-dir",
+        type=str,
+        default=None,
+        help=(
+            "Optional directory to scan for NN checkpoints to populate the pool "
+            "(defaults to ai-service/models/ when unset)."
+        ),
+    )
+    parser.add_argument(
         "--dataset-policy-target",
         type=str,
         choices=["played", "mcts_visits", "descent_softmax"],
@@ -1878,6 +1924,9 @@ def main():
         "sync_staging_fail_on_missing": bool(args.sync_staging_fail_on_missing),
         "eval_games": args.eval_games,
         "selfplay_difficulty_band": args.selfplay_difficulty_band,
+        "selfplay_engine_mode": args.selfplay_engine_mode,
+        "selfplay_nn_pool_size": int(args.selfplay_nn_pool_size),
+        "selfplay_nn_pool_dir": args.selfplay_nn_pool_dir,
         "dataset_policy_target": args.dataset_policy_target,
         "dataset_max_games": args.dataset_max_games,
         "legacy_maxn_encoding": bool(args.legacy_maxn_encoding),
@@ -1940,6 +1989,10 @@ def main():
     print(f"Iterations: {start_iter + 1} to {args.iterations}")
     print(f"Games per iteration: {args.games_per_iter}")
     print(f"Self-play difficulty band: {args.selfplay_difficulty_band}")
+    print(f"Self-play engine mode: {args.selfplay_engine_mode}")
+    if int(args.selfplay_nn_pool_size or 0) > 0:
+        pool_dir = args.selfplay_nn_pool_dir or "(default)"
+        print(f"Self-play NN pool: size={int(args.selfplay_nn_pool_size)} dir={pool_dir}")
     print(f"Eval games per iteration: {args.eval_games}")
     print(f"Promotion threshold: {args.promotion_threshold:.0%}")
     print(f"Promotion confidence: {args.promotion_confidence:.0%}")

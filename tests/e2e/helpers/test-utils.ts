@@ -443,9 +443,9 @@ export async function goToLobby(page: Page): Promise<void> {
  */
 export async function goToSandbox(page: Page): Promise<void> {
   await page.goto('/sandbox');
-  await expect(
-    page.getByRole('heading', { name: /Start a RingRift Game \(Local Sandbox\)/i })
-  ).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('heading', { name: /Start a Game \(Sandbox\)/i })).toBeVisible({
+    timeout: 10_000,
+  });
 }
 
 /**

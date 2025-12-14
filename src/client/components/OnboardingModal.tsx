@@ -364,7 +364,7 @@ export function OnboardingModal({ isOpen, onClose, onStartTutorial }: Onboarding
   return (
     <div
       ref={dialogRef}
-      className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify	center z-50 backdrop-blur-sm"
+      className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="onboarding-title"

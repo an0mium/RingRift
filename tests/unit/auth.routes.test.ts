@@ -10,6 +10,42 @@ import { logger } from '../../src/server/utils/logger';
 
 // --- Mocks --------------------------------------------------------------
 
+// Isolate logger side effects for route tests; the real Winston logger can be
+// mocked by other suites (and can introduce nondeterministic behavior when run
+// in-band). This stub preserves the `logger.*` + `httpLogger.*` surface used by
+// auth routes and the global error handler.
+jest.mock('../../src/server/utils/logger', () => {
+  const logger = {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  };
+
+  const withRequestContext = (_req: unknown, meta: Record<string, unknown> = {}) => meta;
+
+  const httpLogger = {
+    info: (req: unknown, message: string, meta?: Record<string, unknown>) =>
+      logger.info(message, withRequestContext(req, meta)),
+    warn: (req: unknown, message: string, meta?: Record<string, unknown>) =>
+      logger.warn(message, withRequestContext(req, meta)),
+    error: (req: unknown, message: string, meta?: Record<string, unknown>) =>
+      logger.error(message, withRequestContext(req, meta)),
+    debug: (req: unknown, message: string, meta?: Record<string, unknown>) =>
+      logger.debug(message, withRequestContext(req, meta)),
+  };
+
+  return {
+    logger,
+    httpLogger,
+    withRequestContext,
+    redactEmail: (email: string | null | undefined) => email ?? undefined,
+    maskSensitiveData: (obj: unknown) => obj,
+    maskHeaders: (headers: Record<string, string | string[] | undefined>) => headers,
+    stream: { write: jest.fn() },
+  };
+});
+
 // Stub out rate limiting so tests don't depend on Redis or global state.
 jest.mock('../../src/server/middleware/rateLimiter', () => ({
   authRateLimiter: (_req: any, _res: any, next: any) => next(),
@@ -100,7 +136,16 @@ describe('Auth HTTP routes', () => {
     } as any);
 
     // Reset authenticate to the default stub from the jest.mock factory.
-    mockedAuth.authenticate.mockClear();
+    mockedAuth.authenticate.mockReset();
+    mockedAuth.authenticate.mockImplementation((req: any, _res: any, next: any) => {
+      req.user = {
+        id: 'auth-user-1',
+        email: 'auth@example.com',
+        username: 'auth-user',
+        role: 'USER',
+      };
+      next();
+    });
   });
 
   describe('POST /api/auth/register', () => {
@@ -109,6 +154,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/register')
+        .type('json')
         .send({
           email: 'user1@example.com',
           username: 'user1',
@@ -147,6 +193,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/register')
+        .type('json')
         .send({
           email: 'user1@example.com',
           username: 'user1',
@@ -175,6 +222,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/register')
+        .type('json')
         .send({
           email: 'user1@example.com',
           username: 'user1',
@@ -192,6 +240,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/register')
+        .type('json')
         .send({
           email: 'user1@example.com',
           username: 'user1',
@@ -214,6 +263,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/login')
+        .type('json')
         .send({ email: 'missing@example.com', password: 'Secret123' })
         .expect(401);
 
@@ -237,6 +287,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/login')
+        .type('json')
         .send({ email: 'user1@example.com', password: 'Secret123' })
         .expect(401);
 
@@ -259,6 +310,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/login')
+        .type('json')
         .send({ email: 'user1@example.com', password: 'Wrong123' })
         .expect(401);
 
@@ -282,6 +334,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/login')
+        .type('json')
         .send({ email: 'user1@example.com', password: 'Secret123' })
         .expect(200);
 
@@ -305,6 +358,7 @@ describe('Auth HTTP routes', () => {
       for (let i = 0; i < maxAttempts; i++) {
         const res = await request(app)
           .post('/api/auth/login')
+          .type('json')
           .send({ email, password: 'Wrong123' })
           .expect(401);
 
@@ -313,6 +367,7 @@ describe('Auth HTTP routes', () => {
 
       const lockedRes = await request(app)
         .post('/api/auth/login')
+        .type('json')
         .send({ email, password: 'Wrong123' })
         .expect(429);
 
@@ -340,6 +395,7 @@ describe('Auth HTTP routes', () => {
       for (let i = 0; i < belowThreshold; i++) {
         const res = await request(app)
           .post('/api/auth/login')
+          .type('json')
           .send({ email, password: 'WrongPassword' })
           .expect(401);
 
@@ -348,6 +404,7 @@ describe('Auth HTTP routes', () => {
 
       const successRes = await request(app)
         .post('/api/auth/login')
+        .type('json')
         .send({ email, password: 'Secret123' })
         .expect(200);
 
@@ -356,6 +413,7 @@ describe('Auth HTTP routes', () => {
       for (let i = 0; i < belowThreshold; i++) {
         const res = await request(app)
           .post('/api/auth/login')
+          .type('json')
           .send({ email, password: 'WrongPassword' })
           .expect(401);
 
@@ -378,6 +436,7 @@ describe('Auth HTTP routes', () => {
         for (let i = 0; i < maxAttempts; i++) {
           const res = await request(app)
             .post('/api/auth/login')
+            .type('json')
             .send({ email, password: 'Wrong123' })
             .expect(401);
 
@@ -386,6 +445,7 @@ describe('Auth HTTP routes', () => {
 
         const lockedRes = await request(app)
           .post('/api/auth/login')
+          .type('json')
           .send({ email, password: 'Wrong123' })
           .expect(429);
 
@@ -396,6 +456,7 @@ describe('Auth HTTP routes', () => {
 
         const resAfter = await request(app)
           .post('/api/auth/login')
+          .type('json')
           .send({ email, password: 'Wrong123' })
           .expect(401);
 
@@ -414,6 +475,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/login')
+        .type('json')
         .send({ email: 'user1@example.com', password: 'Secret123' })
         .expect(500);
 
@@ -426,6 +488,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/login')
+        .type('json')
         .send({ email: 'not-an-email', password: 'Secret123' })
         .expect(400);
 
@@ -441,7 +504,7 @@ describe('Auth HTTP routes', () => {
     it('returns 400 REFRESH_TOKEN_REQUIRED when missing token', async () => {
       const app = createTestApp();
 
-      const res = await request(app).post('/api/auth/refresh').send({}).expect(400);
+      const res = await request(app).post('/api/auth/refresh').type('json').send({}).expect(400);
 
       expect(res.body.error.code).toBe('AUTH_REFRESH_TOKEN_REQUIRED');
     });
@@ -471,6 +534,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/refresh')
+        .type('json')
         .send({ refreshToken: 'SOME_TOKEN' })
         .expect(401);
 
@@ -521,6 +585,7 @@ describe('Auth HTTP routes', () => {
       // First refresh with the current refresh token succeeds and rotates the stored token.
       const res = await request(app)
         .post('/api/auth/refresh')
+        .type('json')
         .send({ refreshToken: 'OLD_REFRESH' })
         .expect(200);
 
@@ -591,6 +656,7 @@ describe('Auth HTTP routes', () => {
       // Attempting to reuse the old (already revoked) token should fail
       const res = await request(app)
         .post('/api/auth/refresh')
+        .type('json')
         .send({ refreshToken: 'OLD_REFRESH' })
         .expect(401);
 
@@ -652,6 +718,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/refresh')
+        .type('json')
         .send({ refreshToken: 'EXPIRED_REFRESH' })
         .expect(401);
 
@@ -676,6 +743,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/logout')
+        .type('json')
         .send({ refreshToken: 'MY_REFRESH_TOKEN' })
         .expect(200);
 
@@ -695,7 +763,7 @@ describe('Auth HTTP routes', () => {
     it('returns success even without a refresh token present', async () => {
       const app = createTestApp();
 
-      const res = await request(app).post('/api/auth/logout').send({}).expect(200);
+      const res = await request(app).post('/api/auth/logout').type('json').send({}).expect(200);
 
       expect(res.body.success).toBe(true);
       expect(res.body.message).toBe('Logged out successfully');
@@ -709,7 +777,7 @@ describe('Auth HTTP routes', () => {
         next(createError('Authentication token required', 401, 'TOKEN_REQUIRED'));
       });
 
-      const res = await request(app).post('/api/auth/logout').send({}).expect(401);
+      const res = await request(app).post('/api/auth/logout').type('json').send({}).expect(401);
 
       expect(res.body.success).toBe(false);
       expect(res.body.error.code).toBe('AUTH_TOKEN_REQUIRED');
@@ -724,7 +792,7 @@ describe('Auth HTTP routes', () => {
         next(createError('Authentication token required', 401, 'TOKEN_REQUIRED'));
       });
 
-      const res = await request(app).post('/api/auth/logout-all').send({}).expect(401);
+      const res = await request(app).post('/api/auth/logout-all').type('json').send({}).expect(401);
 
       expect(res.body.success).toBe(false);
       expect(res.body.error.code).toBe('AUTH_TOKEN_REQUIRED');
@@ -764,7 +832,7 @@ describe('Auth HTTP routes', () => {
         next();
       });
 
-      const res = await request(app).post('/api/auth/logout-all').send({}).expect(200);
+      const res = await request(app).post('/api/auth/logout-all').type('json').send({}).expect(200);
 
       expect(res.body.success).toBe(true);
       expect(res.body.message).toBe('Logged out from all devices successfully');
@@ -794,6 +862,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/verify-email')
+        .type('json')
         .send({ token: 'dummy' })
         .expect(400);
 
@@ -806,6 +875,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/forgot-password')
+        .type('json')
         .send({ email: 'user@example.com' })
         .expect(200);
 
@@ -818,6 +888,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/reset-password')
+        .type('json')
         .send({ token: 'dummy', newPassword: 'new-Secret123' })
         .expect(400);
 
@@ -858,6 +929,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/reset-password')
+        .type('json')
         .send({ token: resetToken, newPassword: 'NewSecure123' })
         .expect(200);
 
@@ -899,6 +971,7 @@ describe('Auth HTTP routes', () => {
 
       await request(app)
         .post('/api/auth/login')
+        .type('json')
         .send({ email: 'user1@example.com', password: 'Secret123' })
         .expect(200);
 
@@ -915,6 +988,7 @@ describe('Auth HTTP routes', () => {
 
       await request(app)
         .post('/api/auth/register')
+        .type('json')
         .send({
           email: 'newuser@example.com',
           username: 'newuser',
@@ -950,6 +1024,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/login')
+        .type('json')
         .send({ email: 'user1@example.com', password: 'Secret123' })
         .expect(200);
 
@@ -965,6 +1040,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app)
         .post('/api/auth/register')
+        .type('json')
         .send({
           email: 'newuser@example.com',
           username: 'newuser',
@@ -983,7 +1059,7 @@ describe('Auth HTTP routes', () => {
     it('clears cookie on logout', async () => {
       const app = createTestApp();
 
-      const res = await request(app).post('/api/auth/logout').send({}).expect(200);
+      const res = await request(app).post('/api/auth/logout').type('json').send({}).expect(200);
 
       // Check that Set-Cookie header clears the refreshToken
       const cookies = res.headers['set-cookie'];
@@ -1006,11 +1082,13 @@ describe('Auth HTTP routes', () => {
 
       await request(app)
         .post('/api/auth/login')
+        .type('json')
         .send({ email: 'missing@example.com', password: passwordSentinel })
         .expect(401);
 
       await request(app)
         .post('/api/auth/refresh')
+        .type('json')
         .send({ refreshToken: refreshTokenSentinel })
         .expect(401);
 

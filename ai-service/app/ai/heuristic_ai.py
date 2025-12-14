@@ -385,6 +385,10 @@ class HeuristicAI(BaseAI):
         This is deliberately lightweight: it simply sets attributes like
         ``WEIGHT_STACK_CONTROL`` on the instance, which shadow the class-level
         constants without changing them globally.
+
+        After applying the profile, optional weight noise is added if
+        ``config.weight_noise`` is set (0.0-1.0 range, e.g. 0.1 = 10% noise).
+        This creates diverse evaluation functions for training data generation.
         """
         # Prefer an explicit profile id from AIConfig when provided.
         profile_id = getattr(self.config, "heuristic_profile_id", None)
@@ -395,15 +399,43 @@ class HeuristicAI(BaseAI):
             inferred = f"v1-heuristic-{self.config.difficulty}"
             profile_id = inferred
 
-        if not profile_id:
+        if profile_id:
+            weights = HEURISTIC_WEIGHT_PROFILES.get(profile_id)
+            if weights:
+                for name, value in weights.items():
+                    setattr(self, name, value)
+
+        # Apply weight noise for training diversity
+        self._apply_weight_noise()
+
+    def _apply_weight_noise(self) -> None:
+        """Apply random noise to weights for training diversity.
+
+        When ``config.weight_noise`` is set (0.0-1.0), each WEIGHT_* attribute
+        is multiplied by a random factor in the range [1-noise, 1+noise].
+        This uses the per-instance RNG for reproducibility when rng_seed is set.
+
+        Example: weight_noise=0.1 means weights vary by ±10%.
+        """
+        noise_level = getattr(self.config, "weight_noise", 0.0)
+        if not noise_level or noise_level <= 0:
             return
 
-        weights = HEURISTIC_WEIGHT_PROFILES.get(profile_id)
-        if not weights:
-            return
+        # Clamp noise to reasonable range
+        noise_level = min(1.0, max(0.0, float(noise_level)))
 
-        for name, value in weights.items():
-            setattr(self, name, value)
+        # Find all WEIGHT_* attributes on this instance
+        weight_attrs = [
+            attr for attr in dir(self)
+            if attr.startswith("WEIGHT_") and isinstance(getattr(self, attr, None), (int, float))
+        ]
+
+        for attr in weight_attrs:
+            original_value = getattr(self, attr)
+            # Apply multiplicative noise: value * (1 + uniform(-noise, +noise))
+            noise_factor = 1.0 + self.rng.uniform(-noise_level, noise_level)
+            noisy_value = original_value * noise_factor
+            setattr(self, attr, noisy_value)
 
     @property
     def swap_evaluator(self) -> SwapEvaluator:
@@ -1075,13 +1107,16 @@ class HeuristicAI(BaseAI):
         return breakdown
 
     def _evaluate_stack_control(self, game_state: GameState) -> float:
-        """Evaluate stack control.
+        """Evaluate stack control (made symmetric).
 
         All penalties and bonuses use configurable weights to enable
         full weight-space exploration during training.
 
         v1.5: Added cap height tracking - sum of cap_height across controlled
         stacks measures capture power dominance separately from total height.
+
+        v1.6: Made diversification penalties symmetric by computing relative
+        advantage (my_penalty - opponent_penalty) instead of absolute penalty.
         """
         score = 0.0
         my_stacks = 0
@@ -1107,13 +1142,19 @@ class HeuristicAI(BaseAI):
                 opponent_height += effective_height
                 opponent_cap_height += stack.cap_height
 
-        # Stack diversification using configurable weights
-        if my_stacks == 0:
-            score -= self.WEIGHT_NO_STACKS_PENALTY
-        elif my_stacks == 1:
-            score -= self.WEIGHT_SINGLE_STACK_PENALTY
-        else:
-            score += my_stacks * self.WEIGHT_STACK_DIVERSITY_BONUS
+        # Stack diversification - now symmetric using relative penalties
+        def diversification_score(stacks: int) -> float:
+            """Compute diversification score for a stack count."""
+            if stacks == 0:
+                return -self.WEIGHT_NO_STACKS_PENALTY
+            elif stacks == 1:
+                return -self.WEIGHT_SINGLE_STACK_PENALTY
+            else:
+                return stacks * self.WEIGHT_STACK_DIVERSITY_BONUS
+
+        my_diversity = diversification_score(my_stacks)
+        opp_diversity = diversification_score(opponent_stacks)
+        score += (my_diversity - opp_diversity)
 
         score += (my_stacks - opponent_stacks) * self.WEIGHT_STACK_CONTROL
         score += (my_height - opponent_height) * self.WEIGHT_STACK_HEIGHT
@@ -1141,13 +1182,25 @@ class HeuristicAI(BaseAI):
         return (my_territory - opponent_territory) * self.WEIGHT_TERRITORY
 
     def _evaluate_rings_in_hand(self, game_state: GameState) -> float:
-        """Evaluate rings remaining in hand"""
+        """Evaluate rings remaining in hand (relative to opponents).
+
+        Made symmetric: computes (my_rings - max_opponent_rings) so that
+        the evaluation sums to approximately zero across all players.
+        """
         my_player = self.get_player_info(game_state)
         if not my_player:
             return 0.0
 
-        # Having rings in hand is good (more placement options)
-        return my_player.rings_in_hand * self.WEIGHT_RINGS_IN_HAND
+        my_rings = my_player.rings_in_hand
+
+        # Find max opponent rings for symmetric evaluation
+        max_opponent_rings = 0
+        for p in game_state.players:
+            if p.player_number != self.player_number:
+                max_opponent_rings = max(max_opponent_rings, p.rings_in_hand)
+
+        # Symmetric: advantage over best opponent
+        return (my_rings - max_opponent_rings) * self.WEIGHT_RINGS_IN_HAND
 
     def _evaluate_center_control(self, game_state: GameState) -> float:
         """Evaluate control of center positions"""
@@ -1477,13 +1530,26 @@ class HeuristicAI(BaseAI):
         return score * self.WEIGHT_LINE_POTENTIAL
 
     def _evaluate_victory_proximity(self, game_state: GameState) -> float:
-        """Evaluate how close we are to winning"""
+        """Evaluate how close we are to winning (relative to opponents).
+
+        Made symmetric: computes (my_proximity - max_opponent_proximity) so
+        that the evaluation sums to approximately zero across all players.
+        """
         my_player = self.get_player_info(game_state)
         if not my_player:
             return 0.0
 
-        base = self._victory_proximity_base_for_player(game_state, my_player)
-        return base * self.WEIGHT_VICTORY_PROXIMITY
+        my_proximity = self._victory_proximity_base_for_player(game_state, my_player)
+
+        # Find max opponent proximity for symmetric evaluation
+        max_opponent_proximity = 0.0
+        for p in game_state.players:
+            if p.player_number != self.player_number:
+                opp_proximity = self._victory_proximity_base_for_player(game_state, p)
+                max_opponent_proximity = max(max_opponent_proximity, opp_proximity)
+
+        # Symmetric: advantage over best opponent
+        return (my_proximity - max_opponent_proximity) * self.WEIGHT_VICTORY_PROXIMITY
 
     def _evaluate_opponent_victory_threat(
         self,
@@ -1826,50 +1892,53 @@ class HeuristicAI(BaseAI):
         return score * self.WEIGHT_TERRITORY_SAFETY
 
     def _evaluate_stack_mobility(self, game_state: GameState) -> float:
+        """Evaluate mobility of individual stacks (relative to opponents).
+
+        Made symmetric: computes (my_mobility - max_opponent_mobility) so
+        that the evaluation sums to approximately zero across all players.
         """
-        Evaluate mobility of individual stacks.
-        A stack that is surrounded by collapsed spaces or board edges
-        has low mobility.
-        """
-        score = 0.0
         board = game_state.board
         board_type = board.type
         stacks = board.stacks
         collapsed = board.collapsed_spaces
-        my_stacks = [
-            s for s in stacks.values()
-            if s.controlling_player == self.player_number
-        ]
 
-        for stack in my_stacks:
-            # Use fast key-based adjacency lookup
-            pos_key = stack.position.to_key()
-            adjacent_keys = self._get_adjacent_keys(pos_key, board_type)
-            valid_moves_from_here = 0
-            for adj_key in adjacent_keys:
-                # Check if blocked by collapsed space
-                if adj_key in collapsed:
-                    continue
-                # Check if blocked by stack (unless capture possible)
-                if adj_key in stacks:
-                    target = stacks[adj_key]
-                    if target.controlling_player != self.player_number:
-                        # Capture power is based on cap height per compact
-                        # rules §10.1, so we compare using cap height here.
-                        if stack.cap_height >= target.cap_height:
-                            valid_moves_from_here += 1
-                    continue
+        def compute_mobility_for_player(player_num: int) -> float:
+            """Compute raw mobility score for a player."""
+            player_stacks = [
+                s for s in stacks.values()
+                if s.controlling_player == player_num
+            ]
+            mobility = 0.0
+            for stack in player_stacks:
+                pos_key = stack.position.to_key()
+                adjacent_keys = self._get_adjacent_keys(pos_key, board_type)
+                valid_moves = 0
+                for adj_key in adjacent_keys:
+                    if adj_key in collapsed:
+                        continue
+                    if adj_key in stacks:
+                        target = stacks[adj_key]
+                        if target.controlling_player != player_num:
+                            if stack.cap_height >= target.cap_height:
+                                valid_moves += 1
+                        continue
+                    valid_moves += 1
+                mobility += valid_moves
+                if valid_moves == 0:
+                    mobility -= self.WEIGHT_BLOCKED_STACK_PENALTY
+            return mobility
 
-                valid_moves_from_here += 1
+        my_mobility = compute_mobility_for_player(self.player_number)
 
-            # Reward stacks with more freedom
-            score += valid_moves_from_here
+        # Find max opponent mobility for symmetric evaluation
+        max_opponent_mobility = 0.0
+        for p in game_state.players:
+            if p.player_number != self.player_number:
+                opp_mobility = compute_mobility_for_player(p.player_number)
+                max_opponent_mobility = max(max_opponent_mobility, opp_mobility)
 
-            # Penalty for completely blocked stacks (dead weight)
-            if valid_moves_from_here == 0:
-                score -= self.WEIGHT_BLOCKED_STACK_PENALTY
-
-        return score * self.WEIGHT_STACK_MOBILITY
+        # Symmetric: advantage over best opponent
+        return (my_mobility - max_opponent_mobility) * self.WEIGHT_STACK_MOBILITY
 
     def _evaluate_forced_elimination_risk(
         self,

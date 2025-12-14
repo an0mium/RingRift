@@ -31,11 +31,45 @@ jest.mock('../../../src/server/services/MetricsService', () => ({
 }));
 
 describe('Rate limiter + errorHandler integration', () => {
+  let originalBypassEnabled: string | undefined;
+  let originalBypassIPs: string | undefined;
+  let originalBypassUserPattern: string | undefined;
+
   beforeEach(() => {
+    // Ensure load-test bypass env vars from other suites (or developer shells)
+    // cannot disable rate limiting for this integration test.
+    originalBypassEnabled = process.env.RATE_LIMIT_BYPASS_ENABLED;
+    originalBypassIPs = process.env.RATE_LIMIT_BYPASS_IPS;
+    originalBypassUserPattern = process.env.RATE_LIMIT_BYPASS_USER_PATTERN;
+
+    process.env.RATE_LIMIT_BYPASS_ENABLED = 'false';
+    delete process.env.RATE_LIMIT_BYPASS_IPS;
+    delete process.env.RATE_LIMIT_BYPASS_USER_PATTERN;
+
     // Defensive: other suites may initialize Redis-backed limiters in the same
     // worker. Re-initialize memory limiters here so this test remains isolated.
     initializeMemoryRateLimiters();
     __testResetRateLimiters();
+  });
+
+  afterEach(() => {
+    if (originalBypassEnabled === undefined) {
+      delete process.env.RATE_LIMIT_BYPASS_ENABLED;
+    } else {
+      process.env.RATE_LIMIT_BYPASS_ENABLED = originalBypassEnabled;
+    }
+
+    if (originalBypassIPs === undefined) {
+      delete process.env.RATE_LIMIT_BYPASS_IPS;
+    } else {
+      process.env.RATE_LIMIT_BYPASS_IPS = originalBypassIPs;
+    }
+
+    if (originalBypassUserPattern === undefined) {
+      delete process.env.RATE_LIMIT_BYPASS_USER_PATTERN;
+    } else {
+      process.env.RATE_LIMIT_BYPASS_USER_PATTERN = originalBypassUserPattern;
+    }
   });
 
   function createTestApp() {

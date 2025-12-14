@@ -64,6 +64,7 @@ class HostConfig:
     """Configuration for a remote host."""
     name: str
     ssh_host: str
+    tailscale_ip: Optional[str] = None
     ssh_user: Optional[str] = None
     ssh_port: int = 22
     ssh_key: Optional[str] = None
@@ -86,6 +87,31 @@ class HostConfig:
         return self.ssh_host
 
     @property
+    def ssh_targets(self) -> List[str]:
+        """Return candidate SSH targets in priority order.
+
+        When a ``tailscale_ip`` is configured, prefer it (mesh routing is often
+        more reliable than public IPs / NATed providers). Fall back to the
+        primary ``ssh_host``.
+        """
+        candidates: List[str] = []
+        for raw in (self.tailscale_ip, self.ssh_host):
+            if not raw:
+                continue
+            host = str(raw).strip()
+            if not host:
+                continue
+            if "@" in host:
+                target = host
+            elif self.ssh_user:
+                target = f"{self.ssh_user}@{host}"
+            else:
+                target = host
+            if target not in candidates:
+                candidates.append(target)
+        return candidates or [self.ssh_target]
+
+    @property
     def ssh_key_path(self) -> str:
         """Get the SSH key path, with default fallback."""
         return os.path.expanduser(self.ssh_key or DEFAULT_SSH_KEY)
@@ -103,7 +129,7 @@ class HostConfig:
         """Get the HTTP worker URL for this host."""
         if self.worker_url:
             return self.worker_url
-        host = self.ssh_host
+        host = (self.tailscale_ip or self.ssh_host) if self.ssh_host else (self.tailscale_ip or "")
         if "@" in host:
             host = host.split("@", 1)[1]
         return f"http://{host}:{self.worker_port}"
@@ -166,6 +192,7 @@ def load_remote_hosts(config_path: Optional[str] = None) -> Dict[str, HostConfig
 
             for name, host_data in hosts_dict.items():
                 ssh_host_raw = host_data.get("ssh_host", name)
+                tailscale_ip = host_data.get("tailscale_ip")
                 ssh_user = host_data.get("ssh_user")
                 ssh_host = ssh_host_raw
 
@@ -180,6 +207,7 @@ def load_remote_hosts(config_path: Optional[str] = None) -> Dict[str, HostConfig
                 hosts[name] = HostConfig(
                     name=name,
                     ssh_host=ssh_host,
+                    tailscale_ip=tailscale_ip,
                     ssh_user=ssh_user,
                     ssh_port=int(host_data.get("ssh_port", 22) or 22),
                     ssh_key=host_data.get("ssh_key"),
@@ -444,15 +472,44 @@ class SSHExecutor:
             return ". " + cleaned[len("source ") :]
         return command
 
-    def _build_ssh_cmd(self) -> List[str]:
+    def _build_ssh_cmd(self, ssh_target: str) -> List[str]:
         """Build the base SSH command."""
-        cmd = ["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes"]
+        cmd = [
+            "ssh",
+            "-o",
+            "ConnectTimeout=10",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "StrictHostKeyChecking=no",
+        ]
         if self.host.ssh_port and int(self.host.ssh_port) != 22:
             cmd.extend(["-p", str(int(self.host.ssh_port))])
         if self.host.ssh_key:
             cmd.extend(["-i", self.host.ssh_key_path])
-        cmd.append(self.host.ssh_target)
+        cmd.append(ssh_target)
         return cmd
+
+    def _is_ssh_connection_failure(self, proc: subprocess.CompletedProcess) -> bool:
+        """Heuristic: detect SSH-level failures so we can try fallback targets."""
+        if proc.returncode == 255:
+            return True
+        stderr = (proc.stderr or "").lower()
+        stdout = (proc.stdout or "").lower()
+        combined = f"{stderr}\n{stdout}"
+        return any(
+            token in combined
+            for token in (
+                "could not resolve hostname",
+                "connection timed out",
+                "connection refused",
+                "no route to host",
+                "network is unreachable",
+                "connection reset by peer",
+                "broken pipe",
+                "permission denied (publickey",
+            )
+        )
 
     def run(
         self,
@@ -481,14 +538,30 @@ class SSHExecutor:
         prefix = f"{venv_activate} && " if venv_activate else ""
         full_cmd = f"cd {work_dir} && {prefix}{command}"
 
-        ssh_cmd = self._build_ssh_cmd() + [full_cmd]
+        last_result: Optional[subprocess.CompletedProcess] = None
+        for target in self.host.ssh_targets:
+            ssh_cmd = self._build_ssh_cmd(target) + [full_cmd]
+            try:
+                result = subprocess.run(
+                    ssh_cmd,
+                    capture_output=capture_output,
+                    text=True,
+                    timeout=timeout,
+                )
+            except subprocess.TimeoutExpired as exc:
+                result = subprocess.CompletedProcess(
+                    ssh_cmd,
+                    returncode=255,
+                    stdout=getattr(exc, "stdout", "") or "",
+                    stderr=getattr(exc, "stderr", "") or "SSH timeout",
+                )
+            last_result = result
+            if result.returncode == 0:
+                return result
+            if not self._is_ssh_connection_failure(result):
+                return result
 
-        return subprocess.run(
-            ssh_cmd,
-            capture_output=capture_output,
-            text=True,
-            timeout=timeout,
-        )
+        return last_result or subprocess.CompletedProcess([], returncode=255, stdout="", stderr="SSH failed")
 
     def run_async(
         self,
@@ -515,15 +588,30 @@ class SSHExecutor:
         prefix = f"{venv_activate} && " if venv_activate else ""
         # Use nohup to detach from SSH session
         full_cmd = f"cd {work_dir} && {prefix}nohup {command} > {log_file} 2>&1 &"
+        last_result: Optional[subprocess.CompletedProcess] = None
+        for target in self.host.ssh_targets:
+            ssh_cmd = self._build_ssh_cmd(target) + [full_cmd]
+            try:
+                result = subprocess.run(
+                    ssh_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+            except subprocess.TimeoutExpired as exc:
+                result = subprocess.CompletedProcess(
+                    ssh_cmd,
+                    returncode=255,
+                    stdout=getattr(exc, "stdout", "") or "",
+                    stderr=getattr(exc, "stderr", "") or "SSH timeout",
+                )
+            last_result = result
+            if result.returncode == 0:
+                return result
+            if not self._is_ssh_connection_failure(result):
+                return result
 
-        ssh_cmd = self._build_ssh_cmd() + [full_cmd]
-
-        return subprocess.run(
-            ssh_cmd,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        return last_result or subprocess.CompletedProcess([], returncode=255, stdout="", stderr="SSH failed")
 
     def scp_from(
         self,
@@ -533,18 +621,35 @@ class SSHExecutor:
         timeout: int = 300,
     ) -> subprocess.CompletedProcess:
         """Copy a file from the remote host to local filesystem via scp."""
-        cmd = ["scp"]
-        if self.host.ssh_key:
-            cmd.extend(["-i", self.host.ssh_key_path])
-        if self.host.ssh_port and int(self.host.ssh_port) != 22:
-            cmd.extend(["-P", str(int(self.host.ssh_port))])
-        cmd.extend([f"{self.host.ssh_target}:{remote_path}", local_path])
-        return subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        last_result: Optional[subprocess.CompletedProcess] = None
+        for target in self.host.ssh_targets:
+            cmd = ["scp", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
+            if self.host.ssh_key:
+                cmd.extend(["-i", self.host.ssh_key_path])
+            if self.host.ssh_port and int(self.host.ssh_port) != 22:
+                cmd.extend(["-P", str(int(self.host.ssh_port))])
+            cmd.extend([f"{target}:{remote_path}", local_path])
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                )
+            except subprocess.TimeoutExpired as exc:
+                result = subprocess.CompletedProcess(
+                    cmd,
+                    returncode=255,
+                    stdout=getattr(exc, "stdout", "") or "",
+                    stderr=getattr(exc, "stderr", "") or "SCP timeout",
+                )
+            last_result = result
+            if result.returncode == 0:
+                return result
+            if not self._is_ssh_connection_failure(result):
+                return result
+
+        return last_result or subprocess.CompletedProcess([], returncode=255, stdout="", stderr="SCP failed")
 
     def get_process_memory(self, pattern: str) -> Optional[int]:
         """Get RSS memory usage in MB for processes matching a pattern.

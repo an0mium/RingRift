@@ -374,6 +374,9 @@ def build_ai_pool(
         model_path = None
         elo_estimate = None
 
+        # Apply weight noise for heuristic AIs to increase training diversity
+        weight_noise = 0.1 if ai_type == AIType.HEURISTIC else 0.0
+
         if ai_type == AIType.HEURISTIC:
             heuristic_profile_id = profile.get("profile_id")
             heuristic_eval_mode = TRAINING_HEURISTIC_EVAL_MODE_BY_BOARD.get(board_type, "full")
@@ -397,6 +400,7 @@ def build_ai_pool(
             heuristic_profile_id=heuristic_profile_id,
             heuristic_eval_mode=heuristic_eval_mode,
             nn_model_id=model_id,
+            weight_noise=weight_noise,
         )
         ai_by_player[pnum] = _create_ai_instance(ai_type, pnum, cfg)
 

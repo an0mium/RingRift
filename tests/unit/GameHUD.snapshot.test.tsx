@@ -1,5 +1,5 @@
 import React from 'react';
-import { renderToString } from 'react-dom/server';
+import { renderToString } from 'react-dom/server.node';
 import { GameHUD } from '../../src/client/components/GameHUD';
 import { BOARD_CONFIGS, GameState, Player } from '../../src/shared/types/game';
 
@@ -66,8 +66,7 @@ function createTestGameState(): { gameState: GameState; currentPlayer: Player } 
     maxPlayers: 2,
     totalRingsInPlay: boardConfig.ringsPerPlayer * players.length,
     totalRingsEliminated: players.reduce((sum, p) => sum + p.eliminatedRings, 0),
-    victoryThreshold:
-      Math.floor((boardConfig.ringsPerPlayer * players.length) / 2) + 1,
+    victoryThreshold: Math.floor((boardConfig.ringsPerPlayer * players.length) / 2) + 1,
     territoryVictoryThreshold: Math.floor(boardConfig.totalSpaces / 2) + 1,
   };
 
