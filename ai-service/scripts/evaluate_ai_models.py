@@ -366,8 +366,16 @@ def create_ai(
             try:
                 ai.neural_net._ensure_model_initialized(board_type)
                 print(f"Loaded checkpoint: {ckpt}")
-            except Exception as e:
-                raise RuntimeError(f"Failed to load checkpoint {ckpt}: {e}") from e
+            except RuntimeError as e:
+                # Handle shape mismatch (checkpoint for different board type)
+                if "size mismatch" in str(e) or "shape" in str(e).lower():
+                    print(f"Checkpoint {ckpt} incompatible with {board_type}, using fresh weights")
+                    # Reinitialize with fresh weights
+                    config.allow_fresh_weights = True
+                    ai = DescentAI(player_num, config)
+                    ai.neural_net._ensure_model_initialized(board_type)
+                else:
+                    raise RuntimeError(f"Failed to load checkpoint {ckpt}: {e}") from e
 
         return ai
 

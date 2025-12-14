@@ -301,11 +301,19 @@ def compute_state_dict_checksum(state_dict: Dict[str, torch.Tensor]) -> str:
 
     # Sort keys for deterministic ordering
     for key in sorted(state_dict.keys()):
-        tensor = state_dict[key]
+        value = state_dict[key]
         # Hash key name
         hasher.update(key.encode('utf-8'))
-        # Hash tensor data
-        hasher.update(tensor.cpu().numpy().tobytes())
+        # Hash value data - handle both tensors and scalar values
+        if hasattr(value, 'cpu') and hasattr(value, 'numpy'):
+            # PyTorch tensor
+            hasher.update(value.cpu().numpy().tobytes())
+        elif hasattr(value, 'tobytes'):
+            # NumPy array
+            hasher.update(value.tobytes())
+        else:
+            # Scalar or other type - convert to string representation
+            hasher.update(str(value).encode('utf-8'))
 
     return hasher.hexdigest()
 
@@ -578,8 +586,8 @@ class ModelVersionManager:
             # Direct state dict format
             state_dict = checkpoint
         else:
-            # Try common keys
-            for key in ['state_dict', 'model', 'net']:
+            # Try common keys (including early-stopping checkpoint formats)
+            for key in ['state_dict', 'model', 'net', 'best_state']:
                 if key in checkpoint:
                     state_dict = checkpoint[key]
                     break
