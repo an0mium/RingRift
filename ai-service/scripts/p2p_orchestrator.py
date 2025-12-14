@@ -3640,6 +3640,18 @@ class P2POrchestrator:
                 if existing:
                     peer_info.consecutive_failures = int(getattr(existing, "consecutive_failures", 0) or 0)
                     peer_info.last_failure_time = float(getattr(existing, "last_failure_time", 0.0) or 0.0)
+                    # Sticky NAT/relay routing:
+                    # - Receiving a direct heartbeat does NOT imply the peer is reachable inbound.
+                    # - If a peer has ever registered via /relay/heartbeat, preserve nat_blocked
+                    #   and relay_via so leaders can continue routing commands through the relay hub.
+                    if getattr(existing, "nat_blocked", False) and not getattr(peer_info, "nat_blocked", False):
+                        peer_info.nat_blocked = True
+                    if (getattr(existing, "relay_via", "") or "") and not (getattr(peer_info, "relay_via", "") or ""):
+                        peer_info.relay_via = str(getattr(existing, "relay_via", "") or "")
+                    # Preserve retirement state across updates.
+                    if getattr(existing, "retired", False):
+                        peer_info.retired = True
+                        peer_info.retired_at = float(getattr(existing, "retired_at", 0.0) or 0.0)
                 self.peers[peer_info.node_id] = peer_info
 
             # Return our info
