@@ -892,13 +892,15 @@ describe('Game diagnostics session route', () => {
 
     expect(wsServerMock.getGameDiagnosticsForGame).toHaveBeenCalledWith(validGameId);
     expect(res.body.success).toBe(true);
+    // Non-admin users get sanitized diagnostics (AI state hidden, connections as count only)
     expect(res.body.data).toEqual({
       sessionStatus: diagnosticsSnapshot.sessionStatus,
-      lastAIRequestState: diagnosticsSnapshot.lastAIRequestState,
-      aiDiagnostics: diagnosticsSnapshot.aiDiagnostics,
-      connections: diagnosticsSnapshot.connections,
+      lastAIRequestState: null, // Hidden from non-admins
+      aiDiagnostics: null, // Hidden from non-admins
+      connections: { count: 1 }, // Count only for non-admins
       meta: {
         hasInMemorySession: true,
+        sanitized: true,
       },
     });
   });
