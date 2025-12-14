@@ -285,7 +285,7 @@ def main() -> None:
                     f"{sudo}chown -R \"$(id -un)\":\"$(id -gn)\" \"$RINGRIFT_ROOT/.git\" 2>/dev/null || true\n"
                     f"cd \"$RINGRIFT_ROOT\"\n"
                     f"git pull origin main\n"
-                    f"if [ ! -x \"$RINGRIFT_DIR/venv/bin/python\" ] && [ -x \"$RINGRIFT_DIR/setup.sh\" ]; then\n"
+                    f"if [ ! -x \"$RINGRIFT_DIR/venv/bin/python\" ] && [ -x \"$RINGRIFT_DIR/setup.sh\" ] && [ ! -f /.launch ] && [ -z \"${{VAST_CONTAINERLABEL:-}}\" ]; then\n"
                     f"  if command -v apt-get >/dev/null 2>&1; then\n"
                     f"    {sudo}apt-get update -y\n"
                     f"    {sudo}apt-get install -y python3-venv python3-pip\n"

@@ -181,6 +181,12 @@ const recordFailedLoginAttempt = async (email: string, ip?: string): Promise<voi
         attempts: record.count,
         lockoutDurationSeconds,
       });
+
+      // Audit log the lockout
+      auditLockout(normalizedEmail, ip ? { ip, headers: {} } : undefined, {
+        attempts: record.count,
+        lockoutDuration: lockoutDurationSeconds,
+      });
     } else {
       await cache.set(failuresKey, record, failedLoginWindowSeconds);
     }
@@ -208,6 +214,12 @@ const recordFailedLoginAttempt = async (email: string, ip?: string): Promise<voi
       ip,
       attempts: record.count,
       lockoutDurationSeconds,
+    });
+
+    // Audit log the lockout
+    auditLockout(normalizedEmail, ip ? { ip, headers: {} } : undefined, {
+      attempts: record.count,
+      lockoutDuration: lockoutDurationSeconds,
     });
   } else {
     inMemoryFailedLogins.set(normalizedEmail, record);
@@ -910,6 +922,9 @@ router.post(
     // Set new refresh token as httpOnly cookie
     res.cookie('refreshToken', newRefreshToken, getRefreshTokenCookieOptions());
 
+    // Audit log the token refresh
+    auditTokenRefresh(storedToken.user.id, req, { familyId: storedToken.familyId || undefined });
+
     res.json({
       success: true,
       data: {
@@ -1003,6 +1018,11 @@ router.post(
       path: '/api/auth',
     });
 
+    // Audit log the logout
+    if (req.user?.id) {
+      auditLogout(req.user.id, req);
+    }
+
     res.json({
       success: true,
       message: 'Logged out successfully',
@@ -1074,6 +1094,9 @@ router.post(
     await prisma.refreshToken.deleteMany({
       where: { userId: req.user.id },
     });
+
+    // Audit log the logout-all action
+    auditLogout(req.user.id, req);
 
     res.json({
       success: true,

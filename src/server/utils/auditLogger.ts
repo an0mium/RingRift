@@ -56,25 +56,35 @@ export interface AuditLogEntry {
   /** ISO timestamp for human readability */
   timestampIso: string;
   /** User ID (if authenticated) */
-  userId?: string;
+  userId?: string | undefined;
   /** Redacted email (for login/register events) */
-  email?: string;
+  email?: string | undefined;
   /** Client IP address */
-  ip?: string;
+  ip?: string | undefined;
   /** Request ID for correlation */
-  requestId?: string;
+  requestId?: string | undefined;
   /** User agent string */
-  userAgent?: string;
+  userAgent?: string | undefined;
   /** HTTP method */
-  method?: string;
+  method?: string | undefined;
   /** Request path */
-  path?: string;
+  path?: string | undefined;
   /** Event-specific details */
-  details?: Record<string, unknown>;
+  details?: Record<string, unknown> | undefined;
   /** Result of the operation */
   result: 'success' | 'failure' | 'blocked';
   /** Reason for failure/block (if applicable) */
-  reason?: string;
+  reason?: string | undefined;
+}
+
+/** Request-like object for audit logging */
+export interface AuditRequest {
+  ip?: string | undefined;
+  headers?: Record<string, string | string[] | undefined>;
+  method?: string | undefined;
+  path?: string | undefined;
+  originalUrl?: string | undefined;
+  requestId?: string | undefined;
 }
 
 // ============================================================================
@@ -117,7 +127,7 @@ if (!config.isProduction) {
     new winston.transports.Console({
       format: winston.format.combine(
         winston.format.colorize(),
-        winston.format.printf(({ timestamp, event, userId, result, reason, ...meta }) => {
+        winston.format.printf(({ timestamp, event, userId, result, reason }) => {
           const resultColor = result === 'success' ? '\x1b[32m' : '\x1b[31m';
           const resetColor = '\x1b[0m';
           return `${timestamp} [AUDIT] ${event} | user=${userId || 'anonymous'} | ${resultColor}${result}${resetColor}${reason ? ` | reason=${reason}` : ''}`;
@@ -134,13 +144,9 @@ if (!config.isProduction) {
 /**
  * Extract client info from Express request object.
  */
-function extractClientInfo(req?: {
-  ip?: string;
-  headers?: Record<string, string | string[] | undefined>;
-  method?: string;
-  path?: string;
-  originalUrl?: string;
-}): Pick<AuditLogEntry, 'ip' | 'userAgent' | 'method' | 'path'> {
+function extractClientInfo(
+  req: AuditRequest | undefined
+): Pick<AuditLogEntry, 'ip' | 'userAgent' | 'method' | 'path'> {
   if (!req) return {};
 
   const forwardedFor = req.headers?.['x-forwarded-for'];
@@ -151,12 +157,29 @@ function extractClientInfo(req?: {
 
   const userAgent = req.headers?.['user-agent'];
 
-  return {
-    ip,
-    userAgent: typeof userAgent === 'string' ? userAgent : undefined,
-    method: req.method,
-    path: req.originalUrl || req.path,
-  };
+  const result: Pick<AuditLogEntry, 'ip' | 'userAgent' | 'method' | 'path'> = { ip };
+
+  if (typeof userAgent === 'string') {
+    result.userAgent = userAgent;
+  }
+  if (req.method) {
+    result.method = req.method;
+  }
+  const pathValue = req.originalUrl || req.path;
+  if (pathValue) {
+    result.path = pathValue;
+  }
+
+  return result;
+}
+
+/** Options for the audit function */
+interface AuditOptions {
+  userId?: string | undefined;
+  email?: string | undefined;
+  req?: AuditRequest | undefined;
+  reason?: string | undefined;
+  details?: Record<string, unknown> | undefined;
 }
 
 /**
@@ -165,20 +188,7 @@ function extractClientInfo(req?: {
 export function audit(
   event: AuditEventType,
   result: AuditLogEntry['result'],
-  options: {
-    userId?: string;
-    email?: string;
-    req?: {
-      ip?: string;
-      headers?: Record<string, string | string[] | undefined>;
-      method?: string;
-      path?: string;
-      originalUrl?: string;
-      requestId?: string;
-    };
-    reason?: string;
-    details?: Record<string, unknown>;
-  } = {}
+  options: AuditOptions = {}
 ): void {
   const now = Date.now();
   const context = getRequestContext();
@@ -187,14 +197,21 @@ export function audit(
     event,
     timestamp: now,
     timestampIso: new Date(now).toISOString(),
-    userId: options.userId || context?.userId,
-    email: options.email ? redactEmail(options.email) : undefined,
-    requestId: options.req?.requestId || context?.requestId,
     result,
-    reason: options.reason,
-    details: options.details,
     ...extractClientInfo(options.req),
   };
+
+  // Add optional fields only if they have values
+  const userId = options.userId || context?.userId;
+  if (userId) entry.userId = userId;
+
+  if (options.email) entry.email = redactEmail(options.email);
+
+  const requestId = options.req?.requestId || context?.requestId;
+  if (requestId) entry.requestId = requestId;
+
+  if (options.reason) entry.reason = options.reason;
+  if (options.details) entry.details = options.details;
 
   // Log at appropriate level based on result
   if (result === 'success') {
@@ -211,29 +228,21 @@ export function audit(
 /**
  * Log a successful login.
  */
-export function auditLoginSuccess(
-  userId: string,
-  email: string,
-  req?: Parameters<typeof audit>[2]['req']
-): void {
+export function auditLoginSuccess(userId: string, email: string, req?: AuditRequest): void {
   audit('auth.login.success', 'success', { userId, email, req });
 }
 
 /**
  * Log a failed login attempt.
  */
-export function auditLoginFailed(
-  email: string,
-  reason: string,
-  req?: Parameters<typeof audit>[2]['req']
-): void {
+export function auditLoginFailed(email: string, reason: string, req?: AuditRequest): void {
   audit('auth.login.failed', 'failure', { email, reason, req });
 }
 
 /**
  * Log a user logout.
  */
-export function auditLogout(userId: string, req?: Parameters<typeof audit>[2]['req']): void {
+export function auditLogout(userId: string, req?: AuditRequest): void {
   audit('auth.logout', 'success', { userId, req });
 }
 
@@ -242,10 +251,11 @@ export function auditLogout(userId: string, req?: Parameters<typeof audit>[2]['r
  */
 export function auditTokenRefresh(
   userId: string,
-  req?: Parameters<typeof audit>[2]['req'],
-  details?: { familyId?: string }
+  req?: AuditRequest,
+  details?: { familyId?: string | undefined }
 ): void {
-  audit('auth.token.refresh', 'success', { userId, req, details });
+  const auditDetails = details?.familyId ? { familyId: details.familyId } : undefined;
+  audit('auth.token.refresh', 'success', { userId, req, details: auditDetails });
 }
 
 /**
@@ -253,20 +263,26 @@ export function auditTokenRefresh(
  */
 export function auditLockout(
   email: string,
-  req?: Parameters<typeof audit>[2]['req'],
+  req?: AuditRequest,
   details?: { attempts?: number; lockoutDuration?: number }
 ): void {
-  audit('auth.lockout', 'blocked', { email, req, details, reason: 'Too many failed attempts' });
+  const auditDetails: Record<string, unknown> = {};
+  if (details?.attempts !== undefined) auditDetails.attempts = details.attempts;
+  if (details?.lockoutDuration !== undefined)
+    auditDetails.lockoutDuration = details.lockoutDuration;
+
+  audit('auth.lockout', 'blocked', {
+    email,
+    req,
+    details: Object.keys(auditDetails).length > 0 ? auditDetails : undefined,
+    reason: 'Too many failed attempts',
+  });
 }
 
 /**
  * Log user registration.
  */
-export function auditRegister(
-  userId: string,
-  email: string,
-  req?: Parameters<typeof audit>[2]['req']
-): void {
+export function auditRegister(userId: string, email: string, req?: AuditRequest): void {
   audit('auth.register', 'success', { userId, email, req });
 }
 
@@ -277,7 +293,7 @@ export function auditAccessDenied(
   userId: string | undefined,
   resource: string,
   reason: string,
-  req?: Parameters<typeof audit>[2]['req']
+  req?: AuditRequest
 ): void {
   audit('authz.access.denied', 'blocked', {
     userId,
@@ -293,7 +309,7 @@ export function auditAccessDenied(
 export function auditAdminAction(
   userId: string,
   action: string,
-  req?: Parameters<typeof audit>[2]['req'],
+  req?: AuditRequest,
   details?: Record<string, unknown>
 ): void {
   audit('authz.admin.action', 'success', {
@@ -306,11 +322,7 @@ export function auditAdminAction(
 /**
  * Log rate limit exceeded.
  */
-export function auditRateLimitExceeded(
-  limiterName: string,
-  key: string,
-  req?: Parameters<typeof audit>[2]['req']
-): void {
+export function auditRateLimitExceeded(limiterName: string, key: string, req?: AuditRequest): void {
   audit('security.rate_limit.exceeded', 'blocked', {
     req,
     reason: `Rate limit exceeded: ${limiterName}`,
@@ -321,7 +333,7 @@ export function auditRateLimitExceeded(
 /**
  * Log CORS rejection.
  */
-export function auditCorsRejected(origin: string, req?: Parameters<typeof audit>[2]['req']): void {
+export function auditCorsRejected(origin: string, req?: AuditRequest): void {
   audit('security.cors.rejected', 'blocked', {
     req,
     reason: 'CORS policy violation',
@@ -335,7 +347,7 @@ export function auditCorsRejected(origin: string, req?: Parameters<typeof audit>
 export function auditValidationFailed(
   endpoint: string,
   errors: string[],
-  req?: Parameters<typeof audit>[2]['req']
+  req?: AuditRequest
 ): void {
   audit('security.validation.failed', 'failure', {
     req,
@@ -347,17 +359,14 @@ export function auditValidationFailed(
 /**
  * Log data export request.
  */
-export function auditDataExport(userId: string, req?: Parameters<typeof audit>[2]['req']): void {
+export function auditDataExport(userId: string, req?: AuditRequest): void {
   audit('data.export.requested', 'success', { userId, req });
 }
 
 /**
  * Log account deletion.
  */
-export function auditAccountDeleted(
-  userId: string,
-  req?: Parameters<typeof audit>[2]['req']
-): void {
+export function auditAccountDeleted(userId: string, req?: AuditRequest): void {
   audit('data.account.deleted', 'success', { userId, req });
 }
 
@@ -365,10 +374,11 @@ export function auditAccountDeleted(
  * Log WebSocket authentication.
  */
 export function auditWsAuthenticated(userId: string, socketId: string, ip?: string): void {
+  const req: AuditRequest | undefined = ip ? { ip, headers: {} } : undefined;
   audit('ws.connection.authenticated', 'success', {
     userId,
     details: { socketId },
-    req: { ip, headers: {} },
+    req,
   });
 }
 
