@@ -1684,6 +1684,8 @@ class P2POrchestrator:
             cursor.execute("SELECT node_id, info_json FROM peers")
             for row in cursor.fetchall():
                 try:
+                    if row[0] == self.node_id:
+                        continue
                     info = NodeInfo.from_dict(json.loads(row[1]))
                     self.peers[row[0]] = info
                 except Exception as e:
@@ -1787,8 +1789,11 @@ class P2POrchestrator:
             cursor = conn.cursor()
 
             # Save peers
+            cursor.execute("DELETE FROM peers WHERE node_id = ?", (self.node_id,))
             with self.peers_lock:
                 for node_id, info in self.peers.items():
+                    if node_id == self.node_id:
+                        continue
                     cursor.execute("""
                         INSERT OR REPLACE INTO peers (node_id, host, port, last_heartbeat, info_json)
                         VALUES (?, ?, ?, ?, ?)
@@ -3550,10 +3555,15 @@ class P2POrchestrator:
     async def handle_heartbeat(self, request: web.Request) -> web.Response:
         """Handle heartbeat from peer node."""
         try:
-            # Receiving any inbound heartbeat implies we're reachable inbound.
-            self.last_inbound_heartbeat = time.time()
             data = await request.json()
             peer_info = NodeInfo.from_dict(data)
+            # Ignore self-heartbeats so NAT detection + leader election aren't
+            # distorted when COORDINATOR_URL includes this node's own endpoint(s).
+            if peer_info.node_id == self.node_id:
+                self._update_self_info()
+                return web.json_response(self.self_info.to_dict())
+            # Receiving any inbound heartbeat implies we're reachable inbound.
+            self.last_inbound_heartbeat = time.time()
             # Preserve the node's self-reported endpoint for multi-path retries.
             if not peer_info.reported_host:
                 peer_info.reported_host = peer_info.host
@@ -9541,6 +9551,8 @@ print(json.dumps({{
 
                     info = await self._send_heartbeat_to_peer(host, port, scheme=scheme)
                     if info:
+                        if info.node_id == self.node_id:
+                            continue
                         with self.peers_lock:
                             info.last_heartbeat = time.time()
                             self.peers[info.node_id] = info
