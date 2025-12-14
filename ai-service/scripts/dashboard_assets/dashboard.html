@@ -752,7 +752,9 @@
             const versionSkewPill = versions.length <= 1 ? pill("uniform", "good") : pill("skew", "warn");
             const topVersionShort = topVersion.length > 16 ? topVersion.slice(0, 13) + "…" : topVersion || "-";
 
-		        $("subtitle").innerHTML = `Node <span class="mono">${cluster.node_id || "?"}</span> · role <span class="mono">${cluster.role || "?"}</span> · leader ${leaderCell} · refreshed <span class="mono">${new Date().toLocaleTimeString()}</span>`;
+		        const selfVersion = String((cluster.self || {}).version || "").trim();
+		        const selfVersionCell = selfVersion ? `<span class="mono">${selfVersion}</span>` : `<span class="mono">-</span>`;
+		        $("subtitle").innerHTML = `Node <span class="mono">${cluster.node_id || "?"}</span> · role <span class="mono">${cluster.role || "?"}</span> · v ${selfVersionCell} · leader ${leaderCell} · refreshed <span class="mono">${new Date().toLocaleTimeString()}</span>`;
 
         $("overview").innerHTML = `
           <div class="kv"><div class="k">Peers</div><div class="v">${peers.length} (${online} online, ${offline} offline)</div></div>

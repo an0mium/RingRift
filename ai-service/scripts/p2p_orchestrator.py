@@ -8259,7 +8259,16 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 f"<pre>Expected: {dashboard_path}</pre>"
                 "</body></html>"
             )
-        return web.Response(text=html, content_type="text/html", headers={"Cache-Control": "no-store"})
+        headers = {
+            # Avoid stale HTML across load balancers / browsers during rapid iteration.
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            # Simple diagnostics (no secrets).
+            "X-RingRift-Node-Id": str(self.node_id or ""),
+            "X-RingRift-Build-Version": str(getattr(self, "build_version", "") or ""),
+        }
+        return web.Response(text=html, content_type="text/html", headers=headers)
 
     async def _run_evaluation(self, job_id: str):
         """Evaluate new model against current best.
