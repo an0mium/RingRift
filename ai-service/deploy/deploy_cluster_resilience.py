@@ -35,6 +35,7 @@ Optionally distribute the cluster auth token securely (stdin → sudo tee):
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import os
 import shlex
 import subprocess
@@ -59,6 +60,20 @@ class HostTarget:
         if "@" in self.ssh_host:
             return self.ssh_host
         return f"{self.ssh_user}@{self.ssh_host}"
+
+
+def _looks_like_tailscale_ip(host: str) -> bool:
+    """Return True when host is in Tailscale's default CGNAT range (100.64/10)."""
+    raw = (host or "").strip()
+    if not raw:
+        return False
+    try:
+        ip = ipaddress.ip_address(raw)
+    except ValueError:
+        return False
+    if ip.version != 4:
+        return False
+    return ip in ipaddress.ip_network("100.64.0.0/10")
 
 
 def _load_hosts(config_path: Path) -> Dict[str, HostTarget]:
@@ -421,7 +436,7 @@ def main() -> None:
                     "BR=\"$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)\"\n"
                     "if [ \"$BR\" != \"main\" ]; then\n"
                     "  echo \"[WARN] repo not on main (branch=$BR); skipping git sync (use --force-sync)\" >&2\n"
-                    "elif [ -n \"$(git status --porcelain 2>/dev/null || true)\" ]; then\n"
+                    "elif [ -n \"$(git status --porcelain --untracked-files=no 2>/dev/null || true)\" ]; then\n"
                     "  echo \"[WARN] repo has local changes; skipping git sync (use --force-sync)\" >&2\n"
                     "else\n"
                     "  git merge --ff-only origin/main 2>/dev/null || echo \"[WARN] non-fast-forward; skipping git sync (use --force-sync)\" >&2\n"
@@ -429,8 +444,12 @@ def main() -> None:
                 )
             # Build ADVERTISE_HOST env var if using Tailscale and the target has a Tailscale IP
             advertise_host_prefix = ""
-            if args.use_tailscale and target.tailscale_ip:
-                advertise_host_prefix = f"RINGRIFT_ADVERTISE_HOST={shlex.quote(target.tailscale_ip)} "
+            if args.use_tailscale:
+                advertise_host = target.tailscale_ip
+                if not advertise_host and _looks_like_tailscale_ip(target.ssh_host):
+                    advertise_host = target.ssh_host
+                if advertise_host:
+                    advertise_host_prefix = f"RINGRIFT_ADVERTISE_HOST={shlex.quote(advertise_host)} "
 
             if is_macos:
                 remote_setup = (
