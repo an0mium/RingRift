@@ -289,6 +289,10 @@
       }
 
       @media (max-width: 980px) {
+        .topbar {
+          flex-direction: column;
+          align-items: stretch;
+        }
         .controls {
           min-width: 0;
           grid-template-columns: 1fr;
@@ -723,26 +727,39 @@
         return rates;
       }
 
-	      function renderOverview(cluster, selfplayStats, syncStatus, pipelineStatus) {
-	        const peers = Array.isArray(cluster.peers) ? cluster.peers : [];
-	        const online = peers.filter((p) => p.status === "online").length;
-	        const offline = peers.length - online;
-	        const uptime = Number(cluster.uptime_seconds || 0);
-	        const leaders = peers.filter((p) => p.role === "leader" && p.status === "online").map((p) => p.node_id);
-	        const leaderCell = leaders.length
-	          ? `<span class="mono">${leaders[0]}</span>`
-	          : `${pill("none", "bad")} <span class="mono">${cluster.leader_id || "?"}</span>`;
+		      function renderOverview(cluster, selfplayStats, syncStatus, pipelineStatus) {
+		        const peers = Array.isArray(cluster.peers) ? cluster.peers : [];
+		        const online = peers.filter((p) => p.status === "online").length;
+		        const offline = peers.length - online;
+		        const uptime = Number(cluster.uptime_seconds || 0);
+		        const leaders = peers.filter((p) => p.role === "leader" && p.status === "online").map((p) => p.node_id);
+		        const leaderCell = leaders.length
+		          ? `<span class="mono">${leaders[0]}</span>`
+		          : `${pill("none", "bad")} <span class="mono">${cluster.leader_id || "?"}</span>`;
 
-	        const manifestAge = fmtAge(Number(selfplayStats.manifest_collected_at || 0));
-	        const totalGames = Number(selfplayStats.total_selfplay_games || 0);
+		        const manifestAge = fmtAge(Number(selfplayStats.manifest_collected_at || 0));
+		        const totalGames = Number(selfplayStats.total_selfplay_games || 0);
+            const versionCounts = {};
+            for (const p of peers) {
+              if (!p || p.status !== "online") continue;
+              const v = String(p.version || "").trim();
+              if (!v) continue;
+              versionCounts[v] = (versionCounts[v] || 0) + 1;
+            }
+            const versions = Object.keys(versionCounts).sort((a, b) => (versionCounts[b] || 0) - (versionCounts[a] || 0));
+            const topVersion = versions[0] || "";
+            const topVersionCount = topVersion ? versionCounts[topVersion] : 0;
+            const versionSkewPill = versions.length <= 1 ? pill("uniform", "good") : pill("skew", "warn");
+            const topVersionShort = topVersion.length > 16 ? topVersion.slice(0, 13) + "…" : topVersion || "-";
 
-	        $("subtitle").innerHTML = `Node <span class="mono">${cluster.node_id || "?"}</span> · role <span class="mono">${cluster.role || "?"}</span> · leader ${leaderCell} · refreshed <span class="mono">${new Date().toLocaleTimeString()}</span>`;
+		        $("subtitle").innerHTML = `Node <span class="mono">${cluster.node_id || "?"}</span> · role <span class="mono">${cluster.role || "?"}</span> · leader ${leaderCell} · refreshed <span class="mono">${new Date().toLocaleTimeString()}</span>`;
 
         $("overview").innerHTML = `
           <div class="kv"><div class="k">Peers</div><div class="v">${peers.length} (${online} online, ${offline} offline)</div></div>
           <div class="kv"><div class="k">Jobs</div><div class="v">${cluster.job_count || 0} local · ${cluster.training_job_count || 0} training</div></div>
           <div class="kv"><div class="k">Uptime</div><div class="v">${Math.floor(uptime / 60)}m</div></div>
           <div class="kv"><div class="k">Manifest age</div><div class="v">${manifestAge}</div></div>
+          <div class="kv"><div class="k">Versions</div><div class="v">${versionSkewPill} ${versions.length} unique · <span class="mono" title="${topVersion}">${topVersionShort}</span> ×${topVersionCount}</div></div>
         `;
 
         $("selfplayTotals").innerHTML = `
@@ -765,6 +782,17 @@
       function renderNodes(cluster) {
         const rows = [];
         const peers = Array.isArray(cluster.peers) ? cluster.peers : [];
+        const allNodes = [cluster.self].concat(peers).filter(Boolean);
+        const versionCounts = {};
+        for (const n of allNodes) {
+          const status = n === cluster.self ? "online" : n.status || "unknown";
+          if (status !== "online") continue;
+          const v = String(n.version || "").trim();
+          if (!v) continue;
+          versionCounts[v] = (versionCounts[v] || 0) + 1;
+        }
+        const versions = Object.keys(versionCounts).sort((a, b) => (versionCounts[b] || 0) - (versionCounts[a] || 0));
+        const targetVersion = versions[0] || "";
 
         function addNode(n, isSelf) {
           if (!n) return;
@@ -773,12 +801,15 @@
             status === "online" ? pill("online", "good") : status === "offline" ? pill("offline", "bad") : pill(status, "warn");
           const role = n.role || (isSelf ? cluster.role : "-");
           const version = n.version || "-";
+          const isSkew = Boolean(targetVersion) && version !== "-" && version !== targetVersion;
+          const versionStyle = isSkew ? `style="color: var(--warn)"` : "";
+          const versionTitle = isSkew ? `title="Target: ${targetVersion}"` : "";
           const jobs = `${Number(n.selfplay_jobs || 0)} sp / ${Number(n.training_jobs || 0)} tr`;
           const gpuText = n.has_gpu ? `${fmtPct(n.gpu_percent)} / ${fmtPct(n.gpu_memory_percent)}` : "-";
           rows.push(`
             <tr>
               <td>${isSelf ? pill("self", "good") + " " : ""}<span class="mono">${n.node_id || "?"}</span><div class="mono" style="color:rgba(255,255,255,0.55)">${n.host || ""}${n.port ? ":" + n.port : ""}</div></td>
-              <td><span class="mono">${version}</span></td>
+              <td><span class="mono" ${versionStyle} ${versionTitle}>${version}</span></td>
               <td><span class="mono">${role || "-"}</span></td>
               <td>${statusPill}</td>
               <td>${fmtPct(n.cpu_percent)}</td>
