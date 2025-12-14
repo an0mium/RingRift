@@ -10464,8 +10464,9 @@ print(json.dumps({{
         """Return the desired selfplay concurrency for a node.
 
         This keeps job scheduling, runaway detection, and load shedding aligned.
+        Target: 60% CPU utilization across cluster.
         """
-        target_selfplay = 2
+        target_selfplay = 4  # Higher baseline
         has_gpu = bool(getattr(node, "has_gpu", False))
         cpu_count = int(getattr(node, "cpu_count", 0) or 0)
         memory_gb = int(getattr(node, "memory_gb", 0) or 0)
@@ -10475,73 +10476,69 @@ print(json.dumps({{
         gpu_percent = float(getattr(node, "gpu_percent", 0.0) or 0.0)
         gpu_mem_percent = float(getattr(node, "gpu_memory_percent", 0.0) or 0.0)
 
+        # Target 60% CPU: ~2.5% CPU per job, so jobs = cores * 0.6 / 2.5 = cores * 0.24
+        # Use cores * 0.3 to slightly overshoot and let utilization-aware tuning adjust
+        TARGET_JOBS_PER_CORE = 0.35  # ~35% of cores as concurrent jobs for 60% CPU
+
         if has_gpu:
             gpu_name = (getattr(node, "gpu_name", "") or "").lower()
-            # Baseline concurrency by accelerator tier.
+            # Baseline concurrency by accelerator tier (higher baselines).
             if any(tag in gpu_name for tag in ("h100", "h200", "gh200", "5090")):
-                target_selfplay = 8
+                target_selfplay = 16
             elif any(tag in gpu_name for tag in ("a100", "4090")):
-                target_selfplay = 6
+                target_selfplay = 12
             elif any(tag in gpu_name for tag in ("3090", "a10")):
-                target_selfplay = 4
+                target_selfplay = 8
             elif memory_gb >= 64:
-                target_selfplay = 4
+                target_selfplay = 8
 
-            # Scale with CPU cores for hybrid workloads (CPU rules + GPU eval).
-            # GH200 nodes have 64 cores and 480GB memory - use them more aggressively.
-            # Vast nodes have 384-512 cores and should run 100+ jobs.
-            if cpu_count >= 48:
-                # High-core machines: allow 1 job per 2-4 cores depending on scale
-                # GH200 (64 cores, 480GB): target ~32 jobs
-                # Vast (384 cores, 500GB): target ~96 jobs
-                # Vast (512 cores, 755GB): target ~128 jobs
-                cpu_based_target = cpu_count // 2
-                mem_cap = memory_gb // 4 if memory_gb > 0 else 64
-                # Dynamic cap: 48 for <128 cores, scale up for larger machines
-                core_cap = 48 if cpu_count < 128 else min(192, cpu_count // 4)
+            # Scale aggressively with CPU cores for 60% target utilization
+            if cpu_count >= 32:
+                # Target: 35% of cores as jobs, capped by memory (3GB per job typical)
+                # GH200 (64 cores, 525GB): target 64*0.35 = 22, but can handle 64 easily
+                # Vast (384 cores, 500GB): target 384*0.35 = 134
+                # Vast (512 cores, 755GB): target 512*0.35 = 179
+                cpu_based_target = int(cpu_count * TARGET_JOBS_PER_CORE)
+                mem_cap = memory_gb // 3 if memory_gb > 0 else 128  # 3GB per job
+                # Higher caps for aggressive utilization
+                core_cap = 64 if cpu_count < 128 else min(256, int(cpu_count * 0.5))
                 target_selfplay = max(target_selfplay, min(cpu_based_target, mem_cap, core_cap))
             elif cpu_count > 0:
-                cpu_bonus = max(0, min(8, cpu_count // 8))
-                target_selfplay = min(24, target_selfplay + cpu_bonus)
+                cpu_bonus = max(0, min(12, cpu_count // 4))
+                target_selfplay = min(32, target_selfplay + cpu_bonus)
 
-            # Utilization-aware tuning.
-            if gpu_percent > 90 or gpu_mem_percent > 90:
-                target_selfplay = max(1, target_selfplay - 2)
-            if cpu_percent > 95:
-                target_selfplay = min(target_selfplay, 2)
-            elif cpu_percent > 85:
-                target_selfplay = min(target_selfplay, max(1, target_selfplay - 1))
-            elif gpu_percent < 10 and cpu_percent < 70 and mem_percent < 80:
-                # Resources underutilized - allow scaling up
-                target_selfplay = min(48, target_selfplay + 2)
+            # Utilization-aware tuning (only reduce if actually overloaded).
+            if gpu_percent > 95 or gpu_mem_percent > 95:
+                target_selfplay = max(4, target_selfplay - 4)
+            if cpu_percent > 90:
+                target_selfplay = max(4, target_selfplay - 2)
+            elif cpu_percent < 50 and mem_percent < 70:
+                # Resources significantly underutilized - scale up more
+                target_selfplay = min(256, int(target_selfplay * 1.3))
         else:
-            # CPU-only nodes: scale with CPU cores
+            # CPU-only nodes: scale aggressively with CPU cores
             if cpu_count >= 32:
-                # High-core CPU nodes: 1 job per 2 cores, capped by memory
-                # Standard (32-64 cores): target ~16-32 jobs
-                # High-core (128+ cores): target 32-128 jobs
-                cpu_target = cpu_count // 2
-                mem_cap = memory_gb // 4 if memory_gb > 0 else 32
-                core_cap = 32 if cpu_count < 128 else min(128, cpu_count // 4)
+                # Target 35% of cores as jobs for 60% CPU utilization
+                cpu_target = int(cpu_count * TARGET_JOBS_PER_CORE)
+                mem_cap = memory_gb // 3 if memory_gb > 0 else 64
+                core_cap = 48 if cpu_count < 128 else min(192, int(cpu_count * 0.5))
                 target_selfplay = max(target_selfplay, min(cpu_target, mem_cap, core_cap))
             elif cpu_count > 0:
-                cpu_target = max(2, min(24, cpu_count // 2))
+                cpu_target = max(4, int(cpu_count * TARGET_JOBS_PER_CORE))
                 target_selfplay = max(target_selfplay, cpu_target)
             elif memory_gb >= 64:
-                target_selfplay = 4
+                target_selfplay = 8
 
-            if memory_gb > 0 and memory_gb < 32:
-                # Only cap for low-memory machines
-                mem_target = max(2, min(16, memory_gb // 4))
+            if memory_gb > 0 and memory_gb < 16:
+                # Only cap for very low-memory machines
+                mem_target = max(2, memory_gb // 2)
                 target_selfplay = min(target_selfplay, mem_target)
 
-            # Utilization-aware scaling.
-            if cpu_percent > 95:
-                target_selfplay = max(1, target_selfplay // 2)
-            elif cpu_percent > 85:
-                target_selfplay = max(1, target_selfplay - 1)
-            elif cpu_percent < 25 and mem_percent < 75:
-                target_selfplay = min(32, target_selfplay + 2)
+            # Utilization-aware scaling (relaxed thresholds for 60% target).
+            if cpu_percent > 90:
+                target_selfplay = max(2, target_selfplay - 2)
+            elif cpu_percent < 40 and mem_percent < 70:
+                target_selfplay = min(192, int(target_selfplay * 1.3))
 
         if disk_percent >= DISK_WARNING_THRESHOLD:
             target_selfplay = min(target_selfplay, 2)
