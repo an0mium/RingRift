@@ -10,8 +10,9 @@ from datetime import datetime, timezone
 from dataclasses import dataclass
 import threading
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Response, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
+import secrets
 from pydantic import BaseModel, Field, model_validator
 from typing import Optional, Dict, Any, TypedDict
 
@@ -112,7 +113,10 @@ app = FastAPI(
 
 # CORS middleware - allows sandbox UI to access replay API
 # In production, restrict allow_origins to specific domains
-cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
+_cors_raw = os.getenv("CORS_ORIGINS", "*")
+cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+if not cors_origins:
+    cors_origins = ["*"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -120,6 +124,41 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Admin API key for protected endpoints (cache management, etc.)
+# Generate a secure default if not set, but warn in production
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
+if not ADMIN_API_KEY:
+    ADMIN_API_KEY = secrets.token_urlsafe(32)
+    logger.warning(
+        "ADMIN_API_KEY not set - generated ephemeral key. "
+        "Set ADMIN_API_KEY env var for persistent admin access."
+    )
+
+
+async def verify_admin_api_key(x_admin_key: str = Header(None, alias="X-Admin-Key")):
+    """Dependency to verify admin API key for protected endpoints."""
+    if not x_admin_key:
+        raise HTTPException(status_code=401, detail="X-Admin-Key header required")
+    if not secrets.compare_digest(x_admin_key, ADMIN_API_KEY):
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+    return True
+
+
+# Error sanitization for production - prevent stack trace leakage
+IS_PRODUCTION = os.getenv("RINGRIFT_ENV", "development").lower() == "production"
+
+
+def sanitize_error_detail(error: Exception, fallback: str = "Internal server error") -> str:
+    """Return sanitized error message for HTTP responses.
+
+    In production, returns a generic message to prevent information leakage.
+    In development, returns the actual error message for debugging.
+    """
+    if IS_PRODUCTION:
+        return fallback
+    return str(error)
+
 
 # Mount replay router for game database access
 app.include_router(replay_router)
@@ -1165,15 +1204,15 @@ async def choose_capture_direction_option(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/ai/cache")
+@app.delete("/ai/cache", dependencies=[Depends(verify_admin_api_key)])
 async def clear_ai_cache():
-    """Clear cached AI instances"""
+    """Clear cached AI instances. Requires X-Admin-Key header."""
     global ai_instances
     with _ai_cache_lock:
         removed = len(ai_instances)
         ai_instances.clear()
         AI_INSTANCE_CACHE_SIZE.set(0)
-    logger.info("AI cache cleared")
+    logger.info("AI cache cleared via admin API", extra={"instances_removed": removed})
     return {"status": "cache cleared", "instances_removed": removed}
 
 
