@@ -109,6 +109,12 @@ HTTP_TOTAL_TIMEOUT = 30       # Total request timeout
 MAX_CONSECUTIVE_FAILURES = 3  # Mark node dead after 3 failures
 RETRY_DEAD_NODE_INTERVAL = 300  # Retry dead nodes every 5 minutes
 
+# Retire peers that have been offline for a long time so they don't pollute the
+# active scheduling set (but we still probe them occasionally so they can
+# return without manual intervention).
+PEER_RETIRE_AFTER_SECONDS = int(os.environ.get("RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS", "3600") or 3600)
+RETRY_RETIRED_NODE_INTERVAL = int(os.environ.get("RINGRIFT_P2P_RETRY_RETIRED_NODE_INTERVAL", "3600") or 3600)
+
 # NAT/relay settings
 # Nodes that can't receive inbound connections can operate in relay mode:
 # they send heartbeats to a relay (/relay/heartbeat) and poll for commands.
@@ -270,6 +276,10 @@ class NodeInfo:
     # NAT/Relay support - nodes that can't be reached directly
     nat_blocked: bool = False
     relay_via: str = ""  # node_id of the relay hub (usually leader)
+    # Peer lifecycle: permanently gone nodes are marked retired so they don't
+    # pollute scheduling, but they can be reactivated if they come back online.
+    retired: bool = False
+    retired_at: float = 0.0
 
     def is_alive(self) -> bool:
         """Check if node is considered alive based on last heartbeat."""
@@ -278,6 +288,8 @@ class NodeInfo:
     def is_healthy(self) -> bool:
         """Check if node is healthy for new jobs (not just reachable)."""
         if not self.is_alive():
+            return False
+        if getattr(self, "retired", False):
             return False
         # LEARNED LESSONS - Don't start jobs on resource-constrained nodes
         if self.disk_percent >= DISK_CRITICAL_THRESHOLD:
@@ -325,6 +337,8 @@ class NodeInfo:
 
     def should_retry(self) -> bool:
         """Check if we should retry connecting to a failed node."""
+        if getattr(self, "retired", False):
+            return time.time() - self.last_failure_time > RETRY_RETIRED_NODE_INTERVAL
         if self.consecutive_failures < MAX_CONSECUTIVE_FAILURES:
             return True
         # LEARNED LESSONS - Retry dead nodes periodically
@@ -382,6 +396,8 @@ class NodeInfo:
         d.setdefault('last_oom_time', 0.0)
         d.setdefault('nat_blocked', False)
         d.setdefault('relay_via', '')
+        d.setdefault('retired', False)
+        d.setdefault('retired_at', 0.0)
         # Ignore unknown keys for rolling upgrades.
         allowed = {f.name for f in dataclass_fields(cls)}
         d = {k: v for k, v in d.items() if k in allowed}
@@ -7730,9 +7746,12 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             # Collect peer info (dashboard-oriented shape)
             peers_info: List[Dict[str, Any]] = []
+            include_retired = request.query.get("include_retired") == "1"
             with self.peers_lock:
                 peers_snapshot = dict(self.peers)
             for peer_id, peer in peers_snapshot.items():
+                if getattr(peer, "retired", False) and not include_retired:
+                    continue
                 status = "offline" if not peer.is_alive() else "online"
                 key = self._endpoint_key(peer)
                 effective_scheme, effective_host, effective_port = (None, None, None)
@@ -9770,13 +9789,30 @@ print(json.dumps({{
 
     def _check_dead_peers(self):
         """Check for peers that have stopped responding."""
+        now = time.time()
         with self.peers_lock:
             dead_peers = []
             for node_id, info in self.peers.items():
                 if not info.is_alive() and node_id != self.node_id:
                     dead_peers.append(node_id)
+                    # Retire long-dead peers so they don't pollute active scheduling.
+                    try:
+                        dead_for = now - float(getattr(info, "last_heartbeat", 0.0) or 0.0)
+                    except Exception:
+                        dead_for = float("inf")
+                    if not getattr(info, "retired", False) and dead_for >= PEER_RETIRE_AFTER_SECONDS:
+                        info.retired = True
+                        info.retired_at = now
+                        print(f"[P2P] Retiring peer {node_id} (offline for {int(dead_for)}s)")
+                elif info.is_alive() and getattr(info, "retired", False):
+                    # Peer came back: clear retirement.
+                    info.retired = False
+                    info.retired_at = 0.0
 
             for node_id in dead_peers:
+                info = self.peers.get(node_id)
+                if info and getattr(info, "retired", False):
+                    continue
                 print(f"[P2P] Peer {node_id} is dead (no heartbeat for {PEER_TIMEOUT}s)")
                 # Don't remove, just mark as dead for historical tracking
 
