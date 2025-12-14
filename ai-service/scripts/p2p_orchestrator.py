@@ -1454,6 +1454,16 @@ class P2POrchestrator:
                 except Exception:
                     pass
 
+            # Self-heal inconsistent persisted leader state (can happen after
+            # abrupt shutdowns or partial writes): never keep role=leader without
+            # a matching leader_id.
+            if self.role == NodeRole.LEADER and not self.leader_id:
+                print("[P2P] Loaded role=leader but leader_id is empty; stepping down to follower")
+                self.role = NodeRole.FOLLOWER
+                self.leader_lease_id = ""
+                self.leader_lease_expires = 0.0
+                self.last_lease_renewal = 0.0
+
             conn.close()
             print(f"[P2P] Loaded state: {len(self.peers)} peers, {len(self.local_jobs)} jobs")
         except Exception as e:
