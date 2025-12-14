@@ -115,6 +115,7 @@ export function useReplayAnimation({
    */
   useEffect(() => {
     if (!enabled) {
+      setPendingAnimation(null);
       prevMoveNumberRef.current = currentMoveNumber;
       return;
     }

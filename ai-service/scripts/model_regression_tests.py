@@ -80,44 +80,22 @@ def run_regression_test(
     Returns:
         Dict with test results
     """
-    from app.rules import create_game_state, apply_action, is_game_over, get_winner
+    import os
+    import torch
+    from datetime import datetime
+    from app.game_engine import GameEngine
     from app.ai.heuristic_ai import HeuristicAI
-    from app.models import BoardType
+    from app.ai.descent_ai import DescentAI
+    from app.models import (
+        BoardType, BoardState, GamePhase, GameState, GameStatus, Player, AIConfig, TimeControl
+    )
+    from app.rules.core import (
+        BOARD_CONFIGS,
+        get_victory_threshold,
+        get_territory_victory_threshold,
+    )
 
     print(f"  Running {test.name}: {test.games} games, min_win_rate={test.min_win_rate:.0%}")
-
-    # Create test opponent
-    if test.opponent_type == "random":
-        from app.ai.random_ai import RandomAI
-        opponent = RandomAI()
-    elif test.opponent_type == "heuristic":
-        opponent = HeuristicAI(difficulty=test.opponent_config.get("difficulty", 5))
-    elif test.opponent_type == "minimax":
-        from app.ai.minimax import MinimaxAI
-        opponent = MinimaxAI(
-            difficulty=test.opponent_config.get("difficulty", 5),
-            max_depth=test.opponent_config.get("depth", 3),
-        )
-    else:
-        raise ValueError(f"Unknown opponent type: {test.opponent_type}")
-
-    # Load model being tested
-    import torch
-    from app.ai.neural_net import NeuralNetAI
-
-    test_ai = NeuralNetAI(
-        difficulty=10,
-        board_type=test.board_type,
-        num_players=test.num_players,
-    )
-    # Load specific model
-    test_ai._load_model(model_path)
-
-    # Run games
-    wins = 0
-    losses = 0
-    draws = 0
-    total_moves = 0
 
     board_type_map = {
         "square8": BoardType.SQUARE8,
@@ -126,32 +104,176 @@ def run_regression_test(
     }
     board_type = board_type_map.get(test.board_type, BoardType.SQUARE8)
 
-    for game_idx in range(test.games):
-        # Alternate sides
-        test_player = game_idx % 2
+    def create_initial_state() -> GameState:
+        """Create initial game state."""
+        if board_type in BOARD_CONFIGS:
+            config = BOARD_CONFIGS[board_type]
+            size = config.size
+            rings_per_player = config.rings_per_player
+        else:
+            size = 8
+            rings_per_player = 18
 
-        state = create_game_state(
-            board_type=board_type,
-            num_players=test.num_players,
+        players = [
+            Player(
+                id=f"p{idx}",
+                username=f"AI {idx}",
+                type="ai",
+                playerNumber=idx,
+                isReady=True,
+                timeRemaining=600,
+                ringsInHand=rings_per_player,
+                eliminatedRings=0,
+                territorySpaces=0,
+                aiDifficulty=10,
+            )
+            for idx in range(1, test.num_players + 1)
+        ]
+
+        total_rings = rings_per_player * test.num_players
+        victory_threshold = get_victory_threshold(board_type, test.num_players)
+        territory_threshold = get_territory_victory_threshold(board_type)
+
+        return GameState(
+            id="regression_test",
+            boardType=board_type,
+            rngSeed=None,
+            board=BoardState(
+                type=board_type,
+                size=size,
+                stacks={},
+                markers={},
+                collapsedSpaces={},
+                eliminatedRings={},
+            ),
+            players=players,
+            currentPhase=GamePhase.RING_PLACEMENT,
+            currentPlayer=1,
+            moveHistory=[],
+            timeControl=TimeControl(
+                initialTime=600,
+                increment=0,
+                type="blitz",
+            ),
+            gameStatus=GameStatus.ACTIVE,
+            createdAt=datetime.now(),
+            lastMoveAt=datetime.now(),
+            isRated=False,
+            maxPlayers=test.num_players,
+            totalRingsInPlay=total_rings,
+            totalRingsEliminated=0,
+            victoryThreshold=victory_threshold,
+            territoryVictoryThreshold=territory_threshold,
+            chainCaptureState=None,
+            mustMoveFromStackKey=None,
+            zobristHash=None,
+            lpsRoundIndex=0,
+            lpsExclusivePlayerForCompletedRound=None,
         )
+
+    def create_opponent(player_num: int):
+        """Create test opponent."""
+        config = AIConfig(
+            difficulty=test.opponent_config.get("difficulty", 5),
+            randomness=0.0,
+            think_time=100,
+        )
+        if test.opponent_type == "random":
+            from app.ai.random_ai import RandomAI
+            return RandomAI(player_num, config)
+        elif test.opponent_type == "heuristic":
+            return HeuristicAI(player_num, config)
+        elif test.opponent_type == "minimax":
+            from app.ai.minimax_ai import MinimaxAI
+            config.think_time = test.opponent_config.get("depth", 3) * 100
+            return MinimaxAI(player_num, config)
+        else:
+            raise ValueError(f"Unknown opponent type: {test.opponent_type}")
+
+    def create_test_ai(player_num: int) -> DescentAI:
+        """Create AI with the model being tested."""
+        model_id = os.path.splitext(os.path.basename(model_path))[0]
+        config = AIConfig(
+            difficulty=10,
+            randomness=0.1,
+            think_time=500,
+            nn_model_id=model_id,
+        )
+        ai = DescentAI(player_num, config)
+
+        # Load specific model weights
+        if ai.neural_net and os.path.exists(model_path):
+            try:
+                ai.neural_net.model.load_state_dict(
+                    torch.load(model_path, weights_only=True)
+                )
+                ai.neural_net.model.eval()
+            except Exception as e:
+                print(f"    Warning: Failed to load model {model_path}: {e}")
+
+        return ai
+
+    # Run games
+    wins = 0
+    losses = 0
+    draws = 0
+    total_moves = 0
+
+    for game_idx in range(test.games):
+        # Alternate sides (1-indexed player numbers)
+        test_player = (game_idx % 2) + 1
+
+        state = create_initial_state()
+
+        # Create AIs
+        if test_player == 1:
+            ais = {1: create_test_ai(1), 2: create_opponent(2)}
+        else:
+            ais = {1: create_opponent(1), 2: create_test_ai(2)}
 
         move_count = 0
         max_moves = 300
 
-        while not is_game_over(state) and move_count < max_moves:
-            current_player = state.current_player_index
+        while state.game_status == GameStatus.ACTIVE and move_count < max_moves:
+            current = state.current_player
+            ai = ais.get(current)
+            if ai is None:
+                break
 
-            if current_player == test_player:
-                action = test_ai.get_move(state)
-            else:
-                action = opponent.get_move(state)
+            try:
+                move = ai.get_move(state)
+                if move:
+                    state = GameEngine.apply_move(state, move)
+                else:
+                    # No move available - handle phase requirement
+                    req = GameEngine.get_phase_requirement(state)
+                    if req:
+                        from app.game_engine import PhaseRequirementType
+                        from app.models import Move, MoveType
+                        if req.type == PhaseRequirementType.NO_PLACEMENT_ACTION_REQUIRED:
+                            state = GameEngine.apply_move(state, Move(
+                                type=MoveType.NO_PLACEMENT_ACTION,
+                                playerId=f"p{req.player}",
+                                playerNumber=req.player,
+                            ))
+                        elif req.type == PhaseRequirementType.NO_MOVEMENT_ACTION_REQUIRED:
+                            state = GameEngine.apply_move(state, Move(
+                                type=MoveType.NO_MOVEMENT_ACTION,
+                                playerId=f"p{req.player}",
+                                playerNumber=req.player,
+                            ))
+                        else:
+                            break
+                    else:
+                        break
+            except Exception:
+                break
 
-            state = apply_action(state, action)
             move_count += 1
 
         total_moves += move_count
 
-        winner = get_winner(state)
+        winner = state.winner
         if winner == test_player:
             wins += 1
         elif winner is None:

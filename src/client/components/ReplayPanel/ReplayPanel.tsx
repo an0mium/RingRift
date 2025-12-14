@@ -19,6 +19,7 @@ import { MoveInfo } from './MoveInfo';
 import { useGameList, useReplayServiceAvailable } from '../../hooks/useReplayService';
 import { useReplayPlayback } from '../../hooks/useReplayPlayback';
 import { useReplayAnimation } from '../../hooks/useReplayAnimation';
+import { useAccessibility } from '../../contexts/AccessibilityContext';
 import type { ReplayGameQueryParams } from '../../types/replay';
 import type { GameState } from '../../../shared/types/game';
 import type { MoveAnimationData } from '../BoardView';
@@ -52,6 +53,7 @@ export function ReplayPanel({
 }: ReplayPanelProps) {
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
   const [autoLoadError, setAutoLoadError] = useState<string | null>(null);
+  const { effectiveReducedMotion } = useAccessibility();
   const [filters, setFilters] = useState<ReplayGameQueryParams>({
     limit: DEFAULT_PAGE_SIZE,
     offset: 0,
@@ -75,7 +77,7 @@ export function ReplayPanel({
     currentMoveNumber: playback.currentMoveNumber,
     moves: playback.moves,
     isPlaying: playback.isPlaying,
-    enabled: playback.gameId !== null,
+    enabled: playback.gameId !== null && !effectiveReducedMotion,
   });
 
   // Track the last externally requested gameId so we only attempt to load

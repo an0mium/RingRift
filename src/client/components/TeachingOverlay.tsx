@@ -850,3 +850,13 @@ export function TeachingTopicButtons({
     </div>
   );
 }
+
+export const TEACHING_TOPICS = Object.keys(TEACHING_CONTENT) as TeachingTopic[];
+
+const TEACHING_TOPIC_SET = new Set<string>(TEACHING_TOPICS);
+
+export function parseTeachingTopic(value: string | null | undefined): TeachingTopic | null {
+  if (!value) return null;
+  if (!TEACHING_TOPIC_SET.has(value)) return null;
+  return value as TeachingTopic;
+}

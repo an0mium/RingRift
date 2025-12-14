@@ -513,13 +513,15 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
   const { messages: backendChatMessages, sendMessage: sendChatMessage } = useChatMessages();
 
   // Move animations - auto-detects moves from game state changes
-  const { pendingAnimation, clearAnimation } = useAutoMoveAnimation(gameState);
+  const { colorVisionMode, effectiveReducedMotion } = useAccessibility();
+  const { pendingAnimation, clearAnimation } = useAutoMoveAnimation(gameState, {
+    enabled: !effectiveReducedMotion,
+  });
 
   // Invalid move feedback - shake animation and explanatory toasts
   const { shakingCellKey, triggerInvalidMove } = useInvalidMoveFeedback();
 
   const isMobile = useIsMobile();
-  const { colorVisionMode } = useAccessibility();
 
   // DecisionUI: pending choice state + countdown timer
   const {

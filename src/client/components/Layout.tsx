@@ -76,6 +76,9 @@ export default function Layout() {
               <NavLink to="/sandbox" className={navLinkClasses}>
                 Sandbox
               </NavLink>
+              <NavLink to="/help" className={navLinkClasses}>
+                Help
+              </NavLink>
             </div>
           </div>
 
@@ -184,6 +187,9 @@ export default function Layout() {
               </NavLink>
               <NavLink to="/sandbox" className={mobileNavLinkClasses}>
                 Sandbox
+              </NavLink>
+              <NavLink to="/help" className={mobileNavLinkClasses}>
+                Help
               </NavLink>
             </div>
 

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { BoardView } from '../components/BoardView';
 import { ChoiceDialog } from '../components/ChoiceDialog';
@@ -342,8 +342,9 @@ const PHASE_COPY: Record<
  */
 export const SandboxGameHost: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
-  const { colorVisionMode } = useAccessibility();
+  const { colorVisionMode, effectiveReducedMotion } = useAccessibility();
   const { shouldShowWelcome, markWelcomeSeen, markGameCompleted, isFirstTimePlayer } =
     useFirstTimePlayer();
 
@@ -656,7 +657,7 @@ export const SandboxGameHost: React.FC = () => {
     handleLoadScenario: hookHandleLoadScenario,
     handleForkFromReplay: hookHandleForkFromReplay,
     handleResetScenario: _hookHandleResetScenario,
-    clearScenarioContext: _clearScenarioContext,
+    clearScenarioContext,
     originalScenarioRef,
   } = useSandboxScenarios<LoadableScenario>({
     initSandboxWithScenario,
@@ -1013,6 +1014,9 @@ export const SandboxGameHost: React.FC = () => {
   };
 
   const handleQuickStartPreset = (preset: (typeof QUICK_START_PRESETS)[number]) => {
+    clearScenarioContext();
+    resetGameUIState();
+
     // Build an explicit snapshot so we can both update config and launch a
     // game immediately without relying on async state updates.
     const baseTypes = [...config.playerTypes];
@@ -1028,7 +1032,7 @@ export const SandboxGameHost: React.FC = () => {
     };
 
     setConfig(snapshot);
-    void startSandboxGame(snapshot);
+    startLocalSandboxGame(snapshot);
   };
 
   // Handler for starting tutorial from onboarding modal - selects "Learn the Basics"
@@ -1324,7 +1328,9 @@ export const SandboxGameHost: React.FC = () => {
   const sandboxBoardState: BoardState | null = displayGameState?.board ?? null;
 
   // Move animations - auto-detects moves from game state changes
-  const { pendingAnimation, clearAnimation } = useAutoMoveAnimation(sandboxGameState);
+  const { pendingAnimation, clearAnimation } = useAutoMoveAnimation(sandboxGameState, {
+    enabled: !effectiveReducedMotion,
+  });
 
   const sandboxGameOverBannerText =
     sandboxVictoryResult && isSandboxVictoryModalDismissed && sandboxVictoryResult.reason

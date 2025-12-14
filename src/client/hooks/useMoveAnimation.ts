@@ -73,7 +73,8 @@ export function useMoveAnimation() {
  * Hook that automatically detects moves from game state changes
  * and triggers animations.
  */
-export function useAutoMoveAnimation(gameState: GameState | null) {
+export function useAutoMoveAnimation(gameState: GameState | null, options?: { enabled?: boolean }) {
+  const enabled = options?.enabled ?? true;
   const { pendingAnimation, triggerAnimation, clearAnimation } = useMoveAnimation();
   const prevMoveCountRef = useRef<number>(0);
   const prevGameIdRef = useRef<string | null>(null);
@@ -87,6 +88,14 @@ export function useAutoMoveAnimation(gameState: GameState | null) {
       prevMoveCountRef.current = 0;
       prevGameIdRef.current = null;
       prevBoardRef.current = null;
+      return;
+    }
+
+    if (!enabled) {
+      clearAnimation();
+      prevGameIdRef.current = gameState.id;
+      prevMoveCountRef.current = gameState.moveHistory.length;
+      prevBoardRef.current = gameState.board;
       return;
     }
 
@@ -180,7 +189,7 @@ export function useAutoMoveAnimation(gameState: GameState | null) {
 
     prevMoveCountRef.current = currentMoveCount;
     prevBoardRef.current = gameState.board;
-  }, [gameState, triggerAnimation, clearAnimation]);
+  }, [gameState, enabled, triggerAnimation, clearAnimation]);
 
   return {
     pendingAnimation,

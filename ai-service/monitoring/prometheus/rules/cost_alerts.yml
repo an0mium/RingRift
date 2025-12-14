@@ -1,0 +1,89 @@
+# Prometheus alerting rules for RingRift cluster cost monitoring
+groups:
+  - name: cluster_cost_alerts
+    rules:
+      # Alert when hourly cluster cost exceeds threshold
+      - alert: HighClusterCost
+        expr: sum(ringrift_cluster_node_cost_per_hour) > 10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'High cluster cost detected'
+          description: 'Cluster cost is {{ $value | printf "%.2f" }} $/hr (threshold: $10/hr)'
+
+      # Alert when daily cost projection exceeds budget
+      - alert: DailyBudgetExceeded
+        expr: sum(ringrift_cluster_node_cost_per_hour) * 24 > 200
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Daily budget projection exceeded'
+          description: 'Projected daily cost is {{ $value | printf "%.2f" }}$ (budget: $200/day)'
+
+      # Alert when a node has been idle (low GPU utilization) for too long
+      - alert: IdleGPUNode
+        expr: ringrift_cluster_gpu_utilization < 0.1 and ringrift_cluster_node_up == 1
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: 'GPU node is idle'
+          description: 'Node {{ $labels.node }} ({{ $labels.gpu_type }}) has GPU utilization < 10% for over 1 hour'
+
+      # Alert on low games-per-dollar efficiency
+      - alert: LowTrainingEfficiency
+        expr: |
+          (
+            rate(ringrift_games_completed_total[1h]) /
+            (sum(ringrift_cluster_node_cost_per_hour) + 0.001)
+          ) < 50
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Low training efficiency'
+          description: 'Training efficiency is {{ $value | printf "%.1f" }} games/dollar (target: 50+)'
+
+  - name: cluster_health_alerts
+    rules:
+      # Alert when node goes down
+      - alert: ClusterNodeDown
+        expr: ringrift_cluster_node_up == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Cluster node is down'
+          description: 'Node {{ $labels.node }} ({{ $labels.gpu_type }}) has been down for 5+ minutes'
+
+      # Alert on high GPU memory usage
+      - alert: HighGPUMemoryUsage
+        expr: ringrift_cluster_gpu_memory_used_bytes / (32 * 1024 * 1024 * 1024) > 0.9
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'High GPU memory usage'
+          description: 'Node {{ $labels.node }} GPU memory usage is above 90%'
+
+      # Alert when no games completed in a while
+      - alert: NoGamesCompleted
+        expr: increase(ringrift_games_completed_total[30m]) == 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'No games completed'
+          description: 'No selfplay games completed in the last 30 minutes'
+
+      # Alert on repeated model promotions (potential instability)
+      - alert: FrequentPromotions
+        expr: increase(ringrift_model_promotions_total[1h]) > 5
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: 'Frequent model promotions'
+          description: '{{ $value }} model promotions in the last hour (may indicate rating instability)'

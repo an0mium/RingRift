@@ -15,12 +15,6 @@
 
 import express from 'express';
 import request from 'supertest';
-import {
-  initializeMemoryRateLimiters,
-  __testResetRateLimiters,
-  rateLimiter,
-  getRateLimitConfig,
-} from '../../../src/server/middleware/rateLimiter';
 import { errorHandler } from '../../../src/server/middleware/errorHandler';
 
 // Keep metrics side effects lightweight for this integration test.
@@ -34,6 +28,7 @@ describe('Rate limiter + errorHandler integration', () => {
   let originalBypassEnabled: string | undefined;
   let originalBypassIPs: string | undefined;
   let originalBypassUserPattern: string | undefined;
+  let rateLimiterModule: typeof import('../../../src/server/middleware/rateLimiter');
 
   beforeEach(() => {
     // Ensure load-test bypass env vars from other suites (or developer shells)
@@ -46,10 +41,15 @@ describe('Rate limiter + errorHandler integration', () => {
     delete process.env.RATE_LIMIT_BYPASS_IPS;
     delete process.env.RATE_LIMIT_BYPASS_USER_PATTERN;
 
-    // Defensive: other suites may initialize Redis-backed limiters in the same
-    // worker. Re-initialize memory limiters here so this test remains isolated.
-    initializeMemoryRateLimiters();
-    __testResetRateLimiters();
+    // Defensive: other suites may have mocked the rate limiter module (or
+    // initialized Redis-backed limiters) in the same Jest worker process.
+    // Always pull the real module implementation and re-initialize memory
+    // limiters so this integration test is deterministic.
+    rateLimiterModule = jest.requireActual(
+      '../../../src/server/middleware/rateLimiter'
+    ) as typeof import('../../../src/server/middleware/rateLimiter');
+    rateLimiterModule.initializeMemoryRateLimiters();
+    rateLimiterModule.__testResetRateLimiters();
   });
 
   afterEach(() => {
@@ -76,7 +76,7 @@ describe('Rate limiter + errorHandler integration', () => {
     const app = express();
 
     // Apply the API rate limiter just as in the main server pipeline.
-    app.get('/limited', rateLimiter, (_req, res) => {
+    app.get('/limited', rateLimiterModule.rateLimiter, (_req, res) => {
       res.json({ success: true });
     });
 
@@ -88,7 +88,7 @@ describe('Rate limiter + errorHandler integration', () => {
 
   it('returns a 429 RATE_LIMIT_EXCEEDED response with standard headers when limit is exceeded', async () => {
     const app = createTestApp();
-    const config = getRateLimitConfig('api');
+    const config = rateLimiterModule.getRateLimitConfig('api');
     const maxRequests = config?.points ?? 50;
 
     // Exhaust the in-memory quota for this IP.

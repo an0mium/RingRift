@@ -104,7 +104,13 @@ function ConfettiParticles() {
 /**
  * Animated trophy display for victory celebration
  */
-function AnimatedTrophy({ victoryCondition }: { victoryCondition: GameResult['reason'] }) {
+function AnimatedTrophy({
+  victoryCondition,
+  animate = true,
+}: {
+  victoryCondition: GameResult['reason'];
+  animate?: boolean;
+}) {
   const getTrophyEmoji = () => {
     switch (victoryCondition) {
       case 'ring_elimination':
@@ -128,7 +134,11 @@ function AnimatedTrophy({ victoryCondition }: { victoryCondition: GameResult['re
 
   return (
     <div className="flex justify-center mb-2">
-      <span className="trophy-animate text-6xl celebrating" role="img" aria-label="trophy">
+      <span
+        className={animate ? 'trophy-animate text-6xl celebrating' : 'text-6xl'}
+        role="img"
+        aria-label="trophy"
+      >
         {getTrophyEmoji()}
       </span>
     </div>
@@ -403,7 +413,7 @@ export function VictoryModal({
   const overlaySessionIdRef = useRef<string | null>(null);
   const weirdStateImpressionLoggedRef = useRef<string | null>(null);
   const { currentTopic, isOpen: isTeachingOpen, showTopic, hideTopic } = useTeachingOverlay();
-  const { colorVisionMode } = useAccessibility();
+  const { colorVisionMode, effectiveReducedMotion } = useAccessibility();
 
   // Reset per-session impression tracking whenever the modal closes.
   useEffect(() => {
@@ -618,7 +628,8 @@ export function VictoryModal({
     });
   };
 
-  const showConfetti = !isDraw && effectiveGameResult?.reason !== 'abandonment';
+  const showConfetti =
+    !effectiveReducedMotion && !isDraw && effectiveGameResult?.reason !== 'abandonment';
 
   return (
     <>
@@ -627,14 +638,18 @@ export function VictoryModal({
         onClose={onClose}
         labelledBy="victory-title"
         describedBy="victory-description"
-        backdropClassName="bg-black/70 backdrop-blur-sm modal-backdrop-animate"
+        backdropClassName={`bg-black/70 backdrop-blur-sm ${
+          effectiveReducedMotion ? '' : 'modal-backdrop-animate'
+        }`.trim()}
         className="w-full max-w-3xl mx-4"
       >
         {/* Confetti particles for celebration */}
         {showConfetti && <ConfettiParticles />}
 
         <div
-          className="victory-modal modal-content-animate bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full p-6 space-y-6 relative overflow-hidden"
+          className={`victory-modal bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full p-6 space-y-6 relative overflow-hidden ${
+            effectiveReducedMotion ? '' : 'modal-content-animate'
+          }`.trim()}
           data-testid="victory-modal"
         >
           {/* Shimmer effect overlay for victories */}
@@ -648,11 +663,14 @@ export function VictoryModal({
           {/* Header with celebration animation */}
           <div className="text-center space-y-2 relative z-10">
             {/* Animated Trophy */}
-            <AnimatedTrophy victoryCondition={effectiveGameResult?.reason ?? 'ring_elimination'} />
+            <AnimatedTrophy
+              victoryCondition={effectiveGameResult?.reason ?? 'ring_elimination'}
+              animate={!effectiveReducedMotion}
+            />
 
             <h1
               id="victory-title"
-              className={`winner-text-animate text-4xl font-bold ${
+              className={`text-4xl font-bold ${!effectiveReducedMotion ? 'winner-text-animate' : ''} ${
                 userWon
                   ? 'text-green-400 winner-glow'
                   : userLost
@@ -664,8 +682,8 @@ export function VictoryModal({
             </h1>
             <p
               id="victory-description"
-              className="winner-text-animate text-slate-300 text-lg"
-              style={{ animationDelay: '300ms' }}
+              className={`text-slate-300 text-lg ${!effectiveReducedMotion ? 'winner-text-animate' : ''}`}
+              style={!effectiveReducedMotion ? { animationDelay: '300ms' } : undefined}
             >
               {description}
             </p>
@@ -683,18 +701,22 @@ export function VictoryModal({
           </div>
 
           {/* Statistics Table with staggered animation */}
-          <div className="stats-animate relative z-10">
+          <div className={`${!effectiveReducedMotion ? 'stats-animate' : ''} relative z-10`.trim()}>
             <FinalStatsTable stats={finalStats} winner={winner} />
           </div>
 
           {/* Game Details with staggered animation */}
-          <div className="summary-animate relative z-10">
+          <div
+            className={`${!effectiveReducedMotion ? 'summary-animate' : ''} relative z-10`.trim()}
+          >
             <GameSummary summary={gameSummary} />
           </div>
 
           {/* Rematch section */}
           {(onRematch || onRequestRematch) && (
-            <div className="buttons-animate flex justify-center relative z-10">
+            <div
+              className={`${!effectiveReducedMotion ? 'buttons-animate' : ''} flex justify-center relative z-10`.trim()}
+            >
               <RematchSection
                 rematchStatus={rematchStatus}
                 onRematch={onRematch}
@@ -706,7 +728,9 @@ export function VictoryModal({
           )}
 
           {/* Action Buttons with staggered animation */}
-          <div className="buttons-animate flex gap-3 justify-center flex-wrap relative z-10">
+          <div
+            className={`${!effectiveReducedMotion ? 'buttons-animate' : ''} flex gap-3 justify-center flex-wrap relative z-10`.trim()}
+          >
             <button
               onClick={onReturnToLobby}
               className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900"

@@ -17,6 +17,7 @@ const BackendGameHost = lazy(() =>
 const SandboxGameHost = lazy(() =>
   import('./pages/SandboxGameHost').then((m) => ({ default: m.SandboxGameHost }))
 );
+const HelpPage = lazy(() => import('./pages/HelpPage'));
 
 // Auth pages are lightweight and frequently first-loaded, keep synchronous
 import HomePage from './pages/HomePage';
@@ -61,37 +62,39 @@ function App() {
     <AccessibilityProvider>
       <SoundProvider>
         <Toaster
-        position="top-center"
-        toastOptions={{
-          style: {
-            background: '#1e293b',
-            color: '#fff',
-            border: '1px solid #334155',
-          },
-        }}
-      />
-      <Suspense fallback={<PageLoader />}>
-        <Routes>
-          {/* Public routes */}
-          <Route path="/login" element={!user ? <LoginPage /> : <Navigate to="/" />} />
-          <Route path="/register" element={!user ? <RegisterPage /> : <Navigate to="/" />} />
-          {/* Public sandbox route (no auth required) */}
-          <Route path="/sandbox" element={<SandboxGameHost />} />
-          {/* Public spectator route (read-only, backend host) */}
-          <Route path="/spectate/:gameId" element={<BackendGameHostRoute />} />
+          position="top-center"
+          toastOptions={{
+            style: {
+              background: '#1e293b',
+              color: '#fff',
+              border: '1px solid #334155',
+            },
+          }}
+        />
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            {/* Public routes */}
+            <Route path="/login" element={!user ? <LoginPage /> : <Navigate to="/" />} />
+            <Route path="/register" element={!user ? <RegisterPage /> : <Navigate to="/" />} />
+            {/* Public sandbox route (no auth required) */}
+            <Route path="/sandbox" element={<SandboxGameHost />} />
+            <Route path="/help" element={<HelpPage />} />
+            <Route path="/help/:topic" element={<HelpPage />} />
+            {/* Public spectator route (read-only, backend host) */}
+            <Route path="/spectate/:gameId" element={<BackendGameHostRoute />} />
 
-          {/* Protected routes */}
-          <Route path="/" element={user ? <Layout /> : <Navigate to="/login" />}>
-            <Route index element={<HomePage />} />
-            <Route path="lobby" element={<LobbyPage />} />
-            <Route path="game/:gameId" element={<BackendGameHostRoute />} />
-            <Route path="profile" element={<ProfilePage />} />
-            <Route path="leaderboard" element={<LeaderboardPage />} />
-          </Route>
+            {/* Protected routes */}
+            <Route path="/" element={user ? <Layout /> : <Navigate to="/login" />}>
+              <Route index element={<HomePage />} />
+              <Route path="lobby" element={<LobbyPage />} />
+              <Route path="game/:gameId" element={<BackendGameHostRoute />} />
+              <Route path="profile" element={<ProfilePage />} />
+              <Route path="leaderboard" element={<LeaderboardPage />} />
+            </Route>
 
-          {/* Catch all route */}
-          <Route path="*" element={<Navigate to="/" />} />
-        </Routes>
+            {/* Catch all route */}
+            <Route path="*" element={<Navigate to="/" />} />
+          </Routes>
         </Suspense>
       </SoundProvider>
     </AccessibilityProvider>

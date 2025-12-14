@@ -340,14 +340,8 @@ def play_match(
 
     game_duration = time.time() - start_time
 
-    # Determine winner
-    winner = None
-    if game_state.game_status == GameStatus.COMPLETED:
-        # Check victory conditions
-        for player in game_state.players:
-            if player.territory_spaces >= game_state.territory_victory_threshold:
-                winner = player.player_number
-                break
+    # Use the game state's winner field (set by game engine on completion)
+    winner = game_state.winner
 
     return MatchResult(
         game_id=game_id,
@@ -494,7 +488,7 @@ def main():
 
     if args.quick:
         args.num_games = 10
-        args.think_time = 200
+        args.think_time = 500  # 500ms for quick mode (still fast but games complete)
 
     board_type_map = {
         "square8": BoardType.SQUARE8,

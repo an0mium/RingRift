@@ -79,11 +79,20 @@ jest.mock('../../src/server/utils/logger', () => ({
 }));
 
 // Now import routes (after mocks are set up)
-import selfplayRoutes from '../../src/server/routes/selfplay';
 
 // --- Test app factory ---------------------------------------------------
 
 function createTestApp() {
+  // Defensive: other suites may have mocked or otherwise polluted the
+  // selfplay routes module in the same Jest worker process. Always load
+  // the real module implementation in an isolated registry so this suite
+  // remains deterministic even when Jest runs tests in parallel.
+  let selfplayRoutes: typeof import('../../src/server/routes/selfplay').default;
+  jest.isolateModules(() => {
+    selfplayRoutes = jest.requireActual('../../src/server/routes/selfplay')
+      .default as typeof import('../../src/server/routes/selfplay').default;
+  });
+
   const app = express();
   app.use(express.json());
   app.use('/api/selfplay', selfplayRoutes);
