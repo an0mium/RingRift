@@ -255,6 +255,69 @@ if [ "$HAS_USABLE_SYSTEMD" != "1" ]; then
     echo "*/2 * * * * root /usr/local/bin/ringrift-watchdog >> $LOG_DIR/watchdog.log 2>&1" >> "$CRON_FILE"
 fi
 
+# Vast.ai containers often lack a running cron daemon and systemd. They do,
+# however, invoke `/root/onstart.sh` on container start (see `/.launch`). Install
+# an idempotent onstart hook so the orchestrator and resilience daemon come up
+# automatically and restart after host-side disruption.
+if [ "$HAS_USABLE_SYSTEMD" != "1" ]; then
+    if [ -f "/.launch" ] || [ -n "${VAST_CONTAINERLABEL:-}" ] || [ -n "${VAST_TCP_PORT_22:-}" ]; then
+        ONSTART="/root/onstart.sh"
+        if [ ! -f "$ONSTART" ]; then
+            echo '#!/bin/bash' > "$ONSTART"
+        fi
+        chmod +x "$ONSTART" 2>/dev/null || true
+
+        # Remove any previous RingRift block and replace it.
+        TMP_ONSTART="$(mktemp)"
+        awk '
+            BEGIN { skip=0 }
+            /^# BEGIN RINGRIFT RESILIENCE/ { skip=1; next }
+            /^# END RINGRIFT RESILIENCE/ { skip=0; next }
+            skip==0 { print }
+        ' "$ONSTART" > "$TMP_ONSTART" 2>/dev/null || cat "$ONSTART" > "$TMP_ONSTART"
+        mv "$TMP_ONSTART" "$ONSTART"
+
+        cat >> "$ONSTART" <<'EOF'
+
+# BEGIN RINGRIFT RESILIENCE
+(
+  set -euo pipefail
+  if [ -f /etc/ringrift/node.conf ]; then
+    source /etc/ringrift/node.conf
+  fi
+
+  mkdir -p /var/log/ringrift || true
+  export PYTHONPATH="${RINGRIFT_DIR:-/root/ringrift/ai-service}"
+  export RINGRIFT_CLUSTER_AUTH_TOKEN_FILE="/etc/ringrift/cluster_auth_token"
+
+  # Start P2P orchestrator if not healthy.
+  if ! curl -s --connect-timeout 5 "http://localhost:${P2P_PORT:-8770}/health" >/dev/null 2>&1; then
+    pkill -f '[p]2p_orchestrator.py' 2>/dev/null || true
+    cd "${RINGRIFT_DIR:-/root/ringrift/ai-service}"
+    nohup python3 scripts/p2p_orchestrator.py \
+      --node-id "${NODE_ID:-unknown}" \
+      --port "${P2P_PORT:-8770}" \
+      --peers "${COORDINATOR_URL:-}" \
+      --ringrift-path "${RINGRIFT_DIR:-/root/ringrift/ai-service}/.." \
+      >> /var/log/ringrift/p2p.log 2>&1 &
+  fi
+
+  # Ensure node_resilience is running (uses a singleton lock).
+  cd "${RINGRIFT_DIR:-/root/ringrift/ai-service}"
+  nohup python3 scripts/node_resilience.py \
+    --node-id "${NODE_ID:-unknown}" \
+    --coordinator "${COORDINATOR_URL:-}" \
+    --ai-service-dir "${RINGRIFT_DIR:-/root/ringrift/ai-service}" \
+    --p2p-port "${P2P_PORT:-8770}" \
+    >> /var/log/ringrift/resilience.log 2>&1 &
+) &
+# END RINGRIFT RESILIENCE
+EOF
+
+        echo "Installed /root/onstart.sh RingRift resilience hook"
+    fi
+fi
+
 echo ""
 echo "Node resilience setup complete!"
 echo ""
