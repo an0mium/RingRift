@@ -626,7 +626,7 @@ def _build_default_square19_three_player_configs() -> Dict[
     return _build_default_generic_board_configs(
         board_type=BoardType.SQUARE19,
         num_players=3,
-        heuristic_profile_id="heuristic_v1_sq19_2p",
+        heuristic_profile_id="heuristic_v1_sq19_3p",
         think_time_by_difficulty={
             2: 350,
             3: 2700,
@@ -648,7 +648,7 @@ def _build_default_square19_four_player_configs() -> Dict[
     return _build_default_generic_board_configs(
         board_type=BoardType.SQUARE19,
         num_players=4,
-        heuristic_profile_id="heuristic_v1_sq19_2p",
+        heuristic_profile_id="heuristic_v1_sq19_4p",
         think_time_by_difficulty={
             2: 400,
             3: 3000,
@@ -670,7 +670,7 @@ def _build_default_hex_three_player_configs() -> Dict[
     return _build_default_generic_board_configs(
         board_type=BoardType.HEXAGONAL,
         num_players=3,
-        heuristic_profile_id="heuristic_v1_hex_2p",
+        heuristic_profile_id="heuristic_v1_hex_3p",
         think_time_by_difficulty={
             2: 350,
             3: 2700,
@@ -692,7 +692,7 @@ def _build_default_hex_four_player_configs() -> Dict[
     return _build_default_generic_board_configs(
         board_type=BoardType.HEXAGONAL,
         num_players=4,
-        heuristic_profile_id="heuristic_v1_hex_2p",
+        heuristic_profile_id="heuristic_v1_hex_4p",
         think_time_by_difficulty={
             2: 400,
             3: 3000,

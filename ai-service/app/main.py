@@ -37,11 +37,12 @@ from .metrics import (
 from .config.ladder_config import (
     LadderTierConfig,
     get_effective_ladder_config,
+    list_ladder_tiers,
 )
 
 from .ai.random_ai import RandomAI
 from .ai.heuristic_ai import HeuristicAI
-from .ai.heuristic_weights import load_trained_profiles_if_available
+from .ai.heuristic_weights import HEURISTIC_WEIGHT_PROFILES, load_trained_profiles_if_available
 from .ai.descent_ai import DescentAI
 from .models import (
     GameState,
@@ -91,6 +92,7 @@ def get_ladder_tier_config(
 # RINGRIFT_TRAINED_HEURISTIC_PROFILES points at a JSON bundle. This keeps the
 # stable heuristic_profile_id values used by ladder_config.py while allowing
 # deployments to override weights without code changes.
+_trained_profiles: dict[str, Any] = {}
 try:
     _trained_profiles = load_trained_profiles_if_available()
     if _trained_profiles:
@@ -1233,6 +1235,226 @@ async def get_model_versions():
     }
 
 
+def _safe_file_stat(path: "Path") -> Dict[str, Any]:
+    try:
+        stat = path.stat()
+        return {
+            "basename": path.name,
+            "exists": True,
+            "size_bytes": int(stat.st_size),
+            "modified": float(stat.st_mtime),
+        }
+    except FileNotFoundError:
+        return {"basename": path.name, "exists": False}
+    except Exception as exc:  # pragma: no cover - defensive
+        return {"basename": path.name, "exists": False, "error": str(exc)}
+
+
+def _resolve_latest_checkpoint(models_dir: "Path", model_id: str) -> Dict[str, Any]:
+    """Resolve the latest matching .pth checkpoint for a model id prefix."""
+    patterns = [
+        f"{model_id}.pth",
+        f"{model_id}_mps.pth",
+        f"{model_id}_*.pth",
+        f"{model_id}_*_mps.pth",
+    ]
+
+    matches: list["Path"] = []
+    for pattern in patterns:
+        matches.extend(models_dir.glob(pattern))
+
+    seen: set[str] = set()
+    unique: list["Path"] = []
+    for candidate in matches:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(candidate)
+
+    def _mtime(path: "Path") -> float:
+        try:
+            return float(path.stat().st_mtime)
+        except Exception:
+            return 0.0
+
+    unique.sort(key=_mtime)
+
+    chosen = unique[-1] if unique else None
+    return {
+        "model_id": model_id,
+        "match_count": len(unique),
+        "chosen": _safe_file_stat(chosen) if chosen is not None else None,
+    }
+
+
+@app.get("/internal/ladder/health")
+async def ladder_health(
+    board_type: Optional[str] = None,
+    num_players: Optional[int] = None,
+    difficulty: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Report effective ladder tiers and artifact availability.
+
+    This endpoint is designed for validating training→promotion→deployment
+    wiring. It does not load models; it only reports configuration + file
+    presence metadata.
+    """
+    from pathlib import Path
+
+    from .ai.nnue import get_nnue_model_path
+
+    base_tiers = list_ladder_tiers()
+
+    requested_board = board_type.strip().lower() if board_type else None
+    if requested_board:
+        allowed = {"square8", "square19", "hexagonal"}
+        if requested_board not in allowed:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported board_type={board_type!r}; expected one of {sorted(allowed)}",
+            )
+
+    if num_players is not None and num_players not in (2, 3, 4):
+        raise HTTPException(
+            status_code=400,
+            detail="num_players must be 2, 3, or 4",
+        )
+
+    if difficulty is not None and (difficulty < 1 or difficulty > 10):
+        raise HTTPException(
+            status_code=400,
+            detail="difficulty must be between 1 and 10",
+        )
+
+    models_dir = Path(__file__).resolve().parent.parent / "models"
+    nnue_dir = models_dir / "nnue"
+
+    tiers: list[Dict[str, Any]] = []
+    overrides_count = 0
+    missing_profiles = 0
+    missing_nnue = 0
+    missing_nn = 0
+
+    combos = sorted({(t.board_type, t.num_players) for t in base_tiers}, key=lambda x: (x[0].value, x[1]))
+
+    def _board_matches(tier_board_value: str) -> bool:
+        return requested_board is None or tier_board_value.lower() == requested_board
+
+    def _players_matches(players: int) -> bool:
+        return num_players is None or players == num_players
+
+    def _difficulty_matches(level: int) -> bool:
+        return difficulty is None or level == difficulty
+
+    # Synthesize D1 entries so callers can validate the full 1–10 ladder surface.
+    if _difficulty_matches(1):
+        profile = _get_difficulty_profile(1)
+        for bt, np in combos:
+            if not (_board_matches(bt.value) and _players_matches(np)):
+                continue
+            tiers.append(
+                {
+                    "difficulty": 1,
+                    "board_type": bt.value,
+                    "num_players": np,
+                    "ai_type": profile["ai_type"].value,
+                    "use_neural_net": bool(profile.get("use_neural_net", False)),
+                    "randomness": float(profile["randomness"]),
+                    "think_time_ms": int(profile["think_time_ms"]),
+                    "model_id": None,
+                    "heuristic_profile_id": None,
+                    "overridden": False,
+                    "artifacts": {},
+                }
+            )
+
+    for base in base_tiers:
+        if not _difficulty_matches(base.difficulty):
+            continue
+        if not (_board_matches(base.board_type.value) and _players_matches(base.num_players)):
+            continue
+
+        effective = get_effective_ladder_config(base.difficulty, base.board_type, base.num_players)
+        overridden = (
+            effective.model_id != base.model_id
+            or effective.heuristic_profile_id != base.heuristic_profile_id
+        )
+        if overridden:
+            overrides_count += 1
+
+        artifacts: Dict[str, Any] = {}
+
+        heuristic_profile_id = effective.heuristic_profile_id
+        if heuristic_profile_id:
+            available = heuristic_profile_id in HEURISTIC_WEIGHT_PROFILES
+            if not available:
+                missing_profiles += 1
+            artifacts["heuristic_profile"] = {
+                "id": heuristic_profile_id,
+                "available": available,
+                "source": "trained" if heuristic_profile_id in _trained_profiles else "built_in",
+            }
+
+        if effective.ai_type == AIType.MINIMAX and effective.use_neural_net:
+            nnue_model_id = effective.model_id
+            nnue_path = get_nnue_model_path(
+                board_type=effective.board_type,
+                num_players=effective.num_players,
+                model_id=nnue_model_id,
+            )
+            nnue_stat = _safe_file_stat(nnue_path)
+            if not nnue_stat.get("exists"):
+                missing_nnue += 1
+            artifacts["nnue"] = {
+                "model_id": nnue_model_id,
+                "file": nnue_stat,
+                "root_present": nnue_dir.exists(),
+            }
+
+        if effective.ai_type in (AIType.MCTS, AIType.DESCENT) and effective.use_neural_net and effective.model_id:
+            resolved = _resolve_latest_checkpoint(models_dir, effective.model_id)
+            chosen = resolved.get("chosen")
+            if not chosen or not chosen.get("exists"):
+                missing_nn += 1
+            artifacts["neural_net"] = resolved
+
+        tiers.append(
+            {
+                "difficulty": effective.difficulty,
+                "board_type": effective.board_type.value,
+                "num_players": effective.num_players,
+                "ai_type": effective.ai_type.value,
+                "use_neural_net": bool(effective.use_neural_net),
+                "randomness": float(effective.randomness),
+                "think_time_ms": int(effective.think_time_ms),
+                "model_id": effective.model_id,
+                "heuristic_profile_id": effective.heuristic_profile_id,
+                "overridden": overridden,
+                "artifacts": artifacts,
+            }
+        )
+
+    tiers.sort(key=lambda t: (t["board_type"], t["num_players"], t["difficulty"]))
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "filters": {
+            "board_type": requested_board,
+            "num_players": num_players,
+            "difficulty": difficulty,
+        },
+        "summary": {
+            "tiers": len(tiers),
+            "overridden_tiers": overrides_count,
+            "missing_heuristic_profiles": missing_profiles,
+            "missing_nnue_checkpoints": missing_nnue,
+            "missing_neural_checkpoints": missing_nn,
+        },
+        "tiers": tiers,
+    }
+
+
 class DifficultyProfile(TypedDict):
     """
     Canonical difficulty profile for a single ladder level.
@@ -1385,6 +1607,10 @@ def _create_ai_instance(ai_type: AIType, player_number: int, config: AIConfig):
         from .ai.minimax_ai import MinimaxAI
 
         return MinimaxAI(player_number, config)
+    elif ai_type == AIType.GPU_MINIMAX:
+        from .ai.gpu_minimax_ai import GPUMinimaxAI
+
+        return GPUMinimaxAI(player_number, config)
     elif ai_type == AIType.MCTS:
         from .ai.mcts_ai import MCTSAI
 

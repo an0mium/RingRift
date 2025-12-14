@@ -130,10 +130,14 @@ class AIType(str, Enum):
     gated behind an environment flag on the Python AI service to ensure that
     neural-only demo engines cannot be enabled accidentally in production
     ladders.
+
+    GPU_MINIMAX is a GPU-accelerated minimax variant that uses batched leaf
+    evaluation for improved performance on CUDA/MPS hardware.
     """
     RANDOM = "random"
     HEURISTIC = "heuristic"
     MINIMAX = "minimax"
+    GPU_MINIMAX = "gpu_minimax"
     MCTS = "mcts"
     DESCENT = "descent"
     NEURAL_DEMO = "neural_demo"
