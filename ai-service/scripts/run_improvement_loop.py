@@ -1191,6 +1191,37 @@ def main():
         help="Wilson CI confidence level for promotion gate (default: 0.95).",
     )
     parser.add_argument(
+        "--publish-ringrift-best-alias",
+        action="store_true",
+        help=(
+            "After promoting a new best model, also publish ringrift_best_* aliases under ai-service/models/ "
+            "so the canonical difficulty ladder can pick up the new checkpoint."
+        ),
+    )
+    parser.add_argument(
+        "--sync-staging",
+        action="store_true",
+        help=(
+            "After publishing ringrift_best_* aliases, sync promoted artifacts to staging via "
+            "scripts/sync_staging_ai_artifacts.py (requires RINGRIFT_STAGING_* env vars)."
+        ),
+    )
+    parser.add_argument(
+        "--sync-staging-no-restart",
+        action="store_true",
+        help="When used with --sync-staging, do not restart docker compose services after syncing.",
+    )
+    parser.add_argument(
+        "--sync-staging-validate-health",
+        action="store_true",
+        help="When used with --sync-staging, validate /internal/ladder/health on staging after sync.",
+    )
+    parser.add_argument(
+        "--sync-staging-fail-on-missing",
+        action="store_true",
+        help="When used with --sync-staging-validate-health, exit non-zero if staging reports missing artifacts.",
+    )
+    parser.add_argument(
         "--eval-games",
         type=int,
         default=100,
@@ -1315,6 +1346,12 @@ def main():
         "max_moves": int(args.max_moves),
         "promotion_threshold": args.promotion_threshold,
         "promotion_confidence": args.promotion_confidence,
+        "publish_ringrift_best_alias": bool(args.publish_ringrift_best_alias),
+        "sync_staging": bool(args.sync_staging),
+        "sync_staging_restart": not bool(args.sync_staging_no_restart),
+        "sync_staging_validate_health": bool(args.sync_staging_validate_health)
+        or bool(args.sync_staging_fail_on_missing),
+        "sync_staging_fail_on_missing": bool(args.sync_staging_fail_on_missing),
         "eval_games": args.eval_games,
         "selfplay_difficulty_band": args.selfplay_difficulty_band,
         "dataset_policy_target": args.dataset_policy_target,
@@ -1358,6 +1395,17 @@ def main():
     print(f"Eval games per iteration: {args.eval_games}")
     print(f"Promotion threshold: {args.promotion_threshold:.0%}")
     print(f"Promotion confidence: {args.promotion_confidence:.0%}")
+    if args.publish_ringrift_best_alias:
+        print("Publish ringrift_best aliases: enabled")
+        if args.sync_staging:
+            restart_text = "no-restart" if args.sync_staging_no_restart else "restart"
+            validate_text = (
+                "validate"
+                if args.sync_staging_validate_health or args.sync_staging_fail_on_missing
+                else "no-validate"
+            )
+            missing_text = "fail-on-missing" if args.sync_staging_fail_on_missing else "no-fail-on-missing"
+            print(f"Staging sync: enabled ({restart_text}, {validate_text}, {missing_text})")
     print(f"Dataset policy target: {args.dataset_policy_target}")
     if args.dataset_max_games is not None:
         print(f"Dataset max games: {args.dataset_max_games}")
