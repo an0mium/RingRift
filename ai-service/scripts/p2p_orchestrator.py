@@ -18776,12 +18776,45 @@ print(json.dumps({{
                 # - minimax-only: Classic minimax with alpha-beta pruning
                 # NOTE: Heuristic-only modes removed to ensure NN/strong AI in every game
                 selfplay_configs = [
-                    # HIGHEST PRIORITY (6): Neural network with diverse model pool
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "nn-only", "priority": 6},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "nn-only", "priority": 6},
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "best-vs-pool", "priority": 6},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "best-vs-pool", "priority": 6},
-                    # HIGH PRIORITY (5): Asymmetric tournament modes (NN vs other AI types)
+                    # ================================================================
+                    # UNDERREPRESENTED COMBINATIONS (HIGHEST PRIORITY 7)
+                    # These combinations have 0 trained NN models - critical to balance
+                    # ================================================================
+                    {"board_type": "square19", "num_players": 2, "engine_mode": "nn-only", "priority": 7},
+                    {"board_type": "square19", "num_players": 2, "engine_mode": "nn-vs-mcts", "priority": 7},
+                    {"board_type": "square19", "num_players": 2, "engine_mode": "mcts-only", "priority": 7},
+                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "nn-only", "priority": 7},
+                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "nn-vs-mcts", "priority": 7},
+                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "mcts-only", "priority": 7},
+                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "nn-only", "priority": 7},
+                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "nn-vs-mcts", "priority": 7},
+                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "mcts-only", "priority": 7},
+                    # ================================================================
+                    # CROSS-AI MATCHES (PRIORITY 6) - Variety via asymmetric opponents
+                    # heuristic/random vs strong AI (MCTS, Minimax, Descent, NN)
+                    # ================================================================
+                    {"board_type": "square8", "num_players": 2, "engine_mode": "heuristic-vs-nn", "priority": 6},
+                    {"board_type": "square8", "num_players": 2, "engine_mode": "heuristic-vs-mcts", "priority": 6},
+                    {"board_type": "square8", "num_players": 2, "engine_mode": "random-vs-mcts", "priority": 6},
+                    {"board_type": "square8", "num_players": 3, "engine_mode": "heuristic-vs-nn", "priority": 6},
+                    {"board_type": "square8", "num_players": 3, "engine_mode": "heuristic-vs-mcts", "priority": 6},
+                    {"board_type": "square19", "num_players": 2, "engine_mode": "heuristic-vs-mcts", "priority": 6},
+                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "heuristic-vs-mcts", "priority": 6},
+                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "heuristic-vs-mcts", "priority": 6},
+                    # ================================================================
+                    # NEURAL NETWORK MODES (PRIORITY 5)
+                    # ================================================================
+                    {"board_type": "square8", "num_players": 2, "engine_mode": "nn-only", "priority": 5},
+                    {"board_type": "square8", "num_players": 3, "engine_mode": "nn-only", "priority": 5},
+                    {"board_type": "square8", "num_players": 4, "engine_mode": "nn-only", "priority": 5},
+                    {"board_type": "square8", "num_players": 2, "engine_mode": "best-vs-pool", "priority": 5},
+                    {"board_type": "square8", "num_players": 3, "engine_mode": "best-vs-pool", "priority": 5},
+                    {"board_type": "square19", "num_players": 3, "engine_mode": "nn-only", "priority": 5},
+                    {"board_type": "square19", "num_players": 4, "engine_mode": "nn-only", "priority": 5},
+                    {"board_type": "hexagonal", "num_players": 4, "engine_mode": "nn-only", "priority": 5},
+                    # ================================================================
+                    # ASYMMETRIC TOURNAMENT MODES (PRIORITY 5) - NN vs other AI types
+                    # ================================================================
                     {"board_type": "square8", "num_players": 2, "engine_mode": "nn-vs-mcts", "priority": 5},
                     {"board_type": "square8", "num_players": 3, "engine_mode": "nn-vs-mcts", "priority": 5},
                     {"board_type": "square8", "num_players": 4, "engine_mode": "nn-vs-mcts", "priority": 5},
@@ -18789,36 +18822,43 @@ print(json.dumps({{
                     {"board_type": "square8", "num_players": 3, "engine_mode": "nn-vs-minimax", "priority": 5},
                     {"board_type": "square8", "num_players": 2, "engine_mode": "nn-vs-descent", "priority": 5},
                     {"board_type": "square8", "num_players": 3, "engine_mode": "nn-vs-descent", "priority": 5},
-                    # HIGH PRIORITY (5): Tournament-varied (max diversity, always includes NN)
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "tournament-varied", "priority": 5},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "tournament-varied", "priority": 5},
-                    {"board_type": "square8", "num_players": 4, "engine_mode": "tournament-varied", "priority": 5},
-                    # HIGH PRIORITY (4): NN-based on larger boards
-                    {"board_type": "square8", "num_players": 4, "engine_mode": "nn-only", "priority": 4},
-                    {"board_type": "square19", "num_players": 2, "engine_mode": "nn-only", "priority": 4},
-                    {"board_type": "square19", "num_players": 2, "engine_mode": "best-vs-pool", "priority": 4},
-                    {"board_type": "square19", "num_players": 2, "engine_mode": "nn-vs-mcts", "priority": 4},
-                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "nn-only", "priority": 4},
-                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "best-vs-pool", "priority": 4},
-                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "nn-vs-mcts", "priority": 4},
-                    # MEDIUM PRIORITY (3): MCTS for strategic depth
+                    {"board_type": "square19", "num_players": 3, "engine_mode": "nn-vs-mcts", "priority": 5},
+                    {"board_type": "square19", "num_players": 4, "engine_mode": "nn-vs-mcts", "priority": 5},
+                    {"board_type": "hexagonal", "num_players": 4, "engine_mode": "nn-vs-mcts", "priority": 5},
+                    # ================================================================
+                    # TOURNAMENT-VARIED (PRIORITY 4) - Max diversity, always includes NN
+                    # ================================================================
+                    {"board_type": "square8", "num_players": 2, "engine_mode": "tournament-varied", "priority": 4},
+                    {"board_type": "square8", "num_players": 3, "engine_mode": "tournament-varied", "priority": 4},
+                    {"board_type": "square8", "num_players": 4, "engine_mode": "tournament-varied", "priority": 4},
+                    {"board_type": "square19", "num_players": 2, "engine_mode": "tournament-varied", "priority": 4},
+                    {"board_type": "square19", "num_players": 3, "engine_mode": "tournament-varied", "priority": 4},
+                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "tournament-varied", "priority": 4},
+                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "tournament-varied", "priority": 4},
+                    # ================================================================
+                    # CPU-BOUND AI METHODS (PRIORITY 3) - MCTS, Descent, Minimax
+                    # For CPU-only instances and variety
+                    # ================================================================
                     {"board_type": "hexagonal", "num_players": 4, "engine_mode": "mcts-only", "priority": 3},
-                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "mcts-only", "priority": 3},
+                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "descent-only", "priority": 3},
                     {"board_type": "square19", "num_players": 4, "engine_mode": "mcts-only", "priority": 3},
                     {"board_type": "square19", "num_players": 3, "engine_mode": "mcts-only", "priority": 3},
+                    {"board_type": "square19", "num_players": 3, "engine_mode": "descent-only", "priority": 3},
                     {"board_type": "square8", "num_players": 2, "engine_mode": "mcts-only", "priority": 3},
-                    # MEDIUM PRIORITY (3): Descent with heuristic (no NN)
                     {"board_type": "square8", "num_players": 2, "engine_mode": "descent-only", "priority": 3},
                     {"board_type": "square8", "num_players": 3, "engine_mode": "descent-only", "priority": 3},
-                    # LOWER PRIORITY (2): Minimax (classical approach)
+                    {"board_type": "square8", "num_players": 4, "engine_mode": "mcts-only", "priority": 3},
+                    # ================================================================
+                    # MINIMAX (PRIORITY 2) - Classical approach, good for variety
+                    # ================================================================
                     {"board_type": "square8", "num_players": 2, "engine_mode": "minimax-only", "priority": 2},
                     {"board_type": "square8", "num_players": 3, "engine_mode": "minimax-only", "priority": 2},
                     {"board_type": "square19", "num_players": 2, "engine_mode": "descent-only", "priority": 2},
                     {"board_type": "square19", "num_players": 2, "engine_mode": "minimax-only", "priority": 2},
                     {"board_type": "hexagonal", "num_players": 2, "engine_mode": "descent-only", "priority": 2},
                     {"board_type": "hexagonal", "num_players": 2, "engine_mode": "minimax-only", "priority": 2},
-                    # NO HEURISTIC-ONLY MODES - all modes above include at least one NN player
-                    # or strong AI (MCTS/Descent/Minimax) for quality training data
+                    # NO PURE HEURISTIC-ONLY MODES - all modes include at least one
+                    # strong AI (NN/MCTS/Descent/Minimax) for quality training data
                 ]
 
                 # LEARNED LESSONS - Weighted selection favoring high priority configs
@@ -19329,6 +19369,14 @@ print(json.dumps({{
                     "mcts-only",
                     "nn-only",
                     "best-vs-pool",
+                    # Cross-AI asymmetric matches for variety
+                    "nn-vs-mcts",
+                    "nn-vs-minimax",
+                    "nn-vs-descent",
+                    "tournament-varied",
+                    "heuristic-vs-nn",
+                    "heuristic-vs-mcts",
+                    "random-vs-mcts",
                 }
                 engine_mode_norm = engine_mode if engine_mode in supported_engine_modes else "nn-only"
 
@@ -19423,7 +19471,10 @@ print(json.dumps({{
                 # run_self_play_soak.py supports all these modes
                 cpu_engine_modes = {
                     "descent-only", "minimax-only", "mcts-only", "heuristic-only",
-                    "random-only", "mixed", "nn-only", "best-vs-pool"
+                    "random-only", "mixed", "nn-only", "best-vs-pool",
+                    # Cross-AI asymmetric matches
+                    "nn-vs-mcts", "nn-vs-minimax", "nn-vs-descent", "tournament-varied",
+                    "heuristic-vs-nn", "heuristic-vs-mcts", "random-vs-mcts",
                 }
                 engine_mode_norm = engine_mode if engine_mode in cpu_engine_modes else "nn-only"
 
