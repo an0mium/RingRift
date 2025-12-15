@@ -49,14 +49,20 @@ _config_instance: Optional[UnifiedConfig] = None
 class DataIngestionConfig:
     """Configuration for data ingestion from remote hosts."""
     poll_interval_seconds: int = 60
+    ephemeral_poll_interval_seconds: int = 15  # Aggressive sync for RAM disk hosts
     sync_method: str = "incremental"
     deduplication: bool = True
     min_games_per_sync: int = 5
     remote_db_pattern: str = "data/games/*.db"
+    use_external_sync: bool = False  # Whether to use external unified_data_sync.py
     checksum_validation: bool = True
     retry_max_attempts: int = 3
     retry_base_delay_seconds: int = 5
     dead_letter_enabled: bool = True
+    wal_enabled: bool = True
+    wal_db_path: str = "data/sync_wal.db"
+    elo_replication_enabled: bool = True
+    elo_replication_interval_seconds: int = 60
 
 
 @dataclass
@@ -105,6 +111,19 @@ class PromotionConfig:
     cooldown_seconds: int = 1800  # 30 minutes
     max_promotions_per_day: int = 10
     regression_test: bool = True
+
+    # Aliases for compatibility with PromotionCriteria
+    @property
+    def min_elo_improvement(self) -> float:
+        return float(self.elo_threshold)
+
+    @property
+    def min_win_rate(self) -> float:
+        return 0.52  # Default win rate threshold
+
+    @property
+    def statistical_significance(self) -> float:
+        return self.significance_level
 
 
 @dataclass

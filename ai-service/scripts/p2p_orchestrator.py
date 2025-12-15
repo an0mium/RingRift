@@ -313,6 +313,11 @@ RELAY_COMMAND_MAX_BATCH = 16
 RELAY_COMMAND_MAX_ATTEMPTS = 3
 RELAY_MAX_PENDING_START_JOBS = 4
 
+# NAT recovery settings - allow NAT-blocked peers to recover when they become reachable
+NAT_BLOCKED_RECOVERY_TIMEOUT = 300  # seconds before attempting to recover NAT-blocked peers
+NAT_BLOCKED_PROBE_INTERVAL = 60     # seconds between NAT recovery probe attempts
+NAT_BLOCKED_PROBE_TIMEOUT = 5       # seconds to wait for probe response
+
 # Peer bootstrap settings
 # Seed peers are used to import a snapshot of cluster membership (via /relay/peers)
 # so new nodes can join existing clusters without needing every peer preconfigured.
@@ -470,6 +475,8 @@ class NodeInfo:
     last_oom_time: float = 0.0
     # NAT/Relay support - nodes that can't be reached directly
     nat_blocked: bool = False
+    nat_blocked_since: float = 0.0  # timestamp when nat_blocked was set (for recovery)
+    last_nat_probe: float = 0.0     # timestamp of last NAT recovery probe attempt
     relay_via: str = ""  # node_id of the relay hub (usually leader)
     # Peer lifecycle: permanently gone nodes are marked retired so they don't
     # pollute scheduling, but they can be reactivated if they come back online.
@@ -616,6 +623,8 @@ class NodeInfo:
         d.setdefault('oom_events', 0)
         d.setdefault('last_oom_time', 0.0)
         d.setdefault('nat_blocked', False)
+        d.setdefault('nat_blocked_since', 0.0)
+        d.setdefault('last_nat_probe', 0.0)
         d.setdefault('relay_via', '')
         d.setdefault('retired', False)
         d.setdefault('retired_at', 0.0)
@@ -4640,12 +4649,28 @@ class P2POrchestrator:
                 if existing:
                     peer_info.consecutive_failures = int(getattr(existing, "consecutive_failures", 0) or 0)
                     peer_info.last_failure_time = float(getattr(existing, "last_failure_time", 0.0) or 0.0)
-                    # Sticky NAT/relay routing:
+                    # Sticky NAT/relay routing with recovery:
                     # - Receiving a direct heartbeat does NOT imply the peer is reachable inbound.
                     # - If a peer has ever registered via /relay/heartbeat, preserve nat_blocked
                     #   and relay_via so leaders can continue routing commands through the relay hub.
-                    if getattr(existing, "nat_blocked", False) and not getattr(peer_info, "nat_blocked", False):
+                    # - BUT: allow recovery after NAT_BLOCKED_RECOVERY_TIMEOUT if peer becomes reachable
+                    existing_nat_blocked = getattr(existing, "nat_blocked", False)
+                    existing_nat_blocked_since = float(getattr(existing, "nat_blocked_since", 0.0) or 0.0)
+                    existing_last_nat_probe = float(getattr(existing, "last_nat_probe", 0.0) or 0.0)
+
+                    if existing_nat_blocked and not getattr(peer_info, "nat_blocked", False):
+                        # Peer was NAT-blocked, incoming says not blocked - preserve unless recovery triggered
                         peer_info.nat_blocked = True
+                        peer_info.nat_blocked_since = existing_nat_blocked_since or time.time()
+                        peer_info.last_nat_probe = existing_last_nat_probe
+                    elif peer_info.nat_blocked and not existing_nat_blocked:
+                        # Peer newly marked as NAT-blocked - record timestamp
+                        peer_info.nat_blocked_since = time.time()
+                    elif existing_nat_blocked and peer_info.nat_blocked:
+                        # Both agree NAT-blocked - preserve original timestamp
+                        peer_info.nat_blocked_since = existing_nat_blocked_since or time.time()
+                        peer_info.last_nat_probe = existing_last_nat_probe
+
                     if (getattr(existing, "relay_via", "") or "") and not (getattr(peer_info, "relay_via", "") or ""):
                         peer_info.relay_via = str(getattr(existing, "relay_via", "") or "")
                     # Preserve retirement state across updates.
@@ -5272,6 +5297,7 @@ class P2POrchestrator:
                 peer_info.reported_port = peer_info.port
             peer_info.last_heartbeat = time.time()
             peer_info.nat_blocked = True  # Mark as NAT-blocked
+            peer_info.nat_blocked_since = peer_info.nat_blocked_since or time.time()  # Track when blocked
             peer_info.relay_via = self.node_id  # This node is their relay
 
             # Get their real IP from the request (for logging/debugging)
@@ -15526,6 +15552,81 @@ print(json.dumps({{
                 continue
             counts[key] = counts.get(key, 0) + 1
         return {k for k, v in counts.items() if v > 1}
+
+    async def _probe_nat_blocked_peer(self, peer: NodeInfo) -> bool:
+        """Probe a NAT-blocked peer to check if it's now directly reachable.
+
+        Returns True if peer is reachable and NAT-blocked status was cleared.
+        """
+        if not peer.nat_blocked:
+            return False
+
+        now = time.time()
+        nat_blocked_since = float(getattr(peer, "nat_blocked_since", 0.0) or 0.0)
+        last_probe = float(getattr(peer, "last_nat_probe", 0.0) or 0.0)
+
+        # Don't probe too frequently
+        if now - last_probe < NAT_BLOCKED_PROBE_INTERVAL:
+            return False
+
+        # Don't probe if not blocked long enough
+        if nat_blocked_since > 0 and (now - nat_blocked_since) < NAT_BLOCKED_RECOVERY_TIMEOUT:
+            return False
+
+        # Update last probe time
+        with self.peers_lock:
+            existing = self.peers.get(peer.node_id)
+            if existing:
+                existing.last_nat_probe = now
+
+        try:
+            url = self._url_for_peer(peer, "/status")
+            timeout = ClientTimeout(total=NAT_BLOCKED_PROBE_TIMEOUT)
+            async with get_client_session(timeout) as session:
+                async with session.get(url, headers=self._auth_headers()) as resp:
+                    if resp.status == 200:
+                        # Peer is reachable! Clear NAT-blocked status
+                        with self.peers_lock:
+                            existing = self.peers.get(peer.node_id)
+                            if existing and existing.nat_blocked:
+                                existing.nat_blocked = False
+                                existing.nat_blocked_since = 0.0
+                                existing.relay_via = ""
+                                print(f"[P2P] NAT recovery: {peer.node_id} is now directly reachable")
+                                return True
+        except Exception:
+            # Probe failed - peer still not reachable
+            pass
+
+        return False
+
+    async def _sweep_nat_recovery(self) -> int:
+        """Periodically probe NAT-blocked peers to check if they've become reachable.
+
+        Returns the number of peers that recovered from NAT-blocked state.
+        """
+        recovered = 0
+        with self.peers_lock:
+            nat_blocked_peers = [
+                p for p in self.peers.values()
+                if p.nat_blocked and p.is_alive()
+            ]
+
+        if not nat_blocked_peers:
+            return 0
+
+        # Probe in parallel but limit concurrency
+        tasks = [self._probe_nat_blocked_peer(p) for p in nat_blocked_peers[:10]]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for result in results:
+            if result is True:
+                recovered += 1
+
+        if recovered > 0:
+            print(f"[P2P] NAT recovery sweep: {recovered} peer(s) recovered")
+
+        return recovered
 
     def _is_leader_eligible(
         self,
