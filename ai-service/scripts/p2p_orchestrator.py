@@ -10212,11 +10212,8 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 cursor = conn.cursor()
 
                 # Build query with optional filters
-                # Note: elo_leaderboard.db uses model_id, unified schema uses participant_id
-                # Check which column exists
-                cursor.execute("PRAGMA table_info(elo_ratings)")
-                columns = [col[1] for col in cursor.fetchall()]
-                id_col = "model_id" if "model_id" in columns else "participant_id"
+                # Use db.id_column to get correct column name (model_id or participant_id)
+                id_col = db.id_column
 
                 query = f"""
                     SELECT

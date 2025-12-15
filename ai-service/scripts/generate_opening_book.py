@@ -531,86 +531,126 @@ def get_best_moves(
 
 def main():
     parser = argparse.ArgumentParser(description="Generate opening book from selfplay")
-    parser.add_argument("--db", help="Game database path")
+    parser.add_argument("--db", nargs="+", help="Game database path(s), supports glob patterns")
     parser.add_argument("--board", default="square8", help="Board type")
     parser.add_argument("--players", type=int, default=2, help="Number of players")
-    parser.add_argument("--max-depth", type=int, default=10, help="Max opening depth")
-    parser.add_argument("--min-games", type=int, default=50, help="Min games per sequence")
-    parser.add_argument("--min-win-rate", type=float, default=0.52, help="Min notable win rate")
+    parser.add_argument("--max-depth", type=int, default=15, help="Max opening depth")
+    parser.add_argument("--min-games", type=int, default=10, help="Min games per sequence")
+    parser.add_argument("--min-elo", type=float, default=1500.0, help="Min Elo for games to include")
+    parser.add_argument("--min-win-rate", type=float, default=0.52, help="Min notable win rate (legacy)")
     parser.add_argument("--output", help="Output JSON file")
-    parser.add_argument("--output-tree", help="Output tree structure JSON")
+    parser.add_argument("--output-tree", help="Output tree structure JSON (legacy)")
+    parser.add_argument("--book", help="Existing book to load (for --stats or --export-selfplay)")
+    parser.add_argument("--stats", action="store_true", help="Print book statistics")
+    parser.add_argument("--export-selfplay", help="Export book in selfplay-optimized format")
+    parser.add_argument("--use-legacy", action="store_true", help="Use legacy extraction format")
 
     args = parser.parse_args()
 
-    # Find database
+    # Load existing book
+    if args.book:
+        print(f"Loading opening book from {args.book}...")
+        book = OpeningBook.load(args.book)
+        if args.stats:
+            print_book_stats(book)
+        if args.export_selfplay:
+            export_for_selfplay(book, args.export_selfplay)
+        return 0
+
+    # Expand database paths (glob patterns)
+    db_paths = []
     if args.db:
-        db_path = args.db
+        for pattern in args.db:
+            expanded = glob_module.glob(pattern)
+            if expanded:
+                db_paths.extend(expanded)
+            else:
+                db_paths.append(pattern)
     else:
-        # Look for selfplay database
+        # Look for selfplay databases
         candidates = [
             AI_SERVICE_ROOT / "data" / "games" / "selfplay.db",
             AI_SERVICE_ROOT / "data" / "games" / f"selfplay_{args.board}_{args.players}p.db",
             AI_SERVICE_ROOT / "data" / "games" / "aggregated" / "merged_selfplay.db",
         ]
-        db_path = None
         for c in candidates:
             if c.exists():
-                db_path = str(c)
+                db_paths.append(str(c))
                 break
 
-        if not db_path:
-            print("No database found. Specify --db path.")
-            return 1
-
-    print(f"Generating opening book from: {db_path}")
-    print(f"Board: {args.board}, Players: {args.players}")
-    print(f"Max depth: {args.max_depth}, Min games: {args.min_games}")
-    print()
-
-    # Extract sequences
-    opening_book = extract_opening_sequences(
-        db_path=db_path,
-        board_type=args.board,
-        num_players=args.players,
-        max_depth=args.max_depth,
-        min_games=args.min_games,
-        min_win_rate=args.min_win_rate,
-    )
-
-    if not opening_book:
-        print("No opening sequences found matching criteria.")
+    if not db_paths:
+        print("No database found. Specify --db path.")
         return 1
 
-    # Print top openings
-    print("\nTop 20 Opening Sequences (by games):")
-    print("-" * 60)
-    sorted_openings = sorted(opening_book.values(), key=lambda x: -x["games"])[:20]
-    for i, data in enumerate(sorted_openings, 1):
-        moves_str = " -> ".join(data["moves"][:5])
-        if len(data["moves"]) > 5:
-            moves_str += " ..."
-        print(f"{i:2}. {moves_str}")
-        print(f"    Games: {data['games']}, P0 win rate: {data['p0_win_rate']:.1%}")
+    print(f"Generating opening book from {len(db_paths)} database(s)")
+    print(f"Board: {args.board}, Players: {args.players}")
+    print(f"Max depth: {args.max_depth}, Min games: {args.min_games}, Min Elo: {args.min_elo}")
+    print()
 
-    # Save flat book
-    output_path = args.output or AI_SERVICE_ROOT / "data" / f"opening_book_{args.board}_{args.players}p.json"
-    with open(output_path, "w") as f:
-        json.dump({
-            "board_type": args.board,
-            "num_players": args.players,
-            "max_depth": args.max_depth,
-            "min_games": args.min_games,
-            "total_sequences": len(opening_book),
-            "sequences": opening_book,
-        }, f, indent=2)
-    print(f"\nOpening book saved to: {output_path}")
+    # Use new or legacy extraction
+    if args.use_legacy and len(db_paths) == 1:
+        # Legacy flat format
+        opening_book = extract_opening_sequences(
+            db_path=db_paths[0],
+            board_type=args.board,
+            num_players=args.players,
+            max_depth=args.max_depth,
+            min_games=args.min_games,
+            min_win_rate=args.min_win_rate,
+        )
 
-    # Build and save tree structure
-    if args.output_tree:
-        tree = build_opening_tree(opening_book)
-        with open(args.output_tree, "w") as f:
-            json.dump(tree, f, indent=2)
-        print(f"Opening tree saved to: {args.output_tree}")
+        if not opening_book:
+            print("No opening sequences found matching criteria.")
+            return 1
+
+        print("\nTop 20 Opening Sequences (by games):")
+        print("-" * 60)
+        sorted_openings = sorted(opening_book.values(), key=lambda x: -x["games"])[:20]
+        for i, data in enumerate(sorted_openings, 1):
+            moves_str = " -> ".join(data["moves"][:5])
+            if len(data["moves"]) > 5:
+                moves_str += " ..."
+            print(f"{i:2}. {moves_str}")
+            print(f"    Games: {data['games']}, P0 win rate: {data['p0_win_rate']:.1%}")
+
+        output_path = args.output or AI_SERVICE_ROOT / "data" / f"opening_book_{args.board}_{args.players}p.json"
+        with open(output_path, "w") as f:
+            json.dump({
+                "board_type": args.board,
+                "num_players": args.players,
+                "max_depth": args.max_depth,
+                "min_games": args.min_games,
+                "total_sequences": len(opening_book),
+                "sequences": opening_book,
+            }, f, indent=2)
+        print(f"\nOpening book saved to: {output_path}")
+
+        if args.output_tree:
+            tree = build_opening_tree(opening_book)
+            with open(args.output_tree, "w") as f:
+                json.dump(tree, f, indent=2)
+            print(f"Opening tree saved to: {args.output_tree}")
+    else:
+        # New Elo-weighted format
+        book = generate_book_from_databases(
+            db_paths=db_paths,
+            board_type=args.board,
+            num_players=args.players,
+            max_depth=args.max_depth,
+            min_games=args.min_games,
+            min_elo=args.min_elo,
+        )
+
+        if book.total_games == 0:
+            print("No games found matching criteria.")
+            return 1
+
+        output_path = args.output or str(AI_SERVICE_ROOT / "data" / f"opening_book_{args.board}_{args.players}p.json")
+        book.save(output_path)
+        print_book_stats(book)
+
+        if args.export_selfplay:
+            export_for_selfplay(book, args.export_selfplay)
 
     return 0
 

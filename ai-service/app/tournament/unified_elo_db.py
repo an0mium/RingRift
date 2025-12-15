@@ -137,19 +137,45 @@ class EloDatabase:
             self._local.conn.row_factory = sqlite3.Row
         return self._local.conn
 
+    @property
+    def id_column(self) -> str:
+        """Get the correct ID column name for elo_ratings table.
+
+        Returns 'model_id' for elo_leaderboard.db, 'participant_id' for unified_elo.db.
+        """
+        return "model_id" if getattr(self, "_uses_model_id_schema", False) else "participant_id"
+
     def _init_db(self):
         """Initialize database schema.
 
         This schema is backwards-compatible with existing unified_elo.db while
         supporting new features. The schema will be migrated if needed.
+
+        Also supports elo_leaderboard.db which uses model_id instead of participant_id.
         """
         conn = self._get_connection()
 
         # Check if we need to migrate an existing database
         cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='participants'")
-        table_exists = cursor.fetchone() is not None
+        participants_exists = cursor.fetchone() is not None
 
-        if table_exists:
+        # Check if elo_ratings exists with different schema (model_id vs participant_id)
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='elo_ratings'")
+        elo_ratings_exists = cursor.fetchone() is not None
+        self._uses_model_id_schema = False
+
+        if elo_ratings_exists:
+            cursor = conn.execute("PRAGMA table_info(elo_ratings)")
+            elo_columns = {row[1] for row in cursor.fetchall()}
+            # elo_leaderboard.db uses model_id, unified_elo.db uses participant_id
+            self._uses_model_id_schema = "model_id" in elo_columns and "participant_id" not in elo_columns
+            if self._uses_model_id_schema:
+                # Don't modify elo_leaderboard.db schema - it's a different format
+                self._old_participant_schema = False
+                self._old_match_schema = False
+                return  # Skip schema creation for model_id databases
+
+        if participants_exists:
             # Check if it's old schema (participant_id as PK) vs new (id as PK)
             cursor = conn.execute("PRAGMA table_info(participants)")
             columns = {row[1] for row in cursor.fetchall()}
