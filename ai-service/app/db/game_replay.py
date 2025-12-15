@@ -1076,21 +1076,48 @@ class GameReplayDB:
             return dict(row)
 
     def get_initial_state(self, game_id: str) -> Optional[GameState]:
-        """Get the initial game state."""
+        """Get the initial game state.
+
+        Falls back to generating a default initial state from game metadata
+        if the game_initial_state table doesn't exist (e.g., for consolidated DBs).
+        """
         with self._get_conn() as conn:
-            row = conn.execute(
-                "SELECT initial_state_json, compressed FROM game_initial_state WHERE game_id = ?",
+            # Check if game_initial_state table exists
+            has_table = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='game_initial_state'"
+            ).fetchone() is not None
+
+            if has_table:
+                row = conn.execute(
+                    "SELECT initial_state_json, compressed FROM game_initial_state WHERE game_id = ?",
+                    (game_id,),
+                ).fetchone()
+
+                if row is not None:
+                    json_str = row["initial_state_json"]
+                    if row["compressed"]:
+                        json_str = _decompress_json(json_str)
+                    return _deserialize_state(json_str)
+
+            # Fallback: generate initial state from game metadata
+            game_meta = conn.execute(
+                "SELECT board_type, num_players FROM games WHERE game_id = ?",
                 (game_id,),
             ).fetchone()
 
-            if row is None:
+            if game_meta is None:
                 return None
 
-            json_str = row["initial_state_json"]
-            if row["compressed"]:
-                json_str = _decompress_json(json_str)
+            # Import here to avoid circular dependency
+            from app.training.generate_data import create_initial_state
 
-            return _deserialize_state(json_str)
+            board_type_str = game_meta["board_type"]
+            num_players = game_meta["num_players"]
+
+            # Convert string to BoardType enum
+            board_type = BoardType(board_type_str) if board_type_str else BoardType.SQUARE8
+
+            return create_initial_state(board_type=board_type, num_players=num_players)
 
     def get_moves(
         self,
