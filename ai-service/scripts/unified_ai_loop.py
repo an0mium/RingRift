@@ -64,6 +64,41 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 RINGRIFT_ROOT = AI_SERVICE_ROOT.parent
 
+# =============================================================================
+# Emergency Halt - File-based emergency stop mechanism
+# =============================================================================
+# To halt the loop: touch ai-service/data/coordination/EMERGENCY_HALT
+# To resume: rm ai-service/data/coordination/EMERGENCY_HALT
+
+EMERGENCY_HALT_FILE = AI_SERVICE_ROOT / "data" / "coordination" / "EMERGENCY_HALT"
+
+
+def check_emergency_halt() -> bool:
+    """Check if emergency halt flag is set.
+
+    The emergency halt mechanism allows operators to immediately pause
+    all AI loop activities by creating a file. This is useful for:
+    - Emergency interventions during problematic training
+    - Maintenance windows
+    - Cluster-wide pauses
+
+    Returns:
+        True if the loop should halt, False otherwise.
+    """
+    return EMERGENCY_HALT_FILE.exists()
+
+
+def clear_emergency_halt() -> bool:
+    """Clear the emergency halt flag to resume operations.
+
+    Returns:
+        True if the flag was cleared, False if it didn't exist.
+    """
+    if EMERGENCY_HALT_FILE.exists():
+        EMERGENCY_HALT_FILE.unlink()
+        return True
+    return False
+
 # Import cluster coordination - prevents multiple daemon instances
 try:
     from app.distributed.cluster_coordinator import ClusterCoordinator, TaskRole, check_and_abort_if_role_held
@@ -3383,6 +3418,14 @@ class UnifiedAILoop:
         max_consecutive_failures = 3  # Alert threshold
 
         while self._running:
+            # Check for emergency halt signal
+            if check_emergency_halt():
+                print("[HealthCheck] EMERGENCY HALT detected - initiating graceful shutdown")
+                print(f"[HealthCheck] To resume later: rm {EMERGENCY_HALT_FILE}")
+                self._running = False
+                self._shutdown_event.set()
+                break
+
             try:
                 checker = HealthChecker()
                 summary = checker.check_all()
@@ -3866,6 +3909,12 @@ class UnifiedAILoop:
 
     async def run(self):
         """Main entry point - runs all loops concurrently."""
+        # Check emergency halt before starting
+        if check_emergency_halt():
+            print("[UnifiedLoop] EMERGENCY HALT detected - refusing to start")
+            print(f"[UnifiedLoop] To resume: rm {EMERGENCY_HALT_FILE}")
+            return
+
         self._running = True
         self._started_time = time.time()
         self.state.started_at = datetime.now().isoformat()
@@ -4033,6 +4082,8 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Dry run mode - simulate without executing")
     parser.add_argument("--metrics-port", type=int, default=9090, help="Prometheus metrics port")
     parser.add_argument("--no-metrics", action="store_true", help="Disable Prometheus metrics")
+    parser.add_argument("--halt", action="store_true", help="Set emergency halt flag to stop all loops")
+    parser.add_argument("--resume", action="store_true", help="Clear emergency halt flag to allow restart")
 
     args = parser.parse_args()
 

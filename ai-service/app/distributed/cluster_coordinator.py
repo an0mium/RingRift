@@ -1,13 +1,42 @@
 #!/usr/bin/env python3
 """Cluster Coordination Module - Prevents runaway processes and task collisions.
 
+DEPRECATION NOTICE:
+    This module is being superseded by app.coordination modules:
+
+    - For orchestrator mutual exclusion:
+        Use app.coordination.orchestrator_registry
+        (OrchestratorRole, acquire_orchestrator_role, release_orchestrator_role)
+
+    - For task spawning limits:
+        Use app.coordination.task_coordinator
+        (TaskCoordinator, TaskType, can_spawn_task)
+
+    Migration example:
+        # OLD:
+        from app.distributed.cluster_coordinator import ClusterCoordinator, TaskRole
+        coordinator = ClusterCoordinator()
+        if coordinator.is_role_held(TaskRole.ORCHESTRATOR):
+            ...
+
+        # NEW:
+        from app.coordination import (
+            OrchestratorRole,
+            acquire_orchestrator_role,
+            release_orchestrator_role,
+        )
+        if acquire_orchestrator_role(OrchestratorRole.CLUSTER_ORCHESTRATOR):
+            # Role acquired
+            ...
+            release_orchestrator_role()
+
 This module provides centralized coordination for all improvement orchestrators:
 1. Global task locking - Only one orchestrator can run per role per host
 2. Process limits - Enforces maximum concurrent processes per host
 3. Task registry - Tracks active tasks across the cluster
 4. Collision prevention - Rejects conflicting task requests
 
-Usage:
+Usage (deprecated):
     from app.distributed.cluster_coordinator import ClusterCoordinator, TaskRole
 
     coordinator = ClusterCoordinator()
@@ -22,8 +51,16 @@ Usage:
         # Spawn process
         coordinator.register_process(pid, "selfplay")
 """
-
 from __future__ import annotations
+
+import warnings
+
+warnings.warn(
+    "app.distributed.cluster_coordinator is deprecated. "
+    "Use app.coordination.orchestrator_registry and app.coordination.task_coordinator instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import fcntl
 import json
