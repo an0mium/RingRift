@@ -2308,7 +2308,8 @@ class StreamingDataCollector:
                 ssh_target = f"{host.ssh_user}@{host.ssh_host}"
                 port_arg = f"-p {host.ssh_port}" if host.ssh_port != 22 else ""
 
-                # Simplified query for speed
+                # Use base64 encoding to avoid shell quoting issues completely
+                import base64
                 python_script = (
                     "import sqlite3, glob, os; "
                     "os.chdir(os.path.expanduser('~/ringrift/ai-service')); "
@@ -2317,7 +2318,10 @@ class StreamingDataCollector:
                     "[total := total + sqlite3.connect(db).execute('SELECT COUNT(*) FROM games').fetchone()[0] for db in dbs if 'schema' not in db]; "
                     "print(total)"
                 )
-                cmd = f'ssh -o ConnectTimeout=5 -o BatchMode=yes {port_arg} {ssh_target} "python3 -c \"{python_script}\"" 2>/dev/null'
+                encoded_script = base64.b64encode(python_script.encode()).decode()
+                # Format: ssh ... "python3 -c 'import base64; exec(base64.b64decode(\"ENCODED\").decode())'"
+                # Outer double quotes for SSH arg, inner single quotes for python -c, escaped double quotes for string
+                cmd = f'ssh -o ConnectTimeout=5 -o BatchMode=yes {port_arg} {ssh_target} "python3 -c \'import base64; exec(base64.b64decode(\\"{encoded_script}\\").decode())\'" 2>/dev/null'
 
                 result = await asyncio.create_subprocess_shell(
                     cmd,
@@ -2352,9 +2356,11 @@ class StreamingDataCollector:
         """Sync data from a host that has new games.
 
         This is called after _fast_parallel_query has confirmed the host has new data.
+        Uses unified_manifest for sync history logging.
         """
         print(f"[DataCollector] {host.name}: {current_count} games (last: {host.last_game_count}, new: {new_games})")
 
+        sync_start = time.time()
         try:
             # Trigger rsync for incremental sync
             if self.config.sync_method == "incremental":
@@ -2364,6 +2370,14 @@ class StreamingDataCollector:
 
             host.last_game_count = current_count
             host.last_sync_time = time.time()
+
+            # Manifest: Log successful sync
+            if self._manifest and HAS_UNIFIED_MANIFEST:
+                try:
+                    duration = time.time() - sync_start
+                    self._manifest.log_sync(host.name, new_games, duration, success=True, sync_method=self.config.sync_method)
+                except Exception:
+                    pass  # Non-fatal
 
             # Publish event
             await self.event_bus.publish(DataEvent(
@@ -2386,6 +2400,13 @@ class StreamingDataCollector:
             # Record failure with circuit breaker
             if HAS_CIRCUIT_BREAKER:
                 get_host_breaker().record_failure(host.ssh_host, e)
+            # Manifest: Log failed sync
+            if self._manifest and HAS_UNIFIED_MANIFEST:
+                try:
+                    duration = time.time() - sync_start
+                    self._manifest.log_sync(host.name, 0, duration, success=False, error_message=str(e))
+                except Exception:
+                    pass  # Non-fatal
             print(f"[DataCollector] Failed to sync {host.name}: {e}")
             return 0
 
@@ -4148,6 +4169,7 @@ class UnifiedAILoop:
 
         # Task coordination - prevents runaway spawning across orchestrators
         self.task_coordinator: Optional[TaskCoordinator] = None
+        self._task_id: Optional[str] = None  # Initialize to avoid AttributeError on shutdown
         if HAS_TASK_COORDINATOR:
             try:
                 self.task_coordinator = TaskCoordinator.get_instance()
@@ -4165,8 +4187,6 @@ class UnifiedAILoop:
                 print("[UnifiedLoop] Task coordinator integrated - global limits enforced")
             except Exception as e:
                 print(f"[UnifiedLoop] Warning: Failed to initialize task coordinator: {e}")
-        else:
-            self._task_id = None
 
         # New coordination: acquire UNIFIED_LOOP role (SQLite-backed with heartbeat)
         self._has_orchestrator_role = False
