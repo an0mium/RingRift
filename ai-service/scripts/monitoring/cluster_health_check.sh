@@ -26,6 +26,11 @@ AWS_REGION="${AWS_REGION:-us-east-1}"
 LOG_GROUP="/ringrift/cluster-health"
 VERBOSE="${1:-}"
 DRY_RUN=""
+ALERT_STATE_DIR="${RINGRIFT_ALERT_STATE_DIR:-/tmp/ringrift-alerts}"
+ALERT_COOLDOWN_SECONDS="${RINGRIFT_ALERT_COOLDOWN:-900}"  # 15 min cooldown between duplicate alerts
+
+# Ensure alert state directory exists
+mkdir -p "$ALERT_STATE_DIR"
 
 # Parse arguments
 for arg in "$@"; do
@@ -45,9 +50,43 @@ log_verbose() {
   fi
 }
 
+# Check if alert should be throttled (deduplicate within cooldown window)
+should_alert() {
+  local alert_key="$1"
+  local state_file="$ALERT_STATE_DIR/${alert_key}.state"
+  local now
+  now=$(date +%s)
+
+  if [ -f "$state_file" ]; then
+    local last_alert
+    last_alert=$(cat "$state_file")
+    local elapsed=$((now - last_alert))
+    if [ "$elapsed" -lt "$ALERT_COOLDOWN_SECONDS" ]; then
+      log_verbose "Throttling alert '$alert_key' (${elapsed}s < ${ALERT_COOLDOWN_SECONDS}s cooldown)"
+      return 1  # false = should NOT alert
+    fi
+  fi
+
+  echo "$now" > "$state_file"
+  return 0  # true = should alert
+}
+
+# Clear alert state (call when condition resolves)
+clear_alert() {
+  local alert_key="$1"
+  local state_file="$ALERT_STATE_DIR/${alert_key}.state"
+  rm -f "$state_file"
+}
+
 send_slack_alert() {
   local message="$1"
   local severity="${2:-warning}"
+  local alert_key="${3:-}"  # Optional: if provided, deduplicates alerts
+
+  # Generate alert key from message if not provided
+  if [ -z "$alert_key" ]; then
+    alert_key=$(echo "$message" | md5sum | cut -c1-16)
+  fi
 
   if [ -z "$SLACK_WEBHOOK" ]; then
     log "WARN: RINGRIFT_SLACK_WEBHOOK not set, skipping Slack alert"
@@ -56,6 +95,11 @@ send_slack_alert() {
 
   if [ "$DRY_RUN" = "true" ]; then
     log "DRY-RUN: Would send Slack alert: $message"
+    return
+  fi
+
+  # Check cooldown
+  if ! should_alert "$alert_key"; then
     return
   fi
 
@@ -96,9 +140,11 @@ STATUS=$(curl -s --connect-timeout 15 --max-time 30 "${CLUSTER_API}/api/cluster/
 
 if echo "$STATUS" | jq -e '.error' > /dev/null 2>&1; then
   log "ERROR: Failed to fetch cluster status"
-  send_slack_alert "Failed to fetch cluster status from $CLUSTER_API" "critical"
+  send_slack_alert "Failed to fetch cluster status from $CLUSTER_API" "critical" "fetch_failed"
   exit 1
 fi
+# Clear fetch failure state on success
+clear_alert "fetch_failed"
 
 # Extract metrics
 ONLINE_COUNT=$(echo "$STATUS" | jq '[.peers[] | select(.status == "online")] | length')
@@ -131,7 +177,9 @@ for node in "${CRITICAL_NODES[@]}"; do
 done
 
 if [ -n "$CRITICAL_OFFLINE" ]; then
-  send_slack_alert "CRITICAL nodes OFFLINE:$CRITICAL_OFFLINE" "critical"
+  send_slack_alert "CRITICAL nodes OFFLINE:$CRITICAL_OFFLINE" "critical" "critical_offline"
+else
+  clear_alert "critical_offline"
 fi
 
 # Check GH200 cluster health
@@ -142,12 +190,16 @@ log_verbose "GH200 cluster: $GH200_ONLINE/$GH200_TOTAL online"
 put_cloudwatch_metric "GH200NodesOnline" "$GH200_ONLINE"
 
 if [ "$GH200_ONLINE" -lt 4 ] && [ "$GH200_TOTAL" -gt 0 ]; then
-  send_slack_alert "GH200 cluster degraded: only $GH200_ONLINE/$GH200_TOTAL nodes online" "warning"
+  send_slack_alert "GH200 cluster degraded: only $GH200_ONLINE/$GH200_TOTAL nodes online" "warning" "gh200_degraded"
+else
+  clear_alert "gh200_degraded"
 fi
 
 # Check quorum
 if [ "$QUORUM_OK" != "true" ]; then
-  send_slack_alert "QUORUM LOST - cluster may not be able to coordinate" "critical"
+  send_slack_alert "QUORUM LOST - cluster may not be able to coordinate" "critical" "quorum_lost"
+else
+  clear_alert "quorum_lost"
 fi
 
 # Check for high CPU/memory nodes
@@ -166,7 +218,9 @@ if [ -n "$DISK_PRESSURE_NODES" ]; then
   echo "$DISK_PRESSURE_NODES" | while read -r line; do
     log "  $line"
   done
-  send_slack_alert "Disk pressure on nodes: $(echo "$DISK_PRESSURE_NODES" | tr '\n' ' ')" "warning"
+  send_slack_alert "Disk pressure on nodes: $(echo "$DISK_PRESSURE_NODES" | tr '\n' ' ')" "warning" "disk_pressure"
+else
+  clear_alert "disk_pressure"
 fi
 
 log "Health check complete"
