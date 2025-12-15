@@ -132,6 +132,14 @@ except ImportError:
     HAS_NEW_COORDINATION = False
     OrchestratorRole = None
 
+# P2P-integrated monitoring management
+try:
+    from app.monitoring.p2p_monitoring import MonitoringManager
+    HAS_P2P_MONITORING = True
+except ImportError:
+    HAS_P2P_MONITORING = False
+    MonitoringManager = None
+
 # ============================================
 # Configuration
 # ============================================
@@ -1199,6 +1207,21 @@ class P2POrchestrator:
             except Exception as e:
                 print(f"[P2P] Failed to initialize ImprovementCycleManager: {e}")
         self.last_improvement_cycle_check: float = 0.0
+
+        # P2P-integrated monitoring (leader starts Prometheus/Grafana)
+        self.monitoring_manager: Optional['MonitoringManager'] = None
+        if HAS_P2P_MONITORING:
+            try:
+                self.monitoring_manager = MonitoringManager(
+                    node_id=node_id,
+                    prometheus_port=9090,
+                    grafana_port=3000,
+                    config_dir=Path(self.ringrift_path) / "monitoring",
+                )
+                print(f"[P2P] MonitoringManager initialized")
+            except Exception as e:
+                print(f"[P2P] Failed to initialize MonitoringManager: {e}")
+        self._monitoring_was_leader = False  # Track leadership changes
         self.improvement_cycle_check_interval: float = 600.0  # Check every 10 minutes
 
         # Webhook notifications for alerts
@@ -14827,6 +14850,11 @@ print(json.dumps({{
                 if self.role == NodeRole.LEADER:
                     await self._renew_leader_lease()
 
+                # P2P monitoring: start/stop services based on leadership
+                await self._stop_monitoring_if_not_leader()
+                if self.role == NodeRole.LEADER:
+                    await self._start_monitoring_if_leader()
+
                 # Save state periodically
                 self._save_state()
 
@@ -15197,6 +15225,72 @@ print(json.dumps({{
                         pass
 
         self._save_state()
+
+        # Start monitoring services when becoming leader
+        await self._start_monitoring_if_leader()
+
+    async def _start_monitoring_if_leader(self):
+        """Start Prometheus/Grafana when we become leader (P2P monitoring resilience)."""
+        if not self.monitoring_manager:
+            return
+        if self.role != NodeRole.LEADER:
+            return
+        if self._monitoring_was_leader:
+            return  # Already started
+
+        try:
+            # Update peer list for Prometheus config
+            with self.peers_lock:
+                peer_list = [
+                    {"node_id": p.node_id, "host": p.host, "port": getattr(p, "metrics_port", 9091)}
+                    for p in self.peers.values()
+                    if p.node_id != self.node_id and p.status == "healthy"
+                ]
+            self.monitoring_manager.update_peers(peer_list)
+
+            # Start monitoring services
+            success = await self.monitoring_manager.start_as_leader()
+            if success:
+                print(f"[P2P] Monitoring services started on leader node")
+                self._monitoring_was_leader = True
+            else:
+                print(f"[P2P] Failed to start monitoring services")
+        except Exception as e:
+            print(f"[P2P] Error starting monitoring services: {e}")
+
+    async def _stop_monitoring_if_not_leader(self):
+        """Stop Prometheus/Grafana when we step down from leadership."""
+        if not self.monitoring_manager:
+            return
+        if not self._monitoring_was_leader:
+            return  # Never started
+
+        if self.role != NodeRole.LEADER:
+            try:
+                await self.monitoring_manager.stop()
+                print(f"[P2P] Monitoring services stopped (no longer leader)")
+                self._monitoring_was_leader = False
+            except Exception as e:
+                print(f"[P2P] Error stopping monitoring services: {e}")
+
+    async def _update_monitoring_peers(self):
+        """Update Prometheus config with current peer list."""
+        if not self.monitoring_manager or not self._monitoring_was_leader:
+            return
+        if self.role != NodeRole.LEADER:
+            return
+
+        try:
+            with self.peers_lock:
+                peer_list = [
+                    {"node_id": p.node_id, "host": p.host, "port": getattr(p, "metrics_port", 9091)}
+                    for p in self.peers.values()
+                    if p.node_id != self.node_id and p.status == "healthy"
+                ]
+            self.monitoring_manager.update_peers(peer_list)
+            await self.monitoring_manager.reload_config()
+        except Exception as e:
+            print(f"[P2P] Error updating monitoring peers: {e}")
 
     async def _renew_leader_lease(self):
         """Renew our leadership lease and broadcast to peers."""
