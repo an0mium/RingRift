@@ -40,6 +40,31 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # Import orchestrator metrics
+# Re-export app-level metrics from the standalone metrics module
+# These are used by app/main.py for API request metrics
+import sys
+import importlib.util
+
+# Load app/metrics.py directly (it exists alongside this package)
+_metrics_file = __file__.replace("__init__.py", "").rstrip("/").rstrip("\\") + ".py"
+_spec = importlib.util.spec_from_file_location("app.metrics_base", _metrics_file.replace("/metrics/", "/metrics"))
+if _spec and _spec.loader:
+    # The actual file is at app/metrics.py (parent dir + metrics.py)
+    import os
+    _parent = os.path.dirname(os.path.dirname(__file__))
+    _metrics_py = os.path.join(_parent, "metrics.py")
+    if os.path.exists(_metrics_py):
+        _spec = importlib.util.spec_from_file_location("_metrics_base", _metrics_py)
+        if _spec and _spec.loader:
+            _metrics_base = importlib.util.module_from_spec(_spec)
+            _spec.loader.exec_module(_metrics_base)
+            # Export the app-level metrics
+            AI_MOVE_REQUESTS = _metrics_base.AI_MOVE_REQUESTS
+            AI_MOVE_LATENCY = _metrics_base.AI_MOVE_LATENCY
+            AI_INSTANCE_CACHE_SIZE = _metrics_base.AI_INSTANCE_CACHE_SIZE
+            AI_INSTANCE_CACHE_LOOKUPS = _metrics_base.AI_INSTANCE_CACHE_LOOKUPS
+            observe_ai_move_start = _metrics_base.observe_ai_move_start
+
 from app.metrics.orchestrator import (
     # Selfplay metrics
     SELFPLAY_GAMES_TOTAL,
@@ -145,6 +170,12 @@ def create_training_logger(*args, **kwargs):
 
 
 __all__ = [
+    # App-level metrics (from metrics.py)
+    "AI_MOVE_REQUESTS",
+    "AI_MOVE_LATENCY",
+    "AI_INSTANCE_CACHE_SIZE",
+    "AI_INSTANCE_CACHE_LOOKUPS",
+    "observe_ai_move_start",
     # Selfplay metrics
     "SELFPLAY_GAMES_TOTAL",
     "SELFPLAY_GAMES_PER_SECOND",
