@@ -11121,12 +11121,13 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     )
 
             # Collect data manifest info (lightweight dashboard summary)
+            # NOTE: Never block on manifest collection here - use cached data only.
+            # The background _manifest_collection_loop will populate this shortly after startup.
             with self.manifest_lock:
                 local_manifest = self.local_data_manifest
                 cluster_manifest = self.cluster_data_manifest
-                if local_manifest is None:
-                    local_manifest = self._collect_local_data_manifest()
-                    self.local_data_manifest = local_manifest
+                # Don't block on manifest collection - return what we have
+                # local_manifest may be None during startup, which is fine
 
             manifest_info: Dict[str, Dict[str, Any]] = {}
             if cluster_manifest and getattr(cluster_manifest, "node_manifests", None):

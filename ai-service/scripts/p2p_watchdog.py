@@ -106,7 +106,9 @@ def get_p2p_uptime_seconds() -> float:
 
 
 # Minimum uptime before considering a restart (prevents restart loops)
-MIN_UPTIME_BEFORE_RESTART = 180  # 3 minutes
+# Increased to 10 minutes to allow time for initial manifest collection
+# which can take several minutes on nodes with many JSONL files
+MIN_UPTIME_BEFORE_RESTART = 600  # 10 minutes
 
 
 def is_systemd_service_available() -> bool:
