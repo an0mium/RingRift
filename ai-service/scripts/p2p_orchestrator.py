@@ -434,7 +434,9 @@ ADVERTISE_PORT_ENV = "RINGRIFT_ADVERTISE_PORT"
 TAILSCALE_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 
 # Data manifest collection settings
-MANIFEST_JSONL_LINECOUNT_MAX_BYTES = 64 * 1024 * 1024  # Skip line-counting for huge JSONL files
+# IMPORTANT: Set to 0 to skip all JSONL line-counting. Reading 700+ JSONL files
+# blocks the event loop even with asyncio.to_thread, causing health check failures.
+MANIFEST_JSONL_LINECOUNT_MAX_BYTES = 0  # Skip ALL line-counting to prevent blocking
 MANIFEST_JSONL_LINECOUNT_CHUNK_BYTES = 1024 * 1024
 
 # LEARNED LESSONS - Automatic data management settings
@@ -3447,7 +3449,7 @@ class P2POrchestrator:
                 if not _pid_alive(pid):
                     stale_job_ids.append(job_id)
                     continue
-                if job.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY):
+                if job.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY, JobType.CPU_SELFPLAY):
                     selfplay_pids.add(str(pid))
                 elif job.job_type == JobType.TRAINING:
                     training_pids.add(str(pid))
@@ -9938,7 +9940,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             jobs_to_stop = []
             with self.jobs_lock:
                 for job_id, job in self.local_jobs.items():
-                    if (job.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY)
+                    if (job.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY, JobType.CPU_SELFPLAY)
                         and getattr(job, 'board_type', None) == board_type
                         and getattr(job, 'num_players', None) == num_players
                         and job.status == "running"):
@@ -10234,7 +10236,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             # Job counts
             with self.jobs_lock:
                 selfplay_jobs = len([j for j in self.local_jobs.values()
-                                    if j.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY)
+                                    if j.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY, JobType.CPU_SELFPLAY)
                                     and j.status == "running"])
                 training_jobs = len([j for j in self.local_jobs.values()
                                     if j.job_type == JobType.TRAINING and j.status == "running"])
@@ -11860,7 +11862,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             with self.jobs_lock:
                 selfplay_jobs = len([j for j in self.local_jobs.values()
-                                    if j.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY)
+                                    if j.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY, JobType.CPU_SELFPLAY)
                                     and j.status == "running"])
 
             nodes.append({
@@ -13059,7 +13061,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             with self.jobs_lock:
                 active_selfplay = len([j for j in self.local_jobs.values()
-                                      if j.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY)
+                                      if j.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY, JobType.CPU_SELFPLAY)
                                       and j.status == "running"])
 
             autoscale["current_state"] = {
@@ -17822,6 +17824,76 @@ print(json.dumps({{
 
         return int(max(1, target_selfplay))
 
+    def _get_hybrid_job_targets(self, node: NodeInfo) -> Dict[str, int]:
+        """Get separate GPU and CPU-only selfplay job targets for hybrid mode.
+
+        For high-CPU nodes with limited GPU VRAM (like Vast hosts), this enables:
+        - Running GPU jobs up to VRAM limit
+        - Running additional CPU-only jobs to utilize excess CPU capacity
+
+        Returns:
+            Dict with 'gpu_jobs', 'cpu_only_jobs', 'total_jobs'
+        """
+        has_gpu = bool(getattr(node, "has_gpu", False))
+        cpu_count = int(getattr(node, "cpu_count", 0) or 0)
+        memory_gb = int(getattr(node, "memory_gb", 0) or 0)
+        gpu_name = getattr(node, "gpu_name", "") or ""
+        gpu_count = int(getattr(node, "gpu_count", 1) or 1) if has_gpu else 0
+
+        # Use hybrid limits function if available
+        if HAS_HW_AWARE_LIMITS and get_hybrid_selfplay_limits is not None:
+            try:
+                limits = get_hybrid_selfplay_limits(
+                    node_id=node.node_id,
+                    gpu_count=gpu_count,
+                    gpu_name=gpu_name,
+                    cpu_count=cpu_count,
+                    memory_gb=memory_gb,
+                    has_gpu=has_gpu,
+                )
+                return limits
+            except Exception as e:
+                print(f"[P2P] Hybrid limits error: {e}")
+
+        # Fallback: No CPU-only jobs, use standard target
+        gpu_jobs = self._target_selfplay_jobs_for_node(node)
+        return {"gpu_jobs": gpu_jobs, "cpu_only_jobs": 0, "total_jobs": gpu_jobs}
+
+    def _should_spawn_cpu_only_jobs(self, node: NodeInfo) -> bool:
+        """Check if a node should spawn CPU-only jobs in addition to GPU jobs.
+
+        CPU-only jobs are beneficial when:
+        1. Node has many CPU cores (64+)
+        2. Node has limited GPU VRAM (<=16GB per GPU)
+        3. GPU jobs are already at capacity (VRAM-limited)
+        """
+        if not HAS_HW_AWARE_LIMITS:
+            return False
+
+        cpu_count = int(getattr(node, "cpu_count", 0) or 0)
+        has_gpu = bool(getattr(node, "has_gpu", False))
+        gpu_name = (getattr(node, "gpu_name", "") or "").upper()
+
+        # Must have significant CPU resources (64+ cores)
+        if cpu_count < 64:
+            return False
+
+        # For GPU nodes, only spawn CPU-only if GPU has limited VRAM
+        if has_gpu:
+            # High-end datacenter GPUs don't need CPU-only jobs (plenty of VRAM)
+            if any(g in gpu_name for g in ["GH200", "H100", "H200", "A100", "L40"]):
+                return False
+            # Consumer GPUs with limited VRAM benefit from CPU-only supplement
+            if any(g in gpu_name for g in ["3070", "3060", "2060", "2070", "2080", "4060", "4070"]):
+                return True
+            # 5090/4090 with 24-32GB might not need it unless very high CPU count
+            if any(g in gpu_name for g in ["5090", "4090", "3090"]):
+                return cpu_count >= 128
+
+        # CPU-only nodes always benefit from full CPU utilization
+        return True
+
+
     async def _check_cluster_balance(self) -> Dict[str, Any]:
         """Check and rebalance jobs across the cluster.
 
@@ -18085,7 +18157,14 @@ print(json.dumps({{
             # Base targets:
             # - GPU nodes: fixed concurrency tuned for GPU throughput.
             # - CPU-only nodes: scale with CPU cores (and cap by memory).
-            target_selfplay = self._target_selfplay_jobs_for_node(node)
+            # HYBRID MODE: Get separate GPU and CPU-only job targets
+            hybrid_targets = self._get_hybrid_job_targets(node)
+            gpu_job_target = hybrid_targets.get("gpu_jobs", 0)
+            cpu_only_target = hybrid_targets.get("cpu_only_jobs", 0)
+            total_target = hybrid_targets.get("total_jobs", gpu_job_target)
+
+            # Backward compat: use total_target like the old target_selfplay
+            target_selfplay = total_target
 
             # Check if node needs more jobs
             if node.selfplay_jobs < target_selfplay:
@@ -18134,12 +18213,20 @@ print(json.dumps({{
                 # Use round-robin across unique configs to ensure coverage
                 unique_configs = list({(c["board_type"], c["num_players"]): c for c in filtered_configs}.values())
                 jobs_to_start = min(needed, 10)  # Start up to 10 jobs per iteration
+
+                # HYBRID MODE: Calculate how many GPU vs CPU-only jobs to spawn
+                # If node already has gpu_job_target GPU jobs, spawn CPU-only jobs instead
+                current_gpu_jobs = min(node.selfplay_jobs, gpu_job_target)
+                remaining_gpu_slots = max(0, gpu_job_target - current_gpu_jobs)
+                remaining_cpu_slots = max(0, cpu_only_target)  # Can always spawn CPU-only if capacity
+                should_use_cpu_only = self._should_spawn_cpu_only_jobs(node) and cpu_only_target > 0
+
                 for i in range(jobs_to_start):
                     # LEARNED LESSONS - Smart CPU/GPU task routing:
                     # - High-end GPUs (H100/H200/A100/5090/4090) get GPU_SELFPLAY for max throughput
                     #   with automatic CPU validation to ensure data quality
                     # - Mid-tier GPUs get HYBRID_SELFPLAY (CPU rules + GPU eval)
-                    # - CPU-only nodes get regular SELFPLAY
+                    # - CPU-only nodes or GPU-saturated nodes get CPU_SELFPLAY
                     # This ensures expensive GPU resources are utilized properly
                     # while CPU instances handle CPU-bound tasks efficiently
                     gpu_name = (node.gpu_name or "").upper()
@@ -18158,7 +18245,21 @@ print(json.dumps({{
                     if gpu_seems_unavailable:
                         print(f"[P2P] WARNING: {node.node_id} has GPU but 0% utilization with {node.selfplay_jobs} jobs - falling back to CPU selfplay")
 
-                    if node.has_gpu and is_high_end_gpu and not is_apple_gpu and not gpu_seems_unavailable:
+                    # HYBRID MODE: Decide between GPU and CPU-only based on capacity
+                    spawn_cpu_only = False
+                    if remaining_gpu_slots > 0 and not gpu_seems_unavailable:
+                        remaining_gpu_slots -= 1
+                    elif should_use_cpu_only and remaining_cpu_slots > 0:
+                        spawn_cpu_only = True
+                        remaining_cpu_slots -= 1
+                    elif gpu_seems_unavailable:
+                        spawn_cpu_only = True
+
+                    if spawn_cpu_only:
+                        # Pure CPU selfplay to utilize excess CPU capacity
+                        job_type = JobType.CPU_SELFPLAY
+                        task_type_str = "CPU-only (hybrid mode)"
+                    elif node.has_gpu and is_high_end_gpu and not is_apple_gpu and not gpu_seems_unavailable:
                         # High-end CUDA GPUs: Use pure GPU selfplay with CPU validation
                         # This maximizes GPU parallel throughput (10-100x speedup)
                         # CPU validation runs automatically after completion
@@ -18328,7 +18429,7 @@ print(json.dumps({{
                 (job_id, job)
                 for job_id, job in self.local_jobs.items()
                 if job.status == "running"
-                and job.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY)
+                and job.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY, JobType.CPU_SELFPLAY)
             ]
 
         if selfplay_before <= target and len(running) <= target:
@@ -18464,7 +18565,7 @@ print(json.dumps({{
             pids_to_kill: Set[int] = set()
             with self.jobs_lock:
                 for job_id, job in self.local_jobs.items():
-                    if job.job_type not in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY):
+                    if job.job_type not in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY, JobType.CPU_SELFPLAY):
                         continue
                     jobs_to_clear.append(job_id)
                     if job.pid:
@@ -18679,6 +18780,95 @@ print(json.dumps({{
                     self.local_jobs[job_id] = job
 
                 print(f"[P2P] Started {job_type.value} job {job_id} (PID {proc.pid})")
+                self._save_state()
+                return job
+
+            elif job_type == JobType.CPU_SELFPLAY:
+                # Pure CPU selfplay for high-CPU nodes with limited GPU VRAM
+                # Uses CPU-friendly engine modes (heuristic-only, minimax-only)
+                # This enables utilizing excess CPU capacity on Vast.ai hosts etc.
+
+                # CPU-only engine modes - avoid MCTS/NN which benefit from GPU
+                cpu_engine_modes = {"heuristic-only", "minimax-only", "random-only"}
+                engine_mode_norm = engine_mode if engine_mode in cpu_engine_modes else "heuristic-only"
+
+                # CPU-only jobs can handle more games per batch
+                num_games = 2000
+                extra_args: List[str] = []
+                if board_type in ("square19", "hexagonal"):
+                    num_games = 400 if board_type == "square19" else 200
+                    extra_args.extend(["--memory-constrained"])
+
+                output_dir = Path(
+                    self.ringrift_path,
+                    "ai-service",
+                    "data",
+                    "selfplay",
+                    "p2p",
+                    f"{board_type}_{num_players}p_cpu",  # Separate subdir for CPU-only
+                    job_id,
+                )
+                output_dir.mkdir(parents=True, exist_ok=True)
+
+                venv_python = Path(self.ringrift_path, "ai-service", "venv", "bin", "python")
+                python_exec = str(venv_python) if venv_python.exists() else "python3"
+
+                cmd = [
+                    python_exec,
+                    f"{self.ringrift_path}/ai-service/scripts/run_self_play_soak.py",
+                    "--num-games", str(num_games),
+                    "--board-type", board_type,
+                    "--num-players", str(num_players),
+                    "--engine-mode", engine_mode_norm,
+                    "--max-moves", "10000",
+                    "--log-jsonl", str(output_dir / "games.jsonl"),
+                    "--summary-json", str(output_dir / "summary.json"),
+                    "--record-db", str(output_dir / "games.db"),
+                    "--lean-db",
+                    "--verbose", "0",
+                    *extra_args,
+                ]
+
+                env = os.environ.copy()
+                env["PYTHONPATH"] = f"{self.ringrift_path}/ai-service"
+                env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
+                env["RINGRIFT_JOB_ORIGIN"] = "p2p_orchestrator"
+                env["CUDA_VISIBLE_DEVICES"] = ""  # Disable GPU for CPU-only jobs
+
+                can_spawn, spawn_reason = self._can_spawn_process(f"cpu-selfplay-{board_type}-{num_players}p")
+                if not can_spawn:
+                    print(f"[P2P] BLOCKED CPU selfplay spawn: {spawn_reason}")
+                    return None
+
+                log_handle = open(output_dir / "run.log", "a")
+                try:
+                    proc = subprocess.Popen(
+                        cmd,
+                        stdout=log_handle,
+                        stderr=subprocess.STDOUT,
+                        env=env,
+                        cwd=self.ringrift_path,
+                    )
+                    self._record_spawn()
+                finally:
+                    log_handle.close()
+
+                job = ClusterJob(
+                    job_id=job_id,
+                    job_type=job_type,
+                    node_id=self.node_id,
+                    board_type=board_type,
+                    num_players=num_players,
+                    engine_mode=engine_mode_norm,
+                    pid=proc.pid,
+                    started_at=time.time(),
+                    status="running",
+                )
+
+                with self.jobs_lock:
+                    self.local_jobs[job_id] = job
+
+                print(f"[P2P] Started {job_type.value} job {job_id} (PID {proc.pid}) [CPU-only hybrid mode]")
                 self._save_state()
                 return job
 
