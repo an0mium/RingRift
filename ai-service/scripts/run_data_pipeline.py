@@ -3,26 +3,33 @@
 
 This script automates the complete data pipeline:
 1. Sync JSONL files from all distributed compute sources
-2. Aggregate JSONL files into training SQLite databases
-3. Optionally trigger CMA-ES optimization runs
-4. Generate statistics and reports
+2. Convert JSONL files to SQLite using chunked parallel processing
+3. Optionally aggregate with legacy method
+4. Optionally trigger CMA-ES optimization runs
+5. Generate statistics and reports
 
 Designed to run as a cron job or continuous daemon for hands-off operation.
 
 Usage:
-    # Run complete pipeline once
+    # Run complete pipeline once (sync + convert)
     python scripts/run_data_pipeline.py
 
-    # Sync only (no aggregation or optimization)
+    # Sync only (no conversion)
     python scripts/run_data_pipeline.py --sync-only
 
-    # Aggregate only (assumes sync already done)
-    python scripts/run_data_pipeline.py --aggregate-only
+    # Convert only (skip sync, use existing files)
+    python scripts/run_data_pipeline.py --convert-only
 
-    # Run continuous daemon (sync every 5 minutes)
+    # Convert with more workers
+    python scripts/run_data_pipeline.py --convert-only --workers 4
+
+    # Skip conversion, use legacy aggregate
+    python scripts/run_data_pipeline.py --no-convert --aggregate-only
+
+    # Run continuous daemon (sync + convert every 5 minutes)
     python scripts/run_data_pipeline.py --daemon --interval 300
 
-    # Include CMA-ES optimization after aggregation
+    # Include CMA-ES optimization after conversion
     python scripts/run_data_pipeline.py --with-cmaes
 
     # Filter by board type
@@ -267,6 +274,96 @@ class DataPipeline:
 
         return counts
 
+    def run_chunked_conversion(
+        self,
+        input_dir: Optional[Path] = None,
+        output_dir: Optional[Path] = None,
+        board_type: Optional[str] = None,
+        num_players: Optional[int] = None,
+        workers: int = 2,
+    ) -> Dict[str, Any]:
+        """Run chunked JSONL to SQLite conversion.
+
+        This uses the chunked_jsonl_converter.py for robust handling of
+        large files with parallel processing.
+
+        Returns conversion statistics.
+        """
+        if input_dir is None:
+            input_dir = self.aggregated_dir
+        if output_dir is None:
+            output_dir = self.output_db_dir
+
+        logger.info("")
+        logger.info("=" * 60)
+        logger.info("CHUNKED JSONL CONVERSION")
+        logger.info("=" * 60)
+        logger.info(f"Input: {input_dir}")
+        logger.info(f"Output: {output_dir}")
+        logger.info(f"Workers: {workers}")
+
+        converter_script = Path(__file__).parent / "chunked_jsonl_converter.py"
+        if not converter_script.exists():
+            logger.error(f"Chunked converter not found: {converter_script}")
+            return {"success": False, "error": "converter not found"}
+
+        # Build command
+        cmd = [
+            sys.executable,
+            str(converter_script),
+            "--input-dir", str(input_dir),
+            "--output-dir", str(output_dir),
+            "--workers", str(workers),
+            "--chunk-size", "500",
+        ]
+
+        if board_type:
+            cmd.extend(["--board-type", board_type])
+        if num_players:
+            cmd.extend(["--num-players", str(num_players)])
+        if self.dry_run:
+            cmd.append("--dry-run")
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=1800,  # 30 min timeout for large backlogs
+            )
+
+            stats = {"success": result.returncode == 0}
+
+            # Parse output for stats
+            for line in result.stdout.split("\n"):
+                if "Games:" in line and "added" in line:
+                    try:
+                        # Extract games added from summary line
+                        import re
+                        match = re.search(r"(\d+,?\d*)\s+added", line)
+                        if match:
+                            stats["games_converted"] = int(match.group(1).replace(",", ""))
+                    except Exception:
+                        pass
+
+            if result.returncode == 0:
+                logger.info("Chunked conversion completed successfully")
+                logger.info(f"Games converted: {stats.get('games_converted', 'unknown')}")
+            else:
+                logger.error(f"Chunked conversion failed: {result.stderr[:500]}")
+                self.stats.errors.append(f"Chunked conversion failed: {result.stderr[:200]}")
+
+            return stats
+
+        except subprocess.TimeoutExpired:
+            logger.error("Chunked conversion timed out")
+            self.stats.errors.append("Chunked conversion timed out")
+            return {"success": False, "error": "timeout"}
+        except Exception as e:
+            logger.error(f"Chunked conversion error: {e}")
+            self.stats.errors.append(f"Chunked conversion error: {e}")
+            return {"success": False, "error": str(e)}
+
     def aggregate_to_database(
         self,
         output_db: Optional[str] = None,
@@ -412,21 +509,25 @@ class DataPipeline:
     def run_pipeline(
         self,
         sync: bool = True,
+        convert: bool = True,
         aggregate: bool = True,
         cmaes: bool = False,
         sources: Optional[List[str]] = None,
         board_type: Optional[str] = None,
         num_players: Optional[int] = None,
+        workers: int = 2,
     ) -> PipelineStats:
         """Run the complete data pipeline.
 
         Args:
             sync: Whether to sync from remote sources
-            aggregate: Whether to aggregate JSONL to SQLite
+            convert: Whether to run chunked JSONL conversion (recommended)
+            aggregate: Whether to aggregate JSONL to SQLite (legacy method)
             cmaes: Whether to trigger CMA-ES after aggregation
             sources: Filter to specific sources
             board_type: Filter to specific board type
             num_players: Filter to specific player count
+            workers: Number of parallel workers for conversion
 
         Returns:
             PipelineStats with run statistics
@@ -450,15 +551,24 @@ class DataPipeline:
             logger.info(f"  {source}: {count:,}")
         logger.info(f"  TOTAL: {self.stats.total_jsonl_lines:,}")
 
-        # Phase 2: Aggregate
-        if aggregate:
+        # Phase 2: Chunked Conversion (new, recommended)
+        if convert:
+            self.run_chunked_conversion(
+                board_type=board_type,
+                num_players=num_players,
+                workers=workers,
+            )
+
+        # Phase 3: Aggregate (legacy method, can run in addition to convert)
+        if aggregate and not convert:
+            # Only run legacy aggregate if convert is disabled
             self.aggregate_to_database(
                 sources=sources,
                 board_type=board_type,
                 num_players=num_players,
             )
 
-        # Phase 3: CMA-ES (optional)
+        # Phase 4: CMA-ES (optional)
         if cmaes and not self.dry_run:
             self.trigger_cmaes(
                 board_type=board_type or "square8",
@@ -538,17 +648,22 @@ def main():
     parser.add_argument(
         "--sync-only",
         action="store_true",
-        help="Only sync from remote sources (no aggregation)",
+        help="Only sync from remote sources (no conversion/aggregation)",
+    )
+    parser.add_argument(
+        "--convert-only",
+        action="store_true",
+        help="Only run chunked conversion (no sync)",
     )
     parser.add_argument(
         "--aggregate-only",
         action="store_true",
-        help="Only aggregate JSONL to SQLite (no sync)",
+        help="Only run legacy aggregation (no sync, no chunked conversion)",
     )
     parser.add_argument(
         "--with-cmaes",
         action="store_true",
-        help="Trigger CMA-ES optimization after aggregation",
+        help="Trigger CMA-ES optimization after conversion",
     )
 
     # Daemon mode
@@ -604,6 +719,26 @@ def main():
         help="Local comprehensive selfplay directory",
     )
 
+    # Conversion options
+    parser.add_argument(
+        "--convert",
+        action="store_true",
+        default=True,
+        help="Run chunked JSONL conversion (default: enabled)",
+    )
+    parser.add_argument(
+        "--no-convert",
+        action="store_true",
+        help="Skip chunked JSONL conversion",
+    )
+    parser.add_argument(
+        "--workers",
+        "-w",
+        type=int,
+        default=2,
+        help="Number of parallel workers for conversion (default: 2)",
+    )
+
     # Other options
     parser.add_argument(
         "--dry-run",
@@ -631,16 +766,27 @@ def main():
     )
 
     # Determine what to run
-    sync = not args.aggregate_only
-    aggregate = not args.sync_only
+    if args.sync_only:
+        sync, convert, aggregate = True, False, False
+    elif args.convert_only:
+        sync, convert, aggregate = False, True, False
+    elif args.aggregate_only:
+        sync, convert, aggregate = False, False, True
+    else:
+        # Default: sync + convert (modern pipeline)
+        sync = True
+        convert = args.convert and not args.no_convert
+        aggregate = args.no_convert  # Only use legacy if convert is disabled
 
     pipeline_kwargs = {
         "sync": sync,
+        "convert": convert,
         "aggregate": aggregate,
         "cmaes": args.with_cmaes,
         "sources": args.sources,
         "board_type": args.board_type,
         "num_players": args.num_players,
+        "workers": args.workers,
     }
 
     if args.daemon:
