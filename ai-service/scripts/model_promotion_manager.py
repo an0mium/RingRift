@@ -71,7 +71,7 @@ PROMOTION_RUNTIME_DIR = AI_SERVICE_ROOT / "runs" / "promotion"
 PROMOTED_CONFIG_SEED_PATH = AI_SERVICE_ROOT / "data" / "promoted_models.json"
 PROMOTION_LOG_SEED_PATH = AI_SERVICE_ROOT / "data" / "model_promotion_history.json"
 PROMOTED_CONFIG_PATH = PROMOTION_RUNTIME_DIR / "promoted_models.json"
-ELO_DB_PATH = AI_SERVICE_ROOT / "data" / "elo_leaderboard.db"
+ELO_DB_PATH = AI_SERVICE_ROOT / "data" / "unified_elo.db"
 PROMOTION_LOG_PATH = PROMOTION_RUNTIME_DIR / "model_promotion_history.json"
 
 # Sandbox config path (TypeScript side)
@@ -508,7 +508,11 @@ def _write_json_atomic(path: Path, payload: Any) -> None:
 
 
 def get_best_model_from_elo(board_type: str, num_players: int) -> Optional[Dict[str, Any]]:
-    """Get the best model from Elo leaderboard for a given config."""
+    """Get the best model from Elo leaderboard for a given config.
+
+    Supports both unified_elo.db (participant_id schema) and
+    elo_leaderboard.db (model_id schema).
+    """
     if not ELO_DB_PATH.exists():
         return None
 
@@ -516,20 +520,41 @@ def get_best_model_from_elo(board_type: str, num_players: int) -> Optional[Dict[
         conn = sqlite3.connect(str(ELO_DB_PATH))
         cursor = conn.cursor()
 
-        cursor.execute("""
-            SELECT model_id, rating, games_played, wins, losses, draws
-            FROM elo_ratings
-            WHERE board_type = ? AND num_players = ?
-            ORDER BY rating DESC
-            LIMIT 1
-        """, (board_type, num_players))
+        # Check which schema we have
+        cursor.execute("PRAGMA table_info(elo_ratings)")
+        columns = {col[1] for col in cursor.fetchall()}
+
+        if "participant_id" in columns:
+            # unified_elo.db schema - join with participants
+            cursor.execute("""
+                SELECT p.model_path, e.rating, e.games_played, e.wins, e.losses, e.draws
+                FROM elo_ratings e
+                JOIN participants p ON e.participant_id = p.participant_id
+                WHERE e.board_type = ? AND e.num_players = ?
+                  AND p.use_neural_net = 1 AND p.model_path IS NOT NULL
+                ORDER BY e.rating DESC
+                LIMIT 1
+            """, (board_type, num_players))
+        else:
+            # elo_leaderboard.db schema - direct model_id
+            cursor.execute("""
+                SELECT model_id, rating, games_played, wins, losses, draws
+                FROM elo_ratings
+                WHERE board_type = ? AND num_players = ?
+                ORDER BY rating DESC
+                LIMIT 1
+            """, (board_type, num_players))
 
         row = cursor.fetchone()
         conn.close()
 
         if row:
+            model_id = row[0]
+            # Extract model name from path if it's a full path
+            if model_id and "/" in model_id:
+                model_id = Path(model_id).stem
             return {
-                "model_id": row[0],
+                "model_id": model_id,
                 "elo_rating": row[1],
                 "games_played": row[2],
                 "wins": row[3],
