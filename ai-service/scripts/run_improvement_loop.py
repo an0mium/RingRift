@@ -104,6 +104,76 @@ except ImportError:
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
 
+# =============================================================================
+# Load-based Job Throttling
+# =============================================================================
+# Prevents running jobs when system is overloaded
+
+# Max load average (relative to CPU count) before refusing jobs
+MAX_LOAD_FACTOR = float(os.environ.get("RINGRIFT_MAX_LOAD_FACTOR", "2.0"))
+# Absolute max load average regardless of CPU count
+MAX_LOAD_ABSOLUTE = float(os.environ.get("RINGRIFT_MAX_LOAD_ABSOLUTE", "100.0"))
+# How long to wait when overloaded before rechecking (seconds)
+LOAD_BACKOFF_SECONDS = float(os.environ.get("RINGRIFT_LOAD_BACKOFF_SECONDS", "30.0"))
+
+
+def get_system_load() -> Tuple[float, float, float]:
+    """Get system load averages (1min, 5min, 15min)."""
+    try:
+        return os.getloadavg()
+    except (OSError, AttributeError):
+        return (0.0, 0.0, 0.0)
+
+
+def get_cpu_count() -> int:
+    """Get number of CPU cores."""
+    try:
+        return os.cpu_count() or 1
+    except Exception:
+        return 1
+
+
+def is_system_overloaded(verbose: bool = False) -> bool:
+    """Check if system is too overloaded to run jobs.
+
+    Returns True if load average exceeds thresholds.
+    """
+    load_1min, load_5min, _ = get_system_load()
+    cpu_count = get_cpu_count()
+
+    relative_threshold = MAX_LOAD_FACTOR * cpu_count
+    is_overloaded = load_5min > relative_threshold or load_5min > MAX_LOAD_ABSOLUTE
+
+    if is_overloaded and verbose:
+        print(f"[improvement] System overloaded: load={load_5min:.1f}, "
+              f"threshold={min(relative_threshold, MAX_LOAD_ABSOLUTE):.1f}", file=sys.stderr)
+
+    return is_overloaded
+
+
+def wait_for_load_decrease(max_wait_seconds: float = 300.0, verbose: bool = True) -> bool:
+    """Wait for system load to decrease. Returns True if load decreased."""
+    start_time = time.time()
+
+    while is_system_overloaded(verbose=False):
+        elapsed = time.time() - start_time
+        if elapsed >= max_wait_seconds:
+            if verbose:
+                _, load_5min, _ = get_system_load()
+                print(f"[improvement] Load still high after {elapsed:.0f}s "
+                      f"(load={load_5min:.1f}). Giving up.", file=sys.stderr)
+            return False
+
+        if verbose:
+            _, load_5min, _ = get_system_load()
+            print(f"[improvement] Waiting for load to decrease "
+                  f"(current={load_5min:.1f}, waited={elapsed:.0f}s)...", file=sys.stderr)
+
+        time.sleep(LOAD_BACKOFF_SECONDS)
+
+    return True
+
+
 class OverlappedPipelineManager:
     """Manages overlapped pipeline stages for faster iteration.
 
@@ -587,6 +657,12 @@ def run_selfplay(
 
     Returns: (success, games_generated, staging_db_path)
     """
+    # Check system load before starting
+    if is_system_overloaded(verbose=True):
+        if not wait_for_load_decrease(max_wait_seconds=300.0, verbose=True):
+            print("[selfplay] Skipping due to system overload", file=sys.stderr)
+            return False, 0, None
+
     board = config["board"]
     players = config["players"]
     games = config["games_per_iter"]
@@ -945,6 +1021,12 @@ def train_model(
 
     Returns: (success, model_path)
     """
+    # Check system load before starting
+    if is_system_overloaded(verbose=True):
+        if not wait_for_load_decrease(max_wait_seconds=300.0, verbose=True):
+            print("[training] Skipping due to system overload", file=sys.stderr)
+            return False, Path("")
+
     board = config["board"]
     players = config["players"]
 

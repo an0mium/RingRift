@@ -845,6 +845,87 @@ def get_selfplay_semaphore() -> asyncio.Semaphore:
     return _selfplay_semaphore
 
 
+# =============================================================================
+# Load-based Job Throttling
+# =============================================================================
+# Prevents spawning new jobs when system is overloaded
+
+# Max load average (relative to CPU count) before refusing new jobs
+MAX_LOAD_FACTOR = float(os.environ.get("RINGRIFT_MAX_LOAD_FACTOR", "2.0"))
+# Absolute max load average regardless of CPU count
+MAX_LOAD_ABSOLUTE = float(os.environ.get("RINGRIFT_MAX_LOAD_ABSOLUTE", "100.0"))
+# How long to wait when overloaded before rechecking (seconds)
+LOAD_BACKOFF_SECONDS = float(os.environ.get("RINGRIFT_LOAD_BACKOFF_SECONDS", "30.0"))
+
+
+def get_system_load() -> Tuple[float, float, float]:
+    """Get system load averages (1min, 5min, 15min)."""
+    try:
+        return os.getloadavg()
+    except (OSError, AttributeError):
+        # Windows or other systems without getloadavg
+        return (0.0, 0.0, 0.0)
+
+
+def get_cpu_count() -> int:
+    """Get number of CPU cores."""
+    try:
+        return os.cpu_count() or 1
+    except Exception:
+        return 1
+
+
+def is_system_overloaded(verbose: bool = False) -> bool:
+    """Check if system is too overloaded to spawn new jobs.
+
+    Returns True if:
+    - Load average exceeds MAX_LOAD_FACTOR * cpu_count, OR
+    - Load average exceeds MAX_LOAD_ABSOLUTE
+
+    This prevents runaway job spawning on overloaded systems.
+    """
+    load_1min, load_5min, _ = get_system_load()
+    cpu_count = get_cpu_count()
+
+    relative_threshold = MAX_LOAD_FACTOR * cpu_count
+
+    # Use 5-minute average to avoid reacting to brief spikes
+    is_overloaded = load_5min > relative_threshold or load_5min > MAX_LOAD_ABSOLUTE
+
+    if is_overloaded and verbose:
+        print(f"[Daemon] System overloaded: load={load_5min:.1f}, "
+              f"threshold={min(relative_threshold, MAX_LOAD_ABSOLUTE):.1f} "
+              f"(CPUs={cpu_count}, factor={MAX_LOAD_FACTOR})")
+
+    return is_overloaded
+
+
+async def wait_for_load_decrease(max_wait_seconds: float = 300.0, verbose: bool = True) -> bool:
+    """Wait for system load to decrease before proceeding.
+
+    Returns True if load decreased within timeout, False otherwise.
+    """
+    start_time = time.time()
+
+    while is_system_overloaded(verbose=False):
+        elapsed = time.time() - start_time
+        if elapsed >= max_wait_seconds:
+            if verbose:
+                load_1min, load_5min, _ = get_system_load()
+                print(f"[Daemon] Load still high after {elapsed:.0f}s wait "
+                      f"(load={load_5min:.1f}). Giving up.")
+            return False
+
+        if verbose:
+            load_1min, load_5min, _ = get_system_load()
+            print(f"[Daemon] Waiting for load to decrease "
+                  f"(current={load_5min:.1f}, waited={elapsed:.0f}s)...")
+
+        await asyncio.sleep(LOAD_BACKOFF_SECONDS)
+
+    return True
+
+
 def count_games_in_jsonl(path: Path, use_cache: bool = True) -> int:
     """Count games in a JSONL file with optional caching.
 
@@ -1065,6 +1146,13 @@ async def run_single_selfplay_job(
     Returns (config_key, games_generated, success, output).
     """
     key = get_config_key(board_type, num_players)
+
+    # Check system load before acquiring semaphore
+    if is_system_overloaded(verbose=True):
+        # Wait up to 5 minutes for load to decrease
+        if not await wait_for_load_decrease(max_wait_seconds=300.0, verbose=True):
+            return key, 0, False, "System overloaded - skipping job"
+
     semaphore = get_selfplay_semaphore()
 
     async with semaphore:
@@ -1383,6 +1471,11 @@ async def check_and_run_training(state: DaemonState) -> List[str]:
     """Check if any board type needs training and run it."""
     # Skip local training if disabled (low-memory machines)
     if DISABLE_LOCAL_TASKS:
+        return []
+
+    # Skip if system is overloaded
+    if is_system_overloaded(verbose=True):
+        print("[Daemon] Skipping training check - system overloaded")
         return []
 
     trained_models = []
@@ -1973,6 +2066,11 @@ async def check_and_run_nnue_training(state: DaemonState) -> List[str]:
     """
     # Skip local training if disabled (low-memory machines)
     if DISABLE_LOCAL_TASKS:
+        return []
+
+    # Skip if system is overloaded
+    if is_system_overloaded(verbose=True):
+        print("[Daemon] Skipping NNUE training check - system overloaded")
         return []
 
     trained = []
