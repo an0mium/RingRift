@@ -48,6 +48,15 @@ else:
             """v2 alias for v1's construct()"""
             return cls.construct(**values)
 
+        def model_dump_json(self, *, by_alias: bool = False, **kwargs) -> str:
+            """v2 alias for v1's json()"""
+            return self.json(by_alias=by_alias, **kwargs)
+
+        @classmethod
+        def model_validate_json(cls: type[T], json_str: str) -> T:
+            """v2 alias for v1's parse_raw()"""
+            return cls.parse_raw(json_str)
+
     # ConfigDict in v2 is a dict with config options; in v1 we ignore it
     # (config is handled via Config class in each model)
     def ConfigDict(**kwargs):

@@ -2613,7 +2613,8 @@ class ShadowTournamentService:
             print(f"[ShadowTournament] Dispatching {config_key} to {host_name} ({ssh_target})")
 
             proc = await asyncio.create_subprocess_exec(
-                "ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes",
+                "ssh", "-i", os.path.expanduser("~/.ssh/id_cluster"),
+                "-o", "ConnectTimeout=10", "-o", "BatchMode=yes",
                 "-o", "StrictHostKeyChecking=no", ssh_target, remote_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
@@ -2697,7 +2698,8 @@ class ShadowTournamentService:
             print(f"[ShadowTournament] Running full tournament on {host_name} ({ssh_target})")
 
             proc = await asyncio.create_subprocess_exec(
-                "ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes",
+                "ssh", "-i", os.path.expanduser("~/.ssh/id_cluster"),
+                "-o", "ConnectTimeout=10", "-o", "BatchMode=yes",
                 "-o", "StrictHostKeyChecking=no", ssh_target, remote_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
