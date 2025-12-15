@@ -568,15 +568,42 @@ def collect_model_from_host(
     if dry_run:
         return True, f"Would collect {model_name} from {host.name}"
 
-    # Use SCP via SSHExecutor
+    # Acquire sync_lock for coordinated file transfer
+    sync_lock_acquired = acquire_sync_lock(host.name, timeout=60.0)
+    if not sync_lock_acquired:
+        logger.warning(f"{host.name}: Could not acquire sync lock, proceeding anyway")
+
+    # Request bandwidth allocation for model transfer
+    bandwidth_allocated = False
+    if HAS_BANDWIDTH_MANAGER:
+        try:
+            bandwidth_allocated = request_bandwidth(
+                host.name, estimated_mb=50, priority=TransferPriority.HIGH, timeout=30.0
+            )
+            if not bandwidth_allocated:
+                logger.warning(f"{host.name}: Bandwidth unavailable, proceeding anyway")
+        except Exception as e:
+            logger.warning(f"{host.name}: Bandwidth request error: {e}")
+
     try:
-        executor = SSHExecutor(host)
-        result = executor.scp_from(remote_path, str(local_path), timeout=RSYNC_TIMEOUT)
-        if result.returncode == 0:
-            return True, f"Collected {model_name} from {host.name}"
-        return False, (result.stderr or "Unknown error")[:200]
-    except Exception as e:
-        return False, str(e)[:200]
+        # Use SCP via SSHExecutor
+        try:
+            executor = SSHExecutor(host)
+            result = executor.scp_from(remote_path, str(local_path), timeout=RSYNC_TIMEOUT)
+            if result.returncode == 0:
+                return True, f"Collected {model_name} from {host.name}"
+            return False, (result.stderr or "Unknown error")[:200]
+        except Exception as e:
+            return False, str(e)[:200]
+    finally:
+        # Release bandwidth and sync_lock
+        if bandwidth_allocated and HAS_BANDWIDTH_MANAGER:
+            try:
+                release_bandwidth(host.name)
+            except Exception as e:
+                logger.warning(f"{host.name}: Bandwidth release error: {e}")
+        if sync_lock_acquired:
+            release_sync_lock(host.name)
 
 
 def sync_missing_models(

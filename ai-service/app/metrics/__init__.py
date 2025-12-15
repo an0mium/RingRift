@@ -8,15 +8,12 @@ including:
 
 Usage:
     from app.metrics import (
-        # Prometheus metrics
-        record_game_outcome,
+        # Orchestrator metrics
         record_selfplay_batch,
         record_training_run,
         record_model_promotion,
         # Metrics server
         start_metrics_server,
-        # Training logger
-        create_training_logger,
     )
 
     # Record selfplay progress
@@ -29,6 +26,9 @@ Usage:
 
     # Start metrics server for Prometheus scraping
     start_metrics_server(port=9090)
+
+Note: For the original app-level metrics (AI_MOVE_REQUESTS, etc.),
+import directly from app.metrics_base (the renamed app/metrics.py).
 """
 
 from __future__ import annotations
@@ -39,53 +39,6 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Re-export from existing metrics module
-# Note: Import from parent module using absolute path
-import sys
-import importlib.util
-
-# Load app/metrics.py as a separate module to avoid circular import
-_metrics_path = __file__.replace("__init__.py", "").rstrip("/").rsplit("/", 1)[0] + "/metrics.py"
-_spec = importlib.util.spec_from_file_location("_app_metrics_base", _metrics_path)
-_metrics_base = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_metrics_base)
-
-# Re-export from the base metrics module
-from _app_metrics_base import (
-    # Core metrics
-    AI_MOVE_REQUESTS,
-    AI_MOVE_LATENCY,
-    AI_INSTANCE_CACHE_LOOKUPS,
-    AI_INSTANCE_CACHE_SIZE,
-    PYTHON_INVARIANT_VIOLATIONS,
-    # Game metrics
-    GAME_OUTCOMES,
-    GAMES_COMPLETED,
-    GAMES_MOVES_TOTAL,
-    GAME_DURATION_SECONDS,
-    WIN_RATE_BY_PLAYER,
-    DRAW_RATE,
-    # Cluster metrics
-    CLUSTER_NODE_UP,
-    CLUSTER_NODE_COST_PER_HOUR,
-    CLUSTER_GPU_UTILIZATION,
-    CLUSTER_CPU_UTILIZATION,
-    CLUSTER_GPU_MEMORY_USED_BYTES,
-    CLUSTER_MEMORY_USED_BYTES,
-    GPU_HOURLY_RATES,
-    # Training data metrics
-    TRAINING_SAMPLES_BY_PHASE,
-    TRAINING_SAMPLES_BY_MOVE_NUMBER,
-    TRAINING_DATA_RECENCY,
-    TRAINING_UNIQUE_POSITIONS,
-    TRAINING_POSITION_ENTROPY,
-    # Helper functions
-    observe_ai_move_start,
-    record_game_outcome,
-    record_training_sample,
-    report_cluster_node,
-)
-
 # Import orchestrator metrics
 from app.metrics.orchestrator import (
     # Selfplay metrics
@@ -93,45 +46,52 @@ from app.metrics.orchestrator import (
     SELFPLAY_GAMES_PER_SECOND,
     SELFPLAY_BATCH_DURATION,
     SELFPLAY_ERRORS_TOTAL,
+    SELFPLAY_QUEUE_SIZE,
     # Training metrics
     TRAINING_RUNS_TOTAL,
     TRAINING_RUN_DURATION,
     TRAINING_LOSS,
     TRAINING_ACCURACY,
     TRAINING_SAMPLES_PROCESSED,
+    TRAINING_EPOCHS_TOTAL,
     # Evaluation metrics
     EVALUATION_GAMES_TOTAL,
     EVALUATION_ELO_DELTA,
+    EVALUATION_WIN_RATE,
+    EVALUATION_DURATION,
     # Promotion metrics
     MODEL_PROMOTIONS_TOTAL,
     MODEL_PROMOTION_ELO_GAIN,
+    MODEL_PROMOTION_REJECTIONS,
+    CURRENT_MODEL_ELO,
     # Pipeline metrics
     PIPELINE_STAGE_DURATION,
     PIPELINE_ITERATIONS_TOTAL,
     PIPELINE_ERRORS_TOTAL,
+    PIPELINE_STATE,
     # Sync metrics
     DATA_SYNC_DURATION,
     DATA_SYNC_GAMES,
+    DATA_SYNC_ERRORS,
     MODEL_SYNC_DURATION,
+    MODEL_SYNC_TOTAL,
     # Helper functions
     record_selfplay_batch,
     record_training_run,
     record_evaluation,
     record_model_promotion,
+    record_promotion_rejection,
     record_pipeline_stage,
     record_data_sync,
     record_model_sync,
-)
-
-# Re-export training logger
-from app.training.metrics_logger import (
-    MetricsLogger,
-    MetricsBackend,
-    TensorBoardBackend,
-    WandBBackend,
-    ConsoleBackend,
-    JSONFileBackend,
-    create_training_logger,
+    time_pipeline_stage,
+    set_pipeline_state,
+    # State constants
+    PIPELINE_IDLE,
+    PIPELINE_SELFPLAY,
+    PIPELINE_TRAINING,
+    PIPELINE_EVALUATION,
+    PIPELINE_PROMOTION,
 )
 
 # Metrics server management
@@ -174,75 +134,71 @@ def is_metrics_server_running() -> bool:
     return _server_started
 
 
+# Convenience function to get training logger
+def create_training_logger(*args, **kwargs):
+    """Create a training metrics logger.
+
+    See app.training.metrics_logger.create_training_logger for full documentation.
+    """
+    from app.training.metrics_logger import create_training_logger as _create
+    return _create(*args, **kwargs)
+
+
 __all__ = [
-    # Core metrics
-    "AI_MOVE_REQUESTS",
-    "AI_MOVE_LATENCY",
-    "AI_INSTANCE_CACHE_LOOKUPS",
-    "AI_INSTANCE_CACHE_SIZE",
-    "PYTHON_INVARIANT_VIOLATIONS",
-    # Game metrics
-    "GAME_OUTCOMES",
-    "GAMES_COMPLETED",
-    "GAMES_MOVES_TOTAL",
-    "GAME_DURATION_SECONDS",
-    "WIN_RATE_BY_PLAYER",
-    "DRAW_RATE",
-    # Cluster metrics
-    "CLUSTER_NODE_UP",
-    "CLUSTER_NODE_COST_PER_HOUR",
-    "CLUSTER_GPU_UTILIZATION",
-    "CLUSTER_CPU_UTILIZATION",
-    "CLUSTER_GPU_MEMORY_USED_BYTES",
-    "CLUSTER_MEMORY_USED_BYTES",
-    "GPU_HOURLY_RATES",
-    # Training data metrics
-    "TRAINING_SAMPLES_BY_PHASE",
-    "TRAINING_SAMPLES_BY_MOVE_NUMBER",
-    "TRAINING_DATA_RECENCY",
-    "TRAINING_UNIQUE_POSITIONS",
-    "TRAINING_POSITION_ENTROPY",
-    # Orchestrator metrics
+    # Selfplay metrics
     "SELFPLAY_GAMES_TOTAL",
     "SELFPLAY_GAMES_PER_SECOND",
     "SELFPLAY_BATCH_DURATION",
     "SELFPLAY_ERRORS_TOTAL",
+    "SELFPLAY_QUEUE_SIZE",
+    # Training metrics
     "TRAINING_RUNS_TOTAL",
     "TRAINING_RUN_DURATION",
     "TRAINING_LOSS",
     "TRAINING_ACCURACY",
     "TRAINING_SAMPLES_PROCESSED",
+    "TRAINING_EPOCHS_TOTAL",
+    # Evaluation metrics
     "EVALUATION_GAMES_TOTAL",
     "EVALUATION_ELO_DELTA",
+    "EVALUATION_WIN_RATE",
+    "EVALUATION_DURATION",
+    # Promotion metrics
     "MODEL_PROMOTIONS_TOTAL",
     "MODEL_PROMOTION_ELO_GAIN",
+    "MODEL_PROMOTION_REJECTIONS",
+    "CURRENT_MODEL_ELO",
+    # Pipeline metrics
     "PIPELINE_STAGE_DURATION",
     "PIPELINE_ITERATIONS_TOTAL",
     "PIPELINE_ERRORS_TOTAL",
+    "PIPELINE_STATE",
+    # Sync metrics
     "DATA_SYNC_DURATION",
     "DATA_SYNC_GAMES",
+    "DATA_SYNC_ERRORS",
     "MODEL_SYNC_DURATION",
+    "MODEL_SYNC_TOTAL",
     # Helper functions
-    "observe_ai_move_start",
-    "record_game_outcome",
-    "record_training_sample",
-    "report_cluster_node",
     "record_selfplay_batch",
     "record_training_run",
     "record_evaluation",
     "record_model_promotion",
+    "record_promotion_rejection",
     "record_pipeline_stage",
     "record_data_sync",
     "record_model_sync",
-    # Training logger
-    "MetricsLogger",
-    "MetricsBackend",
-    "TensorBoardBackend",
-    "WandBBackend",
-    "ConsoleBackend",
-    "JSONFileBackend",
-    "create_training_logger",
+    "time_pipeline_stage",
+    "set_pipeline_state",
+    # State constants
+    "PIPELINE_IDLE",
+    "PIPELINE_SELFPLAY",
+    "PIPELINE_TRAINING",
+    "PIPELINE_EVALUATION",
+    "PIPELINE_PROMOTION",
     # Server
     "start_metrics_server",
     "is_metrics_server_running",
+    # Training logger
+    "create_training_logger",
 ]
