@@ -325,6 +325,21 @@ def run_hybrid_selfplay(
             logger.warning(f"MCTS not available: {e}. Falling back to heuristic.")
             mcts_ai = None
 
+    # Build per-player engine mode mapping for asymmetric matches
+    player_engine_modes = {
+        1: engine_mode,
+        2: p2_engine_mode or engine_mode,
+        3: p3_engine_mode or engine_mode,
+        4: p4_engine_mode or engine_mode,
+    }
+    is_asymmetric = any(
+        player_engine_modes[p] != engine_mode for p in range(2, num_players + 1)
+    )
+    if is_asymmetric:
+        logger.info("ASYMMETRIC MATCH CONFIGURATION:")
+        for p in range(1, num_players + 1):
+            logger.info(f"  Player {p}: {player_engine_modes[p]}")
+
     # Optional recording to GameReplayDB for downstream training/parity tooling.
     replay_db = get_or_create_db(
         record_db,
