@@ -669,6 +669,80 @@ def get_target_selfplay_rate() -> int:
     return get_config().cluster.target_selfplay_games_per_hour
 
 
+# =========================================================================
+# Data Collection Config Helpers
+# =========================================================================
+
+def get_data_collector_poll_interval() -> int:
+    """Get the data collector poll interval in seconds.
+
+    CANONICAL SOURCE: Use this instead of hardcoding values like 60.
+    Scripts (streaming_data_collector) should use this function.
+    Default: 60 seconds
+    """
+    cfg = get_config()
+    return getattr(cfg, 'data_collector_poll_interval', 60)
+
+
+def get_data_collector_max_failures() -> int:
+    """Get the max consecutive failures before disabling a host.
+
+    CANONICAL SOURCE: Use this instead of hardcoding values like 5.
+    Scripts (streaming_data_collector) should use this function.
+    Default: 5
+    """
+    cfg = get_config()
+    return getattr(cfg, 'data_collector_max_failures', 5)
+
+
+# =========================================================================
+# Tournament Config Helpers
+# =========================================================================
+
+def get_shadow_tournament_interval() -> int:
+    """Get the shadow tournament interval in seconds.
+
+    CANONICAL SOURCE: Use this instead of hardcoding values like 900 (15 min).
+    Scripts (shadow_tournament_service) should use this function.
+    Default: 900 seconds (15 minutes)
+    """
+    cfg = get_config()
+    return getattr(cfg, 'shadow_tournament_interval', 900)
+
+
+def get_full_tournament_interval() -> int:
+    """Get the full tournament interval in seconds.
+
+    CANONICAL SOURCE: Use this instead of hardcoding values like 3600 (1 hour).
+    Scripts (shadow_tournament_service) should use this function.
+    Default: 3600 seconds (1 hour)
+    """
+    cfg = get_config()
+    return getattr(cfg, 'full_tournament_interval', 3600)
+
+
+def get_tournament_games_per_matchup() -> int:
+    """Get the number of games per matchup in tournaments.
+
+    CANONICAL SOURCE: Use this instead of hardcoding values like 20 or 50.
+    Scripts (improvement_cycle_manager, shadow_tournament_service) should use this.
+    Default: 20
+    """
+    cfg = get_config()
+    return getattr(cfg, 'tournament_games_per_matchup', 20)
+
+
+def get_regression_elo_threshold() -> float:
+    """Get the Elo threshold for detecting regressions.
+
+    CANONICAL SOURCE: Use this instead of hardcoding values like 30.0.
+    Scripts (shadow_tournament_service) should use this function.
+    Default: 30.0 Elo points
+    """
+    cfg = get_config()
+    return getattr(cfg, 'regression_elo_threshold', 30.0)
+
+
 # Constants for backwards compatibility
 # These should be deprecated in favor of get_config()
 def _get_legacy_threshold() -> int:
