@@ -172,8 +172,13 @@ try:
     from scripts.improvement_cycle_manager import ImprovementCycleManager
     HAS_IMPROVEMENT_MANAGER = True
 except ImportError:
-    HAS_IMPROVEMENT_MANAGER = False
-    ImprovementCycleManager = None
+    try:
+        # Fallback to archive location
+        from scripts.archive.improvement_cycle_manager import ImprovementCycleManager
+        HAS_IMPROVEMENT_MANAGER = True
+    except ImportError:
+        HAS_IMPROVEMENT_MANAGER = False
+        ImprovementCycleManager = None
 
 # Task coordination safeguards - prevents runaway spawning
 try:
