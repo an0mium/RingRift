@@ -37,6 +37,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import uuid
 
+# Skip shadow contracts for selfplay (avoids hanging on initialization)
+os.environ.setdefault("RINGRIFT_SKIP_SHADOW_CONTRACTS", "true")
+
 # Ensure app.* imports resolve
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
