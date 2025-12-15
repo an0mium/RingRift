@@ -17597,17 +17597,17 @@ print(json.dumps({{
                     scale_up_jobs = min(3, int((60 - cpu_percent) / 20))
                     target_selfplay = min(MAX_SELFPLAY_PER_NODE, target_selfplay + scale_up_jobs)
         else:
-            # CPU-only nodes
+            # CPU-only nodes - conservative limits
             if cpu_count >= 32:
                 cpu_target = int(cpu_count * TARGET_JOBS_PER_CORE)
-                mem_cap = memory_gb // 3 if memory_gb > 0 else 24
-                core_cap = min(32, max(8, cpu_count // 4))
+                mem_cap = memory_gb // 3 if memory_gb > 0 else 8
+                core_cap = min(MAX_SELFPLAY_PER_NODE, max(4, cpu_count // 8))  # Use consistent cap
                 target_selfplay = max(target_selfplay, min(cpu_target, mem_cap, core_cap))
             elif cpu_count > 0:
                 cpu_target = max(2, int(cpu_count * TARGET_JOBS_PER_CORE))
-                target_selfplay = max(target_selfplay, min(cpu_target, 20))
+                target_selfplay = max(target_selfplay, min(cpu_target, MAX_SELFPLAY_PER_NODE))
             elif memory_gb >= 64:
-                target_selfplay = 8
+                target_selfplay = 4  # Conservative for unknown CPU count
 
             if memory_gb > 0 and memory_gb < 16:
                 mem_target = max(2, memory_gb // 2)

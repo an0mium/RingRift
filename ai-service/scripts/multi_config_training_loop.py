@@ -142,31 +142,29 @@ def count_games_with_moves(db_path: str, board_type: str, num_players: int) -> i
         return 0
 
 
-def get_config_counts() -> Dict[Tuple[str, int], Tuple[int, str]]:
-    """Get game counts for each config, returning (count, best_db_path)."""
+def get_config_counts() -> Dict[Tuple[str, int], Tuple[int, List[str]]]:
+    """Get game counts for each config, returning (total_count, all_db_paths_with_games)."""
     results = {}
 
     for config, db_paths in CONFIG_DATABASES.items():
         board_type, num_players = config
         total_count = 0
-        best_db = None
-        best_count = 0
+        dbs_with_games = []
 
         for path in db_paths:
             for db_path in find_databases(path):
                 count = count_games_with_moves(db_path, board_type, num_players)
-                total_count += count
-                if count > best_count:
-                    best_count = count
-                    best_db = db_path
+                if count > 0:
+                    total_count += count
+                    dbs_with_games.append(db_path)
 
-        results[config] = (total_count, best_db)
+        results[config] = (total_count, dbs_with_games)
 
     return results
 
 
-def run_training(board_type: str, num_players: int, db_path: str, current_count: int) -> bool:
-    """Run export and training for a config."""
+def run_training(board_type: str, num_players: int, db_paths: List[str], current_count: int) -> bool:
+    """Run export and training for a config using multiple data sources with deduplication."""
     key = (board_type, num_players)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     short = f"{board_type[:3]}{num_players}p"
@@ -176,20 +174,25 @@ def run_training(board_type: str, num_players: int, db_path: str, current_count:
         key, (DEFAULT_MAX_GAMES, DEFAULT_SAMPLE_EVERY, DEFAULT_EPOCHS)
     )
 
-    print(f"[{ts}] Training {short} from {os.path.basename(db_path)} "
+    db_names = [os.path.basename(p) for p in db_paths[:3]]  # Show first 3
+    if len(db_paths) > 3:
+        db_names.append(f"...+{len(db_paths)-3} more")
+    print(f"[{ts}] Training {short} from {len(db_paths)} DB(s): {', '.join(db_names)} "
           f"(max_games={max_games}, sample_every={sample_every})...", flush=True)
 
-    # Export training data
+    # Export training data from all sources with deduplication
     npz = os.path.join(BASE_DIR, f"data/training/selfplay_{short}_{ts}.npz")
     exp_cmd = [
         sys.executable, os.path.join(BASE_DIR, "scripts/export_replay_dataset.py"),
-        "--db", db_path,
         "--board-type", board_type,
         "--num-players", str(num_players),
         "--output", npz,
         "--sample-every", str(sample_every),
         "--max-games", str(max_games),
     ]
+    # Add all database paths with separate --db arguments
+    for db_path in db_paths:
+        exp_cmd.extend(["--db", db_path])
 
     print(f"  Exporting {short}...", flush=True)
     env = os.environ.copy()
@@ -269,26 +272,26 @@ def main():
 
             for config, threshold in THRESHOLDS.items():
                 board_type, num_players = config
-                count, best_db = counts.get(config, (0, None))
+                count, db_paths = counts.get(config, (0, []))
                 last = last_trained_counts.get(config, 0)
                 new_games = count - last
                 short = f"{board_type[:3]}{num_players}p"
 
                 if count > 0:
-                    status_parts.append(f"{short}:{count}(+{new_games}/{threshold})")
+                    status_parts.append(f"{short}:{count}(+{new_games}/{threshold})[{len(db_paths)}db]")
 
                 # Check if ready for training
-                if new_games >= threshold and best_db:
-                    training_candidates.append((config, best_db, count, new_games))
+                if new_games >= threshold and db_paths:
+                    training_candidates.append((config, db_paths, count, new_games))
 
             print(f"[{ts}] iter={iteration} | {' '.join(status_parts)}", flush=True)
 
             # Train ONE config per iteration (prioritize configs with most new games)
             if training_candidates:
                 training_candidates.sort(key=lambda x: x[3], reverse=True)  # Sort by new_games
-                config, best_db, count, new_games = training_candidates[0]
+                config, db_paths, count, new_games = training_candidates[0]
                 board_type, num_players = config
-                run_training(board_type, num_players, best_db, count)
+                run_training(board_type, num_players, db_paths, count)
 
             time.sleep(60)
 

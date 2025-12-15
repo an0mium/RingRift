@@ -350,7 +350,9 @@ class ResourceTargetManager:
             gpu_target=gpu_target * bp_factor,
             gpu_max=gpu_max,
             max_jobs=max_jobs,
-            max_selfplay=int(32 * adj.get("job_multiplier", 1.0)),
+            # Conservative selfplay limit: base of 8 jobs per node (matching safeguards.max_selfplay_per_node)
+            # HIGH_END: 8 * 1.5 = 12 max, MID_TIER: 8, LOW_TIER: 8 * 0.7 = 5, CPU_ONLY: 8 * 0.5 = 4
+            max_selfplay=int(8 * adj.get("job_multiplier", 1.0)),
             max_training=1 if tier in (HostTier.HIGH_END, HostTier.MID_TIER) else 0,
         )
 

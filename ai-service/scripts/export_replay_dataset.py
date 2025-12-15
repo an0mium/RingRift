@@ -677,395 +677,27 @@ def export_replay_dataset(
     This is a convenience wrapper around export_replay_dataset_multi for
     single-database exports. For multi-source exports with deduplication,
     use export_replay_dataset_multi directly.
-
-    Args:
-        db_path: Path to GameReplayDB SQLite file
-        board_type: Board type to filter games by
-        num_players: Number of players to filter games by
-        output_path: Path to output .npz dataset
-        history_length: Number of past feature frames to stack (default: 3)
-        sample_every: Use every Nth move as a training sample (default: 1)
-        max_games: Optional cap on number of games to process
-        require_completed: If True, only include games with normal termination
-        min_moves: Minimum move count to include a game
-        max_moves: Maximum move count to include a game
-        use_rank_aware_values: If True, use rank-based values for multiplayer;
-            if False, use binary winner/loser values (default: True)
-        use_board_aware_encoding: If True, use board-specific policy encoding
-            (e.g., 7000 actions for square8). If False, use legacy MAX_N=19
-            encoding (~55000 actions). Default: False for backward compat.
-        append: If True, append to an existing output NPZ (legacy behavior).
-            If False (default), archive any existing output and rebuild from scratch.
-        encoder_version: For hex boards, 'v2' uses HexStateEncoder (10 channels),
-            'v3' uses HexStateEncoderV3 (16 channels). Default: 'default' uses
-            NeuralNetAI encoder (14 channels).
     """
-    db = GameReplayDB(db_path)
-    encoder = build_encoder(board_type, encoder_version)
-
-    features_list: List[np.ndarray] = []
-    globals_list: List[np.ndarray] = []
-    values_list: List[float] = []
-    # Optional vector value targets and num_players metadata for v2
-    values_mp_list: List[np.ndarray] = []
-    num_players_list: List[int] = []
-    policy_indices_list: List[np.ndarray] = []
-    policy_values_list: List[np.ndarray] = []
-
-    # Metadata for weighted sampling
-    move_numbers_list: List[int] = []
-    total_game_moves_list: List[int] = []
-    phases_list: List[str] = []
-
-    # Build query filters for quality-based selection
-    query_filters: Dict[str, Any] = {
-        "board_type": board_type,
-        "num_players": num_players,
-    }
-    # require_completed is enforced below using game_status/termination_reason
-    # because canonical GameReplayDBs encode normal completion as
-    # "status:completed:*" rather than the legacy "env_done_flag".
-    if min_moves is not None:
-        query_filters["min_moves"] = min_moves
-    if max_moves is not None:
-        query_filters["max_moves"] = max_moves
-
-    # Optional parity cutoffs derived from TS↔Python replay parity fixtures.
-    # When provided, we truncate each game's usable move range to strictly
-    # pre-divergence states so that exported samples only come from positions
-    # where TS and Python agree on the replayed state (up to the first
-    # detected mismatch).
-    parity_cutoffs: Dict[str, int] = {}
-    if parity_fixtures_dir:
-        fixtures_path = os.path.abspath(parity_fixtures_dir)
-        if os.path.isdir(fixtures_path):
-            for name in os.listdir(fixtures_path):
-                if not name.endswith(".json"):
-                    continue
-                path = os.path.join(fixtures_path, name)
-                try:
-                    with open(path, "r", encoding="utf-8") as f:
-                        fixture = json.load(f)
-                except Exception:
-                    continue
-
-                game_id = fixture.get("game_id")
-                diverged_at = fixture.get("diverged_at")
-                # diverged_at refers to TS step index k (state AFTER move k-1).
-                # Python get_state_at_move(k-1) first mismatches at this step.
-                # States used as inputs in this exporter are:
-                #   state_before(move_index=m) = get_state_at_move(m-1)
-                # So we require (m-1) < (diverged_at - 1) → m <= diverged_at - 1.
-                if not isinstance(game_id, str) or not isinstance(diverged_at, int) or diverged_at <= 0:
-                    continue
-
-                safe_max_move = diverged_at - 1
-                prev = parity_cutoffs.get(game_id)
-                if prev is None or safe_max_move < prev:
-                    parity_cutoffs[game_id] = safe_max_move
-
-    games_iter = db.iterate_games(**query_filters)
-
-    # Log filter configuration
-    filter_desc = []
-    if require_completed:
-        filter_desc.append("completed games only")
-    if min_moves is not None:
-        filter_desc.append(f"min {min_moves} moves")
-    if max_moves is not None:
-        filter_desc.append(f"max {max_moves} moves")
-    if exclude_recovery:
-        filter_desc.append("excluding recovery games")
-    if filter_desc:
-        print(f"Quality filters: {', '.join(filter_desc)}")
-    print(f"Value targets: {'rank-aware' if use_rank_aware_values else 'binary winner/loser'}")
-
-    games_processed = 0
-    games_skipped = 0
-    games_skipped_recovery = 0
-    for meta, initial_state, moves in games_iter:
-        game_id = meta.get("game_id")
-        if require_completed:
-            status = str(meta.get("game_status", ""))
-            term = str(meta.get("termination_reason", ""))
-            if status != "completed":
-                games_skipped += 1
-                continue
-            if term and not (term.startswith("status:completed") or term == "env_done_flag"):
-                games_skipped += 1
-                continue
-        total_moves = int(meta.get("total_moves", len(moves)))
-        if total_moves <= 0 or not moves:
-            continue
-
-        # Skip games with recovery moves if exclude_recovery is set
-        if exclude_recovery:
-            has_recovery = any(
-                "recovery" in str(getattr(m, "type", "")).lower()
-                for m in moves
-            )
-            if has_recovery:
-                games_skipped_recovery += 1
-                continue
-
-        # If parity cutoffs are available, truncate this game to a safe
-        # pre-divergence prefix, dropping any samples whose state_before
-        # would come from a divergent replay step.
-        max_safe_move_index: Optional[int] = None
-        if parity_cutoffs:
-            cutoff = parity_cutoffs.get(game_id)
-            if cutoff is not None:
-                max_safe_move_index = cutoff
-                if max_safe_move_index <= 0:
-                    # Divergence at or before the first post-initial step;
-                    # skip this game entirely as there is no safe prefix.
-                    games_skipped += 1
-                    continue
-
-        # Compute final state once for value targets.
-        final_state_index = total_moves - 1
-        if max_safe_move_index is not None:
-            # Ensure the value target at least reflects a state that is
-            # consistent between TS and Python replays. We conservatively
-            # use the last safe prefix state when available.
-            final_state_index = min(final_state_index, max_safe_move_index)
-
-        try:
-            final_state = db.get_state_at_move(game_id, final_state_index)
-        except Exception as e:
-            # Skip games with corrupted replays (e.g., phase/move invariant violations)
-            logger.debug(f"Skipping game {game_id}: replay error: {e}")
-            games_skipped += 1
-            continue
-        if final_state is None:
-            continue
-
-        # Determine number of players in this game and precompute
-        # multi-player value vector for v2 targets.
-        num_players_in_game = len(final_state.players)
-        if use_rank_aware_values:
-            # Use the same rank-aware semantics as scalar values but
-            # computed for all player positions at once.
-            values_vec = np.asarray(
-                compute_multi_player_values(
-                    final_state,
-                    num_players=num_players_in_game,
-                ),
-                dtype=np.float32,
-            )
-        else:
-            # Fallback: use winner/loser style values per player.
-            values_vec = np.zeros(4, dtype=np.float32)
-            for p in final_state.players:
-                base = value_from_final_winner(final_state, p.number)
-                values_vec[p.number - 1] = float(base)
-
-        history_frames: List[np.ndarray] = []
-
-        for move_index, move in enumerate(moves):
-            # Respect parity cutoffs when present: stop sampling once we
-            # reach the first move whose state_before would rely on a
-            # divergent replay step.
-            if max_safe_move_index is not None and move_index > max_safe_move_index:
-                break
-
-            # Respect max_move_index to limit replay depth (performance optimization)
-            if max_move_index is not None and move_index > max_move_index:
-                break
-
-            if sample_every > 1 and (move_index % sample_every) != 0:
-                continue
-
-            # State BEFORE this move: initial_state for move 0, otherwise
-            # state after the previous move.
-            if move_index == 0:
-                state_before = initial_state
-            else:
-                try:
-                    state_before = db.get_state_at_move(game_id, move_index - 1)
-                except Exception as e:
-                    # Skip rest of game on replay error
-                    logger.debug(f"Skipping game {game_id} at move {move_index}: {e}")
-                    break
-                if state_before is None:
-                    break
-
-            # Encode features + globals with history.
-            stacked, globals_vec = encode_state_with_history(
-                encoder,
-                state_before,
-                history_frames,
-                history_length=history_length,
-            )
-
-            # Update history with the base features for this state.
-            base_features, _ = encoder._extract_features(state_before)  # type: ignore[attr-defined]
-            history_frames.append(base_features)
-            if len(history_frames) > history_length + 1:
-                history_frames.pop(0)
-
-            # Encode the action taken at this state.
-            if use_board_aware_encoding:
-                idx = encode_move_for_board(move, state_before.board)
-            else:
-                idx = encoder.encode_move(move, state_before.board)
-            if idx == INVALID_MOVE_INDEX:
-                continue
-
-            # Value from the perspective of the player to move at this state
-            # (scalar) plus vector value for all players.
-            if use_rank_aware_values:
-                value = value_from_final_ranking(
-                    final_state,
-                    perspective=state_before.current_player,
-                    num_players=num_players,
-                )
-            else:
-                value = value_from_final_winner(
-                    final_state,
-                    perspective=state_before.current_player,
-                )
-
-            features_list.append(stacked)
-            globals_list.append(globals_vec)
-            values_list.append(float(value))
-            policy_indices_list.append(np.array([idx], dtype=np.int32))
-            policy_values_list.append(np.array([1.0], dtype=np.float32))
-            # Vector value and num_players metadata reuse the precomputed
-            # game-level values_vec / num_players_in_game.
-            values_mp_list.append(values_vec)
-            num_players_list.append(num_players_in_game)
-
-            # Capture metadata for weighted sampling
-            move_numbers_list.append(move_index)
-            total_game_moves_list.append(total_moves)
-            phase_str = (
-                str(state_before.current_phase.value)
-                if hasattr(state_before.current_phase, "value")
-                else str(state_before.current_phase)
-            )
-            phases_list.append(phase_str)
-
-        games_processed += 1
-        if max_games is not None and games_processed >= max_games:
-            break
-
-    if not features_list:
-        print(f"No samples generated from {db_path} (board={board_type}, players={num_players}).")
-        return
-
-    # Stack into arrays; policies remain sparse per-sample arrays.
-    features_arr = np.stack(features_list, axis=0).astype(np.float32)
-    globals_arr = np.stack(globals_list, axis=0).astype(np.float32)
-    values_arr = np.array(values_list, dtype=np.float32)
-    policy_indices_arr = np.array(policy_indices_list, dtype=object)
-    policy_values_arr = np.array(policy_values_list, dtype=object)
-    # Multi-player value vectors and num_players metadata (v2 targets)
-    values_mp_arr = np.stack(values_mp_list, axis=0).astype(np.float32)
-    num_players_arr = np.array(num_players_list, dtype=np.int32)
-
-    # Metadata arrays for weighted sampling
-    move_numbers_arr = np.array(move_numbers_list, dtype=np.int32)
-    total_game_moves_arr = np.array(total_game_moves_list, dtype=np.int32)
-    phases_arr = np.array(phases_list, dtype=object)
-
-    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-
-    # Default is to rebuild from scratch. Use --append (or append=True) to
-    # preserve the legacy "concatenate into one NPZ" semantics.
-    write_mp = True
-    if os.path.exists(output_path) and not append:
-        archived = f"{output_path}.archived_{time.strftime('%Y%m%d_%H%M%S')}"
-        try:
-            os.rename(output_path, archived)
-            print(f"[export] archived existing output -> {archived}", file=sys.stderr)
-        except OSError as exc:
-            print(f"[export] Warning: failed to archive {output_path}: {exc}", file=sys.stderr)
-
-    if os.path.exists(output_path) and append:
-        try:
-            with np.load(output_path, allow_pickle=True) as data:
-                if "features" in data:
-                    existing_features = data["features"]
-                    existing_globals = data["globals"]
-                    existing_values = data["values"]
-                    existing_policy_indices = data["policy_indices"]
-                    existing_policy_values = data["policy_values"]
-
-                    # Optional multi-player targets / metadata from previous
-                    # runs. Only keep writing these when the existing file
-                    # already has them to avoid shape mismatches with legacy
-                    # datasets.
-                    has_mp = "values_mp" in data and "num_players" in data
-                    if has_mp:
-                        existing_values_mp = data["values_mp"]
-                        existing_num_players = data["num_players"]
-
-                        values_mp_arr = np.concatenate(
-                            [existing_values_mp, values_mp_arr],
-                            axis=0,
-                        )
-                        num_players_arr = np.concatenate(
-                            [existing_num_players, num_players_arr],
-                            axis=0,
-                        )
-                    else:
-                        write_mp = False
-
-                    features_arr = np.concatenate(
-                        [existing_features, features_arr],
-                        axis=0,
-                    )
-                    globals_arr = np.concatenate(
-                        [existing_globals, globals_arr],
-                        axis=0,
-                    )
-                    values_arr = np.concatenate(
-                        [existing_values, values_arr],
-                        axis=0,
-                    )
-                    policy_indices_arr = np.concatenate(
-                        [existing_policy_indices, policy_indices_arr],
-                        axis=0,
-                    )
-                    policy_values_arr = np.concatenate(
-                        [existing_policy_values, policy_values_arr],
-                        axis=0,
-                    )
-                    print(
-                        f"Appended to existing dataset at {output_path}; " f"new total samples: {values_arr.shape[0]}"
-                    )
-        except Exception as exc:
-            print(f"Warning: failed to append to existing {output_path}: {exc}")
-
-    save_kwargs = {
-        "features": features_arr,
-        "globals": globals_arr,
-        "values": values_arr,
-        "policy_indices": policy_indices_arr,
-        "policy_values": policy_values_arr,
-        # Dataset-level metadata for downstream tooling (training + audits).
-        "board_type": np.asarray(board_type.value),
-        "board_size": np.asarray(int(features_arr.shape[-1])),
-        "policy_encoding": np.asarray(
-            "board_aware" if use_board_aware_encoding else "legacy_max_n"
-        ),
-        # Metadata for weighted sampling (optional, used by WeightedRingRiftDataset)
-        "move_numbers": move_numbers_arr,
-        "total_game_moves": total_game_moves_arr,
-        "phases": phases_arr,
-    }
-    if write_mp:
-        save_kwargs.update(
-            {
-                "values_mp": values_mp_arr,
-                "num_players": num_players_arr,
-            }
-        )
-
-    np.savez_compressed(output_path, **save_kwargs)
-
-    print(f"Exported {features_arr.shape[0]} samples " f"from {games_processed} games into {output_path}")
+    # Delegate to multi-source function with single DB
+    export_replay_dataset_multi(
+        db_paths=[db_path],
+        board_type=board_type,
+        num_players=num_players,
+        output_path=output_path,
+        history_length=history_length,
+        sample_every=sample_every,
+        max_games=max_games,
+        require_completed=require_completed,
+        min_moves=min_moves,
+        max_moves=max_moves,
+        max_move_index=max_move_index,
+        use_rank_aware_values=use_rank_aware_values,
+        parity_fixtures_dir=parity_fixtures_dir,
+        exclude_recovery=exclude_recovery,
+        use_board_aware_encoding=use_board_aware_encoding,
+        append=append,
+        encoder_version=encoder_version,
+    )
 
 
 def _parse_args(argv: List[str] | None = None) -> argparse.Namespace:
@@ -1075,8 +707,14 @@ def _parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--db",
         type=str,
+        action="append",
+        dest="db_paths",
         required=True,
-        help="Path to a GameReplayDB SQLite file (e.g. data/games/selfplay_square8_2p.db).",
+        help=(
+            "Path to a GameReplayDB SQLite file. Can be specified multiple times "
+            "for multi-source export with automatic deduplication by game_id. "
+            "Example: --db db1.db --db db2.db"
+        ),
     )
     parser.add_argument(
         "--board-type",
@@ -1211,8 +849,9 @@ def main(argv: List[str] | None = None) -> int:
     if args.sample_every < 1:
         raise ValueError("--sample-every must be >= 1")
 
-    export_replay_dataset(
-        db_path=args.db,
+    # Use multi-source export with deduplication
+    export_replay_dataset_multi(
+        db_paths=args.db_paths,
         board_type=board_type,
         num_players=args.num_players,
         output_path=args.output,
@@ -1222,6 +861,7 @@ def main(argv: List[str] | None = None) -> int:
         require_completed=args.require_completed,
         min_moves=args.min_moves,
         max_moves=args.max_moves,
+        max_move_index=args.max_move_index,
         use_rank_aware_values=not args.no_rank_aware_values,
         parity_fixtures_dir=args.parity_fixtures_dir,
         exclude_recovery=args.exclude_recovery,
