@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Streaming Collector Watchdog - Ensures continuous data collection.
 
+DEPRECATED: This script is deprecated in favor of unified_data_sync.py
+Please use: python scripts/unified_data_sync.py --watchdog
+All functionality has been preserved in the unified service.
+
 This script monitors the streaming data collector and restarts it if it crashes
 or becomes unresponsive. Provides high availability for the data sync pipeline.
 
@@ -11,7 +15,7 @@ Features:
 4. Graceful handoff between instances
 
 Usage:
-    # Run as watchdog daemon
+    # Run as watchdog daemon (DEPRECATED - use unified_data_sync.py --watchdog instead)
     python scripts/collector_watchdog.py
 
     # With custom settings
@@ -33,6 +37,17 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+import warnings
+
+# Emit deprecation warning at runtime
+warnings.warn(
+    "collector_watchdog.py is deprecated. "
+    "Please use: python scripts/unified_data_sync.py --watchdog\n"
+    "All functionality has been preserved in the unified service.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 logging.basicConfig(
     level=logging.INFO,

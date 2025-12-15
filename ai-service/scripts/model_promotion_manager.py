@@ -142,14 +142,35 @@ class PromotedModel:
     alias_paths: List[str]  # absolute file paths under ai-service/models
 
 
+def _get_default_elo_threshold() -> float:
+    """Get default Elo threshold from canonical config or fallback."""
+    if HAS_UNIFIED_CONFIG:
+        return get_promotion_elo_threshold()
+    return 20.0
+
+
+def _get_default_min_games() -> int:
+    """Get default min games from canonical config or fallback."""
+    if HAS_UNIFIED_CONFIG:
+        return get_promotion_min_games()
+    return 50
+
+
+def _get_default_check_interval() -> int:
+    """Get default check interval from canonical config or fallback."""
+    if HAS_UNIFIED_CONFIG:
+        return get_promotion_check_interval()
+    return 300
+
+
 @dataclass
 class AutoPromotionConfig:
     """Configuration for automatic model promotion."""
-    elo_threshold: float = 20.0  # Must beat current best by this many Elo
-    min_games: int = 50  # Minimum games before promotion eligible
+    elo_threshold: float = field(default_factory=_get_default_elo_threshold)
+    min_games: int = field(default_factory=_get_default_min_games)
     significance_level: float = 0.05  # Statistical significance requirement
     sync_to_cluster: bool = True  # Sync promoted models to all hosts
-    check_interval_seconds: int = 300  # How often to check for candidates (5 min)
+    check_interval_seconds: int = field(default_factory=_get_default_check_interval)
     run_regression: bool = True  # Run regression tests before promotion
 
 
@@ -181,12 +202,108 @@ class AutoPromotionTrigger:
         candidates = trigger.check_promotion_candidates()
         for candidate in candidates:
             trigger.execute_promotion(candidate)
+
+    Event-driven usage:
+        trigger = AutoPromotionTrigger(config)
+        trigger.setup_event_subscriptions()  # Subscribe to TRAINING_COMPLETED, EVALUATION_COMPLETED
     """
 
     def __init__(self, config: AutoPromotionConfig = None):
         self.config = config or AutoPromotionConfig()
         self._last_check: Dict[str, float] = {}  # config -> timestamp
         self._promoted_models: Dict[str, PromotedModel] = {}  # config -> last promoted
+        self._event_bus = None  # Lazy initialization
+
+    def setup_event_subscriptions(self):
+        """Subscribe to events that might trigger promotion checks.
+
+        Call this method to enable event-driven promotion checking.
+        Events handled:
+        - TRAINING_COMPLETED: Check if newly trained model should be promoted
+        - EVALUATION_COMPLETED: Check if Elo improvements warrant promotion
+        """
+        if not HAS_EVENT_BUS:
+            print("[AutoPromotion] Event bus not available, skipping event subscriptions")
+            return
+
+        try:
+            self._event_bus = get_event_bus()
+
+            # Subscribe to training completion - check if new model beats current best
+            self._event_bus.subscribe(
+                DataEventType.TRAINING_COMPLETED,
+                self._on_training_completed
+            )
+
+            # Subscribe to evaluation completion - check if Elo changes warrant promotion
+            self._event_bus.subscribe(
+                DataEventType.EVALUATION_COMPLETED,
+                self._on_evaluation_completed
+            )
+
+            print("[AutoPromotion] Event subscriptions set up: TRAINING_COMPLETED, EVALUATION_COMPLETED")
+        except Exception as e:
+            print(f"[AutoPromotion] Failed to set up event subscriptions: {e}")
+
+    async def _on_training_completed(self, event: DataEvent):
+        """Handle TRAINING_COMPLETED events - check for promotion opportunity."""
+        try:
+            payload = event.payload
+            config_key = payload.get('config', '')
+
+            # Parse config_key (e.g., "square8_2p") into board_type and num_players
+            if '_' in config_key and config_key.endswith('p'):
+                parts = config_key.rsplit('_', 1)
+                board_type = parts[0]
+                num_players = int(parts[1].rstrip('p'))
+
+                print(f"[AutoPromotion] Training completed for {config_key}, checking for promotion")
+
+                # Check promotion candidates for this config
+                candidates = self.check_promotion_candidates(board_type, num_players)
+                if candidates:
+                    print(f"[AutoPromotion] Found {len(candidates)} promotion candidate(s) after training")
+                    for candidate in candidates:
+                        self.execute_promotion(candidate, verbose=True)
+
+        except Exception as e:
+            print(f"[AutoPromotion] Error handling TRAINING_COMPLETED: {e}")
+
+    async def _on_evaluation_completed(self, event: DataEvent):
+        """Handle EVALUATION_COMPLETED events - check if Elo changes warrant promotion."""
+        try:
+            payload = event.payload
+            config_key = payload.get('config', '')
+            elo = payload.get('elo', 0)
+            win_rate = payload.get('win_rate', 0)
+
+            # Only check if significant Elo improvement
+            if elo < 1520:  # Skip if Elo is not notably above baseline
+                return
+
+            # Parse config_key
+            if '_' in config_key and config_key.endswith('p'):
+                parts = config_key.rsplit('_', 1)
+                board_type = parts[0]
+                num_players = int(parts[1].rstrip('p'))
+
+                # Throttle checks - don't re-check within check_interval
+                last_check = self._last_check.get(config_key, 0)
+                if time.time() - last_check < self.config.check_interval_seconds:
+                    return
+
+                self._last_check[config_key] = time.time()
+
+                print(f"[AutoPromotion] Evaluation completed for {config_key} (Elo={elo:.0f}), checking for promotion")
+
+                candidates = self.check_promotion_candidates(board_type, num_players)
+                if candidates:
+                    print(f"[AutoPromotion] Found {len(candidates)} promotion candidate(s) after evaluation")
+                    for candidate in candidates:
+                        self.execute_promotion(candidate, verbose=True)
+
+        except Exception as e:
+            print(f"[AutoPromotion] Error handling EVALUATION_COMPLETED: {e}")
 
     def check_promotion_candidates(
         self,
@@ -478,6 +595,9 @@ def run_auto_promotion_daemon(config: AutoPromotionConfig = None, verbose: bool 
     config = config or AutoPromotionConfig()
     trigger = AutoPromotionTrigger(config)
 
+    # Set up event subscriptions for reactive promotion checks
+    trigger.setup_event_subscriptions()
+
     running = True
 
     def signal_handler(sig, frame):
@@ -495,6 +615,8 @@ def run_auto_promotion_daemon(config: AutoPromotionConfig = None, verbose: bool 
     print(f"  Sync to cluster: {config.sync_to_cluster}")
     if HAS_COORDINATION:
         print(f"  Coordination: enabled")
+    if HAS_EVENT_BUS:
+        print(f"  Event-driven: enabled (TRAINING_COMPLETED, EVALUATION_COMPLETED)")
 
     iteration = 0
     while running:
@@ -620,9 +742,29 @@ def get_best_model_from_elo(board_type: str, num_players: int) -> Optional[Dict[
         return None
 
 
-# Rollback configuration
-ROLLBACK_ELO_DROP_THRESHOLD = float(os.environ.get("RINGRIFT_ROLLBACK_ELO_DROP", "50"))
-ROLLBACK_MIN_GAMES = int(os.environ.get("RINGRIFT_ROLLBACK_MIN_GAMES", "20"))
+# Rollback configuration - use canonical config with env var override
+def _get_rollback_threshold() -> float:
+    """Get rollback Elo threshold from env or canonical config."""
+    env_val = os.environ.get("RINGRIFT_ROLLBACK_ELO_DROP")
+    if env_val:
+        return float(env_val)
+    if HAS_UNIFIED_CONFIG:
+        return get_rollback_elo_threshold()
+    return 50.0
+
+
+def _get_rollback_games() -> int:
+    """Get rollback min games from env or canonical config."""
+    env_val = os.environ.get("RINGRIFT_ROLLBACK_MIN_GAMES")
+    if env_val:
+        return int(env_val)
+    if HAS_UNIFIED_CONFIG:
+        return get_rollback_min_games()
+    return 20
+
+
+ROLLBACK_ELO_DROP_THRESHOLD = _get_rollback_threshold()
+ROLLBACK_MIN_GAMES = _get_rollback_games()
 ROLLBACK_ENABLED = os.environ.get("RINGRIFT_AUTO_ROLLBACK", "1").lower() in ("1", "true", "yes")
 
 

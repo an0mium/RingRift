@@ -210,6 +210,53 @@ from app.coordination.sync_coordinator import (
     reset_sync_coordinator,
 )
 
+# Ephemeral data guard exports (data insurance for ephemeral hosts)
+from app.coordination.ephemeral_data_guard import (
+    EphemeralDataGuard,
+    HostCheckpoint,
+    WriteThrough,
+    get_ephemeral_guard,
+    reset_ephemeral_guard,
+    checkpoint_games,
+    ephemeral_heartbeat,
+    is_host_ephemeral,
+    get_evacuation_candidates,
+    request_evacuation,
+    queue_critical_game,
+)
+
+# Transfer verification exports (checksum verification for data integrity)
+from app.coordination.transfer_verification import (
+    TransferVerifier,
+    TransferRecord,
+    BatchChecksum,
+    QuarantineRecord,
+    get_transfer_verifier,
+    reset_transfer_verifier,
+    compute_file_checksum,
+    verify_transfer,
+    quarantine_file,
+    verify_batch,
+    compute_batch_checksum,
+)
+
+# Transaction isolation exports (ACID-like guarantees for merge operations)
+from app.coordination.transaction_isolation import (
+    TransactionIsolation,
+    TransactionState,
+    MergeOperation,
+    MergeTransaction,
+    get_transaction_isolation,
+    reset_transaction_isolation,
+    begin_merge_transaction,
+    add_merge_operation,
+    complete_merge_operation,
+    commit_merge_transaction,
+    rollback_merge_transaction,
+    merge_transaction,
+    get_transaction_stats,
+)
+
 __all__ = [
     # Task Coordinator (canonical)
     "TaskCoordinator",
@@ -353,4 +400,42 @@ __all__ = [
     "record_sync_complete",
     "record_games_generated",
     "reset_sync_coordinator",
+    # Ephemeral Data Guard (data insurance for ephemeral hosts)
+    "EphemeralDataGuard",
+    "HostCheckpoint",
+    "WriteThrough",
+    "get_ephemeral_guard",
+    "reset_ephemeral_guard",
+    "checkpoint_games",
+    "ephemeral_heartbeat",
+    "is_host_ephemeral",
+    "get_evacuation_candidates",
+    "request_evacuation",
+    "queue_critical_game",
+    # Transfer Verification (checksum verification for data integrity)
+    "TransferVerifier",
+    "TransferRecord",
+    "BatchChecksum",
+    "QuarantineRecord",
+    "get_transfer_verifier",
+    "reset_transfer_verifier",
+    "compute_file_checksum",
+    "verify_transfer",
+    "quarantine_file",
+    "verify_batch",
+    "compute_batch_checksum",
+    # Transaction Isolation (ACID-like guarantees for merge operations)
+    "TransactionIsolation",
+    "TransactionState",
+    "MergeOperation",
+    "MergeTransaction",
+    "get_transaction_isolation",
+    "reset_transaction_isolation",
+    "begin_merge_transaction",
+    "add_merge_operation",
+    "complete_merge_operation",
+    "commit_merge_transaction",
+    "rollback_merge_transaction",
+    "merge_transaction",
+    "get_transaction_stats",
 ]

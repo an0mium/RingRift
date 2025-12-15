@@ -401,6 +401,8 @@ try:
     from app.integration.pipeline_feedback import (
         PipelineFeedbackController,
         FeedbackAction,
+        FeedbackSignal,
+        FeedbackSignalRouter,
         create_feedback_controller,
     )
     HAS_FEEDBACK = True
@@ -408,6 +410,8 @@ except ImportError:
     HAS_FEEDBACK = False
     PipelineFeedbackController = None
     FeedbackAction = None
+    FeedbackSignal = None
+    FeedbackSignalRouter = None
 
 # Import cross-process event queue for multi-daemon coordination
 try:
@@ -3874,6 +3878,42 @@ class UnifiedAILoop:
             except Exception as e:
                 print(f"[UnifiedLoop] Warning: Failed to initialize feedback controller: {e}")
 
+        # Feedback signal router for routing FeedbackAction signals to handlers
+        self.feedback_router: Optional[FeedbackSignalRouter] = None
+        if HAS_FEEDBACK and FeedbackSignalRouter is not None:
+            try:
+                self.feedback_router = FeedbackSignalRouter()
+
+                # Register handlers for key feedback actions
+                self.feedback_router.register_handler(
+                    FeedbackAction.INCREASE_DATA_COLLECTION,
+                    self._handle_increase_data_collection,
+                    "unified_loop_increase_data"
+                )
+                self.feedback_router.register_handler(
+                    FeedbackAction.URGENT_RETRAINING,
+                    self._handle_urgent_retraining,
+                    "unified_loop_urgent_retrain"
+                )
+                self.feedback_router.register_handler(
+                    FeedbackAction.TRIGGER_CMAES,
+                    self._handle_cmaes_feedback_signal,
+                    "unified_loop_cmaes"
+                )
+                self.feedback_router.register_handler(
+                    FeedbackAction.SCALE_UP_SELFPLAY,
+                    self._handle_scale_up_selfplay,
+                    "unified_loop_scale_up"
+                )
+                self.feedback_router.register_handler(
+                    FeedbackAction.SCALE_DOWN_SELFPLAY,
+                    self._handle_scale_down_selfplay,
+                    "unified_loop_scale_down"
+                )
+                print("[UnifiedLoop] FeedbackSignalRouter initialized with handlers")
+            except Exception as e:
+                print(f"[UnifiedLoop] Warning: Failed to initialize feedback router: {e}")
+
         # Health monitoring
         global _health_tracker
         self.health_tracker = HealthTracker()
@@ -5082,6 +5122,135 @@ class UnifiedAILoop:
         # Just log for awareness here
         if retry_count >= 3:
             print(f"[FailureHandler] Multiple sync failures for {host} - circuit breaker may open")
+
+    # =========================================================================
+    # FeedbackSignalRouter Handlers
+    # =========================================================================
+
+    async def _handle_increase_data_collection(self, signal: 'FeedbackSignal') -> bool:
+        """Handle INCREASE_DATA_COLLECTION signals - boost selfplay games."""
+        try:
+            print(f"[FeedbackRouter] INCREASE_DATA_COLLECTION: {signal.reason} (magnitude={signal.magnitude:.2f})")
+
+            # Increase data collection rate through adaptive controller if available
+            if hasattr(self, 'training_scheduler') and self.training_scheduler:
+                # Scale up selfplay games temporarily
+                current_games = self.config.training.games_per_config
+                boost_factor = 1.0 + (signal.magnitude * 0.5)  # Up to 50% boost
+                boosted_games = int(current_games * boost_factor)
+
+                print(f"[FeedbackRouter] Boosting games_per_config: {current_games} -> {boosted_games}")
+                # Store original for later restoration
+                if not hasattr(self, '_original_games_per_config'):
+                    self._original_games_per_config = current_games
+                self.config.training.games_per_config = boosted_games
+
+            return True
+        except Exception as e:
+            print(f"[FeedbackRouter] Error handling INCREASE_DATA_COLLECTION: {e}")
+            return False
+
+    async def _handle_urgent_retraining(self, signal: 'FeedbackSignal') -> bool:
+        """Handle URGENT_RETRAINING signals - fast-track training for regression recovery."""
+        try:
+            print(f"[FeedbackRouter] URGENT_RETRAINING: {signal.reason} (magnitude={signal.magnitude:.2f})")
+
+            # Fast-track training by reducing trigger threshold temporarily
+            if hasattr(self, 'training_scheduler') and self.training_scheduler:
+                # Allow training with fewer games for urgent recovery
+                original_threshold = self.config.training.trigger_threshold_games
+                urgent_threshold = max(100, original_threshold // 2)
+
+                print(f"[FeedbackRouter] Urgent retrain: reducing threshold {original_threshold} -> {urgent_threshold}")
+                if not hasattr(self, '_original_threshold'):
+                    self._original_threshold = original_threshold
+                self.config.training.trigger_threshold_games = urgent_threshold
+
+            return True
+        except Exception as e:
+            print(f"[FeedbackRouter] Error handling URGENT_RETRAINING: {e}")
+            return False
+
+    async def _handle_cmaes_feedback_signal(self, signal: 'FeedbackSignal') -> bool:
+        """Handle TRIGGER_CMAES signals - initiate hyperparameter optimization."""
+        try:
+            print(f"[FeedbackRouter] TRIGGER_CMAES: {signal.reason} (magnitude={signal.magnitude:.2f})")
+
+            # Delegate to PBT integration if available (CMA-ES is a type of hyperparameter optimization)
+            if hasattr(self, 'pbt_integration') and self.pbt_integration and self.pbt_integration.config.enabled:
+                # The signal's target_stage typically indicates which config to optimize
+                config_key = signal.target_stage
+                print(f"[FeedbackRouter] Triggering CMA-ES optimization for {config_key}")
+
+                # Emit CMAES_TRIGGERED event for the pipeline to handle
+                if HAS_DATA_EVENTS:
+                    try:
+                        event = DataEvent(
+                            event_type=DataEventType.CMAES_TRIGGERED,
+                            payload={
+                                'config': config_key,
+                                'reason': signal.reason,
+                                'magnitude': signal.magnitude,
+                            },
+                            source='feedback_router'
+                        )
+                        await self.event_bus.publish(event)
+                    except Exception as e:
+                        print(f"[FeedbackRouter] Failed to emit CMAES_TRIGGERED: {e}")
+
+            return True
+        except Exception as e:
+            print(f"[FeedbackRouter] Error handling TRIGGER_CMAES: {e}")
+            return False
+
+    async def _handle_scale_up_selfplay(self, signal: 'FeedbackSignal') -> bool:
+        """Handle SCALE_UP_SELFPLAY signals - increase concurrent selfplay for underutilized resources."""
+        try:
+            print(f"[FeedbackRouter] SCALE_UP_SELFPLAY: {signal.reason} (magnitude={signal.magnitude:.2f})")
+
+            # Scale up concurrent selfplay workers
+            if hasattr(self, 'data_collector') and self.data_collector:
+                # Increase parallel selfplay capacity
+                current_parallel = getattr(self.config.data_ingestion, 'parallel_hosts', 3)
+                scale_factor = 1.0 + (signal.magnitude * 0.3)  # Up to 30% more parallel
+                new_parallel = min(10, int(current_parallel * scale_factor))
+
+                print(f"[FeedbackRouter] Scaling up parallel hosts: {current_parallel} -> {new_parallel}")
+                self.config.data_ingestion.parallel_hosts = new_parallel
+
+            return True
+        except Exception as e:
+            print(f"[FeedbackRouter] Error handling SCALE_UP_SELFPLAY: {e}")
+            return False
+
+    async def _handle_scale_down_selfplay(self, signal: 'FeedbackSignal') -> bool:
+        """Handle SCALE_DOWN_SELFPLAY signals - reduce concurrent selfplay to avoid resource contention."""
+        try:
+            print(f"[FeedbackRouter] SCALE_DOWN_SELFPLAY: {signal.reason} (magnitude={signal.magnitude:.2f})")
+
+            # Scale down concurrent selfplay workers
+            if hasattr(self, 'data_collector') and self.data_collector:
+                current_parallel = getattr(self.config.data_ingestion, 'parallel_hosts', 3)
+                scale_factor = 1.0 - (signal.magnitude * 0.3)  # Down to 30% fewer parallel
+                new_parallel = max(1, int(current_parallel * scale_factor))
+
+                print(f"[FeedbackRouter] Scaling down parallel hosts: {current_parallel} -> {new_parallel}")
+                self.config.data_ingestion.parallel_hosts = new_parallel
+
+            return True
+        except Exception as e:
+            print(f"[FeedbackRouter] Error handling SCALE_DOWN_SELFPLAY: {e}")
+            return False
+
+    async def route_feedback_signal(self, signal: 'FeedbackSignal') -> List[Tuple[str, bool]]:
+        """Route a feedback signal through the router.
+
+        This can be called by components to route signals through the unified router.
+        """
+        if self.feedback_router is None:
+            print(f"[FeedbackRouter] No router available, signal dropped: {signal.action.value}")
+            return []
+        return await self.feedback_router.route(signal)
 
     # =========================================================================
     # Diverse Tournament Distribution (Elo Calibration)

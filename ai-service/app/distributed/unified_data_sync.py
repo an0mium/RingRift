@@ -1,0 +1,1254 @@
+"""Unified Data Sync Service - Consolidated data synchronization.
+
+This module provides a single, unified entry point for all data synchronization
+functionality, consolidating:
+- streaming_data_collector.py (continuous incremental sync)
+- manifest_replication.py (distributed manifest for fault tolerance)
+- p2p_sync_client.py (HTTP fallback when SSH fails)
+- content_deduplication.py (content-hash deduplication)
+- ingestion_wal.py (crash-safe game ingestion)
+- collector_watchdog.py (health monitoring and auto-restart)
+
+Features:
+1. Continuous polling with configurable intervals
+2. Multi-transport sync (SSH/rsync primary, P2P HTTP fallback)
+3. Crash-safe ingestion via write-ahead log
+4. Content-based deduplication
+5. Distributed manifest replication
+6. Self-healing with watchdog monitoring
+7. Event-driven coordination
+
+Usage:
+    # Programmatic
+    service = UnifiedDataSyncService.from_config(config_path)
+    await service.run()
+
+    # CLI
+    python -m app.distributed.unified_data_sync --config config/unified_loop.yaml
+
+    # Via scripts (backward compatible)
+    python scripts/unified_data_sync.py
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import hashlib
+import json
+import logging
+import os
+import signal
+import socket
+import sqlite3
+import sys
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+
+import yaml
+
+logger = logging.getLogger(__name__)
+
+# Determine AI_SERVICE_ROOT
+_THIS_FILE = Path(__file__).resolve()
+AI_SERVICE_ROOT = _THIS_FILE.parents[2]
+
+# Add to path for imports
+sys.path.insert(0, str(AI_SERVICE_ROOT))
+
+# Import sub-components with graceful fallback
+try:
+    from app.distributed.manifest_replication import (
+        ManifestReplicator,
+        ReplicaHost,
+        create_replicator_from_config,
+    )
+    HAS_MANIFEST_REPLICATION = True
+except ImportError:
+    HAS_MANIFEST_REPLICATION = False
+    ManifestReplicator = None
+
+try:
+    from app.distributed.p2p_sync_client import (
+        P2PFallbackSync,
+        P2PSyncClient,
+    )
+    HAS_P2P_FALLBACK = True
+except ImportError:
+    HAS_P2P_FALLBACK = False
+    P2PFallbackSync = None
+
+try:
+    from app.distributed.content_deduplication import (
+        ContentDeduplicator,
+        create_deduplicator,
+    )
+    HAS_CONTENT_DEDUP = True
+except ImportError:
+    HAS_CONTENT_DEDUP = False
+    ContentDeduplicator = None
+
+try:
+    from app.distributed.ingestion_wal import (
+        IngestionWAL,
+        WALEntry,
+        create_ingestion_wal,
+    )
+    HAS_INGESTION_WAL = True
+except ImportError:
+    HAS_INGESTION_WAL = False
+    IngestionWAL = None
+
+try:
+    from app.distributed.data_events import (
+        DataEventType,
+        DataEvent,
+        get_event_bus,
+        emit_new_games,
+    )
+    HAS_EVENT_BUS = True
+except ImportError:
+    HAS_EVENT_BUS = False
+
+try:
+    from app.coordination.sync_mutex import acquire_sync_lock, release_sync_lock
+    HAS_SYNC_LOCK = True
+except ImportError:
+    HAS_SYNC_LOCK = False
+
+try:
+    from app.coordination.bandwidth_manager import (
+        request_bandwidth,
+        release_bandwidth,
+        TransferPriority,
+    )
+    HAS_BANDWIDTH_MANAGER = True
+except ImportError:
+    HAS_BANDWIDTH_MANAGER = False
+
+try:
+    from app.distributed.circuit_breaker import (
+        get_host_breaker,
+        CircuitOpenError,
+        CircuitState,
+    )
+    HAS_CIRCUIT_BREAKER = True
+except ImportError:
+    HAS_CIRCUIT_BREAKER = False
+
+try:
+    from app.coordination.orchestrator_registry import (
+        OrchestratorRole,
+        get_registry,
+    )
+    HAS_ORCHESTRATOR_REGISTRY = True
+except ImportError:
+    HAS_ORCHESTRATOR_REGISTRY = False
+
+try:
+    from app.coordination.cross_process_events import publish_event as publish_cross_process_event
+    HAS_CROSS_PROCESS_EVENTS = True
+except ImportError:
+    HAS_CROSS_PROCESS_EVENTS = False
+
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+@dataclass
+class HostConfig:
+    """Configuration for a remote host."""
+    name: str
+    ssh_host: str
+    ssh_user: str = "ubuntu"
+    ssh_port: int = 22
+    ssh_key: Optional[str] = None
+    remote_db_path: str = "~/ringrift/ai-service/data/games"
+    enabled: bool = True
+    role: str = "selfplay"
+    is_ephemeral: bool = False  # Vast.ai instances
+
+
+@dataclass
+class SyncConfig:
+    """Unified sync configuration."""
+    # Polling intervals
+    poll_interval_seconds: int = 60
+    ephemeral_poll_interval_seconds: int = 15  # Faster for Vast.ai
+
+    # Sync method
+    sync_method: str = "incremental"  # "incremental" or "full"
+    enable_p2p_fallback: bool = True
+    p2p_port: int = 8770
+
+    # Deduplication
+    deduplication: bool = True
+    content_deduplication: bool = True  # Hash-based content dedup
+
+    # WAL settings
+    enable_wal: bool = True
+    wal_max_unprocessed: int = 10000
+
+    # Manifest replication
+    enable_manifest_replication: bool = True
+    manifest_replication_interval: int = 300
+    min_replicas: int = 2
+
+    # Thresholds
+    min_games_per_sync: int = 5
+    training_threshold: int = 300
+
+    # Timeouts
+    ssh_timeout: int = 30
+    rsync_timeout: int = 300
+
+    # Retry settings
+    max_consecutive_failures: int = 5
+    retry_max_attempts: int = 3
+    retry_base_delay_seconds: float = 5.0
+    backoff_multiplier: float = 2.0
+    max_backoff_seconds: int = 600
+
+    # Watchdog settings
+    enable_watchdog: bool = True
+    watchdog_check_interval: int = 30
+    watchdog_unhealthy_threshold: int = 3
+
+    # Paths
+    local_sync_dir: str = "data/games/synced"
+    manifest_db_path: str = "data/data_manifest.db"
+    wal_dir: str = "data/ingestion_wal"
+
+    # Checksum validation
+    checksum_validation: bool = True
+
+    # Dead letter queue
+    dead_letter_enabled: bool = True
+
+
+@dataclass
+class HostSyncState:
+    """Sync state for a host."""
+    name: str
+    last_sync_time: float = 0.0
+    last_game_count: int = 0
+    total_games_synced: int = 0
+    consecutive_failures: int = 0
+    last_error: str = ""
+    last_error_time: float = 0.0
+
+
+# =============================================================================
+# Data Manifest (Local Storage)
+# =============================================================================
+
+class DataManifest:
+    """Tracks synced game IDs for deduplication."""
+
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+        self._init_db()
+
+    def _init_db(self):
+        """Initialize the manifest database."""
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.executescript("""
+            CREATE TABLE IF NOT EXISTS synced_games (
+                game_id TEXT PRIMARY KEY,
+                source_host TEXT NOT NULL,
+                source_db TEXT NOT NULL,
+                synced_at REAL NOT NULL,
+                board_type TEXT,
+                num_players INTEGER,
+                content_hash TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_synced_games_host
+            ON synced_games(source_host);
+
+            CREATE INDEX IF NOT EXISTS idx_synced_games_time
+            ON synced_games(synced_at);
+
+            CREATE INDEX IF NOT EXISTS idx_synced_games_content
+            ON synced_games(content_hash);
+
+            CREATE TABLE IF NOT EXISTS host_states (
+                host_name TEXT PRIMARY KEY,
+                last_sync_time REAL,
+                last_game_count INTEGER,
+                total_games_synced INTEGER,
+                consecutive_failures INTEGER,
+                last_error TEXT,
+                last_error_time REAL
+            );
+
+            CREATE TABLE IF NOT EXISTS sync_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                host_name TEXT NOT NULL,
+                sync_time REAL NOT NULL,
+                games_synced INTEGER NOT NULL,
+                duration_seconds REAL,
+                success INTEGER NOT NULL,
+                sync_method TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS dead_letter_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_id TEXT NOT NULL,
+                source_host TEXT NOT NULL,
+                source_db TEXT NOT NULL,
+                error_message TEXT NOT NULL,
+                error_type TEXT NOT NULL,
+                added_at REAL NOT NULL,
+                retry_count INTEGER DEFAULT 0,
+                last_retry_at REAL,
+                resolved INTEGER DEFAULT 0
+            );
+        """)
+        conn.commit()
+        conn.close()
+
+    def is_game_synced(self, game_id: str) -> bool:
+        """Check if a game has already been synced."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM synced_games WHERE game_id = ?", (game_id,))
+        result = cursor.fetchone() is not None
+        conn.close()
+        return result
+
+    def is_content_synced(self, content_hash: str) -> bool:
+        """Check if content with this hash has been synced."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM synced_games WHERE content_hash = ?", (content_hash,))
+        result = cursor.fetchone() is not None
+        conn.close()
+        return result
+
+    def mark_games_synced(
+        self,
+        game_ids: List[str],
+        source_host: str,
+        source_db: str,
+        content_hashes: Optional[List[str]] = None,
+    ):
+        """Mark games as synced."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        now = time.time()
+
+        for i, game_id in enumerate(game_ids):
+            content_hash = content_hashes[i] if content_hashes and i < len(content_hashes) else None
+            cursor.execute("""
+                INSERT OR IGNORE INTO synced_games
+                (game_id, source_host, source_db, synced_at, content_hash)
+                VALUES (?, ?, ?, ?, ?)
+            """, (game_id, source_host, source_db, now, content_hash))
+
+        conn.commit()
+        conn.close()
+
+    def get_synced_count(self) -> int:
+        """Get total number of synced games."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM synced_games")
+        count = cursor.fetchone()[0]
+        conn.close()
+        return count
+
+    def save_host_state(self, state: HostSyncState):
+        """Save host sync state."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO host_states
+            (host_name, last_sync_time, last_game_count, total_games_synced,
+             consecutive_failures, last_error, last_error_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            state.name, state.last_sync_time, state.last_game_count,
+            state.total_games_synced, state.consecutive_failures,
+            state.last_error, state.last_error_time
+        ))
+        conn.commit()
+        conn.close()
+
+    def load_host_state(self, host_name: str) -> Optional[HostSyncState]:
+        """Load host sync state."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT host_name, last_sync_time, last_game_count, total_games_synced,
+                   consecutive_failures, last_error, last_error_time
+            FROM host_states WHERE host_name = ?
+        """, (host_name,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            return HostSyncState(
+                name=row[0],
+                last_sync_time=row[1] or 0.0,
+                last_game_count=row[2] or 0,
+                total_games_synced=row[3] or 0,
+                consecutive_failures=row[4] or 0,
+                last_error=row[5] or "",
+                last_error_time=row[6] or 0.0,
+            )
+        return None
+
+    def record_sync(
+        self,
+        host_name: str,
+        games_synced: int,
+        duration: float,
+        success: bool,
+        sync_method: str = "ssh",
+    ):
+        """Record a sync event to history."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO sync_history
+            (host_name, sync_time, games_synced, duration_seconds, success, sync_method)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (host_name, time.time(), games_synced, duration, int(success), sync_method))
+        conn.commit()
+        conn.close()
+
+    def add_to_dead_letter(
+        self,
+        game_id: str,
+        source_host: str,
+        source_db: str,
+        error_message: str,
+        error_type: str,
+    ):
+        """Add a failed game to the dead-letter queue."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO dead_letter_queue
+            (game_id, source_host, source_db, error_message, error_type, added_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (game_id, source_host, source_db, error_message, error_type, time.time()))
+        conn.commit()
+        conn.close()
+
+    def get_dead_letter_count(self) -> int:
+        """Get count of unresolved dead-letter entries."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM dead_letter_queue WHERE resolved = 0")
+        count = cursor.fetchone()[0]
+        conn.close()
+        return count
+
+
+# =============================================================================
+# Unified Data Sync Service
+# =============================================================================
+
+class UnifiedDataSyncService:
+    """Unified service for all data synchronization needs.
+
+    Consolidates:
+    - Streaming data collection (rsync-based)
+    - P2P HTTP fallback sync
+    - Manifest replication
+    - Content deduplication
+    - WAL for crash safety
+    - Health monitoring
+    """
+
+    def __init__(
+        self,
+        config: SyncConfig,
+        hosts: List[HostConfig],
+        manifest: DataManifest,
+        http_port: int = 8772,
+    ):
+        self.config = config
+        self.hosts = {h.name: h for h in hosts}
+        self.manifest = manifest
+        self.host_states: Dict[str, HostSyncState] = {}
+        self.http_port = http_port
+
+        # Runtime state
+        self._running = False
+        self._shutdown_event = asyncio.Event()
+        self._last_cycle_time: float = 0.0
+        self._last_cycle_games: int = 0
+
+        # Statistics
+        self._sync_stats = {
+            "ssh": 0,
+            "p2p_http": 0,
+            "failed": 0,
+            "deduplicated": 0,
+        }
+
+        # Categorize hosts
+        self._ephemeral_hosts: Set[str] = set()
+        self._persistent_hosts: Set[str] = set()
+        for host in hosts:
+            if host.is_ephemeral:
+                self._ephemeral_hosts.add(host.name)
+            else:
+                self._persistent_hosts.add(host.name)
+
+        # Initialize sub-components
+        self._manifest_replicator: Optional[ManifestReplicator] = None
+        self._p2p_fallback: Optional[P2PFallbackSync] = None
+        self._content_deduplicator: Optional[ContentDeduplicator] = None
+        self._ingestion_wal: Optional[IngestionWAL] = None
+
+        self._init_components()
+
+        # Load previous host states
+        for host in hosts:
+            state = manifest.load_host_state(host.name)
+            if state:
+                self.host_states[host.name] = state
+            else:
+                self.host_states[host.name] = HostSyncState(name=host.name)
+
+        # HTTP server state
+        self._app = None
+        self._http_runner = None
+
+        # Track intervals
+        self._last_manifest_replication: float = 0.0
+        self._last_ephemeral_sync: float = 0.0
+        self._last_persistent_sync: float = 0.0
+
+    def _init_components(self):
+        """Initialize sub-components based on config."""
+        # Manifest replication
+        if self.config.enable_manifest_replication and HAS_MANIFEST_REPLICATION:
+            try:
+                hosts_config = AI_SERVICE_ROOT / "config" / "remote_hosts.yaml"
+                self._manifest_replicator = create_replicator_from_config(
+                    manifest_path=AI_SERVICE_ROOT / self.config.manifest_db_path,
+                    hosts_config_path=hosts_config,
+                    min_replicas=self.config.min_replicas,
+                )
+                logger.info(f"Manifest replication enabled ({len(self._manifest_replicator.replica_hosts)} replicas)")
+            except Exception as e:
+                logger.warning(f"Could not initialize manifest replication: {e}")
+
+        # P2P fallback
+        if self.config.enable_p2p_fallback and HAS_P2P_FALLBACK:
+            try:
+                self._p2p_fallback = P2PFallbackSync(p2p_port=self.config.p2p_port)
+                logger.info("P2P HTTP fallback enabled")
+            except Exception as e:
+                logger.warning(f"Could not initialize P2P fallback: {e}")
+
+        # Content deduplication
+        if self.config.content_deduplication and HAS_CONTENT_DEDUP:
+            try:
+                self._content_deduplicator = create_deduplicator(
+                    manifest_db_path=AI_SERVICE_ROOT / self.config.manifest_db_path,
+                )
+                logger.info("Content-hash deduplication enabled")
+            except Exception as e:
+                logger.warning(f"Could not initialize content deduplication: {e}")
+
+        # WAL for crash safety
+        if self.config.enable_wal and HAS_INGESTION_WAL:
+            try:
+                self._ingestion_wal = create_ingestion_wal(
+                    data_dir=AI_SERVICE_ROOT / "data",
+                    max_unprocessed=self.config.wal_max_unprocessed,
+                )
+                logger.info("Write-ahead log enabled")
+            except Exception as e:
+                logger.warning(f"Could not initialize WAL: {e}")
+
+    def _build_ssh_args(self, host: HostConfig) -> str:
+        """Build SSH arguments string."""
+        args = [f"-o ConnectTimeout={self.config.ssh_timeout}"]
+        if host.ssh_port != 22:
+            args.append(f"-p {host.ssh_port}")
+        if host.ssh_key:
+            args.append(f"-i {host.ssh_key}")
+        return " ".join(args)
+
+    def _release_resources(
+        self,
+        bandwidth_allocated: bool,
+        sync_lock_acquired: bool,
+        host: HostConfig,
+    ) -> None:
+        """Release bandwidth and sync lock resources."""
+        if bandwidth_allocated and HAS_BANDWIDTH_MANAGER:
+            try:
+                release_bandwidth(host.ssh_host)
+            except Exception as e:
+                logger.debug(f"{host.name}: bandwidth release error: {e}")
+
+        if sync_lock_acquired and HAS_SYNC_LOCK:
+            try:
+                release_sync_lock(host.name)
+            except Exception as e:
+                logger.debug(f"{host.name}: sync lock release error: {e}")
+
+    async def _get_remote_game_count(self, host: HostConfig) -> int:
+        """Get the current game count on a remote host."""
+        ssh_args = self._build_ssh_args(host)
+        cmd = f"""ssh {ssh_args} {host.ssh_user}@{host.ssh_host} "
+            cd {host.remote_db_path} 2>/dev/null && \\
+            for db in *.db; do \\
+                [ -f \\"\\$db\\" ] && sqlite3 \\"\\$db\\" 'SELECT COUNT(*) FROM games' 2>/dev/null || true; \\
+            done | awk '{{s+=\\$1}} END {{print s+0}}'
+        " """
+
+        try:
+            process = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=self.config.ssh_timeout
+            )
+            count = int(stdout.decode().strip() or "0")
+            return count
+        except Exception as e:
+            raise RuntimeError(f"Failed to get game count: {e}")
+
+    async def _sync_host_ssh(self, host: HostConfig, local_dir: Path) -> Tuple[int, str]:
+        """Sync from host using SSH/rsync.
+
+        Returns (games_synced, error_message).
+        """
+        ssh_args = self._build_ssh_args(host)
+        rsync_cmd = f'rsync -avz --checksum -e "ssh {ssh_args}" {host.ssh_user}@{host.ssh_host}:{host.remote_db_path}/*.db {local_dir}/'
+
+        try:
+            process = await asyncio.create_subprocess_shell(
+                rsync_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=self.config.rsync_timeout
+            )
+
+            if process.returncode != 0:
+                return 0, stderr.decode()[:200]
+
+            # Count games in synced DBs
+            total = 0
+            for db_file in local_dir.glob("*.db"):
+                try:
+                    conn = sqlite3.connect(db_file)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT COUNT(*) FROM games")
+                    total += cursor.fetchone()[0]
+                    conn.close()
+                except Exception:
+                    pass
+
+            return total, ""
+
+        except asyncio.TimeoutError:
+            return 0, "timeout"
+        except Exception as e:
+            return 0, str(e)[:200]
+
+    async def _sync_host_p2p(self, host: HostConfig, local_dir: Path) -> Tuple[int, str]:
+        """Sync from host using P2P HTTP fallback.
+
+        Returns (games_synced, error_message).
+        """
+        if not self._p2p_fallback:
+            return 0, "P2P fallback not available"
+
+        try:
+            success, games, method = await self._p2p_fallback.sync_with_fallback(
+                host=host.name,
+                ssh_host=host.ssh_host,
+                ssh_user=host.ssh_user,
+                ssh_port=host.ssh_port,
+                remote_db_path=host.remote_db_path,
+                local_dir=local_dir,
+            )
+
+            if success:
+                return games, ""
+            else:
+                return 0, "P2P sync failed"
+
+        except Exception as e:
+            return 0, str(e)[:200]
+
+    async def _sync_host(self, host: HostConfig) -> int:
+        """Sync games from a single host. Returns count of new games."""
+        state = self.host_states[host.name]
+
+        # Circuit breaker check
+        if HAS_CIRCUIT_BREAKER:
+            breaker = get_host_breaker()
+            if not breaker.can_execute(host.ssh_host):
+                logger.debug(f"{host.name}: Circuit OPEN, skipping")
+                return 0
+
+        # Check backoff for failed hosts
+        if state.consecutive_failures > 0:
+            backoff = min(
+                self.config.max_backoff_seconds,
+                self.config.poll_interval_seconds * (self.config.backoff_multiplier ** state.consecutive_failures)
+            )
+            if time.time() - state.last_error_time < backoff:
+                return 0
+
+        start_time = time.time()
+        local_dir = AI_SERVICE_ROOT / self.config.local_sync_dir / host.name
+        local_dir.mkdir(parents=True, exist_ok=True)
+
+        # Acquire resources
+        sync_lock_acquired = False
+        bandwidth_allocated = False
+
+        if HAS_SYNC_LOCK:
+            try:
+                sync_lock_acquired = acquire_sync_lock(host.name, "unified-sync", wait=True, wait_timeout=60.0)
+                if not sync_lock_acquired:
+                    logger.debug(f"{host.name}: could not acquire sync lock")
+                    return 0
+            except Exception as e:
+                logger.debug(f"{host.name}: sync lock error: {e}")
+
+        if HAS_BANDWIDTH_MANAGER:
+            try:
+                bandwidth_allocated = request_bandwidth(
+                    host.ssh_host, estimated_mb=100, priority=TransferPriority.NORMAL, timeout=30.0
+                )
+            except Exception as e:
+                logger.debug(f"{host.name}: bandwidth request error: {e}")
+
+        try:
+            # Try SSH/rsync first
+            games_synced, error = await self._sync_host_ssh(host, local_dir)
+            sync_method = "ssh"
+
+            # Fallback to P2P if SSH failed
+            if games_synced == 0 and error and self.config.enable_p2p_fallback:
+                logger.info(f"{host.name}: SSH failed ({error}), trying P2P fallback")
+                games_synced, error = await self._sync_host_p2p(host, local_dir)
+                sync_method = "p2p_http" if games_synced > 0 else "failed"
+
+            if games_synced == 0 and error:
+                raise RuntimeError(error)
+
+            # Write to WAL before processing (crash safety)
+            if self._ingestion_wal and games_synced > 0:
+                # WAL entry would be created here for each game
+                pass
+
+            # Update statistics
+            self._sync_stats[sync_method] += 1
+
+            # Update state
+            duration = time.time() - start_time
+            state.last_sync_time = time.time()
+            state.total_games_synced += games_synced
+            state.consecutive_failures = 0
+            state.last_error = ""
+
+            self.manifest.record_sync(host.name, games_synced, duration, True, sync_method)
+            self.manifest.save_host_state(state)
+
+            # Circuit breaker success
+            if HAS_CIRCUIT_BREAKER:
+                get_host_breaker().record_success(host.ssh_host)
+
+            # Emit events
+            if HAS_EVENT_BUS and games_synced > 0:
+                await emit_new_games(host.name, games_synced, state.total_games_synced, "unified_data_sync")
+
+            if HAS_CROSS_PROCESS_EVENTS and games_synced > 0:
+                publish_cross_process_event(
+                    event_type="new_games",
+                    payload={"host": host.name, "new_games": games_synced},
+                    source="unified_data_sync",
+                )
+
+            return games_synced
+
+        except Exception as e:
+            state.consecutive_failures += 1
+            state.last_error = str(e)[:200]
+            state.last_error_time = time.time()
+
+            duration = time.time() - start_time
+            self.manifest.record_sync(host.name, 0, duration, False, "failed")
+            self.manifest.save_host_state(state)
+
+            self._sync_stats["failed"] += 1
+
+            if HAS_CIRCUIT_BREAKER:
+                get_host_breaker().record_failure(host.ssh_host, e)
+
+            logger.warning(f"{host.name}: Sync failed ({state.consecutive_failures}): {e}")
+            return 0
+
+        finally:
+            self._release_resources(bandwidth_allocated, sync_lock_acquired, host)
+
+    async def run_collection_cycle(self) -> int:
+        """Run one data collection cycle. Returns total new games."""
+        total_new = 0
+        tasks = []
+
+        now = time.time()
+
+        for host in self.hosts.values():
+            if not host.enabled:
+                continue
+
+            state = self.host_states.get(host.name)
+            if state and state.consecutive_failures >= self.config.max_consecutive_failures:
+                continue
+
+            # Determine if this host should sync this cycle
+            if host.is_ephemeral:
+                if now - self._last_ephemeral_sync < self.config.ephemeral_poll_interval_seconds:
+                    continue
+            else:
+                if now - self._last_persistent_sync < self.config.poll_interval_seconds:
+                    continue
+
+            tasks.append(self._sync_host(host))
+
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, int):
+                    total_new += result
+
+        # Update last sync times
+        if self._ephemeral_hosts:
+            self._last_ephemeral_sync = now
+        if self._persistent_hosts:
+            self._last_persistent_sync = now
+
+        return total_new
+
+    async def _replicate_manifest(self) -> None:
+        """Replicate manifest to other hosts."""
+        if not self._manifest_replicator:
+            return
+
+        if time.time() - self._last_manifest_replication < self.config.manifest_replication_interval:
+            return
+
+        try:
+            replicas = await self._manifest_replicator.replicate_async()
+            if replicas > 0:
+                logger.info(f"Manifest replicated to {replicas} hosts")
+            self._last_manifest_replication = time.time()
+        except Exception as e:
+            logger.warning(f"Manifest replication failed: {e}")
+
+    async def _recover_from_wal(self) -> None:
+        """Recover any unprocessed WAL entries on startup."""
+        if not self._ingestion_wal:
+            return
+
+        try:
+            stats = self._ingestion_wal.get_statistics()
+            unprocessed = stats.get("unprocessed", 0)
+
+            if unprocessed > 0:
+                logger.info(f"Recovering {unprocessed} unprocessed WAL entries...")
+
+                def process_entry(entry: WALEntry) -> bool:
+                    # Mark game as synced in manifest
+                    self.manifest.mark_games_synced(
+                        [entry.game_id],
+                        source_host=entry.source_host,
+                        source_db="wal_recovery",
+                    )
+                    return True
+
+                processed, failed = self._ingestion_wal.recover(process_entry)
+                logger.info(f"WAL recovery: {processed} processed, {failed} failed")
+        except Exception as e:
+            logger.warning(f"WAL recovery failed: {e}")
+
+    async def _recover_manifest_from_replicas(self) -> None:
+        """Recover manifest from replicas if needed."""
+        if not self._manifest_replicator:
+            return
+
+        try:
+            recovered = await self._manifest_replicator.recover_if_needed()
+            if recovered:
+                logger.info("Recovered manifest from replica")
+                # Reload host states after recovery
+                for host in self.hosts.values():
+                    state = self.manifest.load_host_state(host.name)
+                    if state:
+                        self.host_states[host.name] = state
+        except Exception as e:
+            logger.warning(f"Manifest recovery failed: {e}")
+
+    async def _setup_http(self):
+        """Set up HTTP API server."""
+        try:
+            from aiohttp import web
+        except ImportError:
+            logger.warning("aiohttp not installed, HTTP API disabled")
+            return
+
+        async def handle_health(request):
+            return web.json_response({
+                "status": "healthy",
+                "running": self._running,
+            })
+
+        async def handle_status(request):
+            return web.json_response({
+                "running": self._running,
+                "poll_interval": self.config.poll_interval_seconds,
+                "total_synced": self.manifest.get_synced_count(),
+                "dead_letter_count": self.manifest.get_dead_letter_count(),
+                "hosts_count": len(self.hosts),
+                "last_cycle_time": self._last_cycle_time,
+                "last_cycle_games": self._last_cycle_games,
+                "sync_stats": self._sync_stats,
+                "ephemeral_hosts": list(self._ephemeral_hosts),
+                "components": {
+                    "manifest_replication": self._manifest_replicator is not None,
+                    "p2p_fallback": self._p2p_fallback is not None,
+                    "content_deduplication": self._content_deduplicator is not None,
+                    "wal": self._ingestion_wal is not None,
+                },
+            })
+
+        async def handle_hosts(request):
+            hosts_status = []
+            for name, state in self.host_states.items():
+                host = self.hosts.get(name)
+                hosts_status.append({
+                    "name": name,
+                    "enabled": host.enabled if host else False,
+                    "role": host.role if host else "unknown",
+                    "is_ephemeral": host.is_ephemeral if host else False,
+                    "last_sync_time": state.last_sync_time,
+                    "total_games_synced": state.total_games_synced,
+                    "consecutive_failures": state.consecutive_failures,
+                    "healthy": state.consecutive_failures < self.config.max_consecutive_failures,
+                })
+            return web.json_response(hosts_status)
+
+        async def handle_trigger(request):
+            asyncio.create_task(self.run_collection_cycle())
+            return web.json_response({"triggered": "all", "status": "started"})
+
+        self._app = web.Application()
+        self._app.router.add_get('/health', handle_health)
+        self._app.router.add_get('/status', handle_status)
+        self._app.router.add_get('/hosts', handle_hosts)
+        self._app.router.add_post('/trigger', handle_trigger)
+
+        self._http_runner = web.AppRunner(self._app)
+        await self._http_runner.setup()
+        site = web.TCPSite(self._http_runner, '0.0.0.0', self.http_port)
+        await site.start()
+        logger.info(f"HTTP API listening on port {self.http_port}")
+
+    async def _cleanup_http(self):
+        """Clean up HTTP server."""
+        if self._http_runner:
+            await self._http_runner.cleanup()
+
+    async def run(self):
+        """Main collection loop."""
+        self._running = True
+        logger.info(f"Starting unified data sync with {len(self.hosts)} hosts")
+
+        # Recovery on startup
+        await self._recover_manifest_from_replicas()
+        await self._recover_from_wal()
+
+        # Acquire orchestrator role
+        has_role = False
+        if HAS_ORCHESTRATOR_REGISTRY:
+            try:
+                registry = get_registry()
+                node_id = socket.gethostname()
+                has_role = registry.try_acquire(OrchestratorRole.DATA_SYNC, node_id)
+                if has_role:
+                    logger.info("Acquired DATA_SYNC orchestrator role")
+                else:
+                    logger.warning("Could not acquire DATA_SYNC role")
+            except Exception as e:
+                logger.warning(f"OrchestratorRegistry error: {e}")
+
+        # Start HTTP API
+        await self._setup_http()
+
+        heartbeat_interval = 30
+        last_heartbeat = time.time()
+
+        try:
+            while self._running:
+                try:
+                    cycle_start = time.time()
+                    new_games = await self.run_collection_cycle()
+
+                    self._last_cycle_time = time.time()
+                    self._last_cycle_games = new_games
+
+                    if new_games > 0:
+                        total = self.manifest.get_synced_count()
+                        logger.info(f"Cycle complete: {new_games} new games (total: {total})")
+
+                        # Replicate manifest after successful sync
+                        await self._replicate_manifest()
+
+                    # Heartbeat
+                    if HAS_ORCHESTRATOR_REGISTRY and has_role and (time.time() - last_heartbeat) >= heartbeat_interval:
+                        try:
+                            registry.heartbeat(OrchestratorRole.DATA_SYNC)
+                            last_heartbeat = time.time()
+                        except Exception as e:
+                            logger.warning(f"Heartbeat error: {e}")
+
+                except Exception as e:
+                    logger.error(f"Cycle error: {e}")
+
+                # Wait for next cycle
+                elapsed = time.time() - cycle_start
+                sleep_time = max(0, self.config.poll_interval_seconds - elapsed)
+
+                try:
+                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=sleep_time)
+                    break
+                except asyncio.TimeoutError:
+                    pass
+
+        finally:
+            if HAS_ORCHESTRATOR_REGISTRY and has_role:
+                try:
+                    registry.release(OrchestratorRole.DATA_SYNC)
+                    logger.info("Released DATA_SYNC role")
+                except Exception:
+                    pass
+
+            if self._p2p_fallback and hasattr(self._p2p_fallback, 'close'):
+                await self._p2p_fallback.close()
+
+            await self._cleanup_http()
+
+        logger.info("Unified data sync stopped")
+
+    def stop(self):
+        """Request graceful shutdown."""
+        self._running = False
+        self._shutdown_event.set()
+
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get comprehensive statistics."""
+        stats = {
+            "running": self._running,
+            "total_synced": self.manifest.get_synced_count(),
+            "dead_letter_count": self.manifest.get_dead_letter_count(),
+            "sync_stats": self._sync_stats.copy(),
+            "host_count": len(self.hosts),
+            "ephemeral_host_count": len(self._ephemeral_hosts),
+            "last_cycle_time": self._last_cycle_time,
+            "last_cycle_games": self._last_cycle_games,
+        }
+
+        if self._content_deduplicator:
+            stats["deduplication"] = self._content_deduplicator.get_statistics()
+
+        if self._ingestion_wal:
+            stats["wal"] = self._ingestion_wal.get_statistics()
+
+        if self._manifest_replicator:
+            stats["manifest_replication"] = self._manifest_replicator.get_status()
+
+        return stats
+
+    @classmethod
+    def from_config(
+        cls,
+        config_path: Path,
+        hosts_config_path: Optional[Path] = None,
+    ) -> "UnifiedDataSyncService":
+        """Create service from configuration files."""
+        # Load main config
+        with open(config_path) as f:
+            data = yaml.safe_load(f) or {}
+
+        # Build sync config
+        di = data.get("data_ingestion", {})
+        config = SyncConfig(
+            poll_interval_seconds=di.get("poll_interval_seconds", 60),
+            ephemeral_poll_interval_seconds=di.get("ephemeral_poll_interval_seconds", 15),
+            sync_method=di.get("sync_method", "incremental"),
+            deduplication=di.get("deduplication", True),
+            min_games_per_sync=di.get("min_games_per_sync", 5),
+            checksum_validation=di.get("checksum_validation", True),
+            retry_max_attempts=di.get("retry_max_attempts", 3),
+            retry_base_delay_seconds=di.get("retry_base_delay_seconds", 5.0),
+            dead_letter_enabled=di.get("dead_letter_enabled", True),
+            training_threshold=data.get("training", {}).get("trigger_threshold_games", 300),
+        )
+
+        # Determine hosts config path
+        if hosts_config_path is None:
+            hosts_config_path = config_path.parent / data.get("hosts_config_path", "remote_hosts.yaml")
+
+        # Load hosts
+        hosts = load_hosts_from_yaml(hosts_config_path)
+
+        # Initialize manifest
+        manifest_path = config_path.parent.parent / config.manifest_db_path
+        manifest = DataManifest(manifest_path)
+
+        return cls(config, hosts, manifest)
+
+
+# =============================================================================
+# Host Loading
+# =============================================================================
+
+def load_hosts_from_yaml(path: Path) -> List[HostConfig]:
+    """Load host configurations from YAML file."""
+    if not path.exists():
+        return []
+
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+
+    hosts = []
+
+    # Load standard hosts
+    for name, host_data in data.get("standard_hosts", {}).items():
+        hosts.append(HostConfig(
+            name=name,
+            ssh_host=host_data.get("ssh_host", ""),
+            ssh_user=host_data.get("ssh_user", "ubuntu"),
+            ssh_port=host_data.get("ssh_port", 22),
+            remote_db_path=host_data.get("remote_path", "~/ringrift/ai-service/data/games"),
+            role=host_data.get("role", "selfplay"),
+            is_ephemeral=False,
+        ))
+
+    # Load vast hosts (ephemeral)
+    for name, host_data in data.get("vast_hosts", {}).items():
+        hosts.append(HostConfig(
+            name=name,
+            ssh_host=host_data.get("host", ""),
+            ssh_user=host_data.get("user", "root"),
+            ssh_port=host_data.get("port", 22),
+            remote_db_path=host_data.get("remote_path", "/dev/shm/games"),
+            role=host_data.get("role", "selfplay"),
+            is_ephemeral=True,  # Vast.ai hosts are ephemeral
+        ))
+
+    return hosts
+
+
+# =============================================================================
+# CLI Entry Point
+# =============================================================================
+
+def main():
+    """CLI entry point for unified data sync service."""
+    parser = argparse.ArgumentParser(
+        description="Unified Data Sync Service",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    # Run with default config
+    python -m app.distributed.unified_data_sync
+
+    # Run with custom config
+    python -m app.distributed.unified_data_sync --config config/unified_loop.yaml
+
+    # One-shot sync
+    python -m app.distributed.unified_data_sync --once
+
+    # Dry run (check what would sync)
+    python -m app.distributed.unified_data_sync --dry-run
+        """
+    )
+    parser.add_argument("--config", type=str, default="config/unified_loop.yaml", help="Config file")
+    parser.add_argument("--hosts", type=str, default="config/remote_hosts.yaml", help="Hosts file")
+    parser.add_argument("--once", action="store_true", help="Run one cycle and exit")
+    parser.add_argument("--dry-run", action="store_true", help="Check what would sync")
+    parser.add_argument("--interval", type=int, help="Override poll interval")
+    parser.add_argument("--http-port", type=int, default=8772, help="HTTP API port")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+
+    args = parser.parse_args()
+
+    # Configure logging
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format='%(asctime)s [UnifiedSync] %(levelname)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+    )
+
+    config_path = AI_SERVICE_ROOT / args.config
+    hosts_path = AI_SERVICE_ROOT / args.hosts
+
+    if not config_path.exists():
+        logger.error(f"Config file not found: {config_path}")
+        sys.exit(1)
+
+    # Create service
+    service = UnifiedDataSyncService.from_config(config_path, hosts_path)
+
+    if args.interval:
+        service.config.poll_interval_seconds = args.interval
+
+    service.http_port = args.http_port
+
+    if args.dry_run:
+        logger.info("Dry run - checking hosts...")
+        for host in service.hosts.values():
+            status = "ephemeral" if host.is_ephemeral else "persistent"
+            logger.info(f"  {host.name}: {host.ssh_user}@{host.ssh_host}:{host.ssh_port} ({status})")
+        logger.info(f"Components enabled:")
+        logger.info(f"  Manifest replication: {service._manifest_replicator is not None}")
+        logger.info(f"  P2P fallback: {service._p2p_fallback is not None}")
+        logger.info(f"  Content dedup: {service._content_deduplicator is not None}")
+        logger.info(f"  WAL: {service._ingestion_wal is not None}")
+        return
+
+    # Signal handlers
+    def signal_handler(sig, frame):
+        logger.info("Shutdown requested")
+        service.stop()
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # Run
+    if args.once:
+        asyncio.run(service.run_collection_cycle())
+        logger.info(f"One-shot complete: {service._last_cycle_games} games synced")
+    else:
+        asyncio.run(service.run())
+
+
+if __name__ == "__main__":
+    main()

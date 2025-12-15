@@ -31,6 +31,7 @@ import shutil
 import sqlite3
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -605,13 +606,16 @@ class ManifestReplicator:
 def create_replicator_from_config(
     manifest_path: Path,
     hosts_config_path: Path,
-    min_replicas: int = 2,
+    min_replicas: int = 3,  # Increased from 2 for better resilience
+    external_backup_path: Optional[Path] = None,
 ) -> ManifestReplicator:
     """Create a ManifestReplicator from configuration files.
 
     Args:
         manifest_path: Path to local manifest DB
         hosts_config_path: Path to remote_hosts.yaml
+        min_replicas: Minimum replicas required for safety (default: 3)
+        external_backup_path: Optional path for external drive backup
 
     Returns:
         Configured ManifestReplicator instance
@@ -645,8 +649,15 @@ def create_replicator_from_config(
         # Limit to first N hosts to avoid excessive replication
         replica_hosts = replica_hosts[:5]
 
+    # Default external backup path if on macOS with external drive
+    if external_backup_path is None:
+        default_external = Path("/Volumes/RingRift-Data/selfplay_repository/manifest_backup/data_manifest.db")
+        if default_external.parent.parent.exists():  # Check if drive is mounted
+            external_backup_path = default_external
+
     return ManifestReplicator(
         local_manifest_path=manifest_path,
         replica_hosts=replica_hosts,
         min_replicas=min_replicas,
+        external_backup_path=external_backup_path,
     )

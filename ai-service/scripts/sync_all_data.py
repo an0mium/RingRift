@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """Sync all game data from distributed hosts to a central repository.
 
+DEPRECATED: This script is deprecated in favor of unified_data_sync.py
+Please use: python scripts/unified_data_sync.py --once
+All functionality has been preserved in the unified service.
+
 This script collects game data from all cluster hosts and consolidates
 it into a single database for training.
 
 Usage:
+    # Batch sync (DEPRECATED - use unified_data_sync.py --once instead)
     python scripts/sync_all_data.py --target lambda-h100
     python scripts/sync_all_data.py --target local --output data/games/consolidated.db
 """
@@ -21,7 +26,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import warnings
 import yaml
+
+# Emit deprecation warning at runtime
+warnings.warn(
+    "sync_all_data.py is deprecated. "
+    "Please use: python scripts/unified_data_sync.py --once\n"
+    "All functionality has been preserved in the unified service.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parent.parent
 

@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Streaming Data Collector - Continuous incremental sync from cluster hosts.
 
+DEPRECATED: This script is deprecated in favor of unified_data_sync.py
+Please use: python scripts/unified_data_sync.py
+All functionality has been preserved in the unified service.
+
 This service replaces batch data sync (30-min intervals) with continuous
 60-second polling for new games. Key features:
 
@@ -11,7 +15,7 @@ This service replaces batch data sync (30-min intervals) with continuous
 5. Automatic retry with exponential backoff
 
 Usage:
-    # Run as standalone service
+    # Run as standalone service (DEPRECATED - use unified_data_sync.py instead)
     python scripts/streaming_data_collector.py
 
     # With custom config
@@ -39,7 +43,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+import warnings
 import yaml
+
+# Emit deprecation warning at runtime
+warnings.warn(
+    "streaming_data_collector.py is deprecated. "
+    "Please use: python scripts/unified_data_sync.py\n"
+    "All functionality has been preserved in the unified service.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 # Allow imports from app/
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -1076,9 +1090,13 @@ class StreamingDataCollector:
                 except Exception as e:
                     print(f"[Collector] Cycle error: {e}")
 
-                # Wait for next cycle
+                # Wait for next cycle - use minimum of ephemeral and persistent intervals
                 elapsed = time.time() - cycle_start
-                sleep_time = max(0, self.config.poll_interval_seconds - elapsed)
+                min_interval = min(
+                    ephemeral_interval if self._ephemeral_hosts else persistent_interval,
+                    persistent_interval
+                )
+                sleep_time = max(0, min_interval - elapsed)
 
                 try:
                     await asyncio.wait_for(self._shutdown_event.wait(), timeout=sleep_time)

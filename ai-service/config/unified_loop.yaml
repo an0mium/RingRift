@@ -12,6 +12,7 @@ version: '1.1'
 # Data ingestion from remote hosts
 data_ingestion:
   poll_interval_seconds: 60 # Check for new games every 60s
+  ephemeral_poll_interval_seconds: 15 # Aggressive sync for RAM disk hosts (Vast.ai)
   sync_method: 'incremental' # "incremental" (rsync append) or "full"
   deduplication: true # Deduplicate games by ID across hosts
   min_games_per_sync: 5 # Reduced from 10 - sync smaller batches more frequently
@@ -21,6 +22,12 @@ data_ingestion:
   retry_max_attempts: 3 # Max retries with exponential backoff
   retry_base_delay_seconds: 5 # Base delay for exponential backoff
   dead_letter_enabled: true # Enable dead-letter queue for failed syncs
+  # Write-ahead log for crash recovery
+  wal_enabled: true # Prevent data loss on crash
+  wal_db_path: 'data/sync_wal.db' # WAL database path
+  # Elo database replication
+  elo_replication_enabled: true # Replicate Elo DB to cluster
+  elo_replication_interval_seconds: 60 # Replicate every minute
 
 # Automatic training triggers
 training:

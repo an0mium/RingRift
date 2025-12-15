@@ -49,10 +49,12 @@ from typing import Any, Dict, Generator, List, Optional
 DEFAULT_SYNC_DB = Path("/tmp/ringrift_coordination/sync_mutex.db")
 
 # Lock configuration
-LOCK_TIMEOUT_SECONDS = 300  # Locks auto-expire after 5 minutes
+LOCK_TIMEOUT_SECONDS = 120  # Reduced from 300s to 120s for faster recovery
 MAX_CONCURRENT_SYNCS_PER_HOST = 1  # Only 1 sync per host at a time
 MAX_GLOBAL_CONCURRENT_SYNCS = 5  # Max total concurrent syncs across cluster
 LOCK_POLL_INTERVAL = 0.5  # Polling interval when waiting for lock
+HEARTBEAT_INTERVAL = 30  # Heartbeat interval for long-running syncs
+CRASH_DETECTION_THRESHOLD = 60  # Consider process crashed if no heartbeat for this long
 
 
 @dataclass
@@ -118,7 +120,8 @@ class SyncMutex:
                 holder_hostname TEXT NOT NULL,
                 acquired_at REAL NOT NULL,
                 timeout_at REAL NOT NULL,
-                metadata TEXT DEFAULT '{}'
+                metadata TEXT DEFAULT '{}',
+                last_heartbeat REAL DEFAULT 0
             );
 
             -- Unique constraint: only one lock per host
@@ -129,6 +132,13 @@ class SyncMutex:
             CREATE INDEX IF NOT EXISTS idx_sync_locks_timeout
                 ON sync_locks(timeout_at);
         ''')
+
+        # Add last_heartbeat column if it doesn't exist (migration)
+        try:
+            conn.execute("SELECT last_heartbeat FROM sync_locks LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE sync_locks ADD COLUMN last_heartbeat REAL DEFAULT 0")
+
         conn.commit()
 
     def acquire(
@@ -288,13 +298,19 @@ class SyncMutex:
         ]
 
     def _cleanup_expired(self, conn: sqlite3.Connection) -> int:
-        """Remove expired locks."""
+        """Remove expired locks and crashed process locks."""
+        # Remove timed-out locks
         cursor = conn.execute(
             'DELETE FROM sync_locks WHERE timeout_at < ?', (time.time(),)
         )
-        if cursor.rowcount > 0:
+        expired_count = cursor.rowcount
+
+        # Also clean up crashed locks (does its own commit)
+        crashed_count = self.cleanup_crashed_locks()
+
+        if expired_count > 0:
             conn.commit()
-        return cursor.rowcount
+        return expired_count + crashed_count
 
     def force_release(self, host: str) -> bool:
         """Force release a lock (admin use only).
@@ -311,6 +327,105 @@ class SyncMutex:
         )
         conn.commit()
         return cursor.rowcount > 0
+
+    def heartbeat(self, host: str) -> bool:
+        """Update heartbeat for a lock to indicate the process is alive.
+
+        Should be called periodically (every HEARTBEAT_INTERVAL seconds)
+        for long-running sync operations.
+
+        Args:
+            host: Host whose lock to update
+
+        Returns:
+            True if heartbeat was recorded
+        """
+        conn = self._get_connection()
+        now = time.time()
+        pid = os.getpid()
+        hostname = socket.gethostname()
+
+        # Only update if we own the lock
+        cursor = conn.execute(
+            '''UPDATE sync_locks
+               SET last_heartbeat = ?
+               WHERE host = ? AND holder_pid = ? AND holder_hostname = ?''',
+            (now, host, pid, hostname)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+    def _is_process_alive(self, pid: int, hostname: str) -> bool:
+        """Check if a process is still alive.
+
+        Only works for processes on the same host. For remote hosts,
+        relies on heartbeat mechanism.
+        """
+        current_hostname = socket.gethostname()
+
+        # For remote hosts, we can't check PID - rely on heartbeat
+        if hostname != current_hostname:
+            return True  # Assume alive, let heartbeat timeout handle it
+
+        # For local processes, check if PID exists
+        try:
+            os.kill(pid, 0)  # Signal 0 just checks if process exists
+            return True
+        except OSError:
+            return False
+
+    def cleanup_crashed_locks(self) -> int:
+        """Clean up locks from crashed processes.
+
+        Releases locks where:
+        1. The process is dead (local hosts only)
+        2. No heartbeat received for CRASH_DETECTION_THRESHOLD seconds
+
+        Returns:
+            Number of locks cleaned up
+        """
+        conn = self._get_connection()
+        now = time.time()
+        cleaned = 0
+
+        # Get all active locks
+        cursor = conn.execute(
+            '''SELECT lock_id, host, holder_pid, holder_hostname,
+                      last_heartbeat, acquired_at
+               FROM sync_locks'''
+        )
+        locks = cursor.fetchall()
+
+        for lock in locks:
+            should_release = False
+            reason = ""
+
+            lock_id = lock["lock_id"]
+            host = lock["host"]
+            pid = lock["holder_pid"]
+            hostname = lock["holder_hostname"]
+            last_heartbeat = lock["last_heartbeat"] or lock["acquired_at"]
+
+            # Check if process is dead (local only)
+            if not self._is_process_alive(pid, hostname):
+                should_release = True
+                reason = f"process {pid} on {hostname} is dead"
+
+            # Check heartbeat timeout
+            elif now - last_heartbeat > CRASH_DETECTION_THRESHOLD:
+                should_release = True
+                reason = f"no heartbeat for {now - last_heartbeat:.0f}s"
+
+            if should_release:
+                conn.execute('DELETE FROM sync_locks WHERE lock_id = ?', (lock_id,))
+                cleaned += 1
+                # Log using print since this is coordination code
+                print(f"[SyncMutex] Released stale lock for {host}: {reason}")
+
+        if cleaned > 0:
+            conn.commit()
+
+        return cleaned
 
     def get_stats(self) -> Dict[str, Any]:
         """Get sync mutex statistics."""
@@ -448,6 +563,16 @@ def sync_lock_required(
         yield
     finally:
         mutex.release(host)
+
+
+def sync_heartbeat(host: str) -> bool:
+    """Update heartbeat for a sync lock."""
+    return get_sync_mutex().heartbeat(host)
+
+
+def cleanup_crashed_sync_locks() -> int:
+    """Clean up locks from crashed processes."""
+    return get_sync_mutex().cleanup_crashed_locks()
 
 
 # Command-line interface

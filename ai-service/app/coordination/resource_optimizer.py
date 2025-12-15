@@ -137,10 +137,15 @@ class ClusterState:
     total_cpu_util: float = 0.0
     total_gpu_util: float = 0.0
     total_memory_util: float = 0.0
+    total_gpu_memory_util: float = 0.0  # GPU VRAM utilization
     gpu_node_count: int = 0
     cpu_node_count: int = 0
     total_jobs: int = 0
     updated_at: float = 0.0
+
+    # GPU memory thresholds
+    GPU_MEMORY_WARNING: float = 80.0  # Start throttling new GPU work
+    GPU_MEMORY_CRITICAL: float = 90.0  # Stop spawning GPU jobs
 
     def compute_aggregates(self) -> None:
         """Compute aggregate statistics from node data."""
@@ -150,15 +155,51 @@ class ClusterState:
         cpu_utils = [n.cpu_percent for n in self.nodes if n.cpu_percent > 0]
         gpu_utils = [n.gpu_percent for n in self.nodes if n.has_gpu and n.gpu_percent > 0]
         mem_utils = [n.memory_percent for n in self.nodes if n.memory_percent > 0]
+        gpu_mem_utils = [n.gpu_memory_percent for n in self.nodes if n.has_gpu and n.gpu_memory_percent > 0]
 
         self.total_cpu_util = sum(cpu_utils) / len(cpu_utils) if cpu_utils else 0.0
         self.total_gpu_util = sum(gpu_utils) / len(gpu_utils) if gpu_utils else 0.0
         self.total_memory_util = sum(mem_utils) / len(mem_utils) if mem_utils else 0.0
+        self.total_gpu_memory_util = sum(gpu_mem_utils) / len(gpu_mem_utils) if gpu_mem_utils else 0.0
 
         self.gpu_node_count = len([n for n in self.nodes if n.has_gpu])
         self.cpu_node_count = len(self.nodes)
         self.total_jobs = sum(n.active_jobs for n in self.nodes)
         self.updated_at = time.time()
+
+    def is_gpu_memory_constrained(self) -> bool:
+        """Check if GPU memory is constrained across the cluster.
+
+        Returns:
+            True if GPU memory is above warning threshold on any GPU node
+        """
+        for node in self.nodes:
+            if node.has_gpu and node.gpu_memory_percent > self.GPU_MEMORY_WARNING:
+                return True
+        return False
+
+    def is_gpu_memory_critical(self) -> bool:
+        """Check if GPU memory is critically high.
+
+        Returns:
+            True if GPU memory is above critical threshold on any GPU node
+        """
+        for node in self.nodes:
+            if node.has_gpu and node.gpu_memory_percent > self.GPU_MEMORY_CRITICAL:
+                return True
+        return False
+
+    def get_gpu_memory_status(self) -> str:
+        """Get GPU memory status string.
+
+        Returns:
+            Status: 'ok', 'warning', or 'critical'
+        """
+        if self.is_gpu_memory_critical():
+            return "critical"
+        elif self.is_gpu_memory_constrained():
+            return "warning"
+        return "ok"
 
 
 @dataclass
@@ -380,6 +421,238 @@ class PIDController:
         }
 
 
+class UtilizationPredictor:
+    """Predictive scaling based on utilization trends.
+
+    Uses exponential smoothing and linear regression to predict
+    future utilization and proactively adjust job rates.
+
+    Features:
+    - Historical utilization buffer (configurable window)
+    - Exponential moving average for smoothing
+    - Linear regression for trend prediction
+    - Confidence-weighted predictions
+    """
+
+    def __init__(
+        self,
+        history_window_seconds: float = 600.0,  # 10 minutes of history
+        prediction_horizon_seconds: float = 120.0,  # Predict 2 minutes ahead
+        ema_alpha: float = 0.2,  # Smoothing factor for EMA
+        min_samples_for_prediction: int = 10,  # Min data points for prediction
+    ):
+        self.history_window_seconds = history_window_seconds
+        self.prediction_horizon_seconds = prediction_horizon_seconds
+        self.ema_alpha = ema_alpha
+        self.min_samples_for_prediction = min_samples_for_prediction
+
+        # Historical data: list of (timestamp, cpu_util, gpu_util, gpu_mem_util)
+        self._history: List[Tuple[float, float, float, float]] = []
+        self._lock = threading.Lock()
+
+        # EMA values
+        self._ema_cpu: Optional[float] = None
+        self._ema_gpu: Optional[float] = None
+        self._ema_gpu_mem: Optional[float] = None
+
+    def record_sample(
+        self,
+        cpu_util: float,
+        gpu_util: float,
+        gpu_mem_util: float = 0.0,
+        timestamp: Optional[float] = None,
+    ) -> None:
+        """Record a utilization sample.
+
+        Args:
+            cpu_util: CPU utilization percentage (0-100)
+            gpu_util: GPU utilization percentage (0-100)
+            gpu_mem_util: GPU memory utilization percentage (0-100)
+            timestamp: Sample timestamp (defaults to now)
+        """
+        ts = timestamp if timestamp is not None else time.time()
+
+        with self._lock:
+            # Add to history
+            self._history.append((ts, cpu_util, gpu_util, gpu_mem_util))
+
+            # Update EMA
+            if self._ema_cpu is None:
+                self._ema_cpu = cpu_util
+                self._ema_gpu = gpu_util
+                self._ema_gpu_mem = gpu_mem_util
+            else:
+                self._ema_cpu = self.ema_alpha * cpu_util + (1 - self.ema_alpha) * self._ema_cpu
+                self._ema_gpu = self.ema_alpha * gpu_util + (1 - self.ema_alpha) * self._ema_gpu
+                self._ema_gpu_mem = self.ema_alpha * gpu_mem_util + (1 - self.ema_alpha) * self._ema_gpu_mem
+
+            # Prune old samples
+            cutoff = ts - self.history_window_seconds
+            self._history = [(t, c, g, m) for t, c, g, m in self._history if t > cutoff]
+
+    def _calculate_trend(self, data: List[Tuple[float, float]]) -> Tuple[float, float]:
+        """Calculate linear trend using least squares regression.
+
+        Args:
+            data: List of (timestamp, value) pairs
+
+        Returns:
+            Tuple of (slope, intercept) for the trend line
+        """
+        if len(data) < 2:
+            return 0.0, data[0][1] if data else 0.0
+
+        n = len(data)
+        sum_t = sum(t for t, _ in data)
+        sum_v = sum(v for _, v in data)
+        sum_tv = sum(t * v for t, v in data)
+        sum_t2 = sum(t * t for t, _ in data)
+
+        # Least squares
+        denom = n * sum_t2 - sum_t * sum_t
+        if abs(denom) < 1e-9:
+            return 0.0, sum_v / n
+
+        slope = (n * sum_tv - sum_t * sum_v) / denom
+        intercept = (sum_v - slope * sum_t) / n
+
+        return slope, intercept
+
+    def predict(self) -> Optional[Dict[str, Any]]:
+        """Predict future utilization based on historical trends.
+
+        Returns:
+            Prediction dictionary with expected utilization and confidence,
+            or None if insufficient data
+        """
+        with self._lock:
+            if len(self._history) < self.min_samples_for_prediction:
+                return None
+
+            now = time.time()
+            future_ts = now + self.prediction_horizon_seconds
+
+            # Extract time series for each metric
+            cpu_data = [(t, c) for t, c, _, _ in self._history]
+            gpu_data = [(t, g) for t, _, g, _ in self._history]
+            gpu_mem_data = [(t, m) for t, _, _, m in self._history]
+
+            # Calculate trends
+            cpu_slope, cpu_intercept = self._calculate_trend(cpu_data)
+            gpu_slope, gpu_intercept = self._calculate_trend(gpu_data)
+            gpu_mem_slope, gpu_mem_intercept = self._calculate_trend(gpu_mem_data)
+
+            # Predict future values
+            predicted_cpu = cpu_intercept + cpu_slope * future_ts
+            predicted_gpu = gpu_intercept + gpu_slope * future_ts
+            predicted_gpu_mem = gpu_mem_intercept + gpu_mem_slope * future_ts
+
+            # Clamp predictions to valid range
+            predicted_cpu = max(0.0, min(100.0, predicted_cpu))
+            predicted_gpu = max(0.0, min(100.0, predicted_gpu))
+            predicted_gpu_mem = max(0.0, min(100.0, predicted_gpu_mem))
+
+            # Calculate confidence based on data consistency
+            # More samples and lower variance = higher confidence
+            sample_count = len(self._history)
+            max_samples = int(self.history_window_seconds / UTILIZATION_UPDATE_INTERVAL)
+            sample_confidence = min(1.0, sample_count / max_samples)
+
+            # Trend stability (lower slope variance = higher confidence)
+            cpu_variance = sum((v - (cpu_intercept + cpu_slope * t)) ** 2 for t, v in cpu_data) / sample_count
+            trend_stability = max(0.1, 1.0 - min(1.0, cpu_variance / 100.0))
+
+            confidence = sample_confidence * trend_stability
+
+            return {
+                "timestamp": now,
+                "prediction_horizon_seconds": self.prediction_horizon_seconds,
+                "predicted_cpu": predicted_cpu,
+                "predicted_gpu": predicted_gpu,
+                "predicted_gpu_mem": predicted_gpu_mem,
+                "cpu_trend": "rising" if cpu_slope > 0.5 else "falling" if cpu_slope < -0.5 else "stable",
+                "gpu_trend": "rising" if gpu_slope > 0.5 else "falling" if gpu_slope < -0.5 else "stable",
+                "cpu_slope_per_min": cpu_slope * 60,  # % change per minute
+                "gpu_slope_per_min": gpu_slope * 60,
+                "confidence": confidence,
+                "samples_used": sample_count,
+                "ema_cpu": self._ema_cpu,
+                "ema_gpu": self._ema_gpu,
+                "ema_gpu_mem": self._ema_gpu_mem,
+            }
+
+    def get_proactive_adjustment(self) -> Optional[Dict[str, Any]]:
+        """Get proactive scaling recommendation based on predictions.
+
+        Returns:
+            Recommendation dictionary or None if no action needed
+        """
+        prediction = self.predict()
+        if prediction is None:
+            return None
+
+        # Only act on high-confidence predictions
+        if prediction["confidence"] < 0.5:
+            return None
+
+        action = None
+        reason = None
+
+        # Check if we're heading toward underutilization
+        if prediction["predicted_cpu"] < TARGET_UTIL_MIN - 10 or \
+           prediction["predicted_gpu"] < TARGET_UTIL_MIN - 10:
+            # Utilization trending down toward underutilization
+            action = "scale_up"
+            reason = f"Predicted underutilization: CPU={prediction['predicted_cpu']:.1f}%, GPU={prediction['predicted_gpu']:.1f}%"
+
+        # Check if we're heading toward overutilization
+        elif prediction["predicted_cpu"] > TARGET_UTIL_MAX + 10 or \
+             prediction["predicted_gpu"] > TARGET_UTIL_MAX + 10:
+            action = "scale_down"
+            reason = f"Predicted overutilization: CPU={prediction['predicted_cpu']:.1f}%, GPU={prediction['predicted_gpu']:.1f}%"
+
+        # Check GPU memory trend
+        elif prediction["predicted_gpu_mem"] > ClusterState.GPU_MEMORY_WARNING:
+            action = "scale_down"
+            reason = f"Predicted GPU memory pressure: {prediction['predicted_gpu_mem']:.1f}%"
+
+        if action is None:
+            return None
+
+        # Calculate suggested rate multiplier
+        if action == "scale_up":
+            # How far below target are we heading?
+            gap = min(
+                TARGET_UTIL_OPTIMAL - prediction["predicted_cpu"],
+                TARGET_UTIL_OPTIMAL - prediction["predicted_gpu"]
+            )
+            multiplier = 1.0 + min(0.3, gap / 50.0)  # Max 30% increase
+        else:
+            # How far above target are we heading?
+            gap = max(
+                prediction["predicted_cpu"] - TARGET_UTIL_OPTIMAL,
+                prediction["predicted_gpu"] - TARGET_UTIL_OPTIMAL,
+                prediction["predicted_gpu_mem"] - ClusterState.GPU_MEMORY_WARNING
+            )
+            multiplier = max(0.7, 1.0 - gap / 50.0)  # Max 30% decrease
+
+        return {
+            "action": action,
+            "reason": reason,
+            "rate_multiplier": multiplier,
+            "confidence": prediction["confidence"],
+            "prediction": prediction,
+        }
+
+    def clear(self) -> None:
+        """Clear history and reset state."""
+        with self._lock:
+            self._history.clear()
+            self._ema_cpu = None
+            self._ema_gpu = None
+            self._ema_gpu_mem = None
+
+
 class ResourceOptimizer:
     """Cooperative resource optimizer for RingRift cluster.
 
@@ -432,6 +705,10 @@ class ResourceOptimizer:
         # Cached state
         self._cached_cluster_state: Optional[ClusterState] = None
         self._cache_updated_at = 0.0
+
+        # Predictive scaling
+        self._predictor = UtilizationPredictor()
+        self._predictive_scaling_enabled = True
 
         # Initialize database
         self._init_db()
@@ -693,6 +970,15 @@ class ResourceOptimizer:
 
         state = ClusterState(nodes=nodes)
         state.compute_aggregates()
+
+        # Record sample for predictive scaling
+        if self._predictive_scaling_enabled and state.cpu_node_count > 0:
+            self._predictor.record_sample(
+                cpu_util=state.total_cpu_util,
+                gpu_util=state.total_gpu_util,
+                gpu_mem_util=state.total_gpu_memory_util,
+                timestamp=now,
+            )
 
         self._cached_cluster_state = state
         self._cache_updated_at = now
@@ -1005,11 +1291,15 @@ class ResourceOptimizer:
         state = self.get_cluster_state()
         rec = self.get_optimization_recommendation()
 
+        # GPU memory status codes: 0=ok, 1=warning, 2=critical
+        gpu_mem_status_codes = {"ok": 0, "warning": 1, "critical": 2}
+
         return {
             # Cluster-wide utilization
             "ringrift_cluster_cpu_utilization": state.total_cpu_util / 100,
             "ringrift_cluster_gpu_utilization": state.total_gpu_util / 100,
             "ringrift_cluster_memory_utilization": state.total_memory_util / 100,
+            "ringrift_cluster_gpu_memory_utilization": state.total_gpu_memory_util / 100,
 
             # Target range
             "ringrift_target_util_min": TARGET_UTIL_MIN / 100,
@@ -1033,6 +1323,12 @@ class ResourceOptimizer:
             "ringrift_gpu_in_target_range": int(
                 TARGET_UTIL_MIN <= state.total_gpu_util <= TARGET_UTIL_MAX
             ) if state.gpu_node_count > 0 else 1,
+
+            # GPU memory status (0=ok, 1=warning, 2=critical)
+            "ringrift_gpu_memory_status": gpu_mem_status_codes.get(
+                state.get_gpu_memory_status(), 0
+            ),
+            "ringrift_gpu_memory_constrained": int(state.is_gpu_memory_constrained()),
         }
 
     # =========================================================================
@@ -1068,9 +1364,9 @@ class ResourceOptimizer:
             else cluster_state.total_cpu_util
         )
 
-        # Calculate approved rate based on utilization
+        # Calculate approved rate based on utilization and GPU memory
         approved_rate = self._calculate_approved_rate(
-            requested_rate, current_util, reason
+            requested_rate, current_util, reason, cluster_state
         )
 
         # Build response
@@ -1109,8 +1405,19 @@ class ResourceOptimizer:
         requested_rate: int,
         current_utilization: float,
         reason: str,
+        cluster_state: Optional[ClusterState] = None,
     ) -> int:
-        """Calculate approved rate based on current utilization."""
+        """Calculate approved rate based on current utilization and GPU memory.
+
+        Args:
+            requested_rate: Requested selfplay rate
+            current_utilization: Current CPU/GPU utilization percentage
+            reason: Reason for the request
+            cluster_state: Optional cluster state for GPU memory checks
+
+        Returns:
+            Approved rate (may be reduced for high GPU memory usage)
+        """
 
         MIN_RATE = 100
         MAX_RATE = 5000
@@ -1118,6 +1425,24 @@ class ResourceOptimizer:
         # Emergency reasons always get approved
         if "emergency" in reason.lower() or "critical" in reason.lower():
             return max(MIN_RATE, min(requested_rate, MAX_RATE))
+
+        # Check GPU memory constraints first (if cluster_state available)
+        gpu_memory_multiplier = 1.0
+        if cluster_state is not None:
+            if cluster_state.is_gpu_memory_critical():
+                # Critical GPU memory: aggressive throttling
+                gpu_memory_multiplier = 0.3
+                logger.warning(
+                    f"GPU memory critical ({cluster_state.total_gpu_memory_util:.1f}%), "
+                    f"throttling rate to {gpu_memory_multiplier*100:.0f}%"
+                )
+            elif cluster_state.is_gpu_memory_constrained():
+                # Warning: moderate throttling
+                gpu_memory_multiplier = 0.7
+                logger.info(
+                    f"GPU memory constrained ({cluster_state.total_gpu_memory_util:.1f}%), "
+                    f"reducing rate to {gpu_memory_multiplier*100:.0f}%"
+                )
 
         # Calculate adjustment based on utilization gap from target
         if current_utilization < TARGET_UTIL_MIN:
@@ -1140,6 +1465,10 @@ class ResourceOptimizer:
         else:
             # Within target range
             adjusted_rate = requested_rate
+
+        # Apply GPU memory constraint multiplier
+        if gpu_memory_multiplier < 1.0:
+            adjusted_rate = int(adjusted_rate * gpu_memory_multiplier)
 
         # Apply bounds
         return max(MIN_RATE, min(adjusted_rate, MAX_RATE))
@@ -1333,12 +1662,22 @@ class ResourceOptimizer:
         elif cpu_status == "overutilized" or gpu_status == "overutilized":
             overall_status = "above"
 
+        # GPU memory status
+        gpu_memory_status = cluster_state.get_gpu_memory_status()
+
+        # Include GPU memory in overall status determination
+        if gpu_memory_status == "critical":
+            overall_status = "gpu_memory_critical"
+        elif gpu_memory_status == "warning" and overall_status == "optimal":
+            overall_status = "gpu_memory_warning"
+
         return {
             "timestamp": time.time(),
             "active_nodes": cluster_state.cpu_node_count,
             "total_jobs": cluster_state.total_jobs,
             "cpu_util": cluster_state.total_cpu_util,
             "gpu_util": cluster_state.total_gpu_util,
+            "gpu_memory_util": cluster_state.total_gpu_memory_util,
             "status": overall_status,
             "current_rate": self.get_current_selfplay_rate(),
             "cpu": {
@@ -1353,6 +1692,12 @@ class ResourceOptimizer:
                 "gpu_nodes": cluster_state.gpu_node_count,
                 "target_min": TARGET_UTIL_MIN,
                 "target_max": TARGET_UTIL_MAX,
+            },
+            "gpu_memory": {
+                "avg_percent": cluster_state.total_gpu_memory_util,
+                "status": gpu_memory_status,
+                "warning_threshold": ClusterState.GPU_MEMORY_WARNING,
+                "critical_threshold": ClusterState.GPU_MEMORY_CRITICAL,
             },
             "selfplay_rate": self.get_current_selfplay_rate(),
             "recommendation": self._get_recommendation(cluster_state),
@@ -1377,6 +1722,89 @@ class ResourceOptimizer:
             return f"Scale DOWN: {over:.0f}% above target, reduce selfplay jobs"
         else:
             return f"OPTIMAL: Utilization {util:.0f}% within 60-80% target range"
+
+    # =========================================================================
+    # Predictive Scaling
+    # =========================================================================
+
+    def get_prediction(self) -> Optional[Dict[str, Any]]:
+        """Get utilization prediction.
+
+        Returns:
+            Prediction dictionary or None if insufficient data
+        """
+        return self._predictor.predict()
+
+    def get_proactive_adjustment(self) -> Optional[Dict[str, Any]]:
+        """Get proactive scaling recommendation based on predictions.
+
+        Returns:
+            Recommendation dictionary or None if no action needed
+        """
+        if not self._predictive_scaling_enabled:
+            return None
+        return self._predictor.get_proactive_adjustment()
+
+    def apply_proactive_adjustment(self, requestor: str = "predictive") -> Optional[int]:
+        """Apply proactive rate adjustment based on utilization predictions.
+
+        This should be called periodically to enable proactive scaling.
+
+        Args:
+            requestor: Identifier for the requestor
+
+        Returns:
+            New approved rate, or None if no adjustment needed
+        """
+        if not self._predictive_scaling_enabled:
+            return None
+
+        adjustment = self.get_proactive_adjustment()
+        if adjustment is None:
+            return None
+
+        # Get current rate
+        current_rate = self.get_current_selfplay_rate()
+
+        # Apply multiplier
+        new_rate = int(current_rate * adjustment["rate_multiplier"])
+
+        # Use negotiation to validate and persist
+        reason = f"proactive_{adjustment['action']}: {adjustment['reason']}"
+        approved_rate = self.negotiate_selfplay_rate(new_rate, reason, requestor)
+
+        logger.info(
+            f"Proactive adjustment: {adjustment['action']} from {current_rate} to {approved_rate} "
+            f"(confidence={adjustment['confidence']:.2f})"
+        )
+
+        return approved_rate
+
+    def set_predictive_scaling_enabled(self, enabled: bool) -> None:
+        """Enable or disable predictive scaling.
+
+        Args:
+            enabled: Whether to enable predictive scaling
+        """
+        self._predictive_scaling_enabled = enabled
+        if not enabled:
+            self._predictor.clear()
+        logger.info(f"Predictive scaling {'enabled' if enabled else 'disabled'}")
+
+    def get_predictor_state(self) -> Dict[str, Any]:
+        """Get predictor state for monitoring.
+
+        Returns:
+            Dictionary with predictor state
+        """
+        prediction = self._predictor.predict()
+        return {
+            "enabled": self._predictive_scaling_enabled,
+            "sample_count": len(self._predictor._history),
+            "history_window_seconds": self._predictor.history_window_seconds,
+            "prediction": prediction,
+            "proactive_adjustment": self.get_proactive_adjustment(),
+        }
 
     # =========================================================================
     # History Recording
@@ -1552,3 +1980,30 @@ def get_config_weights() -> Dict[str, float]:
 def get_config_weight_details() -> List[Dict[str, Any]]:
     """Get detailed config weight information."""
     return get_resource_optimizer().get_config_weight_details()
+
+
+# =============================================================================
+# Predictive Scaling Functions
+# =============================================================================
+
+def get_prediction() -> Optional[Dict[str, Any]]:
+    """Get utilization prediction based on historical data."""
+    return get_resource_optimizer().get_prediction()
+
+
+def get_proactive_adjustment() -> Optional[Dict[str, Any]]:
+    """Get proactive scaling recommendation based on predictions."""
+    return get_resource_optimizer().get_proactive_adjustment()
+
+
+def apply_proactive_adjustment(requestor: str = "predictive") -> Optional[int]:
+    """Apply proactive rate adjustment based on utilization predictions.
+
+    Call this periodically (e.g., every 2-5 minutes) to enable proactive scaling.
+    """
+    return get_resource_optimizer().apply_proactive_adjustment(requestor)
+
+
+def get_predictor_state() -> Dict[str, Any]:
+    """Get predictor state for monitoring."""
+    return get_resource_optimizer().get_predictor_state()

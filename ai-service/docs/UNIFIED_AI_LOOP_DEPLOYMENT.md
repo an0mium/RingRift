@@ -475,20 +475,187 @@ ssh ubuntu@209.20.157.81 'cd ~/ringrift/ai-service && python3 scripts/unified_ai
     └──────────┘         └──────────┘         └──────────┘
 ```
 
+## Cluster Utilization Optimization
+
+The unified loop includes intelligent resource optimization targeting 60-80% CPU/GPU utilization for optimal training throughput.
+
+### Overview
+
+The resource optimizer provides:
+
+- **PID Controller** - Smooth workload adjustment using proportional-integral-derivative control
+- **Rate Negotiation** - Cross-orchestrator coordination for selfplay rates
+- **GPU Memory Tracking** - Automatic throttling when GPU memory is constrained
+- **Predictive Scaling** - Proactive adjustments based on utilization trends
+- **Config Weighting** - Balanced selfplay distribution across game configurations
+
+### Configuration
+
+Resource targets are configured in `config/unified_loop.yaml`:
+
+```yaml
+resource_targets:
+  # CPU utilization targets (%)
+  cpu_min: 60 # Below this, scale up jobs
+  cpu_target: 70 # Ideal operating point
+  cpu_max: 80 # Above this, throttle new jobs
+  cpu_critical: 90
+
+  # GPU utilization targets (%)
+  gpu_min: 60
+  gpu_target: 75 # Slightly higher than CPU
+  gpu_max: 85
+  gpu_critical: 95
+
+  # PID controller tuning
+  pid:
+    kp: 0.3 # Proportional gain
+    ki: 0.05 # Integral gain
+    kd: 0.1 # Derivative gain
+    gain_scheduling: true # Adjust gains based on error magnitude
+    output_smoothing: 0.3 # Reduce sudden changes
+```
+
+### Monitoring Utilization
+
+Key metrics exposed at `/metrics`:
+
+| Metric                                     | Description                  |
+| ------------------------------------------ | ---------------------------- |
+| `ringrift_cluster_cpu_utilization_percent` | Cluster-wide CPU utilization |
+| `ringrift_cluster_gpu_utilization_percent` | Cluster-wide GPU utilization |
+| `ringrift_cluster_gpu_memory_utilization`  | GPU VRAM utilization         |
+| `ringrift_gpu_memory_status`               | 0=ok, 1=warning, 2=critical  |
+| `ringrift_optimization_action`             | Current scaling action       |
+| `ringrift_cpu_in_target_range`             | 1 if CPU in 60-80% range     |
+| `ringrift_gpu_in_target_range`             | 1 if GPU in 60-80% range     |
+
+### Grafana Dashboard
+
+The unified AI loop dashboard includes a "Cluster Utilization" section with:
+
+- CPU/GPU utilization gauges (green = 60-80%, yellow/red = outside range)
+- Selfplay rate tracking
+- Utilization over time chart
+- Config weight distribution
+
+### Prometheus Alerts
+
+Utilization alerts in `monitoring/prometheus/rules/utilization_alerts.yml`:
+
+| Alert                     | Condition                | Severity |
+| ------------------------- | ------------------------ | -------- |
+| `CPUUnderutilized`        | CPU < 60% for 30m        | Warning  |
+| `CPUOverutilized`         | CPU > 80% for 30m        | Warning  |
+| `GPUUnderutilized`        | GPU < 60% for 30m        | Warning  |
+| `GPUOverutilized`         | GPU > 80% for 30m        | Warning  |
+| `GPUCriticallyOverloaded` | GPU > 95% for 10m        | Critical |
+| `HighMemoryUtilization`   | Memory > 85% for 30m     | Warning  |
+| `ProlongedBackpressure`   | Backpressure active > 1h | Warning  |
+
+### Predictive Scaling
+
+The system predicts future utilization and proactively adjusts:
+
+```python
+from app.coordination.resource_optimizer import (
+    get_prediction,
+    get_proactive_adjustment,
+    apply_proactive_adjustment,
+)
+
+# Get utilization prediction
+prediction = get_prediction()
+# {
+#   "predicted_cpu": 75.2,
+#   "predicted_gpu": 72.8,
+#   "cpu_trend": "rising",
+#   "confidence": 0.85,
+# }
+
+# Apply proactive adjustment (call periodically)
+new_rate = apply_proactive_adjustment()
+```
+
+### GPU Memory Management
+
+GPU memory is tracked to prevent OOM errors:
+
+- **Warning threshold (80%)**: Reduce new GPU job rate by 30%
+- **Critical threshold (90%)**: Aggressive throttling to 30% of requested rate
+
+Status is available in the utilization status API:
+
+```python
+from app.coordination.resource_optimizer import get_utilization_status
+
+status = get_utilization_status()
+print(status["gpu_memory"]["status"])  # "ok", "warning", or "critical"
+```
+
+### API Reference
+
+```python
+from app.coordination.resource_optimizer import (
+    # Rate negotiation
+    negotiate_selfplay_rate,
+    get_current_selfplay_rate,
+    apply_feedback_adjustment,
+
+    # Utilization status
+    get_utilization_status,
+    get_optimization_recommendation,
+
+    # Config weights
+    update_config_weights,
+    get_config_weights,
+
+    # Predictive scaling
+    get_prediction,
+    apply_proactive_adjustment,
+)
+
+# Negotiate a selfplay rate
+approved_rate = negotiate_selfplay_rate(
+    requested_rate=1000,
+    reason="startup",
+    requestor="unified_loop"
+)
+
+# Apply feedback adjustment (call every ~30s)
+new_rate = apply_feedback_adjustment(requestor="unified_loop")
+
+# Get current status
+status = get_utilization_status()
+# {
+#   "cpu_util": 72.5,
+#   "gpu_util": 68.3,
+#   "gpu_memory_util": 45.2,
+#   "status": "optimal",
+#   "current_rate": 850,
+#   "recommendation": "OPTIMAL: Utilization 70% within 60-80% target range"
+# }
+```
+
 ## Files Reference
 
-| File                                        | Purpose                        |
-| ------------------------------------------- | ------------------------------ |
-| `scripts/unified_ai_loop.py`                | Main daemon coordinator        |
-| `scripts/deploy_unified_loop.sh`            | Cluster deployment script      |
-| `scripts/regression_gate.py`                | Pre-promotion regression tests |
-| `config/unified_loop.yaml`                  | Main configuration             |
-| `config/remote_hosts.yaml`                  | Host definitions               |
-| `config/systemd/ringrift-ai-loop.service`   | Systemd service file           |
-| `config/monitoring/grafana-dashboard.json`  | Grafana dashboard              |
-| `config/monitoring/alerting-rules.yaml`     | Prometheus alert rules         |
-| `logs/unified_loop/daemon.log`              | Daemon log file                |
-| `logs/unified_loop/unified_loop_state.json` | Persistent state               |
+| File                                                 | Purpose                        |
+| ---------------------------------------------------- | ------------------------------ |
+| `scripts/unified_ai_loop.py`                         | Main daemon coordinator        |
+| `scripts/deploy_unified_loop.sh`                     | Cluster deployment script      |
+| `scripts/regression_gate.py`                         | Pre-promotion regression tests |
+| `config/unified_loop.yaml`                           | Main configuration             |
+| `config/remote_hosts.yaml`                           | Host definitions               |
+| `config/systemd/ringrift-ai-loop.service`            | Systemd service file           |
+| `config/monitoring/grafana-dashboard.json`           | Grafana dashboard              |
+| `config/monitoring/alerting-rules.yaml`              | Prometheus alert rules         |
+| `app/coordination/resource_optimizer.py`             | Resource utilization optimizer |
+| `app/coordination/resource_targets.py`               | Utilization target definitions |
+| `monitoring/prometheus/rules/utilization_alerts.yml` | Utilization-specific alerts    |
+| `deploy/grafana/unified-ai-loop-dashboard.json`      | Main Grafana dashboard         |
+| `logs/unified_loop/daemon.log`                       | Daemon log file                |
+| `logs/unified_loop/unified_loop_state.json`          | Persistent state               |
+| `data/coordination/resource_state.db`                | Resource optimizer state DB    |
 
 ## Command Reference
 

@@ -4,6 +4,13 @@ This module provides crash-safe game ingestion using a write-ahead log.
 Games are written to the WAL before being processed, ensuring recovery
 on crash without data loss or duplication.
 
+IMPORTANT: This module has been consolidated into unified_wal.py.
+For new code, use:
+    from app.distributed.unified_wal import UnifiedWAL, WALEntry
+
+This file is maintained for backward compatibility with existing code.
+The IngestionWAL class is now a thin wrapper around UnifiedWAL.
+
 Key features:
 1. Crash-safe ingestion - games persisted before processing
 2. Idempotent replay - safe to replay WAL on recovery
@@ -30,24 +37,47 @@ Usage:
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
+from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+# Import unified WAL implementation
+try:
+    from app.distributed.unified_wal import (
+        UnifiedWAL,
+        WALEntry,
+        WALEntryType,
+        WALEntryStatus,
+        WALCheckpoint,
+        IngestionWAL as UnifiedIngestionWAL,
+        get_unified_wal,
+    )
+    HAS_UNIFIED_WAL = True
+except ImportError:
+    HAS_UNIFIED_WAL = False
+    UnifiedIngestionWAL = None
+
+# For backward compatibility, also import legacy dependencies
 import hashlib
 import json
-import logging
 import os
 import sqlite3
 import struct
 import threading
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
 
-logger = logging.getLogger(__name__)
+
+# =============================================================================
+# Legacy Implementation (kept for fallback if unified_wal not available)
+# =============================================================================
 
 
 @dataclass
-class WALEntry:
-    """A single entry in the write-ahead log."""
+class _LegacyWALEntry:
+    """A single entry in the write-ahead log (legacy format)."""
     entry_id: int
     game_id: str
     data: Dict[str, Any]
@@ -59,16 +89,16 @@ class WALEntry:
 
 
 @dataclass
-class WALCheckpoint:
-    """Checkpoint marker for WAL compaction."""
+class _LegacyWALCheckpoint:
+    """Checkpoint marker for WAL compaction (legacy)."""
     checkpoint_id: int
     last_entry_id: int
     timestamp: float
     entries_compacted: int
 
 
-class IngestionWAL:
-    """Write-ahead log for crash-safe game ingestion."""
+class _LegacyIngestionWAL:
+    """Write-ahead log for crash-safe game ingestion (legacy implementation)."""
 
     def __init__(
         self,
@@ -336,7 +366,7 @@ class IngestionWAL:
 
         entries = []
         for row in cursor.fetchall():
-            entries.append(WALEntry(
+            entries.append(_LegacyWALEntry(
                 entry_id=row[0],
                 game_id=row[1],
                 data=json.loads(row[2]),
@@ -349,7 +379,7 @@ class IngestionWAL:
         conn.close()
         return entries
 
-    def iter_unprocessed(self, batch_size: int = 100) -> Generator[WALEntry, None, None]:
+    def iter_unprocessed(self, batch_size: int = 100) -> Generator[_LegacyWALEntry, None, None]:
         """Iterate over all unprocessed entries.
 
         Yields entries in order, handling pagination automatically.
@@ -417,7 +447,7 @@ class IngestionWAL:
 
             conn.close()
 
-            return WALCheckpoint(
+            return _LegacyWALCheckpoint(
                 checkpoint_id=checkpoint_id,
                 last_entry_id=last_processed,
                 timestamp=time.time(),
@@ -556,10 +586,33 @@ class IngestionWAL:
         logger.warning("WAL cleared")
 
 
+# =============================================================================
+# Public API - Conditional Export
+# =============================================================================
+#
+# If unified_wal is available, use the consolidated implementation.
+# Otherwise, fall back to the legacy implementation.
+# =============================================================================
+
+if HAS_UNIFIED_WAL:
+    # Use unified implementation from unified_wal.py
+    IngestionWAL = UnifiedIngestionWAL
+    # Re-export from unified_wal for convenience
+    # WALEntry, WALEntryType, WALEntryStatus, WALCheckpoint already imported
+    logger.debug("Using UnifiedIngestionWAL from unified_wal.py")
+else:
+    # Use legacy implementation
+    IngestionWAL = _LegacyIngestionWAL
+    # Re-export legacy types with standard names
+    WALEntry = _LegacyWALEntry
+    WALCheckpoint = _LegacyWALCheckpoint
+    logger.warning("unified_wal not available, using legacy IngestionWAL")
+
+
 def create_ingestion_wal(
     data_dir: Path,
     max_unprocessed: int = 10000,
-) -> IngestionWAL:
+) -> "IngestionWAL":
     """Factory function to create an ingestion WAL.
 
     Args:
@@ -567,10 +620,19 @@ def create_ingestion_wal(
         max_unprocessed: Maximum unprocessed entries
 
     Returns:
-        Configured IngestionWAL instance
+        Configured IngestionWAL instance (unified or legacy)
     """
     wal_dir = data_dir / "ingestion_wal"
     return IngestionWAL(
         wal_dir=wal_dir,
         max_unprocessed=max_unprocessed,
     )
+
+
+# Re-export for backward compatibility
+__all__ = [
+    "IngestionWAL",
+    "WALEntry",
+    "WALCheckpoint",
+    "create_ingestion_wal",
+]

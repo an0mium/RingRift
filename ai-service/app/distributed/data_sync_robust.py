@@ -37,6 +37,22 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
+# Import unified WAL (consolidated from multiple implementations)
+try:
+    from app.distributed.unified_wal import (
+        UnifiedWAL,
+        WALEntry,
+        WALEntryType,
+        WALEntryStatus,
+        WALStats,
+        WriteAheadLog as UnifiedWriteAheadLog,  # Compatibility alias
+        get_unified_wal,
+    )
+    HAS_UNIFIED_WAL = True
+except ImportError:
+    HAS_UNIFIED_WAL = False
+    UnifiedWAL = None
+
 
 # =============================================================================
 # Storage Types and Host Classification
@@ -134,245 +150,84 @@ def get_ephemeral_hosts(hosts_config: Dict[str, Any]) -> List[str]:
 # =============================================================================
 # Write-Ahead Log for Game Data
 # =============================================================================
+#
+# NOTE: WriteAheadLog has been consolidated into unified_wal.py
+# This section provides backward-compatible aliases for existing code.
+#
+# For new code, use:
+#   from app.distributed.unified_wal import UnifiedWAL, WALEntry
+#
+# The WriteAheadLog class imported at the top of this file is the
+# backward-compatible wrapper from unified_wal.py.
+# =============================================================================
 
+if HAS_UNIFIED_WAL:
+    # Use consolidated implementation from unified_wal.py
+    # WriteAheadLog is already imported as UnifiedWriteAheadLog above
+    WriteAheadLog = UnifiedWriteAheadLog  # Backward-compatible alias
+else:
+    # Fallback: Define minimal WriteAheadLog if unified_wal not available
+    # This should not happen in normal operation
+    logger.warning("unified_wal not available, using minimal WriteAheadLog fallback")
 
-@dataclass
-class WALEntry:
-    """Write-ahead log entry for a game."""
-    entry_id: int
-    game_id: str
-    source_host: str
-    source_db: str
-    game_data_hash: str
-    created_at: float
-    synced_at: Optional[float] = None
-    sync_confirmed: bool = False
+    @dataclass
+    class _FallbackWALEntry:
+        """Fallback WAL entry (minimal implementation)."""
+        entry_id: int
+        game_id: str
+        source_host: str
+        source_db: str
+        game_data_hash: str
+        created_at: float
+        synced_at: Optional[float] = None
+        sync_confirmed: bool = False
 
+    class WriteAheadLog:
+        """Minimal fallback WriteAheadLog (use unified_wal.py in production)."""
 
-class WriteAheadLog:
-    """Write-ahead log for game data to prevent data loss.
+        def __init__(self, db_path: Path):
+            self.db_path = db_path
+            self._init_db()
 
-    Before syncing a game to the central database, we first write it to the WAL.
-    This ensures that if the sync process crashes, we can recover the pending games.
+        def _init_db(self):
+            """Initialize WAL database."""
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.executescript("""
+                CREATE TABLE IF NOT EXISTS wal_entries (
+                    entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id TEXT NOT NULL UNIQUE,
+                    source_host TEXT NOT NULL,
+                    source_db TEXT NOT NULL,
+                    game_data_hash TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    synced_at REAL,
+                    sync_confirmed INTEGER DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_wal_game_id ON wal_entries(game_id);
+            """)
+            conn.commit()
+            conn.close()
 
-    WAL lifecycle:
-    1. Game discovered on remote host -> WAL entry created (pending)
-    2. Game synced to local DB -> WAL entry marked synced
-    3. Sync confirmed successful -> WAL entry removed (or marked confirmed)
-    """
-
-    def __init__(self, db_path: Path):
-        self.db_path = db_path
-        self._init_db()
-
-    def _init_db(self):
-        """Initialize WAL database."""
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.executescript("""
-            CREATE TABLE IF NOT EXISTS wal_entries (
-                entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                game_id TEXT NOT NULL UNIQUE,
-                source_host TEXT NOT NULL,
-                source_db TEXT NOT NULL,
-                game_data_hash TEXT NOT NULL,
-                created_at REAL NOT NULL,
-                synced_at REAL,
-                sync_confirmed INTEGER DEFAULT 0
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_wal_pending
-            ON wal_entries(sync_confirmed, created_at);
-
-            CREATE INDEX IF NOT EXISTS idx_wal_game_id
-            ON wal_entries(game_id);
-
-            CREATE TABLE IF NOT EXISTS wal_metadata (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                updated_at REAL NOT NULL
-            );
-        """)
-        conn.commit()
-        conn.close()
-
-    def append(
-        self,
-        game_id: str,
-        source_host: str,
-        source_db: str,
-        game_data_hash: str,
-    ) -> int:
-        """Append entry to WAL. Returns entry_id."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        try:
+        def append(self, game_id: str, source_host: str, source_db: str, game_data_hash: str) -> int:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
             cursor.execute("""
                 INSERT OR REPLACE INTO wal_entries
                 (game_id, source_host, source_db, game_data_hash, created_at)
                 VALUES (?, ?, ?, ?, ?)
             """, (game_id, source_host, source_db, game_data_hash, time.time()))
             conn.commit()
-            return cursor.lastrowid
-        finally:
+            entry_id = cursor.lastrowid
             conn.close()
+            return entry_id
 
-    def append_batch(
-        self,
-        entries: List[Tuple[str, str, str, str]],  # (game_id, host, db, hash)
-    ) -> int:
-        """Append multiple entries to WAL. Returns count added."""
-        if not entries:
+        def get_stats(self) -> Dict[str, Any]:
+            return {"total": 0, "pending": 0, "unconfirmed": 0, "confirmed": 0}
+
+        def cleanup_confirmed(self, older_than_seconds: int = 3600) -> int:
             return 0
-
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        now = time.time()
-        try:
-            cursor.executemany("""
-                INSERT OR IGNORE INTO wal_entries
-                (game_id, source_host, source_db, game_data_hash, created_at)
-                VALUES (?, ?, ?, ?, ?)
-            """, [(g, h, d, hsh, now) for g, h, d, hsh in entries])
-            conn.commit()
-            return cursor.rowcount
-        finally:
-            conn.close()
-
-    def mark_synced(self, game_ids: List[str]) -> int:
-        """Mark games as synced. Returns count updated."""
-        if not game_ids:
-            return 0
-
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        try:
-            placeholders = ",".join("?" * len(game_ids))
-            cursor.execute(f"""
-                UPDATE wal_entries
-                SET synced_at = ?
-                WHERE game_id IN ({placeholders}) AND synced_at IS NULL
-            """, [time.time()] + list(game_ids))
-            conn.commit()
-            return cursor.rowcount
-        finally:
-            conn.close()
-
-    def confirm_synced(self, game_ids: List[str]) -> int:
-        """Confirm sync complete (can be cleaned up). Returns count updated."""
-        if not game_ids:
-            return 0
-
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        try:
-            placeholders = ",".join("?" * len(game_ids))
-            cursor.execute(f"""
-                UPDATE wal_entries
-                SET sync_confirmed = 1
-                WHERE game_id IN ({placeholders})
-            """, game_ids)
-            conn.commit()
-            return cursor.rowcount
-        finally:
-            conn.close()
-
-    def get_pending_entries(self, limit: int = 1000) -> List[WALEntry]:
-        """Get entries that haven't been synced yet."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        try:
-            cursor.execute("""
-                SELECT entry_id, game_id, source_host, source_db,
-                       game_data_hash, created_at, synced_at, sync_confirmed
-                FROM wal_entries
-                WHERE synced_at IS NULL
-                ORDER BY created_at ASC
-                LIMIT ?
-            """, (limit,))
-            return [
-                WALEntry(
-                    entry_id=row[0],
-                    game_id=row[1],
-                    source_host=row[2],
-                    source_db=row[3],
-                    game_data_hash=row[4],
-                    created_at=row[5],
-                    synced_at=row[6],
-                    sync_confirmed=bool(row[7]),
-                )
-                for row in cursor.fetchall()
-            ]
-        finally:
-            conn.close()
-
-    def get_unconfirmed_entries(self, limit: int = 1000) -> List[WALEntry]:
-        """Get entries synced but not confirmed."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        try:
-            cursor.execute("""
-                SELECT entry_id, game_id, source_host, source_db,
-                       game_data_hash, created_at, synced_at, sync_confirmed
-                FROM wal_entries
-                WHERE synced_at IS NOT NULL AND sync_confirmed = 0
-                ORDER BY synced_at ASC
-                LIMIT ?
-            """, (limit,))
-            return [
-                WALEntry(
-                    entry_id=row[0],
-                    game_id=row[1],
-                    source_host=row[2],
-                    source_db=row[3],
-                    game_data_hash=row[4],
-                    created_at=row[5],
-                    synced_at=row[6],
-                    sync_confirmed=bool(row[7]),
-                )
-                for row in cursor.fetchall()
-            ]
-        finally:
-            conn.close()
-
-    def cleanup_confirmed(self, older_than_seconds: int = 3600) -> int:
-        """Remove confirmed entries older than threshold."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        try:
-            cutoff = time.time() - older_than_seconds
-            cursor.execute("""
-                DELETE FROM wal_entries
-                WHERE sync_confirmed = 1 AND synced_at < ?
-            """, (cutoff,))
-            conn.commit()
-            return cursor.rowcount
-        finally:
-            conn.close()
-
-    def get_stats(self) -> Dict[str, Any]:
-        """Get WAL statistics."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        try:
-            cursor.execute("""
-                SELECT
-                    COUNT(*) as total,
-                    SUM(CASE WHEN synced_at IS NULL THEN 1 ELSE 0 END) as pending,
-                    SUM(CASE WHEN synced_at IS NOT NULL AND sync_confirmed = 0 THEN 1 ELSE 0 END) as unconfirmed,
-                    SUM(CASE WHEN sync_confirmed = 1 THEN 1 ELSE 0 END) as confirmed
-                FROM wal_entries
-            """)
-            row = cursor.fetchone()
-            return {
-                "total": row[0] or 0,
-                "pending": row[1] or 0,
-                "unconfirmed": row[2] or 0,
-                "confirmed": row[3] or 0,
-            }
-        finally:
-            conn.close()
 
 
 # =============================================================================
