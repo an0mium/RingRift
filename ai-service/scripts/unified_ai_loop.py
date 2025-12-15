@@ -4338,8 +4338,7 @@ class UnifiedAILoop:
         if HAS_RESOURCE_OPTIMIZER:
             try:
                 self.resource_optimizer = get_resource_optimizer()
-                # Set orchestrator ID for tracking
-                import os
+                # Set orchestrator ID for tracking (os is imported globally)
                 os.environ.setdefault("RINGRIFT_ORCHESTRATOR", "unified_ai_loop")
                 print("[UnifiedLoop] Resource optimizer initialized (target: 60-80% utilization)")
             except Exception as e:
