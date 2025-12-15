@@ -944,7 +944,7 @@ class ModelPromoter:
 
             # Find models that beat current best by threshold
             cursor.execute("""
-                SELECT participant_id, board_type, num_players, rating, games_played
+                SELECT model_id, board_type, num_players, rating, games_played
                 FROM elo_ratings
                 WHERE games_played >= ?
                 ORDER BY board_type, num_players, rating DESC
@@ -1082,7 +1082,7 @@ class AdaptiveCurriculum:
             cursor.execute("""
                 SELECT board_type, num_players, MAX(rating) as best_elo
                 FROM elo_ratings
-                WHERE participant_id LIKE 'ringrift_%'
+                WHERE model_id LIKE 'ringrift_%'
                 GROUP BY board_type, num_players
             """)
 
@@ -1264,9 +1264,9 @@ class UnifiedAILoop:
 
                 # Get best Elo for each config
                 cursor.execute("""
-                    SELECT board_type, num_players, participant_id, rating, games_played
+                    SELECT board_type, num_players, model_id, rating, games_played
                     FROM elo_ratings
-                    WHERE participant_id LIKE 'ringrift_%'
+                    WHERE model_id LIKE 'ringrift_%'
                     ORDER BY board_type, num_players, rating DESC
                 """)
 
