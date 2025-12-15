@@ -58,6 +58,32 @@ try:
 except ImportError:
     HAS_EVENT_BUS = False
 
+# Try to import cross-process event queue for distributed coordination
+try:
+    from app.coordination.cross_process_events import publish_event as publish_cross_process_event
+    HAS_CROSS_PROCESS_EVENTS = True
+except ImportError:
+    HAS_CROSS_PROCESS_EVENTS = False
+
+
+def bridge_event_to_cross_process(event_type: str, payload: dict, source: str = "streaming_data_collector") -> None:
+    """Bridge an event to the cross-process event queue.
+
+    This allows other daemons (unified_ai_loop, cluster_orchestrator, etc.)
+    to react to events from this collector.
+    """
+    if not HAS_CROSS_PROCESS_EVENTS:
+        return
+    try:
+        publish_cross_process_event(
+            event_type=event_type,
+            payload=payload,
+            source=source,
+        )
+    except Exception as e:
+        print(f"[Collector] Warning: Failed to bridge event to cross-process: {e}")
+
+
 # Try to import sync_lock for coordinating rsync operations
 try:
     from app.coordination.sync_mutex import acquire_sync_lock, release_sync_lock
@@ -520,9 +546,21 @@ class StreamingDataCollector:
             if HAS_CIRCUIT_BREAKER:
                 get_host_breaker().record_success(host.ssh_host)
 
-            # Emit event
+            # Emit event to in-memory bus
             if HAS_EVENT_BUS and synced > 0:
                 await emit_new_games(host.name, synced, current_count, "streaming_data_collector")
+
+            # Bridge to cross-process queue for other daemons
+            if synced > 0:
+                bridge_event_to_cross_process(
+                    event_type="new_games",
+                    payload={
+                        "host": host.name,
+                        "new_games": synced,
+                        "total_games": current_count,
+                    },
+                    source="streaming_data_collector",
+                )
 
             return synced
 
@@ -546,8 +584,28 @@ class StreamingDataCollector:
 
             print(f"[Collector] {host.name}: Sync failed ({state.consecutive_failures}): {e}")
 
+            # Bridge failure to cross-process for distributed awareness
+            bridge_event_to_cross_process(
+                event_type="sync_failed",
+                payload={
+                    "host": host.name,
+                    "error": str(e)[:200],
+                    "retry_count": state.consecutive_failures,
+                },
+                source="streaming_data_collector",
+            )
+
             if state.consecutive_failures >= self.config.max_consecutive_failures:
                 print(f"[Collector] {host.name}: Disabling after {state.consecutive_failures} failures")
+                # Bridge host offline event
+                bridge_event_to_cross_process(
+                    event_type="host_offline",
+                    payload={
+                        "host": host.name,
+                        "reason": f"max_failures_exceeded ({state.consecutive_failures})",
+                    },
+                    source="streaming_data_collector",
+                )
 
             return 0
 

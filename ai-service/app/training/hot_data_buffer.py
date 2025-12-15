@@ -242,7 +242,13 @@ class HotDataBuffer:
             outcome=data.get("outcome", {}),
             timestamp=float(data.get("timestamp", time.time())),
             source=str(data.get("source", "hot_buffer")),
+            # Priority fields
+            avg_elo=float(data.get("avg_elo", 1500.0)),
+            priority=float(data.get("priority", 1.0)),
+            from_promoted_model=bool(data.get("from_promoted_model", False)),
         )
+        # Compute initial priority based on Elo and recency
+        game.priority = self.compute_game_priority(game)
         self.add_game(game)
 
     def get_game(self, game_id: str) -> Optional[GameRecord]:
@@ -501,6 +507,11 @@ class HotDataBuffer:
             if self._cache_dirty:
                 self._rebuild_sample_cache()
 
+            # Compute priority statistics
+            priorities = [g.priority for g in self._buffer.values()] if self._buffer else [0.0]
+            avg_elos = [g.avg_elo for g in self._buffer.values()] if self._buffer else [1500.0]
+            promoted_count = sum(1 for g in self._buffer.values() if g.from_promoted_model)
+
             return {
                 "game_count": len(self._buffer),
                 "max_size": self.max_size,
@@ -508,7 +519,266 @@ class HotDataBuffer:
                 "flushed_count": len(self._flushed_game_ids),
                 "unflushed_count": len(self.get_unflushed_games()),
                 "utilization": len(self._buffer) / self.max_size if self.max_size > 0 else 0,
+                # Priority replay stats
+                "avg_priority": float(np.mean(priorities)),
+                "max_priority": float(np.max(priorities)),
+                "min_priority": float(np.min(priorities)),
+                "avg_elo": float(np.mean(avg_elos)),
+                "promoted_model_games": promoted_count,
             }
+
+    # -------------------------------------------------------------------------
+    # Priority Experience Replay Methods
+    # -------------------------------------------------------------------------
+
+    def compute_game_priority(
+        self,
+        game: GameRecord,
+        base_elo: float = 1500.0,
+        elo_scale: float = 400.0,
+        recency_half_life_hours: float = 2.0,
+        promotion_bonus: float = 1.5,
+    ) -> float:
+        """Compute priority score for a game.
+
+        Priority = elo_factor × recency_factor × promotion_bonus
+
+        Args:
+            game: The game record
+            base_elo: Reference Elo for normalization
+            elo_scale: Elo difference for 2x priority
+            recency_half_life_hours: Hours until recency factor halves
+            promotion_bonus: Multiplier for games from promoted models
+
+        Returns:
+            Priority score (higher = more important)
+        """
+        # Elo factor: games from stronger players are more valuable
+        # Formula: 2^((avg_elo - base_elo) / elo_scale)
+        elo_factor = 2.0 ** ((game.avg_elo - base_elo) / elo_scale)
+        elo_factor = max(0.25, min(4.0, elo_factor))  # Clamp to [0.25, 4.0]
+
+        # Recency factor: recent games are more valuable
+        # Exponential decay with half-life
+        age_hours = (time.time() - game.timestamp) / 3600.0
+        recency_factor = 0.5 ** (age_hours / recency_half_life_hours)
+        recency_factor = max(0.1, recency_factor)  # Minimum 10% weight
+
+        # Promotion bonus: games that led to model promotion are gold
+        promo_factor = promotion_bonus if game.from_promoted_model else 1.0
+
+        # Combine factors
+        priority = elo_factor * recency_factor * promo_factor
+
+        return priority
+
+    def update_all_priorities(
+        self,
+        priority_alpha: float = 0.6,
+        **priority_kwargs,
+    ) -> None:
+        """Recompute priorities for all games in buffer.
+
+        Args:
+            priority_alpha: Exponent for priority (0=uniform, 1=full priority)
+            **priority_kwargs: Additional args for compute_game_priority
+        """
+        with self._lock:
+            for game in self._buffer.values():
+                raw_priority = self.compute_game_priority(game, **priority_kwargs)
+                # Apply priority exponent
+                game.priority = raw_priority ** priority_alpha
+
+    def update_game_priority(
+        self,
+        game_id: str,
+        td_error: Optional[float] = None,
+        from_promoted: Optional[bool] = None,
+        avg_elo: Optional[float] = None,
+    ) -> bool:
+        """Update priority for a specific game.
+
+        Can be called after training to update based on TD error,
+        or after promotion to mark games from promoted models.
+
+        Args:
+            game_id: ID of game to update
+            td_error: Temporal difference error from training (higher = more surprise)
+            from_promoted: Mark game as from a promoted model
+            avg_elo: Update the average Elo
+
+        Returns:
+            True if game was found and updated
+        """
+        with self._lock:
+            game = self._buffer.get(game_id)
+            if game is None:
+                return False
+
+            if td_error is not None:
+                # TD error boost: prioritize surprising samples
+                # td_factor = 1 + log(1 + |td_error|)
+                td_factor = 1.0 + np.log1p(abs(td_error))
+                game.priority *= td_factor
+
+            if from_promoted is not None:
+                game.from_promoted_model = from_promoted
+                # Recompute priority with promotion bonus
+                game.priority = self.compute_game_priority(game)
+
+            if avg_elo is not None:
+                game.avg_elo = avg_elo
+                # Recompute priority with new Elo
+                game.priority = self.compute_game_priority(game)
+
+            return True
+
+    def get_priority_training_batch(
+        self,
+        batch_size: int = 256,
+        importance_beta: float = 0.4,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Get a batch of training samples with priority-weighted sampling.
+
+        Uses proportional prioritization (Schaul et al., 2015) with
+        importance sampling weights to correct for bias.
+
+        Args:
+            batch_size: Number of samples to return
+            importance_beta: Importance sampling exponent (0=no correction, 1=full)
+
+        Returns:
+            Tuple of (states, policies, values, importance_weights) as numpy arrays
+        """
+        with self._lock:
+            if self._cache_dirty:
+                self._rebuild_sample_cache()
+
+            if not self._sample_cache:
+                return (
+                    np.zeros((0,), dtype=np.float32),
+                    np.zeros((0,), dtype=np.float32),
+                    np.zeros((0,), dtype=np.float32),
+                    np.zeros((0,), dtype=np.float32),
+                )
+
+            # Build priority array aligned with sample cache
+            # Each sample inherits priority from its parent game
+            games_list = list(self._buffer.values())
+            sample_priorities = []
+
+            for game in games_list:
+                n_samples = len(game.to_training_samples())
+                sample_priorities.extend([game.priority] * n_samples)
+
+            sample_priorities = np.array(sample_priorities, dtype=np.float64)
+
+            # Ensure we have matching sizes
+            if len(sample_priorities) != len(self._sample_cache):
+                # Rebuild to ensure consistency
+                self._rebuild_sample_cache()
+                sample_priorities = []
+                for game in self._buffer.values():
+                    n_samples = len(game.to_training_samples())
+                    sample_priorities.extend([game.priority] * n_samples)
+                sample_priorities = np.array(sample_priorities, dtype=np.float64)
+
+            # Compute sampling probabilities
+            total_priority = sample_priorities.sum()
+            if total_priority <= 0:
+                # Fallback to uniform
+                probs = np.ones(len(sample_priorities)) / len(sample_priorities)
+            else:
+                probs = sample_priorities / total_priority
+
+            # Sample indices with priority weighting
+            n_samples = min(batch_size, len(self._sample_cache))
+            indices = np.random.choice(
+                len(self._sample_cache),
+                size=n_samples,
+                replace=False,
+                p=probs,
+            )
+
+            # Compute importance sampling weights
+            # w_i = (N * P(i))^(-beta) / max_w
+            N = len(self._sample_cache)
+            weights = (N * probs[indices]) ** (-importance_beta)
+            weights = weights / weights.max()  # Normalize to max=1
+
+            # Gather samples
+            states = []
+            policies = []
+            values = []
+
+            for idx in indices:
+                s, p, v = self._sample_cache[idx]
+                states.append(s)
+                policies.append(p)
+                values.append(v)
+
+            return (
+                np.array(states, dtype=np.float32),
+                np.array(policies, dtype=np.float32),
+                np.array(values, dtype=np.float32),
+                weights.astype(np.float32),
+            )
+
+    def get_priority_sample_iterator(
+        self,
+        batch_size: int = 256,
+        epochs: int = 1,
+        importance_beta: float = 0.4,
+    ) -> Iterator[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+        """Iterator over priority-weighted training samples.
+
+        Each epoch resamples with current priorities, allowing priorities
+        to be updated between epochs.
+
+        Yields batches of (states, policies, values, importance_weights).
+        """
+        for _ in range(epochs):
+            # Get all samples for this epoch
+            with self._lock:
+                if self._cache_dirty:
+                    self._rebuild_sample_cache()
+
+                if not self._sample_cache:
+                    return
+
+                n_batches = (len(self._sample_cache) + batch_size - 1) // batch_size
+
+            for _ in range(n_batches):
+                yield self.get_priority_training_batch(
+                    batch_size=batch_size,
+                    importance_beta=importance_beta,
+                )
+
+    def mark_games_from_promoted_model(self, model_id: str, game_ids: List[str]) -> int:
+        """Mark games as coming from a model that was promoted.
+
+        This boosts their priority for future training.
+
+        Args:
+            model_id: ID of the promoted model
+            game_ids: IDs of games played by this model
+
+        Returns:
+            Number of games marked
+        """
+        marked = 0
+        with self._lock:
+            for game_id in game_ids:
+                game = self._buffer.get(game_id)
+                if game:
+                    game.from_promoted_model = True
+                    game.priority = self.compute_game_priority(game)
+                    marked += 1
+
+        if marked > 0:
+            logger.info(f"Marked {marked} games from promoted model {model_id}")
+
+        return marked
 
     def clear(self) -> None:
         """Clear all games from buffer."""

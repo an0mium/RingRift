@@ -909,3 +909,12 @@ def get_curriculum_weights() -> Dict[str, float]:
 def get_selfplay_rate_recommendation(config_key: str) -> float:
     """Get recommended selfplay rate multiplier for a config."""
     return get_feedback_accelerator().get_selfplay_rate_recommendation(config_key)
+
+
+def get_aggregate_selfplay_recommendation() -> Dict[str, Any]:
+    """Get aggregate selfplay rate recommendation across all configs.
+
+    Returns:
+        Dict with 'recommended_multiplier', 'reason', 'aggregate_momentum', 'states'
+    """
+    return get_feedback_accelerator().get_aggregate_selfplay_recommendation()

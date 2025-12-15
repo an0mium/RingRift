@@ -220,6 +220,7 @@ try:
         record_promotion,
         get_curriculum_weights as get_momentum_curriculum_weights,
         get_selfplay_rate_recommendation,
+        get_aggregate_selfplay_recommendation,
     )
     HAS_FEEDBACK_ACCELERATOR = True
 except ImportError:
@@ -236,6 +237,7 @@ except ImportError:
     record_promotion = None
     get_momentum_curriculum_weights = None
     get_selfplay_rate_recommendation = None
+    get_aggregate_selfplay_recommendation = None
 
 # Improvement optimizer for maximizing AI training throughput
 try:
@@ -2627,6 +2629,23 @@ class TrainingScheduler:
                 if self.config.verbose:
                     print(f"[ImprovementOptimizer] Error getting threshold: {e}")
 
+        # Factor 5: Cluster utilization-based adjustment for 60-80% target
+        # Low utilization → train more aggressively; High utilization → slow down
+        if HAS_RESOURCE_OPTIMIZER and get_utilization_status is not None:
+            try:
+                util_status = get_utilization_status()
+                cpu_util = util_status.get('cpu_util', 70)
+                gpu_util = util_status.get('gpu_util', 70)
+                avg_util = (cpu_util + gpu_util) / 2 if gpu_util > 0 else cpu_util
+                if avg_util < 50:
+                    final_threshold = max(min_threshold, final_threshold * 6 // 10)
+                elif avg_util < 60:
+                    final_threshold = max(min_threshold, final_threshold * 8 // 10)
+                elif avg_util > 85:
+                    final_threshold = min(max_threshold, final_threshold * 12 // 10)
+            except Exception:
+                pass
+
         if final_threshold != base_threshold:
             print(f"[Training] Dynamic threshold for {config_key}: {final_threshold} (base: {base_threshold}, adj: {adjustment:.2f})")
 
@@ -2750,6 +2769,24 @@ class TrainingScheduler:
                 if self.config.verbose:
                     print(f"[Training] Deferred by duration scheduler: {schedule_reason}")
                 return None
+
+        # Health-aware training: defer when cluster is overloaded (>80% utilization)
+        # This helps maintain 60-80% utilization target by prioritizing selfplay when busy
+        if HAS_RESOURCE_OPTIMIZER and get_utilization_status is not None:
+            try:
+                util_status = get_utilization_status()
+                cpu_util = util_status.get('cpu_util', 70)
+                gpu_util = util_status.get('gpu_util', 70)
+                status = util_status.get('status', 'unknown')
+
+                # If cluster is overloaded, defer training to let selfplay use capacity
+                if status == 'above' or cpu_util > 85 or gpu_util > 85:
+                    if self.state.verbose:
+                        print(f"[Training] Deferred due to high utilization "
+                              f"(CPU={cpu_util:.1f}%, GPU={gpu_util:.1f}%)")
+                    return None
+            except Exception:
+                pass  # Non-critical, proceed with training
 
         now = time.time()
 
@@ -4535,10 +4572,10 @@ class UnifiedAILoop:
 
         # Consult feedback accelerator for momentum-based rate recommendation
         # This allows the system to accelerate selfplay when models are improving
-        if HAS_FEEDBACK_ACCELERATOR and get_selfplay_rate_recommendation is not None:
+        if HAS_FEEDBACK_ACCELERATOR and get_aggregate_selfplay_recommendation is not None:
             try:
                 # Get momentum-based recommendation across all configs
-                recommendation = get_selfplay_rate_recommendation()
+                recommendation = get_aggregate_selfplay_recommendation()
                 if recommendation and recommendation.get('recommended_multiplier', 1.0) != 1.0:
                     rec_multiplier = recommendation['recommended_multiplier']
                     rec_reason = recommendation.get('reason', 'momentum-based adjustment')

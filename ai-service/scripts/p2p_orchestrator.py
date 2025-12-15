@@ -108,6 +108,52 @@ def record_peer_failure(peer_host: str, error: Optional[Exception] = None) -> No
         get_host_breaker().record_failure(peer_host, error)
 
 
+async def peer_request(
+    session: "ClientSession",
+    method: str,
+    url: str,
+    peer_host: str,
+    headers: Optional[Dict[str, str]] = None,
+    json: Optional[Dict[str, Any]] = None,
+    timeout: Optional[float] = None,
+) -> Optional[Dict[str, Any]]:
+    """Make a circuit-breaker-protected request to a peer.
+
+    Args:
+        session: aiohttp ClientSession to use
+        method: HTTP method (GET, POST, etc.)
+        url: Full URL to request
+        peer_host: Hostname/IP for circuit breaker tracking
+        headers: Optional headers dict
+        json: Optional JSON payload for POST/PUT
+        timeout: Optional request timeout
+
+    Returns:
+        Response JSON if successful, None if circuit open or request failed
+    """
+    # Check circuit first
+    if not check_peer_circuit(peer_host):
+        return None
+
+    try:
+        kwargs = {"headers": headers} if headers else {}
+        if json is not None:
+            kwargs["json"] = json
+        if timeout:
+            kwargs["timeout"] = ClientTimeout(total=timeout)
+
+        async with session.request(method, url, **kwargs) as resp:
+            if resp.status == 200:
+                record_peer_success(peer_host)
+                return await resp.json()
+            else:
+                # Non-200 isn't necessarily a failure (might be expected)
+                return {"status": resp.status, "error": await resp.text()}
+    except Exception as e:
+        record_peer_failure(peer_host, e)
+        return None
+
+
 # Dynamic host registry for IP auto-update
 try:
     from app.distributed.dynamic_registry import (
