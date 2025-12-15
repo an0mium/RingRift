@@ -319,6 +319,7 @@ def export_replay_dataset_multi(
     use_board_aware_encoding: bool = False,
     append: bool = False,
     encoder_version: str = "default",
+    require_moves: bool = True,
 ) -> None:
     """
     Export training samples from multiple GameReplayDB files into an NPZ dataset
@@ -343,6 +344,7 @@ def export_replay_dataset_multi(
         use_board_aware_encoding: If True, use board-specific policy encoding
         append: If True, append to existing output NPZ
         encoder_version: Encoder version for hex boards ('default', 'v2', 'v3')
+        require_moves: If True, only include games with move data (default: True)
     """
     encoder = build_encoder(board_type, encoder_version)
 
@@ -368,6 +370,7 @@ def export_replay_dataset_multi(
     query_filters: Dict[str, Any] = {
         "board_type": board_type,
         "num_players": num_players,
+        "require_moves": require_moves,
     }
     if min_moves is not None:
         query_filters["min_moves"] = min_moves
@@ -399,6 +402,8 @@ def export_replay_dataset_multi(
 
     # Log filter configuration
     filter_desc = []
+    if require_moves:
+        filter_desc.append("require move data")
     if require_completed:
         filter_desc.append("completed games only")
     if min_moves is not None:
@@ -673,6 +678,7 @@ def export_replay_dataset(
     use_board_aware_encoding: bool = False,
     append: bool = False,
     encoder_version: str = "default",
+    require_moves: bool = True,
 ) -> None:
     """
     Export training samples from a single GameReplayDB into an NPZ dataset.
@@ -699,6 +705,7 @@ def export_replay_dataset(
         exclude_recovery=exclude_recovery,
         use_board_aware_encoding=use_board_aware_encoding,
         append=append,
+        require_moves=require_moves,
         encoder_version=encoder_version,
     )
 
@@ -840,6 +847,16 @@ def _parse_args(argv: List[str] | None = None) -> argparse.Namespace:
             "Ignored for non-hex boards."
         ),
     )
+    parser.add_argument(
+        "--no-require-moves",
+        action="store_true",
+        help=(
+            "Disable the require_moves filter. By default, only games with "
+            "actual move data in the game_moves table are included. Use this "
+            "flag to include games without move data (they will be skipped "
+            "anyway, but without this optimization the query is slower)."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -871,6 +888,7 @@ def main(argv: List[str] | None = None) -> int:
         use_board_aware_encoding=args.board_aware_encoding,
         append=bool(args.append),
         encoder_version=args.encoder_version,
+        require_moves=not args.no_require_moves,
     )
     return 0
 

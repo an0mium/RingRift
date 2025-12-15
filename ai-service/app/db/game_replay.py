@@ -1786,6 +1786,7 @@ class GameReplayDB:
         limit: int = 100,
         offset: int = 0,
         exclude_training_excluded: bool = True,
+        require_moves: bool = False,
     ) -> List[dict]:
         """Query games by metadata filters.
 
@@ -1794,6 +1795,9 @@ class GameReplayDB:
         Args:
             exclude_training_excluded: If True, exclude games marked with
                 excluded_from_training=1 (e.g., timeout games). Default True.
+            require_moves: If True, only return games that have at least one
+                move in the game_moves table. Useful for consolidated DBs
+                where some games may have metadata but no move data.
         """
         conditions = []
         params = []
@@ -1826,6 +1830,11 @@ class GameReplayDB:
         if max_moves is not None:
             conditions.append("total_moves <= ?")
             params.append(max_moves)
+
+        if require_moves:
+            conditions.append(
+                "EXISTS (SELECT 1 FROM game_moves m WHERE m.game_id = games.game_id)"
+            )
 
         where_clause = " AND ".join(conditions) if conditions else "1=1"
 
