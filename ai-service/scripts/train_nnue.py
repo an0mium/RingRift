@@ -672,8 +672,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     logger.info("NNUE training complete!")
     logger.info(f"  Model saved to: {save_path}")
-    logger.info(f"  Best validation loss: {report.get('best_val_loss', 'N/A'):.4f}")
-    logger.info(f"  Final validation accuracy: {report.get('final_val_accuracy', 'N/A'):.4f}")
+    best_val = report.get('best_val_loss')
+    final_acc = report.get('final_val_accuracy')
+    logger.info(f"  Best validation loss: {best_val:.4f}" if isinstance(best_val, (int, float)) else f"  Best validation loss: {best_val}")
+    logger.info(f"  Final validation accuracy: {final_acc:.4f}" if isinstance(final_acc, (int, float)) else f"  Final validation accuracy: {final_acc}")
 
     return 0
 

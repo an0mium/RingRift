@@ -4950,7 +4950,7 @@ class P2POrchestrator:
 
                             try:
                                 cmd = [
-                                    "python3",
+                                    sys.executable,  # Use venv Python, not system python3
                                     f"{self.ringrift_path}/ai-service/scripts/export_replay_dataset.py",
                                     "--db", str(db_file),
                                     "--board-type", board_type,
@@ -5152,7 +5152,7 @@ class P2POrchestrator:
 
                 # Build command with all DBs
                 cmd = [
-                    "python3", str(merge_script),
+                    sys.executable, str(merge_script),  # Use venv Python
                     "--output", str(main_db_path),
                     "--dedupe-by-game-id",
                 ]
@@ -5182,7 +5182,7 @@ class P2POrchestrator:
             Path(run_dir).mkdir(parents=True, exist_ok=True)
 
             cmd = [
-                "python3",
+                sys.executable,  # Use venv Python
                 f"{self.ringrift_path}/ai-service/scripts/run_nn_training_baseline.py",
                 "--board", "square8",
                 "--num-players", "2",
@@ -9736,7 +9736,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             # Run CPU validation import
             validate_cmd = [
-                "python3",
+                sys.executable,  # Use venv Python
                 f"{self.ringrift_path}/ai-service/scripts/import_gpu_selfplay_to_db.py",
                 "--input", str(input_jsonl),
                 "--output", str(validated_db),
@@ -18599,7 +18599,7 @@ print(json.dumps({{
                 usage = self._get_resource_usage()
                 disk_percent = float(usage.get("disk_percent", 0.0) or 0.0)
                 cmd = [
-                    "python3",
+                    sys.executable,  # Use venv Python
                     str(disk_monitor),
                     "--threshold",
                     str(DISK_CLEANUP_THRESHOLD),
