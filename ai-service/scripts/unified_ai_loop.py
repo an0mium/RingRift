@@ -146,6 +146,7 @@ try:
         is_host_healthy,
         check_host_health,
         get_healthy_hosts,
+        clear_health_cache,
         HealthStatus as PreSpawnHealthStatus,
     )
     HAS_PRE_SPAWN_HEALTH = True
@@ -154,6 +155,7 @@ except ImportError:
     is_host_healthy = None
     check_host_health = None
     get_healthy_hosts = None
+    clear_health_cache = None
     PreSpawnHealthStatus = None
 
 # Import circuit breaker for fault-tolerant remote operations
@@ -1097,10 +1099,16 @@ class StreamingDataCollector:
                 ))
 
             host.consecutive_failures = 0
+            # Record success with circuit breaker
+            if HAS_CIRCUIT_BREAKER:
+                get_host_breaker().record_success(host.ssh_host)
             return new_games
 
         except Exception as e:
             host.consecutive_failures += 1
+            # Record failure with circuit breaker
+            if HAS_CIRCUIT_BREAKER:
+                get_host_breaker().record_failure(host.ssh_host, e)
             print(f"[DataCollector] Failed to sync {host.name}: {e}")
             return 0
 
@@ -3345,7 +3353,13 @@ class UnifiedAILoop:
         self.shadow_tournament.state = self.state
         self.training_scheduler.state = self.state
         self.model_promoter.state = self.state
-        self.curriculum_controller.state = self.state
+        self.adaptive_curriculum.state = self.state
+
+        # Clear stale health cache on startup
+        if HAS_PRE_SPAWN_HEALTH and clear_health_cache:
+            cleared = clear_health_cache()
+            if cleared > 0:
+                print(f"[UnifiedLoop] Cleared {cleared} stale host health entries")
 
         dry_run_msg = " (DRY RUN)" if self.config.dry_run else ""
         print(f"[UnifiedLoop] Starting with {len(self.state.hosts)} hosts, {len(self.state.configs)} configs{dry_run_msg}")
@@ -3396,6 +3410,73 @@ class UnifiedAILoop:
 
 
 # =============================================================================
+# Config Validation
+# =============================================================================
+
+def validate_config(config: UnifiedLoopConfig) -> Tuple[bool, List[str]]:
+    """Validate configuration at startup.
+
+    Returns:
+        Tuple of (is_valid, list_of_errors)
+    """
+    errors = []
+    warnings = []
+
+    # Check required paths
+    hosts_path = AI_SERVICE_ROOT / config.hosts_config_path
+    if not hosts_path.exists():
+        errors.append(f"Hosts config not found: {config.hosts_config_path}")
+
+    # Check Elo database directory exists
+    elo_db_path = AI_SERVICE_ROOT / config.elo_db
+    if not elo_db_path.parent.exists():
+        errors.append(f"Elo database directory not found: {elo_db_path.parent}")
+
+    # Validate thresholds
+    if config.data_ingestion.training_threshold_games < 100:
+        warnings.append(f"Training threshold ({config.data_ingestion.training_threshold_games}) is very low")
+
+    if config.evaluation.elo_threshold_for_promotion < 10:
+        warnings.append(f"Elo promotion threshold ({config.evaluation.elo_threshold_for_promotion}) is very low")
+
+    # Validate intervals
+    if config.data_ingestion.sync_interval_seconds < 10:
+        errors.append("Sync interval must be at least 10 seconds")
+
+    if config.evaluation.shadow_tournament_interval_seconds < 60:
+        warnings.append("Shadow tournament interval less than 60s may cause high load")
+
+    # Validate log directory
+    log_dir = AI_SERVICE_ROOT / config.log_dir
+    if not log_dir.exists():
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            errors.append(f"Cannot create log directory: {e}")
+
+    # Check coordination modules
+    if not HAS_COORDINATOR:
+        warnings.append("ClusterCoordinator not available - no inter-process coordination")
+
+    if not HAS_PRE_SPAWN_HEALTH:
+        warnings.append("Pre-spawn health checks not available")
+
+    if not HAS_CIRCUIT_BREAKER:
+        warnings.append("Circuit breaker not available - no fault tolerance")
+
+    if not HAS_FEEDBACK:
+        warnings.append("Pipeline feedback controller not available")
+
+    # Print warnings
+    if warnings:
+        print("[Config Validation] Warnings:")
+        for w in warnings:
+            print(f"  - {w}")
+
+    return len(errors) == 0, errors
+
+
+# =============================================================================
 # CLI Interface
 # =============================================================================
 
@@ -3419,6 +3500,15 @@ def main():
     config.dry_run = args.dry_run
     config.metrics_port = args.metrics_port
     config.metrics_enabled = not args.no_metrics
+
+    # Validate config at startup
+    if args.start or args.foreground:
+        is_valid, config_errors = validate_config(config)
+        if not is_valid:
+            print("[UnifiedLoop] ERROR: Configuration validation failed:")
+            for err in config_errors:
+                print(f"  - {err}")
+            return
 
     if args.status:
         state_path = AI_SERVICE_ROOT / config.log_dir / "unified_loop_state.json"

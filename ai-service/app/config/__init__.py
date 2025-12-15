@@ -4,6 +4,7 @@ Provides typed dataclasses for:
 - CMA-ES optimization (CMAESConfig)
 - Neural network training (NeuralNetConfig)
 - Self-play data generation (SelfPlayConfig)
+- Configuration validation (ConfigValidator)
 """
 
 from app.config.training_config import (
@@ -11,9 +12,19 @@ from app.config.training_config import (
     NeuralNetConfig,
     SelfPlayConfig,
 )
+from app.config.config_validator import (
+    ConfigValidator,
+    ValidationResult,
+    validate_all_configs,
+    validate_startup,
+)
 
 __all__ = [
     "CMAESConfig",
     "NeuralNetConfig",
     "SelfPlayConfig",
+    "ConfigValidator",
+    "ValidationResult",
+    "validate_all_configs",
+    "validate_startup",
 ]

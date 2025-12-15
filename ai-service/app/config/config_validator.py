@@ -1,0 +1,437 @@
+#!/usr/bin/env python3
+"""Configuration validation for RingRift AI service.
+
+Validates all configuration files at startup to catch errors early before
+any expensive operations begin. This prevents runtime failures due to
+misconfiguration.
+
+Usage:
+    from app.config.config_validator import (
+        ConfigValidator,
+        validate_all_configs,
+        ValidationResult,
+    )
+
+    # Validate everything
+    result = validate_all_configs()
+    if not result.valid:
+        for error in result.errors:
+            print(f"ERROR: {error}")
+        sys.exit(1)
+
+    # Validate specific config
+    validator = ConfigValidator()
+    result = validator.validate_unified_loop_config()
+    if not result.valid:
+        print(result.errors)
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import sqlite3
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+
+import yaml
+
+# Path setup
+AI_SERVICE_ROOT = Path(__file__).resolve().parents[2]
+
+
+@dataclass
+class ValidationResult:
+    """Result of configuration validation."""
+    valid: bool
+    config_name: str
+    config_path: Optional[str] = None
+    errors: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+
+    def merge(self, other: "ValidationResult") -> "ValidationResult":
+        """Merge another result into this one."""
+        return ValidationResult(
+            valid=self.valid and other.valid,
+            config_name=f"{self.config_name}, {other.config_name}",
+            errors=self.errors + other.errors,
+            warnings=self.warnings + other.warnings,
+        )
+
+
+class ConfigValidator:
+    """Validates RingRift configuration files."""
+
+    def __init__(self, base_path: Optional[Path] = None):
+        self.base_path = base_path or AI_SERVICE_ROOT
+
+    def validate_all(self) -> ValidationResult:
+        """Validate all configuration files."""
+        results = []
+
+        # Core configs
+        results.append(self.validate_unified_loop_config())
+        results.append(self.validate_remote_hosts())
+        results.append(self.validate_hyperparameters())
+
+        # Optional configs
+        elo_alerts = self.validate_elo_alerts()
+        if elo_alerts.config_path:  # Only include if file exists
+            results.append(elo_alerts)
+
+        # Combine all results
+        if not results:
+            return ValidationResult(valid=True, config_name="all")
+
+        combined = results[0]
+        for r in results[1:]:
+            combined = combined.merge(r)
+
+        return combined
+
+    def validate_unified_loop_config(self) -> ValidationResult:
+        """Validate unified_loop.yaml configuration."""
+        config_path = self.base_path / "config" / "unified_loop.yaml"
+        errors = []
+        warnings = []
+
+        if not config_path.exists():
+            return ValidationResult(
+                valid=False,
+                config_name="unified_loop.yaml",
+                config_path=str(config_path),
+                errors=[f"Config file not found: {config_path}"],
+            )
+
+        try:
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+
+            if not config:
+                errors.append("Config file is empty")
+                return ValidationResult(
+                    valid=False,
+                    config_name="unified_loop.yaml",
+                    config_path=str(config_path),
+                    errors=errors,
+                )
+
+            # Validate required sections
+            required_sections = ["data_ingestion", "evaluation", "training", "promotion"]
+            for section in required_sections:
+                if section not in config:
+                    errors.append(f"Missing required section: {section}")
+
+            # Validate data_ingestion
+            if "data_ingestion" in config:
+                di = config["data_ingestion"]
+                if di.get("poll_interval_seconds", 0) < 10:
+                    warnings.append("data_ingestion.poll_interval_seconds < 10 may cause high load")
+                if di.get("poll_interval_seconds", 0) > 3600:
+                    warnings.append("data_ingestion.poll_interval_seconds > 3600 may cause stale data")
+
+            # Validate evaluation
+            if "evaluation" in config:
+                ev = config["evaluation"]
+                if ev.get("shadow_interval_seconds", 0) < 60:
+                    warnings.append("evaluation.shadow_interval_seconds < 60 may cause excessive evaluations")
+                games_per_match = ev.get("games_per_shadow_match", 4)
+                if games_per_match < 2:
+                    errors.append("evaluation.games_per_shadow_match must be >= 2")
+                if games_per_match > 50:
+                    warnings.append("evaluation.games_per_shadow_match > 50 may cause slow evaluations")
+
+            # Validate training
+            if "training" in config:
+                tr = config["training"]
+                min_games = tr.get("min_games_for_training", 0)
+                if min_games < 100:
+                    warnings.append("training.min_games_for_training < 100 may lead to poor models")
+                if min_games > 100000:
+                    warnings.append("training.min_games_for_training > 100000 may delay training too much")
+
+            # Validate promotion
+            if "promotion" in config:
+                pr = config["promotion"]
+                elo_threshold = pr.get("elo_threshold", 0)
+                if elo_threshold < 10:
+                    warnings.append("promotion.elo_threshold < 10 may promote weak models")
+                if elo_threshold > 200:
+                    warnings.append("promotion.elo_threshold > 200 may be too conservative")
+
+        except yaml.YAMLError as e:
+            errors.append(f"YAML parse error: {e}")
+        except Exception as e:
+            errors.append(f"Unexpected error: {e}")
+
+        return ValidationResult(
+            valid=len(errors) == 0,
+            config_name="unified_loop.yaml",
+            config_path=str(config_path),
+            errors=errors,
+            warnings=warnings,
+        )
+
+    def validate_remote_hosts(self) -> ValidationResult:
+        """Validate remote_hosts.yaml configuration."""
+        config_path = self.base_path / "config" / "remote_hosts.yaml"
+        errors = []
+        warnings = []
+
+        if not config_path.exists():
+            return ValidationResult(
+                valid=True,  # Optional file
+                config_name="remote_hosts.yaml",
+                config_path=str(config_path),
+                warnings=["remote_hosts.yaml not found - using defaults"],
+            )
+
+        try:
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+
+            if not config:
+                warnings.append("Config file is empty")
+                return ValidationResult(
+                    valid=True,
+                    config_name="remote_hosts.yaml",
+                    config_path=str(config_path),
+                    warnings=warnings,
+                )
+
+            # Validate standard_hosts
+            hosts = config.get("standard_hosts", {})
+            for name, info in hosts.items():
+                if not info.get("ssh_host"):
+                    errors.append(f"Host '{name}' missing ssh_host")
+                if not info.get("ssh_user"):
+                    warnings.append(f"Host '{name}' missing ssh_user (defaulting to 'ubuntu')")
+
+                # Validate IP format
+                ssh_host = info.get("ssh_host", "")
+                if ssh_host and not self._is_valid_host(ssh_host):
+                    warnings.append(f"Host '{name}' has invalid ssh_host: {ssh_host}")
+
+                # Validate memory
+                memory_gb = info.get("memory_gb", 0)
+                if memory_gb > 0 and memory_gb < 16:
+                    warnings.append(f"Host '{name}' has low memory: {memory_gb}GB")
+
+            # Validate vast_hosts
+            vast_hosts = config.get("vast_hosts", {})
+            for name, info in vast_hosts.items():
+                if not info.get("host"):
+                    errors.append(f"Vast host '{name}' missing host")
+                if not info.get("port"):
+                    errors.append(f"Vast host '{name}' missing port")
+                if info.get("storage_type") == "ram":
+                    warnings.append(f"Vast host '{name}' uses RAM storage - data is ephemeral")
+
+        except yaml.YAMLError as e:
+            errors.append(f"YAML parse error: {e}")
+        except Exception as e:
+            errors.append(f"Unexpected error: {e}")
+
+        return ValidationResult(
+            valid=len(errors) == 0,
+            config_name="remote_hosts.yaml",
+            config_path=str(config_path),
+            errors=errors,
+            warnings=warnings,
+        )
+
+    def validate_hyperparameters(self) -> ValidationResult:
+        """Validate hyperparameters.json configuration."""
+        config_path = self.base_path / "config" / "hyperparameters.json"
+        errors = []
+        warnings = []
+
+        if not config_path.exists():
+            return ValidationResult(
+                valid=False,
+                config_name="hyperparameters.json",
+                config_path=str(config_path),
+                errors=[f"Config file not found: {config_path}"],
+            )
+
+        try:
+            with open(config_path) as f:
+                config = json.load(f)
+
+            # Validate configs section
+            configs = config.get("configs", {})
+            if not configs:
+                warnings.append("No board configurations defined")
+
+            for config_key, params in configs.items():
+                # Validate config key format
+                if not re.match(r"^[a-z]+\d*_\d+p$", config_key):
+                    warnings.append(f"Config key '{config_key}' doesn't match expected format (e.g., 'square8_2p')")
+
+                # Validate learning rate
+                lr = params.get("learning_rate", 0)
+                if lr > 0:
+                    if lr < 1e-6:
+                        warnings.append(f"{config_key}: learning_rate {lr} is very low")
+                    if lr > 1e-2:
+                        warnings.append(f"{config_key}: learning_rate {lr} is very high")
+
+                # Validate batch size
+                batch_size = params.get("batch_size", 0)
+                if batch_size > 0:
+                    if batch_size < 32:
+                        warnings.append(f"{config_key}: batch_size {batch_size} is small")
+                    if batch_size > 4096:
+                        warnings.append(f"{config_key}: batch_size {batch_size} may cause OOM")
+
+                # Validate exploration parameters
+                cpuct = params.get("c_puct", 0)
+                if cpuct > 0:
+                    if cpuct < 0.5:
+                        warnings.append(f"{config_key}: c_puct {cpuct} may underexplore")
+                    if cpuct > 5.0:
+                        warnings.append(f"{config_key}: c_puct {cpuct} may overexplore")
+
+        except json.JSONDecodeError as e:
+            errors.append(f"JSON parse error: {e}")
+        except Exception as e:
+            errors.append(f"Unexpected error: {e}")
+
+        return ValidationResult(
+            valid=len(errors) == 0,
+            config_name="hyperparameters.json",
+            config_path=str(config_path),
+            errors=errors,
+            warnings=warnings,
+        )
+
+    def validate_elo_alerts(self) -> ValidationResult:
+        """Validate elo_alerts.yml configuration."""
+        config_path = self.base_path / "config" / "elo_alerts.yml"
+        errors = []
+        warnings = []
+
+        if not config_path.exists():
+            return ValidationResult(
+                valid=True,
+                config_name="elo_alerts.yml",
+                config_path=None,  # Signal optional file not present
+                warnings=[],
+            )
+
+        try:
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+
+            if config:
+                # Validate alert thresholds
+                thresholds = config.get("thresholds", {})
+                for name, value in thresholds.items():
+                    if isinstance(value, (int, float)):
+                        if value < 0:
+                            errors.append(f"Threshold '{name}' cannot be negative: {value}")
+
+        except yaml.YAMLError as e:
+            errors.append(f"YAML parse error: {e}")
+        except Exception as e:
+            errors.append(f"Unexpected error: {e}")
+
+        return ValidationResult(
+            valid=len(errors) == 0,
+            config_name="elo_alerts.yml",
+            config_path=str(config_path),
+            errors=errors,
+            warnings=warnings,
+        )
+
+    def validate_database_paths(self) -> ValidationResult:
+        """Validate that required database directories exist and are writable."""
+        errors = []
+        warnings = []
+
+        db_paths = [
+            self.base_path / "data" / "games",
+            self.base_path / "data" / "coordination",
+            self.base_path / "logs" / "unified_loop",
+        ]
+
+        for db_path in db_paths:
+            if not db_path.exists():
+                try:
+                    db_path.mkdir(parents=True, exist_ok=True)
+                    warnings.append(f"Created missing directory: {db_path}")
+                except PermissionError:
+                    errors.append(f"Cannot create directory: {db_path}")
+            elif not os.access(db_path, os.W_OK):
+                errors.append(f"Directory not writable: {db_path}")
+
+        return ValidationResult(
+            valid=len(errors) == 0,
+            config_name="database_paths",
+            errors=errors,
+            warnings=warnings,
+        )
+
+    def _is_valid_host(self, host: str) -> bool:
+        """Check if host is a valid IP or hostname."""
+        # IP address pattern
+        ip_pattern = r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$"
+        if re.match(ip_pattern, host):
+            parts = host.split(".")
+            return all(0 <= int(p) <= 255 for p in parts)
+
+        # Hostname pattern
+        hostname_pattern = r"^[a-zA-Z0-9]([a-zA-Z0-9\-\.]*[a-zA-Z0-9])?$"
+        return bool(re.match(hostname_pattern, host))
+
+
+def validate_all_configs(base_path: Optional[Path] = None) -> ValidationResult:
+    """Convenience function to validate all configurations."""
+    validator = ConfigValidator(base_path)
+    return validator.validate_all()
+
+
+def validate_startup() -> bool:
+    """Validate configurations at startup. Returns True if valid."""
+    result = validate_all_configs()
+
+    if result.warnings:
+        for warning in result.warnings:
+            print(f"[ConfigValidator] WARNING: {warning}")
+
+    if not result.valid:
+        for error in result.errors:
+            print(f"[ConfigValidator] ERROR: {error}")
+        return False
+
+    print(f"[ConfigValidator] All configurations valid ({len(result.warnings)} warnings)")
+    return True
+
+
+if __name__ == "__main__":
+    import sys
+
+    result = validate_all_configs()
+
+    print("=== Configuration Validation ===\n")
+
+    if result.warnings:
+        print("WARNINGS:")
+        for w in result.warnings:
+            print(f"  ⚠️  {w}")
+        print()
+
+    if result.errors:
+        print("ERRORS:")
+        for e in result.errors:
+            print(f"  ✗ {e}")
+        print()
+
+    if result.valid:
+        print("✓ All configurations valid")
+        sys.exit(0)
+    else:
+        print("✗ Configuration validation failed")
+        sys.exit(1)
