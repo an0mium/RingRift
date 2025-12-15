@@ -202,12 +202,12 @@ def play_game(
 
     try:
         # Handle both enum and string status values for compatibility
-        def is_in_progress(status):
+        def is_active(status):
             if isinstance(status, GameStatus):
-                return status == GameStatus.IN_PROGRESS
-            return str(status).upper() == "IN_PROGRESS"
+                return status == GameStatus.ACTIVE
+            return str(status).lower() == "active"
 
-        while is_in_progress(state.game_status) and moves < max_moves:
+        while is_active(state.game_status) and moves < max_moves:
             current_player = state.current_player
             ai = ais.get(current_player)
 
@@ -229,7 +229,7 @@ def play_game(
 
         # Determine winner
         winner = 0
-        if state.game_status == GameStatus.VICTORY:
+        if state.game_status == GameStatus.COMPLETED:
             winner = state.winner if state.winner else 0
 
         return GameResult(
@@ -246,7 +246,8 @@ def play_game(
         )
 
     except Exception as e:
-        logger.error(f"Error playing game: {e}")
+        import traceback
+        logger.error(f"Error playing game: {e}\n{traceback.format_exc()}")
         return None
 
 
