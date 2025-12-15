@@ -588,3 +588,371 @@ async def emit_hyperparameter_updated(
         },
         source=source,
     ))
+
+
+# =============================================================================
+# Data Sync Events
+# =============================================================================
+
+async def emit_data_sync_started(
+    host: str,
+    sync_type: str = "incremental",
+    source: str = "",
+) -> None:
+    """Emit a DATA_SYNC_STARTED event.
+
+    Args:
+        host: Host being synced
+        sync_type: Type of sync (incremental, full)
+        source: Component initiating the sync
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.DATA_SYNC_STARTED,
+        payload={
+            "host": host,
+            "sync_type": sync_type,
+        },
+        source=source,
+    ))
+
+
+async def emit_data_sync_completed(
+    host: str,
+    games_synced: int,
+    duration: float,
+    bytes_transferred: int = 0,
+    source: str = "",
+) -> None:
+    """Emit a DATA_SYNC_COMPLETED event.
+
+    Args:
+        host: Host that was synced
+        games_synced: Number of games transferred
+        duration: Sync duration in seconds
+        bytes_transferred: Bytes transferred (if known)
+        source: Component that performed the sync
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.DATA_SYNC_COMPLETED,
+        payload={
+            "host": host,
+            "games_synced": games_synced,
+            "duration": duration,
+            "bytes_transferred": bytes_transferred,
+        },
+        source=source,
+    ))
+
+
+async def emit_data_sync_failed(
+    host: str,
+    error: str,
+    retry_count: int = 0,
+    source: str = "",
+) -> None:
+    """Emit a DATA_SYNC_FAILED event.
+
+    Args:
+        host: Host that failed to sync
+        error: Error message
+        retry_count: Number of retries attempted
+        source: Component that attempted the sync
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.DATA_SYNC_FAILED,
+        payload={
+            "host": host,
+            "error": error,
+            "retry_count": retry_count,
+        },
+        source=source,
+    ))
+
+
+# =============================================================================
+# Host Status Events
+# =============================================================================
+
+async def emit_host_online(
+    host: str,
+    capabilities: Optional[List[str]] = None,
+    source: str = "",
+) -> None:
+    """Emit a HOST_ONLINE event.
+
+    Args:
+        host: Host that came online
+        capabilities: List of host capabilities (gpu, cpu, etc.)
+        source: Component that detected the host
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.HOST_ONLINE,
+        payload={
+            "host": host,
+            "capabilities": capabilities or [],
+        },
+        source=source,
+    ))
+
+
+async def emit_host_offline(
+    host: str,
+    reason: str = "",
+    last_seen: Optional[float] = None,
+    source: str = "",
+) -> None:
+    """Emit a HOST_OFFLINE event.
+
+    Args:
+        host: Host that went offline
+        reason: Reason for going offline (timeout, error, etc.)
+        last_seen: Timestamp when host was last seen
+        source: Component that detected the offline status
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.HOST_OFFLINE,
+        payload={
+            "host": host,
+            "reason": reason,
+            "last_seen": last_seen,
+        },
+        source=source,
+    ))
+
+
+# =============================================================================
+# Daemon Lifecycle Events
+# =============================================================================
+
+async def emit_daemon_started(
+    daemon_name: str,
+    hostname: str,
+    pid: int,
+    source: str = "",
+) -> None:
+    """Emit a DAEMON_STARTED event.
+
+    Args:
+        daemon_name: Name of the daemon
+        hostname: Host running the daemon
+        pid: Process ID
+        source: Component starting the daemon
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.DAEMON_STARTED,
+        payload={
+            "daemon_name": daemon_name,
+            "hostname": hostname,
+            "pid": pid,
+        },
+        source=source,
+    ))
+
+
+async def emit_daemon_stopped(
+    daemon_name: str,
+    hostname: str,
+    reason: str = "normal",
+    source: str = "",
+) -> None:
+    """Emit a DAEMON_STOPPED event.
+
+    Args:
+        daemon_name: Name of the daemon
+        hostname: Host running the daemon
+        reason: Reason for stopping (normal, error, signal)
+        source: Component reporting the stop
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.DAEMON_STOPPED,
+        payload={
+            "daemon_name": daemon_name,
+            "hostname": hostname,
+            "reason": reason,
+        },
+        source=source,
+    ))
+
+
+# =============================================================================
+# Training Failure Events
+# =============================================================================
+
+async def emit_training_started(
+    config: str,
+    model_path: Optional[str] = None,
+    source: str = "",
+) -> None:
+    """Emit a TRAINING_STARTED event.
+
+    Args:
+        config: Board configuration
+        model_path: Path to model being trained
+        source: Component starting the training
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.TRAINING_STARTED,
+        payload={
+            "config": config,
+            "model_path": model_path,
+        },
+        source=source,
+    ))
+
+
+async def emit_training_failed(
+    config: str,
+    error: str,
+    duration: float = 0,
+    source: str = "",
+) -> None:
+    """Emit a TRAINING_FAILED event.
+
+    Args:
+        config: Board configuration
+        error: Error message
+        duration: How long training ran before failing
+        source: Component reporting the failure
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.TRAINING_FAILED,
+        payload={
+            "config": config,
+            "error": error,
+            "duration": duration,
+        },
+        source=source,
+    ))
+
+
+# =============================================================================
+# Evaluation Failure Events
+# =============================================================================
+
+async def emit_evaluation_started(
+    config: str,
+    model_id: str,
+    games_planned: int = 0,
+    source: str = "",
+) -> None:
+    """Emit an EVALUATION_STARTED event.
+
+    Args:
+        config: Board configuration
+        model_id: Model being evaluated
+        games_planned: Number of evaluation games planned
+        source: Component starting the evaluation
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.EVALUATION_STARTED,
+        payload={
+            "config": config,
+            "model_id": model_id,
+            "games_planned": games_planned,
+        },
+        source=source,
+    ))
+
+
+async def emit_evaluation_failed(
+    config: str,
+    model_id: str,
+    error: str,
+    source: str = "",
+) -> None:
+    """Emit an EVALUATION_FAILED event.
+
+    Args:
+        config: Board configuration
+        model_id: Model being evaluated
+        error: Error message
+        source: Component reporting the failure
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.EVALUATION_FAILED,
+        payload={
+            "config": config,
+            "model_id": model_id,
+            "error": error,
+        },
+        source=source,
+    ))
+
+
+# =============================================================================
+# Promotion Events
+# =============================================================================
+
+async def emit_promotion_started(
+    config: str,
+    model_id: str,
+    source: str = "",
+) -> None:
+    """Emit a PROMOTION_STARTED event.
+
+    Args:
+        config: Board configuration
+        model_id: Model being considered for promotion
+        source: Component starting the promotion
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.PROMOTION_STARTED,
+        payload={
+            "config": config,
+            "model_id": model_id,
+        },
+        source=source,
+    ))
+
+
+async def emit_promotion_failed(
+    config: str,
+    model_id: str,
+    error: str,
+    source: str = "",
+) -> None:
+    """Emit a PROMOTION_FAILED event.
+
+    Args:
+        config: Board configuration
+        model_id: Model that failed promotion
+        error: Error message
+        source: Component reporting the failure
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.PROMOTION_FAILED,
+        payload={
+            "config": config,
+            "model_id": model_id,
+            "error": error,
+        },
+        source=source,
+    ))
+
+
+async def emit_promotion_rejected(
+    config: str,
+    model_id: str,
+    reason: str,
+    elo_improvement: float = 0,
+    source: str = "",
+) -> None:
+    """Emit a PROMOTION_REJECTED event.
+
+    Args:
+        config: Board configuration
+        model_id: Model that was rejected
+        reason: Reason for rejection
+        elo_improvement: Elo improvement achieved (if any)
+        source: Component rejecting the promotion
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.PROMOTION_REJECTED,
+        payload={
+            "config": config,
+            "model_id": model_id,
+            "reason": reason,
+            "elo_improvement": elo_improvement,
+        },
+        source=source,
+    ))

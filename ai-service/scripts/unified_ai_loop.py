@@ -154,6 +154,13 @@ try:
         register_running_task,
         record_task_completion,
         estimate_task_duration,
+        # Resource targets for unified utilization management
+        get_resource_targets,
+        get_host_targets,
+        get_cluster_summary,
+        should_scale_up,
+        should_scale_down,
+        set_backpressure,
     )
     HAS_COORDINATION = True
 except ImportError:

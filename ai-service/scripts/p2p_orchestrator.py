@@ -15501,23 +15501,37 @@ print(json.dumps({{
     def _target_selfplay_jobs_for_node(self, node: NodeInfo) -> int:
         """Return the desired selfplay concurrency for a node.
 
-        This keeps job scheduling, runaway detection, and load shedding aligned.
-        Target: 50% CPU utilization across cluster (reduced from 60% for stability).
+        Uses unified resource targets for consistent 60-80% utilization:
+        - Backpressure-aware: Reduces jobs when training queue is full
+        - Adaptive scaling: Increases jobs when underutilized, decreases when overloaded
+        - Host-tier aware: Adjusts targets based on hardware capability
 
-        SAFEGUARD: Maximum limits reduced to prevent runaway spawning.
+        Target: 60-80% CPU/GPU utilization for optimal training throughput.
         """
         # Check safeguards first
         if HAS_SAFEGUARDS and _safeguards:
             if _safeguards.is_emergency_active():
                 return 0
 
+        # Check backpressure - reduce production when training queue is full
+        backpressure_factor = 1.0
+        if HAS_NEW_COORDINATION:
+            try:
+                if should_stop_production(QueueType.TRAINING_DATA):
+                    print(f"[P2P] Backpressure STOP: training queue full, halting selfplay on {node.node_id}")
+                    return 0
+                if should_throttle_production(QueueType.TRAINING_DATA):
+                    backpressure_factor = get_throttle_factor(QueueType.TRAINING_DATA)
+                    print(f"[P2P] Backpressure throttle: factor={backpressure_factor:.2f}")
+            except Exception as e:
+                print(f"[P2P] Backpressure check error: {e}")
+
         # Minimum memory requirement - skip low-memory machines to avoid OOM
         memory_gb = int(getattr(node, "memory_gb", 0) or 0)
         if memory_gb > 0 and memory_gb < MIN_MEMORY_GB_FOR_TASKS:
-            # Skip low-memory machines entirely
             return 0
 
-        target_selfplay = 4  # Baseline
+        # Extract node metrics
         has_gpu = bool(getattr(node, "has_gpu", False))
         cpu_count = int(getattr(node, "cpu_count", 0) or 0)
         cpu_percent = float(getattr(node, "cpu_percent", 0.0) or 0.0)
@@ -15525,74 +15539,138 @@ print(json.dumps({{
         disk_percent = float(getattr(node, "disk_percent", 0.0) or 0.0)
         gpu_percent = float(getattr(node, "gpu_percent", 0.0) or 0.0)
         gpu_mem_percent = float(getattr(node, "gpu_memory_percent", 0.0) or 0.0)
+        current_jobs = int(getattr(node, "selfplay_jobs", 0) or 0)
 
-        # SAFEGUARD: Reduced from 0.35 to 0.20 to prevent over-spawning
-        # Target 50% CPU utilization with conservative scheduling
-        TARGET_JOBS_PER_CORE = 0.20  # ~20% of cores as concurrent jobs
+        # Record utilization for adaptive feedback
+        if HAS_NEW_COORDINATION:
+            try:
+                record_utilization(node.node_id, cpu_percent, gpu_percent, mem_percent, current_jobs)
+            except Exception:
+                pass
 
-        # SAFEGUARD: Hard caps to prevent runaway spawning
-        MAX_SELFPLAY_PER_NODE = 32  # Reduced from 256
-        MAX_SELFPLAY_HIGH_END = 48  # For high-end nodes only
+        # Use unified resource targets if available
+        if HAS_NEW_COORDINATION:
+            try:
+                # Get host-specific targets adjusted for tier and backpressure
+                host_targets = get_host_targets(node.node_id)
+
+                # Use the unified target calculator
+                target_selfplay = get_target_job_count(
+                    node.node_id,
+                    cpu_count if cpu_count > 0 else 8,
+                    cpu_percent,
+                    gpu_percent if has_gpu else 0.0,
+                )
+
+                # Check if we should scale up (underutilized)
+                scale_up, reason = should_scale_up(
+                    node.node_id, cpu_percent, gpu_percent, current_jobs
+                )
+                if scale_up and current_jobs < target_selfplay:
+                    # Controlled scale-up: Add 2-4 jobs at a time, not all at once
+                    scale_up_increment = min(4, target_selfplay - current_jobs)
+                    target_selfplay = current_jobs + scale_up_increment
+                    if self.verbose:
+                        print(f"[P2P] Scale-up on {node.node_id}: {reason}, target={target_selfplay}")
+
+                # Check if we should scale down (overloaded)
+                scale_down, reduction, reason = should_scale_down(
+                    node.node_id, cpu_percent, gpu_percent, mem_percent
+                )
+                if scale_down:
+                    target_selfplay = max(1, current_jobs - reduction)
+                    print(f"[P2P] Scale-down on {node.node_id}: {reason}, target={target_selfplay}")
+
+                # Apply backpressure factor
+                target_selfplay = int(target_selfplay * backpressure_factor)
+
+                # Apply host-specific max
+                target_selfplay = min(target_selfplay, host_targets.max_selfplay)
+
+                return int(max(1, target_selfplay))
+
+            except Exception as e:
+                print(f"[P2P] Resource targets error, falling back to legacy: {e}")
+
+        # FALLBACK: Legacy logic if coordination not available
+        target_selfplay = 4  # Baseline
+
+        # Target 60-80% utilization (raised from 50% for better efficiency)
+        TARGET_JOBS_PER_CORE = 0.35  # ~35% of cores as concurrent jobs (raised from 0.20)
+
+        # Hard caps to prevent runaway spawning
+        MAX_SELFPLAY_PER_NODE = 32
+        MAX_SELFPLAY_HIGH_END = 48
 
         if has_gpu:
             gpu_name = (getattr(node, "gpu_name", "") or "").lower()
-            # Baseline concurrency by accelerator tier (reduced baselines)
+            # Baseline concurrency by accelerator tier
             if any(tag in gpu_name for tag in ("h100", "h200", "gh200", "5090")):
-                target_selfplay = 12  # Reduced from 16
+                target_selfplay = 16  # Raised from 12 for better utilization
             elif any(tag in gpu_name for tag in ("a100", "4090")):
-                target_selfplay = 8   # Reduced from 12
+                target_selfplay = 12  # Raised from 8
             elif any(tag in gpu_name for tag in ("3090", "a10")):
-                target_selfplay = 6   # Reduced from 8
+                target_selfplay = 8   # Raised from 6
             elif memory_gb >= 64:
-                target_selfplay = 6
+                target_selfplay = 8
 
-            # Conservative scaling with CPU cores
+            # Scale with CPU cores
             if cpu_count >= 32:
                 cpu_based_target = int(cpu_count * TARGET_JOBS_PER_CORE)
-                mem_cap = memory_gb // 4 if memory_gb > 0 else 32  # 4GB per job (safer)
-                # SAFEGUARD: Much lower caps
+                mem_cap = memory_gb // 3 if memory_gb > 0 else 32  # 3GB per job
                 core_cap = MAX_SELFPLAY_HIGH_END if cpu_count >= 128 else MAX_SELFPLAY_PER_NODE
                 target_selfplay = max(target_selfplay, min(cpu_based_target, mem_cap, core_cap))
             elif cpu_count > 0:
-                cpu_bonus = max(0, min(8, cpu_count // 6))  # Reduced bonus
+                cpu_bonus = max(0, min(12, cpu_count // 4))
                 target_selfplay = min(MAX_SELFPLAY_PER_NODE, target_selfplay + cpu_bonus)
 
-            # Utilization-aware tuning - more aggressive reduction
-            if gpu_percent > 90 or gpu_mem_percent > 90:
-                target_selfplay = max(2, target_selfplay - 6)
-            if cpu_percent > 80:
+            # Utilization-aware tuning targeting 60-80%
+            if gpu_percent > 85 or gpu_mem_percent > 85:
                 target_selfplay = max(2, target_selfplay - 4)
-            # REMOVED: No more "scale up more" logic that caused runaway
+            elif gpu_percent < 60 and current_jobs > 0:
+                # Scale up when GPU underutilized
+                scale_up_jobs = min(4, int((60 - gpu_percent) / 15))
+                target_selfplay = min(MAX_SELFPLAY_HIGH_END, target_selfplay + scale_up_jobs)
+
+            if cpu_percent > 80:
+                target_selfplay = max(2, target_selfplay - 2)
+            elif cpu_percent < 60 and current_jobs > 0:
+                # Scale up when CPU underutilized
+                scale_up_jobs = min(3, int((60 - cpu_percent) / 20))
+                target_selfplay = min(MAX_SELFPLAY_PER_NODE, target_selfplay + scale_up_jobs)
         else:
-            # CPU-only nodes: conservative scaling
+            # CPU-only nodes
             if cpu_count >= 32:
                 cpu_target = int(cpu_count * TARGET_JOBS_PER_CORE)
-                mem_cap = memory_gb // 4 if memory_gb > 0 else 24  # 4GB per job (safer)
-                # SAFEGUARD: CPU-only nodes capped at 24 max
-                core_cap = min(24, max(8, cpu_count // 8))
+                mem_cap = memory_gb // 3 if memory_gb > 0 else 24
+                core_cap = min(32, max(8, cpu_count // 4))
                 target_selfplay = max(target_selfplay, min(cpu_target, mem_cap, core_cap))
             elif cpu_count > 0:
                 cpu_target = max(2, int(cpu_count * TARGET_JOBS_PER_CORE))
-                target_selfplay = max(target_selfplay, min(cpu_target, 16))
+                target_selfplay = max(target_selfplay, min(cpu_target, 20))
             elif memory_gb >= 64:
-                target_selfplay = 6
+                target_selfplay = 8
 
             if memory_gb > 0 and memory_gb < 16:
-                # Only cap for very low-memory machines
                 mem_target = max(2, memory_gb // 2)
                 target_selfplay = min(target_selfplay, mem_target)
 
-            # Utilization-aware reduction only (no scale-up)
+            # Utilization-aware scaling for CPU nodes
             if cpu_percent > 80:
-                target_selfplay = max(2, target_selfplay - 4)
-            # REMOVED: Scale-up logic that caused runaway
+                target_selfplay = max(2, target_selfplay - 3)
+            elif cpu_percent < 60 and current_jobs > 0:
+                scale_up_jobs = min(4, int((60 - cpu_percent) / 15))
+                target_selfplay = min(MAX_SELFPLAY_PER_NODE, target_selfplay + scale_up_jobs)
 
         if disk_percent >= DISK_WARNING_THRESHOLD:
-            target_selfplay = min(target_selfplay, 2)
+            target_selfplay = min(target_selfplay, 4)
         if mem_percent >= MEMORY_WARNING_THRESHOLD:
-            target_selfplay = min(target_selfplay, 1)
+            target_selfplay = min(target_selfplay, 2)
 
-        # SAFEGUARD: Apply global hard cap
+        # Apply backpressure factor
+        target_selfplay = int(target_selfplay * backpressure_factor)
+
+        # Apply global hard cap
         target_selfplay = min(target_selfplay, MAX_SELFPLAY_PER_NODE)
 
         return int(max(1, target_selfplay))
