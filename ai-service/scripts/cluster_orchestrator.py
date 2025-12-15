@@ -69,31 +69,74 @@ try:
         request_bandwidth,
         release_bandwidth,
         TransferPriority,
+        # Duration-aware scheduling
+        can_schedule_task,
+        register_running_task,
+        record_task_completion,
     )
     HAS_NEW_COORDINATION = True
 except ImportError:
     HAS_NEW_COORDINATION = False
     print("[WARN] New coordination features not available")
 
-# Import enhanced ClusterCoordinator (preferred)
-try:
-    from app.distributed.cluster_coordinator import (
-        ClusterCoordinator,
-        TaskRole,
-        check_and_abort_if_role_held,
-    )
-    HAS_ENHANCED_COORDINATION = True
-except ImportError:
-    HAS_ENHANCED_COORDINATION = False
-    ClusterCoordinator = None
-    TaskRole = None
+HAS_COORDINATION = HAS_TASK_COORDINATOR or HAS_NEW_COORDINATION
 
-HAS_COORDINATION = HAS_TASK_COORDINATOR or HAS_ENHANCED_COORDINATION
+# Import adaptive controller for dynamic game scaling
+try:
+    from app.training.adaptive_controller import (
+        AdaptiveController,
+        create_adaptive_controller,
+    )
+    HAS_ADAPTIVE_CONTROLLER = True
+except ImportError:
+    HAS_ADAPTIVE_CONTROLLER = False
+    AdaptiveController = None
+    print("[WARN] AdaptiveController not available - using fixed game counts")
 
 LOG_DIR = Path(__file__).parent.parent / "logs" / "orchestrator"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE = LOG_DIR / "cluster_state.json"
+ADAPTIVE_CONTROLLER_STATE = LOG_DIR / "adaptive_controller.json"
 LOCKFILE = Path("/tmp/cluster_orchestrator.lock")
+
+# Global adaptive controller instance (lazy-initialized)
+_adaptive_controller: Optional[AdaptiveController] = None
+
+
+def get_adaptive_games(min_games: int = 30, max_games: int = 150) -> int:
+    """Get adaptive game count based on recent training performance.
+
+    Uses AdaptiveController to dynamically scale game generation:
+    - More games when model is improving (capitalize on momentum)
+    - Fewer games when plateauing (reduce wasted compute)
+    - Default to midpoint if no history available
+
+    Args:
+        min_games: Minimum game count
+        max_games: Maximum game count
+
+    Returns:
+        Optimal number of games for this iteration
+    """
+    global _adaptive_controller
+
+    if not HAS_ADAPTIVE_CONTROLLER:
+        return SCALE_UP_GAMES_PER_HOST
+
+    try:
+        if _adaptive_controller is None:
+            _adaptive_controller = create_adaptive_controller(
+                min_games=min_games,
+                max_games=max_games,
+                state_path=ADAPTIVE_CONTROLLER_STATE,
+            )
+
+        games = _adaptive_controller.compute_games()
+        log(f"[ADAPTIVE] Game count: {games} (min={min_games}, max={max_games})")
+        return games
+    except Exception as e:
+        log(f"[ADAPTIVE] Error computing games: {e}, using default", "WARN")
+        return SCALE_UP_GAMES_PER_HOST
 
 # Mac Studio sync configuration
 MAC_STUDIO_HOST = os.environ.get("MAC_STUDIO_HOST", "mac-studio")
@@ -922,30 +965,18 @@ def save_state(state: ClusterState):
 def acquire_lock() -> bool:
     """Acquire lockfile to prevent multiple instances.
 
-    Uses new OrchestratorRole if available, falls back to enhanced ClusterCoordinator,
-    then local lockfile.
+    Uses OrchestratorRole if available, then falls back to local lockfile.
     """
-    # Prefer new OrchestratorRole system (SQLite-backed with heartbeat)
+    # Prefer OrchestratorRole system (SQLite-backed with heartbeat)
     if HAS_NEW_COORDINATION:
         if acquire_orchestrator_role(OrchestratorRole.CLUSTER_ORCHESTRATOR):
-            log("Acquired CLUSTER_ORCHESTRATOR role via new coordination system")
+            log("Acquired CLUSTER_ORCHESTRATOR role via coordination system")
             return True
         else:
             log("Another cluster orchestrator is already running (via OrchestratorRole)", "WARN")
             return False
 
-    # Fallback to enhanced ClusterCoordinator
-    if HAS_ENHANCED_COORDINATION:
-        coordinator = ClusterCoordinator()
-        if coordinator.is_role_held(TaskRole.ORCHESTRATOR):
-            existing_pid = coordinator.get_role_holder_pid(TaskRole.ORCHESTRATOR)
-            log(f"Another orchestrator is already running (PID {existing_pid})", "WARN")
-            return False
-        log("Enhanced coordination available - lock check passed")
-        # Note: actual lock is acquired via context manager in main loop
-        return True
-
-    # Final fallback to local lockfile
+    # Fallback to local lockfile
     if LOCKFILE.exists():
         try:
             pid = int(LOCKFILE.read_text().strip())
@@ -978,12 +1009,13 @@ def release_lock():
 def check_host_can_spawn(host_name: str, ssh_host: str, task_type: str = "selfplay") -> bool:
     """Check if a host can accept new tasks using coordination module.
 
-    Uses new coordination features if available:
+    Uses coordination features if available:
     - Pre-spawn health check
     - Queue backpressure monitoring
-    - Legacy coordination as fallback
+    - Duration-aware scheduling
+    - TaskCoordinator for spawn limits
     """
-    # Check backpressure first (new coordination)
+    # Check backpressure first
     if HAS_NEW_COORDINATION and task_type == "selfplay":
         if should_throttle_production(QueueType.TRAINING_DATA):
             throttle_factor = get_throttle_factor(QueueType.TRAINING_DATA)
@@ -994,19 +1026,21 @@ def check_host_can_spawn(host_name: str, ssh_host: str, task_type: str = "selfpl
                 log(f"Skipping spawn on {host_name} due to backpressure", "WARN")
                 return False
 
-    # Pre-spawn health check (new coordination)
+    # Pre-spawn health check
     if HAS_NEW_COORDINATION:
         can_spawn, reason = pre_spawn_check(ssh_host, task_type)
         if not can_spawn:
             log(f"Pre-spawn check failed for {host_name}: {reason}", "WARN")
             return False
 
-    # Prefer enhanced ClusterCoordinator
-    if HAS_ENHANCED_COORDINATION:
-        coordinator = ClusterCoordinator()
-        return coordinator.can_spawn_process(task_type)
+    # Duration-aware scheduling (avoids peak hours for intensive tasks)
+    if HAS_NEW_COORDINATION:
+        can_schedule, schedule_reason = can_schedule_task(task_type, ssh_host)
+        if not can_schedule:
+            log(f"Duration scheduler blocked {host_name}: {schedule_reason}", "INFO")
+            return False
 
-    # Fallback to TaskCoordinator (canonical)
+    # TaskCoordinator (canonical)
     if HAS_TASK_COORDINATOR:
         try:
             tc = TaskCoordinator.get_instance()
@@ -1721,9 +1755,12 @@ def trigger_auto_scale_selfplay(
         target = f"{host.ssh_user}@{host.ssh_host}"
         ringrift_path = host.ringrift_path
 
-        # Start canonical self-play
+        # Start canonical self-play with adaptive game count
         log_file = f"/tmp/autoscale_selfplay_{board_type}_{num_players}p.log"
         venv_activate = host.venv_activate.strip() if host.venv_activate else "source venv/bin/activate"
+
+        # Use adaptive game scaling based on training performance
+        num_games = get_adaptive_games(min_games=30, max_games=150)
 
         remote_cmd = (
             f"cd {ringrift_path} && "
@@ -1731,7 +1768,7 @@ def trigger_auto_scale_selfplay(
             f"nohup python3 scripts/generate_canonical_selfplay.py "
             f"--board-type {board_type} "
             f"--num-players {num_players} "
-            f"--num-games {SCALE_UP_GAMES_PER_HOST} "
+            f"--num-games {num_games} "
             f"--db data/games/{db_name} "
             f"--summary {summary_path} "
             f"> {log_file} 2>&1 & "
