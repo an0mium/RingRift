@@ -233,6 +233,8 @@ try:
         get_config_weights,
         # Hardware-aware selfplay limits (single source of truth)
         get_max_selfplay_for_node,
+        get_hybrid_selfplay_limits,
+        get_max_cpu_only_selfplay,
     )
     HAS_RATE_NEGOTIATION = True
     HAS_NEW_COORDINATION = True
@@ -252,6 +254,8 @@ except ImportError:
     update_config_weights = None
     get_config_weights = None
     get_max_selfplay_for_node = None
+    get_hybrid_selfplay_limits = None
+    get_max_cpu_only_selfplay = None
 
 # P2P-integrated monitoring management
 try:
@@ -498,6 +502,7 @@ class JobType(str, Enum):
     SELFPLAY = "selfplay"
     GPU_SELFPLAY = "gpu_selfplay"  # GPU-accelerated parallel selfplay (pure GPU, experimental)
     HYBRID_SELFPLAY = "hybrid_selfplay"  # Hybrid CPU/GPU selfplay (100% rule fidelity, GPU-accelerated eval)
+    CPU_SELFPLAY = "cpu_selfplay"  # Pure CPU selfplay to utilize excess CPU on high-CPU/low-VRAM nodes
     TRAINING = "training"
     CMAES = "cmaes"
     # Distributed job types
@@ -1364,7 +1369,7 @@ class P2POrchestrator:
         # Canonical gate jobs (leader-only): dashboard-triggered runs of
         # scripts/generate_canonical_selfplay.py.
         self.canonical_gate_jobs: Dict[str, Dict[str, Any]] = {}
-        self.canonical_gate_jobs_lock = threading.Lock()
+        self.canonical_gate_jobs_lock = threading.RLock()
 
         # Phase 2: P2P rsync coordination state
         self.active_sync_jobs: Dict[str, DataSyncJob] = {}
@@ -1465,16 +1470,19 @@ class P2POrchestrator:
         # A/B Testing Framework - Compare models head-to-head with statistical significance
         # Key: test_id (UUID), Value: ABTestState dict
         self.ab_tests: Dict[str, Dict[str, Any]] = {}
-        self.ab_test_lock = threading.Lock()
+        self.ab_test_lock = threading.RLock()
 
         # Locks for thread safety
-        self.peers_lock = threading.Lock()
-        self.jobs_lock = threading.Lock()
-        self.manifest_lock = threading.Lock()
-        self.sync_lock = threading.Lock()
-        self.training_lock = threading.Lock()
-        self.ssh_tournament_lock = threading.Lock()
-        self.relay_lock = threading.Lock()
+        # Use RLock (reentrant lock) to allow nested acquisitions from same thread
+        # This prevents deadlocks when helper methods like _select_best_relay are
+        # called while already holding the lock
+        self.peers_lock = threading.RLock()
+        self.jobs_lock = threading.RLock()
+        self.manifest_lock = threading.RLock()
+        self.sync_lock = threading.RLock()
+        self.training_lock = threading.RLock()
+        self.ssh_tournament_lock = threading.RLock()
+        self.relay_lock = threading.RLock()
 
         # State persistence
         self.db_path = STATE_DIR / f"{node_id}_state.db"
