@@ -508,24 +508,31 @@ def export_replay_dataset_multi(
             history_frames: List[np.ndarray] = []
             samples_before = len(features_list)
 
+            # Use incremental state updates instead of replaying from scratch for each move.
+            # This reduces complexity from O(n²) to O(n) per game.
+            from app.game_engine import GameEngine
+
+            current_state = initial_state
             for move_index, move in enumerate(moves):
                 if max_safe_move_index is not None and move_index > max_safe_move_index:
                     break
                 if max_move_index is not None and move_index > max_move_index:
                     break
+
+                # state_before is the state BEFORE this move is applied
+                state_before = current_state
+
+                # Apply move to get next state (for next iteration)
+                try:
+                    # Use trace_mode=True for canonical replay behavior
+                    current_state = GameEngine.apply_move(current_state, move, trace_mode=True)
+                except Exception as e:
+                    logger.debug(f"Skipping game {game_id} at move {move_index}: {e}")
+                    break
+
+                # Skip if not sampling this move
                 if sample_every > 1 and (move_index % sample_every) != 0:
                     continue
-
-                if move_index == 0:
-                    state_before = initial_state
-                else:
-                    try:
-                        state_before = db.get_state_at_move(game_id, move_index - 1)
-                    except Exception as e:
-                        logger.debug(f"Skipping game {game_id} at move {move_index}: {e}")
-                        break
-                    if state_before is None:
-                        break
 
                 stacked, globals_vec = encode_state_with_history(
                     encoder, state_before, history_frames, history_length=history_length

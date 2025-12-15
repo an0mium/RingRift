@@ -155,7 +155,7 @@ def scan_aggregated_directory(
     board_type: Optional[str] = None,
     num_players: Optional[int] = None,
 ) -> List[Tuple[Path, str]]:
-    """Scan aggregated directory for JSONL files.
+    """Scan directory recursively for JSONL files.
 
     Returns list of (filepath, source_name) tuples.
     """
@@ -165,43 +165,43 @@ def scan_aggregated_directory(
         logger.error(f"Input directory does not exist: {input_dir}")
         return results
 
-    # Expected structure: aggregated/{source}/{permutation}/games.jsonl
-    for source_dir in sorted(input_dir.iterdir()):
-        if not source_dir.is_dir():
+    # Use recursive glob to find ALL games.jsonl files at any depth
+    for jsonl_file in input_dir.glob("**/games.jsonl"):
+        # Skip empty files
+        try:
+            if jsonl_file.stat().st_size == 0:
+                continue
+        except OSError:
             continue
 
-        source_name = source_dir.name
+        # Extract source name from path (first directory component after input_dir)
+        try:
+            rel_path = jsonl_file.relative_to(input_dir)
+            source_name = rel_path.parts[0] if rel_path.parts else "unknown"
+        except ValueError:
+            source_name = "unknown"
 
         # Filter by sources if specified
         if sources and source_name not in sources:
             continue
 
-        # Scan permutation subdirectories
-        for perm_dir in sorted(source_dir.iterdir()):
-            if not perm_dir.is_dir():
+        # Try to parse board type and player count from path
+        path_str = str(jsonl_file)
+
+        # Check board type filter
+        if board_type:
+            if board_type not in path_str.lower():
                 continue
 
-            # Parse permutation name (e.g., "random_square8_2p")
-            perm_name = perm_dir.name
-            parts = perm_name.split("_")
+        # Check player count filter (look for patterns like "2p", "_2_", etc.)
+        if num_players:
+            player_patterns = [f"{num_players}p", f"_{num_players}_", f"_{num_players}p"]
+            if not any(p in path_str for p in player_patterns):
+                continue
 
-            if len(parts) >= 3:
-                perm_board = parts[1]  # e.g., "square8"
-                perm_players = parts[2].rstrip("p")  # e.g., "2"
+        results.append((jsonl_file, source_name))
 
-                # Filter by board type
-                if board_type and perm_board != board_type:
-                    continue
-
-                # Filter by player count
-                if num_players and perm_players != str(num_players):
-                    continue
-
-            # Look for games.jsonl
-            jsonl_file = perm_dir / "games.jsonl"
-            if jsonl_file.exists():
-                results.append((jsonl_file, source_name))
-
+    logger.info(f"Found {len(results)} JSONL files via recursive scan")
     return results
 
 
