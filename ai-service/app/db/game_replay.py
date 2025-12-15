@@ -18,6 +18,7 @@ import logging
 import sqlite3
 import uuid
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
@@ -2405,7 +2406,16 @@ class GameReplayDB:
         # Calculate duration if timestamps available
         duration_ms = None
         if initial_state.created_at and final_state.last_move_at:
-            duration = final_state.last_move_at - initial_state.created_at
+            # Normalize both datetimes to UTC to handle mixed timezone-aware/naive
+            created = initial_state.created_at
+            ended = final_state.last_move_at
+            # If created_at is naive, assume UTC
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            # If last_move_at is naive, assume UTC
+            if ended.tzinfo is None:
+                ended = ended.replace(tzinfo=timezone.utc)
+            duration = ended - created
             duration_ms = int(duration.total_seconds() * 1000)
 
         # Serialize full metadata dict for long-term debugging/analytics.
