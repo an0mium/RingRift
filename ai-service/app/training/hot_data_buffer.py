@@ -443,6 +443,10 @@ class HotDataBuffer:
                     "outcome": game.outcome,
                     "timestamp": game.timestamp,
                     "source": game.source,
+                    # Priority fields for experience replay
+                    "avg_elo": game.avg_elo,
+                    "priority": game.priority,
+                    "from_promoted_model": game.from_promoted_model,
                 }
                 f.write(json.dumps(record) + "\n")
                 written += 1
@@ -482,6 +486,10 @@ class HotDataBuffer:
                     "outcome": game.outcome,
                     "timestamp": game.timestamp,
                     "source": game.source,
+                    # Priority fields for experience replay
+                    "avg_elo": game.avg_elo,
+                    "priority": game.priority,
+                    "from_promoted_model": game.from_promoted_model,
                 }
                 f.write(json.dumps(record) + "\n")
                 written += 1

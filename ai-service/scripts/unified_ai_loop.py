@@ -5459,6 +5459,7 @@ class UnifiedAILoop:
 
     async def _training_loop(self):
         """Main training management loop."""
+        print("[TrainingLoop] Starting training loop", flush=True)
         while self._running:
             try:
                 # Check if training completed
@@ -5475,6 +5476,7 @@ class UnifiedAILoop:
                 # Check if we should start training
                 if not self.state.training_in_progress:
                     trigger_config = self.training_scheduler.should_trigger_training()
+                    print(f"[TrainingLoop] Check: trigger_config={trigger_config}", flush=True)
                     if trigger_config:
                         # Run parity validation gate before training
                         if self.should_run_parity_validation(min_interval_seconds=1800):
