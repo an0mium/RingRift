@@ -477,6 +477,10 @@ TAILSCALE_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 MANIFEST_JSONL_LINECOUNT_MAX_BYTES = 0  # Skip ALL line-counting to prevent blocking
 MANIFEST_JSONL_LINECOUNT_CHUNK_BYTES = 1024 * 1024
 
+# Startup grace period: skip ALL JSONL reading for this many seconds after startup
+# to ensure HTTP server becomes responsive before any heavy I/O operations
+STARTUP_JSONL_GRACE_PERIOD_SECONDS = 120  # 2 minutes
+
 # LEARNED LESSONS - Automatic data management settings
 DATA_MANAGEMENT_INTERVAL = 300  # Check data status every 5 minutes (reduced for faster training triggers)
 DB_EXPORT_THRESHOLD_MB = 100    # Trigger export when DB exceeds 100MB
@@ -1380,6 +1384,7 @@ class P2POrchestrator:
         self.verbose = bool(os.environ.get("RINGRIFT_P2P_VERBOSE", "").strip())
         self.peers: Dict[str, NodeInfo] = {}
         self.local_jobs: Dict[str, ClusterJob] = {}
+        self.active_jobs: Dict[str, Dict[str, Any]] = {}  # Track running jobs by type (selfplay, training, etc.)
 
         # Distributed job state tracking (leader-only)
         self.distributed_cmaes_state: Dict[str, DistributedCMAESState] = {}
@@ -3305,6 +3310,14 @@ class P2POrchestrator:
             return self._urls_for_peer(voter, path)
 
         return urls
+
+    def _is_in_startup_grace_period(self) -> bool:
+        """Check if we're still in the startup grace period.
+
+        During this period, skip heavy I/O operations like JSONL scanning
+        to ensure HTTP server remains responsive.
+        """
+        return (time.time() - self.start_time) < STARTUP_JSONL_GRACE_PERIOD_SECONDS
 
     def _get_resource_usage(self) -> Dict[str, float]:
         """Get current resource usage."""
@@ -12024,6 +12037,10 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             if now - getattr(self, cache_time_key) < cache_ttl:
                 return getattr(self, cache_key)
 
+        # Skip JSONL scanning during startup grace period
+        if self._is_in_startup_grace_period():
+            return {}
+
         stats: Dict[Tuple[str, int, str], int] = defaultdict(int)
 
         # Scan recent game files (last 24 hours)
@@ -12076,6 +12093,10 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         if hasattr(self, cache_key) and hasattr(self, cache_time_key):
             if now - getattr(self, cache_time_key) < cache_ttl:
                 return getattr(self, cache_key)
+
+        # Skip JSONL scanning during startup grace period
+        if self._is_in_startup_grace_period():
+            return {"configs": {}}
 
         hours = 24
         cutoff = now - (hours * 3600)
@@ -12288,6 +12309,10 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         if hasattr(self, cache_key) and hasattr(self, cache_time_key):
             if now - getattr(self, cache_time_key) < cache_ttl:
                 return getattr(self, cache_key)
+
+        # Skip JSONL scanning during startup grace period
+        if self._is_in_startup_grace_period():
+            return {"configs": {}, "summary": {}}
 
         ai_root = Path(self.ringrift_path) / "ai-service"
         stats = {"configs": {}, "summary": {}}
@@ -12611,6 +12636,10 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         if hasattr(self, cache_key) and hasattr(self, cache_time_key):
             if now - getattr(self, cache_time_key) < cache_ttl:
                 return getattr(self, cache_key)
+
+        # Skip JSONL scanning during startup grace period
+        if self._is_in_startup_grace_period():
+            return {"configs": {}, "issues": [], "summary": {}}
 
         ai_root = Path(self.ringrift_path) / "ai-service"
         quality = {"configs": {}, "issues": [], "summary": {}}
@@ -13429,6 +13458,10 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         from collections import defaultdict
 
         try:
+            # Skip JSONL scanning during startup grace period
+            if self._is_in_startup_grace_period():
+                return web.json_response({"configs": {}, "message": "Startup in progress"})
+
             hours = int(request.query.get("hours", "24"))
             cutoff = time.time() - (hours * 3600)
 
