@@ -17740,6 +17740,119 @@ print(json.dumps({{
         # Start monitoring services when becoming leader
         await self._start_monitoring_if_leader()
 
+    async def _check_emergency_coordinator_fallback(self):
+        """DECENTRALIZED: When voter quorum is unreachable for >5 min, any GPU node can coordinate.
+
+        EMERGENCY COORDINATOR: This is a last-resort fallback when the normal voter-based
+        leadership cannot be established due to:
+        - Too many voters being offline
+        - Network partition isolating voters
+        - Cluster-wide issues
+
+        In this mode, the node acts as a temporary coordinator WITHOUT voter consensus.
+        It will relinquish control once voter quorum is restored.
+        """
+        now = time.time()
+
+        # Only check every 60 seconds
+        last_check = getattr(self, "_last_emergency_coord_check", 0)
+        if now - last_check < 60:
+            return
+        self._last_emergency_coord_check = now
+
+        # Skip if we already are a leader
+        if self.role == NodeRole.LEADER:
+            return
+
+        # Skip if we have a known leader
+        if self.leader_id:
+            self._emergency_coordinator_since = 0
+            return
+
+        # Check if we have voter quorum
+        if self._has_voter_quorum():
+            self._emergency_coordinator_since = 0
+            return  # Normal election should work
+
+        # Track how long we've been without voter quorum
+        quorum_missing_since = getattr(self, "_quorum_missing_since", 0)
+        if quorum_missing_since == 0:
+            self._quorum_missing_since = now
+            return
+
+        EMERGENCY_THRESHOLD = 300  # 5 minutes without quorum triggers emergency
+        quorum_missing_duration = now - quorum_missing_since
+
+        if quorum_missing_duration < EMERGENCY_THRESHOLD:
+            return
+
+        # Check if we're eligible (must be GPU node, not NAT-blocked)
+        self._update_self_info()
+        if not getattr(self.self_info, "has_gpu", False):
+            return
+        if getattr(self.self_info, "nat_blocked", False):
+            return
+
+        # Use consistent hashing to determine which node should be emergency coordinator
+        # This prevents multiple nodes from declaring themselves coordinator
+        with self.peers_lock:
+            candidates = [self.node_id]
+            for peer in self.peers.values():
+                if not peer.is_alive():
+                    continue
+                if not getattr(peer, "has_gpu", False):
+                    continue
+                if getattr(peer, "nat_blocked", False):
+                    continue
+                candidates.append(peer.node_id)
+
+        if not candidates:
+            return
+
+        # Deterministic selection: highest node_id wins (simple, consistent)
+        candidates.sort(reverse=True)
+        designated_coordinator = candidates[0]
+
+        if designated_coordinator != self.node_id:
+            return  # Another node should be coordinator
+
+        # Become emergency coordinator (without voter lease)
+        print(f"[P2P] EMERGENCY COORDINATOR: Taking leadership without voter quorum "
+              f"(quorum missing for {int(quorum_missing_duration)}s, {len(candidates)} candidates)")
+
+        self.role = NodeRole.LEADER
+        self.leader_id = self.node_id
+        self.last_leader_seen = now
+        self._emergency_coordinator_since = now
+
+        # Use a special lease ID to mark emergency mode
+        import uuid
+        self.leader_lease_id = f"EMERGENCY_{self.node_id}_{uuid.uuid4().hex[:8]}"
+        self.leader_lease_expires = now + 120  # Short lease - needs frequent renewal
+        self.last_lease_renewal = now
+
+        # Announce emergency leadership
+        with self.peers_lock:
+            peers = list(self.peers.values())
+
+        timeout = ClientTimeout(total=5)
+        async with get_client_session(timeout) as session:
+            for peer in peers:
+                if peer.node_id != self.node_id:
+                    try:
+                        url = self._url_for_peer(peer, "/coordinator")
+                        await session.post(url, json={
+                            "leader_id": self.node_id,
+                            "lease_id": self.leader_lease_id,
+                            "lease_expires": self.leader_lease_expires,
+                            "emergency": True,
+                        }, headers=self._auth_headers())
+                    except:
+                        pass
+
+        self._save_state()
+        print(f"[P2P] EMERGENCY COORDINATOR: {self.node_id} is now emergency leader")
+
     async def _start_monitoring_if_leader(self):
         """Start Prometheus/Grafana when we become leader (P2P monitoring resilience)."""
         if not self.monitoring_manager:
@@ -18045,6 +18158,9 @@ print(json.dumps({{
 
                 # Leaderless training fallback: trigger local training if no leader for too long
                 await self._check_local_training_fallback()
+
+                # Emergency coordinator: if voter quorum unavailable for >5min, take leadership
+                await self._check_emergency_coordinator_fallback()
 
                 # ==== LEADER-ONLY OPERATIONS ====
                 if self.role == NodeRole.LEADER:

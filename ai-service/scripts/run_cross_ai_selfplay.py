@@ -201,7 +201,13 @@ def play_game(
     moves = 0
 
     try:
-        while state.game_status == GameStatus.IN_PROGRESS and moves < max_moves:
+        # Handle both enum and string status values for compatibility
+        def is_in_progress(status):
+            if isinstance(status, GameStatus):
+                return status == GameStatus.IN_PROGRESS
+            return str(status).upper() == "IN_PROGRESS"
+
+        while is_in_progress(state.game_status) and moves < max_moves:
             current_player = state.current_player
             ai = ais.get(current_player)
 
