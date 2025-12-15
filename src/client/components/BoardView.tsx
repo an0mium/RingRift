@@ -239,7 +239,15 @@ const StackWidget: React.FC<{
   animationClass?: string | undefined;
   isSelected?: boolean | undefined;
   ownerPlayerId?: number | undefined;
-}> = ({ stack, boardType, animationClass, isSelected = false, ownerPlayerId }) => {
+  isJustMoved?: boolean | undefined;
+}> = ({
+  stack,
+  boardType,
+  animationClass,
+  isSelected = false,
+  ownerPlayerId,
+  isJustMoved = false,
+}) => {
   const { rings, capHeight, stackHeight } = stack;
 
   // Engine semantics: rings[0] is the top ring (cap); additional rings
@@ -284,16 +292,20 @@ const StackWidget: React.FC<{
           const isTop = index === topIndex;
           const isInCap = index <= capEndIndex;
 
-          const baseShape = `${ringSizeClasses} rounded-full border`;
+          // Base shape with 2px border (increased from 1px for visibility)
+          const baseShape = `${ringSizeClasses} rounded-full border-[2px]`;
+          // Cap outline for rings in the cap
           const capOutline = isInCap
             ? 'ring-[0.5px] ring-offset-[0.5px] ring-offset-slate-900'
             : '';
+          // Just-moved highlight: cyan glow inside the black outline
+          const justMovedHighlight = isJustMoved ? 'ring-[1.5px] ring-cyan-300/90 ring-inset' : '';
           const topShadow = isTop ? 'shadow-md shadow-slate-900/70' : 'shadow-sm';
 
           return (
             <div
               key={index}
-              className={`${baseShape} ${ring} ${ringBorder} ${capOutline} ${topShadow}`}
+              className={`${baseShape} ${ring} ${ringBorder} ${capOutline} ${justMovedHighlight} ${topShadow}`}
             />
           );
         })}
@@ -311,7 +323,15 @@ const StackFromViewModel: React.FC<{
   animationClass?: string | undefined;
   isSelected?: boolean | undefined;
   ownerPlayerId?: number | undefined;
-}> = ({ stack, boardType, animationClass, isSelected = false, ownerPlayerId }) => {
+  isJustMoved?: boolean | undefined;
+}> = ({
+  stack,
+  boardType,
+  animationClass,
+  isSelected = false,
+  ownerPlayerId,
+  isJustMoved = false,
+}) => {
   const { rings, stackHeight, capHeight } = stack;
 
   const isSquare8 = boardType === 'square8';
@@ -345,16 +365,19 @@ const StackFromViewModel: React.FC<{
         {rings.map((ringVM, index) => {
           const { colorClass, borderClass, isTop, isInCap } = ringVM;
 
-          const baseShape = `${ringSizeClasses} rounded-full border`;
+          // Base shape with 2px border (increased from 1px for visibility)
+          const baseShape = `${ringSizeClasses} rounded-full border-[2px]`;
           const capOutline = isInCap
             ? 'ring-[0.5px] ring-offset-[0.5px] ring-offset-slate-900'
             : '';
+          // Just-moved highlight: cyan glow inside the black outline
+          const justMovedHighlight = isJustMoved ? 'ring-[1.5px] ring-cyan-300/90 ring-inset' : '';
           const topShadow = isTop ? 'shadow-md shadow-slate-900/70' : 'shadow-sm';
 
           return (
             <div
               key={index}
-              className={`${baseShape} ${colorClass} ${borderClass} ${capOutline} ${topShadow}`}
+              className={`${baseShape} ${colorClass} ${borderClass} ${capOutline} ${justMovedHighlight} ${topShadow}`}
             />
           );
         })}
@@ -1865,6 +1888,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
                 }`.trim()}
                 isSelected={!!effectiveIsSelected}
                 ownerPlayerId={stackOwner}
+                isJustMoved={isMoveDestination}
               />
             ) : stack ? (
               <StackWidget
@@ -1875,6 +1899,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
                 }`.trim()}
                 isSelected={!!effectiveIsSelected}
                 ownerPlayerId={stackOwner}
+                isJustMoved={isMoveDestination}
               />
             ) : null}
 
@@ -2257,6 +2282,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
                 }`.trim()}
                 isSelected={!!effectiveIsSelected}
                 ownerPlayerId={stackOwner}
+                isJustMoved={isMoveDestination}
               />
             ) : stack ? (
               <StackWidget
@@ -2267,6 +2293,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
                 }`.trim()}
                 isSelected={!!effectiveIsSelected}
                 ownerPlayerId={stackOwner}
+                isJustMoved={isMoveDestination}
               />
             ) : null}
 

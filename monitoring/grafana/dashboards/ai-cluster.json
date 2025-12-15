@@ -2228,6 +2228,156 @@
       ],
       "title": "Cluster Throughput & Scaling",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 140 },
+      "id": 1100,
+      "panels": [],
+      "title": "A/B Model Testing",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Status" },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": { "mode": "basic", "type": "color-background" }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  { "options": { "running": { "color": "blue", "index": 0 } }, "type": "value" },
+                  { "options": { "completed": { "color": "green", "index": 1 } }, "type": "value" },
+                  { "options": { "cancelled": { "color": "orange", "index": 2 } }, "type": "value" }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Winner" },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": { "mode": "basic", "type": "color-background" }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  { "options": { "model_a": { "color": "green", "index": 0 } }, "type": "value" },
+                  { "options": { "model_b": { "color": "yellow", "index": 1 } }, "type": "value" },
+                  { "options": { "-": { "color": "text", "index": 2 } }, "type": "value" }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 141 },
+      "id": 1101,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "enablePagination": true },
+        "showHeader": true
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "columns": [],
+          "filters": [],
+          "format": "table",
+          "refId": "A",
+          "source": "url",
+          "type": "json",
+          "url": "http://${orchestrator_host}:8770/abtest/table",
+          "url_options": { "method": "GET" }
+        }
+      ],
+      "title": "A/B Tests",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 151 },
+      "id": 1200,
+      "panels": [],
+      "title": "Historical Trends",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 152 },
+      "id": 1201,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "enablePagination": true },
+        "showHeader": true
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "columns": [],
+          "filters": [],
+          "format": "table",
+          "refId": "A",
+          "source": "url",
+          "type": "json",
+          "url": "http://${orchestrator_host}:8770/trends/table?metric=best_elo",
+          "url_options": { "method": "GET" }
+        }
+      ],
+      "title": "Elo History (7 days)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "${infinity}" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 152 },
+      "id": 1202,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "enablePagination": true },
+        "showHeader": true
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "columns": [],
+          "filters": [],
+          "format": "table",
+          "refId": "A",
+          "source": "url",
+          "type": "json",
+          "url": "http://${orchestrator_host}:8770/trends/table?metric=training_loss",
+          "url_options": { "method": "GET" }
+        }
+      ],
+      "title": "Training Loss History (7 days)",
+      "type": "table"
     }
   ],
   "refresh": "30s",

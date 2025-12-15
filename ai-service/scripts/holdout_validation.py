@@ -55,6 +55,13 @@ DEFAULT_HOLDOUT_PERCENT = 10  # 10% of games reserved for holdout
 HOLDOUT_SEED = 42  # Deterministic selection based on game_id hash
 OVERFIT_THRESHOLD = 0.15  # Alert if holdout loss > train loss by this much
 
+# Stratification by game phase
+PHASE_OPENING_MAX_MOVES = 10  # First N moves are "opening"
+PHASE_MIDGAME_MAX_MOVES = 40  # Moves N to M are "midgame"
+# Beyond midgame = "endgame"
+
+GAME_PHASES = ["opening", "midgame", "endgame"]
+
 
 @dataclass
 class HoldoutGame:
@@ -79,6 +86,37 @@ class EvaluationResult:
     num_samples: int
     evaluated_at: str
     overfit_gap: float  # holdout_loss - train_loss
+
+
+@dataclass
+class StratifiedEvaluation:
+    """Stratified evaluation result by game phase."""
+    model_path: str
+    board_type: str
+    num_players: int
+    phase: str  # "opening", "midgame", "endgame"
+    loss: float
+    accuracy: float
+    num_samples: int
+    evaluated_at: str
+
+
+def classify_move_phase(move_number: int, total_moves: int) -> str:
+    """Classify which game phase a move belongs to.
+
+    Args:
+        move_number: The move number (0-indexed)
+        total_moves: Total moves in the game
+
+    Returns:
+        "opening", "midgame", or "endgame"
+    """
+    if move_number < PHASE_OPENING_MAX_MOVES:
+        return "opening"
+    elif move_number < PHASE_MIDGAME_MAX_MOVES:
+        return "midgame"
+    else:
+        return "endgame"
 
 
 def get_db_connection() -> sqlite3.Connection:
@@ -125,6 +163,21 @@ def get_db_connection() -> sqlite3.Connection:
             value REAL NOT NULL,
             recorded_at TEXT NOT NULL
         );
+
+        -- Stratified evaluations by game phase
+        CREATE TABLE IF NOT EXISTS stratified_evaluations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            model_path TEXT NOT NULL,
+            board_type TEXT NOT NULL,
+            num_players INTEGER NOT NULL,
+            phase TEXT NOT NULL,  -- opening, midgame, endgame
+            loss REAL NOT NULL,
+            accuracy REAL NOT NULL,
+            num_samples INTEGER NOT NULL,
+            evaluated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_strat_eval_model ON stratified_evaluations(model_path, board_type, num_players, phase);
     """)
     conn.commit()
     return conn
@@ -468,6 +521,187 @@ def evaluate_model_on_holdout(
     return result
 
 
+def evaluate_model_stratified(
+    model_path: Path,
+    board_type: str,
+    num_players: int,
+    max_positions_per_phase: int = 3000,
+) -> Dict[str, StratifiedEvaluation]:
+    """Evaluate a model on holdout set with stratification by game phase.
+
+    Returns dict mapping phase -> StratifiedEvaluation.
+    """
+    import torch
+
+    conn = get_db_connection()
+    results = {}
+
+    try:
+        from app.training.nnue_dataset import extract_features_from_state
+
+        # Organize positions by phase
+        phase_features: Dict[str, List] = {phase: [] for phase in GAME_PHASES}
+        phase_values: Dict[str, List] = {phase: [] for phase in GAME_PHASES}
+
+        rows = conn.execute("""
+            SELECT game_data FROM holdout_games
+            WHERE board_type = ? AND num_players = ?
+            ORDER BY reserved_at DESC
+        """, (board_type, num_players)).fetchall()
+
+        for row in rows:
+            # Check if we have enough for all phases
+            if all(len(phase_features[p]) >= max_positions_per_phase for p in GAME_PHASES):
+                break
+
+            game_data = row[0]
+            if not game_data:
+                continue
+
+            try:
+                state = json.loads(game_data)
+                move_history = state.get("moveHistory", [])
+                total_moves = len(move_history)
+
+                for i, move in enumerate(move_history):
+                    phase = classify_move_phase(i, total_moves)
+
+                    if len(phase_features[phase]) >= max_positions_per_phase:
+                        continue
+
+                    position_state = move.get("state_before", move.get("boardState"))
+                    if not position_state:
+                        continue
+
+                    features = extract_features_from_state(
+                        position_state,
+                        board_type,
+                        num_players,
+                        current_player=move.get("player", 0),
+                    )
+
+                    winner = state.get("winner")
+                    current_player = move.get("player", 0)
+                    if winner is not None:
+                        value = 1.0 if winner == current_player else -1.0
+                    else:
+                        value = 0.0
+
+                    phase_features[phase].append(features)
+                    phase_values[phase].append(value)
+
+            except Exception:
+                continue
+
+        # Load model
+        try:
+            from app.training.nnue_model import RingRiftNNUE
+
+            model = RingRiftNNUE(board_type=board_type)
+            state_dict = torch.load(model_path, map_location="cpu", weights_only=True)
+            model.load_state_dict(state_dict)
+            model.eval()
+        except Exception as e:
+            print(f"Error loading model {model_path}: {e}")
+            return {}
+
+        # Evaluate each phase
+        for phase in GAME_PHASES:
+            features = phase_features[phase]
+            values = phase_values[phase]
+
+            if not features:
+                continue
+
+            with torch.no_grad():
+                features_tensor = torch.from_numpy(np.array(features)).float()
+                values_tensor = torch.from_numpy(np.array(values)).float().unsqueeze(1)
+
+                predictions = model(features_tensor)
+
+                loss = torch.nn.functional.mse_loss(predictions, values_tensor).item()
+                correct = ((predictions > 0) == (values_tensor > 0)).float().mean().item()
+
+            evaluated_at = datetime.utcnow().isoformat()
+
+            result = StratifiedEvaluation(
+                model_path=str(model_path),
+                board_type=board_type,
+                num_players=num_players,
+                phase=phase,
+                loss=loss,
+                accuracy=correct,
+                num_samples=len(features),
+                evaluated_at=evaluated_at,
+            )
+            results[phase] = result
+
+            # Save to database
+            conn.execute("""
+                INSERT INTO stratified_evaluations
+                (model_path, board_type, num_players, phase, loss, accuracy, num_samples, evaluated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                result.model_path,
+                result.board_type,
+                result.num_players,
+                result.phase,
+                result.loss,
+                result.accuracy,
+                result.num_samples,
+                result.evaluated_at,
+            ))
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+    return results
+
+
+def get_stratified_summary(board_type: str, num_players: int) -> Dict[str, Any]:
+    """Get summary of stratified evaluation results for a config."""
+    conn = get_db_connection()
+
+    try:
+        summary = {
+            "board_type": board_type,
+            "num_players": num_players,
+            "phases": {},
+            "weakest_phase": None,
+            "strongest_phase": None,
+        }
+
+        for phase in GAME_PHASES:
+            row = conn.execute("""
+                SELECT loss, accuracy, num_samples, evaluated_at
+                FROM stratified_evaluations
+                WHERE board_type = ? AND num_players = ? AND phase = ?
+                ORDER BY evaluated_at DESC
+                LIMIT 1
+            """, (board_type, num_players, phase)).fetchone()
+
+            if row:
+                summary["phases"][phase] = {
+                    "loss": row[0],
+                    "accuracy": row[1],
+                    "num_samples": row[2],
+                    "evaluated_at": row[3],
+                }
+
+        # Determine weakest/strongest
+        if summary["phases"]:
+            by_accuracy = sorted(summary["phases"].items(), key=lambda x: x[1]["accuracy"])
+            summary["weakest_phase"] = by_accuracy[0][0]
+            summary["strongest_phase"] = by_accuracy[-1][0]
+
+        return summary
+
+    finally:
+        conn.close()
+
+
 def check_for_overfitting(threshold: float = OVERFIT_THRESHOLD) -> List[Dict[str, Any]]:
     """Check all recent evaluations for signs of overfitting."""
     conn = get_db_connection()
@@ -541,11 +775,13 @@ def main():
     parser.add_argument("--reserve", action="store_true", help="Reserve games for holdout")
     parser.add_argument("--percent", type=int, default=DEFAULT_HOLDOUT_PERCENT, help="Percentage to reserve")
     parser.add_argument("--evaluate", action="store_true", help="Evaluate model on holdout")
+    parser.add_argument("--evaluate-stratified", action="store_true", help="Evaluate model with phase stratification")
     parser.add_argument("--model", type=str, help="Model path to evaluate")
     parser.add_argument("--board", type=str, help="Board type")
     parser.add_argument("--players", type=int, help="Number of players")
     parser.add_argument("--train-loss", type=float, default=0.0, help="Training loss for comparison")
     parser.add_argument("--stats", action="store_true", help="Show holdout statistics")
+    parser.add_argument("--stratified-summary", action="store_true", help="Show stratified evaluation summary")
     parser.add_argument("--check-overfitting", action="store_true", help="Check for overfitting")
     parser.add_argument("--dry-run", action="store_true", help="Don't actually reserve games")
 

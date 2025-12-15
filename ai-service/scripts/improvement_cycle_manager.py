@@ -100,6 +100,30 @@ PROMOTION_THRESHOLD = 0.55  # 55% win rate for promotion
 CMAES_TRIGGER_INTERVAL = 3600 * 6  # Run CMA-ES every 6 hours
 CMAES_MIN_GAMES_SINCE_LAST = 10000  # Need this many games before next CMA-ES
 
+# A/B Testing Gate - require statistical significance before promotion
+AB_TEST_GATE_ENABLED = os.environ.get("RINGRIFT_AB_TEST_GATE", "true").lower() == "true"
+AB_TEST_TARGET_GAMES = int(os.environ.get("RINGRIFT_AB_TEST_GAMES", "50"))  # Games per A/B test
+AB_TEST_CONFIDENCE_THRESHOLD = float(os.environ.get("RINGRIFT_AB_TEST_CONFIDENCE", "0.90"))  # 90% confidence
+AB_TEST_ORCHESTRATOR_URL = os.environ.get("RINGRIFT_ORCHESTRATOR_URL", "http://localhost:8770")
+
+# Data Quality Gating - block training if data quality is poor
+DATA_QUALITY_GATE_ENABLED = os.environ.get("RINGRIFT_DATA_QUALITY_GATE", "true").lower() == "true"
+DATA_QUALITY_MAX_SHORT_GAME_RATE = float(os.environ.get("RINGRIFT_MAX_SHORT_GAME_RATE", "15"))  # Max % of short games
+DATA_QUALITY_MAX_ISSUES = int(os.environ.get("RINGRIFT_MAX_DATA_ISSUES", "3"))  # Max quality issues before blocking
+DATA_QUALITY_MIN_DIVERSITY = int(os.environ.get("RINGRIFT_MIN_OPENING_DIVERSITY", "5"))  # Min unique openings
+
+# Curriculum Learning - adaptive difficulty based on win rates
+CURRICULUM_ENABLED = os.environ.get("RINGRIFT_CURRICULUM_ENABLED", "true").lower() == "true"
+CURRICULUM_TARGET_WINRATE = float(os.environ.get("RINGRIFT_CURRICULUM_TARGET_WINRATE", "0.55"))  # Optimal challenge
+CURRICULUM_MIN_GAMES_PER_LEVEL = int(os.environ.get("RINGRIFT_CURRICULUM_MIN_GAMES", "100"))  # Games before adjusting
+CURRICULUM_WEIGHT_BOOST = float(os.environ.get("RINGRIFT_CURRICULUM_BOOST", "2.0"))  # Weight multiplier for optimal difficulty
+
+# Model Ensembling - combine top models for robustness
+ENSEMBLE_ENABLED = os.environ.get("RINGRIFT_ENSEMBLE_ENABLED", "true").lower() == "true"
+ENSEMBLE_TOP_N = int(os.environ.get("RINGRIFT_ENSEMBLE_TOP_N", "3"))  # Number of models to ensemble
+ENSEMBLE_MIN_MODELS = int(os.environ.get("RINGRIFT_ENSEMBLE_MIN_MODELS", "3"))  # Min models before creating ensemble
+ENSEMBLE_INTERVAL_HOURS = float(os.environ.get("RINGRIFT_ENSEMBLE_INTERVAL", "24"))  # Hours between ensemble creation
+
 
 # =============================================================================
 # Data Classes
@@ -121,6 +145,16 @@ class CycleState:
     pending_evaluation: bool = False
     consecutive_failures: int = 0  # Track consecutive failed promotions
     max_consecutive_failures: int = 5  # Rollback after this many failures
+    # A/B Testing gate
+    pending_ab_test: bool = False
+    pending_ab_test_id: Optional[str] = None
+    pending_ab_test_model: Optional[str] = None  # Candidate model being tested
+    # Curriculum learning state
+    difficulty_stats: Dict[int, Dict[str, int]] = field(default_factory=dict)  # difficulty -> {wins, games}
+    curriculum_weights: Dict[int, float] = field(default_factory=dict)  # difficulty -> adjusted weight
+    # Ensemble state
+    last_ensemble_time: float = 0.0
+    ensemble_model_path: Optional[str] = None
 
 
 @dataclass
@@ -575,10 +609,9 @@ class ImprovementCycleManager:
                 "weak_config": selected_asym["weak"],
             }
         else:
-            # Select diverse AI config
-            ai_weights = [c["weight"] for c in DIVERSE_AI_CONFIGS]
-            total_ai = sum(ai_weights)
-            ai_weights = [w / total_ai for w in ai_weights]
+            # Select diverse AI config using curriculum learning weights
+            cycle = self._ensure_cycle_state(selected_board["board_type"], selected_board["num_players"])
+            ai_weights = self._get_curriculum_weights(cycle)
 
             rand = random.random()
             cumulative = 0
@@ -593,9 +626,220 @@ class ImprovementCycleManager:
                 "board_type": selected_board["board_type"],
                 "num_players": selected_board["num_players"],
                 "engine_mode": selected_ai["engine_mode"],
+                "difficulty": selected_ai["difficulty"],
                 "difficulty_band": "canonical",
                 "asymmetric": False,
             }
+
+    def _get_curriculum_weights(self, cycle: CycleState) -> List[float]:
+        """Get curriculum-adjusted weights for opponent selection.
+
+        Boosts weights for difficulties where win rate is near target (optimal challenge).
+        """
+        if not CURRICULUM_ENABLED:
+            # Use static weights
+            weights = [c["weight"] for c in DIVERSE_AI_CONFIGS]
+            total = sum(weights)
+            return [w / total for w in weights]
+
+        weights = []
+        for config in DIVERSE_AI_CONFIGS:
+            difficulty = config["difficulty"]
+            base_weight = config["weight"]
+
+            # Get stats for this difficulty
+            stats = cycle.difficulty_stats.get(difficulty, {"wins": 0, "games": 0})
+            games = stats.get("games", 0)
+
+            if games >= CURRICULUM_MIN_GAMES_PER_LEVEL:
+                # Calculate win rate and adjust weight
+                win_rate = stats.get("wins", 0) / games
+                # Optimal challenge: win rate near target (55%)
+                # Too easy (>70%): reduce weight
+                # Too hard (<40%): reduce weight
+                # Just right (50-60%): boost weight
+                distance_from_target = abs(win_rate - CURRICULUM_TARGET_WINRATE)
+                if distance_from_target < 0.1:
+                    # Within 10% of target - boost
+                    weight = base_weight * CURRICULUM_WEIGHT_BOOST
+                elif distance_from_target > 0.2:
+                    # Too far from target - reduce
+                    weight = base_weight * 0.5
+                else:
+                    weight = base_weight
+            else:
+                # Not enough data - use base weight
+                weight = base_weight
+
+            weights.append(weight)
+
+        # Normalize
+        total = sum(weights)
+        return [w / total for w in weights]
+
+    def record_game_result(self, board_type: str, num_players: int,
+                           difficulty: int, won: bool):
+        """Record a game result for curriculum learning.
+
+        Args:
+            board_type: Board type
+            num_players: Number of players
+            difficulty: Opponent difficulty (1-10)
+            won: Whether our model won
+        """
+        if not CURRICULUM_ENABLED:
+            return
+
+        cycle = self._ensure_cycle_state(board_type, num_players)
+
+        if difficulty not in cycle.difficulty_stats:
+            cycle.difficulty_stats[difficulty] = {"wins": 0, "games": 0}
+
+        cycle.difficulty_stats[difficulty]["games"] += 1
+        if won:
+            cycle.difficulty_stats[difficulty]["wins"] += 1
+
+        # Periodically save state
+        if cycle.difficulty_stats[difficulty]["games"] % 50 == 0:
+            self._save_state()
+
+    def get_curriculum_status(self) -> Dict[str, Any]:
+        """Get curriculum learning status for all configs.
+
+        Returns summary of win rates by difficulty level.
+        """
+        status = {
+            "enabled": CURRICULUM_ENABLED,
+            "target_winrate": CURRICULUM_TARGET_WINRATE,
+            "configs": {},
+        }
+
+        for key, cycle in self.state.cycles.items():
+            config_status = {
+                "difficulty_levels": {},
+                "recommended_focus": None,
+            }
+
+            optimal_difficulty = None
+            optimal_distance = float('inf')
+
+            for difficulty, stats in cycle.difficulty_stats.items():
+                games = stats.get("games", 0)
+                wins = stats.get("wins", 0)
+                win_rate = wins / games if games > 0 else 0.0
+
+                config_status["difficulty_levels"][difficulty] = {
+                    "games": games,
+                    "wins": wins,
+                    "win_rate": round(win_rate, 3),
+                    "status": "optimal" if 0.45 <= win_rate <= 0.65 else ("easy" if win_rate > 0.65 else "hard"),
+                }
+
+                # Track optimal difficulty
+                distance = abs(win_rate - CURRICULUM_TARGET_WINRATE)
+                if games >= CURRICULUM_MIN_GAMES_PER_LEVEL and distance < optimal_distance:
+                    optimal_distance = distance
+                    optimal_difficulty = difficulty
+
+            config_status["recommended_focus"] = optimal_difficulty
+            status["configs"][key] = config_status
+
+        return status
+
+    def check_ensemble_needed(self, board_type: str, num_players: int) -> bool:
+        """Check if it's time to create a new ensemble model."""
+        if not ENSEMBLE_ENABLED:
+            return False
+
+        cycle = self._ensure_cycle_state(board_type, num_players)
+        now = time.time()
+
+        # Check interval
+        hours_since_last = (now - cycle.last_ensemble_time) / 3600
+        if hours_since_last < ENSEMBLE_INTERVAL_HOURS:
+            return False
+
+        # Check if we have enough models
+        model_count = self._count_promoted_models(board_type, num_players)
+        if model_count < ENSEMBLE_MIN_MODELS:
+            return False
+
+        return True
+
+    def _count_promoted_models(self, board_type: str, num_players: int) -> int:
+        """Count number of promoted models for a config."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT COUNT(*) FROM training_history
+            WHERE board_type = ? AND num_players = ? AND promoted = 1 AND model_path IS NOT NULL
+        """, (board_type, num_players))
+        count = cursor.fetchone()[0]
+        conn.close()
+        return count
+
+    def create_ensemble(self, board_type: str, num_players: int) -> Optional[str]:
+        """Create an ensemble from the top N models.
+
+        Returns the path to the ensemble model, or None if creation failed.
+        """
+        if not ENSEMBLE_ENABLED:
+            return None
+
+        import subprocess
+
+        cycle = self._ensure_cycle_state(board_type, num_players)
+        config = f"{board_type}_{num_players}p"
+
+        # Get top models from database
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT model_path FROM training_history
+            WHERE board_type = ? AND num_players = ? AND promoted = 1 AND model_path IS NOT NULL
+            ORDER BY completed_at DESC
+            LIMIT ?
+        """, (board_type, num_players, ENSEMBLE_TOP_N))
+        rows = cursor.fetchall()
+        conn.close()
+
+        model_paths = [row[0] for row in rows if Path(row[0]).exists()]
+
+        if len(model_paths) < ENSEMBLE_MIN_MODELS:
+            print(f"[ImprovementManager] {config}: Not enough models for ensemble ({len(model_paths)}/{ENSEMBLE_MIN_MODELS})")
+            return None
+
+        # Generate output path
+        ensemble_dir = Path(self.ringrift_path) / "ai-service" / "models" / "ensembles"
+        ensemble_dir.mkdir(parents=True, exist_ok=True)
+        output_path = ensemble_dir / f"{config}_ensemble_{int(time.time())}.pt"
+
+        # Run ensemble script
+        script_path = Path(self.ringrift_path) / "ai-service" / "scripts" / "ensemble_models.py"
+
+        cmd = [
+            sys.executable, str(script_path),
+            "--models", *model_paths,
+            "--output", str(output_path),
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if result.returncode == 0:
+                print(f"[ImprovementManager] {config}: Created ensemble from {len(model_paths)} models: {output_path}")
+                cycle.last_ensemble_time = time.time()
+                cycle.ensemble_model_path = str(output_path)
+                self._save_state()
+                return str(output_path)
+            else:
+                print(f"[ImprovementManager] {config}: Ensemble creation failed: {result.stderr}")
+                return None
+        except subprocess.TimeoutExpired:
+            print(f"[ImprovementManager] {config}: Ensemble creation timed out")
+            return None
+        except Exception as e:
+            print(f"[ImprovementManager] {config}: Ensemble creation error: {e}")
+            return None
 
     def get_next_selfplay_config_for_node(
         self,
@@ -810,10 +1054,65 @@ class ImprovementCycleManager:
 
         return ready
 
+    def check_data_quality(self, board_type: str, num_players: int) -> Tuple[bool, List[str]]:
+        """Check data quality before training.
+
+        Returns:
+            (is_ok, issues): Tuple of boolean and list of issue descriptions
+        """
+        import urllib.request
+        import urllib.error
+
+        if not DATA_QUALITY_GATE_ENABLED:
+            return True, []
+
+        issues = []
+
+        try:
+            url = f"{AB_TEST_ORCHESTRATOR_URL}/data/quality?board_type={board_type}&num_players={num_players}"
+            with urllib.request.urlopen(url, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+
+            # Check short game rate
+            short_rate = data.get("short_game_rate", 0)
+            if short_rate > DATA_QUALITY_MAX_SHORT_GAME_RATE:
+                issues.append(f"High short game rate: {short_rate:.1f}% > {DATA_QUALITY_MAX_SHORT_GAME_RATE}%")
+
+            # Check opening diversity
+            diversity = data.get("opening_diversity", 999)
+            if diversity < DATA_QUALITY_MIN_DIVERSITY:
+                issues.append(f"Low opening diversity: {diversity} < {DATA_QUALITY_MIN_DIVERSITY}")
+
+            # Check total issues
+            quality_issues = data.get("issues", [])
+            if len(quality_issues) > DATA_QUALITY_MAX_ISSUES:
+                issues.append(f"Too many quality issues: {len(quality_issues)} > {DATA_QUALITY_MAX_ISSUES}")
+                for issue in quality_issues[:3]:
+                    issues.append(f"  - {issue.get('description', issue)}")
+
+        except Exception as e:
+            # Can't reach quality endpoint - log warning but don't block
+            print(f"[ImprovementManager] Warning: Could not check data quality: {e}")
+            return True, []
+
+        is_ok = len(issues) == 0
+        return is_ok, issues
+
     def trigger_training(self, board_type: str, num_players: int) -> bool:
-        """Mark training as triggered for configuration."""
+        """Mark training as triggered for configuration.
+
+        Performs data quality check first if enabled.
+        """
         cycle = self._ensure_cycle_state(board_type, num_players)
         if cycle.pending_training:
+            return False
+
+        # Check data quality before training
+        is_ok, issues = self.check_data_quality(board_type, num_players)
+        if not is_ok:
+            print(f"[ImprovementManager] {board_type}_{num_players}p: Training blocked due to data quality issues:")
+            for issue in issues:
+                print(f"  - {issue}")
             return False
 
         cycle.pending_training = True
@@ -929,40 +1228,38 @@ class ImprovementCycleManager:
 
     def handle_evaluation_complete(self, board_type: str, num_players: int,
                                      win_rate: float, model_path: str):
-        """Handle evaluation completion and decide on promotion."""
+        """Handle evaluation completion and decide on promotion.
+
+        If A/B testing gate is enabled and win_rate passes threshold,
+        an A/B test is created instead of immediate promotion.
+        """
         cycle = self._ensure_cycle_state(board_type, num_players)
         cycle.pending_evaluation = False
 
-        promoted = win_rate >= PROMOTION_THRESHOLD
+        passes_threshold = win_rate >= PROMOTION_THRESHOLD
 
-        if promoted:
-            # Store previous best for rollback
-            cycle.prev_best_model_path = cycle.best_model_path
+        if passes_threshold:
+            # Check if A/B testing gate is enabled
+            if AB_TEST_GATE_ENABLED and cycle.best_model_path:
+                # Create A/B test instead of immediate promotion
+                test_id = self._create_ab_test(
+                    board_type=board_type,
+                    num_players=num_players,
+                    model_a=cycle.best_model_path,  # Current best (baseline)
+                    model_b=model_path,  # Candidate
+                )
+                if test_id:
+                    cycle.pending_ab_test = True
+                    cycle.pending_ab_test_id = test_id
+                    cycle.pending_ab_test_model = model_path
+                    print(f"[ImprovementManager] {board_type}_{num_players}p: A/B test created ({test_id[:8]}) - "
+                          f"candidate passed threshold ({win_rate:.1%}), awaiting statistical significance")
+                    self._save_state()
+                    self.save_cycle_state(board_type, num_players)
+                    return False  # Not promoted yet, waiting for A/B test
 
-            # Backup previous best to file
-            if cycle.best_model_path and Path(cycle.best_model_path).exists():
-                backup_path = str(cycle.best_model_path).replace("_best.", "_prev_best.")
-                try:
-                    import shutil
-                    shutil.copy2(cycle.best_model_path, backup_path)
-                except Exception as e:
-                    print(f"[ImprovementManager] Backup failed: {e}")
-
-            # Promote new model
-            cycle.best_model_path = model_path
-            cycle.consecutive_failures = 0  # Reset failure counter on success
-
-            # Update training history
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE training_history SET promoted = 1
-                WHERE board_type = ? AND num_players = ? AND model_path = ?
-            """, (board_type, num_players, model_path))
-            conn.commit()
-            conn.close()
-
-            print(f"[ImprovementManager] {board_type}_{num_players}p: Promoted model with {win_rate:.1%} win rate")
+            # No A/B gate or no baseline - promote directly
+            return self._promote_model(cycle, model_path, win_rate)
         else:
             # Track consecutive failures
             cycle.consecutive_failures += 1
@@ -976,7 +1273,154 @@ class ImprovementCycleManager:
         # Save full state and immediately persist this cycle for crash recovery
         self._save_state()
         self.save_cycle_state(board_type, num_players)
-        return promoted
+        return False
+
+    def _promote_model(self, cycle: CycleState, model_path: str, win_rate: float) -> bool:
+        """Actually promote a model to be the new best."""
+        # Store previous best for rollback
+        cycle.prev_best_model_path = cycle.best_model_path
+
+        # Backup previous best to file
+        if cycle.best_model_path and Path(cycle.best_model_path).exists():
+            backup_path = str(cycle.best_model_path).replace("_best.", "_prev_best.")
+            try:
+                import shutil
+                shutil.copy2(cycle.best_model_path, backup_path)
+            except Exception as e:
+                print(f"[ImprovementManager] Backup failed: {e}")
+
+        # Promote new model
+        cycle.best_model_path = model_path
+        cycle.consecutive_failures = 0  # Reset failure counter on success
+        cycle.pending_ab_test = False
+        cycle.pending_ab_test_id = None
+        cycle.pending_ab_test_model = None
+
+        # Update training history
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE training_history SET promoted = 1
+            WHERE board_type = ? AND num_players = ? AND model_path = ?
+        """, (cycle.board_type, cycle.num_players, model_path))
+        conn.commit()
+        conn.close()
+
+        print(f"[ImprovementManager] {cycle.board_type}_{cycle.num_players}p: Promoted model with {win_rate:.1%} win rate")
+
+        # Save full state
+        self._save_state()
+        self.save_cycle_state(cycle.board_type, cycle.num_players)
+        return True
+
+    def _create_ab_test(self, board_type: str, num_players: int,
+                        model_a: str, model_b: str) -> Optional[str]:
+        """Create an A/B test via the orchestrator API."""
+        import urllib.request
+        import urllib.error
+
+        try:
+            url = f"{AB_TEST_ORCHESTRATOR_URL}/abtest/create"
+            data = json.dumps({
+                "name": f"{board_type}_{num_players}p_promotion_test",
+                "description": f"Automated promotion gate test for {board_type}_{num_players}p",
+                "board_type": board_type,
+                "num_players": num_players,
+                "model_a": model_a,
+                "model_b": model_b,
+                "target_games": AB_TEST_TARGET_GAMES,
+                "confidence_threshold": AB_TEST_CONFIDENCE_THRESHOLD,
+            }).encode("utf-8")
+
+            req = urllib.request.Request(url, data=data, method="POST")
+            req.add_header("Content-Type", "application/json")
+
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+                return result.get("test_id")
+        except Exception as e:
+            print(f"[ImprovementManager] Failed to create A/B test: {e}")
+            return None
+
+    def handle_ab_test_complete(self, test_id: str, winner: Optional[str],
+                                 stats: Dict[str, Any]) -> bool:
+        """Handle A/B test completion callback.
+
+        Args:
+            test_id: The A/B test ID
+            winner: "model_a" (baseline), "model_b" (candidate), or None (inconclusive)
+            stats: Test statistics including confidence, games_played, etc.
+
+        Returns:
+            True if model was promoted, False otherwise
+        """
+        # Find the cycle with this pending A/B test
+        cycle = None
+        for c in self.state.cycles.values():
+            if c.pending_ab_test_id == test_id:
+                cycle = c
+                break
+
+        if not cycle:
+            print(f"[ImprovementManager] A/B test {test_id[:8]} complete but no matching cycle found")
+            return False
+
+        config = f"{cycle.board_type}_{cycle.num_players}p"
+        confidence = stats.get("confidence", 0)
+        games = stats.get("games_played", 0)
+
+        if winner == "model_b":
+            # Candidate wins! Promote it
+            print(f"[ImprovementManager] {config}: A/B test passed! Candidate wins with "
+                  f"{confidence:.1%} confidence over {games} games")
+            return self._promote_model(
+                cycle,
+                cycle.pending_ab_test_model,
+                stats.get("model_b_winrate", 0.55)
+            )
+        elif winner == "model_a":
+            # Baseline wins - don't promote candidate
+            print(f"[ImprovementManager] {config}: A/B test failed - baseline wins with "
+                  f"{confidence:.1%} confidence over {games} games")
+            cycle.pending_ab_test = False
+            cycle.pending_ab_test_id = None
+            cycle.pending_ab_test_model = None
+            cycle.consecutive_failures += 1
+            self._save_state()
+            self.save_cycle_state(cycle.board_type, cycle.num_players)
+            return False
+        else:
+            # Inconclusive - don't promote but don't count as failure
+            print(f"[ImprovementManager] {config}: A/B test inconclusive after {games} games")
+            cycle.pending_ab_test = False
+            cycle.pending_ab_test_id = None
+            cycle.pending_ab_test_model = None
+            self._save_state()
+            self.save_cycle_state(cycle.board_type, cycle.num_players)
+            return False
+
+    def check_pending_ab_tests(self):
+        """Check status of any pending A/B tests."""
+        import urllib.request
+        import urllib.error
+
+        for cycle in self.state.cycles.values():
+            if not cycle.pending_ab_test or not cycle.pending_ab_test_id:
+                continue
+
+            try:
+                url = f"{AB_TEST_ORCHESTRATOR_URL}/abtest/status?test_id={cycle.pending_ab_test_id}"
+                with urllib.request.urlopen(url, timeout=10) as resp:
+                    result = json.loads(resp.read().decode("utf-8"))
+
+                if result.get("status") == "completed":
+                    self.handle_ab_test_complete(
+                        test_id=cycle.pending_ab_test_id,
+                        winner=result.get("winner"),
+                        stats=result.get("stats", {}),
+                    )
+            except Exception as e:
+                print(f"[ImprovementManager] Failed to check A/B test {cycle.pending_ab_test_id[:8]}: {e}")
 
     def _rollback_to_previous_best(self, cycle: CycleState):
         """Rollback to previous best model after consecutive failures."""
