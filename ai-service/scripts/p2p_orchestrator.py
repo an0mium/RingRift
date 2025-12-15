@@ -444,6 +444,7 @@ GPU_POWER_RANKINGS = {
 # Training node sync settings
 TRAINING_NODE_COUNT = 3          # Top N GPU nodes to prioritize for sync
 TRAINING_SYNC_INTERVAL = 300.0   # Sync to training nodes every 5 minutes
+MODEL_SYNC_INTERVAL = 300.0      # Sync NN/NNUE models across cluster every 5 minutes
 MIN_GAMES_FOR_SYNC = 100         # Minimum new games before triggering sync
 
 # Path to local state database
