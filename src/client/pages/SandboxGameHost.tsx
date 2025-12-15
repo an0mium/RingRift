@@ -33,6 +33,7 @@ import {
   Position,
   positionToString,
   CreateGameRequest,
+  TimeControl,
 } from '../../shared/types/game';
 import { useAuth } from '../contexts/AuthContext';
 import { useAccessibility } from '../contexts/AccessibilityContext';
@@ -55,6 +56,7 @@ import {
 } from '../adapters/gameViewModels';
 import { GameHUD, VictoryConditionsPanel } from '../components/GameHUD';
 import { MobileGameHUD } from '../components/MobileGameHUD';
+import { AIThinkTimeProgress } from '../components/AIThinkTimeProgress';
 import {
   ScreenReaderAnnouncer,
   useGameAnnouncements,
@@ -376,6 +378,25 @@ export const SandboxGameHost: React.FC = () => {
 
   // Local-only diagnostics / UX state
   const [isSandboxVictoryModalDismissed, setIsSandboxVictoryModalDismissed] = useState(false);
+
+  // AI think time tracking: timestamp when AI started thinking on current turn
+  const [aiThinkingStartedAt, setAiThinkingStartedAt] = useState<number | null>(null);
+
+  // Sandbox clock: time control settings (default 15min + 10s increment)
+  const [sandboxClockEnabled, setSandboxClockEnabled] = useState(false);
+  const [sandboxTimeControl, setSandboxTimeControl] = useState<{
+    initialTimeMs: number;
+    incrementMs: number;
+  }>({
+    initialTimeMs: 15 * 60 * 1000, // 15 minutes
+    incrementMs: 10 * 1000, // 10 seconds
+  });
+  // Track time remaining per player (playerNumber → ms remaining)
+  const [sandboxPlayerTimes, setSandboxPlayerTimes] = useState<Record<number, number>>({});
+  // Track when the current player's turn started (for clock decrement)
+  const sandboxTurnStartTimeRef = useRef<number | null>(null);
+  // Track the previous current player to detect turn changes
+  const prevCurrentPlayerRef = useRef<number | null>(null);
 
   // Selection + valid target highlighting
   const [selected, setSelected] = useState<Position | undefined>();
@@ -1517,6 +1538,28 @@ export const SandboxGameHost: React.FC = () => {
   const humanSeatCount = sandboxPlayersList.filter((p) => p.type === 'human').length;
   const aiSeatCount = sandboxPlayersList.length - humanSeatCount;
 
+  // Track AI thinking state for progress bar: set start time when AI turn begins,
+  // clear when turn ends or game is not active.
+  useEffect(() => {
+    if (!sandboxEngine || !sandboxGameState) {
+      setAiThinkingStartedAt(null);
+      return;
+    }
+
+    const current = sandboxGameState.players.find(
+      (p) => p.playerNumber === sandboxGameState.currentPlayer
+    );
+
+    const isAiTurn = sandboxGameState.gameStatus === 'active' && current && current.type === 'ai';
+
+    if (isAiTurn) {
+      // Only set start time if not already set (avoid resetting mid-turn)
+      setAiThinkingStartedAt((prev) => prev ?? Date.now());
+    } else {
+      setAiThinkingStartedAt(null);
+    }
+  }, [sandboxEngine, sandboxGameState]);
+
   // Whenever the sandbox state reflects an active AI turn, trigger the
   // sandbox AI loop after a short delay. This keeps AI progression in
   // sync with orchestrator-driven state changes (including line/territory
@@ -1543,6 +1586,94 @@ export const SandboxGameHost: React.FC = () => {
       window.clearTimeout(timeoutId);
     };
   }, [sandboxEngine, sandboxGameState, maybeRunSandboxAiIfNeeded]);
+
+  // Initialize sandbox clocks when the sandbox is configured
+  useEffect(() => {
+    if (!sandboxClockEnabled || !sandboxGameState) {
+      return;
+    }
+    // Initialize times for all players if not already set
+    const needsInit = sandboxGameState.players.some(
+      (p) => sandboxPlayerTimes[p.playerNumber] === undefined
+    );
+    if (needsInit) {
+      const initialTimes: Record<number, number> = {};
+      sandboxGameState.players.forEach((p) => {
+        initialTimes[p.playerNumber] = sandboxTimeControl.initialTimeMs;
+      });
+      setSandboxPlayerTimes(initialTimes);
+      sandboxTurnStartTimeRef.current = Date.now();
+      prevCurrentPlayerRef.current = sandboxGameState.currentPlayer;
+    }
+  }, [sandboxClockEnabled, sandboxGameState, sandboxTimeControl.initialTimeMs, sandboxPlayerTimes]);
+
+  // Handle turn changes: apply increment to the player who just moved
+  useEffect(() => {
+    if (!sandboxClockEnabled || !sandboxGameState) {
+      return;
+    }
+    const currentPlayer = sandboxGameState.currentPlayer;
+    const prevPlayer = prevCurrentPlayerRef.current;
+
+    // Detect turn change
+    if (
+      prevPlayer !== null &&
+      prevPlayer !== currentPlayer &&
+      sandboxGameState.gameStatus === 'active'
+    ) {
+      // Apply increment to the player who just finished their turn
+      setSandboxPlayerTimes((prev) => {
+        const prevTime = prev[prevPlayer] ?? sandboxTimeControl.initialTimeMs;
+        // Deduct time spent on this turn before adding increment
+        const elapsed = sandboxTurnStartTimeRef.current
+          ? Date.now() - sandboxTurnStartTimeRef.current
+          : 0;
+        const timeAfterMove = Math.max(0, prevTime - elapsed);
+        const timeWithIncrement = timeAfterMove + sandboxTimeControl.incrementMs;
+        return { ...prev, [prevPlayer]: timeWithIncrement };
+      });
+      // Reset turn start time for the new player
+      sandboxTurnStartTimeRef.current = Date.now();
+    }
+    prevCurrentPlayerRef.current = currentPlayer;
+  }, [
+    sandboxClockEnabled,
+    sandboxGameState,
+    sandboxTimeControl.incrementMs,
+    sandboxTimeControl.initialTimeMs,
+  ]);
+
+  // Decrement the active player's clock every second
+  useEffect(() => {
+    if (!sandboxClockEnabled || !sandboxGameState || sandboxGameState.gameStatus !== 'active') {
+      return;
+    }
+    const interval = setInterval(() => {
+      const currentPlayer = sandboxGameState.currentPlayer;
+      const turnStart = sandboxTurnStartTimeRef.current;
+      if (turnStart === null) return;
+
+      const elapsed = Date.now() - turnStart;
+      const baseTime = sandboxPlayerTimes[currentPlayer] ?? sandboxTimeControl.initialTimeMs;
+      const newTime = Math.max(0, baseTime - elapsed);
+
+      // Update the display (this doesn't persist the deduction - that happens on turn change)
+      // For now, we re-render to show the countdown
+      setSandboxPlayerTimes((prev) => {
+        // Only update if turn hasn't changed
+        if (sandboxGameState.currentPlayer === currentPlayer) {
+          const currentBase = prev[currentPlayer] ?? sandboxTimeControl.initialTimeMs;
+          const displayTime = Math.max(0, currentBase - elapsed);
+          if (displayTime !== prev[currentPlayer]) {
+            return { ...prev, [currentPlayer]: displayTime };
+          }
+        }
+        return prev;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [sandboxClockEnabled, sandboxGameState, sandboxPlayerTimes, sandboxTimeControl.initialTimeMs]);
 
   // Derive board VM + HUD-like summaries
   const primaryValidTargets =
@@ -1735,6 +1866,26 @@ export const SandboxGameHost: React.FC = () => {
         lpsTracking: sandboxLpsTracking,
       })
     : null;
+
+  // Override player timeRemaining with sandbox clock times if enabled
+  if (sandboxHudVM && sandboxClockEnabled) {
+    sandboxHudVM = {
+      ...sandboxHudVM,
+      players: sandboxHudVM.players.map((p) => ({
+        ...p,
+        timeRemaining: sandboxPlayerTimes[p.playerNumber] ?? sandboxTimeControl.initialTimeMs,
+      })),
+    };
+  }
+
+  // Create TimeControl object for HUD when clock is enabled
+  const sandboxTimeControlForHud: TimeControl | undefined = sandboxClockEnabled
+    ? {
+        initialTime: Math.round(sandboxTimeControl.initialTimeMs / 1000),
+        increment: Math.round(sandboxTimeControl.incrementMs / 1000),
+        type: 'rapid' as const,
+      }
+    : undefined;
 
   // Optional-capture HUD chip: when capture is available directly from the
   // capture phase (with skip_capture as an option) but no explicit decision
@@ -2222,6 +2373,50 @@ export const SandboxGameHost: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Clock settings */}
+                  <div className="space-y-3 pt-3 border-t border-slate-700/50">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-300">Time Control</span>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="sr-only peer"
+                          checked={sandboxClockEnabled}
+                          onChange={(e) => {
+                            setSandboxClockEnabled(e.target.checked);
+                            // Reset player times when toggling
+                            if (e.target.checked) {
+                              setSandboxPlayerTimes({});
+                            }
+                          }}
+                        />
+                        <div className="w-9 h-5 bg-slate-700 peer-focus:ring-2 peer-focus:ring-emerald-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600" />
+                      </label>
+                    </div>
+                    {sandboxClockEnabled && (
+                      <div className="text-xs text-slate-400 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span>Initial time</span>
+                          <span className="font-mono text-slate-200">
+                            {Math.round(sandboxTimeControl.initialTimeMs / 60000)} min
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Increment</span>
+                          <span className="font-mono text-slate-200">
+                            +{Math.round(sandboxTimeControl.incrementMs / 1000)}s
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-500">
+                          Each player starts with{' '}
+                          {Math.round(sandboxTimeControl.initialTimeMs / 60000)} minutes and gains{' '}
+                          {Math.round(sandboxTimeControl.incrementMs / 1000)} seconds after each
+                          move.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="space-y-2">
                     <p className="text-xs text-slate-400">
                       We first attempt to stand up a backend game with these settings. If that
@@ -2621,6 +2816,7 @@ export const SandboxGameHost: React.FC = () => {
                 <MobileGameHUD
                   isLocalSandboxOnly={!user}
                   viewModel={sandboxHudVM}
+                  timeControl={sandboxTimeControlForHud}
                   onShowBoardControls={() => setShowBoardControls(true)}
                   rulesUxContext={{
                     boardType: boardTypeValue,
@@ -2640,6 +2836,7 @@ export const SandboxGameHost: React.FC = () => {
                 <GameHUD
                   isLocalSandboxOnly={!user}
                   viewModel={sandboxHudVM}
+                  timeControl={sandboxTimeControlForHud}
                   onShowBoardControls={() => setShowBoardControls(true)}
                   hideVictoryConditions={true}
                   rulesUxContext={{
@@ -2657,6 +2854,26 @@ export const SandboxGameHost: React.FC = () => {
                   }}
                 />
               ))}
+
+            {/* AI Think Time Progress Bar - shows when AI is thinking */}
+            {(() => {
+              if (!sandboxGameState || sandboxGameState.gameStatus !== 'active') return null;
+              const currentAiPlayer = sandboxGameState.players.find(
+                (p) => p.playerNumber === sandboxGameState.currentPlayer && p.type === 'ai'
+              );
+              if (!currentAiPlayer) return null;
+              const aiDifficulty = config.aiDifficulties[currentAiPlayer.playerNumber - 1] ?? 5;
+              const aiPlayerName =
+                currentAiPlayer.username || `AI Player ${currentAiPlayer.playerNumber}`;
+              return (
+                <AIThinkTimeProgress
+                  isAiThinking={aiThinkingStartedAt !== null}
+                  thinkingStartedAt={aiThinkingStartedAt}
+                  aiDifficulty={aiDifficulty}
+                  aiPlayerName={aiPlayerName}
+                />
+              );
+            })()}
 
             {/* Dynamic alerts zone - smooth transitions prevent jarring layout bounce when chips appear/disappear */}
             <div className="flex flex-col justify-end transition-all duration-200 ease-in-out">

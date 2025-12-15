@@ -317,20 +317,19 @@ const StackWidget: React.FC<{
           const isTop = index === topIndex;
           const isInCap = index <= capEndIndex;
 
-          // Base shape with 3px border for visibility
-          const baseShape = `${ringSizeClasses} rounded-full border-[3px]`;
+          // Base shape - use 4px border for just-moved rings, 3px otherwise
+          const borderWidth = isJustMoved ? 'border-[4px]' : 'border-[3px]';
+          const baseShape = `${ringSizeClasses} rounded-full ${borderWidth}`;
           // Cap outline for rings in the cap
           const capOutline = isInCap
             ? 'ring-[0.5px] ring-offset-[0.5px] ring-offset-slate-900'
             : '';
-          // Just-moved highlight: contrasting color based on ring color
-          const justMovedHighlight = isJustMoved ? getJustMovedHighlight(playerNumber) : '';
           const topShadow = isTop ? 'shadow-md shadow-slate-900/70' : 'shadow-sm';
 
           return (
             <div
               key={index}
-              className={`${baseShape} ${ring} ${ringBorder} ${capOutline} ${justMovedHighlight} ${topShadow}`}
+              className={`${baseShape} ${ring} ${ringBorder} ${capOutline} ${topShadow}`}
             />
           );
         })}
@@ -390,21 +389,18 @@ const StackFromViewModel: React.FC<{
         {rings.map((ringVM, index) => {
           const { colorClass, borderClass, isTop, isInCap } = ringVM;
 
-          // Base shape with 3px border for visibility
-          const baseShape = `${ringSizeClasses} rounded-full border-[3px]`;
+          // Base shape - use 4px border for just-moved rings, 3px otherwise
+          const borderWidth = isJustMoved ? 'border-[4px]' : 'border-[3px]';
+          const baseShape = `${ringSizeClasses} rounded-full ${borderWidth}`;
           const capOutline = isInCap
             ? 'ring-[0.5px] ring-offset-[0.5px] ring-offset-slate-900'
-            : '';
-          // Just-moved highlight: contrasting color based on ring color
-          const justMovedHighlight = isJustMoved
-            ? getJustMovedHighlightFromColorClass(colorClass)
             : '';
           const topShadow = isTop ? 'shadow-md shadow-slate-900/70' : 'shadow-sm';
 
           return (
             <div
               key={index}
-              className={`${baseShape} ${colorClass} ${borderClass} ${capOutline} ${justMovedHighlight} ${topShadow}`}
+              className={`${baseShape} ${colorClass} ${borderClass} ${capOutline} ${topShadow}`}
             />
           );
         })}
