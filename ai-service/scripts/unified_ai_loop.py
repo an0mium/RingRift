@@ -6265,18 +6265,24 @@ class UnifiedAILoop:
             print(f"  {name}: {count}/{cpus} CPUs ({count/cpus*100:.0f}%), need +{needed}")
 
         # Start selfplay on underutilized hosts (process up to 6 hosts per cycle)
+        # Use NN-based modes for higher quality training data
+        nn_modes = ["nn-only", "best-vs-pool", "nn-only", "mcts-only", "descent-only"]
         started = 0
         for name, ssh_target, count, cpus, workers_needed in underutilized_hosts[:6]:
             try:
                 # Start multiple workers based on capacity
+                # Cycle through NN-based modes for varied training data
+                mode_list = " ".join([nn_modes[i % len(nn_modes)] for i in range(workers_needed)])
                 cmd = f'''cd ~/ringrift/ai-service && source venv/bin/activate && \\
                     mkdir -p data/selfplay/auto_$(date +%s) && \\
+                    modes=({mode_list}) && \\
                     for i in $(seq 1 {workers_needed}); do \\
+                        mode=${{modes[$((i-1))]}};\\
                         nohup python scripts/run_hybrid_selfplay.py \\
                             --board-type square8 --num-players 2 --num-games 50000 \\
                             --record-db data/games/selfplay.db \\
                             --output-dir data/selfplay/auto_$(date +%s)/$i \\
-                            --engine-mode mixed --seed $((RANDOM + $i * 1000)) \\
+                            --engine-mode $mode --seed $((RANDOM + $i * 1000)) \\
                             > logs/auto_selfplay_$i.log 2>&1 & \\
                     done && echo "Started {workers_needed} selfplay workers"'''
 
