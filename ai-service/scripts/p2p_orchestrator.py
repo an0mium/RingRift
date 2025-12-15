@@ -17734,87 +17734,58 @@ print(json.dumps({{
                 return int(max(1, target_selfplay))
 
             except Exception as e:
-                print(f"[P2P] Resource targets error, falling back to legacy: {e}")
+                print(f"[P2P] Resource targets error, falling back to hardware-aware: {e}")
 
-        # FALLBACK: Legacy logic if coordination not available
-        target_selfplay = 4  # Baseline
+        # FALLBACK: Use unified hardware-aware limits from resource_optimizer
+        # This ensures consistent limits across all orchestrators
+        gpu_name = (getattr(node, "gpu_name", "") or "")
+        gpu_count = int(getattr(node, "gpu_count", 1) or 1) if has_gpu else 0
 
-        # Target 60-80% utilization (raised from 50% for better efficiency)
-        TARGET_JOBS_PER_CORE = 0.35  # ~35% of cores as concurrent jobs (raised from 0.20)
-
-        # Hard caps to prevent runaway spawning
-        MAX_SELFPLAY_PER_NODE = 32
-        MAX_SELFPLAY_HIGH_END = 48
-
-        if has_gpu:
-            gpu_name = (getattr(node, "gpu_name", "") or "").lower()
-            # Baseline concurrency by accelerator tier
-            if any(tag in gpu_name for tag in ("h100", "h200", "gh200", "5090")):
-                target_selfplay = 16  # Raised from 12 for better utilization
-            elif any(tag in gpu_name for tag in ("a100", "4090")):
-                target_selfplay = 12  # Raised from 8
-            elif any(tag in gpu_name for tag in ("3090", "a10")):
-                target_selfplay = 8   # Raised from 6
-            elif memory_gb >= 64:
-                target_selfplay = 8
-
-            # Scale with CPU cores
-            if cpu_count >= 32:
-                cpu_based_target = int(cpu_count * TARGET_JOBS_PER_CORE)
-                mem_cap = memory_gb // 3 if memory_gb > 0 else 32  # 3GB per job
-                core_cap = MAX_SELFPLAY_HIGH_END if cpu_count >= 128 else MAX_SELFPLAY_PER_NODE
-                target_selfplay = max(target_selfplay, min(cpu_based_target, mem_cap, core_cap))
-            elif cpu_count > 0:
-                cpu_bonus = max(0, min(12, cpu_count // 4))
-                target_selfplay = min(MAX_SELFPLAY_PER_NODE, target_selfplay + cpu_bonus)
-
-            # Utilization-aware tuning targeting 60-80%
-            # Check resource headroom independently - only scale up if BOTH have capacity
-            gpu_overloaded = gpu_percent > 85 or gpu_mem_percent > 85
-            cpu_overloaded = cpu_percent > 80
-            gpu_has_headroom = gpu_percent < 75 and gpu_mem_percent < 75
-            cpu_has_headroom = cpu_percent < 75
-
-            # Scale DOWN if either resource is overloaded
-            if gpu_overloaded:
-                target_selfplay = max(2, target_selfplay - 4)
-            if cpu_overloaded:
-                target_selfplay = max(2, target_selfplay - 2)
-
-            # Scale UP only if BOTH resources have headroom (neither bottlenecked)
-            if not gpu_overloaded and not cpu_overloaded and current_jobs > 0:
-                # GPU underutilized and CPU has headroom
-                if gpu_percent < 60 and cpu_has_headroom:
-                    scale_up_jobs = min(4, int((60 - gpu_percent) / 15))
-                    target_selfplay = min(MAX_SELFPLAY_HIGH_END, target_selfplay + scale_up_jobs)
-                # CPU underutilized and GPU has headroom
-                if cpu_percent < 60 and gpu_has_headroom:
-                    scale_up_jobs = min(3, int((60 - cpu_percent) / 20))
-                    target_selfplay = min(MAX_SELFPLAY_PER_NODE, target_selfplay + scale_up_jobs)
+        if HAS_HW_AWARE_LIMITS and get_max_selfplay_for_node is not None:
+            # Use single source of truth from resource_optimizer
+            max_selfplay = get_max_selfplay_for_node(
+                node_id=node.node_id,
+                gpu_count=gpu_count,
+                gpu_name=gpu_name,
+                cpu_count=cpu_count,
+                memory_gb=memory_gb,
+                has_gpu=has_gpu,
+            )
         else:
-            # CPU-only nodes - conservative limits
-            if cpu_count >= 32:
-                cpu_target = int(cpu_count * TARGET_JOBS_PER_CORE)
-                mem_cap = memory_gb // 3 if memory_gb > 0 else 8
-                core_cap = min(MAX_SELFPLAY_PER_NODE, max(4, cpu_count // 8))  # Use consistent cap
-                target_selfplay = max(target_selfplay, min(cpu_target, mem_cap, core_cap))
-            elif cpu_count > 0:
-                cpu_target = max(2, int(cpu_count * TARGET_JOBS_PER_CORE))
-                target_selfplay = max(target_selfplay, min(cpu_target, MAX_SELFPLAY_PER_NODE))
-            elif memory_gb >= 64:
-                target_selfplay = 4  # Conservative for unknown CPU count
+            # Minimal fallback when resource_optimizer unavailable
+            if has_gpu:
+                gpu_upper = gpu_name.upper()
+                if any(g in gpu_upper for g in ["H100", "H200", "GH200"]):
+                    max_selfplay = 12
+                elif any(g in gpu_upper for g in ["A100", "4090", "A10"]):
+                    max_selfplay = 8
+                else:
+                    max_selfplay = 6
+            else:
+                max_selfplay = min(8, max(2, cpu_count // 4)) if cpu_count > 0 else 4
 
-            if memory_gb > 0 and memory_gb < 16:
-                mem_target = max(2, memory_gb // 2)
-                target_selfplay = min(target_selfplay, mem_target)
+        target_selfplay = max_selfplay
 
-            # Utilization-aware scaling for CPU nodes
-            if cpu_percent > 80:
-                target_selfplay = max(2, target_selfplay - 3)
-            elif cpu_percent < 60 and current_jobs > 0:
-                scale_up_jobs = min(4, int((60 - cpu_percent) / 15))
-                target_selfplay = min(MAX_SELFPLAY_PER_NODE, target_selfplay + scale_up_jobs)
+        # Utilization-aware adjustments (target 60-80%)
+        gpu_overloaded = gpu_percent > 85 or gpu_mem_percent > 85
+        cpu_overloaded = cpu_percent > 80
+        gpu_has_headroom = gpu_percent < 60 and gpu_mem_percent < 75
+        cpu_has_headroom = cpu_percent < 60
 
+        # Scale DOWN if overloaded
+        if gpu_overloaded:
+            target_selfplay = max(2, target_selfplay - 2)
+        if cpu_overloaded:
+            target_selfplay = max(2, target_selfplay - 1)
+
+        # Scale UP only if both resources have headroom (gradual)
+        if not gpu_overloaded and not cpu_overloaded and current_jobs > 0:
+            if (has_gpu and gpu_has_headroom and cpu_has_headroom) or (not has_gpu and cpu_has_headroom):
+                # Small increment toward max
+                if current_jobs < target_selfplay:
+                    target_selfplay = min(target_selfplay, current_jobs + 2)
+
+        # Resource pressure warnings
         if disk_percent >= DISK_WARNING_THRESHOLD:
             target_selfplay = min(target_selfplay, 4)
         if mem_percent >= MEMORY_WARNING_THRESHOLD:
@@ -17822,9 +17793,6 @@ print(json.dumps({{
 
         # Apply backpressure factor
         target_selfplay = int(target_selfplay * backpressure_factor)
-
-        # Apply global hard cap
-        target_selfplay = min(target_selfplay, MAX_SELFPLAY_PER_NODE)
 
         return int(max(1, target_selfplay))
 
