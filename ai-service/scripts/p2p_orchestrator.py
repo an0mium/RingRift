@@ -341,6 +341,11 @@ SPAWN_RATE_LIMIT_PER_MINUTE = int(os.environ.get("RINGRIFT_P2P_SPAWN_RATE_LIMIT"
 COORDINATOR_URL = os.environ.get("RINGRIFT_COORDINATOR_URL", "")  # If set, defer to coordinator
 AGENT_MODE_ENABLED = os.environ.get("RINGRIFT_P2P_AGENT_MODE", "").lower() in {"1", "true", "yes", "on"}
 
+# Arbiter URL for split-brain resolution when voter quorum fails
+# This should be a reliably-reachable node (e.g., Oracle Cloud instance with public IP)
+# Falls back to COORDINATOR_URL if not set
+ARBITER_URL = os.environ.get("RINGRIFT_ARBITER_URL", "") or COORDINATOR_URL
+
 # Git auto-update settings
 GIT_UPDATE_CHECK_INTERVAL = int(os.environ.get("RINGRIFT_P2P_GIT_UPDATE_CHECK_INTERVAL", "300") or 300)  # seconds
 GIT_REMOTE_NAME = "origin"       # Git remote to check
@@ -1996,7 +2001,8 @@ class P2POrchestrator:
                     "lease_duration": duration,
                 }
 
-                for url in self._urls_for_peer(voter, "/election/lease"):
+                # Use Tailscale-exclusive URLs for voter communication to avoid NAT issues
+                for url in self._tailscale_urls_for_voter(voter, "/election/lease"):
                     try:
                         async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
                             if resp.status != 200:
@@ -2068,7 +2074,8 @@ class P2POrchestrator:
                 if not voter or not voter.is_alive():
                     continue
 
-                for url in self._urls_for_peer(voter, "/election/grant"):
+                # Use Tailscale-exclusive URLs for voter communication to avoid NAT issues
+                for url in self._tailscale_urls_for_voter(voter, "/election/grant"):
                     try:
                         async with session.get(url, headers=self._auth_headers()) as resp:
                             if resp.status != 200:
@@ -2108,6 +2115,53 @@ class P2POrchestrator:
             return None
         # Deterministic: if multiple satisfy quorum (shouldn't), pick highest node_id.
         return sorted(winners)[-1]
+
+    async def _query_arbiter_for_leader(self) -> Optional[str]:
+        """Query the arbiter for the authoritative leader when voter quorum fails.
+
+        The arbiter is a reliably-reachable node that maintains its view of
+        who the leader should be. Used as a fallback when split-brain causes
+        voter quorum to be unreachable.
+
+        Returns:
+            The leader_id from the arbiter, or None if arbiter is unreachable
+        """
+        arbiter_url = ARBITER_URL
+        if not arbiter_url:
+            return None
+
+        # Try the configured arbiter URL
+        urls_to_try = [arbiter_url]
+
+        # Also try known peers as arbiters if main arbiter fails
+        for peer_addr in (self.known_peers or []):
+            if peer_addr not in urls_to_try:
+                urls_to_try.append(peer_addr)
+
+        timeout = ClientTimeout(total=5)
+        try:
+            async with get_client_session(timeout) as session:
+                for url in urls_to_try:
+                    try:
+                        base_url = url.rstrip("/")
+                        # Query the arbiter's election/grant endpoint to see who they think is leader
+                        async with session.get(
+                            f"{base_url}/election/grant",
+                            headers=self._auth_headers()
+                        ) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                leader_id = str((data or {}).get("leader_id") or "")
+                                if leader_id:
+                                    print(f"[P2P] Arbiter {base_url} reports leader: {leader_id}")
+                                    return leader_id
+                    except Exception as e:
+                        # Try next arbiter
+                        continue
+        except Exception:
+            pass
+
+        return None
 
     def _parse_peer_address(self, peer_addr: str) -> Tuple[str, str, int]:
         """Parse `--peers` entries.
@@ -2926,6 +2980,61 @@ class P2POrchestrator:
         if getattr(self, "_tailscale_priority", False):
             print("[P2P] Disabling Tailscale-priority mode (connectivity recovered)")
             self._tailscale_priority = False
+
+    def _tailscale_urls_for_voter(self, voter: "NodeInfo", path: str) -> List[str]:
+        """Return Tailscale-exclusive URLs for voter communication.
+
+        For election/lease operations between voter nodes, NAT-blocked public IPs
+        cause split-brain issues. This method ensures voter communication uses only
+        Tailscale mesh IPs (100.x.x.x) which bypass NAT.
+
+        Falls back to regular `_urls_for_peer()` if no Tailscale IP is available.
+        """
+        scheme = (getattr(voter, "scheme", None) or "http").lower()
+        urls: List[str] = []
+
+        voter_id = str(getattr(voter, "node_id", "") or "").strip()
+        port = 0
+        try:
+            port = int(getattr(voter, "port", 0) or 0)
+        except Exception:
+            pass
+        if port <= 0:
+            try:
+                port = int(getattr(voter, "reported_port", DEFAULT_PORT) or DEFAULT_PORT)
+            except Exception:
+                port = DEFAULT_PORT
+
+        # Priority 1: Dynamic registry Tailscale IP lookup
+        ts_ip = self._get_tailscale_ip_for_peer(voter_id)
+        if ts_ip:
+            urls.append(f"{scheme}://{ts_ip}:{port}{path}")
+
+        # Priority 2: Check if reported_host is a Tailscale IP
+        rh = str(getattr(voter, "reported_host", "") or "").strip()
+        if rh and self._is_tailscale_host(rh):
+            try:
+                rp = int(getattr(voter, "reported_port", 0) or 0)
+            except Exception:
+                rp = 0
+            if rp > 0:
+                url = f"{scheme}://{rh}:{rp}{path}"
+                if url not in urls:
+                    urls.append(url)
+
+        # Priority 3: Check if host is a Tailscale IP
+        host = str(getattr(voter, "host", "") or "").strip()
+        if host and self._is_tailscale_host(host):
+            url = f"{scheme}://{host}:{port}{path}"
+            if url not in urls:
+                urls.append(url)
+
+        # If no Tailscale URLs found, fall back to regular method
+        # (allows graceful degradation if Tailscale not available)
+        if not urls:
+            return self._urls_for_peer(voter, path)
+
+        return urls
 
     def _get_resource_usage(self) -> Dict[str, float]:
         """Get current resource usage."""
@@ -16138,15 +16247,35 @@ print(json.dumps({{
         lease_expires = await self._acquire_voter_lease_quorum(lease_id, int(LEADER_LEASE_DURATION))
         if getattr(self, "voter_node_ids", []):
             if not lease_expires:
-                print(f"[P2P] Failed to renew voter lease quorum; stepping down: {self.node_id}")
-                self.role = NodeRole.FOLLOWER
-                self.leader_id = None
-                self.leader_lease_id = ""
-                self.leader_lease_expires = 0.0
-                self.last_lease_renewal = 0.0
-                self._release_voter_grant_if_self()
-                self._save_state()
-                return
+                # Voter quorum failed - try arbiter fallback before stepping down
+                print(f"[P2P] Voter lease quorum failed; checking arbiter...")
+                arbiter_leader = await self._query_arbiter_for_leader()
+                if arbiter_leader == self.node_id:
+                    # Arbiter still recognizes us as leader - extend lease provisionally
+                    print(f"[P2P] Arbiter confirms us as leader despite quorum failure; continuing with provisional lease")
+                    lease_expires = now + LEADER_LEASE_DURATION / 2  # Shorter lease until quorum recovers
+                elif arbiter_leader:
+                    # Arbiter says someone else is leader - defer to arbiter
+                    print(f"[P2P] Arbiter reports different leader ({arbiter_leader}); stepping down")
+                    self.role = NodeRole.FOLLOWER
+                    self.leader_id = arbiter_leader
+                    self.leader_lease_id = ""
+                    self.leader_lease_expires = 0.0
+                    self.last_lease_renewal = 0.0
+                    self._release_voter_grant_if_self()
+                    self._save_state()
+                    return
+                else:
+                    # Arbiter also unreachable - step down to be safe
+                    print(f"[P2P] Failed to renew voter lease quorum and arbiter unreachable; stepping down: {self.node_id}")
+                    self.role = NodeRole.FOLLOWER
+                    self.leader_id = None
+                    self.leader_lease_id = ""
+                    self.leader_lease_expires = 0.0
+                    self.last_lease_renewal = 0.0
+                    self._release_voter_grant_if_self()
+                    self._save_state()
+                    return
 
         self.leader_lease_id = lease_id
         self.leader_lease_expires = float(lease_expires or (now + LEADER_LEASE_DURATION))
@@ -16206,10 +16335,31 @@ print(json.dumps({{
         # Gather all peers claiming to be leader.
         other_leaders = [peer for peer in peers_snapshot if peer.role == NodeRole.LEADER and peer.is_alive()]
 
+        voter_ids = list(getattr(self, "voter_node_ids", []) or [])
+
+        # PROACTIVE VOTER ACK VERIFICATION: Even when no other leaders are visible,
+        # periodically verify that voters still acknowledge us as leader.
+        # This catches split-brain where we can't see the other partition's leader.
+        if not other_leaders and voter_ids:
+            now = time.time()
+            last_voter_check = float(getattr(self, "_last_voter_ack_check", 0) or 0)
+            # Check every 30 seconds (more frequent than lease renewal)
+            if now - last_voter_check >= 30:
+                self._last_voter_ack_check = now
+                leased_leader = await self._determine_leased_leader_from_voters()
+                if leased_leader and leased_leader != self.node_id:
+                    print(f"[P2P] VOTER ACK CHECK: Voters grant to {leased_leader}, not us; stepping down")
+                    self.role = NodeRole.FOLLOWER
+                    self.leader_id = leased_leader
+                    self.leader_lease_id = ""
+                    self.leader_lease_expires = 0.0
+                    self._release_voter_grant_if_self()
+                    self._save_state()
+                    return True
+            return False  # No split-brain detected
+
         if not other_leaders:
             return False  # No split-brain
-
-        voter_ids = list(getattr(self, "voter_node_ids", []) or [])
         if voter_ids:
             # In quorum-gated clusters, only voters may safely lead.
             if self.node_id not in voter_ids:
@@ -17033,8 +17183,12 @@ print(json.dumps({{
                 for cfg in filtered_configs:
                     weighted_configs.extend([cfg] * cfg.get("priority", 1))
 
-                # Start jobs (max 2 at a time to avoid overwhelming)
-                for i in range(min(needed, 2)):
+                # FIXED: Start all needed jobs with fair config distribution
+                # Instead of max 2, start up to 10 at a time to quickly fill all configs
+                # Use round-robin across unique configs to ensure coverage
+                unique_configs = list({(c["board_type"], c["num_players"]): c for c in filtered_configs}.values())
+                jobs_to_start = min(needed, 10)  # Start up to 10 jobs per iteration
+                for i in range(jobs_to_start):
                     # LEARNED LESSONS - Smart CPU/GPU task routing:
                     # - High-end GPUs (H100/H200/A100/5090/4090) get GPU_SELFPLAY for max throughput
                     #   with automatic CPU validation to ensure data quality
@@ -17075,11 +17229,10 @@ print(json.dumps({{
                     gpu_info = f"gpu={node.gpu_name or 'none'}, gpu%={getattr(node, 'gpu_percent', 0):.0f}" if node.has_gpu else "no-gpu"
                     print(f"[P2P] Assigning {task_type_str} task to {node.node_id} ({gpu_info}, load={node.get_load_score():.0f}%)")
 
-                    # Weighted config selection based on priority and node capabilities
-                    # Use ImprovementCycleManager for dynamic data-aware diverse selection
-                    # with node-aware routing: heavy workloads -> heavy nodes
+                    # FIXED: Round-robin config selection to ensure all configs get coverage
+                    # Use unique_configs list for fair distribution across all 9 board/player combos
                     import random as rand_module
-                    if self.improvement_cycle_manager:
+                    if self.improvement_cycle_manager and hasattr(self.improvement_cycle_manager, 'get_next_selfplay_config_for_node'):
                         # Node-aware dynamic selection: routes hex/sq19/3p/4p to powerful nodes
                         node_gpu_power = node.gpu_power_score() if hasattr(node, 'gpu_power_score') else 0
                         node_memory = int(getattr(node, 'memory_gb', 0) or 0)
@@ -17089,9 +17242,10 @@ print(json.dumps({{
                             cluster_data=self.cluster_data_manifest
                         )
                     else:
-                        # Fallback to static weighted selection
-                        config_idx = (hash(node.node_id) + i + int(time.time() // 1800)) % len(weighted_configs)
-                        config = weighted_configs[config_idx]
+                        # Round-robin across unique configs for fair coverage
+                        # Each iteration picks the next config in the list
+                        config_idx = i % len(unique_configs)
+                        config = unique_configs[config_idx]
 
                     # Track diversity metrics for monitoring
                     self._track_selfplay_diversity(config)

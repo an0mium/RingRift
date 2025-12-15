@@ -1618,6 +1618,7 @@ class ConfigPriorityQueue:
     2. Haven't been evaluated recently
     3. Lower Elo (need more improvement)
     4. Higher games_since_training (more data available)
+    5. Fewer trained models (configs with no/few models need training first)
 
     This ensures resources are focused on configs that will benefit most
     from evaluation and training, maximizing the feedback loop efficiency.
@@ -1627,6 +1628,44 @@ class ConfigPriorityQueue:
         self._priority_cache: Dict[str, float] = {}
         self._last_recalc: float = 0.0
         self._recalc_interval: float = 60.0  # Recalculate every 60 seconds
+        self._trained_model_counts: Dict[str, int] = {}
+        self._model_counts_last_update: float = 0.0
+
+    def _update_trained_model_counts(self) -> None:
+        """Fetch count of trained models per config from Elo database."""
+        now = time.time()
+        # Update every 5 minutes
+        if now - self._model_counts_last_update < 300:
+            return
+
+        try:
+            elo_db_path = AI_SERVICE_ROOT / "data" / "unified_elo.db"
+            if not elo_db_path.exists():
+                return
+
+            conn = sqlite3.connect(elo_db_path)
+            cursor = conn.cursor()
+
+            # Count trained models per config (excluding baselines)
+            cursor.execute("""
+                SELECT board_type, num_players, COUNT(DISTINCT participant_id) as model_count
+                FROM elo_ratings
+                WHERE (participant_id LIKE 'ringrift_%' OR participant_id LIKE '%_nn_baseline%')
+                  AND participant_id NOT LIKE 'baseline_%'
+                GROUP BY board_type, num_players
+            """)
+
+            rows = cursor.fetchall()
+            conn.close()
+
+            self._trained_model_counts = {
+                f"{row[0]}_{row[1]}p": row[2]
+                for row in rows
+            }
+            self._model_counts_last_update = now
+
+        except Exception:
+            pass  # Non-critical, use cached or zero
 
     def calculate_priority(
         self,
@@ -1672,6 +1711,17 @@ class ConfigPriorityQueue:
         time_since_promotion = now - config_state.last_promotion_time
         if time_since_promotion < 3600:  # Within last hour
             score += 30  # Bonus for recent success
+
+        # Factor 6: HUGE bonus for configs with few/no trained models
+        # This ensures under-represented configs get priority attention
+        self._update_trained_model_counts()
+        model_count = self._trained_model_counts.get(config_key, 0)
+        if model_count == 0:
+            score += 500  # Highest priority - no trained models at all
+        elif model_count <= 2:
+            score += 300  # Very high priority - only 1-2 models
+        elif model_count <= 5:
+            score += 100  # High priority - few models
 
         return score
 
@@ -3681,10 +3731,11 @@ class AdaptiveCurriculum:
             cursor = conn.cursor()
 
             # Get best Elo for each config
+            # Include both ringrift_* models and *_nn_baseline* models
             cursor.execute("""
                 SELECT board_type, num_players, MAX(rating) as best_elo
                 FROM elo_ratings
-                WHERE participant_id LIKE 'ringrift_%'
+                WHERE (participant_id LIKE 'ringrift_%' OR participant_id LIKE '%_nn_baseline%')
                 GROUP BY board_type, num_players
             """)
 
@@ -4754,11 +4805,11 @@ class UnifiedAILoop:
                 conn = sqlite3.connect(elo_db_path)
                 cursor = conn.cursor()
 
-                # Get best Elo for each config
+                # Get best Elo for each config (both ringrift_* and *_nn_baseline* models)
                 cursor.execute("""
                     SELECT board_type, num_players, participant_id, rating, games_played
                     FROM elo_ratings
-                    WHERE participant_id LIKE 'ringrift_%'
+                    WHERE (participant_id LIKE 'ringrift_%' OR participant_id LIKE '%_nn_baseline%')
                     ORDER BY board_type, num_players, rating DESC
                 """)
 

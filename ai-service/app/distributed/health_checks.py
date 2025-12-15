@@ -67,9 +67,10 @@ class HealthChecker:
     EVALUATION_STALE_THRESHOLD = 7200  # 2 hours
     COORDINATOR_STALE_THRESHOLD = 86400  # 24 hours
 
-    def __init__(self):
+    def __init__(self, merged_db_path: Optional[Path] = None):
         self.elo_db_path = AI_SERVICE_ROOT / "data" / "unified_elo.db"
-        self.merged_db_path = AI_SERVICE_ROOT / "data" / "games" / "merged_training.db"
+        # Default to selfplay.db which is the actual merged training database
+        self.merged_db_path = merged_db_path or AI_SERVICE_ROOT / "data" / "games" / "selfplay.db"
         self.coordinator_db_path = AI_SERVICE_ROOT / "data" / "coordination" / "task_registry.db"
         self.state_path = AI_SERVICE_ROOT / "logs" / "unified_loop" / "unified_loop_state.json"
 

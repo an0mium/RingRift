@@ -51,6 +51,13 @@ try:
 except ImportError:
     HAS_LINEAGE = False
 
+# Import unified ELO database for alias sync
+try:
+    from app.tournament.unified_elo_db import get_elo_database, UnifiedEloRating
+    HAS_UNIFIED_ELO = True
+except ImportError:
+    HAS_UNIFIED_ELO = False
+
 # Import event bus helpers (consolidated imports)
 from app.distributed.event_helpers import (
     has_event_bus,

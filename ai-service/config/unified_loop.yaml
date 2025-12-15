@@ -182,8 +182,8 @@ cmaes:
 # Process safeguards (prevent uncoordinated sprawl)
 safeguards:
   # Global process limits per host
-  max_python_processes_per_host: 20
-  max_selfplay_processes: 2 # Only 2 selfplay at a time
+  max_python_processes_per_host: 64 # Increased for multi-config selfplay
+  max_selfplay_processes: 50 # 5 processes x 9 configs + buffer
   max_tournament_processes: 1 # Only 1 tournament at a time
   max_training_processes: 1 # Only 1 training at a time
 
@@ -438,9 +438,13 @@ p2p_daemon:
   heartbeat_interval: 30 # Seconds between heartbeats
 
   # Job scheduling
-  max_parallel_selfplay: 4 # Max selfplay jobs per node
+  max_parallel_selfplay: 50 # Allow 5 processes per config (9 configs)
   max_parallel_training: 1 # Max training jobs per node (usually 1)
   prefer_gpu_for_training: true # Schedule training on GPU nodes
+
+  # Multi-config selfplay settings
+  selfplay_per_config: 5 # Target processes per board/player config
+  ensure_all_configs: true # Ensure all 9 configs have selfplay running
 
   # Resource thresholds
   cpu_high_threshold: 80 # Throttle above this CPU %
