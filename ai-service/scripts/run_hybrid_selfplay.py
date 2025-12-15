@@ -325,6 +325,41 @@ def run_hybrid_selfplay(
             logger.warning(f"MCTS not available: {e}. Falling back to heuristic.")
             mcts_ai = None
 
+    # Initialize Minimax AI for nn-minimax mode
+    minimax_ai = None
+    all_engine_modes = {engine_mode, p2_engine_mode, p3_engine_mode, p4_engine_mode}
+    if "nn-minimax" in all_engine_modes:
+        try:
+            from app.ai.minimax_ai import MinimaxAI
+            from app.models.core import AIConfig
+            minimax_config = AIConfig(
+                difficulty=6,
+                think_time=2000,  # 2 second think time
+                use_neural_net=True,
+            )
+            minimax_ai = MinimaxAI(config=minimax_config, player_number=1)
+            logger.info("Minimax AI initialized with neural net evaluation")
+        except ImportError as e:
+            logger.warning(f"Minimax AI not available: {e}. Falling back to heuristic.")
+            minimax_ai = None
+
+    # Initialize Descent AI for nn-descent mode
+    descent_ai = None
+    if "nn-descent" in all_engine_modes:
+        try:
+            from app.ai.descent_ai import DescentAI
+            from app.models.core import AIConfig
+            descent_config = AIConfig(
+                difficulty=6,
+                think_time=2000,  # 2 second think time
+                use_neural_net=True,
+            )
+            descent_ai = DescentAI(config=descent_config, player_number=1)
+            logger.info("Descent AI initialized with neural net evaluation")
+        except ImportError as e:
+            logger.warning(f"Descent AI not available: {e}. Falling back to heuristic.")
+            descent_ai = None
+
     # Build per-player engine mode mapping for asymmetric matches
     player_engine_modes = {
         1: engine_mode,
@@ -505,6 +540,46 @@ def run_hybrid_selfplay(
                                 best_move = valid_moves[0]
                         except Exception as e:
                             logger.debug(f"NNUE error: {e}, falling back to heuristic")
+                            best_move = valid_moves[np.random.randint(len(valid_moves))]
+                    elif current_engine == "nn-minimax" and minimax_ai is not None:
+                        # NN-Minimax mode: Use minimax search with neural net evaluation
+                        try:
+                            # Update AI's player number for current player
+                            minimax_ai.player_number = current_player
+                            best_move = minimax_ai.get_move(game_state)
+                            if best_move is None or best_move not in valid_moves:
+                                # Fallback to heuristic if minimax fails
+                                move_scores = evaluator.evaluate_moves(
+                                    game_state, valid_moves, current_player, GameEngine
+                                )
+                                if move_scores:
+                                    best_score = max(s for _, s in move_scores)
+                                    best_moves = [m for m, s in move_scores if s == best_score]
+                                    best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
+                                else:
+                                    best_move = valid_moves[0]
+                        except Exception as e:
+                            logger.debug(f"Minimax error: {e}, falling back to heuristic")
+                            best_move = valid_moves[np.random.randint(len(valid_moves))]
+                    elif current_engine == "nn-descent" and descent_ai is not None:
+                        # NN-Descent mode: Use descent search with neural net evaluation
+                        try:
+                            # Update AI's player number for current player
+                            descent_ai.player_number = current_player
+                            best_move = descent_ai.get_move(game_state)
+                            if best_move is None or best_move not in valid_moves:
+                                # Fallback to heuristic if descent fails
+                                move_scores = evaluator.evaluate_moves(
+                                    game_state, valid_moves, current_player, GameEngine
+                                )
+                                if move_scores:
+                                    best_score = max(s for _, s in move_scores)
+                                    best_moves = [m for m, s in move_scores if s == best_score]
+                                    best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
+                                else:
+                                    best_move = valid_moves[0]
+                        except Exception as e:
+                            logger.debug(f"Descent error: {e}, falling back to heuristic")
                             best_move = valid_moves[np.random.randint(len(valid_moves))]
                     else:
                         # heuristic-only (default): Evaluate moves (hybrid CPU/GPU)
@@ -912,28 +987,28 @@ def main():
         "--engine-mode",
         type=str,
         default="heuristic-only",
-        choices=["random-only", "random", "heuristic-only", "mixed", "nnue-guided", "mcts"],
+        choices=["random-only", "random", "heuristic-only", "mixed", "nnue-guided", "mcts", "nn-minimax", "nn-descent"],
         help="Engine mode for P1: random-only (uniform random), heuristic-only (GPU heuristic), mixed (probabilistic blend), nnue-guided (NNUE neural network), or mcts (Monte Carlo Tree Search)",
     )
     parser.add_argument(
         "--p2-engine-mode",
         type=str,
         default=None,
-        choices=["random-only", "random", "heuristic-only", "mixed", "nnue-guided", "mcts"],
+        choices=["random-only", "random", "heuristic-only", "mixed", "nnue-guided", "mcts", "nn-minimax", "nn-descent"],
         help="Engine mode for Player 2 (if different from P1 for asymmetric matches)",
     )
     parser.add_argument(
         "--p3-engine-mode",
         type=str,
         default=None,
-        choices=["random-only", "random", "heuristic-only", "mixed", "nnue-guided", "mcts"],
+        choices=["random-only", "random", "heuristic-only", "mixed", "nnue-guided", "mcts", "nn-minimax", "nn-descent"],
         help="Engine mode for Player 3 (for 3-4 player games)",
     )
     parser.add_argument(
         "--p4-engine-mode",
         type=str,
         default=None,
-        choices=["random-only", "random", "heuristic-only", "mixed", "nnue-guided", "mcts"],
+        choices=["random-only", "random", "heuristic-only", "mixed", "nnue-guided", "mcts", "nn-minimax", "nn-descent"],
         help="Engine mode for Player 4 (for 4 player games)",
     )
     parser.add_argument(

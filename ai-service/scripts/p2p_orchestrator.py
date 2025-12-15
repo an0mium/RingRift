@@ -18350,15 +18350,15 @@ print(json.dumps({{
         if training_jobs > 0:
             return 0
 
-        # Skip if leader is active (avoid conflicts)
-        if self.role == NodeRole.LEADER or self.leader_id:
-            leaderless_duration = now - getattr(self, "last_leader_seen", now)
-            if leaderless_duration < 120:
-                return 0
+        # DECENTRALIZED: Always allow local GPU scaling
+        # Leader manages cluster-wide coordination, but each node optimizes its own GPU
+        # Use smaller batches when leader is present to avoid conflicts
+        has_leader = bool(self.leader_id or self.role == NodeRole.LEADER)
+        max_jobs_per_cycle = 1 if has_leader else 3
 
         TARGET_GPU_MIN = 60.0
         TARGET_GPU_MAX = 80.0
-        MIN_IDLE_TIME = 120
+        MIN_IDLE_TIME = 120 if has_leader else 60  # Faster response when leaderless
 
         gpu_percent = float(getattr(self.self_info, "gpu_percent", 0) or 0)
         selfplay_jobs = int(getattr(self.self_info, "selfplay_jobs", 0) or 0)
@@ -18380,7 +18380,7 @@ print(json.dumps({{
                     jobs_per_10_percent = 1
 
                 new_jobs = max(1, int(gpu_headroom / 10 * jobs_per_10_percent))
-                new_jobs = min(new_jobs, 3)  # Cap at 3 per cycle
+                new_jobs = min(new_jobs, max_jobs_per_cycle)  # Cap based on leader presence
 
                 print(f"[P2P] LOCAL GPU: {gpu_percent:.0f}% util, starting {new_jobs} GPU selfplay job(s)")
 
