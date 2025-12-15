@@ -167,6 +167,79 @@ except ImportError:
     HAS_COORDINATION = False
     OrchestratorRole = None
 
+# Priority job scheduler for critical job prioritization
+try:
+    from app.coordination import (
+        PriorityJobScheduler,
+        JobPriority,
+        ScheduledJob,
+        get_job_scheduler,
+        reset_job_scheduler,
+        # Curriculum learning
+        get_config_game_counts,
+        select_curriculum_config,
+        get_underserved_configs,
+        get_cpu_rich_hosts,
+        get_gpu_rich_hosts,
+    )
+    HAS_JOB_SCHEDULER = True
+except ImportError:
+    HAS_JOB_SCHEDULER = False
+    PriorityJobScheduler = None
+    JobPriority = None
+    ScheduledJob = None
+    get_job_scheduler = None
+
+# Stage event bus for pipeline orchestration
+try:
+    from app.coordination import (
+        StageEventBus,
+        StageEvent,
+        StageCompletionResult,
+        get_stage_event_bus,
+        reset_stage_event_bus,
+        register_standard_callbacks,
+    )
+    HAS_STAGE_EVENTS = True
+except ImportError:
+    HAS_STAGE_EVENTS = False
+    StageEventBus = None
+    StageEvent = None
+    StageCompletionResult = None
+    get_stage_event_bus = None
+
+# P2P Backend with leader discovery
+try:
+    from app.coordination import (
+        P2PBackend,
+        P2PNodeInfo,
+        discover_p2p_leader_url,
+        get_p2p_backend,
+        HAS_AIOHTTP as P2P_HAS_AIOHTTP,
+    )
+    HAS_P2P_BACKEND = True
+except ImportError:
+    HAS_P2P_BACKEND = False
+    P2PBackend = None
+    discover_p2p_leader_url = None
+    get_p2p_backend = None
+
+# Promotion controller for unified promotion decisions
+try:
+    from app.training import (
+        PromotionController,
+        PromotionType,
+        PromotionCriteria,
+        PromotionDecision,
+        get_promotion_controller,
+    )
+    HAS_PROMOTION_CONTROLLER = True
+except ImportError:
+    HAS_PROMOTION_CONTROLLER = False
+    PromotionController = None
+    PromotionType = None
+    get_promotion_controller = None
+
 # Resource optimizer for cooperative cluster-wide utilization targeting
 try:
     from app.coordination.resource_optimizer import (
@@ -488,6 +561,67 @@ except ImportError:
     HAS_P2P = False
     P2PIntegrationConfig = None
     P2PIntegrationManager = None
+
+# =============================================================================
+# Consolidated Data Sync Modules (unified infrastructure)
+# =============================================================================
+
+# Unified Write-Ahead Log for crash-safe data collection
+try:
+    from app.distributed.unified_wal import (
+        UnifiedWAL,
+        WALEntry,
+        WALEntryType,
+        WALEntryStatus,
+        WALStats,
+        get_unified_wal,
+    )
+    HAS_UNIFIED_WAL = True
+except ImportError:
+    HAS_UNIFIED_WAL = False
+    UnifiedWAL = None
+    WALEntry = None
+    WALEntryType = None
+    get_unified_wal = None
+
+# Unified Manifest for game deduplication and host state tracking
+try:
+    from app.distributed.unified_manifest import (
+        DataManifest,
+        HostSyncState,
+        SyncHistoryEntry,
+        DeadLetterEntry,
+        ManifestStats,
+        create_manifest,
+    )
+    HAS_UNIFIED_MANIFEST = True
+except ImportError:
+    HAS_UNIFIED_MANIFEST = False
+    DataManifest = None
+    HostSyncState = None
+    create_manifest = None
+
+# Host classification for storage type detection and sync profiles
+try:
+    from app.distributed.host_classification import (
+        StorageType,
+        HostTier,
+        HostSyncProfile,
+        classify_host_storage,
+        classify_host_tier,
+        get_ephemeral_hosts,
+        create_sync_profile,
+        create_sync_profiles,
+    )
+    HAS_HOST_CLASSIFICATION = True
+except ImportError:
+    HAS_HOST_CLASSIFICATION = False
+    StorageType = None
+    HostTier = None
+    HostSyncProfile = None
+    classify_host_storage = None
+    get_ephemeral_hosts = None
+    create_sync_profile = None
 
 # Memory and local task configuration
 MIN_MEMORY_GB = 64  # Minimum RAM to run the unified loop
@@ -1780,7 +1914,13 @@ class UnifiedLoopState:
 # =============================================================================
 
 class StreamingDataCollector:
-    """Collects game data from remote hosts with 60-second incremental sync."""
+    """Collects game data from remote hosts with 60-second incremental sync.
+
+    Uses consolidated infrastructure:
+    - unified_manifest: Game deduplication and host state tracking
+    - unified_wal: Crash-safe data collection
+    - host_classification: Ephemeral host detection with aggressive sync
+    """
 
     def __init__(
         self,
@@ -1795,10 +1935,74 @@ class StreamingDataCollector:
         self.hot_buffer = hot_buffer
         self._known_game_ids: Set[str] = set()
 
+        # Initialize unified manifest for game deduplication
+        self._manifest: Optional[DataManifest] = None
+        if HAS_UNIFIED_MANIFEST:
+            try:
+                manifest_path = AI_SERVICE_ROOT / "data" / "data_manifest.db"
+                self._manifest = DataManifest(manifest_path)
+                print(f"[DataCollector] Using unified manifest: {manifest_path}")
+            except Exception as e:
+                print(f"[DataCollector] Failed to initialize manifest: {e}")
+
+        # Initialize unified WAL for crash recovery
+        self._wal: Optional[UnifiedWAL] = None
+        if HAS_UNIFIED_WAL:
+            try:
+                wal_path = AI_SERVICE_ROOT / "data" / "unified_wal.db"
+                self._wal = UnifiedWAL(wal_path)
+                print(f"[DataCollector] Using unified WAL: {wal_path}")
+            except Exception as e:
+                print(f"[DataCollector] Failed to initialize WAL: {e}")
+
+        # Initialize host sync profiles for ephemeral detection
+        self._host_profiles: Dict[str, HostSyncProfile] = {}
+        if HAS_HOST_CLASSIFICATION:
+            self._init_host_profiles()
+
     def set_hot_buffer(self, hot_buffer: "HotDataBuffer") -> None:
         """Set or update the hot buffer for in-memory game caching."""
         self.hot_buffer = hot_buffer
         print(f"[DataCollector] Hot buffer attached (max_size={hot_buffer.max_size})")
+
+    def _init_host_profiles(self) -> None:
+        """Initialize host sync profiles from state with storage type classification."""
+        if not HAS_HOST_CLASSIFICATION:
+            return
+
+        ephemeral_count = 0
+        for host in self.state.hosts.values():
+            # Create host config dict for classification
+            host_config = {
+                "ssh_host": host.ssh_host,
+                "remote_path": getattr(host, "remote_db_path", ""),
+                "storage_type": getattr(host, "storage_type", "persistent"),
+            }
+            profile = create_sync_profile(host.name, host_config)
+            self._host_profiles[host.name] = profile
+
+            if profile.is_ephemeral:
+                ephemeral_count += 1
+                print(f"[DataCollector] {host.name}: EPHEMERAL (15s sync)")
+
+        if ephemeral_count > 0:
+            print(f"[DataCollector] Detected {ephemeral_count} ephemeral hosts")
+
+    def get_sync_interval(self, host_name: str) -> int:
+        """Get sync interval for a host based on its storage type.
+
+        Ephemeral hosts (RAM disk) use aggressive 15s sync.
+        Persistent hosts use default 60s sync.
+        """
+        if host_name in self._host_profiles:
+            return self._host_profiles[host_name].poll_interval_seconds
+        return self.config.poll_interval_seconds
+
+    def is_ephemeral_host(self, host_name: str) -> bool:
+        """Check if a host has ephemeral storage (needs aggressive sync)."""
+        if host_name in self._host_profiles:
+            return self._host_profiles[host_name].is_ephemeral
+        return False
 
     async def sync_host(self, host: HostState) -> int:
         """Sync games from a single host. Returns count of new games."""
@@ -2942,16 +3146,30 @@ class TrainingScheduler:
             # Use v3 for all board types (best architecture with spatial policy heads)
             model_version = "v3"
 
-            # Find game database
+            # Find game database - include both local and synced cluster data
             games_dir = AI_SERVICE_ROOT / "data" / "games"
+            synced_dir = games_dir / "synced"
+
+            # Collect databases from main games dir and synced subdirectory
             game_dbs = list(games_dir.glob("*.db"))
+            if synced_dir.exists():
+                # Include all synced databases (cluster data)
+                game_dbs.extend(synced_dir.rglob("*.db"))
+
             if not game_dbs:
-                print(f"[Training] No game databases found")
+                print(f"[Training] No game databases found in {games_dir} or {synced_dir}")
                 self.state.training_in_progress = False
                 self._release_training_lock()
                 return False
 
-            largest_db = max(game_dbs, key=lambda p: p.stat().st_size)
+            # Prefer consolidated database if it exists, otherwise use largest
+            consolidated_db = games_dir / "consolidated_training_v2.db"
+            if consolidated_db.exists():
+                largest_db = consolidated_db
+                print(f"[Training] Using consolidated database: {largest_db}")
+            else:
+                largest_db = max(game_dbs, key=lambda p: p.stat().st_size)
+                print(f"[Training] Using largest database: {largest_db} ({largest_db.stat().st_size / 1024 / 1024:.1f}MB)")
 
             # Export training data with appropriate encoder
             training_dir = AI_SERVICE_ROOT / "data" / "training"
@@ -3995,11 +4213,32 @@ class UnifiedAILoop:
         # P2P cluster integration - distributed training across cluster
         self.p2p: Optional[P2PIntegrationManager] = None
         self._p2p_started = False
+        self._p2p_backend: Optional[P2PBackend] = None  # Direct backend for low-level API calls
         if HAS_P2P and config.p2p.enabled:
             try:
+                # Try resilient leader discovery if seed URLs configured
+                effective_base_url = config.p2p.p2p_base_url
+                p2p_seed_urls = os.environ.get("RINGRIFT_P2P_SEEDS", "").split(",")
+                p2p_seed_urls = [s.strip() for s in p2p_seed_urls if s.strip()]
+
+                if HAS_P2P_BACKEND and discover_p2p_leader_url and p2p_seed_urls:
+                    # Use resilient leader discovery
+                    try:
+                        discovered_url = asyncio.get_event_loop().run_until_complete(
+                            discover_p2p_leader_url(
+                                p2p_seed_urls,
+                                auth_token=config.p2p.auth_token or "",
+                            )
+                        )
+                        if discovered_url:
+                            effective_base_url = discovered_url
+                            print(f"[UnifiedLoop] P2P leader discovered: {effective_base_url}")
+                    except Exception as disc_err:
+                        print(f"[UnifiedLoop] P2P leader discovery failed, using config URL: {disc_err}")
+
                 # Create P2PIntegrationConfig from our local config
                 p2p_config = P2PIntegrationConfig(
-                    p2p_base_url=config.p2p.p2p_base_url,
+                    p2p_base_url=effective_base_url,
                     auth_token=config.p2p.auth_token,
                     model_sync_enabled=config.p2p.model_sync_enabled,
                     target_selfplay_games_per_hour=config.p2p.target_selfplay_games_per_hour,
@@ -4010,12 +4249,19 @@ class UnifiedAILoop:
                 )
                 self.p2p = P2PIntegrationManager(p2p_config)
 
+                # Also create a P2PBackend for direct API access
+                if HAS_P2P_BACKEND and P2PBackend is not None:
+                    self._p2p_backend = P2PBackend(
+                        effective_base_url,
+                        auth_token=config.p2p.auth_token,
+                    )
+
                 # Wire P2P callbacks to our event bus
                 self.p2p.register_callback("cluster_unhealthy", self._on_p2p_cluster_unhealthy)
                 self.p2p.register_callback("nodes_dead", self._on_p2p_nodes_dead)
                 self.p2p.register_callback("selfplay_scaled", self._on_p2p_selfplay_scaled)
 
-                print(f"[UnifiedLoop] P2P integration initialized (base_url={config.p2p.p2p_base_url})")
+                print(f"[UnifiedLoop] P2P integration initialized (base_url={effective_base_url})")
             except Exception as e:
                 print(f"[UnifiedLoop] Warning: Failed to initialize P2P integration: {e}")
                 self.p2p = None
@@ -4047,6 +4293,41 @@ class UnifiedAILoop:
             except Exception as e:
                 print(f"[UnifiedLoop] Warning: Failed to initialize resource optimizer: {e}")
 
+        # Priority job scheduler - ensures critical jobs (promotion eval) preempt selfplay
+        self.job_scheduler: Optional[PriorityJobScheduler] = None
+        if HAS_JOB_SCHEDULER:
+            try:
+                self.job_scheduler = get_job_scheduler()
+                print("[UnifiedLoop] Priority job scheduler initialized (CRITICAL > HIGH > NORMAL > LOW)")
+            except Exception as e:
+                print(f"[UnifiedLoop] Warning: Failed to initialize job scheduler: {e}")
+
+        # Stage event bus - pipeline stage completion events for cross-component coordination
+        self.stage_event_bus: Optional[StageEventBus] = None
+        if HAS_STAGE_EVENTS:
+            try:
+                self.stage_event_bus = get_stage_event_bus()
+                # Bridge stage events to the main event bus
+                self._setup_stage_event_bridge()
+                print("[UnifiedLoop] Stage event bus initialized and bridged to main EventBus")
+            except Exception as e:
+                print(f"[UnifiedLoop] Warning: Failed to initialize stage event bus: {e}")
+
+        # Unified promotion controller - augments ModelPromoter with consistent criteria
+        self.promotion_controller: Optional[PromotionController] = None
+        if HAS_PROMOTION_CONTROLLER:
+            try:
+                criteria = PromotionCriteria(
+                    min_elo_improvement=config.promotion.min_elo_improvement,
+                    min_games_played=config.promotion.min_games,
+                    min_win_rate=config.promotion.min_win_rate,
+                    confidence_threshold=config.promotion.statistical_significance,
+                )
+                self.promotion_controller = PromotionController(criteria=criteria)
+                print(f"[UnifiedLoop] Promotion controller initialized (min_elo={criteria.min_elo_improvement})")
+            except Exception as e:
+                print(f"[UnifiedLoop] Warning: Failed to initialize promotion controller: {e}")
+
         # State management
         self._state_path = AI_SERVICE_ROOT / config.log_dir / "unified_loop_state.json"
         self._running = False
@@ -4057,6 +4338,171 @@ class UnifiedAILoop:
         self._last_full_eval: float = 0.0
         self._last_diverse_tournament: float = 0.0
         self._started_time: float = 0.0
+
+    def _setup_stage_event_bridge(self):
+        """Bridge StageEventBus events to the main EventBus for unified coordination.
+
+        Maps stage events to internal DataEventType events so both event systems
+        work together seamlessly.
+        """
+        if not HAS_STAGE_EVENTS or self.stage_event_bus is None:
+            return
+
+        async def on_selfplay_complete(result: StageCompletionResult):
+            """Bridge selfplay completion to main event bus."""
+            await self.event_bus.publish(DataEvent(
+                event_type=DataEventType.DATA_SYNC_COMPLETED,
+                payload={
+                    "games_synced": result.games_generated,
+                    "iteration": result.iteration,
+                    "config": f"{result.board_type}_{result.num_players}p",
+                    "source": "stage_event_bus",
+                }
+            ))
+
+        async def on_training_complete(result: StageCompletionResult):
+            """Bridge training completion to main event bus."""
+            await self.event_bus.publish(DataEvent(
+                event_type=DataEventType.TRAINING_COMPLETED,
+                payload={
+                    "config_key": f"{result.board_type}_{result.num_players}p",
+                    "model_path": result.model_path,
+                    "train_loss": result.train_loss,
+                    "val_loss": result.val_loss,
+                    "source": "stage_event_bus",
+                }
+            ))
+
+        async def on_evaluation_complete(result: StageCompletionResult):
+            """Bridge evaluation completion to main event bus."""
+            await self.event_bus.publish(DataEvent(
+                event_type=DataEventType.EVALUATION_COMPLETED,
+                payload={
+                    "config_key": f"{result.board_type}_{result.num_players}p",
+                    "win_rate": result.win_rate,
+                    "elo_delta": result.elo_delta,
+                    "source": "stage_event_bus",
+                }
+            ))
+
+        async def on_promotion_complete(result: StageCompletionResult):
+            """Bridge promotion completion to main event bus."""
+            if result.promoted:
+                await self.event_bus.publish(DataEvent(
+                    event_type=DataEventType.MODEL_PROMOTED,
+                    payload={
+                        "config": f"{result.board_type}_{result.num_players}p",
+                        "model_id": result.model_id,
+                        "elo_gain": result.elo_delta,
+                        "reason": result.promotion_reason,
+                        "source": "stage_event_bus",
+                    }
+                ))
+
+        # Subscribe to stage events
+        self.stage_event_bus.subscribe(StageEvent.SELFPLAY_COMPLETE, on_selfplay_complete)
+        self.stage_event_bus.subscribe(StageEvent.TRAINING_COMPLETE, on_training_complete)
+        self.stage_event_bus.subscribe(StageEvent.EVALUATION_COMPLETE, on_evaluation_complete)
+        self.stage_event_bus.subscribe(StageEvent.PROMOTION_COMPLETE, on_promotion_complete)
+
+    async def _emit_stage_event(
+        self,
+        event: "StageEvent",
+        success: bool,
+        **kwargs,
+    ):
+        """Emit a stage completion event to the StageEventBus.
+
+        Args:
+            event: The StageEvent type to emit
+            success: Whether the stage completed successfully
+            **kwargs: Additional fields for StageCompletionResult
+        """
+        if not HAS_STAGE_EVENTS or self.stage_event_bus is None:
+            return
+
+        result = StageCompletionResult(
+            event=event,
+            success=success,
+            iteration=self.state.iteration,
+            timestamp=datetime.now().isoformat(),
+            board_type=kwargs.get("board_type", "square8"),
+            num_players=kwargs.get("num_players", 2),
+            games_generated=kwargs.get("games_generated", 0),
+            model_path=kwargs.get("model_path"),
+            model_id=kwargs.get("model_id"),
+            train_loss=kwargs.get("train_loss"),
+            val_loss=kwargs.get("val_loss"),
+            win_rate=kwargs.get("win_rate"),
+            elo_delta=kwargs.get("elo_delta"),
+            promoted=kwargs.get("promoted", False),
+            promotion_reason=kwargs.get("promotion_reason"),
+            error=kwargs.get("error"),
+            metadata=kwargs.get("metadata", {}),
+        )
+
+        await self.stage_event_bus.emit(result)
+
+    def _schedule_job(
+        self,
+        job_type: str,
+        priority: "JobPriority",
+        config: Dict[str, Any],
+        requires_gpu: bool = False,
+        host_preference: Optional[str] = None,
+    ) -> bool:
+        """Schedule a job with the priority job scheduler.
+
+        Args:
+            job_type: Type of job (selfplay, training, evaluation, promotion)
+            priority: Job priority level
+            config: Job configuration
+            requires_gpu: Whether job needs GPU
+            host_preference: Preferred host for the job
+
+        Returns:
+            True if job was scheduled successfully
+        """
+        if not HAS_JOB_SCHEDULER or self.job_scheduler is None:
+            return True  # No scheduler, proceed directly
+
+        job = ScheduledJob(
+            job_type=job_type,
+            priority=priority,
+            config=config,
+            requires_gpu=requires_gpu,
+            host_preference=host_preference,
+        )
+        return self.job_scheduler.schedule(job)
+
+    def _get_next_scheduled_job(self) -> Optional[Tuple["ScheduledJob", Any]]:
+        """Get the next job to run from the priority queue.
+
+        Returns:
+            (job, host) tuple if a job is ready, None otherwise
+        """
+        if not HAS_JOB_SCHEDULER or self.job_scheduler is None:
+            return None
+
+        # Build host list from state
+        hosts = []
+        statuses = []
+        for name, host_state in self.state.hosts.items():
+            if host_state.enabled and host_state.consecutive_failures < 3:
+                hosts.append(host_state)
+                statuses.append(host_state)
+
+        return self.job_scheduler.next_job(
+            hosts,
+            statuses,
+            host_get_name=lambda h: h.name if hasattr(h, 'name') else str(h),
+            host_has_gpu=lambda h: getattr(h, 'has_gpu', False),
+            host_get_memory_gb=lambda h: getattr(h, 'memory_gb', 0),
+            status_get_cpu=lambda s: getattr(s, 'cpu_percent', 0.0),
+            status_get_disk=lambda s: getattr(s, 'disk_percent', 0.0),
+            status_get_memory=lambda s: getattr(s, 'memory_percent', 0.0),
+            status_is_reachable=lambda s: getattr(s, 'reachable', True),
+        )
 
     def _update_metrics(self):
         """Update Prometheus metrics from current state."""
