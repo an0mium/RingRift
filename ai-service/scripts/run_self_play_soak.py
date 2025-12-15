@@ -890,11 +890,210 @@ def _build_mixed_ai_pool(
 
         return ai_by_player, ai_metadata
 
+    if engine_mode == "nn-vs-mcts":
+        # Asymmetric: Neural network player vs MCTS player (tournament-style)
+        from app.ai.descent_ai import DescentAI  # type: ignore
+        from app.ai.mcts_ai import MCTSAI  # type: ignore
+
+        default_nn_model_id = _resolve_default_nn_model_id(board_type, len(player_numbers))
+        if default_nn_model_id is None:
+            logger.warning(
+                "nn-vs-mcts mode requested but no NN checkpoint available; "
+                "falling back to heuristic Descent vs MCTS."
+            )
+
+        # Assign NN to first half of players, MCTS to second half
+        nn_seat_count = max(1, len(player_numbers) // 2)
+        for idx, pnum in enumerate(player_numbers):
+            if idx < nn_seat_count:
+                # NN player (Descent with neural network)
+                cfg = AIConfig(
+                    difficulty=10,
+                    think_time=soak_think_time_ms,
+                    randomness=0.05,
+                    rngSeed=(base_seed or 0) + pnum + game_index,
+                    use_neural_net=default_nn_model_id is not None,
+                    nn_model_id=default_nn_model_id,
+                    allow_fresh_weights=False,
+                )
+                ai_by_player[pnum] = DescentAI(pnum, cfg)
+                ai_metadata[f"player_{pnum}_ai_type"] = "descent_nn"
+                ai_metadata[f"player_{pnum}_difficulty"] = 10
+                if default_nn_model_id:
+                    ai_metadata[f"player_{pnum}_nn_model_id"] = default_nn_model_id
+            else:
+                # MCTS player
+                cfg = AIConfig(
+                    difficulty=8,
+                    think_time=soak_think_time_ms,
+                    randomness=0.1,
+                    rngSeed=(base_seed or 0) + pnum + game_index,
+                    use_neural_net=False,
+                )
+                ai_by_player[pnum] = MCTSAI(pnum, cfg)
+                ai_metadata[f"player_{pnum}_ai_type"] = "mcts"
+                ai_metadata[f"player_{pnum}_difficulty"] = 8
+        return ai_by_player, ai_metadata
+
+    if engine_mode == "nn-vs-minimax":
+        # Asymmetric: Neural network player vs Minimax player (tournament-style)
+        from app.ai.descent_ai import DescentAI  # type: ignore
+        from app.ai.minimax_ai import MinimaxAI  # type: ignore
+
+        default_nn_model_id = _resolve_default_nn_model_id(board_type, len(player_numbers))
+        if default_nn_model_id is None:
+            logger.warning(
+                "nn-vs-minimax mode requested but no NN checkpoint available; "
+                "falling back to heuristic Descent vs Minimax."
+            )
+
+        # Assign NN to first half of players, Minimax to second half
+        nn_seat_count = max(1, len(player_numbers) // 2)
+        for idx, pnum in enumerate(player_numbers):
+            if idx < nn_seat_count:
+                # NN player (Descent with neural network)
+                cfg = AIConfig(
+                    difficulty=10,
+                    think_time=soak_think_time_ms,
+                    randomness=0.05,
+                    rngSeed=(base_seed or 0) + pnum + game_index,
+                    use_neural_net=default_nn_model_id is not None,
+                    nn_model_id=default_nn_model_id,
+                    allow_fresh_weights=False,
+                )
+                ai_by_player[pnum] = DescentAI(pnum, cfg)
+                ai_metadata[f"player_{pnum}_ai_type"] = "descent_nn"
+                ai_metadata[f"player_{pnum}_difficulty"] = 10
+                if default_nn_model_id:
+                    ai_metadata[f"player_{pnum}_nn_model_id"] = default_nn_model_id
+            else:
+                # Minimax player
+                cfg = AIConfig(
+                    difficulty=6,
+                    think_time=soak_think_time_ms,
+                    randomness=0.1,
+                    rngSeed=(base_seed or 0) + pnum + game_index,
+                    use_neural_net=False,
+                )
+                ai_by_player[pnum] = MinimaxAI(pnum, cfg)
+                ai_metadata[f"player_{pnum}_ai_type"] = "minimax"
+                ai_metadata[f"player_{pnum}_difficulty"] = 6
+        return ai_by_player, ai_metadata
+
+    if engine_mode == "nn-vs-descent":
+        # Asymmetric: Neural network player vs Descent without NN (tournament-style)
+        from app.ai.descent_ai import DescentAI  # type: ignore
+
+        default_nn_model_id = _resolve_default_nn_model_id(board_type, len(player_numbers))
+        if default_nn_model_id is None:
+            logger.warning(
+                "nn-vs-descent mode requested but no NN checkpoint available; "
+                "falling back to all heuristic Descent."
+            )
+
+        # Assign NN to first half of players, heuristic Descent to second half
+        nn_seat_count = max(1, len(player_numbers) // 2)
+        for idx, pnum in enumerate(player_numbers):
+            if idx < nn_seat_count:
+                # NN player (Descent with neural network)
+                cfg = AIConfig(
+                    difficulty=10,
+                    think_time=soak_think_time_ms,
+                    randomness=0.05,
+                    rngSeed=(base_seed or 0) + pnum + game_index,
+                    use_neural_net=default_nn_model_id is not None,
+                    nn_model_id=default_nn_model_id,
+                    allow_fresh_weights=False,
+                )
+                ai_by_player[pnum] = DescentAI(pnum, cfg)
+                ai_metadata[f"player_{pnum}_ai_type"] = "descent_nn"
+                ai_metadata[f"player_{pnum}_difficulty"] = 10
+                if default_nn_model_id:
+                    ai_metadata[f"player_{pnum}_nn_model_id"] = default_nn_model_id
+            else:
+                # Heuristic Descent player (no neural network)
+                cfg = AIConfig(
+                    difficulty=5,
+                    think_time=soak_think_time_ms,
+                    randomness=0.1,
+                    rngSeed=(base_seed or 0) + pnum + game_index,
+                    use_neural_net=False,
+                )
+                ai_by_player[pnum] = DescentAI(pnum, cfg)
+                ai_metadata[f"player_{pnum}_ai_type"] = "descent_heuristic"
+                ai_metadata[f"player_{pnum}_difficulty"] = 5
+        return ai_by_player, ai_metadata
+
+    if engine_mode == "tournament-varied":
+        # Tournament-style: Each player gets a different AI type (max variety)
+        from app.ai.descent_ai import DescentAI  # type: ignore
+        from app.ai.mcts_ai import MCTSAI  # type: ignore
+        from app.ai.minimax_ai import MinimaxAI  # type: ignore
+
+        default_nn_model_id = _resolve_default_nn_model_id(board_type, len(player_numbers))
+
+        # Rotate through AI types: NN-Descent, MCTS, Minimax, heuristic-Descent
+        ai_type_rotation = ["nn_descent", "mcts", "minimax", "descent_heuristic"]
+
+        for idx, pnum in enumerate(player_numbers):
+            ai_type = ai_type_rotation[idx % len(ai_type_rotation)]
+
+            if ai_type == "nn_descent":
+                cfg = AIConfig(
+                    difficulty=10,
+                    think_time=soak_think_time_ms,
+                    randomness=0.05,
+                    rngSeed=(base_seed or 0) + pnum + game_index,
+                    use_neural_net=default_nn_model_id is not None,
+                    nn_model_id=default_nn_model_id,
+                    allow_fresh_weights=False,
+                )
+                ai_by_player[pnum] = DescentAI(pnum, cfg)
+                ai_metadata[f"player_{pnum}_ai_type"] = "descent_nn"
+                ai_metadata[f"player_{pnum}_difficulty"] = 10
+                if default_nn_model_id:
+                    ai_metadata[f"player_{pnum}_nn_model_id"] = default_nn_model_id
+            elif ai_type == "mcts":
+                cfg = AIConfig(
+                    difficulty=8,
+                    think_time=soak_think_time_ms,
+                    randomness=0.1,
+                    rngSeed=(base_seed or 0) + pnum + game_index,
+                    use_neural_net=False,
+                )
+                ai_by_player[pnum] = MCTSAI(pnum, cfg)
+                ai_metadata[f"player_{pnum}_ai_type"] = "mcts"
+                ai_metadata[f"player_{pnum}_difficulty"] = 8
+            elif ai_type == "minimax":
+                cfg = AIConfig(
+                    difficulty=6,
+                    think_time=soak_think_time_ms,
+                    randomness=0.1,
+                    rngSeed=(base_seed or 0) + pnum + game_index,
+                    use_neural_net=False,
+                )
+                ai_by_player[pnum] = MinimaxAI(pnum, cfg)
+                ai_metadata[f"player_{pnum}_ai_type"] = "minimax"
+                ai_metadata[f"player_{pnum}_difficulty"] = 6
+            else:  # descent_heuristic
+                cfg = AIConfig(
+                    difficulty=5,
+                    think_time=soak_think_time_ms,
+                    randomness=0.1,
+                    rngSeed=(base_seed or 0) + pnum + game_index,
+                    use_neural_net=False,
+                )
+                ai_by_player[pnum] = DescentAI(pnum, cfg)
+                ai_metadata[f"player_{pnum}_ai_type"] = "descent_heuristic"
+                ai_metadata[f"player_{pnum}_difficulty"] = 5
+        return ai_by_player, ai_metadata
+
     # mixed mode
     if engine_mode != "mixed":
         raise SystemExit(
             "engine_mode must be one of: descent-only, mixed, random-only, "
-            "heuristic-only, minimax-only, mcts-only, nn-only, best-vs-pool; "
+            "heuristic-only, minimax-only, mcts-only, nn-only, best-vs-pool, "
+            "nn-vs-mcts, nn-vs-minimax, nn-vs-descent, tournament-varied; "
             f"got {engine_mode!r}"
         )
 

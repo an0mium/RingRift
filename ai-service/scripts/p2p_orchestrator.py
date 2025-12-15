@@ -18400,44 +18400,60 @@ print(json.dumps({{
 
                 # Job configuration diversity - cycle through different AI methods
                 # LEARNED LESSONS - Prioritize varied AI methods for better training:
-                # - nn-only: Neural network evaluation (NNUE + Descent + MCTS)
+                # - nn-only: Neural network evaluation (NNUE + Descent)
                 # - best-vs-pool: Tournament-style asymmetric play (best model vs varied pool)
+                # - nn-vs-mcts: NN player vs MCTS player (asymmetric tournament)
+                # - nn-vs-minimax: NN player vs Minimax player (asymmetric tournament)
+                # - nn-vs-descent: NN player vs heuristic Descent (asymmetric tournament)
+                # - tournament-varied: Each player gets different AI type (max variety)
                 # - mcts-only: Pure Monte Carlo Tree Search
-                # - descent-only: Gradient descent based evaluation
+                # - descent-only: Gradient descent based evaluation (no NN)
                 # - minimax-only: Classic minimax with alpha-beta pruning
-                # - mixed: Heuristic fallback (reduced priority)
+                # NOTE: Heuristic-only modes removed to ensure NN/strong AI in every game
                 selfplay_configs = [
-                    # HIGHEST PRIORITY: Neural network based (best quality training data)
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "nn-only", "priority": 5},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "nn-only", "priority": 5},
+                    # HIGHEST PRIORITY (6): Neural network with diverse model pool
+                    {"board_type": "square8", "num_players": 2, "engine_mode": "nn-only", "priority": 6},
+                    {"board_type": "square8", "num_players": 3, "engine_mode": "nn-only", "priority": 6},
+                    {"board_type": "square8", "num_players": 2, "engine_mode": "best-vs-pool", "priority": 6},
+                    {"board_type": "square8", "num_players": 3, "engine_mode": "best-vs-pool", "priority": 6},
+                    # HIGH PRIORITY (5): Asymmetric tournament modes (NN vs other AI types)
+                    {"board_type": "square8", "num_players": 2, "engine_mode": "nn-vs-mcts", "priority": 5},
+                    {"board_type": "square8", "num_players": 3, "engine_mode": "nn-vs-mcts", "priority": 5},
+                    {"board_type": "square8", "num_players": 4, "engine_mode": "nn-vs-mcts", "priority": 5},
+                    {"board_type": "square8", "num_players": 2, "engine_mode": "nn-vs-minimax", "priority": 5},
+                    {"board_type": "square8", "num_players": 3, "engine_mode": "nn-vs-minimax", "priority": 5},
+                    {"board_type": "square8", "num_players": 2, "engine_mode": "nn-vs-descent", "priority": 5},
+                    {"board_type": "square8", "num_players": 3, "engine_mode": "nn-vs-descent", "priority": 5},
+                    # HIGH PRIORITY (5): Tournament-varied (max diversity, always includes NN)
+                    {"board_type": "square8", "num_players": 2, "engine_mode": "tournament-varied", "priority": 5},
+                    {"board_type": "square8", "num_players": 3, "engine_mode": "tournament-varied", "priority": 5},
+                    {"board_type": "square8", "num_players": 4, "engine_mode": "tournament-varied", "priority": 5},
+                    # HIGH PRIORITY (4): NN-based on larger boards
                     {"board_type": "square8", "num_players": 4, "engine_mode": "nn-only", "priority": 4},
                     {"board_type": "square19", "num_players": 2, "engine_mode": "nn-only", "priority": 4},
+                    {"board_type": "square19", "num_players": 2, "engine_mode": "best-vs-pool", "priority": 4},
+                    {"board_type": "square19", "num_players": 2, "engine_mode": "nn-vs-mcts", "priority": 4},
                     {"board_type": "hexagonal", "num_players": 2, "engine_mode": "nn-only", "priority": 4},
-                    # HIGH PRIORITY: Tournament-style asymmetric play (diverse opponents)
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "best-vs-pool", "priority": 4},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "best-vs-pool", "priority": 4},
-                    {"board_type": "square19", "num_players": 2, "engine_mode": "best-vs-pool", "priority": 3},
-                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "best-vs-pool", "priority": 3},
-                    # HIGH PRIORITY: MCTS for strategic depth (multiplayer)
-                    {"board_type": "hexagonal", "num_players": 4, "engine_mode": "mcts-only", "priority": 4},
-                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "mcts-only", "priority": 4},
-                    {"board_type": "square19", "num_players": 4, "engine_mode": "mcts-only", "priority": 4},
-                    {"board_type": "square19", "num_players": 3, "engine_mode": "mcts-only", "priority": 4},
+                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "best-vs-pool", "priority": 4},
+                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "nn-vs-mcts", "priority": 4},
+                    # MEDIUM PRIORITY (3): MCTS for strategic depth
+                    {"board_type": "hexagonal", "num_players": 4, "engine_mode": "mcts-only", "priority": 3},
+                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "mcts-only", "priority": 3},
+                    {"board_type": "square19", "num_players": 4, "engine_mode": "mcts-only", "priority": 3},
+                    {"board_type": "square19", "num_players": 3, "engine_mode": "mcts-only", "priority": 3},
                     {"board_type": "square8", "num_players": 2, "engine_mode": "mcts-only", "priority": 3},
-                    # MEDIUM PRIORITY: Descent (gradient-based)
+                    # MEDIUM PRIORITY (3): Descent with heuristic (no NN)
                     {"board_type": "square8", "num_players": 2, "engine_mode": "descent-only", "priority": 3},
                     {"board_type": "square8", "num_players": 3, "engine_mode": "descent-only", "priority": 3},
-                    {"board_type": "square19", "num_players": 2, "engine_mode": "descent-only", "priority": 2},
-                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "descent-only", "priority": 2},
-                    # MEDIUM PRIORITY: Minimax (classical approach)
+                    # LOWER PRIORITY (2): Minimax (classical approach)
                     {"board_type": "square8", "num_players": 2, "engine_mode": "minimax-only", "priority": 2},
                     {"board_type": "square8", "num_players": 3, "engine_mode": "minimax-only", "priority": 2},
+                    {"board_type": "square19", "num_players": 2, "engine_mode": "descent-only", "priority": 2},
                     {"board_type": "square19", "num_players": 2, "engine_mode": "minimax-only", "priority": 2},
+                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "descent-only", "priority": 2},
                     {"board_type": "hexagonal", "num_players": 2, "engine_mode": "minimax-only", "priority": 2},
-                    # LOW PRIORITY: Mixed mode (heuristic fallback) - reduced priority
-                    {"board_type": "square8", "num_players": 4, "engine_mode": "mixed", "priority": 1},
-                    {"board_type": "square19", "num_players": 4, "engine_mode": "mixed", "priority": 1},
-                    {"board_type": "hexagonal", "num_players": 4, "engine_mode": "mixed", "priority": 1},
+                    # NO HEURISTIC-ONLY MODES - all modes above include at least one NN player
+                    # or strong AI (MCTS/Descent/Minimax) for quality training data
                 ]
 
                 # LEARNED LESSONS - Weighted selection favoring high priority configs
