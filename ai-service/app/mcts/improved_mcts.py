@@ -188,7 +188,7 @@ class ImprovedMCTS:
         self.root: Optional[MCTSNode] = None
         self.transposition_table = TranspositionTable(self.config.tt_max_size) \
             if self.config.use_transposition_table else None
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     def _compute_puct(
         self,
@@ -537,7 +537,7 @@ class ParallelMCTS:
         self.num_threads = num_threads
         self.root: Optional[MCTSNode] = None
         self.transposition_table = TranspositionTable(self.config.tt_max_size)
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     def search(self, state: GameState, add_noise: bool = True) -> int:
         """Run parallel MCTS search."""

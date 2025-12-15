@@ -199,7 +199,7 @@ WORKER_STATS = WorkerStats()
 
 # Cache for loaded state pools to avoid re-loading on every task
 STATE_POOL_CACHE: Dict[str, List[GameState]] = {}
-STATE_POOL_CACHE_LOCK = threading.Lock()
+STATE_POOL_CACHE_LOCK = threading.RLock()
 
 
 # ---------------------------------------------------------------------------

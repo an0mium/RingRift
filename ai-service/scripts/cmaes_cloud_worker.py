@@ -111,7 +111,7 @@ SHUTDOWN_REQUESTED = threading.Event()
 
 # State pool cache
 STATE_POOL_CACHE: Dict[str, List[GameState]] = {}
-STATE_POOL_CACHE_LOCK = threading.Lock()
+STATE_POOL_CACHE_LOCK = threading.RLock()
 
 
 # ---------------------------------------------------------------------------
