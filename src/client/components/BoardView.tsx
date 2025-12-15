@@ -90,6 +90,13 @@ export interface BoardViewProps {
    */
   onCellContextMenu?: ((position: Position) => void) | undefined;
   /**
+   * Optional long-press handler for touch devices. Triggered after
+   * LONG_PRESS_DELAY_MS (500ms) of continuous touch on a cell.
+   * Used to show cell info tooltips on touch devices.
+   * If not provided, falls back to onCellContextMenu.
+   */
+  onCellLongPress?: ((position: Position) => void) | undefined;
+  /**
    * Optional movement grid overlay toggle. When true, an SVG overlay
    * renders faint movement lines and node dots based on a board-local
    * normalized geometry. This is shared between square and hex boards
@@ -589,6 +596,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
   onCellClick,
   onCellDoubleClick,
   onCellContextMenu,
+  onCellLongPress,
   showMovementGrid = false,
   showCoordinateLabels = false,
   isSpectator = false,
@@ -1855,7 +1863,12 @@ export const BoardView: React.FC<BoardViewProps> = ({
               ts.longPressTimer = setTimeout(() => {
                 if (ts.activeKey === key) {
                   ts.activeKey = null;
-                  onCellContextMenu?.(pos);
+                  // Use dedicated long-press handler if provided, otherwise fall back to context menu
+                  if (onCellLongPress) {
+                    onCellLongPress(pos);
+                  } else {
+                    onCellContextMenu?.(pos);
+                  }
                 }
               }, LONG_PRESS_DELAY_MS);
             }}
@@ -2249,7 +2262,12 @@ export const BoardView: React.FC<BoardViewProps> = ({
               ts.longPressTimer = setTimeout(() => {
                 if (ts.activeKey === key) {
                   ts.activeKey = null;
-                  onCellContextMenu?.(pos);
+                  // Use dedicated long-press handler if provided, otherwise fall back to context menu
+                  if (onCellLongPress) {
+                    onCellLongPress(pos);
+                  } else {
+                    onCellContextMenu?.(pos);
+                  }
                 }
               }, LONG_PRESS_DELAY_MS);
             }}

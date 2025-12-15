@@ -335,6 +335,38 @@ class CurriculumConfig:
 
 
 @dataclass
+class PBTConfig:
+    """Configuration for Population-Based Training."""
+    enabled: bool = False  # Disabled by default - resource intensive
+    population_size: int = 8
+    exploit_interval_steps: int = 1000
+    tunable_params: List[str] = field(default_factory=lambda: ["learning_rate", "batch_size", "temperature"])
+    check_interval_seconds: int = 1800  # Check PBT status every 30 min
+    auto_start: bool = False  # Auto-start PBT when training completes
+
+
+@dataclass
+class NASConfig:
+    """Configuration for Neural Architecture Search."""
+    enabled: bool = False  # Disabled by default - very resource intensive
+    strategy: str = "evolutionary"  # evolutionary, random, bayesian
+    population_size: int = 20
+    generations: int = 50
+    check_interval_seconds: int = 3600  # Check NAS status every hour
+    auto_start_on_plateau: bool = False  # Start NAS when Elo plateaus
+
+
+@dataclass
+class PERConfig:
+    """Configuration for Prioritized Experience Replay."""
+    enabled: bool = True  # Enabled by default - improves training efficiency
+    alpha: float = 0.6  # Priority exponent
+    beta: float = 0.4  # Importance sampling exponent
+    buffer_capacity: int = 100000
+    rebuild_interval_seconds: int = 7200  # Rebuild buffer every 2 hours
+
+
+@dataclass
 class UnifiedLoopConfig:
     """Complete configuration for the unified AI loop."""
     data_ingestion: DataIngestionConfig = field(default_factory=DataIngestionConfig)
@@ -342,6 +374,9 @@ class UnifiedLoopConfig:
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     promotion: PromotionConfig = field(default_factory=PromotionConfig)
     curriculum: CurriculumConfig = field(default_factory=CurriculumConfig)
+    pbt: PBTConfig = field(default_factory=PBTConfig)
+    nas: NASConfig = field(default_factory=NASConfig)
+    per: PERConfig = field(default_factory=PERConfig)
 
     # Host configuration
     hosts_config_path: str = "config/remote_hosts.yaml"
@@ -397,6 +432,21 @@ class UnifiedLoopConfig:
                 if hasattr(config.curriculum, k):
                     setattr(config.curriculum, k, v)
 
+        if "pbt" in data:
+            for k, v in data["pbt"].items():
+                if hasattr(config.pbt, k):
+                    setattr(config.pbt, k, v)
+
+        if "nas" in data:
+            for k, v in data["nas"].items():
+                if hasattr(config.nas, k):
+                    setattr(config.nas, k, v)
+
+        if "per" in data:
+            for k, v in data["per"].items():
+                if hasattr(config.per, k):
+                    setattr(config.per, k, v)
+
         for key in ["hosts_config_path", "elo_db", "data_manifest_db", "log_dir",
                     "verbose", "metrics_port", "metrics_enabled", "dry_run"]:
             if key in data:
@@ -420,6 +470,18 @@ class DataEventType(Enum):
     PROMOTION_CANDIDATE = "promotion_candidate"
     MODEL_PROMOTED = "model_promoted"
     CURRICULUM_REBALANCED = "curriculum_rebalanced"
+    # PBT events
+    PBT_STARTED = "pbt_started"
+    PBT_GENERATION_COMPLETE = "pbt_generation_complete"
+    PBT_COMPLETED = "pbt_completed"
+    # NAS events
+    NAS_STARTED = "nas_started"
+    NAS_GENERATION_COMPLETE = "nas_generation_complete"
+    NAS_COMPLETED = "nas_completed"
+    NAS_BEST_ARCHITECTURE = "nas_best_architecture"
+    # PER events
+    PER_BUFFER_REBUILT = "per_buffer_rebuilt"
+    PER_PRIORITIES_UPDATED = "per_priorities_updated"
 
 
 @dataclass
@@ -533,6 +595,25 @@ class UnifiedLoopState:
     curriculum_weights: Dict[str, float] = field(default_factory=dict)
     last_curriculum_rebalance: float = 0.0
 
+    # PBT state
+    pbt_in_progress: bool = False
+    pbt_run_id: str = ""
+    pbt_started_at: float = 0.0
+    pbt_generation: int = 0
+    pbt_best_performance: float = 0.0
+
+    # NAS state
+    nas_in_progress: bool = False
+    nas_run_id: str = ""
+    nas_started_at: float = 0.0
+    nas_generation: int = 0
+    nas_best_architecture: Optional[Dict[str, Any]] = None
+
+    # PER state
+    per_buffer_path: str = ""
+    per_last_rebuild: float = 0.0
+    per_buffer_size: int = 0
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert state to dictionary for serialization."""
         return {
@@ -553,6 +634,22 @@ class UnifiedLoopState:
             "last_error_time": self.last_error_time,
             "curriculum_weights": self.curriculum_weights,
             "last_curriculum_rebalance": self.last_curriculum_rebalance,
+            # PBT state
+            "pbt_in_progress": self.pbt_in_progress,
+            "pbt_run_id": self.pbt_run_id,
+            "pbt_started_at": self.pbt_started_at,
+            "pbt_generation": self.pbt_generation,
+            "pbt_best_performance": self.pbt_best_performance,
+            # NAS state
+            "nas_in_progress": self.nas_in_progress,
+            "nas_run_id": self.nas_run_id,
+            "nas_started_at": self.nas_started_at,
+            "nas_generation": self.nas_generation,
+            "nas_best_architecture": self.nas_best_architecture,
+            # PER state
+            "per_buffer_path": self.per_buffer_path,
+            "per_last_rebuild": self.per_last_rebuild,
+            "per_buffer_size": self.per_buffer_size,
         }
 
     @classmethod
@@ -563,7 +660,15 @@ class UnifiedLoopState:
                     "total_evaluations", "total_promotions", "training_in_progress",
                     "training_config", "training_started_at", "total_games_pending",
                     "consecutive_failures", "last_error", "last_error_time",
-                    "last_curriculum_rebalance"]:
+                    "last_curriculum_rebalance",
+                    # PBT state
+                    "pbt_in_progress", "pbt_run_id", "pbt_started_at",
+                    "pbt_generation", "pbt_best_performance",
+                    # NAS state
+                    "nas_in_progress", "nas_run_id", "nas_started_at",
+                    "nas_generation", "nas_best_architecture",
+                    # PER state
+                    "per_buffer_path", "per_last_rebuild", "per_buffer_size"]:
             if key in data:
                 setattr(state, key, data[key])
 
@@ -1196,6 +1301,316 @@ class AdaptiveCurriculum:
 
 
 # =============================================================================
+# PBT Integration Component
+# =============================================================================
+
+class PBTIntegration:
+    """Integrates Population-Based Training into the unified loop."""
+
+    def __init__(self, config: PBTConfig, state: UnifiedLoopState, event_bus: EventBus):
+        self.config = config
+        self.state = state
+        self.event_bus = event_bus
+        self._pbt_process: Optional[asyncio.subprocess.Process] = None
+
+    async def start_pbt_run(self, board_type: str = "square8", num_players: int = 2) -> bool:
+        """Start a new PBT run."""
+        if not self.config.enabled:
+            return False
+
+        if self.state.pbt_in_progress:
+            print("[PBT] Already running")
+            return False
+
+        try:
+            run_id = f"pbt_{int(time.time())}"
+            self.state.pbt_in_progress = True
+            self.state.pbt_run_id = run_id
+            self.state.pbt_started_at = time.time()
+            self.state.pbt_generation = 0
+
+            cmd = [
+                sys.executable,
+                str(AI_SERVICE_ROOT / "scripts" / "population_based_training.py"),
+                "--population-size", str(self.config.population_size),
+                "--board", board_type,
+                "--players", str(num_players),
+                "--tune", ",".join(self.config.tunable_params),
+                "--exploit-interval", str(self.config.exploit_interval_steps),
+                "--output-dir", str(AI_SERVICE_ROOT / "logs" / "pbt" / run_id),
+            ]
+
+            print(f"[PBT] Starting run {run_id}")
+            self._pbt_process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=AI_SERVICE_ROOT,
+            )
+
+            await self.event_bus.publish(DataEvent(
+                event_type=DataEventType.PBT_STARTED,
+                payload={"run_id": run_id, "board_type": board_type}
+            ))
+
+            return True
+
+        except Exception as e:
+            print(f"[PBT] Error starting run: {e}")
+            self.state.pbt_in_progress = False
+            return False
+
+    async def check_pbt_status(self) -> Optional[Dict[str, Any]]:
+        """Check status of running PBT."""
+        if not self.state.pbt_in_progress or not self._pbt_process:
+            return None
+
+        # Check if process finished
+        if self._pbt_process.returncode is not None:
+            stdout, stderr = await self._pbt_process.communicate()
+
+            # Load results from state file
+            state_file = AI_SERVICE_ROOT / "logs" / "pbt" / self.state.pbt_run_id / "pbt_state.json"
+            result = {"run_id": self.state.pbt_run_id, "success": self._pbt_process.returncode == 0}
+
+            if state_file.exists():
+                try:
+                    with open(state_file) as f:
+                        pbt_state = json.load(f)
+                    result["best_performance"] = pbt_state.get("best_performance", 0)
+                    result["best_hyperparams"] = pbt_state.get("best_hyperparams", {})
+                    self.state.pbt_best_performance = result["best_performance"]
+                except Exception as e:
+                    print(f"[PBT] Error reading state: {e}")
+
+            self.state.pbt_in_progress = False
+            self._pbt_process = None
+
+            await self.event_bus.publish(DataEvent(
+                event_type=DataEventType.PBT_COMPLETED,
+                payload=result
+            ))
+
+            return result
+
+        # Check for progress updates
+        state_file = AI_SERVICE_ROOT / "logs" / "pbt" / self.state.pbt_run_id / "pbt_state.json"
+        if state_file.exists():
+            try:
+                with open(state_file) as f:
+                    pbt_state = json.load(f)
+                new_gen = pbt_state.get("total_steps", 0) // self.config.exploit_interval_steps
+                if new_gen > self.state.pbt_generation:
+                    self.state.pbt_generation = new_gen
+                    self.state.pbt_best_performance = pbt_state.get("best_performance", 0)
+            except Exception:
+                pass
+
+        return None
+
+
+# =============================================================================
+# NAS Integration Component
+# =============================================================================
+
+class NASIntegration:
+    """Integrates Neural Architecture Search into the unified loop."""
+
+    def __init__(self, config: NASConfig, state: UnifiedLoopState, event_bus: EventBus):
+        self.config = config
+        self.state = state
+        self.event_bus = event_bus
+        self._nas_process: Optional[asyncio.subprocess.Process] = None
+
+    async def start_nas_run(self, board_type: str = "square8", num_players: int = 2) -> bool:
+        """Start a new NAS run."""
+        if not self.config.enabled:
+            return False
+
+        if self.state.nas_in_progress:
+            print("[NAS] Already running")
+            return False
+
+        try:
+            run_id = f"nas_{self.config.strategy}_{int(time.time())}"
+            self.state.nas_in_progress = True
+            self.state.nas_run_id = run_id
+            self.state.nas_started_at = time.time()
+            self.state.nas_generation = 0
+
+            cmd = [
+                sys.executable,
+                str(AI_SERVICE_ROOT / "scripts" / "neural_architecture_search.py"),
+                "--strategy", self.config.strategy,
+                "--population", str(self.config.population_size),
+                "--generations", str(self.config.generations),
+                "--board", board_type,
+                "--players", str(num_players),
+                "--output-dir", str(AI_SERVICE_ROOT / "logs" / "nas" / run_id),
+            ]
+
+            print(f"[NAS] Starting run {run_id} ({self.config.strategy})")
+            self._nas_process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=AI_SERVICE_ROOT,
+            )
+
+            await self.event_bus.publish(DataEvent(
+                event_type=DataEventType.NAS_STARTED,
+                payload={"run_id": run_id, "strategy": self.config.strategy}
+            ))
+
+            return True
+
+        except Exception as e:
+            print(f"[NAS] Error starting run: {e}")
+            self.state.nas_in_progress = False
+            return False
+
+    async def check_nas_status(self) -> Optional[Dict[str, Any]]:
+        """Check status of running NAS."""
+        if not self.state.nas_in_progress or not self._nas_process:
+            return None
+
+        # Check if process finished
+        if self._nas_process.returncode is not None:
+            stdout, stderr = await self._nas_process.communicate()
+
+            # Load results
+            state_file = AI_SERVICE_ROOT / "logs" / "nas" / self.state.nas_run_id / "nas_state.json"
+            result = {"run_id": self.state.nas_run_id, "success": self._nas_process.returncode == 0}
+
+            if state_file.exists():
+                try:
+                    with open(state_file) as f:
+                        nas_state = json.load(f)
+                    result["best_performance"] = nas_state.get("best_performance", 0)
+                    result["best_architecture"] = nas_state.get("best_architecture", {})
+                    self.state.nas_best_architecture = result["best_architecture"]
+
+                    # Publish best architecture event
+                    await self.event_bus.publish(DataEvent(
+                        event_type=DataEventType.NAS_BEST_ARCHITECTURE,
+                        payload={"architecture": result["best_architecture"]}
+                    ))
+                except Exception as e:
+                    print(f"[NAS] Error reading state: {e}")
+
+            self.state.nas_in_progress = False
+            self._nas_process = None
+
+            await self.event_bus.publish(DataEvent(
+                event_type=DataEventType.NAS_COMPLETED,
+                payload=result
+            ))
+
+            return result
+
+        # Check for progress updates
+        state_file = AI_SERVICE_ROOT / "logs" / "nas" / self.state.nas_run_id / "nas_state.json"
+        if state_file.exists():
+            try:
+                with open(state_file) as f:
+                    nas_state = json.load(f)
+                new_gen = nas_state.get("generation", 0)
+                if new_gen > self.state.nas_generation:
+                    self.state.nas_generation = new_gen
+                    print(f"[NAS] Generation {new_gen}, best={nas_state.get('best_performance', 0):.4f}")
+            except Exception:
+                pass
+
+        return None
+
+
+# =============================================================================
+# PER Integration Component
+# =============================================================================
+
+class PERIntegration:
+    """Integrates Prioritized Experience Replay into the unified loop."""
+
+    def __init__(self, config: PERConfig, state: UnifiedLoopState, event_bus: EventBus):
+        self.config = config
+        self.state = state
+        self.event_bus = event_bus
+
+    async def rebuild_buffer(self, db_path: Optional[Path] = None) -> bool:
+        """Rebuild the prioritized replay buffer from game database."""
+        if not self.config.enabled:
+            return False
+
+        try:
+            if db_path is None:
+                # Find largest game database
+                games_dir = AI_SERVICE_ROOT / "data" / "games"
+                game_dbs = list(games_dir.glob("*.db"))
+                if not game_dbs:
+                    print("[PER] No game databases found")
+                    return False
+                db_path = max(game_dbs, key=lambda p: p.stat().st_size)
+
+            buffer_path = AI_SERVICE_ROOT / "data" / "replay_buffer.pkl"
+
+            cmd = [
+                sys.executable,
+                str(AI_SERVICE_ROOT / "scripts" / "prioritized_replay.py"),
+                "--build",
+                "--db", str(db_path),
+                "--output", str(buffer_path),
+                "--capacity", str(self.config.buffer_capacity),
+                "--alpha", str(self.config.alpha),
+                "--beta", str(self.config.beta),
+            ]
+
+            print(f"[PER] Rebuilding buffer from {db_path.name}")
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=AI_SERVICE_ROOT,
+            )
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=600)
+
+            if process.returncode == 0:
+                self.state.per_buffer_path = str(buffer_path)
+                self.state.per_last_rebuild = time.time()
+
+                # Get buffer size
+                if buffer_path.exists():
+                    import pickle
+                    with open(buffer_path, "rb") as f:
+                        data = pickle.load(f)
+                    self.state.per_buffer_size = data.get("tree", {}).n_entries if hasattr(data.get("tree", {}), "n_entries") else 0
+
+                await self.event_bus.publish(DataEvent(
+                    event_type=DataEventType.PER_BUFFER_REBUILT,
+                    payload={
+                        "buffer_path": str(buffer_path),
+                        "buffer_size": self.state.per_buffer_size,
+                    }
+                ))
+
+                print(f"[PER] Buffer rebuilt: {self.state.per_buffer_size} experiences")
+                return True
+            else:
+                print(f"[PER] Buffer rebuild failed: {stderr.decode()[:200]}")
+                return False
+
+        except Exception as e:
+            print(f"[PER] Error rebuilding buffer: {e}")
+            return False
+
+    def should_rebuild(self) -> bool:
+        """Check if buffer should be rebuilt."""
+        if not self.config.enabled:
+            return False
+        now = time.time()
+        return now - self.state.per_last_rebuild >= self.config.rebuild_interval_seconds
+
+
+# =============================================================================
 # Main Unified Loop
 # =============================================================================
 
@@ -1222,6 +1637,17 @@ class UnifiedAILoop:
         )
         self.adaptive_curriculum = AdaptiveCurriculum(
             config.curriculum, self.state, self.event_bus
+        )
+
+        # Advanced training components
+        self.pbt_integration = PBTIntegration(
+            config.pbt, self.state, self.event_bus
+        )
+        self.nas_integration = NASIntegration(
+            config.nas, self.state, self.event_bus
+        )
+        self.per_integration = PERIntegration(
+            config.per, self.state, self.event_bus
         )
 
         # State management
@@ -1768,6 +2194,105 @@ class UnifiedAILoop:
             except asyncio.TimeoutError:
                 pass
 
+    async def _pbt_loop(self):
+        """PBT management loop."""
+        if not self.config.pbt.enabled:
+            print("[PBT] Disabled in config")
+            return
+
+        while self._running:
+            try:
+                # Check PBT status if running
+                if self.state.pbt_in_progress:
+                    result = await self.pbt_integration.check_pbt_status()
+                    if result:
+                        print(f"[PBT] Completed: best_perf={result.get('best_performance', 0):.4f}")
+
+                # Auto-start PBT after training completes (if enabled)
+                elif self.config.pbt.auto_start and not self.state.training_in_progress:
+                    # Check if training just completed
+                    recent_events = self.event_bus.get_recent_events(DataEventType.TRAINING_COMPLETED, limit=1)
+                    if recent_events and time.time() - recent_events[-1].timestamp < 300:
+                        config_key = recent_events[-1].payload.get("config", "square8_2p")
+                        parts = config_key.rsplit("_", 1)
+                        board_type = parts[0]
+                        num_players = int(parts[1].replace("p", ""))
+                        await self.pbt_integration.start_pbt_run(board_type, num_players)
+
+            except Exception as e:
+                print(f"[PBT] Error: {e}")
+
+            try:
+                await asyncio.wait_for(
+                    self._shutdown_event.wait(),
+                    timeout=self.config.pbt.check_interval_seconds
+                )
+                break
+            except asyncio.TimeoutError:
+                pass
+
+    async def _nas_loop(self):
+        """NAS management loop."""
+        if not self.config.nas.enabled:
+            print("[NAS] Disabled in config")
+            return
+
+        while self._running:
+            try:
+                # Check NAS status if running
+                if self.state.nas_in_progress:
+                    result = await self.nas_integration.check_nas_status()
+                    if result:
+                        print(f"[NAS] Completed: best_perf={result.get('best_performance', 0):.4f}")
+
+                # Auto-start NAS on Elo plateau (if enabled)
+                elif self.config.nas.auto_start_on_plateau:
+                    # Check for Elo plateau (no improvement in last 12 hours)
+                    plateau_detected = False
+                    for config_state in self.state.configs.values():
+                        if config_state.elo_trend <= 0 and config_state.current_elo > 1500:
+                            plateau_detected = True
+                            break
+
+                    if plateau_detected and not self.state.nas_in_progress:
+                        await self.nas_integration.start_nas_run()
+
+            except Exception as e:
+                print(f"[NAS] Error: {e}")
+
+            try:
+                await asyncio.wait_for(
+                    self._shutdown_event.wait(),
+                    timeout=self.config.nas.check_interval_seconds
+                )
+                break
+            except asyncio.TimeoutError:
+                pass
+
+    async def _per_loop(self):
+        """PER buffer management loop."""
+        if not self.config.per.enabled:
+            print("[PER] Disabled in config")
+            return
+
+        while self._running:
+            try:
+                # Rebuild buffer periodically
+                if self.per_integration.should_rebuild():
+                    await self.per_integration.rebuild_buffer()
+
+            except Exception as e:
+                print(f"[PER] Error: {e}")
+
+            try:
+                await asyncio.wait_for(
+                    self._shutdown_event.wait(),
+                    timeout=600  # Check every 10 minutes
+                )
+                break
+            except asyncio.TimeoutError:
+                pass
+
     async def run(self):
         """Main entry point - runs all loops concurrently."""
         self._running = True
@@ -1794,7 +2319,7 @@ class UnifiedAILoop:
             print("[UnifiedLoop] Dry run complete - exiting")
             return
 
-        # Start all loops including metrics and external drive sync
+        # Start all loops including metrics, external drive sync, and advanced training
         await asyncio.gather(
             self._data_collection_loop(),
             self._evaluation_loop(),
@@ -1804,6 +2329,9 @@ class UnifiedAILoop:
             self._metrics_loop(),
             self._hp_tuning_sync_loop(),
             self._external_drive_sync_loop(),
+            self._pbt_loop(),
+            self._nas_loop(),
+            self._per_loop(),
         )
 
         print("[UnifiedLoop] Shutdown complete")

@@ -178,7 +178,7 @@ export const SandboxTouchControlsPanel: React.FC<SandboxTouchControlsPanelProps>
             <button
               type="button"
               onClick={onSkipTerritoryProcessing}
-              className="px-3 py-1.5 rounded-lg border border-amber-400 text-[11px] font-semibold text-amber-100 bg-amber-900/40 hover:border-amber-200 hover:bg-amber-800/70 transition"
+              className="px-4 py-2.5 min-h-[44px] rounded-lg border border-amber-400 text-[11px] font-semibold text-amber-100 bg-amber-900/40 hover:border-amber-200 hover:bg-amber-800/70 active:scale-[0.98] transition touch-manipulation"
               data-testid="sandbox-skip-territory-button"
             >
               Skip territory processing
@@ -194,7 +194,7 @@ export const SandboxTouchControlsPanel: React.FC<SandboxTouchControlsPanelProps>
             <button
               type="button"
               onClick={onSkipCapture}
-              className="px-3 py-1.5 rounded-lg border border-amber-400 text-[11px] font-semibold text-amber-100 bg-amber-900/40 hover:border-amber-200 hover:bg-amber-800/70 transition"
+              className="px-4 py-2.5 min-h-[44px] rounded-lg border border-amber-400 text-[11px] font-semibold text-amber-100 bg-amber-900/40 hover:border-amber-200 hover:bg-amber-800/70 active:scale-[0.98] transition touch-manipulation"
               data-testid="sandbox-skip-capture-button"
             >
               Skip capture
@@ -211,7 +211,7 @@ export const SandboxTouchControlsPanel: React.FC<SandboxTouchControlsPanelProps>
             <button
               type="button"
               onClick={onSkipRecovery}
-              className="px-3 py-1.5 rounded-lg border border-amber-400 text-[11px] font-semibold text-amber-100 bg-amber-900/40 hover:border-amber-200 hover:bg-amber-800/70 transition"
+              className="px-4 py-2.5 min-h-[44px] rounded-lg border border-amber-400 text-[11px] font-semibold text-amber-100 bg-amber-900/40 hover:border-amber-200 hover:bg-amber-800/70 active:scale-[0.98] transition touch-manipulation"
               data-testid="sandbox-skip-recovery-button"
             >
               Skip recovery
@@ -228,7 +228,7 @@ export const SandboxTouchControlsPanel: React.FC<SandboxTouchControlsPanelProps>
           type="button"
           onClick={onClearSelection}
           disabled={!hasSelection || isCaptureDirectionPending}
-          className={`px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition ${
+          className={`px-4 py-2.5 min-h-[44px] rounded-lg border text-[11px] font-semibold active:scale-[0.98] transition touch-manipulation ${
             !hasSelection || isCaptureDirectionPending
               ? 'border-slate-700 text-slate-500 cursor-not-allowed opacity-60'
               : 'border-slate-500 text-slate-100 hover:border-emerald-400 hover:text-emerald-200'
@@ -241,7 +241,7 @@ export const SandboxTouchControlsPanel: React.FC<SandboxTouchControlsPanelProps>
           type="button"
           onClick={onUndoSegment}
           disabled={!canUndoSegment}
-          className={`px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition ${
+          className={`px-4 py-2.5 min-h-[44px] rounded-lg border text-[11px] font-semibold active:scale-[0.98] transition touch-manipulation ${
             !canUndoSegment
               ? 'border-slate-700 text-slate-500 cursor-not-allowed opacity-60'
               : 'border-amber-400 text-amber-100 hover:border-amber-200 hover:text-amber-50'
@@ -254,7 +254,7 @@ export const SandboxTouchControlsPanel: React.FC<SandboxTouchControlsPanelProps>
           type="button"
           onClick={onApplyMove}
           disabled={!showApplyButton}
-          className={`px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition ${
+          className={`px-4 py-2.5 min-h-[44px] rounded-lg border text-[11px] font-semibold active:scale-[0.98] transition touch-manipulation ${
             !showApplyButton
               ? 'border-slate-700 text-slate-500 cursor-not-allowed opacity-60'
               : 'border-emerald-500 text-emerald-100 bg-emerald-900/40 hover:border-emerald-300 hover:bg-emerald-800/70'

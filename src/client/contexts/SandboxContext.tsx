@@ -9,6 +9,31 @@ import { isSandboxAiStallDiagnosticsEnabled } from '../../shared/utils/envFlags'
 
 export type LocalPlayerType = 'human' | 'ai';
 
+/**
+ * Sandbox experience mode:
+ * - 'beginner': Hides debug panels, emphasizes teaching features for new players
+ * - 'debug': Shows all developer tools, evaluation panels, and AI diagnostics
+ */
+export type SandboxMode = 'beginner' | 'debug';
+
+/** localStorage key for persisting sandbox mode preference */
+const SANDBOX_MODE_STORAGE_KEY = 'ringrift_sandbox_mode';
+
+/**
+ * Get the initial sandbox mode from localStorage, defaulting to 'beginner' for new users.
+ */
+function getInitialSandboxMode(): SandboxMode {
+  if (typeof window === 'undefined') return 'beginner';
+  try {
+    const stored = localStorage.getItem(SANDBOX_MODE_STORAGE_KEY);
+    if (stored === 'debug') return 'debug';
+    // Default to 'beginner' for new users or if not set
+    return 'beginner';
+  } catch {
+    return 'beginner';
+  }
+}
+
 /** Default AI difficulty level for sandbox (D4 = Intermediate) */
 export const DEFAULT_AI_DIFFICULTY = 4;
 
@@ -43,6 +68,16 @@ interface SandboxContextValue {
   sandboxDiagnosticsEnabled: boolean;
   developerToolsEnabled: boolean;
   setDeveloperToolsEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+  /**
+   * Current sandbox experience mode ('beginner' or 'debug').
+   * - 'beginner': Hides debug panels, emphasizes teaching features
+   * - 'debug': Shows all developer tools and diagnostics
+   */
+  sandboxMode: SandboxMode;
+  /** Updates sandbox mode and persists to localStorage */
+  setSandboxMode: (mode: SandboxMode) => void;
+  /** Convenience check: true if sandboxMode === 'beginner' */
+  isBeginnerMode: boolean;
   /**
    * Create or replace the client-local sandbox engine using the provided
    * config + interaction handler. This owns the lifecycle of the engine
@@ -92,6 +127,23 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
   const [sandboxStateVersion, setSandboxStateVersion] = useState(0);
   const [developerToolsEnabled, setDeveloperToolsEnabled] = useState(true);
   const sandboxDiagnosticsEnabled = isSandboxAiStallDiagnosticsEnabled();
+
+  // Sandbox mode state with localStorage persistence
+  const [sandboxMode, setSandboxModeState] = useState<SandboxMode>(getInitialSandboxMode);
+
+  // Persist sandbox mode changes to localStorage
+  const setSandboxMode = (mode: SandboxMode): void => {
+    setSandboxModeState(mode);
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(SANDBOX_MODE_STORAGE_KEY, mode);
+    } catch {
+      // Storage might be disabled; ignore.
+    }
+  };
+
+  // Convenience derived value
+  const isBeginnerMode = sandboxMode === 'beginner';
 
   const initLocalSandboxEngine = (options: {
     boardType: BoardType;
@@ -294,6 +346,9 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
     sandboxDiagnosticsEnabled,
     developerToolsEnabled,
     setDeveloperToolsEnabled,
+    sandboxMode,
+    setSandboxMode,
+    isBeginnerMode,
     initLocalSandboxEngine,
     getSandboxGameState,
     resetSandboxEngine,

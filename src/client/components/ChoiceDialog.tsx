@@ -170,7 +170,7 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
             onSelectOption(c, 'option_1_collapse_all_and_eliminate');
           }}
           onFocus={() => handleOptionFocus(0)}
-          className="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-left disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900"
+          className="px-4 py-3 min-h-[44px] rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-left disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900 active:scale-[0.98] transition touch-manipulation"
           role="option"
           aria-selected={focusedOptionIndex === 0}
         >
@@ -190,7 +190,7 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
             onSelectOption(c, 'option_2_min_collapse_no_elimination');
           }}
           onFocus={() => handleOptionFocus(1)}
-          className="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-left disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900"
+          className="px-4 py-3 min-h-[44px] rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-left disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900 active:scale-[0.98] transition touch-manipulation"
           role="option"
           aria-selected={focusedOptionIndex === 1}
         >
@@ -249,7 +249,7 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
     <div className="space-y-2">
       <p className="text-sm text-gray-200 mb-1">{c.prompt}</p>
       <div
-        className="space-y-1 max-h-48 overflow-auto text-xs"
+        className="space-y-2 max-h-48 overflow-auto text-xs"
         role="listbox"
         aria-label="Region options"
       >
@@ -265,7 +265,7 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
               onSelectOption(c, opt);
             }}
             onFocus={() => handleOptionFocus(index)}
-            className="w-full text-left px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900"
+            className="w-full text-left px-3 py-2.5 min-h-[44px] rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900 active:scale-[0.98] transition touch-manipulation"
             role="option"
             aria-selected={index === focusedOptionIndex}
           >
@@ -291,7 +291,7 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
     <div className="space-y-2">
       <p className="text-sm text-gray-200 mb-1">{c.prompt}</p>
       <div
-        className="space-y-1 max-h-48 overflow-auto text-xs"
+        className="space-y-2 max-h-48 overflow-auto text-xs"
         role="listbox"
         aria-label="Capture direction options"
       >
@@ -307,7 +307,7 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
               onSelectOption(c, opt);
             }}
             onFocus={() => handleOptionFocus(index)}
-            className="w-full text-left px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900"
+            className="w-full text-left px-3 py-2.5 min-h-[44px] rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900 active:scale-[0.98] transition touch-manipulation"
             role="option"
             aria-selected={index === focusedOptionIndex}
           >
@@ -353,7 +353,7 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
           <p className="text-sm text-gray-200 mb-1">{genericChoice.prompt}</p>
           {options.length > 0 ? (
             <div
-              className="space-y-1 max-h-48 overflow-auto text-xs"
+              className="space-y-2 max-h-48 overflow-auto text-xs"
               role="listbox"
               aria-label="Choice options"
             >
@@ -370,7 +370,7 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
                     onSelectOption(genericChoice, opt as any);
                   }}
                   onFocus={() => handleOptionFocus(index)}
-                  className="w-full text-left px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900"
+                  className="w-full text-left px-3 py-2.5 min-h-[44px] rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900 active:scale-[0.98] transition touch-manipulation"
                   role="option"
                   aria-selected={index === focusedOptionIndex}
                 >
@@ -468,7 +468,7 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
                   if (isSubmitting) return;
                   onCancel();
                 }}
-                className="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-gray-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                className="px-4 py-2.5 min-h-[44px] rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-gray-200 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98] transition touch-manipulation"
               >
                 Cancel
               </button>

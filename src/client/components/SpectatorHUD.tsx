@@ -448,6 +448,20 @@ export function SpectatorHUD({
         </div>
       </div>
 
+      {/* Victory Conditions Panel - Educational for spectators */}
+      {showVictoryConditions && <VictoryConditionsPanel className="mt-3" />}
+
+      {/* Teaching Topics - Quick access for spectators to learn game mechanics */}
+      <div
+        className="border border-slate-700 rounded-lg bg-slate-900/70 p-3"
+        role="region"
+        aria-label="Learn game mechanics"
+        data-testid="spectator-teaching-topics"
+      >
+        <h3 className="text-xs font-semibold text-slate-400 mb-2">Learn Game Mechanics</h3>
+        <TeachingTopicButtons onSelectTopic={handleTeachingTopic} />
+      </div>
+
       {/* Analysis Toggle */}
       <button
         type="button"
@@ -521,6 +535,16 @@ export function SpectatorHUD({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Teaching Overlay for game mechanics education */}
+      {teaching.currentTopic && (
+        <TeachingOverlay
+          topic={teaching.currentTopic}
+          isOpen={teaching.isOpen}
+          onClose={teaching.hideTopic}
+          position="center"
+        />
       )}
     </div>
   );

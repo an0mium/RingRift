@@ -738,23 +738,38 @@ class EloDatabase:
         """Get leaderboard, optionally filtered by configuration."""
         conn = self._get_connection()
 
-        query = """
-            SELECT e.*, p.participant_type, p.ai_type, p.difficulty,
-                   p.use_neural_net, p.model_path, p.model_version
-            FROM elo_ratings e
-            LEFT JOIN participants p ON e.participant_id = p.participant_id
-            WHERE e.games_played >= ?
-        """
+        # Check if participants table exists and get the id column name
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='participants'")
+        has_participants = cursor.fetchone() is not None
+        id_col = self.id_column  # model_id or participant_id
+
+        if has_participants and not self._uses_model_id_schema:
+            # Full schema with participants table
+            query = f"""
+                SELECT e.*, p.participant_type, p.ai_type, p.difficulty,
+                       p.use_neural_net, p.model_path, p.model_version
+                FROM elo_ratings e
+                LEFT JOIN participants p ON e.{id_col} = p.participant_id
+                WHERE e.games_played >= ?
+            """
+        else:
+            # Simple schema (elo_leaderboard.db) - no participants table
+            query = f"""
+                SELECT {id_col} as participant_id, board_type, num_players,
+                       rating, games_played, wins, losses, draws, last_update
+                FROM elo_ratings
+                WHERE games_played >= ?
+            """
         params: List[Any] = [min_games]
 
         if board_type:
-            query += " AND e.board_type = ?"
+            query += " AND board_type = ?"
             params.append(board_type)
         if num_players:
-            query += " AND e.num_players = ?"
+            query += " AND num_players = ?"
             params.append(num_players)
 
-        query += " ORDER BY e.rating DESC LIMIT ?"
+        query += " ORDER BY rating DESC LIMIT ?"
         params.append(limit)
 
         rows = conn.execute(query, params).fetchall()

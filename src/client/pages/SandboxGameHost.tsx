@@ -372,6 +372,9 @@ export const SandboxGameHost: React.FC = () => {
     setSandboxStateVersion,
     developerToolsEnabled,
     setDeveloperToolsEnabled,
+    sandboxMode,
+    setSandboxMode,
+    isBeginnerMode,
     initLocalSandboxEngine,
     resetSandboxEngine,
   } = useSandbox();
@@ -2057,15 +2060,38 @@ export const SandboxGameHost: React.FC = () => {
                 <code className="ml-1 text-xs text-slate-300">/game/:gameId</code>).
               </p>
             </div>
-            <label className="inline-flex items-center gap-2 text-xs text-slate-400 select-none">
-              <input
-                type="checkbox"
-                className="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
-                checked={developerToolsEnabled}
-                onChange={(e) => setDeveloperToolsEnabled(e.target.checked)}
-              />
-              <span>Developer Tools</span>
-            </label>
+            {/* Beginner/Debug Mode Toggle */}
+            <div className="flex items-center gap-3">
+              <div className="inline-flex rounded-lg border border-slate-600 p-0.5 bg-slate-900/60">
+                <button
+                  type="button"
+                  onClick={() => setSandboxMode('beginner')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+                    isBeginnerMode
+                      ? 'bg-emerald-600 text-white'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  aria-pressed={isBeginnerMode}
+                >
+                  <span className="hidden sm:inline">🎓 </span>Beginner
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSandboxMode('debug')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+                    !isBeginnerMode
+                      ? 'bg-sky-600 text-white'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  aria-pressed={!isBeginnerMode}
+                >
+                  <span className="hidden sm:inline">🔧 </span>Debug
+                </button>
+              </div>
+              <span className="text-[10px] text-slate-500 hidden lg:inline">
+                {isBeginnerMode ? 'Clean learning experience' : 'Developer tools & diagnostics'}
+              </span>
+            </div>
           </header>
 
           {/* Quick-start presets */}
@@ -2148,28 +2174,30 @@ export const SandboxGameHost: React.FC = () => {
 
           {showAdvancedOptions && (
             <>
-              {/* Load Scenario section */}
-              <section className="p-4 rounded-2xl bg-slate-800/50 border border-slate-700">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-400">Scenarios</p>
-                    <h2 className="text-lg font-semibold text-white">Load a saved scenario</h2>
+              {/* Load Scenario section - hidden in beginner mode */}
+              {!isBeginnerMode && (
+                <section className="p-4 rounded-2xl bg-slate-800/50 border border-slate-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-400">Scenarios</p>
+                      <h2 className="text-lg font-semibold text-white">Load a saved scenario</h2>
+                    </div>
                   </div>
-                </div>
-                <p className="text-sm text-slate-400 mb-3">
-                  Load test vectors, curated learning scenarios, or your own saved game states.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setShowScenarioPicker(true)}
-                  className="px-4 py-2 rounded-xl border border-slate-600 bg-slate-900/60 text-slate-200 hover:border-emerald-400 hover:text-emerald-200 transition text-sm font-medium"
-                >
-                  Browse Scenarios
-                </button>
-              </section>
+                  <p className="text-sm text-slate-400 mb-3">
+                    Load test vectors, curated learning scenarios, or your own saved game states.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowScenarioPicker(true)}
+                    className="px-4 py-2 rounded-xl border border-slate-600 bg-slate-900/60 text-slate-200 hover:border-emerald-400 hover:text-emerald-200 transition text-sm font-medium"
+                  >
+                    Browse Scenarios
+                  </button>
+                </section>
+              )}
 
-              {/* Self-Play Games section (developer tools only) */}
-              {developerToolsEnabled && (
+              {/* Self-Play Games section (debug mode only) */}
+              {!isBeginnerMode && developerToolsEnabled && (
                 <section className="p-4 rounded-2xl bg-slate-800/50 border border-slate-700">
                   <div className="flex items-center justify-between mb-3">
                     <div>
@@ -2613,16 +2641,37 @@ export const SandboxGameHost: React.FC = () => {
                       </h1>
                     </div>
                     <div className="flex items-center gap-3">
-                      <label className="inline-flex items-center gap-2 text-[11px] text-slate-400 select-none">
-                        <input
-                          type="checkbox"
-                          className="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
-                          checked={developerToolsEnabled}
-                          onChange={(e) => setDeveloperToolsEnabled(e.target.checked)}
-                        />
-                        <span>Developer Tools</span>
-                      </label>
+                      {/* Beginner/Debug Mode Toggle */}
+                      <div className="inline-flex rounded-lg border border-slate-600 p-0.5 bg-slate-900/60">
+                        <button
+                          type="button"
+                          onClick={() => setSandboxMode('beginner')}
+                          className={`px-2 py-1 text-[10px] font-medium rounded-md transition ${
+                            isBeginnerMode
+                              ? 'bg-emerald-600 text-white'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                          aria-pressed={isBeginnerMode}
+                          title="Hide debug panels, show teaching features"
+                        >
+                          🎓 Beginner
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSandboxMode('debug')}
+                          className={`px-2 py-1 text-[10px] font-medium rounded-md transition ${
+                            !isBeginnerMode
+                              ? 'bg-sky-600 text-white'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                          aria-pressed={!isBeginnerMode}
+                          title="Show all developer tools and diagnostics"
+                        >
+                          🔧 Debug
+                        </button>
+                      </div>
                       <div className="flex items-center gap-2">
+                        {/* Save State - always visible for undo/redo */}
                         <button
                           type="button"
                           onClick={() => setShowSaveStateDialog(true)}
@@ -2630,7 +2679,8 @@ export const SandboxGameHost: React.FC = () => {
                         >
                           Save State
                         </button>
-                        {developerToolsEnabled && (
+                        {/* Debug-only buttons - hidden in beginner mode */}
+                        {!isBeginnerMode && developerToolsEnabled && (
                           <>
                             <button
                               type="button"
@@ -2661,13 +2711,16 @@ export const SandboxGameHost: React.FC = () => {
                             )}
                           </>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => setShowScenarioPicker(true)}
-                          className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-amber-400 hover:text-amber-200 transition"
-                        >
-                          Load Scenario
-                        </button>
+                        {/* Load Scenario - hidden in beginner mode */}
+                        {!isBeginnerMode && (
+                          <button
+                            type="button"
+                            onClick={() => setShowScenarioPicker(true)}
+                            className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-amber-400 hover:text-amber-200 transition"
+                          >
+                            Load Scenario
+                          </button>
+                        )}
                         {lastLoadedScenario && (
                           <button
                             type="button"
@@ -3115,7 +3168,7 @@ export const SandboxGameHost: React.FC = () => {
                     )}
                   </div>
 
-                  {developerToolsEnabled && (
+                  {!isBeginnerMode && developerToolsEnabled && (
                     <div className="p-4 border border-slate-700 rounded-2xl bg-slate-900/60 space-y-3">
                       <div className="flex items-center justify-between gap-2">
                         <h2 className="font-semibold">AI Evaluation (sandbox)</h2>
@@ -3143,7 +3196,7 @@ export const SandboxGameHost: React.FC = () => {
                     </div>
                   )}
 
-                  {developerToolsEnabled && sandboxGameState && (
+                  {!isBeginnerMode && developerToolsEnabled && sandboxGameState && (
                     <div className="p-4 border border-slate-700 rounded-2xl bg-slate-900/60 space-y-3">
                       <div className="flex items-center justify-between gap-2">
                         <h2 className="font-semibold">AI Ladder Diagnostics (sandbox)</h2>
@@ -3242,7 +3295,7 @@ export const SandboxGameHost: React.FC = () => {
                     </div>
                   )}
 
-                  {developerToolsEnabled && sandboxGameState && (
+                  {!isBeginnerMode && developerToolsEnabled && sandboxGameState && (
                     <div className="p-4 border border-slate-700 rounded-2xl bg-slate-900/60 space-y-3">
                       <div className="flex items-center justify-between gap-2">
                         <h2 className="font-semibold">AI Service Ladder Health</h2>

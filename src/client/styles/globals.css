@@ -1247,3 +1247,71 @@ kbd {
     min-height: 44px;
   }
 }
+
+/* ==========================================================================
+   Long-Press Visual Feedback (W3-14)
+   ========================================================================== */
+
+/* Visual feedback ring that appears during long-press on touch devices */
+@keyframes long-press-indicator {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(0.9);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Long-press progress indicator - grows as user holds */
+@keyframes long-press-progress {
+  0% {
+    stroke-dashoffset: 100;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Cell info tooltip animation for touch devices */
+@keyframes cell-info-appear {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.cell-info-tooltip {
+  animation: cell-info-appear 200ms ease-out forwards;
+}
+
+/* Touch-friendly info badge shown on long-press */
+.touch-info-badge {
+  position: fixed;
+  bottom: env(safe-area-inset-bottom, 20px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  max-width: 90vw;
+  animation: cell-info-appear 200ms ease-out forwards;
+}
+
+/* Safe area padding for notches and home indicators */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+}
