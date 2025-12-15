@@ -445,7 +445,7 @@ def export_replay_dataset(
         # Skip games with recovery moves if exclude_recovery is set
         if exclude_recovery:
             has_recovery = any(
-                "recovery" in str(m.get("type", "")).lower()
+                "recovery" in str(getattr(m, "type", "")).lower()
                 for m in moves
             )
             if has_recovery:

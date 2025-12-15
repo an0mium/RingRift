@@ -82,17 +82,17 @@ THRESHOLDS: Dict[Tuple[str, int], int] = {
 # Format: (board_type, num_players) -> (max_games, sample_every, epochs)
 EXPORT_SETTINGS: Dict[Tuple[str, int], Tuple[int, int, int]] = {
     # Square8: ~100-200 moves per game
-    ("square8", 2): (100, 5, 5),
-    ("square8", 3): (100, 5, 5),
-    ("square8", 4): (100, 5, 5),
+    ("square8", 2): (50, 10, 5),
+    ("square8", 3): (50, 10, 5),
+    ("square8", 4): (50, 10, 5),
     # Square19: ~300-500 moves per game
-    ("square19", 2): (50, 20, 5),
-    ("square19", 3): (50, 20, 5),
-    ("square19", 4): (50, 20, 5),
-    # Hexagonal: ~800-1200 moves per game - need aggressive sampling
-    ("hexagonal", 2): (30, 50, 5),
-    ("hexagonal", 3): (30, 50, 5),
-    ("hexagonal", 4): (30, 50, 5),
+    ("square19", 2): (20, 50, 5),
+    ("square19", 3): (20, 50, 5),
+    ("square19", 4): (20, 50, 5),
+    # Hexagonal: ~800-1200 moves per game - VERY aggressive sampling
+    ("hexagonal", 2): (10, 100, 5),
+    ("hexagonal", 3): (10, 100, 5),
+    ("hexagonal", 4): (10, 100, 5),
 }
 
 # Default settings if config not found

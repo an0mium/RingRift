@@ -2555,6 +2555,15 @@ class StreamingDataCollector:
 class ShadowTournamentService:
     """Runs lightweight continuous evaluation."""
 
+    # Tournament hosts - high CPU Vast hosts via Tailscale IPs
+    # Prioritized by CPU count for CPU-intensive tournament evaluation
+    TOURNAMENT_HOSTS = [
+        {"name": "vast-5090-quad", "ssh": "root@100.118.201.85", "cpus": 512, "ringrift_path": "~/ringrift/ai-service"},
+        {"name": "vast-4060ti", "ssh": "root@100.100.242.64", "cpus": 384, "ringrift_path": "~/ringrift/ai-service"},
+        {"name": "vast-3070", "ssh": "root@100.74.154.36", "cpus": 24, "ringrift_path": "~/ringrift/ai-service"},
+        {"name": "vast-2060s", "ssh": "root@100.75.98.13", "cpus": 22, "ringrift_path": "~/ringrift/ai-service"},
+    ]
+
     def __init__(self, config: EvaluationConfig, state: UnifiedLoopState, event_bus: EventBus):
         self.config = config
         self.state = state
@@ -2563,13 +2572,76 @@ class ShadowTournamentService:
         self._eval_durations: List[float] = []  # Recent evaluation durations
         self._eval_success_rate: float = 1.0  # Rolling success rate
         self._last_interval_adjustment: float = 0.0
+        # Round-robin index for tournament host selection
+        self._host_index: int = 0
+        # Track host availability for load balancing
+        self._host_busy: Dict[str, bool] = {h["name"]: False for h in self.TOURNAMENT_HOSTS}
+
+    def _get_next_tournament_host(self) -> Dict[str, Any]:
+        """Get next available tournament host using round-robin."""
+        # Try to find an available host
+        for _ in range(len(self.TOURNAMENT_HOSTS)):
+            host = self.TOURNAMENT_HOSTS[self._host_index]
+            self._host_index = (self._host_index + 1) % len(self.TOURNAMENT_HOSTS)
+            if not self._host_busy.get(host["name"], False):
+                return host
+        # All busy - just use round-robin regardless
+        host = self.TOURNAMENT_HOSTS[self._host_index]
+        self._host_index = (self._host_index + 1) % len(self.TOURNAMENT_HOSTS)
+        return host
+
+    async def _run_remote_tournament(self, host: Dict[str, Any], config_key: str) -> Dict[str, Any]:
+        """Run tournament on remote host via SSH."""
+        parts = config_key.rsplit("_", 1)
+        board_type = parts[0]
+        num_players = int(parts[1].replace("p", ""))
+
+        ssh_target = host["ssh"]
+        ringrift_path = host["ringrift_path"]
+        host_name = host["name"]
+
+        # Build remote command
+        remote_cmd = f'''cd {ringrift_path} && source venv/bin/activate && \\
+            python scripts/run_model_elo_tournament.py \\
+            --board {board_type} \\
+            --players {num_players} \\
+            --games {self.config.shadow_games_per_config} \\
+            --quick --include-baselines 2>&1'''
+
+        try:
+            self._host_busy[host_name] = True
+            print(f"[ShadowTournament] Dispatching {config_key} to {host_name} ({ssh_target})")
+
+            proc = await asyncio.create_subprocess_exec(
+                "ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes",
+                "-o", "StrictHostKeyChecking=no", ssh_target, remote_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=900)
+
+            success = proc.returncode == 0
+            if not success:
+                stderr_text = stderr.decode()[:500] if stderr else ""
+                print(f"[ShadowTournament] {config_key} on {host_name} failed: {stderr_text}")
+
+            return {
+                "config": config_key,
+                "games_played": self.config.shadow_games_per_config,
+                "success": success,
+                "host": host_name,
+            }
+        except asyncio.TimeoutError:
+            print(f"[ShadowTournament] {config_key} on {host_name} timed out after 900s")
+            return {"config": config_key, "error": "timeout", "success": False, "host": host_name}
+        except Exception as e:
+            print(f"[ShadowTournament] {config_key} on {host_name} error: {e}")
+            return {"config": config_key, "error": str(e), "success": False, "host": host_name}
+        finally:
+            self._host_busy[host_name] = False
 
     async def run_shadow_tournament(self, config_key: str) -> Dict[str, Any]:
-        """Run a quick shadow tournament for a configuration."""
-        # Skip local evaluation if disabled
-        if DISABLE_LOCAL_TASKS:
-            return {"skipped": True, "reason": "RINGRIFT_DISABLE_LOCAL_TASKS"}
-
+        """Run a quick shadow tournament for a configuration on remote hosts."""
         parts = config_key.rsplit("_", 1)
         board_type = parts[0]
         num_players = int(parts[1].replace("p", ""))
@@ -2580,31 +2652,11 @@ class ShadowTournamentService:
         ))
 
         try:
-            # Run quick tournament
-            cmd = [
-                sys.executable,
-                str(AI_SERVICE_ROOT / "scripts" / "run_model_elo_tournament.py"),
-                "--board", board_type,
-                "--players", str(num_players),
-                "--games", str(self.config.shadow_games_per_config),
-                "--quick",
-                "--include-baselines",
-            ]
+            # Get next available tournament host
+            host = self._get_next_tournament_host()
 
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=AI_SERVICE_ROOT,
-            )
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=600)
-
-            # Parse results (simplified - real implementation would parse JSON output)
-            result = {
-                "config": config_key,
-                "games_played": self.config.shadow_games_per_config,
-                "success": process.returncode == 0,
-            }
+            # Run on remote host
+            result = await self._run_remote_tournament(host, config_key)
 
             if config_key in self.state.configs:
                 self.state.configs[config_key].last_evaluation_time = time.time()
@@ -2623,36 +2675,39 @@ class ShadowTournamentService:
             return {"config": config_key, "error": str(e), "success": False}
 
     async def run_full_tournament(self) -> Dict[str, Any]:
-        """Run a full tournament across all configurations."""
-        # Skip local evaluation if disabled
-        if DISABLE_LOCAL_TASKS:
-            return {"skipped": True, "reason": "RINGRIFT_DISABLE_LOCAL_TASKS"}
-
+        """Run a full tournament across all configurations on best remote host."""
         await self.event_bus.publish(DataEvent(
             event_type=DataEventType.EVALUATION_STARTED,
             payload={"type": "full"}
         ))
 
         try:
-            cmd = [
-                sys.executable,
-                str(AI_SERVICE_ROOT / "scripts" / "run_model_elo_tournament.py"),
-                "--all-configs",
-                "--games", str(self.config.full_tournament_games),
-                "--include-baselines",
-            ]
+            # Use the most powerful host (vast-5090-quad with 512 CPUs) for full tournaments
+            host = self.TOURNAMENT_HOSTS[0]  # vast-5090-quad
+            ssh_target = host["ssh"]
+            ringrift_path = host["ringrift_path"]
+            host_name = host["name"]
 
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
+            remote_cmd = f'''cd {ringrift_path} && source venv/bin/activate && \\
+                python scripts/run_model_elo_tournament.py \\
+                --all-configs \\
+                --games {self.config.full_tournament_games} \\
+                --include-baselines 2>&1'''
+
+            print(f"[ShadowTournament] Running full tournament on {host_name} ({ssh_target})")
+
+            proc = await asyncio.create_subprocess_exec(
+                "ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes",
+                "-o", "StrictHostKeyChecking=no", ssh_target, remote_cmd,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=AI_SERVICE_ROOT,
+                stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=3600)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=3600)
 
             result = {
                 "type": "full",
-                "success": process.returncode == 0,
+                "success": proc.returncode == 0,
+                "host": host_name,
             }
 
             self.state.total_evaluations += 1
@@ -2671,16 +2726,16 @@ class ShadowTournamentService:
     async def run_parallel_shadow_tournaments(
         self,
         config_keys: List[str],
-        max_concurrent: int = 3
+        max_concurrent: int = 4
     ) -> List[Dict[str, Any]]:
-        """Run shadow tournaments for multiple configs in parallel.
+        """Run shadow tournaments for multiple configs in parallel on remote hosts.
 
-        This dramatically speeds up evaluation by running up to max_concurrent
-        tournaments simultaneously instead of sequentially.
+        Dispatches tournaments to Vast hosts with high CPU counts for efficient
+        CPU-intensive evaluation. Uses round-robin host selection with 4 hosts.
 
         Args:
             config_keys: List of config keys to evaluate
-            max_concurrent: Maximum concurrent tournaments (default 3)
+            max_concurrent: Maximum concurrent tournaments (default 4 = num tournament hosts)
 
         Returns:
             List of tournament results
