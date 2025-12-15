@@ -348,19 +348,17 @@ class DurationScheduler:
         if not running:
             return True, now
 
-        # For non-intensive tasks, host may still be available
+        # Check for intensive tasks running
         intensive_running = [r for r in running if r["task_type"] in INTENSIVE_TASK_TYPES]
 
-        if not intensive_running and task_type not in INTENSIVE_TASK_TYPES:
-            return True, now
-
-        # Return when the latest intensive task should finish
-        if intensive_running:
+        # Intensive tasks block other intensive tasks
+        if intensive_running and task_type in INTENSIVE_TASK_TYPES:
             latest_end = max(r["expected_end"] for r in intensive_running)
             return False, latest_end
 
-        latest_end = max(r["expected_end"] for r in running)
-        return False, latest_end
+        # Non-intensive tasks don't block anything
+        # Intensive tasks can start even when non-intensive tasks are running
+        return True, now
 
     def can_schedule_now(
         self,
