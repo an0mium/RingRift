@@ -175,11 +175,18 @@ ssh ubuntu@ringrift.ai "pm2 restart ringrift-ai"
 
 Rate limit configuration:
 
-- Sandbox AI: 1000 requests/minute
-- Authenticated API: 200 requests/minute
-- Anonymous API: 50 requests/minute
+| Limiter                  | Limit         | Window            |
+| ------------------------ | ------------- | ----------------- |
+| Sandbox AI               | 1000 requests | per minute        |
+| Authenticated API        | 200 requests  | per minute        |
+| Anonymous API            | 50 requests   | per minute        |
+| WebSocket connections    | 500           | per minute per IP |
+| Game creation (per user) | 20 games      | per 10 minutes    |
+| Game creation (per IP)   | 500 games     | per 10 minutes    |
 
 If hitting limits, check logs for `"Adaptive rate limit exceeded"` messages.
+
+**Load Testing Note:** The WebSocket and game creation per-IP limits were increased from defaults (10 and 50) to support load testing where all VUs originate from a single IP.
 
 ### Circuit Breaker Tripped
 
@@ -208,6 +215,12 @@ NODE_ENV=production
 AI_SERVICE_URL=http://localhost:8765
 AI_SERVICE_REQUEST_TIMEOUT_MS=30000
 ENABLE_SANDBOX_AI_ENDPOINTS=true
+
+# Load testing rate limit overrides (higher than defaults)
+RATE_LIMIT_WS_POINTS=500              # Default: 10
+RATE_LIMIT_WS_DURATION=60
+RATE_LIMIT_GAME_CREATE_IP_POINTS=500  # Default: 50
+RATE_LIMIT_GAME_CREATE_IP_DURATION=600
 ```
 
 ### AI Difficulty Ladder
@@ -237,3 +250,4 @@ Think times by difficulty:
 | 2025-12-15 | Added AI timeout fix (5s → 30s)             |
 | 2025-12-15 | Added sandbox AI rate limiter (1000/min)    |
 | 2025-12-15 | Fixed minimax time check (1000 → 100 nodes) |
+| 2025-12-15 | Increased WS/game rate limits for load test |
