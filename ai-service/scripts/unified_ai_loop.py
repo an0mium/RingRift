@@ -6602,6 +6602,20 @@ class UnifiedAILoop:
         """Start P2P integration manager if configured."""
         if self.p2p and not self._p2p_started:
             try:
+                # Quick connectivity check with short timeout before starting background tasks
+                import aiohttp
+                base_url = self.p2p.config.p2p_base_url
+                try:
+                    timeout = aiohttp.ClientTimeout(total=3)
+                    async with aiohttp.ClientSession(timeout=timeout) as session:
+                        async with session.get(f"{base_url}/health") as resp:
+                            if resp.status != 200:
+                                print(f"[P2P] P2P server at {base_url} not healthy (status={resp.status}), skipping integration")
+                                return
+                except Exception as conn_err:
+                    print(f"[P2P] P2P server at {base_url} not reachable ({type(conn_err).__name__}), skipping integration")
+                    return
+
                 await self.p2p.start()
                 self._p2p_started = True
                 print("[P2P] Integration manager started")
@@ -7932,7 +7946,14 @@ class UnifiedAILoop:
 
         try:
             # Start all loops including metrics, external drive sync, and advanced training
-            await asyncio.gather(
+            # Use return_exceptions=True to prevent one loop's failure from crashing the entire system
+            loop_names = [
+                "data_collection", "evaluation", "training", "promotion",
+                "curriculum", "metrics", "health_check", "utilization_optimization",
+                "hp_tuning_sync", "external_drive_sync", "pbt", "nas",
+                "per", "cross_process_event", "health_recovery"
+            ]
+            results = await asyncio.gather(
                 self._data_collection_loop(),
                 self._evaluation_loop(),
                 self._training_loop(),
@@ -7948,7 +7969,12 @@ class UnifiedAILoop:
                 self._per_loop(),
                 self._cross_process_event_loop(),
                 self._health_recovery_loop(),  # Automatic issue detection and healing
+                return_exceptions=True,  # Don't crash if one loop fails
             )
+            # Log any exceptions from loops
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    print(f"[UnifiedLoop] ERROR in {loop_names[i]} loop: {result}")
         finally:
             # Stop P2P on shutdown
             await self._stop_p2p()
