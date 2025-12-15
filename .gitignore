@@ -212,3 +212,7 @@ data/games/
 
 # Load test result summaries
 results/load/
+
+# SQLite WAL temp files
+*.db-shm
+*.db-wal

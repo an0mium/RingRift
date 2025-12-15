@@ -170,4 +170,12 @@ __all__ = [
     "ComponentHealth",
     "get_health_summary",
     "format_health_report",
+    # Circuit breaker
+    "CircuitBreaker",
+    "CircuitState",
+    "CircuitStatus",
+    "CircuitOpenError",
+    "get_host_breaker",
+    "get_training_breaker",
+    "format_circuit_status",
 ]
