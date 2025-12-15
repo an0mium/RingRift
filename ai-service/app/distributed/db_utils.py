@@ -319,7 +319,7 @@ class DatabaseRegistry:
 
     # Singleton instance
     _instance: Optional["DatabaseRegistry"] = None
-    _lock = threading.Lock()
+    _lock = threading.RLock()
 
     # Well-known database identifiers and their relative paths
     KNOWN_DATABASES: Dict[str, str] = {

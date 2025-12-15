@@ -17,7 +17,7 @@ class ZobristHash:
     access the ZobristHash simultaneously (e.g., in tournament play).
     """
     _instance = None
-    _lock = threading.Lock()
+    _lock = threading.RLock()
 
     def __new__(cls):
         # Double-checked locking pattern for thread-safe singleton

@@ -81,7 +81,7 @@ class WorkerDiscovery:
     def __init__(self, service_type: str = SERVICE_TYPE):
         self.service_type = service_type
         self._workers: Dict[str, WorkerInfo] = {}
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._zeroconf = None
         self._browser = None
         self._running = False

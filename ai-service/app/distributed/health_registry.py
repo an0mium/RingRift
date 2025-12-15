@@ -158,7 +158,7 @@ class HealthRegistry:
     """
 
     _instance: Optional["HealthRegistry"] = None
-    _lock = threading.Lock()
+    _lock = threading.RLock()
 
     def __new__(cls) -> "HealthRegistry":
         if cls._instance is None:
@@ -349,7 +349,7 @@ class HealthRegistry:
                 issues.append(f"High CPU usage: {cpu_percent}%")
             if memory.percent > 90:
                 issues.append(f"High memory usage: {memory.percent}%")
-            if disk.percent > 90:
+            if disk.percent > 70:  # 70% limit enforced 2025-12-15
                 issues.append(f"High disk usage: {disk.percent}%")
 
             if issues:

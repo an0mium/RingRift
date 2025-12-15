@@ -59,9 +59,9 @@ class SafeguardConfig:
     max_spawns_per_window: int = 30     # Max spawns in window
     backpressure_threshold: float = 0.8 # Slow down at 80% of limit
 
-    # Resource thresholds
-    disk_critical_percent: float = 90.0
-    disk_warning_percent: float = 80.0
+    # Resource thresholds - 70% disk limit enforced as of 2025-12-15
+    disk_critical_percent: float = 70.0
+    disk_warning_percent: float = 65.0
     memory_critical_percent: float = 95.0
     memory_warning_percent: float = 85.0
     cpu_critical_percent: float = 98.0

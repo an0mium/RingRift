@@ -75,9 +75,9 @@ class ClusterMonitor:
             alerts.append(f"CRITICAL: Leader unreachable - {health.get('error')}")
             return alerts
 
-        # Check disk usage
+        # Check disk usage (70% limit enforced 2025-12-15)
         disk_pct = health.get("disk_percent", 0)
-        if disk_pct > 90:
+        if disk_pct > 70:
             alerts.append(f"WARNING: Disk usage {disk_pct:.1f}% on leader")
 
         # Check memory usage

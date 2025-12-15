@@ -115,9 +115,9 @@ class UtilizationTargets:
     memory_warn: float = 75.0       # Reduce jobs
     memory_critical: float = 90.0   # Stop spawning
 
-    # Disk targets (percentage)
-    disk_warn: float = 80.0         # Trigger cleanup
-    disk_critical: float = 90.0     # Stop all data-producing tasks
+    # Disk targets (percentage) - 70% limit enforced as of 2025-12-15
+    disk_warn: float = 65.0         # Trigger cleanup
+    disk_critical: float = 70.0     # Stop all data-producing tasks
 
     # Job concurrency targets
     jobs_per_core: float = 0.5      # Target 50% core utilization from jobs

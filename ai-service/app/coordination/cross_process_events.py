@@ -419,7 +419,7 @@ class CrossProcessEventQueue:
 
 # Global singleton instance
 _event_queue: Optional[CrossProcessEventQueue] = None
-_queue_lock = threading.Lock()
+_queue_lock = threading.RLock()
 
 
 def get_event_queue(db_path: Optional[Path] = None) -> CrossProcessEventQueue:

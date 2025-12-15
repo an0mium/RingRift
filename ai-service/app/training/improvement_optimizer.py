@@ -130,7 +130,7 @@ class ImprovementOptimizer:
     """
 
     _instance: Optional["ImprovementOptimizer"] = None
-    _lock = threading.Lock()
+    _lock = threading.RLock()
 
     # Baseline thresholds (from unified_config.py)
     BASELINE_TRAINING_THRESHOLD = 500

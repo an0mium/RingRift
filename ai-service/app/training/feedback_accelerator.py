@@ -259,7 +259,7 @@ class FeedbackAccelerator:
     """
 
     _instance: Optional["FeedbackAccelerator"] = None
-    _lock = threading.Lock()
+    _lock = threading.RLock()
 
     def __new__(cls) -> "FeedbackAccelerator":
         if cls._instance is None:

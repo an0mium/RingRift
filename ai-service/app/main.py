@@ -185,7 +185,7 @@ AI_INSTANCE_CACHE_ENABLED = os.getenv("RINGRIFT_AI_INSTANCE_CACHE", "1").lower()
 AI_INSTANCE_CACHE_TTL_SEC = int(os.getenv("RINGRIFT_AI_INSTANCE_CACHE_TTL_SEC", "1800"))
 AI_INSTANCE_CACHE_MAX = int(os.getenv("RINGRIFT_AI_INSTANCE_CACHE_MAX", "512"))
 
-_ai_cache_lock = threading.Lock()
+_ai_cache_lock = threading.RLock()
 ai_instances: Dict[str, CachedAIInstance] = {}
 
 

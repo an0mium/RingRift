@@ -177,7 +177,7 @@ class DataPipelineController:
         self._streaming_pipeline = None
         self._batch_loader = None
         self._is_running = False
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
         # Batch timing
         self._batch_times: List[float] = []

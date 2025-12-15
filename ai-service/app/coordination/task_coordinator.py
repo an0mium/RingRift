@@ -220,8 +220,8 @@ class TaskLimits:
     max_task_spawns_per_minute: int = 60
     max_selfplay_spawns_per_minute: int = 30
 
-    # Resource thresholds (halt spawning above these)
-    halt_on_disk_percent: float = 90.0
+    # Resource thresholds (halt spawning above these) - 70% disk limit enforced 2025-12-15
+    halt_on_disk_percent: float = 70.0
     halt_on_memory_percent: float = 95.0
     halt_on_cpu_percent: float = 95.0
 
@@ -395,7 +395,7 @@ class RateLimiter:
         self.burst = burst
         self._tokens = burst
         self._last_update = time.time()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     def acquire(self, tokens: int = 1) -> bool:
         """Try to acquire tokens. Returns True if successful."""
@@ -640,7 +640,7 @@ class TaskCoordinator:
     """
 
     _instance: Optional['TaskCoordinator'] = None
-    _lock = threading.Lock()
+    _lock = threading.RLock()
 
     @classmethod
     def get_instance(cls) -> 'TaskCoordinator':
@@ -665,7 +665,7 @@ class TaskCoordinator:
 
         # State
         self.state = CoordinatorState.RUNNING
-        self._state_lock = threading.Lock()
+        self._state_lock = threading.RLock()
 
         # Data directory
         data_dir = Path(os.environ.get(

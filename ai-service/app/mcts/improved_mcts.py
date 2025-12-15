@@ -138,7 +138,7 @@ class TranspositionTable:
         self.max_size = max_size
         self.table: Dict[str, Tuple[List[float], float]] = {}
         self.access_count: Dict[str, int] = defaultdict(int)
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     def get(self, state_hash: str) -> Optional[Tuple[List[float], float]]:
         """Get cached evaluation."""

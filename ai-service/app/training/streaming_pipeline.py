@@ -87,7 +87,7 @@ class CircularBuffer:
     def __init__(self, capacity: int):
         self.capacity = capacity
         self.buffer: deque = deque(maxlen=capacity)
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
 
     def append(self, item: Any):
         """Add item to buffer."""

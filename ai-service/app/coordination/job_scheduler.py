@@ -242,7 +242,7 @@ class PriorityJobScheduler:
         for host, status in zip(hosts, statuses):
             if not _is_reachable(status):
                 continue
-            if _get_disk(status) > 90:
+            if _get_disk(status) > 70:  # 70% limit enforced 2025-12-15
                 continue
             if _get_mem(status) > 90:
                 continue

@@ -59,7 +59,7 @@ except ImportError:
 
 # Singleton instance
 _elo_service_instance: Optional["EloService"] = None
-_elo_service_lock = threading.Lock()
+_elo_service_lock = threading.RLock()
 
 
 @dataclass

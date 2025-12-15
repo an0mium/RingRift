@@ -64,7 +64,7 @@ DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "unified_elo.db"
 
 # Global singleton
 _elo_db_instance: Optional["EloDatabase"] = None
-_elo_db_lock = threading.Lock()
+_elo_db_lock = threading.RLock()
 
 
 @dataclass

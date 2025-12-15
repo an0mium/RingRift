@@ -5,8 +5,8 @@ Aggressive disk cleanup for space-constrained nodes (especially Vast.ai).
 Runs as a cron job or standalone to prevent disk full scenarios.
 
 Usage:
-    # Check disk and clean if needed
-    python scripts/disk_monitor.py --threshold 80
+    # Check disk and clean if needed (70% limit enforced 2025-12-15)
+    python scripts/disk_monitor.py --threshold 70
 
     # Force cleanup even if below threshold
     python scripts/disk_monitor.py --force
@@ -435,7 +435,7 @@ def cleanup_deprecated_data(ringrift_path: str, dry_run: bool = False) -> List[C
     return results
 
 
-def run_cleanup(ringrift_path: str, threshold: int = 80, force: bool = False,
+def run_cleanup(ringrift_path: str, threshold: int = 70, force: bool = False,
                 dry_run: bool = False, aggressive: bool = False) -> dict:
     """Run full disk cleanup if needed."""
     # Always measure disk usage on the volume that actually contains the RingRift
@@ -510,8 +510,8 @@ def run_cleanup(ringrift_path: str, threshold: int = 80, force: bool = False,
 
 def main():
     parser = argparse.ArgumentParser(description="Disk monitoring and cleanup")
-    parser.add_argument("--threshold", type=int, default=80,
-                        help="Disk usage percent threshold to trigger cleanup")
+    parser.add_argument("--threshold", type=int, default=70,
+                        help="Disk usage percent threshold to trigger cleanup (70% enforced 2025-12-15)")
     parser.add_argument("--force", action="store_true",
                         help="Force cleanup even if below threshold")
     parser.add_argument("--dry-run", action="store_true",

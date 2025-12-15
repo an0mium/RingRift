@@ -113,7 +113,7 @@ class NodeConfig:
     check_interval: int = 60  # seconds
     reconnect_interval: int = 300  # seconds
     max_local_selfplay_procs: int = 4
-    disk_threshold: int = 80  # percent - trigger cleanup above this
+    disk_threshold: int = 70  # percent - trigger cleanup above this (70% limit enforced 2025-12-15)
     min_free_gb: float = 2.0  # trigger cleanup if free space is low
     fallback_board: str = "square8"
     fallback_num_players: int = 2
@@ -1125,7 +1125,7 @@ def main():
     parser.add_argument("--peers", default="", help="Comma-separated peer list for P2P orchestrator (defaults to coordinator URL)")
     parser.add_argument("--check-interval", type=int, default=60, help="Health check interval (seconds)")
     parser.add_argument("--max-local-procs", type=int, default=4, help="Max fallback workers to run when disconnected")
-    parser.add_argument("--disk-threshold", type=int, default=80, help="Disk usage percent threshold for cleanup")
+    parser.add_argument("--disk-threshold", type=int, default=70, help="Disk usage percent threshold for cleanup (70% enforced 2025-12-15)")
     parser.add_argument("--min-free-gb", type=float, default=2.0, help="Minimum free GB headroom before forcing cleanup")
     parser.add_argument(
         "--selfplay-script",

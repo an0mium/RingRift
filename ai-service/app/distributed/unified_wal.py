@@ -974,7 +974,7 @@ class IngestionWAL(UnifiedWAL):
 
 
 _wal_instance: Optional[UnifiedWAL] = None
-_wal_lock = threading.Lock()
+_wal_lock = threading.RLock()
 
 
 def get_unified_wal(db_path: Optional[Path] = None) -> UnifiedWAL:

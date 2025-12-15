@@ -365,7 +365,7 @@ class HeartbeatMonitor:
         self.heartbeat_file: Optional[Path] = None
         self._running = False
         self._thread: Optional[threading.Thread] = None
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     def start(self, heartbeat_file: Optional[Path] = None):
         """Start the heartbeat monitor."""

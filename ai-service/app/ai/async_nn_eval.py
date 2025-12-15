@@ -237,7 +237,7 @@ class _GlobalNNMicroBatcher:
 
 
 _GLOBAL_BATCHER: Optional[_GlobalNNMicroBatcher] = None
-_GLOBAL_BATCHER_LOCK = threading.Lock()
+_GLOBAL_BATCHER_LOCK = threading.RLock()
 _GLOBAL_BATCHER_REFS = 0
 
 
@@ -279,7 +279,7 @@ class AsyncNeuralBatcher:
         max_workers: int = 1,
     ) -> None:
         self.neural_net = neural_net
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._use_microbatcher = _should_use_microbatcher(neural_net)
         self._global_batcher: Optional[_GlobalNNMicroBatcher] = (
             _acquire_global_batcher() if self._use_microbatcher else None
