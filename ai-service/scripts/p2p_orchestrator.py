@@ -19055,10 +19055,13 @@ print(json.dumps({{
                 # Uses CPU-efficient engine modes
                 # This enables utilizing excess CPU capacity on Vast.ai hosts etc.
 
-                # CPU-friendly engine modes - include descent and mcts (work on CPU)
-                # Prefer descent-only and minimax-only for CPU efficiency
-                cpu_engine_modes = {"descent-only", "minimax-only", "mcts-only", "heuristic-only", "random-only"}
-                engine_mode_norm = engine_mode if engine_mode in cpu_engine_modes else "descent-only"
+                # CPU-friendly engine modes - include descent, mcts, and nn-only (work on CPU)
+                # run_self_play_soak.py supports all these modes
+                cpu_engine_modes = {
+                    "descent-only", "minimax-only", "mcts-only", "heuristic-only",
+                    "random-only", "mixed", "nn-only", "best-vs-pool"
+                }
+                engine_mode_norm = engine_mode if engine_mode in cpu_engine_modes else "nn-only"
 
                 # CPU-only jobs can handle more games per batch
                 num_games = 2000
@@ -19169,7 +19172,15 @@ print(json.dumps({{
                 }.get(board_type, "square8")
 
                 # Normalize engine_mode to GPU runner's supported values.
-                gpu_engine_mode = engine_mode if engine_mode in ("random-only", "heuristic-only") else "heuristic-only"
+                # run_gpu_selfplay.py supports: random-only, heuristic-only, nnue-guided
+                # Map NN-based modes (nn-only, best-vs-pool, etc.) to nnue-guided
+                nn_modes = {"nn-only", "best-vs-pool", "nn-vs-mcts", "nn-vs-minimax", "nn-vs-descent", "tournament-varied"}
+                if engine_mode in ("random-only", "heuristic-only", "nnue-guided"):
+                    gpu_engine_mode = engine_mode
+                elif engine_mode in nn_modes:
+                    gpu_engine_mode = "nnue-guided"  # Use neural network evaluation
+                else:
+                    gpu_engine_mode = "heuristic-only"  # Fallback for mcts-only, descent-only, minimax-only
 
                 num_games = 3000
                 if board_arg == "square19":
@@ -19284,8 +19295,20 @@ print(json.dumps({{
                 # This is the recommended default for GPU nodes
 
                 # Normalize engine_mode
-                hybrid_engine_modes = {"random-only", "heuristic-only", "mixed"}
-                engine_mode_norm = engine_mode if engine_mode in hybrid_engine_modes else "heuristic-only"
+                # run_hybrid_selfplay.py supports: random-only, heuristic-only, mixed, nnue-guided, mcts
+                # Map NN-based modes to nnue-guided for neural network evaluation
+                hybrid_engine_modes = {"random-only", "heuristic-only", "mixed", "nnue-guided", "mcts"}
+                nn_modes = {"nn-only", "best-vs-pool", "nn-vs-mcts", "nn-vs-minimax", "nn-vs-descent", "tournament-varied"}
+                if engine_mode in hybrid_engine_modes:
+                    engine_mode_norm = engine_mode
+                elif engine_mode in nn_modes:
+                    engine_mode_norm = "nnue-guided"  # Use neural network
+                elif engine_mode in ("mcts-only", "descent-only"):
+                    engine_mode_norm = "mcts"  # Use MCTS
+                elif engine_mode == "minimax-only":
+                    engine_mode_norm = "mixed"  # Minimax included in mixed
+                else:
+                    engine_mode_norm = "heuristic-only"
 
                 # Game counts based on board type
                 num_games = 1000
