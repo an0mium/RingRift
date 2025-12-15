@@ -40,7 +40,18 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # Re-export from existing metrics module
-from app.metrics_module import (
+# Note: Import from parent module using absolute path
+import sys
+import importlib.util
+
+# Load app/metrics.py as a separate module to avoid circular import
+_metrics_path = __file__.replace("__init__.py", "").rstrip("/").rsplit("/", 1)[0] + "/metrics.py"
+_spec = importlib.util.spec_from_file_location("_app_metrics_base", _metrics_path)
+_metrics_base = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_metrics_base)
+
+# Re-export from the base metrics module
+from _app_metrics_base import (
     # Core metrics
     AI_MOVE_REQUESTS,
     AI_MOVE_LATENCY,

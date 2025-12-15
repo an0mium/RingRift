@@ -1693,6 +1693,15 @@ export RINGRIFT_TRAINED_HEURISTIC_PROFILES={worker.remote_path}/data/trained_heu
         self.state.last_sync = datetime.now().isoformat()
         self._save_state()
 
+        # Report game data queue depth for backpressure monitoring
+        if HAS_NEW_COORDINATION and success:
+            try:
+                # Report synced game count to coordination layer
+                # This allows selfplay producers to throttle when queue is full
+                report_queue_depth(QueueType.TRAINING_DATA, merged_games)
+            except Exception as e:
+                self.log(f"Queue depth report error: {e}", "WARN")
+
         # Emit completion event
         if emit_event:
             await self._emit_stage_completion(

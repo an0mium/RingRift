@@ -2464,6 +2464,10 @@ def train_model(
                         "  Versioned checkpoint saved: %s",
                         version_path,
                     )
+
+            # Beat heartbeat at end of each epoch to signal health
+            if heartbeat_monitor is not None:
+                heartbeat_monitor.beat()
         else:
             # Final checkpoint at end of training (if not early stopped).
             # This else clause is for the for-loop and executes if no break

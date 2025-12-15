@@ -160,6 +160,25 @@ except ImportError:
     HAS_COORDINATION = False
     OrchestratorRole = None
 
+# Unified execution framework for local and remote commands
+try:
+    from app.execution.executor import (
+        LocalExecutor,
+        SSHExecutor,
+        ExecutorPool,
+        ExecutionResult,
+        SSHConfig as ExecutorSSHConfig,
+        run_command,
+    )
+    HAS_EXECUTOR = True
+except ImportError:
+    HAS_EXECUTOR = False
+    LocalExecutor = None
+    SSHExecutor = None
+    ExecutorPool = None
+    ExecutionResult = None
+    run_command = None
+
 # Import centralized Elo service (canonical ELO operations)
 try:
     from app.training.elo_service import (
