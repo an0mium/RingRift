@@ -923,7 +923,7 @@ class UnifiedLoopConfig:
     verbose: bool = False
 
     # Metrics
-    metrics_port: int = 9090
+    metrics_port: int = 9091  # Note: 9090 is reserved for Prometheus itself
     metrics_enabled: bool = True
 
     # Operation modes
@@ -1407,8 +1407,8 @@ class StreamingDataCollector:
         local_dir = AI_SERVICE_ROOT / "data" / "games" / "synced" / host.name
         local_dir.mkdir(parents=True, exist_ok=True)
 
-        # Rsync with append mode for incremental transfer
-        cmd = f'rsync -avz --progress -e "ssh -o ConnectTimeout=10" {ssh_target}:~/ringrift/ai-service/data/games/*.db {local_dir}/'
+        # Base rsync command
+        base_cmd = f'rsync -avz --progress -e "ssh -o ConnectTimeout=10"'
 
         # Use new coordination if available: sync_lock + bandwidth
         if HAS_COORDINATION:
@@ -1424,8 +1424,15 @@ class StreamingDataCollector:
                     )
 
                     if bandwidth_alloc and not bandwidth_alloc.granted:
-                        print(f"[DataCollector] Bandwidth not available for {host.name}")
+                        print(f"[DataCollector] Bandwidth not available for {host.name}: {bandwidth_alloc.reason}")
                         return
+
+                    # Apply bandwidth limit to rsync command
+                    if bandwidth_alloc and bandwidth_alloc.bwlimit_kbps > 0:
+                        cmd = f'{base_cmd} --bwlimit={bandwidth_alloc.bwlimit_kbps} {ssh_target}:~/ringrift/ai-service/data/games/*.db {local_dir}/'
+                        print(f"[DataCollector] Sync {host.name} with bwlimit={bandwidth_alloc.bwlimit_kbps}KB/s")
+                    else:
+                        cmd = f'{base_cmd} {ssh_target}:~/ringrift/ai-service/data/games/*.db {local_dir}/'
 
                     start_time = time.time()
                     process = await asyncio.create_subprocess_shell(
@@ -1454,7 +1461,8 @@ class StreamingDataCollector:
                     except Exception:
                         pass
         else:
-            # Fallback: no coordination
+            # Fallback: no coordination - unlimited bandwidth
+            cmd = f'{base_cmd} {ssh_target}:~/ringrift/ai-service/data/games/*.db {local_dir}/'
             process = await asyncio.create_subprocess_shell(
                 cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -2161,6 +2169,44 @@ class TrainingScheduler:
         """Update training progress for curriculum-based temperature scheduling."""
         if self._temp_scheduler is not None:
             self._temp_scheduler.set_training_progress(progress)
+
+    async def request_urgent_training(self, configs: List[str], reason: str) -> bool:
+        """Request urgent training for specified configs due to feedback signal.
+
+        This bypasses normal game count thresholds when the feedback system
+        detects repeated failures (e.g., consecutive promotion failures).
+
+        Args:
+            configs: List of config keys to train
+            reason: Human-readable reason for urgent training
+
+        Returns:
+            True if training was started, False otherwise
+        """
+        if self.state.training_in_progress:
+            print(f"[Training] Urgent training request deferred: training already in progress")
+            return False
+
+        # Pick the first config that hasn't been trained recently
+        now = time.time()
+        for config_key in configs:
+            if config_key not in self.state.configs:
+                continue
+
+            config_state = self.state.configs[config_key]
+            # Allow urgent training even if recently trained (use shorter cooldown)
+            urgent_cooldown = self.config.min_interval_seconds / 2
+            if now - config_state.last_training_time < urgent_cooldown:
+                print(f"[Training] Urgent training for {config_key} still in cooldown")
+                continue
+
+            print(f"[Training] URGENT TRAINING triggered for {config_key}: {reason}")
+            started = await self.start_training(config_key)
+            if started:
+                return True
+
+        print(f"[Training] Urgent training request could not be fulfilled for configs: {configs}")
+        return False
 
 
 # =============================================================================
@@ -3137,6 +3183,22 @@ class UnifiedAILoop:
             print(f"[Feedback] Post-training state: plateau_count={summary['plateau_count']}, "
                   f"weak_configs={summary['weak_configs']}")
 
+            # Check for data collection adjustment signals and act on them
+            pending_actions = self.feedback.get_pending_actions()
+            for signal in pending_actions:
+                if signal.action == FeedbackAction.INCREASE_DATA_COLLECTION:
+                    print(f"[Feedback] INCREASE_DATA_COLLECTION signal: {signal.reason}")
+                    await self._adjust_selfplay_rate(
+                        multiplier=self.feedback.state.games_per_worker_multiplier,
+                        reason=signal.reason
+                    )
+                elif signal.action == FeedbackAction.DECREASE_DATA_COLLECTION:
+                    print(f"[Feedback] DECREASE_DATA_COLLECTION signal: {signal.reason}")
+                    await self._adjust_selfplay_rate(
+                        multiplier=self.feedback.state.games_per_worker_multiplier,
+                        reason=signal.reason
+                    )
+
         except Exception as e:
             print(f"[Feedback] Error processing training feedback: {e}")
 
@@ -3171,13 +3233,32 @@ class UnifiedAILoop:
                 print(f"[Feedback] Consecutive failures: {summary['consecutive_promotion_failures']}, "
                       f"Config failures: {summary['promotion_failure_configs']}")
 
-            # Check for urgent retraining or CMA-ES signals
+            # Check for urgent retraining or CMA-ES signals and act on them
             pending_actions = self.feedback.get_pending_actions()
             for signal in pending_actions:
                 if signal.action == FeedbackAction.URGENT_RETRAINING:
                     print(f"[Feedback] URGENT RETRAINING signal: {signal.reason}")
+                    # Get affected configs from signal metadata
+                    affected_configs = signal.metadata.get('configs_affected', [])
+                    if not affected_configs and config_key:
+                        affected_configs = [config_key]
+                    if affected_configs:
+                        # Trigger urgent training through the scheduler
+                        await self.training_scheduler.request_urgent_training(
+                            configs=affected_configs,
+                            reason=signal.reason
+                        )
                 elif signal.action == FeedbackAction.TRIGGER_CMAES:
                     print(f"[Feedback] CMA-ES trigger after promotion failures: {signal.reason}")
+                    # Publish event to trigger CMA-ES optimization
+                    await self.event_bus.publish(DataEvent(
+                        event_type=DataEventType.CMAES_TRIGGERED,
+                        payload={
+                            "reason": signal.reason,
+                            "source": "promotion_feedback",
+                            "configs": [config_key] if config_key else [],
+                        }
+                    ))
 
         except Exception as e:
             print(f"[Feedback] Error processing promotion feedback: {e}")
@@ -3225,6 +3306,38 @@ class UnifiedAILoop:
 
         except Exception as e:
             print(f"[Curriculum] Error handling Elo change event: {e}")
+
+    async def _adjust_selfplay_rate(self, multiplier: float, reason: str) -> None:
+        """Adjust selfplay rate based on feedback signals.
+
+        This method bridges the feedback controller's games_per_worker_multiplier
+        to the P2P selfplay coordinator for distributed scaling.
+
+        Args:
+            multiplier: Rate multiplier (1.0 = no change, 1.5 = 50% increase)
+            reason: Human-readable reason for adjustment
+        """
+        # Update P2P coordinator if available
+        if self.p2p and hasattr(self.p2p, 'selfplay'):
+            try:
+                new_rate = self.p2p.selfplay.adjust_target_rate(multiplier, reason)
+                print(f"[Selfplay] Target rate adjusted to {new_rate}/hour (multiplier={multiplier:.2f})")
+
+                # Emit event for coordination
+                await self.event_bus.publish(DataEvent(
+                    event_type=DataEventType.P2P_SELFPLAY_SCALED,
+                    payload={
+                        "new_rate": new_rate,
+                        "multiplier": multiplier,
+                        "reason": reason,
+                    }
+                ))
+            except Exception as e:
+                print(f"[Selfplay] Failed to adjust P2P target rate: {e}")
+        else:
+            # No P2P coordinator - just log the requested adjustment
+            print(f"[Selfplay] Rate adjustment requested (multiplier={multiplier:.2f}): {reason}")
+            print(f"[Selfplay] Note: P2P coordinator not available, adjustment not applied")
 
     # =========================================================================
     # Adaptive Controller Callbacks

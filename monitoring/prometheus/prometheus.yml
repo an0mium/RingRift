@@ -114,6 +114,32 @@ scrape_configs:
     scrape_timeout: 30s
 
   # ---------------------------------------------------------------------------
+  # RingRift Unified AI Loop (training, evaluation, promotion metrics)
+  # ---------------------------------------------------------------------------
+  - job_name: 'ringrift-unified-loop'
+    static_configs:
+      - targets: ['host.docker.internal:9091']
+        labels:
+          service: 'ringrift'
+          component: 'unified-loop'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # ---------------------------------------------------------------------------
+  # RingRift P2P Orchestrator (cluster, selfplay, training metrics)
+  # ---------------------------------------------------------------------------
+  - job_name: 'ringrift-p2p-orchestrator'
+    static_configs:
+      - targets: ['host.docker.internal:8770']
+        labels:
+          service: 'ringrift'
+          component: 'p2p-orchestrator'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # ---------------------------------------------------------------------------
   # Redis (if using redis_exporter)
   # Uncomment when redis_exporter is deployed
   # ---------------------------------------------------------------------------

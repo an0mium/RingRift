@@ -8841,8 +8841,23 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             return web.json_response({"success": False, "error": str(e)})
 
     async def handle_metrics(self, request: web.Request) -> web.Response:
-        """GET /metrics - Get metrics summary and history."""
+        """GET /metrics - Get metrics summary and history.
+
+        Content negotiation:
+        - Accept: text/plain -> Prometheus format (same as /metrics/prometheus)
+        - Accept: application/json -> JSON format
+        - Default (no header) -> Prometheus format for Prometheus scraper compatibility
+        """
         try:
+            # Content negotiation for Prometheus compatibility
+            accept = request.headers.get("Accept", "")
+            # Prometheus sends "text/plain" or "application/openmetrics-text"
+            # Also check for explicit format param
+            format_param = request.query.get("format", "").lower()
+            if format_param == "prometheus" or "text/plain" in accept or "openmetrics" in accept or not accept:
+                # Return Prometheus format
+                return await self.handle_metrics_prometheus(request)
+
             hours = float(request.query.get("hours", "24"))
             metric_type = request.query.get("type")
             board_type = request.query.get("board_type")
@@ -8936,6 +8951,28 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             lines.append("# HELP ringrift_node_alive Whether node is alive (1) or not (0)")
             lines.append("# TYPE ringrift_node_alive gauge")
 
+            # Cluster cost metrics (for Grafana dashboards)
+            # GPU hourly rates (Lambda Labs pricing)
+            GPU_HOURLY_RATES = {
+                "GH200": 2.49, "H100": 2.49, "A100": 1.99, "A10": 0.75,
+                "RTX_4090": 0.50, "RTX4090": 0.50, "4090": 0.50,
+                "RTX_3090": 0.30, "RTX3090": 0.30, "3090": 0.30,
+                "unknown": 0.50,
+            }
+
+            lines.append("# HELP ringrift_cluster_node_up Whether cluster node is active (1=up, 0=down)")
+            lines.append("# TYPE ringrift_cluster_node_up gauge")
+            lines.append("# HELP ringrift_cluster_node_cost_per_hour Estimated hourly cost in USD")
+            lines.append("# TYPE ringrift_cluster_node_cost_per_hour gauge")
+            lines.append("# HELP ringrift_cluster_gpu_utilization GPU utilization as fraction (0-1)")
+            lines.append("# TYPE ringrift_cluster_gpu_utilization gauge")
+            lines.append("# HELP ringrift_cluster_cpu_utilization CPU utilization as fraction (0-1)")
+            lines.append("# TYPE ringrift_cluster_cpu_utilization gauge")
+            lines.append("# HELP ringrift_cluster_gpu_memory_used_bytes GPU memory used in bytes")
+            lines.append("# TYPE ringrift_cluster_gpu_memory_used_bytes gauge")
+            lines.append("# HELP ringrift_cluster_memory_used_bytes System memory used in bytes")
+            lines.append("# TYPE ringrift_cluster_memory_used_bytes gauge")
+
             # Export self metrics with node label
             node_name = self.node_id or "unknown"
             cpu = getattr(self.self_info, 'cpu_percent', 0)
@@ -8943,6 +8980,12 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             disk = getattr(self.self_info, 'disk_percent', 0)
             gpu = getattr(self.self_info, 'gpu_percent', 0) if self.self_info.has_gpu else 0
             role = "leader" if self.role == NodeRole.LEADER else "worker"
+            gpu_type = getattr(self.self_info, 'gpu_type', 'unknown') or 'unknown'
+            # Normalize GPU type for lookup
+            gpu_type_key = gpu_type.replace(' ', '_').upper() if gpu_type else 'unknown'
+            hourly_cost = GPU_HOURLY_RATES.get(gpu_type_key, GPU_HOURLY_RATES.get(gpu_type, GPU_HOURLY_RATES['unknown']))
+            gpu_mem_bytes = getattr(self.self_info, 'gpu_memory_used_bytes', 0) or 0
+            sys_mem_bytes = getattr(self.self_info, 'memory_used_bytes', 0) or 0
 
             lines.append(f'ringrift_cpu_percent{{node="{node_name}",role="{role}"}} {cpu}')
             lines.append(f'ringrift_memory_percent{{node="{node_name}",role="{role}"}} {mem}')
@@ -8950,6 +8993,14 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             lines.append(f'ringrift_gpu_percent{{node="{node_name}",role="{role}"}} {gpu}')
             lines.append(f'ringrift_selfplay_jobs{{node="{node_name}",role="{role}"}} {selfplay_jobs}')
             lines.append(f'ringrift_node_alive{{node="{node_name}",role="{role}"}} 1')
+
+            # Export cluster cost metrics for self (for Grafana cost dashboard)
+            lines.append(f'ringrift_cluster_node_up{{node="{node_name}",gpu_type="{gpu_type}"}} 1')
+            lines.append(f'ringrift_cluster_node_cost_per_hour{{node="{node_name}",gpu_type="{gpu_type}"}} {hourly_cost}')
+            lines.append(f'ringrift_cluster_gpu_utilization{{node="{node_name}",gpu_type="{gpu_type}"}} {gpu / 100.0 if gpu else 0}')
+            lines.append(f'ringrift_cluster_cpu_utilization{{node="{node_name}"}} {cpu / 100.0 if cpu else 0}')
+            lines.append(f'ringrift_cluster_gpu_memory_used_bytes{{node="{node_name}",gpu_type="{gpu_type}"}} {gpu_mem_bytes}')
+            lines.append(f'ringrift_cluster_memory_used_bytes{{node="{node_name}"}} {sys_mem_bytes}')
 
             # Export peer metrics with node labels
             with self.peers_lock:
@@ -8963,12 +9014,25 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     peer_mem = getattr(peer, 'memory_percent', 0) or 0
                     peer_gpu = getattr(peer, 'gpu_percent', 0) or 0
                     peer_jobs = getattr(peer, 'selfplay_jobs', 0) or 0
+                    peer_gpu_type = getattr(peer, 'gpu_type', 'unknown') or 'unknown'
+                    peer_gpu_type_key = peer_gpu_type.replace(' ', '_').upper() if peer_gpu_type else 'unknown'
+                    peer_hourly_cost = GPU_HOURLY_RATES.get(peer_gpu_type_key, GPU_HOURLY_RATES.get(peer_gpu_type, GPU_HOURLY_RATES['unknown']))
+                    peer_gpu_mem = getattr(peer, 'gpu_memory_used_bytes', 0) or 0
+                    peer_sys_mem = getattr(peer, 'memory_used_bytes', 0) or 0
 
                     lines.append(f'ringrift_cpu_percent{{node="{peer_name}",role="{peer_role}"}} {peer_cpu}')
                     lines.append(f'ringrift_memory_percent{{node="{peer_name}",role="{peer_role}"}} {peer_mem}')
                     lines.append(f'ringrift_gpu_percent{{node="{peer_name}",role="{peer_role}"}} {peer_gpu}')
                     lines.append(f'ringrift_selfplay_jobs{{node="{peer_name}",role="{peer_role}"}} {peer_jobs}')
                     lines.append(f'ringrift_node_alive{{node="{peer_name}",role="{peer_role}"}} {is_alive}')
+
+                    # Export cluster cost metrics for peer
+                    lines.append(f'ringrift_cluster_node_up{{node="{peer_name}",gpu_type="{peer_gpu_type}"}} {is_alive}')
+                    lines.append(f'ringrift_cluster_node_cost_per_hour{{node="{peer_name}",gpu_type="{peer_gpu_type}"}} {peer_hourly_cost if is_alive else 0}')
+                    lines.append(f'ringrift_cluster_gpu_utilization{{node="{peer_name}",gpu_type="{peer_gpu_type}"}} {peer_gpu / 100.0 if peer_gpu else 0}')
+                    lines.append(f'ringrift_cluster_cpu_utilization{{node="{peer_name}"}} {peer_cpu / 100.0 if peer_cpu else 0}')
+                    lines.append(f'ringrift_cluster_gpu_memory_used_bytes{{node="{peer_name}",gpu_type="{peer_gpu_type}"}} {peer_gpu_mem}')
+                    lines.append(f'ringrift_cluster_memory_used_bytes{{node="{peer_name}"}} {peer_sys_mem}')
 
             # Elo metrics with config labels
             try:
