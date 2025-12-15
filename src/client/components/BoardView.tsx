@@ -211,25 +211,25 @@ const getPlayerColors = (playerNumber?: number) => {
 const getJustMovedHighlight = (playerNumber?: number): string => {
   switch (playerNumber) {
     case 1: // Emerald → Rose highlight
-      return 'ring-[2px] ring-rose-400 ring-inset';
+      return 'ring-[2px] ring-rose-400';
     case 2: // Sky/Blue → Orange highlight
-      return 'ring-[2px] ring-orange-400 ring-inset';
+      return 'ring-[2px] ring-orange-400';
     case 3: // Amber/Yellow → Violet highlight
-      return 'ring-[2px] ring-violet-400 ring-inset';
+      return 'ring-[2px] ring-violet-400';
     case 4: // Fuchsia → Cyan highlight
-      return 'ring-[2px] ring-cyan-400 ring-inset';
+      return 'ring-[2px] ring-cyan-400';
     default:
-      return 'ring-[2px] ring-white ring-inset';
+      return 'ring-[2px] ring-white';
   }
 };
 
 // Derive highlight from colorClass for ViewModel-based rendering
 const getJustMovedHighlightFromColorClass = (colorClass: string): string => {
-  if (colorClass.includes('emerald')) return 'ring-[2px] ring-rose-400 ring-inset';
-  if (colorClass.includes('sky')) return 'ring-[2px] ring-orange-400 ring-inset';
-  if (colorClass.includes('amber')) return 'ring-[2px] ring-violet-400 ring-inset';
-  if (colorClass.includes('fuchsia')) return 'ring-[2px] ring-cyan-400 ring-inset';
-  return 'ring-[2px] ring-white ring-inset';
+  if (colorClass.includes('emerald')) return 'ring-[2px] ring-rose-400';
+  if (colorClass.includes('sky')) return 'ring-[2px] ring-orange-400';
+  if (colorClass.includes('amber')) return 'ring-[2px] ring-violet-400';
+  if (colorClass.includes('fuchsia')) return 'ring-[2px] ring-cyan-400';
+  return 'ring-[2px] ring-white';
 };
 
 const generateFileLabels = (size: number, skipI = false): string[] => {

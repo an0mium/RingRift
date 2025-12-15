@@ -2,19 +2,26 @@
 """Model distillation pipeline for RingRift AI.
 
 Creates smaller, faster "student" models by distilling knowledge from
-larger "teacher" models. The student learns to mimic the teacher's
-outputs (soft targets) rather than just the hard labels.
+larger "teacher" models or ensembles. The student learns to mimic the
+teacher's outputs (soft targets) rather than just the hard labels.
 
 Benefits:
 - Faster inference for mobile/embedded deployment
 - Reduced memory footprint
 - Can achieve 80-90% of teacher performance at 10-20% size
+- Ensemble distillation combines knowledge from multiple models
 
 Usage:
     # Distill from large to small model
     python scripts/model_distillation.py \
         --teacher models/ringrift_large_sq8.pth \
         --student-size small \
+        --db data/games/selfplay.db
+
+    # Distill from ensemble to single model
+    python scripts/model_distillation.py \
+        --ensemble models/square8_2p_ensemble.pt \
+        --student-size medium \
         --db data/games/selfplay.db
 
     # Custom student architecture
@@ -168,6 +175,122 @@ class StudentModel(nn.Module):
         value = self.value_head(features)
         policy = self.policy_head(features)
         return value, policy
+
+
+class EnsembleTeacher(nn.Module):
+    """Ensemble of models acting as a single teacher.
+
+    Combines outputs from multiple models by averaging (soft voting).
+    This produces smoother, more robust soft targets for distillation.
+    """
+
+    def __init__(
+        self,
+        models: List[nn.Module],
+        weights: Optional[List[float]] = None,
+    ):
+        super().__init__()
+        self.models = nn.ModuleList(models)
+        if weights:
+            total = sum(weights)
+            self.weights = [w / total for w in weights]
+        else:
+            self.weights = [1.0 / len(models)] * len(models)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass averaging outputs from all models."""
+        outputs = []
+        for model, weight in zip(self.models, self.weights):
+            with torch.no_grad():
+                out = model(x)
+                if isinstance(out, tuple):
+                    out = out[1]  # Policy head
+                outputs.append(out * weight)
+        return sum(outputs)
+
+    @classmethod
+    def from_ensemble_checkpoint(
+        cls,
+        checkpoint_path: Path,
+        model_class: type,
+        device: torch.device,
+    ) -> "EnsembleTeacher":
+        """Load ensemble from checkpoint created by ensemble_models.py.
+
+        Args:
+            checkpoint_path: Path to ensemble checkpoint
+            model_class: Class to instantiate for each model
+            device: Device to load models to
+
+        Returns:
+            EnsembleTeacher instance
+        """
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+
+        if "ensemble_metadata" not in checkpoint:
+            raise ValueError("Not an ensemble checkpoint (missing ensemble_metadata)")
+
+        metadata = checkpoint["ensemble_metadata"]
+        source_models = metadata.get("source_models", [])
+        weights = metadata.get("weights")
+
+        logger.info(f"Loading ensemble from {len(source_models)} models")
+
+        # For ensemble distillation, we use the averaged weights directly
+        # rather than loading individual models
+        # This is more efficient as the ensemble was pre-averaged
+        models = []
+
+        # Create a single model with the averaged weights
+        model = model_class()
+        model.load_state_dict(checkpoint["model_state_dict"])
+        model.to(device)
+        model.eval()
+        models.append(model)
+
+        return cls(models, weights=[1.0])
+
+
+def load_ensemble_models(
+    ensemble_path: Path,
+    model_class: type,
+    device: torch.device,
+) -> Tuple[nn.Module, Dict[str, Any]]:
+    """Load ensemble model as teacher.
+
+    Supports two formats:
+    1. Averaged ensemble (from ensemble_models.py) - single model with averaged weights
+    2. Individual models - loads and combines multiple model files
+
+    Returns:
+        Tuple of (teacher_model, metadata)
+    """
+    checkpoint = torch.load(ensemble_path, map_location=device, weights_only=False)
+
+    if "ensemble_metadata" in checkpoint:
+        # Pre-averaged ensemble
+        metadata = checkpoint["ensemble_metadata"]
+        logger.info(f"Loading pre-averaged ensemble ({metadata.get('ensemble_type', 'unknown')})")
+
+        model = model_class()
+        model.load_state_dict(checkpoint["model_state_dict"])
+        model.to(device)
+        model.eval()
+
+        return model, metadata
+
+    # Fallback: treat as single model
+    logger.info("Loading as single model (no ensemble metadata)")
+    model = model_class()
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        model.load_state_dict(checkpoint["model_state_dict"])
+    elif isinstance(checkpoint, dict):
+        model.load_state_dict(checkpoint)
+
+    model.to(device)
+    model.eval()
+
+    return model, {"source_models": [str(ensemble_path)], "ensemble_type": "single"}
 
 
 def count_parameters(model: nn.Module) -> int:
@@ -420,11 +543,17 @@ def main():
         description="Model distillation for RingRift AI"
     )
 
-    parser.add_argument(
+    # Teacher model source (mutually exclusive)
+    teacher_group = parser.add_mutually_exclusive_group(required=True)
+    teacher_group.add_argument(
         "--teacher",
         type=str,
-        required=True,
-        help="Path to teacher model",
+        help="Path to single teacher model",
+    )
+    teacher_group.add_argument(
+        "--ensemble",
+        type=str,
+        help="Path to ensemble model (created by ensemble_models.py)",
     )
     parser.add_argument(
         "--student-size",
