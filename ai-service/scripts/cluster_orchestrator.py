@@ -33,21 +33,20 @@ import yaml
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Import unified cluster coordination (legacy module)
+# Import TaskCoordinator for task registration and limits (canonical)
 try:
-    from app.coordination import (
-        acquire_orchestrator_lock,
-        release_orchestrator_lock,
-        can_spawn_task,
-        register_task,
-        check_emergency_halt,
-        cleanup_stale_tasks,
-        MAX_LOAD_THRESHOLD,
+    from app.coordination.task_coordinator import (
+        TaskCoordinator,
+        TaskType,
+        TaskLimits,
+        emergency_stop_all,
     )
-    HAS_LEGACY_COORDINATION = True
+    HAS_TASK_COORDINATOR = True
 except ImportError:
-    HAS_LEGACY_COORDINATION = False
-    print("[WARN] Legacy cluster coordination module not available")
+    HAS_TASK_COORDINATOR = False
+    TaskCoordinator = None
+    TaskType = None
+    print("[WARN] TaskCoordinator not available")
 
 # Import new coordination features
 try:
@@ -89,7 +88,7 @@ except ImportError:
     ClusterCoordinator = None
     TaskRole = None
 
-HAS_COORDINATION = HAS_LEGACY_COORDINATION or HAS_ENHANCED_COORDINATION
+HAS_COORDINATION = HAS_TASK_COORDINATOR or HAS_ENHANCED_COORDINATION
 
 LOG_DIR = Path(__file__).parent.parent / "logs" / "orchestrator"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -924,7 +923,7 @@ def acquire_lock() -> bool:
     """Acquire lockfile to prevent multiple instances.
 
     Uses new OrchestratorRole if available, falls back to enhanced ClusterCoordinator,
-    then legacy coordination, then local lockfile.
+    then local lockfile.
     """
     # Prefer new OrchestratorRole system (SQLite-backed with heartbeat)
     if HAS_NEW_COORDINATION:
@@ -944,14 +943,6 @@ def acquire_lock() -> bool:
             return False
         log("Enhanced coordination available - lock check passed")
         # Note: actual lock is acquired via context manager in main loop
-        return True
-
-    # Fallback to legacy unified coordination
-    if HAS_LEGACY_COORDINATION:
-        if not acquire_orchestrator_lock("cluster_orchestrator"):
-            log("Another orchestrator is already running (via legacy lock)", "WARN")
-            return False
-        log("Acquired legacy orchestrator lock")
         return True
 
     # Final fallback to local lockfile
@@ -976,10 +967,6 @@ def release_lock():
             release_orchestrator_role()
         except Exception as e:
             log(f"Error releasing orchestrator role: {e}", "WARN")
-
-    # Release legacy unified coordination lock
-    if HAS_LEGACY_COORDINATION:
-        release_orchestrator_lock()
 
     # Also release local lockfile
     try:
@@ -1019,12 +1006,20 @@ def check_host_can_spawn(host_name: str, ssh_host: str, task_type: str = "selfpl
         coordinator = ClusterCoordinator()
         return coordinator.can_spawn_process(task_type)
 
-    # Fallback to legacy coordination
-    if HAS_LEGACY_COORDINATION:
-        if check_emergency_halt():
-            log(f"Emergency halt active, blocking spawn on {host_name}", "WARN")
-            return False
-        return can_spawn_task(host=ssh_host, task_type=task_type)
+    # Fallback to TaskCoordinator (canonical)
+    if HAS_TASK_COORDINATOR:
+        try:
+            tc = TaskCoordinator.get_instance()
+            # Map task_type string to TaskType enum
+            task_type_enum = getattr(TaskType, task_type.upper(), TaskType.SELFPLAY)
+            import socket
+            node_id = socket.gethostname()
+            can_spawn, reason = tc.can_spawn_task(task_type_enum, node_id)
+            if not can_spawn:
+                log(f"TaskCoordinator denied spawn: {reason}", "WARN")
+            return can_spawn
+        except Exception as e:
+            log(f"TaskCoordinator check failed: {e}", "WARN")
 
     return True  # No coordination, allow spawn
 

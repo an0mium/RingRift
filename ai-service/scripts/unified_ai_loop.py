@@ -1142,6 +1142,10 @@ class UnifiedLoopState:
             "per_buffer_path": self.per_buffer_path,
             "per_last_rebuild": self.per_last_rebuild,
             "per_buffer_size": self.per_buffer_size,
+            # Calibration state
+            "calibration_reports": self.calibration_reports,
+            "last_calibration_time": self.last_calibration_time,
+            "current_temperature_preset": self.current_temperature_preset,
         }
 
     @classmethod
@@ -1160,7 +1164,9 @@ class UnifiedLoopState:
                     "nas_in_progress", "nas_run_id", "nas_started_at",
                     "nas_generation", "nas_best_architecture",
                     # PER state
-                    "per_buffer_path", "per_last_rebuild", "per_buffer_size"]:
+                    "per_buffer_path", "per_last_rebuild", "per_buffer_size",
+                    # Calibration state
+                    "calibration_reports", "last_calibration_time", "current_temperature_preset"]:
             if key in data:
                 setattr(state, key, data[key])
 
@@ -1641,6 +1647,15 @@ class TrainingScheduler:
         # Cluster-wide training coordination
         self._training_lock_fd: Optional[int] = None
         self._training_lock_path: Optional[Path] = None
+        # Calibration tracking (per config)
+        self._calibration_trackers: Dict[str, Any] = {}
+        if HAS_VALUE_CALIBRATION:
+            for config_key in state.configs:
+                self._calibration_trackers[config_key] = CalibrationTracker(window_size=1000)
+        # Temperature scheduler for self-play exploration
+        self._temp_scheduler: Optional[Any] = None
+        if HAS_TEMPERATURE_SCHEDULING:
+            self._temp_scheduler = create_temp_scheduler(state.current_temperature_preset or "default")
 
     def set_feedback_controller(self, feedback: "PipelineFeedbackController"):
         """Set the feedback controller (called after initialization)."""
@@ -1958,6 +1973,12 @@ class TrainingScheduler:
                 "duration": time.time() - self.state.training_started_at,
             }
 
+            # Run calibration analysis if training succeeded
+            if success and HAS_VALUE_CALIBRATION:
+                calibration_report = await self._run_calibration_analysis(config_key)
+                if calibration_report:
+                    result["calibration"] = calibration_report
+
             await self.event_bus.publish(DataEvent(
                 event_type=DataEventType.TRAINING_COMPLETED,
                 payload=result
@@ -1966,6 +1987,56 @@ class TrainingScheduler:
             return result
 
         return None
+
+    async def _run_calibration_analysis(self, config_key: str) -> Optional[Dict[str, Any]]:
+        """Run value calibration analysis on recent training data."""
+        if not HAS_VALUE_CALIBRATION:
+            return None
+
+        try:
+            # Get calibration tracker for this config
+            if config_key not in self._calibration_trackers:
+                self._calibration_trackers[config_key] = CalibrationTracker(window_size=1000)
+
+            tracker = self._calibration_trackers[config_key]
+
+            # Compute calibration from tracker's running window
+            report = tracker.compute_current_calibration()
+            if report is None:
+                print(f"[Calibration] Not enough samples for {config_key}")
+                return None
+
+            # Store in state
+            report_dict = report.to_dict()
+            self.state.calibration_reports[config_key] = report_dict
+            self.state.last_calibration_time = time.time()
+
+            # Log calibration metrics
+            print(f"[Calibration] {config_key}: ECE={report.ece:.4f}, MCE={report.mce:.4f}, "
+                  f"overconfidence={report.overconfidence:.4f}")
+
+            # Check if recalibration is needed
+            if report.ece > 0.1:  # High calibration error
+                print(f"[Calibration] WARNING: High ECE for {config_key}, consider recalibration")
+                if report.optimal_temperature:
+                    print(f"[Calibration] Suggested temperature: {report.optimal_temperature:.3f}")
+
+            return report_dict
+
+        except Exception as e:
+            print(f"[Calibration] Error analyzing {config_key}: {e}")
+            return None
+
+    def get_temperature_for_move(self, move_number: int, game_state: Optional[Any] = None) -> float:
+        """Get exploration temperature for a given move in self-play."""
+        if self._temp_scheduler is None:
+            return 1.0
+        return self._temp_scheduler.get_temperature(move_number, game_state)
+
+    def update_training_progress(self, progress: float):
+        """Update training progress for curriculum-based temperature scheduling."""
+        if self._temp_scheduler is not None:
+            self._temp_scheduler.set_training_progress(progress)
 
 
 # =============================================================================
@@ -2043,12 +2114,68 @@ class ModelPromoter:
             return []
 
     async def execute_promotion(self, candidate: Dict[str, Any]) -> bool:
-        """Execute a model promotion."""
+        """Execute a model promotion with holdout validation gate."""
         try:
             await self.event_bus.publish(DataEvent(
                 event_type=DataEventType.PROMOTION_CANDIDATE,
                 payload=candidate
             ))
+
+            # Holdout validation gate - check for overfitting before promotion
+            if HAS_HOLDOUT_VALIDATION and evaluate_model_on_holdout is not None:
+                config_key = candidate["config"]
+                # Parse board_type and num_players from config key (e.g., "standard_2p")
+                parts = config_key.rsplit("_", 1)
+                board_type = parts[0] if len(parts) == 2 else config_key
+                num_players = int(parts[1].replace("p", "")) if len(parts) == 2 else 2
+
+                # Get model path for evaluation
+                model_path = AI_SERVICE_ROOT / "data" / "models" / f"{candidate['model_id']}.pt"
+                if not model_path.exists():
+                    # Try alternative path patterns
+                    model_path = AI_SERVICE_ROOT / "models" / f"{candidate['model_id']}.pt"
+
+                if model_path.exists():
+                    try:
+                        # Run holdout evaluation (synchronous call in async context)
+                        eval_result = await asyncio.get_event_loop().run_in_executor(
+                            None,
+                            lambda: evaluate_model_on_holdout(
+                                model_path=str(model_path),
+                                board_type=board_type,
+                                num_players=num_players,
+                                train_loss=candidate.get("train_loss"),
+                            )
+                        )
+
+                        # Emit metrics
+                        if HAS_PROMETHEUS:
+                            HOLDOUT_LOSS.labels(config=config_key).set(eval_result.holdout_loss)
+                            if eval_result.overfit_gap is not None:
+                                HOLDOUT_OVERFIT_GAP.labels(config=config_key).set(eval_result.overfit_gap)
+
+                        # Check for overfitting
+                        if eval_result.overfit_gap is not None and eval_result.overfit_gap > OVERFIT_THRESHOLD:
+                            print(f"[ModelPromoter] Promotion BLOCKED for {candidate['model_id']}: "
+                                  f"overfit_gap={eval_result.overfit_gap:.4f} > threshold={OVERFIT_THRESHOLD}")
+                            if HAS_PROMETHEUS:
+                                HOLDOUT_EVALUATIONS.labels(config=config_key, result='failed_overfit').inc()
+                                PROMOTION_BLOCKED_OVERFIT.labels(config=config_key).inc()
+                            return False
+
+                        print(f"[ModelPromoter] Holdout validation PASSED for {candidate['model_id']}: "
+                              f"holdout_loss={eval_result.holdout_loss:.4f}, gap={eval_result.overfit_gap}")
+                        if HAS_PROMETHEUS:
+                            HOLDOUT_EVALUATIONS.labels(config=config_key, result='passed').inc()
+
+                    except Exception as e:
+                        print(f"[ModelPromoter] Holdout validation error (proceeding anyway): {e}")
+                        if HAS_PROMETHEUS:
+                            HOLDOUT_EVALUATIONS.labels(config=config_key, result='skipped').inc()
+                else:
+                    print(f"[ModelPromoter] Model file not found for holdout validation: {model_path}")
+                    if HAS_PROMETHEUS:
+                        HOLDOUT_EVALUATIONS.labels(config=config_key, result='skipped').inc()
 
             # Run promotion script
             cmd = [
@@ -2635,6 +2762,9 @@ class UnifiedAILoop:
                     state_path=state_path,
                 )
                 print(f"[UnifiedLoop] Adaptive controller initialized (plateau_threshold={self.adaptive_ctrl.plateau_threshold})")
+                # Subscribe to promotion events for iteration tracking
+                self.event_bus.subscribe(DataEventType.MODEL_PROMOTED, self._on_promotion_for_adaptive_ctrl)
+                self.event_bus.subscribe(DataEventType.EVALUATION_COMPLETED, self._on_evaluation_for_adaptive_ctrl)
             except Exception as e:
                 print(f"[UnifiedLoop] Warning: Failed to initialize adaptive controller: {e}")
 
@@ -2933,6 +3063,70 @@ class UnifiedAILoop:
 
         except Exception as e:
             print(f"[Curriculum] Error handling Elo change event: {e}")
+
+    # =========================================================================
+    # Adaptive Controller Callbacks
+    # =========================================================================
+
+    async def _on_promotion_for_adaptive_ctrl(self, event: DataEvent):
+        """Record promotion results to adaptive controller for plateau detection."""
+        if not self.adaptive_ctrl:
+            return
+
+        try:
+            payload = event.payload
+            promoted = payload.get('success', True)  # If event fired, promotion succeeded
+            config_key = payload.get('config', '')
+            elo_gain = payload.get('elo_gain', 0)
+            win_rate = payload.get('win_rate', 0.5)
+            games_played = payload.get('games_played', 0)
+            eval_games = payload.get('eval_games', 0)
+
+            # Record to adaptive controller
+            iteration = len(self.adaptive_ctrl.history) + 1
+            self.adaptive_ctrl.record_iteration(
+                iteration=iteration,
+                win_rate=win_rate,
+                promoted=promoted,
+                games_played=games_played,
+                eval_games=eval_games,
+            )
+
+            # Check plateau status
+            plateau_count = self.adaptive_ctrl.get_plateau_count()
+            should_continue = self.adaptive_ctrl.should_continue()
+
+            if not should_continue:
+                print(f"[AdaptiveCtrl] PLATEAU DETECTED: {plateau_count} iterations without improvement")
+                print(f"[AdaptiveCtrl] Consider triggering CMA-ES hyperparameter search or architecture changes")
+            elif plateau_count > 0:
+                print(f"[AdaptiveCtrl] Plateau count: {plateau_count}/{self.adaptive_ctrl.plateau_threshold}")
+
+            # Log recommended game counts for next iteration
+            next_games = self.adaptive_ctrl.compute_games(win_rate)
+            next_eval = self.adaptive_ctrl.compute_eval_games(win_rate)
+            print(f"[AdaptiveCtrl] Recommended for next iteration: {next_games} selfplay games, {next_eval} eval games")
+
+        except Exception as e:
+            print(f"[AdaptiveCtrl] Error processing promotion event: {e}")
+
+    async def _on_evaluation_for_adaptive_ctrl(self, event: DataEvent):
+        """Track evaluation results for adaptive control (win rates, trends)."""
+        if not self.adaptive_ctrl:
+            return
+
+        try:
+            payload = event.payload
+            win_rate = payload.get('win_rate')
+            config_key = payload.get('config', '')
+
+            if win_rate is not None:
+                # Store for potential use in compute_games
+                next_games = self.adaptive_ctrl.compute_games(win_rate)
+                print(f"[AdaptiveCtrl] {config_key} win_rate={win_rate:.2%}, suggested games: {next_games}")
+
+        except Exception as e:
+            print(f"[AdaptiveCtrl] Error processing evaluation event: {e}")
 
     def _load_state(self):
         """Load state from checkpoint file."""

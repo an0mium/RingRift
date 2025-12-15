@@ -1,7 +1,21 @@
-"""Elo rating calculation for tournament system.
+"""Elo rating calculation utilities for tournament system.
 
+This module provides pure Elo calculation functions and dataclasses.
 Supports both 2-player and multiplayer games. For multiplayer, games are
 decomposed into virtual pairwise matchups based on final rankings.
+
+Note: For service-level Elo operations (persistence, cross-component coordination),
+use `app.training.elo_service` which provides:
+- Singleton EloService with SQLite persistence
+- Thread-safe operations with unified_elo.db
+- Training feedback hooks for parameter adaptation
+- Integration with model lifecycle management
+
+This module (`app.tournament.elo`) focuses on:
+- Core Elo calculation algorithms
+- Glicko-style confidence intervals
+- Multiplayer Elo decomposition
+- Tournament rating utilities
 """
 from __future__ import annotations
 
