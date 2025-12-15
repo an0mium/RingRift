@@ -422,6 +422,10 @@ ELECTION_TIMEOUT = 10  # seconds to wait for election responses
 # window provides ample buffer for transient network issues.
 LEADER_LEASE_DURATION = 180  # seconds (increased from 90s for cross-provider stability)
 LEADER_LEASE_RENEW_INTERVAL = 15  # How often leader renews lease (increased from 10s)
+# LEADERLESS FALLBACK: When the cluster has no leader for this long, individual nodes
+# may trigger local training to prevent data accumulation without progress.
+# This makes the system more resilient to leader election failures.
+LEADERLESS_TRAINING_TIMEOUT = 600  # 10 minutes without leader triggers local training
 JOB_CHECK_INTERVAL = 60  # seconds between job status checks
 DISCOVERY_PORT = 8771  # UDP port for peer discovery
 DISCOVERY_INTERVAL = 120  # seconds between discovery broadcasts
@@ -1632,6 +1636,10 @@ class P2POrchestrator:
         self.leader_lease_expires: float = 0.0  # timestamp when current leader's lease expires
         self.last_lease_renewal: float = 0.0  # when we last renewed our lease (if leader)
         self.leader_lease_id: str = ""  # unique ID for current leadership term
+        # LEADERLESS FALLBACK: Track when we last had a functioning leader.
+        # If leaderless for too long, nodes can trigger local training independently.
+        self.last_leader_seen: float = time.time()  # When we last saw a functioning leader
+        self.last_local_training_fallback: float = 0.0  # When we last triggered local training fallback
 
         # Voter-backed lease grants (split-brain resistance).
         #
@@ -5251,6 +5259,56 @@ class P2POrchestrator:
                             asyncio.get_event_loop().call_later(
                                 600, lambda: setattr(self, "_jsonl_aggregation_running", False)
                             )
+
+            # --- PART 1b: Export NPZ from aggregated DB for training ---
+            # Only run if we have a decent sized aggregated DB and not already exporting
+            if jsonl_db_path.exists() and not getattr(self, "_npz_export_running", False):
+                try:
+                    conn = sqlite3.connect(str(jsonl_db_path), timeout=5)
+                    game_count = conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+                    conn.close()
+
+                    # Only export if we have enough games and it's been a while
+                    training_dir = data_dir / "training"
+                    training_dir.mkdir(exist_ok=True)
+                    npz_output = training_dir / "auto_training_sq8_2p.npz"
+
+                    # Check if existing NPZ is stale (older than 1 hour) or small
+                    should_export = False
+                    if not npz_output.exists():
+                        should_export = game_count > 500
+                    else:
+                        npz_age_hours = (time.time() - npz_output.stat().st_mtime) / 3600
+                        npz_size_mb = npz_output.stat().st_size / (1024 * 1024)
+                        should_export = game_count > 1000 and (npz_age_hours > 1 or npz_size_mb < 1)
+
+                    if should_export:
+                        self._npz_export_running = True
+                        export_script = Path(self.ringrift_path) / "ai-service" / "scripts" / "export_replay_dataset.py"
+                        if export_script.exists():
+                            print(f"[P2P] Starting NPZ export ({game_count} games) -> {npz_output}")
+                            cmd = [
+                                sys.executable, str(export_script),
+                                "--db", str(jsonl_db_path),
+                                "--board-type", "square8",
+                                "--num-players", "2",
+                                "--output", str(npz_output),
+                                "--encoder-version", "v3",
+                                "--max-games", "5000",  # Limit for faster export
+                            ]
+                            subprocess.Popen(
+                                cmd,
+                                env=env,
+                                stdout=open("/tmp/npz_export.log", "w"),
+                                stderr=subprocess.STDOUT,
+                                cwd=str(Path(self.ringrift_path) / "ai-service"),
+                            )
+                            # Reset flag after 30 minutes (export is slow)
+                            asyncio.get_event_loop().call_later(
+                                1800, lambda: setattr(self, "_npz_export_running", False)
+                            )
+                except Exception as e:
+                    print(f"[P2P] NPZ export check error: {e}")
 
             # --- PART 2: Merge job DBs (CPU selfplay output) ---
             dbs_to_merge = []
@@ -9140,6 +9198,101 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         for job_config in jobs_to_start:
             print(f"[P2P] Auto-triggering {job_config['job_type']} training for {job_config['config_key']} ({job_config['total_games']} games)")
             await self._dispatch_training_job(job_config)
+
+    async def _check_local_training_fallback(self):
+        """Fallback training trigger when cluster has no leader.
+
+        LEADERLESS RESILIENCE: When the cluster has been without a leader for too long
+        (LEADERLESS_TRAINING_TIMEOUT), individual nodes can trigger local training to
+        prevent data accumulation without progress.
+
+        This makes the system more resilient to leader election failures while avoiding
+        duplicate training by:
+        1. Only triggering after a significant leaderless period (10 minutes)
+        2. Using random jitter so nodes don't all train simultaneously
+        3. Only training on local data (no cluster-wide coordination needed)
+        4. Using longer cooldowns between fallback training runs
+        """
+        # Skip if we ARE the leader or have a known leader
+        if self.role == NodeRole.LEADER or self.leader_id:
+            self.last_leader_seen = time.time()  # Update leader seen time
+            return
+
+        current_time = time.time()
+        leaderless_duration = current_time - self.last_leader_seen
+
+        # Only trigger fallback if leaderless for the timeout period
+        if leaderless_duration < LEADERLESS_TRAINING_TIMEOUT:
+            return
+
+        # Rate limit fallback training (30 minute cooldown)
+        fallback_cooldown = 1800  # 30 minutes between fallback triggers
+        if current_time - self.last_local_training_fallback < fallback_cooldown:
+            return
+
+        # Random jitter: only proceed with 20% probability per check
+        # This distributes training across nodes over time
+        import random
+        if random.random() > 0.2:
+            return
+
+        # Check if we have a GPU (training needs GPU)
+        if not getattr(self.self_info, "has_gpu", False):
+            return
+
+        # Check local data manifest
+        local_manifest = getattr(self, "local_data_manifest", None)
+        if not local_manifest:
+            return
+
+        # Check for sufficient local data (use higher threshold for fallback)
+        min_games_fallback = 5000  # Higher threshold for leaderless training
+        total_local_games = getattr(local_manifest, "selfplay_games", 0)
+        if total_local_games < min_games_fallback:
+            return
+
+        # Find board types with enough local data
+        game_counts_by_type: Dict[str, int] = {}
+        for file_info in getattr(local_manifest, "files", []) or []:
+            board_type = getattr(file_info, "board_type", "")
+            num_players = getattr(file_info, "num_players", 2)
+            game_count = getattr(file_info, "game_count", 0)
+            if board_type and game_count > 0:
+                key = f"{board_type}_{num_players}p"
+                game_counts_by_type[key] = game_counts_by_type.get(key, 0) + game_count
+
+        # Trigger local training for configurations with enough data
+        triggered_any = False
+        for config_key, game_count in game_counts_by_type.items():
+            if game_count < 2000:  # Minimum threshold
+                continue
+
+            # Check if we already have a running training job for this config
+            existing_job = self._find_running_training_job("nnue", config_key)
+            if existing_job:
+                continue
+
+            # Parse board type and player count
+            parts = config_key.split("_")
+            if len(parts) < 2:
+                continue
+            board_type = parts[0]
+            num_players = int(parts[1].replace("p", ""))
+
+            print(f"[P2P] LEADERLESS FALLBACK: Triggering local NNUE training for {config_key} ({game_count} local games, leaderless for {int(leaderless_duration)}s)")
+            job_config = {
+                "job_type": "nnue",
+                "board_type": board_type,
+                "num_players": num_players,
+                "config_key": config_key,
+                "total_games": game_count,
+            }
+            await self._dispatch_training_job(job_config)
+            triggered_any = True
+            break  # Only trigger one training job per fallback check
+
+        if triggered_any:
+            self.last_local_training_fallback = current_time
 
     async def _check_improvement_cycles(self):
         """Periodic check for improvement cycle readiness (leader only).
@@ -17255,6 +17408,7 @@ print(json.dumps({{
         if self.leader_id != leader.node_id:
             print(f"[P2P] Adopted existing leader from peers: {leader.node_id}")
         self.leader_id = leader.node_id
+        self.last_leader_seen = time.time()  # Track when we last had a functioning leader
         self.role = NodeRole.FOLLOWER
         self._save_state()
         return True
@@ -17451,6 +17605,7 @@ print(json.dumps({{
         print(f"[P2P] I am now the leader: {self.node_id}")
         self.role = NodeRole.LEADER
         self.leader_id = self.node_id
+        self.last_leader_seen = time.time()  # Track when we last had a functioning leader
 
         # Lease-based leadership (voter-backed when enabled).
         self.leader_lease_id = lease_id
@@ -17779,6 +17934,8 @@ print(json.dumps({{
                     await self._consolidate_selfplay_data()
                     # Phase 3: Check if training should be triggered automatically
                     await self._check_and_trigger_training()
+                    # LEADERLESS FALLBACK: If no leader for too long, trigger local training
+                    await self._check_local_training_fallback()
                     # Phase 5: Check improvement cycles for automated training
                     await self._check_improvement_cycles()
                     # Self-healing: detect and handle stuck jobs
