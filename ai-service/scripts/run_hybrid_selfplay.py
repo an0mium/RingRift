@@ -738,8 +738,8 @@ def main():
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="data/selfplay/hybrid",
-        help="Output directory",
+        default=None,  # Auto-generate unique dir to avoid conflicts
+        help="Output directory (default: auto-generated unique path)",
     )
     parser.add_argument(
         "--record-db",
@@ -865,12 +865,20 @@ def main():
             except Exception as e:
                 logger.warning(f"Failed to register task: {e}")
 
+        # Auto-generate unique output directory if not specified
+        output_dir = args.output_dir
+        if output_dir is None:
+            ts = int(time.time())
+            pid = os.getpid()
+            output_dir = f"data/selfplay/auto_{ts}/{pid}"
+            logger.info(f"Auto-generated output directory: {output_dir}")
+
         try:
             run_hybrid_selfplay(
                 board_type=args.board_type,
                 num_players=args.num_players,
                 num_games=args.num_games,
-                output_dir=args.output_dir,
+                output_dir=output_dir,
                 max_moves=args.max_moves,
                 seed=args.seed,
                 use_numba=not args.no_numba,
