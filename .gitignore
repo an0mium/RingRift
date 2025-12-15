@@ -209,3 +209,6 @@ ringrift_scenario_*.json
 
 # Root-level game databases (should go in ai-service/data/)
 data/games/
+
+# Load test result summaries
+results/load/

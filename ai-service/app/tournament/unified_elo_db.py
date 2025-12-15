@@ -145,6 +145,17 @@ class EloDatabase:
         """
         return "model_id" if getattr(self, "_uses_model_id_schema", False) else "participant_id"
 
+    @property
+    def match_columns(self) -> tuple:
+        """Get the correct column names for match_history table.
+
+        Returns ('model_a', 'model_b') for elo_leaderboard.db,
+        ('participant_a', 'participant_b') for unified_elo.db.
+        """
+        if getattr(self, "_uses_model_id_schema", False):
+            return ("model_a", "model_b")
+        return ("participant_a", "participant_b")
+
     def _init_db(self):
         """Initialize database schema.
 
@@ -528,33 +539,54 @@ class EloDatabase:
                 winner_id = pid
                 break
 
-        # For backwards compatibility, also populate participant_a/participant_b
-        participant_a = participant_ids[0] if len(participant_ids) > 0 else None
-        participant_b = participant_ids[1] if len(participant_ids) > 1 else None
+        # For backwards compatibility, also populate model_a/model_b or participant_a/participant_b
+        col_a, col_b = self.match_columns
+        model_a = participant_ids[0] if len(participant_ids) > 0 else None
+        model_b = participant_ids[1] if len(participant_ids) > 1 else None
 
         conn = self._get_connection()
-        cursor = conn.execute("""
-            INSERT INTO match_history
-            (participant_a, participant_b, participant_ids, rankings, winner,
-             board_type, num_players, game_length, duration_sec, timestamp,
-             tournament_id, game_id, worker, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            participant_a,
-            participant_b,
-            json.dumps(participant_ids),
-            json.dumps(rankings),
-            winner_id,
-            board_type,
-            num_players,
-            game_length,
-            duration_sec,
-            timestamp,
-            tournament_id,
-            game_id,
-            worker,
-            json.dumps(metadata) if metadata else None,
-        ))
+
+        # Check if this is the simple schema (elo_leaderboard.db) without participant_ids column
+        if self._uses_model_id_schema:
+            cursor = conn.execute(f"""
+                INSERT INTO match_history
+                ({col_a}, {col_b}, winner, board_type, num_players,
+                 game_length, duration_sec, timestamp, tournament_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                model_a,
+                model_b,
+                winner_id,
+                board_type,
+                num_players,
+                game_length,
+                duration_sec,
+                timestamp,
+                tournament_id,
+            ))
+        else:
+            cursor = conn.execute(f"""
+                INSERT INTO match_history
+                ({col_a}, {col_b}, participant_ids, rankings, winner,
+                 board_type, num_players, game_length, duration_sec, timestamp,
+                 tournament_id, game_id, worker, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                model_a,
+                model_b,
+                json.dumps(participant_ids),
+                json.dumps(rankings),
+                winner_id,
+                board_type,
+                num_players,
+                game_length,
+                duration_sec,
+                timestamp,
+                tournament_id,
+                game_id,
+                worker,
+                json.dumps(metadata) if metadata else None,
+            ))
         match_id = cursor.lastrowid
         conn.commit()
         return match_id

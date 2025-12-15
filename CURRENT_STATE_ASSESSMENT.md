@@ -1,6 +1,6 @@
 # RingRift Current State Assessment
 
-**Assessment Date:** 2025-12-14
+**Assessment Date:** 2025-12-15
 **Project Health Status:** GREEN
 **Purpose:** Authoritative snapshot of implementation status, architecture, and quality metrics
 
@@ -27,7 +27,7 @@ RingRift is a **stable beta** turn-based board game implementation with a consol
 
 | Metric                               | Value                                                  |
 | ------------------------------------ | ------------------------------------------------------ |
-| TypeScript tests (CI-gated)          | 10,177 passing (595 test suites)                       |
+| TypeScript tests (CI-gated)          | 10,249 passing (597 test suites)                       |
 | Python tests                         | 1,727 passing                                          |
 | Contract vectors                     | 81 across 18 files (v2 format)                         |
 | DB replay parity (TS↔Python replays) | In progress; CanonicalReplayEngine powering TS harness |
@@ -280,18 +280,18 @@ Documented in `docs/TEST_CATEGORIES.md`:
 
 ## 6. Component Scores
 
-| Component             | Score | Notes                             |
-| --------------------- | ----- | --------------------------------- |
-| Rules Engine (TS)     | 4.7/5 | Excellent, minor doc gaps         |
-| Rules Engine (Python) | 4.5/5 | Stable, 1,727 tests passing       |
-| Test Suite            | 4.0/5 | Comprehensive, well-documented    |
-| Observability         | 4.5/5 | 3 dashboards, k6 load tests       |
-| Documentation         | 4.0/5 | Comprehensive index               |
-| WebSocket             | 4.0/5 | 42/42 tests passing               |
-| Frontend UX           | 3.5/5 | Needs polish (sandbox, spectator) |
-| Backend API           | 4.2/5 | Robust session management         |
-| AI Service            | 4.0/5 | Training infra complete           |
-| DevOps/CI             | 4.0/5 | Mature pipeline                   |
+| Component             | Score | Notes                                           |
+| --------------------- | ----- | ----------------------------------------------- |
+| Rules Engine (TS)     | 4.7/5 | Excellent, minor doc gaps                       |
+| Rules Engine (Python) | 4.5/5 | Stable, 1,727 tests passing                     |
+| Test Suite            | 4.2/5 | Comprehensive, 72 new tests added (Dec 2025)    |
+| Observability         | 4.5/5 | 3 dashboards, k6 load tests                     |
+| Documentation         | 4.0/5 | Comprehensive index                             |
+| WebSocket             | 4.0/5 | 42/42 tests passing                             |
+| Frontend UX           | 4.0/5 | P1-UX work complete (TeachingOverlay, GameHUD)  |
+| Backend API           | 4.2/5 | Robust session management                       |
+| AI Service            | 3.5/5 | Training blocked on canonical data regeneration |
+| DevOps/CI             | 4.0/5 | Mature pipeline                                 |
 
 ---
 
@@ -312,7 +312,7 @@ Documented in `docs/TEST_CATEGORIES.md`:
 
 | Risk                     | Level  | Mitigation                                                                                      |
 | ------------------------ | ------ | ----------------------------------------------------------------------------------------------- |
-| Frontend UX completeness | MEDIUM | Scenario picker, spectator UI pending                                                           |
+| AI training data         | HIGH   | Canonical self-play regeneration blocked; no canonical DBs available for new model training     |
 | E2E multiplayer coverage | MEDIUM | Infrastructure in place, focused coverage added                                                 |
 | Production validation    | LOW    | Baseline + target-scale staging runs and alert rules validated; rerun after major infra changes |
 | Scale testing            | LOW    | Target scale achieved at 300 VUs in staging; rerun after major infra changes                    |
@@ -351,11 +351,23 @@ Documented in `docs/TEST_CATEGORIES.md`:
 
 ## 9. Next Steps
 
-1. **Canonical Training Data:** Regenerate and gate canonical self-play DBs
-2. **Frontend UX Polish:** Scenario picker, spectator UI, HUD enhancements
+1. **Canonical Training Data (BLOCKER):** Regenerate canonical self-play DBs via `generate_canonical_selfplay.py`; P2-AI work blocked on this
+2. **Frontend UX:** Spectator UI improvements, additional scenario picker polish
 3. **E2E Coverage:** Complex multiplayer scenarios, visual regression
-4. **Coverage Target:** Increase from ~69% toward 80%
+4. **Coverage Target:** Increase from ~69% toward 80% (72 new tests added Dec 2025)
 5. **Security Hardening:** Complete review and rotation drills
+
+### Recent Remediation (Dec 2025)
+
+| ID        | Area    | Status   | Notes                                               |
+| --------- | ------- | -------- | --------------------------------------------------- |
+| P1-UX-01  | UX      | Complete | TeachingOverlay recovery action messaging           |
+| P1-UX-02  | UX      | Complete | GameHUD recovery phase display                      |
+| P1-UX-03  | UX      | Complete | MoveAnalysisPanel recovery feedback                 |
+| P1-UX-04  | UX      | Complete | AccessibilitySettingsPanel recovery options         |
+| P1-UX-05  | UX      | Complete | ChoiceDialog recovery-phase state handling          |
+| P2-AI-01  | AI      | Blocked  | Canonical training data insufficient; needs regen   |
+| P3-SUP-01 | Testing | Complete | 72 new tests (WebSocket, AI concurrency, scenarios) |
 
 ---
 

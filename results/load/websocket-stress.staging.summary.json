@@ -1,9 +1,59 @@
 {
   "scenario": "websocket-stress",
   "environment": "staging",
-  "runTimestamp": "2025-12-15T02:41:36.530Z",
+  "runTimestamp": "2025-12-15T03:25:28.432Z",
   "overallPass": false,
   "thresholds": [
+    {
+      "metric": "websocket_protocol_errors",
+      "threshold": "count<=0",
+      "statistic": "count",
+      "comparison": "<=",
+      "limit": 0,
+      "value": null,
+      "passed": false,
+      "hasSamples": false
+    },
+    {
+      "metric": "id_lifecycle_mismatches_total",
+      "threshold": "count<=0",
+      "statistic": "count",
+      "comparison": "<=",
+      "limit": 0,
+      "value": null,
+      "passed": false,
+      "hasSamples": false
+    },
+    {
+      "metric": "websocket_connection_errors",
+      "threshold": "count<=50",
+      "statistic": "count",
+      "comparison": "<=",
+      "limit": 50,
+      "value": 477,
+      "passed": false,
+      "hasSamples": true
+    },
+    {
+      "metric": "websocket_connection_success_rate",
+      "threshold": "rate>0.9900",
+      "statistic": "rate",
+      "comparison": ">",
+      "limit": 0.99,
+      "value": 1,
+      "passed": true,
+      "hasSamples": null
+    },
+    {
+      "metric": "websocket_connection_duration_ms",
+      "threshold": "p(50)>300000",
+      "statistic": "p(50)",
+      "comparison": ">",
+      "limit": 300000,
+      "value": null,
+      "passed": true,
+      "hasSamples": null
+    },
     {
       "metric": "websocket_message_latency_ms",
       "threshold": "p(95)<200",
@@ -23,26 +73,6 @@
       "value": null,
       "passed": true,
       "hasSamples": null
-    },
-    {
-      "metric": "id_lifecycle_mismatches_total",
-      "threshold": "count<=0",
-      "statistic": "count",
-      "comparison": "<=",
-      "limit": 0,
-      "value": null,
-      "passed": false,
-      "hasSamples": false
-    },
-    {
-      "metric": "websocket_protocol_errors",
-      "threshold": "count<=0",
-      "statistic": "count",
-      "comparison": "<=",
-      "limit": 0,
-      "value": null,
-      "passed": false,
-      "hasSamples": false
     },
     {
       "metric": "contract_failures_total",
@@ -70,45 +100,65 @@
       "statistic": "rate",
       "comparison": "<",
       "limit": 0.01,
-      "value": 0.4695144236383455,
+      "value": 0.5124660955331947,
       "passed": false,
       "hasSamples": true
-    },
-    {
-      "metric": "websocket_connection_errors",
-      "threshold": "count<=50",
-      "statistic": "count",
-      "comparison": "<=",
-      "limit": 50,
-      "value": 437,
-      "passed": false,
-      "hasSamples": true
-    },
-    {
-      "metric": "websocket_connection_duration_ms",
-      "threshold": "p(50)>300000",
-      "statistic": "p(50)",
-      "comparison": ">",
-      "limit": 300000,
-      "value": null,
-      "passed": true,
-      "hasSamples": null
-    },
-    {
-      "metric": "websocket_connection_success_rate",
-      "threshold": "rate>0.9900",
-      "statistic": "rate",
-      "comparison": ">",
-      "limit": 0.99,
-      "value": 1,
-      "passed": true,
-      "hasSamples": null
     }
   ],
   "slo": {
     "scenario": "websocket-stress",
     "environment": "staging",
     "thresholds": [
+      {
+        "metric": "websocket_protocol_errors",
+        "threshold": "count<=0",
+        "statistic": "count",
+        "comparison": "<=",
+        "limit": 0,
+        "value": null,
+        "passed": false,
+        "hasSamples": false
+      },
+      {
+        "metric": "id_lifecycle_mismatches_total",
+        "threshold": "count<=0",
+        "statistic": "count",
+        "comparison": "<=",
+        "limit": 0,
+        "value": null,
+        "passed": false,
+        "hasSamples": false
+      },
+      {
+        "metric": "websocket_connection_errors",
+        "threshold": "count<=50",
+        "statistic": "count",
+        "comparison": "<=",
+        "limit": 50,
+        "value": 477,
+        "passed": false,
+        "hasSamples": true
+      },
+      {
+        "metric": "websocket_connection_success_rate",
+        "threshold": "rate>0.9900",
+        "statistic": "rate",
+        "comparison": ">",
+        "limit": 0.99,
+        "value": 1,
+        "passed": true,
+        "hasSamples": null
+      },
+      {
+        "metric": "websocket_connection_duration_ms",
+        "threshold": "p(50)>300000",
+        "statistic": "p(50)",
+        "comparison": ">",
+        "limit": 300000,
+        "value": null,
+        "passed": true,
+        "hasSamples": null
+      },
       {
         "metric": "websocket_message_latency_ms",
         "threshold": "p(95)<200",
@@ -128,26 +178,6 @@
         "value": null,
         "passed": true,
         "hasSamples": null
-      },
-      {
-        "metric": "id_lifecycle_mismatches_total",
-        "threshold": "count<=0",
-        "statistic": "count",
-        "comparison": "<=",
-        "limit": 0,
-        "value": null,
-        "passed": false,
-        "hasSamples": false
-      },
-      {
-        "metric": "websocket_protocol_errors",
-        "threshold": "count<=0",
-        "statistic": "count",
-        "comparison": "<=",
-        "limit": 0,
-        "value": null,
-        "passed": false,
-        "hasSamples": false
       },
       {
         "metric": "contract_failures_total",
@@ -175,45 +205,15 @@
         "statistic": "rate",
         "comparison": "<",
         "limit": 0.01,
-        "value": 0.4695144236383455,
+        "value": 0.5124660955331947,
         "passed": false,
         "hasSamples": true
-      },
-      {
-        "metric": "websocket_connection_errors",
-        "threshold": "count<=50",
-        "statistic": "count",
-        "comparison": "<=",
-        "limit": 50,
-        "value": 437,
-        "passed": false,
-        "hasSamples": true
-      },
-      {
-        "metric": "websocket_connection_duration_ms",
-        "threshold": "p(50)>300000",
-        "statistic": "p(50)",
-        "comparison": ">",
-        "limit": 300000,
-        "value": null,
-        "passed": true,
-        "hasSamples": null
-      },
-      {
-        "metric": "websocket_connection_success_rate",
-        "threshold": "rate>0.9900",
-        "statistic": "rate",
-        "comparison": ">",
-        "limit": 0.99,
-        "value": 1,
-        "passed": true,
-        "hasSamples": null
       }
     ],
     "overallPass": false,
     "noSamplesForMetrics": [
-      "id_lifecycle_mismatches_total",
       "websocket_protocol_errors",
+      "id_lifecycle_mismatches_total",
       "contract_failures_total"
     ],
     "overallReason": "no_samples_for_key_metric"
@@ -221,7 +221,7 @@
   "thresholdsEnv": "staging",
   "http": {
     "http_req_duration": {
-      "p95": 607.2129,
+      "p95": 619.40635,
       "p99": null,
       "hasSamples": null
     },
@@ -236,7 +236,7 @@
       "hasSamples": null
     },
     "websocket_connection_duration_ms": {
-      "p95": 360146,
+      "p95": 360161,
       "p99": null,
       "hasSamples": null
     },
@@ -260,15 +260,15 @@
       "rate": 0
     },
     "capacity_failures_total": {
-      "count": 437,
-      "rate": 0.4695144236383455
+      "count": 477,
+      "rate": 0.5124660955331947
     },
     "game_state_errors": null,
     "move_processing_errors": null,
     "stalled_moves_total": null,
     "websocket_connection_errors": {
-      "count": 437,
-      "rate": 0.4695144236383455
+      "count": 477,
+      "rate": 0.5124660955331947
     },
     "websocket_protocol_errors": {
       "count": 0,
@@ -282,7 +282,7 @@
     "thresholdsEnv": "staging",
     "http": {
       "http_req_duration": {
-        "p95": 607.2129,
+        "p95": 619.40635,
         "p99": null,
         "hasSamples": null
       },
@@ -297,7 +297,7 @@
         "hasSamples": null
       },
       "websocket_connection_duration_ms": {
-        "p95": 360146,
+        "p95": 360161,
         "p99": null,
         "hasSamples": null
       },
@@ -321,15 +321,15 @@
         "rate": 0
       },
       "capacity_failures_total": {
-        "count": 437,
-        "rate": 0.4695144236383455
+        "count": 477,
+        "rate": 0.5124660955331947
       },
       "game_state_errors": null,
       "move_processing_errors": null,
       "stalled_moves_total": null,
       "websocket_connection_errors": {
-        "count": 437,
-        "rate": 0.4695144236383455
+        "count": 477,
+        "rate": 0.5124660955331947
       },
       "websocket_protocol_errors": {
         "count": 0,
