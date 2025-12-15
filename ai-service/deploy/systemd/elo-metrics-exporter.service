@@ -1,0 +1,22 @@
+[Unit]
+Description=RingRift Elo Metrics Exporter for Prometheus
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/ringrift/ai-service
+Environment=PYTHONPATH=/root/ringrift/ai-service
+EnvironmentFile=-/etc/ringrift/node.conf
+ExecStart=/bin/bash -lc 'PY="/root/ringrift/ai-service/venv/bin/python"; if [ ! -x "$PY" ]; then PY="/usr/bin/python3"; fi; exec "$PY" "/root/ringrift/ai-service/scripts/elo_metrics_exporter.py" --port 9092'
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/ringrift/elo_metrics_exporter.log
+StandardError=append:/var/log/ringrift/elo_metrics_exporter.log
+
+# Resource limits
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

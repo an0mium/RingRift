@@ -98,6 +98,8 @@ fi
 P2P_PLIST="${PLIST_DIR}/com.ringrift.p2p.plist"
 RES_PLIST="${PLIST_DIR}/com.ringrift.resilience.plist"
 IMP_PLIST="${PLIST_DIR}/com.ringrift.improvement.plist"
+ELO_PLIST="${PLIST_DIR}/com.ringrift.elo-metrics.plist"
+DQ_PLIST="${PLIST_DIR}/com.ringrift.data-quality.plist"
 
 cat > "$P2P_PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -283,17 +285,93 @@ else
   rm -f "$IMP_PLIST" 2>/dev/null || true
 fi
 
+# Elo Metrics Exporter (Prometheus metrics on port 9092)
+cat > "$ELO_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ringrift.elo-metrics</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>WorkingDirectory</key>
+  <string>${AI_SERVICE_DIR}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>${LAUNCHD_PATH}</string>
+    <key>PYTHONPATH</key>
+    <string>${AI_SERVICE_DIR}</string>
+  </dict>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${PYTHON}</string>
+    <string>${AI_SERVICE_DIR}/scripts/elo_metrics_exporter.py</string>
+    <string>--port</string>
+    <string>9092</string>
+  </array>
+  <key>StandardOutPath</key>
+  <string>${LOG_DIR}/elo_metrics.log</string>
+  <key>StandardErrorPath</key>
+  <string>${LOG_DIR}/elo_metrics.log</string>
+</dict>
+</plist>
+EOF
+
+# Data Quality Monitor (Prometheus metrics on port 9093)
+cat > "$DQ_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ringrift.data-quality</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>WorkingDirectory</key>
+  <string>${AI_SERVICE_DIR}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>${LAUNCHD_PATH}</string>
+    <key>PYTHONPATH</key>
+    <string>${AI_SERVICE_DIR}</string>
+  </dict>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${PYTHON}</string>
+    <string>${AI_SERVICE_DIR}/scripts/data_quality_monitor.py</string>
+    <string>--port</string>
+    <string>9093</string>
+  </array>
+  <key>StandardOutPath</key>
+  <string>${LOG_DIR}/data_quality.log</string>
+  <key>StandardErrorPath</key>
+  <string>${LOG_DIR}/data_quality.log</string>
+</dict>
+</plist>
+EOF
+
 echo "Wrote:"
 echo "  $P2P_PLIST"
 echo "  $RES_PLIST"
 if is_truthy "$ENABLE_IMPROVEMENT_DAEMON_RAW"; then
   echo "  $IMP_PLIST"
 fi
+echo "  $ELO_PLIST"
+echo "  $DQ_PLIST"
 echo ""
 echo "Loading LaunchAgents..."
 launchctl unload "$P2P_PLIST" >/dev/null 2>&1 || true
 launchctl unload "$RES_PLIST" >/dev/null 2>&1 || true
 launchctl unload "$IMP_PLIST" >/dev/null 2>&1 || true
+launchctl unload "$ELO_PLIST" >/dev/null 2>&1 || true
+launchctl unload "$DQ_PLIST" >/dev/null 2>&1 || true
 launchctl load "$P2P_PLIST"
 launchctl load "$RES_PLIST"
 if is_truthy "$ENABLE_IMPROVEMENT_DAEMON_RAW"; then
@@ -301,6 +379,8 @@ if is_truthy "$ENABLE_IMPROVEMENT_DAEMON_RAW"; then
 else
   echo "Continuous improvement daemon disabled (set RINGRIFT_ENABLE_IMPROVEMENT_DAEMON=1 to enable)"
 fi
+launchctl load "$ELO_PLIST"
+launchctl load "$DQ_PLIST"
 echo ""
 echo "Done."
 echo ""
@@ -308,3 +388,8 @@ echo "Check status:"
 echo "  tail -f \"$LOG_DIR/p2p.log\""
 echo "  tail -f \"$LOG_DIR/resilience.log\""
 echo "  curl \"http://localhost:$P2P_PORT/health\""
+echo ""
+echo "Metrics endpoints:"
+echo "  curl \"http://localhost:$P2P_PORT/metrics\"  # P2P Orchestrator"
+echo "  curl \"http://localhost:9092/metrics\"       # Elo Metrics"
+echo "  curl \"http://localhost:9093/metrics\"       # Data Quality"
