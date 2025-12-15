@@ -1692,7 +1692,8 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
       movementState,
       movementCandidates,
       rng,
-      parityMode
+      parityMode,
+      aiDifficulty
     );
 
     if (!selectedMove) {
