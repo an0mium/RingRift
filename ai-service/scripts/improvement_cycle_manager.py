@@ -66,6 +66,10 @@ try:
         TaskCoordinator,
         TaskType,
         can_spawn,
+        can_schedule_task,
+        estimate_task_duration,
+        register_running_task,
+        record_task_completion,
     )
     HAS_COORDINATION = True
 except ImportError:

@@ -179,6 +179,28 @@ except ImportError:
     ExecutionResult = None
     run_command = None
 
+# Import orchestrator backends for unified execution strategy
+try:
+    from app.execution.backends import (
+        OrchestratorBackend,
+        BackendType,
+        LocalBackend,
+        SSHBackend,
+        WorkerStatus,
+        JobResult,
+        get_backend,
+    )
+    HAS_BACKENDS = True
+except ImportError:
+    HAS_BACKENDS = False
+    OrchestratorBackend = None
+    BackendType = None
+    LocalBackend = None
+    SSHBackend = None
+    WorkerStatus = None
+    JobResult = None
+    get_backend = None
+
 # Import centralized Elo service (canonical ELO operations)
 try:
     from app.training.elo_service import (
@@ -3043,6 +3065,21 @@ class UnifiedAILoop:
                 print(f"[UnifiedLoop] Warning: Failed to initialize P2P integration: {e}")
                 self.p2p = None
 
+        # Execution backend - unified interface for local/SSH/P2P execution
+        self.backend: Optional[OrchestratorBackend] = None
+        if HAS_BACKENDS:
+            try:
+                # Auto-detect backend type from config
+                backend_type = None
+                if config.p2p.enabled and self.p2p is not None:
+                    # P2P available - could use P2P backend in future
+                    pass  # For now, fall through to SSH/Local detection
+                # get_backend auto-detects SSH if hosts config exists, else Local
+                self.backend = get_backend(backend_type, force_new=True)
+                print(f"[UnifiedLoop] Execution backend initialized ({type(self.backend).__name__})")
+            except Exception as e:
+                print(f"[UnifiedLoop] Warning: Failed to initialize execution backend: {e}")
+
         # State management
         self._state_path = AI_SERVICE_ROOT / config.log_dir / "unified_loop_state.json"
         self._running = False
@@ -3846,6 +3883,97 @@ class UnifiedAILoop:
                 break
             except asyncio.TimeoutError:
                 pass
+
+    async def get_backend_workers(self) -> List[Dict[str, Any]]:
+        """Query available workers from the execution backend.
+
+        Returns:
+            List of worker status dictionaries with name, available, and metadata.
+        """
+        if self.backend is None:
+            return []
+
+        try:
+            workers = await self.backend.get_available_workers()
+            return [
+                {
+                    "name": w.name,
+                    "available": w.available,
+                    "cpu_percent": w.cpu_percent,
+                    "memory_percent": w.memory_percent,
+                    "active_jobs": w.active_jobs,
+                    "last_seen": w.last_seen,
+                    "metadata": w.metadata,
+                }
+                for w in workers
+            ]
+        except Exception as e:
+            print(f"[Backend] Error querying workers: {e}")
+            return []
+
+    async def run_distributed_selfplay(
+        self,
+        games: int,
+        board_type: str = "square8",
+        num_players: int = 2,
+        model_path: Optional[str] = None,
+        **kwargs,
+    ) -> List[Dict[str, Any]]:
+        """Run selfplay games using the execution backend.
+
+        Distributes games across available workers using the configured backend.
+
+        Args:
+            games: Total number of games to generate
+            board_type: Board type for games
+            num_players: Number of players per game
+            model_path: Optional path to model weights
+
+        Returns:
+            List of job results with output and status
+        """
+        if self.backend is None:
+            print("[Backend] No execution backend available - cannot run distributed selfplay")
+            return []
+
+        try:
+            results = await self.backend.run_selfplay(
+                games=games,
+                board_type=board_type,
+                num_players=num_players,
+                model_path=model_path,
+                **kwargs,
+            )
+
+            # Convert JobResult to dict
+            return [
+                {
+                    "job_id": r.job_id,
+                    "success": r.success,
+                    "worker": r.worker,
+                    "duration_seconds": r.duration_seconds,
+                    "error": r.error,
+                }
+                for r in results
+            ]
+        except Exception as e:
+            print(f"[Backend] Error running distributed selfplay: {e}")
+            return []
+
+    async def sync_backend_data(self) -> Dict[str, int]:
+        """Sync game data from workers using the execution backend.
+
+        Returns:
+            Dict mapping worker names to number of games synced.
+        """
+        if self.backend is None:
+            return {}
+
+        try:
+            return await self.backend.sync_data()
+        except Exception as e:
+            print(f"[Backend] Error syncing data: {e}")
+            return {}
 
     async def _hp_tuning_sync_loop(self):
         """Periodically sync HP tuning results to hyperparameters.json.
