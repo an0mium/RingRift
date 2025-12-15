@@ -4774,6 +4774,17 @@ class P2POrchestrator:
 
                 print("[P2P] Running data management check...")
 
+                # Check disk usage and trigger cleanup if needed (enforces 70% limit)
+                has_capacity, disk_pct = check_disk_has_capacity(DISK_WARNING_THRESHOLD)
+                if not has_capacity:
+                    print(f"[P2P] Disk at {disk_pct:.1f}% (warning threshold {DISK_WARNING_THRESHOLD}%), triggering cleanup...")
+                    await self._cleanup_local_disk()
+                    # Re-check after cleanup
+                    has_capacity, disk_pct = check_disk_has_capacity(DISK_CRITICAL_THRESHOLD)
+                    if not has_capacity:
+                        print(f"[P2P] Disk still at {disk_pct:.1f}% after cleanup, skipping data operations")
+                        continue
+
                 # 0. Convert JSONL selfplay files to DB format
                 data_dir = self.get_data_directory()
                 games_dir = data_dir / "games"
@@ -4898,6 +4909,12 @@ class P2POrchestrator:
                 if not HAS_MODEL_SYNC or not HAS_HOSTS_FOR_SYNC:
                     if self.verbose:
                         print("[P2P] Model sync skipped: sync_models module not available")
+                    continue
+
+                # Check disk capacity before downloading models (enforces 70% limit)
+                has_capacity, disk_pct = check_disk_has_capacity(DISK_CRITICAL_THRESHOLD)
+                if not has_capacity:
+                    print(f"[P2P] Model sync skipped: disk at {disk_pct:.1f}% (limit {DISK_CRITICAL_THRESHOLD}%)")
                     continue
 
                 print("[P2P] Running model sync check...")
@@ -5071,6 +5088,13 @@ class P2POrchestrator:
     async def _request_data_from_peers(self):
         """Request training data sync from peers with large datasets."""
         try:
+            # Check disk capacity before requesting data
+            has_capacity, disk_pct = check_disk_has_capacity(DISK_CRITICAL_THRESHOLD)
+            if not has_capacity:
+                if self.verbose:
+                    print(f"[P2P] Skipping data sync request: disk at {disk_pct:.1f}% (limit {DISK_CRITICAL_THRESHOLD}%)")
+                return
+
             with self.peers_lock:
                 peers = list(self.peers.values())
 
