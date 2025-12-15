@@ -57,6 +57,16 @@ else:
             """v2 alias for v1's parse_raw()"""
             return cls.parse_raw(json_str)
 
+        @property
+        def model_fields(self) -> Dict[str, Any]:
+            """v2 alias for v1's __fields__.
+
+            In Pydantic v2, model_fields is a class attribute returning field info.
+            In v1, __fields__ contains the same data. This property allows instance
+            access via `obj.model_fields` which is commonly used for iteration.
+            """
+            return self.__fields__
+
     # ConfigDict in v2 is a dict with config options; in v1 we ignore it
     # (config is handled via Config class in each model)
     def ConfigDict(**kwargs):

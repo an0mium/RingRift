@@ -115,7 +115,7 @@
   "tuning_config": {
     "search_space": {
       "learning_rate": { "type": "float", "low": 1e-5, "high": 1e-2, "log_scale": true },
-      "batch_size": { "type": "categorical", "choices": [32, 64, 128, 256, 512] },
+      "batch_size": { "type": "categorical", "choices": [128, 256, 512, 1024, 2048] },
       "hidden_dim": { "type": "categorical", "choices": [128, 256, 384, 512, 768] },
       "num_hidden_layers": { "type": "int", "low": 2, "high": 6 },
       "weight_decay": { "type": "float", "low": 1e-6, "high": 1e-2, "log_scale": true },
@@ -123,6 +123,7 @@
       "value_weight": { "type": "float", "low": 0.5, "high": 2.5 },
       "policy_weight": { "type": "float", "low": 0.5, "high": 2.5 }
     },
+    "_batch_size_note": "Batch sizes 1024-2048 optimal for H100 (80GB), use 128-512 for smaller GPUs",
     "evaluation": {
       "training_epochs_per_trial": 10,
       "validation_split": 0.15,

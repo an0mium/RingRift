@@ -3,9 +3,65 @@ from typing import Dict, Optional
 from app.models import BoardType
 
 
+def _get_gpu_memory_gb() -> float:
+    """Get available GPU memory in GB. Returns 0 if no GPU."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            props = torch.cuda.get_device_properties(0)
+            return props.total_memory / (1024 ** 3)
+    except Exception:
+        pass
+    return 0.0
+
+
+def _scale_batch_size_for_gpu(base_batch: int, policy_size: int = 7000) -> int:
+    """Scale batch size based on available GPU memory.
+
+    H100 (80GB): 16x multiplier for small policies, 8x for large
+    A100 (40-80GB): 8x multiplier for small, 4x for large
+    Consumer GPUs (8-24GB): 2-4x multiplier
+    """
+    gpu_mem = _get_gpu_memory_gb()
+    if gpu_mem <= 0:
+        return base_batch  # No GPU, use default
+
+    # Estimate memory multiplier based on policy size
+    # Larger policies need more memory per sample
+    if policy_size > 50000:  # Hex, Square19
+        mem_per_sample_mb = 0.5  # ~0.5MB per sample for large policies
+    elif policy_size > 10000:
+        mem_per_sample_mb = 0.2  # ~0.2MB for medium policies
+    else:
+        mem_per_sample_mb = 0.1  # ~0.1MB for small policies
+
+    # Reserve 8GB for model + overhead, use rest for batches
+    available_gb = max(0, gpu_mem - 8)
+    available_mb = available_gb * 1024
+
+    # Calculate max batch size that fits in memory
+    max_batch = int(available_mb / mem_per_sample_mb)
+
+    # Scale up from base but cap at max
+    if gpu_mem >= 70:  # H100 class
+        scaled = base_batch * 16
+    elif gpu_mem >= 30:  # A100 class
+        scaled = base_batch * 8
+    elif gpu_mem >= 16:  # RTX 3090/4090 class
+        scaled = base_batch * 4
+    else:  # Consumer GPUs
+        scaled = base_batch * 2
+
+    return min(scaled, max_batch, 4096)  # Cap at 4096
+
+
 @dataclass
 class TrainConfig:
-    """Configuration for training run"""
+    """Configuration for training run.
+
+    Note: batch_size will be auto-scaled based on GPU memory if
+    RINGRIFT_AUTO_BATCH_SCALE=1 (default) or explicitly set via CLI.
+    """
     board_type: BoardType = BoardType.SQUARE8
     episodes_per_iter: int = 4
     epochs_per_iter: int = 4
@@ -14,7 +70,7 @@ class TrainConfig:
     # here makes iterative retraining a first-class configuration parameter.
     iterations: int = 2
     learning_rate: float = 1e-3
-    batch_size: int = 32
+    batch_size: int = 32  # Will be auto-scaled in __post_init__ if GPU available
     weight_decay: float = 1e-4
     history_length: int = 3
     seed: int = 42
@@ -97,6 +153,13 @@ class TrainConfig:
                     self.use_gpu_parallel_datagen = torch.cuda.is_available()
                 except ImportError:
                     self.use_gpu_parallel_datagen = False
+
+        # Auto-scale batch size based on GPU memory (opt-out via env var)
+        auto_scale = os.environ.get("RINGRIFT_AUTO_BATCH_SCALE", "1").lower()
+        if auto_scale not in ("0", "false", "no"):
+            # Use policy_size if set, otherwise estimate from board type
+            policy_sz = self.policy_size or 7000  # Default to square8 size
+            self.batch_size = _scale_batch_size_for_gpu(self.batch_size, policy_sz)
 
 
 # =============================================================================

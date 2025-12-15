@@ -5979,31 +5979,53 @@ class UnifiedAILoop:
             print(f"[FeedbackRouter] Error handling SCALE_UP_SELFPLAY: {e}")
             return False
 
+    # Host CPU capacities for utilization-based scaling
+    HOST_CPU_CAPACITY = {
+        "gh200": 72,  # GH200 instances have 72 CPUs
+        "lambda_2xh100": 48,
+        "lambda_h100": 30,
+        "lambda_a10": 30,
+        "vast_5090": 512,
+        "vast_4060": 384,
+        "vast_3070": 24,
+        "vast_2060": 22,
+    }
+
+    def _get_host_cpu_capacity(self, host_name: str) -> int:
+        """Get CPU capacity for a host based on name pattern."""
+        name_lower = host_name.lower()
+        for pattern, cpus in self.HOST_CPU_CAPACITY.items():
+            if pattern in name_lower:
+                return cpus
+        return 16  # Default for unknown hosts
+
     async def _spawn_selfplay_on_idle_hosts(self) -> int:
-        """Spawn selfplay on hosts with no active selfplay processes.
+        """Spawn selfplay on underutilized hosts based on CPU capacity.
 
         Returns number of hosts where selfplay was started.
         """
         import asyncio
 
-        # Get GH200 hosts from the loaded state (use IP addresses for SSH)
-        gh200_hosts = []
+        # Get all selfplay-capable hosts (GH200 + Lambda)
+        selfplay_hosts = []
         if hasattr(self, 'data_collector') and self.data_collector:
             for host_state in self.data_collector.state.hosts.values():
-                # Only check GH200 hosts (selfplay role)
-                if 'gh200' in host_state.name.lower():
-                    gh200_hosts.append((
+                name_lower = host_state.name.lower()
+                # Include GH200 and Lambda hosts (but not AWS which have low RAM)
+                if any(x in name_lower for x in ['gh200', 'lambda_2xh100', 'lambda_a10']):
+                    selfplay_hosts.append((
                         host_state.name,
-                        f"{host_state.ssh_user}@{host_state.ssh_host}"
+                        f"{host_state.ssh_user}@{host_state.ssh_host}",
+                        self._get_host_cpu_capacity(host_state.name)
                     ))
 
-        if not gh200_hosts:
+        if not selfplay_hosts:
             return 0
 
-        idle_hosts = []
+        underutilized_hosts = []
 
         # Check each host for selfplay processes
-        async def check_host(name: str, ssh_target: str) -> tuple[str, str, int]:
+        async def check_host(name: str, ssh_target: str, cpus: int) -> tuple[str, str, int, int]:
             try:
                 proc = await asyncio.create_subprocess_exec(
                     "ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", ssh_target,
@@ -6013,39 +6035,45 @@ class UnifiedAILoop:
                 )
                 stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
                 count = int(stdout.decode().strip() or "0")
-                return (name, ssh_target, count)
+                return (name, ssh_target, count, cpus)
             except Exception:
-                return (name, ssh_target, -1)  # -1 means unreachable
+                return (name, ssh_target, -1, cpus)  # -1 means unreachable
 
         # Check all hosts in parallel
-        results = await asyncio.gather(*[check_host(n, s) for n, s in gh200_hosts])
+        results = await asyncio.gather(*[check_host(n, s, c) for n, s, c in selfplay_hosts])
 
-        for name, ssh_target, count in results:
-            if count == 0:  # Idle host
-                idle_hosts.append((name, ssh_target))
-            elif count == -1:
+        for name, ssh_target, count, cpus in results:
+            if count == -1:
                 print(f"[Utilization] {name}: unreachable")
+            elif count < cpus * 0.5:  # Underutilized if < 50% capacity
+                # Calculate how many more workers to start (target 70% utilization)
+                target = int(cpus * 0.7)
+                workers_needed = max(2, min(10, target - count))  # Start 2-10 workers
+                underutilized_hosts.append((name, ssh_target, count, cpus, workers_needed))
 
-        if not idle_hosts:
-            print("[Utilization] No idle hosts found")
+        if not underutilized_hosts:
+            print("[Utilization] All hosts adequately utilized")
             return 0
 
-        print(f"[Utilization] Found {len(idle_hosts)} idle hosts: {[n for n, _ in idle_hosts]}")
+        print(f"[Utilization] Found {len(underutilized_hosts)} underutilized hosts:")
+        for name, _, count, cpus, needed in underutilized_hosts:
+            print(f"  {name}: {count}/{cpus} CPUs ({count/cpus*100:.0f}%), need +{needed}")
 
-        # Start selfplay on idle hosts
+        # Start selfplay on underutilized hosts (process up to 6 hosts per cycle)
         started = 0
-        for name, ssh_target in idle_hosts[:3]:  # Limit to 3 hosts per cycle to avoid overwhelming
+        for name, ssh_target, count, cpus, workers_needed in underutilized_hosts[:6]:
             try:
+                # Start multiple workers based on capacity
                 cmd = f'''cd ~/ringrift/ai-service && source venv/bin/activate && \\
                     mkdir -p data/selfplay/auto_$(date +%s) && \\
-                    for i in 1 2; do \\
+                    for i in $(seq 1 {workers_needed}); do \\
                         nohup python scripts/run_hybrid_selfplay.py \\
                             --board-type square8 --num-players 2 --num-games 50000 \\
                             --record-db data/games/selfplay.db \\
                             --output-dir data/selfplay/auto_$(date +%s)/$i \\
-                            --engine-mode mixed --seed $((RANDOM + 900000)) \\
+                            --engine-mode mixed --seed $((RANDOM + $i * 1000)) \\
                             > logs/auto_selfplay_$i.log 2>&1 & \\
-                    done && echo "Started selfplay"'''
+                    done && echo "Started {workers_needed} selfplay workers"'''
 
                 proc = await asyncio.create_subprocess_exec(
                     "ssh", "-o", "ConnectTimeout=10", ssh_target, cmd,
@@ -6055,8 +6083,8 @@ class UnifiedAILoop:
                 await asyncio.wait_for(proc.communicate(), timeout=30)
 
                 if proc.returncode == 0:
-                    print(f"[Utilization] Started selfplay on {name}")
-                    started += 1
+                    print(f"[Utilization] Started {workers_needed} selfplay workers on {name}")
+                    started += workers_needed
             except Exception as e:
                 print(f"[Utilization] Failed to start selfplay on {name}: {e}")
 
@@ -6135,6 +6163,47 @@ class UnifiedAILoop:
                     issues_fixed += deleted
         except Exception:
             pass  # Non-critical
+
+        # 5. Clean up stale processes on GPU hosts (tournaments/selfplay shouldn't run on expensive GPUs)
+        # GPU hosts should focus on GPU training, not CPU-bound tournaments
+        GPU_HOSTS = [
+            ("lambda_h100", "ubuntu@209.20.157.81"),
+            ("lambda_2xh100", "ubuntu@192.222.53.22"),
+            ("lambda_a10", "ubuntu@150.136.65.197"),
+        ]
+        STALE_PROCESS_PATTERNS = [
+            ("run_model_elo_tournament", 7200),  # 2 hours - tournaments should be quick
+            ("tune_hyperparameters", 14400),     # 4 hours - HP tuning can be long but not forever
+        ]
+
+        for host_name, ssh_target in GPU_HOSTS:
+            try:
+                for pattern, max_seconds in STALE_PROCESS_PATTERNS:
+                    # Find processes matching pattern older than threshold
+                    check_cmd = f"ps -eo pid,etimes,args | grep '{pattern}' | grep -v grep | awk '$2 > {max_seconds} {{print $1}}'"
+                    proc = await asyncio.create_subprocess_exec(
+                        "ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", ssh_target, check_cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+
+                    stale_pids = stdout.decode().strip().split('\n')
+                    stale_pids = [p for p in stale_pids if p.strip().isdigit()]
+
+                    if stale_pids:
+                        # Kill stale processes
+                        kill_cmd = f"kill -9 {' '.join(stale_pids)} 2>/dev/null"
+                        proc = await asyncio.create_subprocess_exec(
+                            "ssh", "-o", "ConnectTimeout=5", ssh_target, kill_cmd,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE
+                        )
+                        await asyncio.wait_for(proc.communicate(), timeout=10)
+                        print(f"[HealthRecovery] Killed {len(stale_pids)} stale {pattern} on {host_name}")
+                        issues_fixed += len(stale_pids)
+            except Exception as e:
+                print(f"[HealthRecovery] Error checking stale processes on {host_name}: {e}")
 
         if issues_fixed > 0:
             print(f"[HealthRecovery] Fixed {issues_fixed} issues")

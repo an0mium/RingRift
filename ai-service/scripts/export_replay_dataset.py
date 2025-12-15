@@ -312,6 +312,7 @@ def export_replay_dataset(
     require_completed: bool = False,
     min_moves: Optional[int] = None,
     max_moves: Optional[int] = None,
+    max_move_index: Optional[int] = None,
     use_rank_aware_values: bool = True,
     parity_fixtures_dir: Optional[str] = None,
     exclude_recovery: bool = False,
@@ -511,6 +512,10 @@ def export_replay_dataset(
             # reach the first move whose state_before would rely on a
             # divergent replay step.
             if max_safe_move_index is not None and move_index > max_safe_move_index:
+                break
+
+            # Respect max_move_index to limit replay depth (performance optimization)
+            if max_move_index is not None and move_index > max_move_index:
                 break
 
             if sample_every > 1 and (move_index % sample_every) != 0:
@@ -780,6 +785,17 @@ def _parse_args(argv: List[str] | None = None) -> argparse.Namespace:
         type=int,
         default=None,
         help="Maximum move count to include a game (filters out abnormally long games).",
+    )
+    parser.add_argument(
+        "--max-move-index",
+        type=int,
+        default=None,
+        help=(
+            "Maximum move index to sample within each game (limits replay depth). "
+            "Use this to speed up export for games with many moves by only sampling "
+            "early-game positions where replay is fast. E.g., --max-move-index 100 "
+            "only samples moves 0-100 regardless of game length."
+        ),
     )
     parser.add_argument(
         "--no-rank-aware-values",

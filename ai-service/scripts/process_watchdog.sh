@@ -31,9 +31,15 @@ STATE_DIR="${HOME}/.ringrift"
 STATE_FILE="${STATE_DIR}/watchdog_state.json"
 mkdir -p "$STATE_DIR"
 
-# Backoff settings
-MAX_KILLS_PER_HOUR=3
-BASE_BACKOFF_MINUTES=5
+# Backoff settings - progressively reduce kills over time
+# Tier 1: First few kills use short backoff
+# Tier 2: After multiple kills, extend to 1 per hour max
+# Tier 3: After repeated issues, stop killing entirely (alert only)
+MAX_KILLS_PER_HOUR=2
+BASE_BACKOFF_MINUTES=15
+# Extended tracking windows
+FOUR_HOURS_EPOCH=$(($(date +%s) - 14400))
+DAY_EPOCH=$(($(date +%s) - 86400))
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -120,23 +126,48 @@ if [[ "$KILL_MODE" == "true" ]]; then
         LAST_KILL_EPOCH=${LAST_KILL_EPOCH:-0}
     fi
 
-    # Count kills in the past hour
+    # Count kills in different time windows
     KILLS_IN_HOUR=0
+    KILLS_IN_4H=0
+    KILLS_IN_DAY=0
     for ts in $KILL_TIMESTAMPS; do
         if [[ "$ts" -gt "$HOUR_AGO_EPOCH" ]]; then
             KILLS_IN_HOUR=$((KILLS_IN_HOUR + 1))
         fi
+        if [[ "$ts" -gt "$FOUR_HOURS_EPOCH" ]]; then
+            KILLS_IN_4H=$((KILLS_IN_4H + 1))
+        fi
+        if [[ "$ts" -gt "$DAY_EPOCH" ]]; then
+            KILLS_IN_DAY=$((KILLS_IN_DAY + 1))
+        fi
     done
-
-    # Calculate backoff time (exponential: 5, 10, 20 minutes)
-    BACKOFF_SECONDS=$((BASE_BACKOFF_MINUTES * 60 * (2 ** KILLS_IN_HOUR)))
-    BACKOFF_SECONDS=$((BACKOFF_SECONDS > 3600 ? 3600 : BACKOFF_SECONDS))  # Cap at 1 hour
 
     SECONDS_SINCE_LAST=$((NOW_EPOCH - LAST_KILL_EPOCH))
 
+    # Tier 3: After 6+ kills in 24 hours, stop killing entirely (alert only mode)
+    if [[ "$KILLS_IN_DAY" -ge 6 ]]; then
+        echo "[$TIMESTAMP] [TIER3-DISABLED] Too many kills in 24h ($KILLS_IN_DAY). Kill mode disabled, alert only."
+        send_alert "$HOSTNAME: Watchdog disabled after $KILLS_IN_DAY kills in 24h. Manual intervention required." "CRITICAL"
+        exit 0
+    fi
+
+    # Tier 2: After 4+ kills in 4 hours, only allow 1 kill per hour with 1h minimum gap
+    if [[ "$KILLS_IN_4H" -ge 4 ]]; then
+        if [[ "$SECONDS_SINCE_LAST" -lt 3600 ]]; then
+            WAIT_MORE=$((3600 - SECONDS_SINCE_LAST))
+            echo "[$TIMESTAMP] [TIER2-BACKOFF] $KILLS_IN_4H kills in 4h. Max 1/hour. Waiting ${WAIT_MORE}s."
+            exit 0
+        fi
+    fi
+
+    # Tier 1: Normal backoff - exponential with 15 minute base
+    # After 2 kills/hour, require increasingly long waits
+    BACKOFF_SECONDS=$((BASE_BACKOFF_MINUTES * 60 * (2 ** KILLS_IN_HOUR)))
+    BACKOFF_SECONDS=$((BACKOFF_SECONDS > 7200 ? 7200 : BACKOFF_SECONDS))  # Cap at 2 hours
+
     if [[ "$KILLS_IN_HOUR" -ge "$MAX_KILLS_PER_HOUR" ]] && [[ "$SECONDS_SINCE_LAST" -lt "$BACKOFF_SECONDS" ]]; then
         WAIT_MORE=$((BACKOFF_SECONDS - SECONDS_SINCE_LAST))
-        echo "[$TIMESTAMP] [BACKOFF] Too many kills ($KILLS_IN_HOUR in past hour). Waiting ${WAIT_MORE}s more."
+        echo "[$TIMESTAMP] [TIER1-BACKOFF] $KILLS_IN_HOUR kills in hour. Waiting ${WAIT_MORE}s (backoff=${BACKOFF_SECONDS}s)."
         exit 0
     fi
 
@@ -165,15 +196,15 @@ if [[ "$KILL_MODE" == "true" ]]; then
     fi
 
     # Record this kill action for backoff tracking
-    # Keep only timestamps from the past hour
+    # Keep timestamps from the past 24 hours for tiered backoff
     NEW_TIMESTAMPS="$NOW_EPOCH"
     for ts in $KILL_TIMESTAMPS; do
-        if [[ "$ts" -gt "$HOUR_AGO_EPOCH" ]]; then
+        if [[ "$ts" -gt "$DAY_EPOCH" ]]; then
             NEW_TIMESTAMPS="$NEW_TIMESTAMPS $ts"
         fi
     done
     echo "{\"kills\": [$(echo $NEW_TIMESTAMPS | tr ' ' ',')]}" > "$STATE_FILE"
-    echo "[$TIMESTAMP] [STATE] Recorded kill at $NOW_EPOCH (total in hour: $((KILLS_IN_HOUR + 1)))"
+    echo "[$TIMESTAMP] [STATE] Recorded kill at $NOW_EPOCH (hour=$((KILLS_IN_HOUR + 1)), 4h=$((KILLS_IN_4H + 1)), day=$((KILLS_IN_DAY + 1)))"
 fi
 
 # Exit with error code to indicate problems were found

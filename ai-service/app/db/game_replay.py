@@ -1201,13 +1201,12 @@ class GameReplayDB:
         self,
         game_id: str,
         move_number: int,
+        auto_inject: bool = True,
     ) -> Optional[GameState]:
         """Reconstruct state at a specific move number.
 
         This method replays moves from the initial state using the current
-        GameEngine implementation. It expects the recorded moves to be
-        **complete and canonical** - every phase transition should have an
-        explicit recorded move. No auto-bridging or gap-filling is performed.
+        GameEngine implementation.
 
         All intermediate states are derived by applying the recorded move
         sequence with ``trace_mode=True`` so that:
@@ -1216,20 +1215,19 @@ class GameReplayDB:
         - All eliminations/decisions must be represented as explicit
           moves in the history, matching TS ``traceMode`` semantics.
 
-        **IMPORTANT**: This method requires canonical recordings. Databases
-        created with older recorders that have gaps (missing bookkeeping moves)
-        will fail with phase/move invariant errors. Use regenerated canonical
-        databases with complete recordings.
-
         Args:
             game_id: Game identifier
             move_number: The move number to reconstruct state after
+            auto_inject: If True (default), automatically inject missing
+                bookkeeping moves (no_territory_action, etc.) when needed
+                to handle non-canonical recordings. If False, requires
+                canonical recordings and will raise RuntimeError on gaps.
 
         Returns:
             GameState after the specified move, or None if not found.
 
         Raises:
-            RuntimeError: If recorded moves are not canonical (have phase gaps).
+            RuntimeError: If auto_inject=False and recorded moves have phase gaps.
         """
         # Import here to avoid circular imports
         from app.game_engine import GameEngine
@@ -1243,10 +1241,11 @@ class GameReplayDB:
         if move_number < 0:
             return state
 
-        # Pure replay: apply exactly the recorded moves with no bridging.
-        # This requires canonical recordings with no gaps.
         moves = self.get_moves(game_id, start=0, end=move_number + 1)
         for move in moves:
+            # Auto-inject missing bookkeeping moves before applying this move
+            if auto_inject:
+                state = self._auto_inject_before_move(state, move)
             state = GameEngine.apply_move(state, move, trace_mode=True)
 
         return state
@@ -1363,28 +1362,47 @@ class GameReplayDB:
                 else str(next_move.type)
             )
 
+            # Meta-moves like swap_sides are valid in any phase - no injection needed
+            meta_moves = ("swap_sides",)
+            if next_type in meta_moves:
+                break
+
             # RR-PARITY-FIX: When in ring_placement/movement but the next move
             # is forced_elimination, coerce the phase. This happens when Python's
             # phase machine recorded a forced_elimination mid-turn but the replay
             # engine has already advanced to the next turn's start phase.
+            # Note: eliminate_rings_from_stack is TERRITORY_PROCESSING, not FORCED_ELIMINATION
             if current_phase in ("ring_placement", "movement") and next_type == "forced_elimination":
                 from app.models import GamePhase
                 state.current_phase = GamePhase.FORCED_ELIMINATION
                 break  # Phase is now correct, exit loop
 
-            # RR-PARITY-FIX-2025-12-11: When in ring_placement but the player has
-            # no rings to place (rings_in_hand == 0), and the next move is NOT a
-            # placement move, inject NO_PLACEMENT_ACTION to advance through
-            # ring_placement. This handles canonical recordings where the placement
-            # phase was skipped because the player had exhausted their rings.
-            # The next move could be from any later phase (movement, capture, line,
-            # territory) - after injecting NO_PLACEMENT_ACTION we continue the loop
-            # to handle further bridging as needed.
-            placement_moves = ("place_ring", "no_placement_action")
+            # When in ring_placement/movement but the next move is a territory action
+            # (eliminate_rings_from_stack, choose_territory_option, etc.), we need to
+            # bridge through earlier phases first. This handles non-canonical recordings
+            # that skip intermediate no-action phases.
+            territory_moves = (
+                "eliminate_rings_from_stack", "choose_territory_option",
+                "process_territory_region", "skip_territory_processing", "no_territory_action"
+            )
+            if current_phase in ("ring_placement", "movement") and next_type in territory_moves:
+                # Need to advance through ring_placement -> movement -> line_processing -> territory_processing
+                # Continue the loop and let the specific phase handlers inject the appropriate no-action moves
+                pass  # Fall through to specific phase handlers below
+
+            # RR-PARITY-FIX-2025-12-11: When in ring_placement but the next move is NOT
+            # a placement move, inject NO_PLACEMENT_ACTION to advance through
+            # ring_placement. This handles both:
+            # - Canonical recordings where placement was skipped (rings_in_hand == 0)
+            # - Non-canonical recordings that skip multiple phases
+            # Note: skip_placement is also a valid ring_placement move (voluntary skip to recovery)
+            placement_moves = ("place_ring", "no_placement_action", "skip_placement")
             if current_phase == "ring_placement":
-                player_idx = state.current_player - 1
-                rings_in_hand = state.players[player_idx].rings_in_hand
-                if rings_in_hand == 0 and next_type not in placement_moves:
+                if next_type in placement_moves:
+                    # Next move is a placement move - no injection needed
+                    break
+                else:
+                    # Next move is from a later phase - inject NO_PLACEMENT_ACTION to bridge
                     no_placement_move = Move(
                         id="auto-inject-no-placement",
                         type=MoveType.NO_PLACEMENT_ACTION,
@@ -1396,17 +1414,16 @@ class GameReplayDB:
                     )
                     state = GameEngine.apply_move(state, no_placement_move, trace_mode=True)
                     continue  # Re-check phase after injection
-                else:
-                    # Player has rings or next move is a placement move - no injection needed
-                    break
 
             # RR-PARITY-FIX-2025-12-11: When in movement phase but the next move is
             # from a later phase (line_processing, territory_processing), inject
             # NO_MOVEMENT_ACTION to advance. This bridges the gap when recordings
             # skip the movement phase (e.g., player has no stacks to move).
+            # Note: skip_recovery is also a valid movement phase move
             movement_moves = (
                 "move_stack", "no_movement_action", "recovery_slide",
-                "overtaking_capture", "continue_capture_segment", "skip_capture"
+                "overtaking_capture", "continue_capture_segment", "skip_capture",
+                "skip_recovery"
             )
             if current_phase == "movement":
                 if next_type not in movement_moves:
@@ -1435,7 +1452,8 @@ class GameReplayDB:
                     break
                 # Check if the next move is already a territory action
                 # Only auto-inject if the next move ISN'T a territory action
-                if next_type not in ("no_territory_action", "process_territory_region", "choose_territory_option"):
+                # Note: eliminate_rings_from_stack and skip_territory_processing are also territory actions
+                if next_type not in ("no_territory_action", "process_territory_region", "choose_territory_option", "eliminate_rings_from_stack", "skip_territory_processing"):
                     # Need to inject NO_TERRITORY_ACTION to advance
                     no_territory_move = Move(
                         id="auto-inject-no-territory",
