@@ -426,11 +426,13 @@ def run_hybrid_selfplay(
                         GameEngine._check_victory(game_state)
                         break
                 else:
-                    # Select move based on engine mode
-                    if engine_mode == "random-only":
+                    # Select move based on engine mode (per-player for asymmetric matches)
+                    current_engine = player_engine_modes[current_player]
+
+                    if current_engine == "random-only" or current_engine == "random":
                         # Uniform random move selection (no evaluation)
                         best_move = valid_moves[np.random.randint(len(valid_moves))]
-                    elif engine_mode == "mixed":
+                    elif current_engine == "mixed":
                         # Mixed mode: probabilistically choose random vs heuristic
                         if np.random.random() < mix_ratio:
                             # Use heuristic evaluation
@@ -449,7 +451,7 @@ def run_hybrid_selfplay(
                         else:
                             # Use random selection
                             best_move = valid_moves[np.random.randint(len(valid_moves))]
-                    elif engine_mode == "mcts" and mcts_ai is not None:
+                    elif current_engine == "mcts" and mcts_ai is not None:
                         # MCTS mode: Use Monte Carlo Tree Search for move selection
                         try:
                             best_move = mcts_ai.search(game_state)
@@ -467,7 +469,7 @@ def run_hybrid_selfplay(
                         except Exception as e:
                             logger.debug(f"MCTS error: {e}, falling back to heuristic")
                             best_move = valid_moves[np.random.randint(len(valid_moves))]
-                    elif engine_mode == "nnue-guided" and nnue_evaluator is not None:
+                    elif current_engine == "nnue-guided" and nnue_evaluator is not None:
                         # NNUE-guided mode: Blend NNUE and heuristic scores
                         try:
                             # Get heuristic scores
@@ -594,9 +596,11 @@ def run_hybrid_selfplay(
                 "stalemate_tiebreaker": stalemate_tiebreaker,  # territory, ring_elim, or None
                 "termination_reason": f"status:{game_state.game_status}:{victory_type}",
                 # === Engine/opponent metadata ===
-                "engine_mode": engine_mode,  # heuristic-only, random-only, mixed, mcts-only
-                "opponent_type": "selfplay",  # selfplay, human, ai_vs_ai
-                "player_types": ["hybrid_gpu"] * num_players,  # Type of each player
+                "engine_mode": engine_mode,  # Default engine mode (P1)
+                "player_engine_modes": {str(p): player_engine_modes[p] for p in range(1, num_players + 1)},  # Per-player engine modes
+                "is_asymmetric": is_asymmetric,  # Whether different players used different engines
+                "opponent_type": "selfplay" if not is_asymmetric else "ai_vs_ai",  # ai_vs_ai for asymmetric
+                "player_types": [player_engine_modes[p] for p in range(1, num_players + 1)],  # Engine type of each player
                 "mix_ratio": mix_ratio if engine_mode == "mixed" else None,
                 # === Training data (required for NPZ export) ===
                 "moves": moves_played,  # Full move history
@@ -908,8 +912,29 @@ def main():
         "--engine-mode",
         type=str,
         default="heuristic-only",
-        choices=["random-only", "heuristic-only", "mixed", "nnue-guided", "mcts"],
-        help="Engine mode: random-only (uniform random), heuristic-only (GPU heuristic), mixed (probabilistic blend), nnue-guided (NNUE neural network), or mcts (Monte Carlo Tree Search)",
+        choices=["random-only", "random", "heuristic-only", "mixed", "nnue-guided", "mcts"],
+        help="Engine mode for P1: random-only (uniform random), heuristic-only (GPU heuristic), mixed (probabilistic blend), nnue-guided (NNUE neural network), or mcts (Monte Carlo Tree Search)",
+    )
+    parser.add_argument(
+        "--p2-engine-mode",
+        type=str,
+        default=None,
+        choices=["random-only", "random", "heuristic-only", "mixed", "nnue-guided", "mcts"],
+        help="Engine mode for Player 2 (if different from P1 for asymmetric matches)",
+    )
+    parser.add_argument(
+        "--p3-engine-mode",
+        type=str,
+        default=None,
+        choices=["random-only", "random", "heuristic-only", "mixed", "nnue-guided", "mcts"],
+        help="Engine mode for Player 3 (for 3-4 player games)",
+    )
+    parser.add_argument(
+        "--p4-engine-mode",
+        type=str,
+        default=None,
+        choices=["random-only", "random", "heuristic-only", "mixed", "nnue-guided", "mcts"],
+        help="Engine mode for Player 4 (for 4 player games)",
     )
     parser.add_argument(
         "--mcts-sims",
@@ -1014,6 +1039,9 @@ def main():
                 seed=args.seed,
                 use_numba=not args.no_numba,
                 engine_mode=args.engine_mode,
+                p2_engine_mode=args.p2_engine_mode,
+                p3_engine_mode=args.p3_engine_mode,
+                p4_engine_mode=args.p4_engine_mode,
                 weights=weights,
                 mix_ratio=args.mix_ratio,
                 record_db=None if args.no_record_db else (args.record_db or None),
