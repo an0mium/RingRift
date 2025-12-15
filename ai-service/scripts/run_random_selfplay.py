@@ -23,6 +23,19 @@ from app.game_engine import GameEngine
 from app.training.generate_data import create_initial_state
 from app.utils.victory_type import derive_victory_type
 
+# Import coordination for task limits and duration tracking
+try:
+    from app.coordination import (
+        TaskType,
+        can_spawn,
+        register_running_task,
+        record_task_completion,
+    )
+    HAS_COORDINATION = True
+except ImportError:
+    HAS_COORDINATION = False
+    TaskType = None
+
 
 def play_random_game(
     board_type: str = "square8",
@@ -142,6 +155,25 @@ def main():
     parser.add_argument('--seed', type=int, default=None, help='Random seed')
     parser.add_argument('--max-moves', type=int, default=500, help='Max moves per game')
     args = parser.parse_args()
+
+    # Check coordination before spawning
+    task_id = None
+    coord_start_time = time.time()
+    if HAS_COORDINATION:
+        import socket
+        node_id = socket.gethostname()
+        allowed, reason = can_spawn(TaskType.SELFPLAY, node_id)
+        if not allowed:
+            print(f"[Coordination] Warning: {reason}")
+            print("[Coordination] Proceeding anyway (coordination is advisory)")
+
+        # Register task for tracking
+        task_id = f"random_selfplay_{args.board_type}_{args.num_players}p_{os.getpid()}"
+        try:
+            register_running_task(task_id, "selfplay", node_id, os.getpid())
+            print(f"[Coordination] Registered task {task_id}")
+        except Exception as e:
+            print(f"[Coordination] Warning: Failed to register task: {e}")
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
