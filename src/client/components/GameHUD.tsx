@@ -1870,8 +1870,8 @@ function GameHUDFromViewModel({
       </div>
       <SubPhaseDetails detail={subPhaseDetail} />
 
-      {/* Dynamic alerts zone - min-height prevents layout shift when chips appear/disappear */}
-      <div className="min-h-[28px] flex flex-col justify-end">
+      {/* Dynamic alerts zone - min-height and transitions prevent jarring layout shift when chips appear/disappear */}
+      <div className="min-h-[72px] flex flex-col justify-end transition-all duration-150 ease-in-out">
         {/* High-level decision time-pressure cue for the current phase */}
         {decisionPhase && decisionSeverity && (
           <div className="mt-1 flex items-center text-[11px] text-slate-200">

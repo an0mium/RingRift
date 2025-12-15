@@ -241,3 +241,149 @@ groups:
         annotations:
           summary: 'Scale-up recommended'
           description: 'Autoscaler suggests {{ $value }} workers - current cluster may be undersized'
+
+      # Stratified Holdout Validation Alerts
+      - alert: WeakOpeningPhase
+        expr: |
+          ringrift_holdout_accuracy{phase="opening"} < 0.60
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Weak opening phase accuracy for {{ $labels.board_type }}_{{ $labels.num_players }}p'
+          description: 'Opening phase accuracy is {{ $value | printf "%.1f" }}% - model struggles with early game positions'
+
+      - alert: WeakEndgamePhase
+        expr: |
+          ringrift_holdout_accuracy{phase="endgame"} < 0.60
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Weak endgame phase accuracy for {{ $labels.board_type }}_{{ $labels.num_players }}p'
+          description: 'Endgame phase accuracy is {{ $value | printf "%.1f" }}% - model struggles with late game positions'
+
+      - alert: PhaseAccuracyImbalance
+        expr: |
+          max(ringrift_holdout_accuracy) by (board_type, num_players) - min(ringrift_holdout_accuracy) by (board_type, num_players) > 0.15
+        for: 2h
+        labels:
+          severity: info
+        annotations:
+          summary: 'Phase accuracy imbalance for {{ $labels.board_type }}_{{ $labels.num_players }}p'
+          description: 'Large gap between phase accuracies - consider phase-specific training'
+
+      # Curriculum Learning Alerts
+      - alert: CurriculumAllTooEasy
+        expr: |
+          count(ringrift_curriculum_winrate > 0.70) by (board_type, num_players) >= 8
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Curriculum too easy for {{ $labels.board_type }}_{{ $labels.num_players }}p'
+          description: 'Model beats most difficulty levels >70% - needs harder opponents or self-play'
+
+      - alert: CurriculumAllTooHard
+        expr: |
+          count(ringrift_curriculum_winrate < 0.30) by (board_type, num_players) >= 5
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Curriculum too hard for {{ $labels.board_type }}_{{ $labels.num_players }}p'
+          description: 'Model loses to most difficulty levels - may need easier opponents or more training'
+
+      - alert: CurriculumNoOptimalDifficulty
+        expr: |
+          count(ringrift_curriculum_winrate > 0.45 and ringrift_curriculum_winrate < 0.65) by (board_type, num_players) == 0
+        for: 4h
+        labels:
+          severity: info
+        annotations:
+          summary: 'No optimal difficulty level for {{ $labels.board_type }}_{{ $labels.num_players }}p'
+          description: 'No opponents in the 45-65% win rate sweet spot - curriculum may not be optimal'
+
+      # Ensemble Alerts
+      - alert: EnsembleCreationFailed
+        expr: |
+          increase(ringrift_ensemble_failures_total[6h]) > 2
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Ensemble creation failures for {{ $labels.board_type }}_{{ $labels.num_players }}p'
+          description: '{{ $value }} ensemble creation failures in last 6 hours'
+
+      - alert: EnsembleStale
+        expr: |
+          time() - ringrift_last_ensemble_time > 172800
+        for: 1h
+        labels:
+          severity: info
+        annotations:
+          summary: 'Stale ensemble for {{ $labels.board_type }}_{{ $labels.num_players }}p'
+          description: 'No ensemble created in 48+ hours - may be missing model diversity benefits'
+
+      # A/B Testing Alerts
+      - alert: ABTestStalled
+        expr: |
+          ringrift_abtest_games_remaining > 0 and increase(ringrift_abtest_games_played[2h]) == 0
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: 'A/B test stalled'
+          description: 'A/B test {{ $labels.test_id }} has {{ $value }} games remaining but no progress in 2 hours'
+
+      - alert: ABTestLowConfidence
+        expr: |
+          ringrift_abtest_games_played > 80 and ringrift_abtest_confidence < 0.80
+        for: 1h
+        labels:
+          severity: info
+        annotations:
+          summary: 'A/B test inconclusive after many games'
+          description: 'A/B test {{ $labels.test_id }} has {{ $value }} games but only {{ $labels.confidence }}% confidence - models may be equal'
+
+      # Data Quality Gating Alerts
+      - alert: TrainingBlockedByQuality
+        expr: |
+          increase(ringrift_training_blocked_by_quality_total[1h]) > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Training blocked by data quality for {{ $labels.board_type }}_{{ $labels.num_players }}p'
+          description: 'Data quality issues preventing training - check /data/quality endpoint'
+
+      - alert: PersistentQualityIssues
+        expr: |
+          ringrift_data_quality_issues > 3
+        for: 6h
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Persistent data quality issues for {{ $labels.board_type }}_{{ $labels.num_players }}p'
+          description: '{{ $value }} quality issues detected for 6+ hours - investigate data generation'
+
+      # Training Efficiency Alerts
+      - alert: NegativeEloPerGPUHour
+        expr: |
+          ringrift_elo_per_gpu_hour < 0
+        for: 6h
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Negative Elo/GPU-hour for {{ $labels.board_type }}_{{ $labels.num_players }}p'
+          description: 'Training is making model worse - {{ $value | printf "%.2f" }} Elo/GPU-hr. Consider rollback.'
+
+      - alert: VeryLowTrainingROI
+        expr: |
+          ringrift_elo_per_gpu_hour > 0 and ringrift_elo_per_gpu_hour < 0.1
+        for: 12h
+        labels:
+          severity: info
+        annotations:
+          summary: 'Very low training ROI for {{ $labels.board_type }}_{{ $labels.num_players }}p'
+          description: 'Only {{ $value | printf "%.2f" }} Elo/GPU-hr - may have hit improvement ceiling'

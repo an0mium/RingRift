@@ -271,6 +271,15 @@ export const getRateLimitConfigs = (): Record<string, RateLimitConfig> => ({
     duration: getEnvNumber('RATE_LIMIT_USER_SEARCH_DURATION', 60), // per minute
     blockDuration: getEnvNumber('RATE_LIMIT_USER_SEARCH_BLOCK_DURATION', 120), // 2 min block
   },
+
+  // Sandbox AI endpoints - high limits for local AI games
+  // Each AI move in sandbox mode requires a request to the AI service
+  sandboxAi: {
+    keyPrefix: 'sandbox_ai_limit',
+    points: getEnvNumber('RATE_LIMIT_SANDBOX_AI_POINTS', 1000), // requests
+    duration: getEnvNumber('RATE_LIMIT_SANDBOX_AI_DURATION', 60), // per minute
+    blockDuration: getEnvNumber('RATE_LIMIT_SANDBOX_AI_BLOCK_DURATION', 60), // 1 min block
+  },
 });
 
 // Cache the configs to avoid re-parsing env vars on every request
@@ -589,6 +598,15 @@ export const alertWebhookRateLimiter = createRateLimiter('alertWebhook');
 // User data rate limiters
 export const userRatingRateLimiter = createRateLimiter('userRating');
 export const userSearchRateLimiter = createRateLimiter('userSearch');
+
+// Sandbox AI rate limiter - high limits for local AI games
+export const sandboxAiRateLimiter = createRateLimiter('sandboxAi', {
+  keyGenerator: (req: Request) => {
+    // Use user ID if authenticated, otherwise IP
+    const authReq = req as AuthenticatedRequest;
+    return authReq.user?.id || req.ip || 'unknown';
+  },
+});
 
 /**
  * Rate limiter that differentiates between authenticated and anonymous users.

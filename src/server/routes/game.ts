@@ -7,7 +7,11 @@ import {
 import { getDatabaseClient, withQueryTimeoutStrict } from '../database/connection';
 import { AuthenticatedRequest, getAuthUserId } from '../middleware/auth';
 import { createError, asyncHandler } from '../middleware/errorHandler';
-import { consumeRateLimit, adaptiveRateLimiter } from '../middleware/rateLimiter';
+import {
+  consumeRateLimit,
+  adaptiveRateLimiter,
+  sandboxAiRateLimiter,
+} from '../middleware/rateLimiter';
 import { httpLogger, logger } from '../utils/logger';
 import { ErrorCodes, ErrorCodeMessages } from '../errors';
 import {
@@ -52,9 +56,9 @@ router.use(adaptiveRateLimiter('apiAuthenticated', 'api'));
 
 // Sandbox helper endpoints are explicitly gated by config.featureFlags.sandboxAi
 // and are allowed to be unauthenticated so the /sandbox host can use them
-// without requiring a logged-in session. Apply a conservative anonymous
-// limiter to prevent abuse when enabled in staging/test environments.
-sandboxHelperRoutes.use(adaptiveRateLimiter('apiAuthenticated', 'api'));
+// without requiring a logged-in session. Use dedicated high-limit rate limiter
+// since AI games can generate many move requests per minute.
+sandboxHelperRoutes.use(sandboxAiRateLimiter);
 
 // Active games storage (in production, this would be in Redis)
 const activeGames = new Map<string, GameEngine>();

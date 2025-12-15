@@ -2658,56 +2658,61 @@ export const SandboxGameHost: React.FC = () => {
                 />
               ))}
 
-            {/* Onboarding scenario context for curated rules/FAQ scenarios */}
-            {lastLoadedScenario &&
-              lastLoadedScenario.onboarding &&
-              lastLoadedScenario.rulesSnippet && (
-                <div className="p-4 border border-emerald-700 rounded-2xl bg-emerald-950/60 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <h2 className="font-semibold text-sm text-emerald-100">
-                      Scenario: {lastLoadedScenario.name}
-                    </h2>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-emerald-900/80 text-emerald-300 border border-emerald-600/80">
-                      Rules context
-                    </span>
+            {/* Dynamic alerts zone - smooth transitions prevent jarring layout bounce when chips appear/disappear */}
+            <div className="flex flex-col justify-end transition-all duration-200 ease-in-out">
+              {/* Onboarding scenario context for curated rules/FAQ scenarios */}
+              {lastLoadedScenario &&
+                lastLoadedScenario.onboarding &&
+                lastLoadedScenario.rulesSnippet && (
+                  <div className="p-4 border border-emerald-700 rounded-2xl bg-emerald-950/60 space-y-2 mb-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <h2 className="font-semibold text-sm text-emerald-100">
+                        Scenario: {lastLoadedScenario.name}
+                      </h2>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-emerald-900/80 text-emerald-300 border border-emerald-600/80">
+                        Rules context
+                      </span>
+                    </div>
+                    {lastLoadedScenario.description && (
+                      <p className="text-xs text-emerald-100/90">
+                        {lastLoadedScenario.description}
+                      </p>
+                    )}
+                    <p className="text-xs text-emerald-50">{lastLoadedScenario.rulesSnippet}</p>
                   </div>
-                  {lastLoadedScenario.description && (
-                    <p className="text-xs text-emerald-100/90">{lastLoadedScenario.description}</p>
-                  )}
-                  <p className="text-xs text-emerald-50">{lastLoadedScenario.rulesSnippet}</p>
-                </div>
-              )}
+                )}
 
-            {sandboxEngine &&
-              sandboxGameState &&
-              sandboxGameState.gameStatus === 'active' &&
-              sandboxGameState.players.length === 2 &&
-              sandboxGameState.rulesOptions?.swapRuleEnabled === true &&
-              sandboxEngine.canCurrentPlayerSwapSides() && (
-                <div className="p-3 border border-amber-500/60 rounded-2xl bg-amber-900/40 text-xs space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-amber-100">
-                      Pie rule available: swap colours with Player 1.
-                    </span>
-                    <button
-                      type="button"
-                      className="px-2 py-1 rounded bg-amber-500 hover:bg-amber-400 text-black font-semibold"
-                      onClick={() => {
-                        sandboxEngine.applySwapSidesForCurrentPlayer();
-                        setSelected(undefined);
-                        setValidTargets([]);
-                        setSandboxPendingChoice(null);
-                        setSandboxStateVersion((v) => v + 1);
-                      }}
-                    >
-                      Swap colours
-                    </button>
+              {sandboxEngine &&
+                sandboxGameState &&
+                sandboxGameState.gameStatus === 'active' &&
+                sandboxGameState.players.length === 2 &&
+                sandboxGameState.rulesOptions?.swapRuleEnabled === true &&
+                sandboxEngine.canCurrentPlayerSwapSides() && (
+                  <div className="p-3 border border-amber-500/60 rounded-2xl bg-amber-900/40 text-xs space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-amber-100">
+                        Pie rule available: swap colours with Player 1.
+                      </span>
+                      <button
+                        type="button"
+                        className="px-2 py-1 rounded bg-amber-500 hover:bg-amber-400 text-black font-semibold"
+                        onClick={() => {
+                          sandboxEngine.applySwapSidesForCurrentPlayer();
+                          setSelected(undefined);
+                          setValidTargets([]);
+                          setSandboxPendingChoice(null);
+                          setSandboxStateVersion((v) => v + 1);
+                        }}
+                      >
+                        Swap colours
+                      </button>
+                    </div>
+                    <p className="text-amber-100/80">
+                      As Player 2, you may use this once, immediately after Player 1's first turn.
+                    </p>
                   </div>
-                  <p className="text-amber-100/80">
-                    As Player 2, you may use this once, immediately after Player 1’s first turn.
-                  </p>
-                </div>
-              )}
+                )}
+            </div>
 
             <details
               className="p-3 border border-slate-700 rounded-2xl bg-slate-900/60"
