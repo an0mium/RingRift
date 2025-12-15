@@ -73,6 +73,7 @@ from app.training.model_versioning import (  # noqa: E402
     LegacyCheckpointError,
 )
 from app.training.seed_utils import seed_all
+from app.training.fault_tolerance import HeartbeatMonitor  # noqa: E402
 from app.ai.heuristic_weights import (  # noqa: E402
     HEURISTIC_WEIGHT_KEYS,
     HEURISTIC_WEIGHT_PROFILES,
@@ -1266,6 +1267,8 @@ def train_model(
     model_version: str = 'v2',
     num_res_blocks: Optional[int] = None,
     num_filters: Optional[int] = None,
+    heartbeat_file: Optional[str] = None,
+    heartbeat_interval: float = 30.0,
 ):
     """
     Train the RingRift neural network model.
@@ -1998,6 +2001,18 @@ def train_model(
     # Initialize distributed metrics tracker
     dist_metrics = DistributedMetrics() if distributed else None
 
+    # Initialize heartbeat monitor for fault tolerance
+    heartbeat_monitor: Optional[HeartbeatMonitor] = None
+    if heartbeat_file and is_main_process():
+        heartbeat_path = Path(heartbeat_file)
+        heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
+        heartbeat_monitor = HeartbeatMonitor(
+            heartbeat_interval=heartbeat_interval,
+            timeout_threshold=heartbeat_interval * 4,  # 4 missed beats = timeout
+        )
+        heartbeat_monitor.start(heartbeat_path)
+        logger.info(f"Heartbeat monitor started: {heartbeat_file} (interval={heartbeat_interval}s)")
+
     best_val_loss = float('inf')
     avg_val_loss = float('inf')  # Initialize for final checkpoint
     avg_train_loss = float('inf')  # Track for return value
@@ -2473,6 +2488,11 @@ def train_model(
                 )
                 logger.info("Training completed. Final checkpoint saved.")
     finally:
+        # Stop heartbeat monitor
+        if heartbeat_monitor is not None:
+            heartbeat_monitor.stop()
+            logger.info("Heartbeat monitor stopped")
+
         # Clean up distributed process group
         if distributed:
             cleanup_distributed()

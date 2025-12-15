@@ -389,6 +389,28 @@ class SelfplayCoordinator:
         self.client = client
         self.config = config
         self._selfplay_targets: Dict[str, int] = {}
+        self._rate_multiplier: float = 1.0  # Feedback-driven multiplier
+
+    def adjust_target_rate(self, multiplier: float, reason: str) -> int:
+        """Adjust the target selfplay rate by applying a multiplier.
+
+        Args:
+            multiplier: Rate multiplier (1.0 = no change, 1.5 = 50% increase)
+            reason: Human-readable reason for adjustment
+
+        Returns:
+            New effective target rate
+        """
+        # Clamp multiplier to reasonable bounds
+        self._rate_multiplier = max(0.5, min(2.5, multiplier))
+        effective_rate = int(self.config.target_selfplay_games_per_hour * self._rate_multiplier)
+        logger.info(f"[Selfplay] Target rate adjusted to {effective_rate}/hour "
+                    f"(multiplier={self._rate_multiplier:.2f}): {reason}")
+        return effective_rate
+
+    def get_effective_target_rate(self) -> int:
+        """Get the current effective target rate after feedback adjustments."""
+        return int(self.config.target_selfplay_games_per_hour * self._rate_multiplier)
 
     async def get_current_rate(self) -> float:
         """Get current selfplay games per hour."""
@@ -404,7 +426,7 @@ class SelfplayCoordinator:
             return {"action": "disabled"}
 
         current_rate = await self.get_current_rate()
-        target_rate = self.config.target_selfplay_games_per_hour
+        target_rate = self.get_effective_target_rate()  # Use feedback-adjusted rate
 
         nodes = await self.client.get_nodes()
         healthy_nodes = [n for n in nodes if n.is_healthy]

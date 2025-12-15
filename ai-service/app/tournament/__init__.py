@@ -41,6 +41,18 @@ from .unified_elo_db import (
     reset_elo_database,
 )
 
+# Canonical Elo service (preferred for new code)
+# unified_elo_db is maintained for backward compatibility
+from app.training.elo_service import (
+    EloService,
+    get_elo_service,
+    ELO_DB_PATH,
+    get_head_to_head,
+    get_database_stats,
+    get_match_history,
+    get_rating_history,
+)
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -61,12 +73,20 @@ __all__ = [
     "MatchResult",
     "TournamentRunner",
     "TournamentResults",
-    # Unified Elo database
+    # Unified Elo database (legacy - use EloService for new code)
     "EloDatabase",
     "UnifiedEloRating",
     "MatchRecord",
     "get_elo_database",
     "reset_elo_database",
+    # Canonical Elo service (preferred)
+    "EloService",
+    "get_elo_service",
+    "ELO_DB_PATH",
+    "get_head_to_head",
+    "get_database_stats",
+    "get_match_history",
+    "get_rating_history",
 ]
 
 

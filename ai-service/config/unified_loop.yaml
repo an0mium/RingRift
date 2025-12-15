@@ -92,7 +92,15 @@ verbose: false
 
 # Metrics (Prometheus)
 metrics_enabled: true
-metrics_port: 9090
+metrics_port: 9090 # Prometheus server port (app exposes on 9091)
+
+# Safety thresholds (prevent bad models from being promoted)
+safety:
+  overfit_threshold: 0.15 # Max gap between train/val loss
+  min_memory_gb: 64 # Minimum RAM required to run unified loop
+  max_consecutive_failures: 3 # Stop after N consecutive failures
+  parity_failure_rate_max: 0.10 # Block training if parity failures exceed this
+  data_quality_score_min: 0.70 # Minimum data quality to proceed
 
 # Pipeline orchestration
 pipeline:
@@ -113,6 +121,31 @@ adaptive_control:
   dynamic_games: true # Adjust games based on win rate
   min_games: 50 # Minimum games per evaluation
   max_games: 200 # Maximum games per evaluation
+
+# Plateau detection and automatic hyperparameter search
+plateau_detection:
+  elo_plateau_threshold: 15.0 # Elo gain below this triggers plateau detection
+  elo_plateau_lookback: 5 # Number of evaluations to look back
+  win_rate_degradation_threshold: 0.40 # Win rate below this triggers retraining
+  plateau_count_for_cmaes: 2 # Trigger CMA-ES after this many consecutive plateaus
+  plateau_count_for_nas: 4 # Trigger NAS after this many consecutive plateaus
+
+# Population-based training (PBT)
+pbt:
+  enabled: false # Run manually when needed
+  check_interval_seconds: 1800 # Check PBT status every 30 min
+
+# Neural architecture search (NAS)
+nas:
+  enabled: false # Run manually when needed
+  check_interval_seconds: 3600 # Check NAS status every hour
+
+# Prioritized experience replay buffer
+replay_buffer:
+  priority_alpha: 0.6 # Priority exponent
+  importance_beta: 0.4 # Importance sampling exponent
+  capacity: 100000 # Max experiences in buffer
+  rebuild_interval_seconds: 7200 # Rebuild buffer every 2 hours
 
 # Regression gate
 regression:
@@ -180,6 +213,13 @@ alerting:
 # Cluster orchestration settings (previously hardcoded in cluster_orchestrator.py)
 # These are used when running distributed selfplay across multiple hosts.
 cluster:
+  # Target performance
+  target_selfplay_games_per_hour: 1000 # Target selfplay rate across cluster
+
+  # Health monitoring
+  health_check_interval_seconds: 60 # Seconds between cluster health checks
+  sync_interval_seconds: 300 # Seconds between data sync with cluster
+
   # Host sync intervals (in iterations, where 1 iteration ~= 5 minutes)
   sync_interval: 6 # Sync data every 6 iterations (30 minutes)
   model_sync_interval: 12 # Sync models every 12 iterations (1 hour)

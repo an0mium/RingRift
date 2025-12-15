@@ -127,14 +127,24 @@ class CircuitBreaker:
         recovery_timeout: float = 60.0,
         half_open_max_calls: int = 1,
         success_threshold: int = 1,
+        on_state_change: Optional[Callable[[str, CircuitState, CircuitState], None]] = None,
     ):
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.half_open_max_calls = half_open_max_calls
         self.success_threshold = success_threshold
+        self._on_state_change = on_state_change
 
         self._circuits: Dict[str, _CircuitData] = {}
         self._lock = Lock()
+
+    def _notify_state_change(self, target: str, old_state: CircuitState, new_state: CircuitState) -> None:
+        """Notify callback of a state change."""
+        if self._on_state_change and old_state != new_state:
+            try:
+                self._on_state_change(target, old_state, new_state)
+            except Exception:
+                pass  # Don't let callback errors affect circuit operation
 
     def _get_or_create_circuit(self, target: str) -> _CircuitData:
         """Get or create circuit data for a target."""
@@ -177,8 +187,12 @@ class CircuitBreaker:
 
     def record_success(self, target: str) -> None:
         """Record a successful operation for target."""
+        old_state = None
+        new_state = None
+
         with self._lock:
             circuit = self._get_or_create_circuit(target)
+            old_state = circuit.state
             circuit.success_count += 1
             circuit.last_success_time = time.time()
 
@@ -193,10 +207,20 @@ class CircuitBreaker:
                 # Reset failure count on success
                 circuit.failure_count = 0
 
+            new_state = circuit.state
+
+        # Notify state change outside lock
+        if old_state is not None and new_state is not None:
+            self._notify_state_change(target, old_state, new_state)
+
     def record_failure(self, target: str, error: Optional[Exception] = None) -> None:
         """Record a failed operation for target."""
+        old_state = None
+        new_state = None
+
         with self._lock:
             circuit = self._get_or_create_circuit(target)
+            old_state = circuit.state
             circuit.failure_count += 1
             circuit.last_failure_time = time.time()
 
@@ -210,6 +234,12 @@ class CircuitBreaker:
                 if circuit.failure_count >= self.failure_threshold:
                     circuit.state = CircuitState.OPEN
                     circuit.opened_at = time.time()
+
+            new_state = circuit.state
+
+        # Notify state change outside lock
+        if old_state is not None and new_state is not None:
+            self._notify_state_change(target, old_state, new_state)
 
     def get_state(self, target: str) -> CircuitState:
         """Get current state for a target."""
@@ -380,6 +410,27 @@ class CircuitOpenError(Exception):
 
 # Global circuit breaker instance for hosts
 _host_breaker: Optional[CircuitBreaker] = None
+_host_breaker_callback: Optional[Callable[[str, CircuitState, CircuitState], None]] = None
+
+
+def set_host_breaker_callback(
+    callback: Callable[[str, CircuitState, CircuitState], None]
+) -> None:
+    """Set a callback for host circuit breaker state changes.
+
+    The callback is called with (target, old_state, new_state) whenever
+    a circuit transitions between states. This allows other components
+    (like the event bus) to react to circuit state changes.
+
+    Must be called before get_host_breaker() is first invoked, or
+    the callback will not be registered.
+    """
+    global _host_breaker_callback
+    _host_breaker_callback = callback
+
+    # If breaker already exists, update its callback
+    if _host_breaker is not None:
+        _host_breaker._on_state_change = callback
 
 
 def get_host_breaker() -> CircuitBreaker:
@@ -391,6 +442,7 @@ def get_host_breaker() -> CircuitBreaker:
             recovery_timeout=120.0,  # 2 minutes
             half_open_max_calls=1,
             success_threshold=1,
+            on_state_change=_host_breaker_callback,
         )
     return _host_breaker
 

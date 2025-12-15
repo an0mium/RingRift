@@ -65,6 +65,30 @@ try:
 except ImportError:
     HAS_SYNC_LOCK = False
 
+# Try to import OrchestratorRegistry for daemon role management
+try:
+    from app.coordination.orchestrator_registry import (
+        OrchestratorRole,
+        orchestrator_role,
+        get_registry,
+    )
+    HAS_ORCHESTRATOR_REGISTRY = True
+except ImportError:
+    HAS_ORCHESTRATOR_REGISTRY = False
+    OrchestratorRole = None
+
+# Try to import BandwidthManager for large transfers
+try:
+    from app.coordination.bandwidth_manager import (
+        request_bandwidth,
+        release_bandwidth,
+        TransferPriority,
+    )
+    HAS_BANDWIDTH_MANAGER = True
+except ImportError:
+    HAS_BANDWIDTH_MANAGER = False
+    TransferPriority = None
+
 
 @dataclass
 class HostConfig:
@@ -604,6 +628,18 @@ class StreamingDataCollector:
                 print(f"[Collector] {host.name}: sync lock error: {e}")
                 # Continue without lock
 
+        # Request bandwidth allocation for the transfer
+        bandwidth_allocated = False
+        if HAS_BANDWIDTH_MANAGER:
+            try:
+                bandwidth_allocated = request_bandwidth(
+                    host.ssh_host, estimated_mb=100, priority=TransferPriority.NORMAL, timeout=30.0
+                )
+                if not bandwidth_allocated:
+                    print(f"[Collector] {host.name}: bandwidth unavailable, proceeding anyway")
+            except Exception as e:
+                print(f"[Collector] {host.name}: bandwidth request error: {e}")
+
         try:
             process = await asyncio.create_subprocess_shell(
                 rsync_cmd,
@@ -619,6 +655,13 @@ class StreamingDataCollector:
                 raise RuntimeError(f"rsync failed: {stderr.decode()}")
 
         finally:
+            # Release bandwidth allocation
+            if bandwidth_allocated and HAS_BANDWIDTH_MANAGER:
+                try:
+                    release_bandwidth(host.ssh_host)
+                except Exception as e:
+                    print(f"[Collector] {host.name}: bandwidth release error: {e}")
+
             # Release sync_lock
             if sync_lock_acquired and HAS_SYNC_LOCK:
                 try:
@@ -676,34 +719,69 @@ class StreamingDataCollector:
         self._running = True
         print(f"[Collector] Starting with {len(self.hosts)} hosts, {self.config.poll_interval_seconds}s interval")
 
+        # Acquire DATA_SYNC role via OrchestratorRegistry
+        has_role = False
+        if HAS_ORCHESTRATOR_REGISTRY:
+            try:
+                registry = get_registry()
+                import socket
+                node_id = socket.gethostname()
+                has_role = registry.try_acquire(OrchestratorRole.DATA_SYNC, node_id)
+                if has_role:
+                    print("[Collector] Acquired DATA_SYNC orchestrator role")
+                else:
+                    print("[Collector] Warning: Could not acquire DATA_SYNC role (another collector may be running)")
+            except Exception as e:
+                print(f"[Collector] OrchestratorRegistry error: {e}")
+
         # Start HTTP API
         await self._setup_http()
 
-        while self._running:
-            try:
-                cycle_start = time.time()
-                new_games = await self.run_collection_cycle()
+        heartbeat_interval = 30
+        last_heartbeat = time.time()
 
-                # Track cycle metrics
-                self._last_cycle_time = time.time()
-                self._last_cycle_games = new_games
+        try:
+            while self._running:
+                try:
+                    cycle_start = time.time()
+                    new_games = await self.run_collection_cycle()
 
-                if new_games > 0:
-                    total = self.manifest.get_synced_count()
-                    print(f"[Collector] Cycle complete: {new_games} new games (total: {total})")
+                    # Track cycle metrics
+                    self._last_cycle_time = time.time()
+                    self._last_cycle_games = new_games
 
-            except Exception as e:
-                print(f"[Collector] Cycle error: {e}")
+                    if new_games > 0:
+                        total = self.manifest.get_synced_count()
+                        print(f"[Collector] Cycle complete: {new_games} new games (total: {total})")
 
-            # Wait for next cycle
-            elapsed = time.time() - cycle_start
-            sleep_time = max(0, self.config.poll_interval_seconds - elapsed)
+                    # Heartbeat for OrchestratorRegistry
+                    if HAS_ORCHESTRATOR_REGISTRY and has_role and (time.time() - last_heartbeat) >= heartbeat_interval:
+                        try:
+                            registry.heartbeat(OrchestratorRole.DATA_SYNC)
+                            last_heartbeat = time.time()
+                        except Exception as e:
+                            print(f"[Collector] Heartbeat error: {e}")
 
-            try:
-                await asyncio.wait_for(self._shutdown_event.wait(), timeout=sleep_time)
-                break  # Shutdown requested
-            except asyncio.TimeoutError:
-                pass
+                except Exception as e:
+                    print(f"[Collector] Cycle error: {e}")
+
+                # Wait for next cycle
+                elapsed = time.time() - cycle_start
+                sleep_time = max(0, self.config.poll_interval_seconds - elapsed)
+
+                try:
+                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=sleep_time)
+                    break  # Shutdown requested
+                except asyncio.TimeoutError:
+                    pass
+        finally:
+            # Release OrchestratorRegistry role on shutdown
+            if HAS_ORCHESTRATOR_REGISTRY and has_role:
+                try:
+                    registry.release(OrchestratorRole.DATA_SYNC)
+                    print("[Collector] Released DATA_SYNC orchestrator role")
+                except Exception as e:
+                    print(f"[Collector] Error releasing role: {e}")
 
         # Cleanup HTTP
         await self._cleanup_http()

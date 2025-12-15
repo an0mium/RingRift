@@ -34,6 +34,19 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+# Import canonical config values
+try:
+    from app.config.unified_config import (
+        get_min_elo_improvement,
+        get_training_threshold,
+    )
+    HAS_UNIFIED_CONFIG = True
+except ImportError:
+    HAS_UNIFIED_CONFIG = False
+    get_min_elo_improvement = lambda: 25.0  # Fallback default
+    get_training_threshold = lambda: 500  # Fallback default
+
+
 # ============================================
 # Configuration
 # ============================================
@@ -42,7 +55,9 @@ logger = logging.getLogger(__name__)
 class LifecycleConfig:
     """Configuration for model lifecycle management.
 
-    NOTE: Training thresholds should match app/config/unified_config.py
+    NOTE: Use canonical values from app.config.unified_config:
+    - get_min_elo_improvement() for min_elo_improvement
+    - get_training_threshold() for min_games_for_training
     """
     # Registry paths
     registry_dir: str = "data/model_registry"

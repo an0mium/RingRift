@@ -71,6 +71,22 @@ try:
 except ImportError:
     HAS_YAML = False
 
+# Import sync_lock for coordinated file transfers
+try:
+    from app.coordination.sync_lock import (
+        acquire_sync_lock,
+        release_sync_lock,
+    )
+    HAS_SYNC_LOCK = True
+except ImportError:
+    HAS_SYNC_LOCK = False
+
+    def acquire_sync_lock(host: str, timeout: float = 30.0) -> bool:
+        return True
+
+    def release_sync_lock(host: str) -> None:
+        pass
+
 # Board configurations with appropriate max moves
 BOARD_CONFIGS: Dict[str, Dict[int, int]] = {
     # board_type: {num_players: max_moves}
@@ -972,40 +988,19 @@ def _fetch_single_job(
     db_fetched = False
     jsonl_fetched = False
 
-    # Fetch database
-    scp_cmd = ["scp"]
-    if ssh_key:
-        scp_cmd.extend(["-i", os.path.expanduser(ssh_key)])
-    if ssh_port:
-        scp_cmd.extend(["-P", str(ssh_port)])
-    scp_cmd.extend([f"{ssh_target}:{remote_db}", local_db])
+    # Acquire sync_lock for coordinated file transfers to this host
+    sync_lock_acquired = acquire_sync_lock(ssh_host, timeout=60.0)
+    if not sync_lock_acquired:
+        print(f"[{job.host}] Warning: Could not acquire sync lock, proceeding anyway")
 
     try:
-        subprocess.run(
-            scp_cmd,
-            check=True,
-            capture_output=True,
-            timeout=int(fetch_timeout_seconds) if fetch_timeout_seconds and fetch_timeout_seconds > 0 else None,
-        )
-        print(f"[{job.host}] -> Saved to {local_db}")
-        db_fetched = True
-    except subprocess.CalledProcessError as e:
-        print(f"[{job.host}] -> Failed to fetch: {e}")
-    except subprocess.TimeoutExpired:
-        print(f"[{job.host}] -> Fetch timed out")
-
-    # Fetch JSONL if requested
-    if fetch_jsonl:
-        remote_jsonl = f"{ai_service_dir}/{job.log_jsonl}"
-        local_jsonl = os.path.join(output_dir, os.path.basename(job.log_jsonl))
-        print(f"[{job.host}] Fetching {remote_jsonl}...")
-
+        # Fetch database
         scp_cmd = ["scp"]
         if ssh_key:
             scp_cmd.extend(["-i", os.path.expanduser(ssh_key)])
         if ssh_port:
             scp_cmd.extend(["-P", str(ssh_port)])
-        scp_cmd.extend([f"{ssh_target}:{remote_jsonl}", local_jsonl])
+        scp_cmd.extend([f"{ssh_target}:{remote_db}", local_db])
 
         try:
             subprocess.run(
@@ -1014,14 +1009,45 @@ def _fetch_single_job(
                 capture_output=True,
                 timeout=int(fetch_timeout_seconds) if fetch_timeout_seconds and fetch_timeout_seconds > 0 else None,
             )
-            print(f"[{job.host}] -> Saved JSONL to {local_jsonl}")
-            jsonl_fetched = True
+            print(f"[{job.host}] -> Saved to {local_db}")
+            db_fetched = True
         except subprocess.CalledProcessError as e:
-            print(f"[{job.host}] -> Failed to fetch JSONL: {e}")
+            print(f"[{job.host}] -> Failed to fetch: {e}")
         except subprocess.TimeoutExpired:
-            print(f"[{job.host}] -> JSONL fetch timed out")
-    else:
-        jsonl_fetched = True
+            print(f"[{job.host}] -> Fetch timed out")
+
+        # Fetch JSONL if requested
+        if fetch_jsonl:
+            remote_jsonl = f"{ai_service_dir}/{job.log_jsonl}"
+            local_jsonl = os.path.join(output_dir, os.path.basename(job.log_jsonl))
+            print(f"[{job.host}] Fetching {remote_jsonl}...")
+
+            scp_cmd = ["scp"]
+            if ssh_key:
+                scp_cmd.extend(["-i", os.path.expanduser(ssh_key)])
+            if ssh_port:
+                scp_cmd.extend(["-P", str(ssh_port)])
+            scp_cmd.extend([f"{ssh_target}:{remote_jsonl}", local_jsonl])
+
+            try:
+                subprocess.run(
+                    scp_cmd,
+                    check=True,
+                    capture_output=True,
+                    timeout=int(fetch_timeout_seconds) if fetch_timeout_seconds and fetch_timeout_seconds > 0 else None,
+                )
+                print(f"[{job.host}] -> Saved JSONL to {local_jsonl}")
+                jsonl_fetched = True
+            except subprocess.CalledProcessError as e:
+                print(f"[{job.host}] -> Failed to fetch JSONL: {e}")
+            except subprocess.TimeoutExpired:
+                print(f"[{job.host}] -> JSONL fetch timed out")
+        else:
+            jsonl_fetched = True
+    finally:
+        # Release sync_lock
+        if sync_lock_acquired:
+            release_sync_lock(ssh_host)
 
     # Cleanup remote if both succeeded
     if cleanup_remote and db_fetched and jsonl_fetched:

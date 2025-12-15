@@ -29,6 +29,21 @@ High-level orchestrator backends:
         agent_ids=["random", "heuristic"],
         games_per_pairing=20,
     )
+
+Game execution:
+    from app.execution import GameExecutor, GameResult, run_quick_game
+
+    # Run a single game
+    executor = GameExecutor(board_type="square8", num_players=2)
+    result = executor.run_game(
+        player_configs=[
+            {"ai_type": "mcts", "difficulty": 5},
+            {"ai_type": "heuristic", "difficulty": 3},
+        ],
+    )
+
+    # Quick game helper
+    result = run_quick_game(p1_type="mcts", p2_type="heuristic")
 """
 
 from app.execution.executor import (
@@ -51,6 +66,14 @@ from app.execution.backends import (
     SSHBackend,
     get_backend,
 )
+from app.execution.game_executor import (
+    GameOutcome,
+    GameResult,
+    GameExecutor,
+    ParallelGameExecutor,
+    run_quick_game,
+    run_selfplay_batch,
+)
 
 __all__ = [
     # Low-level executors
@@ -71,4 +94,11 @@ __all__ = [
     "LocalBackend",
     "SSHBackend",
     "get_backend",
+    # Game execution
+    "GameOutcome",
+    "GameResult",
+    "GameExecutor",
+    "ParallelGameExecutor",
+    "run_quick_game",
+    "run_selfplay_batch",
 ]

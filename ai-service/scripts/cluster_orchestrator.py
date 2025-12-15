@@ -834,6 +834,13 @@ def start_selfplay_jobs(host: HostConfig, count: int, dry_run: bool = False) -> 
             if code == 0:
                 log(f"{host.name}: Started {cfg['board']} {cfg['players']}p selfplay")
                 started += 1
+                # Register the running task for coordination tracking
+                if HAS_NEW_COORDINATION:
+                    try:
+                        task_config = f"{cfg['board']}_{cfg['players']}p"
+                        register_running_task("selfplay", task_config, host.ssh_host)
+                    except Exception as e:
+                        log(f"Failed to register task: {e}", "WARN")
             else:
                 log(f"{host.name}: Failed to start selfplay: {err}", "ERROR")
 
@@ -895,6 +902,13 @@ def start_training(host: HostConfig, action: str, dry_run: bool = False) -> bool
     code, out, err = ssh_cmd(host, cmd, timeout=30)
     if code == 0:
         log(f"{host.name}: Started {action}")
+        # Register the running task for coordination tracking
+        if HAS_NEW_COORDINATION:
+            try:
+                task_type = "training" if "nnue" in action else "improvement"
+                register_running_task(task_type, "square8_2p", host.ssh_host)
+            except Exception as e:
+                log(f"Failed to register task: {e}", "WARN")
         return True
     else:
         log(f"{host.name}: Failed to start {action}: {err}", "ERROR")

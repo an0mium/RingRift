@@ -47,6 +47,85 @@ logger = logging.getLogger(__name__)
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[2]
 
+# =============================================================================
+# Prometheus Integration (optional)
+# =============================================================================
+
+try:
+    from prometheus_client import Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST
+    HAS_PROMETHEUS = True
+except ImportError:
+    HAS_PROMETHEUS = False
+    logger.info("prometheus_client not installed - Prometheus export disabled")
+
+# Prometheus metrics (initialized if prometheus_client is available)
+if HAS_PROMETHEUS:
+    # Training metrics
+    PROM_TRAINING_LOSS = Gauge(
+        'ringrift_dashboard_training_loss',
+        'Current training loss',
+        ['model_id']
+    )
+    PROM_TRAINING_ACCURACY = Gauge(
+        'ringrift_dashboard_training_accuracy',
+        'Current training accuracy',
+        ['model_id']
+    )
+    PROM_TRAINING_EPOCH = Gauge(
+        'ringrift_dashboard_training_epoch',
+        'Current training epoch',
+        ['model_id']
+    )
+    PROM_SAMPLES_PER_SECOND = Gauge(
+        'ringrift_dashboard_samples_per_second',
+        'Training samples per second',
+        ['model_id']
+    )
+
+    # Elo metrics
+    PROM_MODEL_ELO = Gauge(
+        'ringrift_dashboard_model_elo',
+        'Model Elo rating',
+        ['model_id', 'board_type', 'num_players']
+    )
+    PROM_MODEL_WIN_RATE = Gauge(
+        'ringrift_dashboard_model_win_rate',
+        'Model win rate',
+        ['model_id', 'board_type', 'num_players']
+    )
+    PROM_MODEL_GAMES_PLAYED = Gauge(
+        'ringrift_dashboard_model_games_played',
+        'Games played by model',
+        ['model_id', 'board_type', 'num_players']
+    )
+
+    # Cluster metrics
+    PROM_CLUSTER_CPU = Gauge(
+        'ringrift_dashboard_cluster_cpu_percent',
+        'Cluster CPU usage percent',
+        ['host']
+    )
+    PROM_CLUSTER_GPU = Gauge(
+        'ringrift_dashboard_cluster_gpu_percent',
+        'Cluster GPU usage percent',
+        ['host']
+    )
+    PROM_CLUSTER_MEMORY = Gauge(
+        'ringrift_dashboard_cluster_memory_percent',
+        'Cluster memory usage percent',
+        ['host']
+    )
+    PROM_CLUSTER_ACTIVE_JOBS = Gauge(
+        'ringrift_dashboard_cluster_active_jobs',
+        'Active jobs on host',
+        ['host']
+    )
+    PROM_SELFPLAY_GAMES_PER_HOUR = Gauge(
+        'ringrift_dashboard_selfplay_games_per_hour',
+        'Self-play games per hour',
+        ['host']
+    )
+
 
 # =============================================================================
 # Data Classes
@@ -534,6 +613,14 @@ class MetricsCollector:
         )
         self.db.insert_training_metrics(metrics)
 
+        # Export to Prometheus if available
+        if HAS_PROMETHEUS:
+            label = model_id or "default"
+            PROM_TRAINING_LOSS.labels(model_id=label).set(loss)
+            PROM_TRAINING_ACCURACY.labels(model_id=label).set(accuracy)
+            PROM_TRAINING_EPOCH.labels(model_id=label).set(epoch)
+            PROM_SAMPLES_PER_SECOND.labels(model_id=label).set(samples_per_second)
+
         # Check for anomalies
         self._check_loss_anomaly(loss)
 
@@ -559,6 +646,24 @@ class MetricsCollector:
             confidence_interval=confidence_interval,
         )
         self.db.insert_elo_snapshot(snapshot)
+
+        # Export to Prometheus if available
+        if HAS_PROMETHEUS:
+            PROM_MODEL_ELO.labels(
+                model_id=model_id,
+                board_type=board_type,
+                num_players=str(num_players)
+            ).set(elo)
+            PROM_MODEL_WIN_RATE.labels(
+                model_id=model_id,
+                board_type=board_type,
+                num_players=str(num_players)
+            ).set(win_rate)
+            PROM_MODEL_GAMES_PLAYED.labels(
+                model_id=model_id,
+                board_type=board_type,
+                num_players=str(num_players)
+            ).set(games_played)
 
         # Check for Elo drops
         self._check_elo_drop(model_id, elo)
@@ -587,6 +692,14 @@ class MetricsCollector:
             selfplay_games_per_hour=selfplay_games_per_hour,
         )
         self.db.insert_cluster_metrics(metrics)
+
+        # Export to Prometheus if available
+        if HAS_PROMETHEUS:
+            PROM_CLUSTER_CPU.labels(host=host_name).set(cpu_percent)
+            PROM_CLUSTER_GPU.labels(host=host_name).set(gpu_percent)
+            PROM_CLUSTER_MEMORY.labels(host=host_name).set(memory_percent)
+            PROM_CLUSTER_ACTIVE_JOBS.labels(host=host_name).set(active_jobs)
+            PROM_SELFPLAY_GAMES_PER_HOUR.labels(host=host_name).set(selfplay_games_per_hour)
 
         # Check for resource issues
         self._check_resource_issues(host_name, cpu_percent, gpu_memory_percent, disk_percent)

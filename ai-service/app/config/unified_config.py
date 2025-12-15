@@ -168,8 +168,44 @@ class AlertingConfig:
 
 
 @dataclass
+class SafetyConfig:
+    """Safety thresholds to prevent bad models from being promoted."""
+    overfit_threshold: float = 0.15  # Max gap between train/val loss
+    min_memory_gb: int = 64  # Minimum RAM required to run unified loop
+    max_consecutive_failures: int = 3  # Stop after N consecutive failures
+    parity_failure_rate_max: float = 0.10  # Block training if parity failures exceed this
+    data_quality_score_min: float = 0.70  # Minimum data quality to proceed
+
+
+@dataclass
+class PlateauDetectionConfig:
+    """Plateau detection and automatic hyperparameter search."""
+    elo_plateau_threshold: float = 15.0  # Elo gain below this triggers plateau detection
+    elo_plateau_lookback: int = 5  # Number of evaluations to look back
+    win_rate_degradation_threshold: float = 0.40  # Win rate below this triggers retraining
+    plateau_count_for_cmaes: int = 2  # Trigger CMA-ES after this many consecutive plateaus
+    plateau_count_for_nas: int = 4  # Trigger NAS after this many consecutive plateaus
+
+
+@dataclass
+class ReplayBufferConfig:
+    """Prioritized experience replay buffer settings."""
+    priority_alpha: float = 0.6  # Priority exponent
+    importance_beta: float = 0.4  # Importance sampling exponent
+    capacity: int = 100000  # Max experiences in buffer
+    rebuild_interval_seconds: int = 7200  # Rebuild buffer every 2 hours
+
+
+@dataclass
 class ClusterConfig:
     """Cluster orchestration settings (previously hardcoded in cluster_orchestrator.py)."""
+    # Target performance
+    target_selfplay_games_per_hour: int = 1000  # Target selfplay rate across cluster
+
+    # Health monitoring
+    health_check_interval_seconds: int = 60  # Seconds between cluster health checks
+    sync_interval_seconds: int = 300  # Seconds between data sync with cluster
+
     # Host sync intervals (in iterations, where 1 iteration ~= 5 minutes)
     sync_interval: int = 6  # Sync every 6 iterations (30 minutes)
     model_sync_interval: int = 12  # Sync models every 12 iterations (1 hour)
@@ -281,6 +317,11 @@ class UnifiedConfig:
     regression: RegressionConfig = field(default_factory=RegressionConfig)
     alerting: AlertingConfig = field(default_factory=AlertingConfig)
     health: HealthConfig = field(default_factory=HealthConfig)
+
+    # Safety and quality thresholds
+    safety: SafetyConfig = field(default_factory=SafetyConfig)
+    plateau_detection: PlateauDetectionConfig = field(default_factory=PlateauDetectionConfig)
+    replay_buffer: ReplayBufferConfig = field(default_factory=ReplayBufferConfig)
 
     # New unified sections (previously scattered as hardcoded constants)
     cluster: ClusterConfig = field(default_factory=ClusterConfig)
@@ -415,10 +456,43 @@ class UnifiedConfig:
                 games_per_hour_min=alert_data.get("games_per_hour_min", 100),
             )
 
+        # Load safety and quality thresholds
+        if "safety" in data:
+            safety_data = data["safety"]
+            config.safety = SafetyConfig(
+                overfit_threshold=safety_data.get("overfit_threshold", 0.15),
+                min_memory_gb=safety_data.get("min_memory_gb", 64),
+                max_consecutive_failures=safety_data.get("max_consecutive_failures", 3),
+                parity_failure_rate_max=safety_data.get("parity_failure_rate_max", 0.10),
+                data_quality_score_min=safety_data.get("data_quality_score_min", 0.70),
+            )
+
+        if "plateau_detection" in data:
+            plateau_data = data["plateau_detection"]
+            config.plateau_detection = PlateauDetectionConfig(
+                elo_plateau_threshold=plateau_data.get("elo_plateau_threshold", 15.0),
+                elo_plateau_lookback=plateau_data.get("elo_plateau_lookback", 5),
+                win_rate_degradation_threshold=plateau_data.get("win_rate_degradation_threshold", 0.40),
+                plateau_count_for_cmaes=plateau_data.get("plateau_count_for_cmaes", 2),
+                plateau_count_for_nas=plateau_data.get("plateau_count_for_nas", 4),
+            )
+
+        if "replay_buffer" in data:
+            rb_data = data["replay_buffer"]
+            config.replay_buffer = ReplayBufferConfig(
+                priority_alpha=rb_data.get("priority_alpha", 0.6),
+                importance_beta=rb_data.get("importance_beta", 0.4),
+                capacity=rb_data.get("capacity", 100000),
+                rebuild_interval_seconds=rb_data.get("rebuild_interval_seconds", 7200),
+            )
+
         # Load new unified sections (previously hardcoded constants)
         if "cluster" in data:
             cluster_data = data["cluster"]
             config.cluster = ClusterConfig(
+                target_selfplay_games_per_hour=cluster_data.get("target_selfplay_games_per_hour", 1000),
+                health_check_interval_seconds=cluster_data.get("health_check_interval_seconds", 60),
+                sync_interval_seconds=cluster_data.get("sync_interval_seconds", 300),
                 sync_interval=cluster_data.get("sync_interval", 6),
                 model_sync_interval=cluster_data.get("model_sync_interval", 12),
                 model_sync_enabled=cluster_data.get("model_sync_enabled", True),
@@ -573,6 +647,26 @@ def get_training_threshold() -> int:
 def get_elo_db_path() -> Path:
     """Convenience function to get the Elo database path."""
     return get_config().get_elo_db_path()
+
+
+def get_min_elo_improvement() -> float:
+    """Get the minimum Elo improvement required for promotion.
+
+    CANONICAL SOURCE: Use this instead of hardcoding values like 25.0.
+    Other modules (model_lifecycle, unified_loop_extensions) should
+    use this function to ensure consistency.
+    """
+    return float(get_config().promotion.elo_threshold)
+
+
+def get_target_selfplay_rate() -> int:
+    """Get the target selfplay games per hour.
+
+    CANONICAL SOURCE: Use this instead of hardcoding values like 1000.
+    Other modules (p2p_integration, unified_ai_loop) should
+    use this function to ensure consistency.
+    """
+    return get_config().cluster.target_selfplay_games_per_hour
 
 
 # Constants for backwards compatibility

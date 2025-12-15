@@ -88,6 +88,30 @@ except ImportError:
     HAS_SYNC_LOCK = False
     sync_lock = None  # type: ignore
 
+# Import bandwidth management for large data transfers
+try:
+    from app.coordination.bandwidth_manager import (
+        request_bandwidth,
+        release_bandwidth,
+        TransferPriority,
+    )
+    HAS_BANDWIDTH_MANAGER = True
+except ImportError:
+    HAS_BANDWIDTH_MANAGER = False
+    TransferPriority = None  # type: ignore
+
+# Import OrchestratorRegistry for daemon role management
+try:
+    from app.coordination.orchestrator_registry import (
+        OrchestratorRole,
+        orchestrator_role,
+        get_registry,
+    )
+    HAS_ORCHESTRATOR_REGISTRY = True
+except ImportError:
+    HAS_ORCHESTRATOR_REGISTRY = False
+    OrchestratorRole = None  # type: ignore
+
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
 # Default external drive path on Mac Studio
@@ -475,6 +499,19 @@ class ExternalDriveSyncDaemon:
                 f'{jsonl_dir}/ 2>/dev/null'
             )
 
+            # Request bandwidth allocation for large JSONL transfer
+            bandwidth_allocated = False
+            if HAS_BANDWIDTH_MANAGER:
+                try:
+                    # Request 50 Mbps for JSONL sync (lower priority than model updates)
+                    bandwidth_allocated = request_bandwidth(
+                        host.name, 50, TransferPriority.NORMAL, timeout=30.0
+                    )
+                    if not bandwidth_allocated:
+                        self._log(f"{host.name}: bandwidth unavailable, proceeding anyway", "WARN")
+                except Exception as e:
+                    self._log(f"{host.name}: bandwidth request error: {e}", "WARN")
+
             try:
                 process = await asyncio.create_subprocess_shell(
                     jsonl_cmd,
@@ -485,6 +522,13 @@ class ExternalDriveSyncDaemon:
             except Exception as e:
                 if self.verbose:
                     self._log(f"{host.name}: JSONL sync error: {e}", "WARN")
+            finally:
+                # Release bandwidth allocation
+                if bandwidth_allocated and HAS_BANDWIDTH_MANAGER:
+                    try:
+                        release_bandwidth(host.name)
+                    except Exception as e:
+                        self._log(f"{host.name}: bandwidth release error: {e}", "WARN")
 
         finally:
             # Release sync_lock
@@ -897,22 +941,60 @@ class ExternalDriveSyncDaemon:
         if self.dry_run:
             self._log("DRY RUN MODE - no actual operations")
 
-        while self._running:
+        # Acquire DATA_SYNC role to prevent multiple daemons
+        role_acquired = False
+        if HAS_ORCHESTRATOR_REGISTRY:
             try:
-                await self.run_sync_cycle()
-
+                registry = get_registry()
+                role_acquired = registry.acquire_role(OrchestratorRole.DATA_SYNC)
+                if role_acquired:
+                    self._log("Acquired DATA_SYNC orchestrator role")
+                else:
+                    self._log("Could not acquire DATA_SYNC role - another daemon is running", "WARN")
+                    self._log("Running in secondary mode (read-only monitoring)")
             except Exception as e:
-                self._log(f"Cycle error: {e}", "ERROR")
+                self._log(f"OrchestratorRegistry error: {e}", "WARN")
 
-            # Wait for next cycle
-            try:
-                await asyncio.wait_for(
-                    self._shutdown_event.wait(),
-                    timeout=self.poll_interval
-                )
-                break  # Shutdown requested
-            except asyncio.TimeoutError:
-                pass  # Continue loop
+        try:
+            while self._running:
+                try:
+                    # Only run sync cycles if we hold the role (or registry unavailable)
+                    if role_acquired or not HAS_ORCHESTRATOR_REGISTRY:
+                        await self.run_sync_cycle()
+                    else:
+                        # Secondary mode: just log status
+                        if self.verbose:
+                            self._log("Secondary mode: skipping sync cycle")
+
+                    # Send heartbeat to keep role
+                    if role_acquired and HAS_ORCHESTRATOR_REGISTRY:
+                        try:
+                            registry = get_registry()
+                            registry.heartbeat(OrchestratorRole.DATA_SYNC)
+                        except Exception:
+                            pass
+
+                except Exception as e:
+                    self._log(f"Cycle error: {e}", "ERROR")
+
+                # Wait for next cycle
+                try:
+                    await asyncio.wait_for(
+                        self._shutdown_event.wait(),
+                        timeout=self.poll_interval
+                    )
+                    break  # Shutdown requested
+                except asyncio.TimeoutError:
+                    pass  # Continue loop
+        finally:
+            # Release role on shutdown
+            if role_acquired and HAS_ORCHESTRATOR_REGISTRY:
+                try:
+                    registry = get_registry()
+                    registry.release_role(OrchestratorRole.DATA_SYNC)
+                    self._log("Released DATA_SYNC orchestrator role")
+                except Exception as e:
+                    self._log(f"Failed to release role: {e}", "WARN")
 
         self._log("Daemon stopped")
 

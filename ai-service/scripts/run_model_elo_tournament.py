@@ -57,6 +57,23 @@ except ImportError:
     HAS_EVENT_BUS = False
     emit_elo_updated = None
 
+# Import coordination for task limits and duration tracking
+try:
+    from app.coordination import (
+        OrchestratorRole,
+        get_registry,
+        TaskType,
+        can_spawn,
+        can_schedule_task,
+        estimate_task_duration,
+        register_running_task,
+        record_task_completion,
+    )
+    HAS_COORDINATION = True
+except ImportError:
+    HAS_COORDINATION = False
+    OrchestratorRole = None  # type: ignore
+
 
 # ============================================
 # Game Execution with Neural Networks
@@ -1420,17 +1437,43 @@ def main():
         pass  # getloadavg not available on all platforms
 
     # Check coordination for exclusive tournament access
-    try:
-        from app.coordination import OrchestratorRole, get_registry
-        registry = get_registry()
-        if not args.leaderboard_only and registry.is_role_held(OrchestratorRole.TOURNAMENT_RUNNER):
-            holder = registry.get_role_holder(OrchestratorRole.TOURNAMENT_RUNNER)
-            holder_pid = holder.pid if holder else "unknown"
-            print(f"[Tournament] ERROR: Another tournament is already running (PID {holder_pid})")
-            print("[Tournament] Wait for it to complete or kill it first")
+    task_id = None
+    coord_start_time = time.time()
+    if HAS_COORDINATION and not args.leaderboard_only:
+        import socket
+        node_id = socket.gethostname()
+
+        # Check if another tournament is running
+        try:
+            registry = get_registry()
+            if registry.is_role_held(OrchestratorRole.TOURNAMENT_RUNNER):
+                holder = registry.get_role_holder(OrchestratorRole.TOURNAMENT_RUNNER)
+                holder_pid = holder.pid if holder else "unknown"
+                print(f"[Tournament] ERROR: Another tournament is already running (PID {holder_pid})")
+                print("[Tournament] Wait for it to complete or kill it first")
+                return
+        except Exception as e:
+            print(f"[Tournament] Registry check warning: {e}")
+
+        # Duration-aware scheduling: check if tournament can be scheduled now
+        can_schedule, schedule_reason = can_schedule_task("tournament", node_id)
+        if not can_schedule:
+            print(f"[Tournament] Deferred by duration scheduler: {schedule_reason}")
+            print("[Tournament] Use --leaderboard-only to view current standings")
             return
-    except ImportError:
-        pass  # Coordination not available, continue without check
+
+        # Estimate tournament duration
+        est_duration = estimate_task_duration("tournament", config=f"{args.board}_{args.players}p")
+        eta_time = datetime.fromtimestamp(time.time() + est_duration).strftime("%H:%M:%S")
+        print(f"[Tournament] Estimated duration: {est_duration/60:.0f} min (ETA: {eta_time})")
+
+        # Register task for tracking
+        task_id = f"tournament_{args.board}_{args.players}p_{os.getpid()}"
+        try:
+            register_running_task(task_id, "tournament", node_id, os.getpid())
+            print(f"[Tournament] Registered task {task_id}")
+        except Exception as e:
+            print(f"[Tournament] Warning: Failed to register task: {e}")
     # === END SAFEGUARDS ===
 
     # Quick mode: reduce games for fast shadow evaluation
@@ -1598,6 +1641,17 @@ def main():
     print(f"Total games played: {games_completed}")
 
     db.close()
+
+    # Record task completion for duration learning
+    if HAS_COORDINATION and task_id:
+        try:
+            import socket
+            node_id = socket.gethostname()
+            config = f"{args.board}_{args.players}p"
+            record_task_completion("tournament", config, node_id, coord_start_time, time.time())
+            print(f"[Tournament] Recorded task completion")
+        except Exception as e:
+            print(f"[Tournament] Warning: Failed to record task completion: {e}")
 
 
 if __name__ == "__main__":

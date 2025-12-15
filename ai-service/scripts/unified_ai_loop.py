@@ -297,6 +297,7 @@ try:
         CircuitOpenError,
         get_host_breaker,
         get_training_breaker,
+        set_host_breaker_callback,
     )
     HAS_CIRCUIT_BREAKER = True
 except ImportError:
@@ -306,6 +307,7 @@ except ImportError:
     CircuitOpenError = None
     get_host_breaker = None
     get_training_breaker = None
+    set_host_breaker_callback = None
 
 # Import P2P cluster integration for distributed training
 try:
@@ -1004,16 +1006,39 @@ class UnifiedLoopConfig:
 
 class DataEventType(Enum):
     """Types of data pipeline events."""
+    # Data collection events
     NEW_GAMES_AVAILABLE = "new_games"
+    DATA_SYNC_STARTED = "sync_started"
+    DATA_SYNC_COMPLETED = "sync_completed"
+    DATA_SYNC_FAILED = "sync_failed"
+    # Training events
     TRAINING_THRESHOLD_REACHED = "training_threshold"
     TRAINING_STARTED = "training_started"
+    TRAINING_PROGRESS = "training_progress"
     TRAINING_COMPLETED = "training_completed"
+    TRAINING_FAILED = "training_failed"
+    # Evaluation events
     EVALUATION_STARTED = "evaluation_started"
+    EVALUATION_PROGRESS = "evaluation_progress"
     EVALUATION_COMPLETED = "evaluation_completed"
+    EVALUATION_FAILED = "evaluation_failed"
+    ELO_UPDATED = "elo_updated"
+    # Promotion events
     PROMOTION_CANDIDATE = "promotion_candidate"
+    PROMOTION_STARTED = "promotion_started"
     MODEL_PROMOTED = "model_promoted"
+    PROMOTION_FAILED = "promotion_failed"
+    PROMOTION_REJECTED = "promotion_rejected"
+    # Curriculum events
     CURRICULUM_REBALANCED = "curriculum_rebalanced"
+    WEIGHT_UPDATED = "weight_updated"
     ELO_SIGNIFICANT_CHANGE = "elo_significant_change"  # Triggers event-driven curriculum rebalance
+    # System events
+    DAEMON_STARTED = "daemon_started"
+    DAEMON_STOPPED = "daemon_stopped"
+    HOST_ONLINE = "host_online"
+    HOST_OFFLINE = "host_offline"
+    ERROR = "error"
     # PBT events
     PBT_STARTED = "pbt_started"
     PBT_GENERATION_COMPLETE = "pbt_generation_complete"
@@ -2830,6 +2855,29 @@ class UnifiedAILoop:
             except Exception as e:
                 print(f"[UnifiedLoop] Warning: Cross-process queue init failed: {e}")
 
+        # Set up circuit breaker event publishing
+        if HAS_CIRCUIT_BREAKER and self._cross_process_queue is not None:
+            def on_circuit_state_change(target: str, old_state: CircuitState, new_state: CircuitState):
+                """Publish circuit breaker state changes to cross-process queue."""
+                try:
+                    event_type = f"circuit_{new_state.value}"  # e.g., circuit_open, circuit_closed
+                    self._cross_process_queue.publish(
+                        event_type=event_type,
+                        payload={
+                            "target": target,
+                            "old_state": old_state.value,
+                            "new_state": new_state.value,
+                            "transition": f"{old_state.value} -> {new_state.value}",
+                        },
+                        source="unified_ai_loop"
+                    )
+                    print(f"[CircuitBreaker] {target}: {old_state.value} -> {new_state.value}")
+                except Exception as e:
+                    print(f"[CircuitBreaker] Event publish error: {e}")
+
+            set_host_breaker_callback(on_circuit_state_change)
+            print("[UnifiedLoop] Circuit breaker event publishing enabled")
+
         # Initialize components
         self.data_collector = StreamingDataCollector(
             config.data_ingestion, self.state, self.event_bus
@@ -4110,14 +4158,44 @@ class UnifiedAILoop:
             subscriber_id = event_queue.subscribe(
                 process_name="unified_ai_loop",
                 event_types=[
+                    # Data collection events
                     "new_games",
+                    "sync_started",
+                    "sync_completed",
+                    "sync_failed",
+                    # Training events
                     "training_threshold",
-                    "model_promoted",
+                    "training_started",
+                    "training_progress",
                     "training_completed",
+                    "training_failed",
+                    # Evaluation events
+                    "evaluation_started",
+                    "evaluation_progress",
                     "evaluation_completed",
+                    "evaluation_failed",
+                    "elo_updated",
+                    # Promotion events
+                    "promotion_candidate",
+                    "promotion_started",
+                    "model_promoted",
+                    "promotion_failed",
+                    "promotion_rejected",
+                    # Curriculum events
+                    "curriculum_rebalanced",
+                    "weight_updated",
                     "elo_significant_change",
+                    # System events
                     "daemon_started",
                     "daemon_stopped",
+                    "host_online",
+                    "host_offline",
+                    "error",
+                    # Optimization events
+                    "cmaes_triggered",
+                    "nas_triggered",
+                    "plateau_detected",
+                    "hyperparameter_updated",
                 ]
             )
             print(f"[CrossProcess] Subscribed as {subscriber_id}")
@@ -4127,12 +4205,44 @@ class UnifiedAILoop:
 
         # Mapping from cross-process event types to local DataEventType
         EVENT_TYPE_MAP = {
+            # Data collection events
             "new_games": DataEventType.NEW_GAMES_AVAILABLE,
+            "sync_started": DataEventType.DATA_SYNC_STARTED,
+            "sync_completed": DataEventType.DATA_SYNC_COMPLETED,
+            "sync_failed": DataEventType.DATA_SYNC_FAILED,
+            # Training events
             "training_threshold": DataEventType.TRAINING_THRESHOLD_REACHED,
-            "model_promoted": DataEventType.MODEL_PROMOTED,
+            "training_started": DataEventType.TRAINING_STARTED,
+            "training_progress": DataEventType.TRAINING_PROGRESS,
             "training_completed": DataEventType.TRAINING_COMPLETED,
+            "training_failed": DataEventType.TRAINING_FAILED,
+            # Evaluation events
+            "evaluation_started": DataEventType.EVALUATION_STARTED,
+            "evaluation_progress": DataEventType.EVALUATION_PROGRESS,
             "evaluation_completed": DataEventType.EVALUATION_COMPLETED,
+            "evaluation_failed": DataEventType.EVALUATION_FAILED,
+            "elo_updated": DataEventType.ELO_UPDATED,
+            # Promotion events
+            "promotion_candidate": DataEventType.PROMOTION_CANDIDATE,
+            "promotion_started": DataEventType.PROMOTION_STARTED,
+            "model_promoted": DataEventType.MODEL_PROMOTED,
+            "promotion_failed": DataEventType.PROMOTION_FAILED,
+            "promotion_rejected": DataEventType.PROMOTION_REJECTED,
+            # Curriculum events
+            "curriculum_rebalanced": DataEventType.CURRICULUM_REBALANCED,
+            "weight_updated": DataEventType.WEIGHT_UPDATED,
             "elo_significant_change": DataEventType.ELO_SIGNIFICANT_CHANGE,
+            # System events
+            "daemon_started": DataEventType.DAEMON_STARTED,
+            "daemon_stopped": DataEventType.DAEMON_STOPPED,
+            "host_online": DataEventType.HOST_ONLINE,
+            "host_offline": DataEventType.HOST_OFFLINE,
+            "error": DataEventType.ERROR,
+            # Optimization events
+            "cmaes_triggered": DataEventType.CMAES_TRIGGERED,
+            "nas_triggered": DataEventType.NAS_TRIGGERED,
+            "plateau_detected": DataEventType.PLATEAU_DETECTED,
+            "hyperparameter_updated": DataEventType.HYPERPARAMETER_UPDATED,
         }
 
         last_event_id = 0

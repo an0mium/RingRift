@@ -166,6 +166,7 @@ try:
         QueueType,
         should_throttle_production,
         get_throttle_factor,
+        report_queue_depth,
         sync_lock,
         request_bandwidth,
         release_bandwidth,
@@ -2107,6 +2108,13 @@ python3 scripts/export_training_data.py \\
 
         if results["success"]:
             self.log(f"NPZ export complete: {results['total_positions']} positions", "OK")
+            # Report training data queue depth for backpressure monitoring
+            if HAS_NEW_COORDINATION:
+                try:
+                    # Report the number of positions ready for training
+                    report_queue_depth(QueueType.TRAINING_DATA, results["total_positions"])
+                except Exception as e:
+                    self.log(f"Queue depth report error: {e}", "WARN")
         else:
             self.log("NPZ export produced no files", "ERROR")
 

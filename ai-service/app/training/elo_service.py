@@ -810,5 +810,205 @@ def get_leaderboard(
     return [asdict(e) for e in entries]
 
 
+# =============================================================================
+# Additional Query Methods (merged from unified_elo_db.py)
+# =============================================================================
+
+
+def get_head_to_head(
+    db: EloService,
+    participant_a: str,
+    participant_b: str,
+    board_type: Optional[str] = None,
+    num_players: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Get head-to-head stats between two participants.
+
+    Args:
+        db: The EloService instance
+        participant_a: First participant ID
+        participant_b: Second participant ID
+        board_type: Filter by board type (optional)
+        num_players: Filter by player count (optional)
+
+    Returns:
+        Dict with head-to-head stats
+    """
+    conn = db._get_connection()
+
+    query = """
+        SELECT winner_id FROM match_history
+        WHERE participant_ids LIKE ? AND participant_ids LIKE ?
+    """
+    params: List[Any] = [f'%{participant_a}%', f'%{participant_b}%']
+
+    if board_type:
+        query += " AND board_type = ?"
+        params.append(board_type)
+    if num_players:
+        query += " AND num_players = ?"
+        params.append(num_players)
+
+    cursor = conn.execute(query, params)
+
+    a_wins = 0
+    b_wins = 0
+    draws = 0
+
+    for row in cursor:
+        winner = row["winner_id"]
+        if winner == participant_a:
+            a_wins += 1
+        elif winner == participant_b:
+            b_wins += 1
+        else:
+            draws += 1
+
+    total = a_wins + b_wins + draws
+    return {
+        "participant_a": participant_a,
+        "participant_b": participant_b,
+        "total_games": total,
+        "a_wins": a_wins,
+        "b_wins": b_wins,
+        "draws": draws,
+        "a_win_rate": a_wins / total if total > 0 else 0.0,
+        "b_win_rate": b_wins / total if total > 0 else 0.0,
+    }
+
+
+def get_database_stats(db: EloService) -> Dict[str, Any]:
+    """Get overall database statistics.
+
+    Args:
+        db: The EloService instance
+
+    Returns:
+        Dict with database stats
+    """
+    conn = db._get_connection()
+
+    participant_count = conn.execute(
+        "SELECT COUNT(*) FROM participants"
+    ).fetchone()[0]
+
+    rating_count = conn.execute(
+        "SELECT COUNT(*) FROM elo_ratings WHERE games_played > 0"
+    ).fetchone()[0]
+
+    match_count = conn.execute(
+        "SELECT COUNT(*) FROM match_history"
+    ).fetchone()[0]
+
+    configs = conn.execute("""
+        SELECT board_type, num_players, COUNT(*) as count, MAX(rating) as top_rating
+        FROM elo_ratings
+        WHERE games_played > 0
+        GROUP BY board_type, num_players
+    """).fetchall()
+
+    return {
+        "total_participants": participant_count,
+        "rated_participants": rating_count,
+        "total_matches": match_count,
+        "configurations": [dict(c) for c in configs],
+    }
+
+
+def get_match_history(
+    db: EloService,
+    participant_id: Optional[str] = None,
+    tournament_id: Optional[str] = None,
+    board_type: Optional[str] = None,
+    num_players: Optional[int] = None,
+    limit: int = 100,
+) -> List[Dict[str, Any]]:
+    """Get match history with optional filters.
+
+    Args:
+        db: The EloService instance
+        participant_id: Filter by participant
+        tournament_id: Filter by tournament
+        board_type: Filter by board type
+        num_players: Filter by player count
+        limit: Maximum results
+
+    Returns:
+        List of match records
+    """
+    conn = db._get_connection()
+
+    query = "SELECT * FROM match_history WHERE 1=1"
+    params: List[Any] = []
+
+    if participant_id:
+        query += " AND participant_ids LIKE ?"
+        params.append(f'%"{participant_id}"%')
+    if tournament_id:
+        query += " AND tournament_id = ?"
+        params.append(tournament_id)
+    if board_type:
+        query += " AND board_type = ?"
+        params.append(board_type)
+    if num_players:
+        query += " AND num_players = ?"
+        params.append(num_players)
+
+    query += " ORDER BY timestamp DESC LIMIT ?"
+    params.append(limit)
+
+    cursor = conn.execute(query, params)
+    results = []
+    for row in cursor.fetchall():
+        r = dict(row)
+        # Parse JSON fields if present
+        if r.get("participant_ids"):
+            try:
+                r["participant_ids"] = json.loads(r["participant_ids"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+        if r.get("elo_before"):
+            try:
+                r["elo_before"] = json.loads(r["elo_before"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+        if r.get("elo_after"):
+            try:
+                r["elo_after"] = json.loads(r["elo_after"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+        results.append(r)
+    return results
+
+
+def get_rating_history(
+    db: EloService,
+    participant_id: str,
+    board_type: str,
+    num_players: int,
+    limit: int = 100,
+) -> List[Dict[str, Any]]:
+    """Get rating history for a participant in a specific config.
+
+    Args:
+        db: The EloService instance
+        participant_id: Participant to query
+        board_type: Board type
+        num_players: Player count
+        limit: Maximum results
+
+    Returns:
+        List of rating history records
+    """
+    conn = db._get_connection()
+    cursor = conn.execute("""
+        SELECT * FROM elo_history
+        WHERE participant_id = ? AND board_type = ? AND num_players = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+    """, (participant_id, board_type, num_players, limit))
+    return [dict(row) for row in cursor.fetchall()]
+
+
 # Canonical path - orchestrators should use this
 ELO_DB_PATH = DEFAULT_ELO_DB_PATH
