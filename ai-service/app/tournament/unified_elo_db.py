@@ -823,7 +823,7 @@ class EloDatabase:
         draws = 0
 
         for row in rows:
-            winner = row["winner_id"]
+            winner = row["winner"]
             if winner == participant_a:
                 a_wins += 1
             elif winner == participant_b:
