@@ -11,7 +11,7 @@ version: '1.1'
 
 # Data ingestion from remote hosts
 data_ingestion:
-  poll_interval_seconds: 60 # Check for new games every 60s
+  poll_interval_seconds: 30 # Check for new games every 30s (reduced from 60 for faster feedback)
   ephemeral_poll_interval_seconds: 15 # Aggressive sync for RAM disk hosts (Vast.ai)
   sync_method: 'incremental' # "incremental" (rsync append) or "full"
   deduplication: true # Deduplicate games by ID across hosts
@@ -20,7 +20,7 @@ data_ingestion:
   # External sync: when true, skip internal data collection and rely on external
   # unified_data_sync.py service (provides P2P fallback, WAL, content dedup)
   # Usage: python scripts/unified_data_sync.py --watchdog
-  use_external_sync: false # Set to true to use external unified_data_sync.py
+  use_external_sync: true # Use external unified_data_sync.py with P2P fallback and WAL
   # Hardening options
   checksum_validation: true # Validate game integrity on sync
   retry_max_attempts: 3 # Max retries with exponential backoff
