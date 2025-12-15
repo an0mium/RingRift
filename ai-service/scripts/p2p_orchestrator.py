@@ -5198,6 +5198,39 @@ class P2POrchestrator:
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
+    async def handle_purge_retired_peers(self, request: web.Request) -> web.Response:
+        """Purge retired peers from the cluster registry.
+
+        Removes peers that have been marked as retired (dead/terminated instances)
+        to clean up the peer list. Only the leader should call this.
+        """
+        try:
+            retired_peers = [
+                node_id for node_id, info in self.peers.items()
+                if getattr(info, "retired", False)
+            ]
+
+            if not retired_peers:
+                return web.json_response({
+                    "success": True,
+                    "purged_count": 0,
+                    "message": "No retired peers to purge",
+                })
+
+            for node_id in retired_peers:
+                del self.peers[node_id]
+                print(f"[P2P] Purged retired peer: {node_id}")
+
+            print(f"[P2P] Purged {len(retired_peers)} retired peers")
+
+            return web.json_response({
+                "success": True,
+                "purged_count": len(retired_peers),
+                "purged_peers": retired_peers,
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
     async def handle_training_sync(self, request: web.Request) -> web.Response:
         """Manually trigger sync of selfplay data to training nodes.
 
@@ -14991,6 +15024,8 @@ print(json.dumps({{
                                 # Preserve relay/NAT routing and retirement state when merging peer snapshots.
                                 if getattr(existing, "nat_blocked", False) and not getattr(info, "nat_blocked", False):
                                     info.nat_blocked = True
+                                    info.nat_blocked_since = float(getattr(existing, "nat_blocked_since", 0.0) or 0.0) or time.time()
+                                    info.last_nat_probe = float(getattr(existing, "last_nat_probe", 0.0) or 0.0)
                                 if (getattr(existing, "relay_via", "") or "") and not (getattr(info, "relay_via", "") or ""):
                                     info.relay_via = str(getattr(existing, "relay_via", "") or "")
                                 if getattr(existing, "retired", False):
@@ -15080,6 +15115,8 @@ print(json.dumps({{
                                 if existing:
                                     if getattr(existing, "nat_blocked", False) and not getattr(peer_info, "nat_blocked", False):
                                         peer_info.nat_blocked = True
+                                        peer_info.nat_blocked_since = float(getattr(existing, "nat_blocked_since", 0.0) or 0.0) or time.time()
+                                        peer_info.last_nat_probe = float(getattr(existing, "last_nat_probe", 0.0) or 0.0)
                                     if (getattr(existing, "relay_via", "") or "") and not (getattr(peer_info, "relay_via", "") or ""):
                                         peer_info.relay_via = str(getattr(existing, "relay_via", "") or "")
                                     if getattr(existing, "retired", False):
@@ -16165,6 +16202,8 @@ print(json.dumps({{
                     await self._check_and_kill_stuck_jobs()
                     # Self-healing: auto-scale GPU utilization toward 60-80% target
                     await self._auto_scale_gpu_utilization()
+                    # Self-healing: probe NAT-blocked peers to check if they've become reachable
+                    await self._sweep_nat_recovery()
             except Exception as e:
                 print(f"[P2P] Job management error: {e}")
 
@@ -17986,6 +18025,7 @@ print(json.dumps({{
         app.router.add_post('/sync/training', self.handle_training_sync)  # Training node priority sync
         app.router.add_get('/gpu/rankings', self.handle_gpu_rankings)      # GPU power rankings
         app.router.add_post('/cleanup/files', self.handle_cleanup_files)   # File-specific cleanup
+        app.router.add_post('/admin/purge_retired', self.handle_purge_retired_peers)  # Purge retired peers
 
         # Phase 3: Training pipeline routes
         app.router.add_post('/training/start', self.handle_training_start)
