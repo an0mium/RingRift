@@ -46,6 +46,12 @@ from app.coordination.task_coordinator import (
     get_coordinator,
     can_spawn,
     emergency_stop_all,
+    # Resource-aware task classification
+    ResourceType,
+    TASK_RESOURCE_MAP,
+    get_task_resource_type,
+    is_gpu_task,
+    is_cpu_task,
 )
 
 # Safeguards exports

@@ -137,6 +137,68 @@ class TaskType(Enum):
     BACKGROUND_LOOP = "background_loop"
 
 
+class ResourceType(Enum):
+    """Resource classification for tasks.
+
+    Used to ensure CPU and GPU tasks can run independently without
+    one resource type's utilization blocking the other.
+    """
+    CPU = "cpu"           # CPU-bound tasks (selfplay, tournament, sync)
+    GPU = "gpu"           # GPU-bound tasks (training, cmaes)
+    HYBRID = "hybrid"     # Uses both resources significantly
+    IO = "io"             # I/O-bound tasks (sync, export)
+
+
+# Map task types to their primary resource usage
+TASK_RESOURCE_MAP: dict = {
+    TaskType.SELFPLAY: ResourceType.CPU,
+    TaskType.GPU_SELFPLAY: ResourceType.GPU,
+    TaskType.HYBRID_SELFPLAY: ResourceType.HYBRID,
+    TaskType.TRAINING: ResourceType.GPU,
+    TaskType.CMAES: ResourceType.GPU,
+    TaskType.TOURNAMENT: ResourceType.CPU,
+    TaskType.EVALUATION: ResourceType.CPU,
+    TaskType.SYNC: ResourceType.IO,
+    TaskType.EXPORT: ResourceType.IO,
+    TaskType.PIPELINE: ResourceType.HYBRID,
+    TaskType.IMPROVEMENT_LOOP: ResourceType.HYBRID,
+    TaskType.BACKGROUND_LOOP: ResourceType.CPU,
+}
+
+
+def get_task_resource_type(task_type: TaskType) -> ResourceType:
+    """Get the primary resource type for a task.
+
+    This allows orchestrators to make resource-aware scheduling decisions,
+    ensuring CPU-bound and GPU-bound tasks don't block each other.
+
+    Args:
+        task_type: The task type to classify
+
+    Returns:
+        The primary resource type (CPU, GPU, HYBRID, or IO)
+    """
+    return TASK_RESOURCE_MAP.get(task_type, ResourceType.CPU)
+
+
+def is_gpu_task(task_type: TaskType) -> bool:
+    """Check if a task is GPU-bound.
+
+    GPU tasks should only be gated by GPU utilization, not CPU.
+    """
+    resource = get_task_resource_type(task_type)
+    return resource in (ResourceType.GPU, ResourceType.HYBRID)
+
+
+def is_cpu_task(task_type: TaskType) -> bool:
+    """Check if a task is CPU-bound.
+
+    CPU tasks should only be gated by CPU utilization, not GPU.
+    """
+    resource = get_task_resource_type(task_type)
+    return resource in (ResourceType.CPU, ResourceType.HYBRID)
+
+
 @dataclass
 class TaskLimits:
     """Global limits for task spawning."""

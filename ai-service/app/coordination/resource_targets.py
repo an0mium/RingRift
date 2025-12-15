@@ -689,3 +689,119 @@ def set_backpressure(factor: float) -> None:
 def reset_resource_targets() -> None:
     """Reset singleton for testing."""
     ResourceTargetManager.reset_instance()
+
+
+def select_host_for_task(
+    available_hosts: List[str],
+    task_resource_type: str,
+    host_metrics: Optional[Dict[str, Dict[str, float]]] = None,
+) -> Optional[str]:
+    """Select the best host for a task based on its resource requirements.
+
+    This enables CPU and GPU utilization targets to be pursued independently:
+    - GPU tasks are assigned to hosts with low GPU utilization
+    - CPU tasks are assigned to hosts with low CPU utilization
+    - Neither blocks the other
+
+    Args:
+        available_hosts: List of host names to consider
+        task_resource_type: One of "cpu", "gpu", "hybrid", "io"
+        host_metrics: Optional dict of {host: {"cpu_util": %, "gpu_util": %}}
+                     If not provided, uses cached metrics from record_utilization()
+
+    Returns:
+        Best host name, or None if no suitable host found
+    """
+    if not available_hosts:
+        return None
+
+    manager = ResourceTargetManager.get_instance()
+    best_host = None
+    best_score = float('inf')  # Lower is better (more available capacity)
+
+    for host in available_hosts:
+        # Get current utilization
+        if host_metrics and host in host_metrics:
+            cpu_util = host_metrics[host].get("cpu_util", 50)
+            gpu_util = host_metrics[host].get("gpu_util", 50)
+        else:
+            # Use cached metrics from manager
+            summary = manager.get_cluster_summary()
+            host_data = summary.get("hosts", {}).get(host, {})
+            cpu_util = host_data.get("cpu_util", 50)
+            gpu_util = host_data.get("gpu_util", 50)
+
+        # Calculate score based on task resource type
+        if task_resource_type == "gpu":
+            # GPU tasks: only consider GPU utilization
+            score = gpu_util
+        elif task_resource_type == "cpu":
+            # CPU tasks: only consider CPU utilization
+            score = cpu_util
+        elif task_resource_type == "hybrid":
+            # Hybrid tasks: consider both, weighted average
+            score = (cpu_util + gpu_util) / 2
+        else:  # "io" or unknown
+            # I/O tasks: prefer hosts with lower overall load
+            score = (cpu_util + gpu_util) / 2
+
+        # Prefer hosts below target range (60-80%)
+        targets = manager.get_host_targets(host)
+        if task_resource_type == "gpu" and gpu_util < targets.gpu_min:
+            score -= 20  # Bonus for underutilized GPU
+        elif task_resource_type == "cpu" and cpu_util < targets.cpu_min:
+            score -= 20  # Bonus for underutilized CPU
+
+        if score < best_score:
+            best_score = score
+            best_host = host
+
+    return best_host
+
+
+def get_hosts_for_gpu_tasks(
+    available_hosts: List[str],
+    max_gpu_util: float = 70.0,
+) -> List[str]:
+    """Get hosts suitable for GPU tasks (low GPU utilization).
+
+    Returns hosts sorted by GPU availability (lowest utilization first).
+    """
+    manager = ResourceTargetManager.get_instance()
+    summary = manager.get_cluster_summary()
+    hosts_data = summary.get("hosts", {})
+
+    suitable = []
+    for host in available_hosts:
+        host_data = hosts_data.get(host, {})
+        gpu_util = host_data.get("gpu_util", 100)  # Assume busy if unknown
+        if gpu_util < max_gpu_util:
+            suitable.append((host, gpu_util))
+
+    # Sort by GPU utilization (lowest first)
+    suitable.sort(key=lambda x: x[1])
+    return [h for h, _ in suitable]
+
+
+def get_hosts_for_cpu_tasks(
+    available_hosts: List[str],
+    max_cpu_util: float = 70.0,
+) -> List[str]:
+    """Get hosts suitable for CPU tasks (low CPU utilization).
+
+    Returns hosts sorted by CPU availability (lowest utilization first).
+    """
+    manager = ResourceTargetManager.get_instance()
+    summary = manager.get_cluster_summary()
+    hosts_data = summary.get("hosts", {})
+
+    suitable = []
+    for host in available_hosts:
+        host_data = hosts_data.get(host, {})
+        cpu_util = host_data.get("cpu_util", 100)  # Assume busy if unknown
+        if cpu_util < max_cpu_util:
+            suitable.append((host, cpu_util))
+
+    # Sort by CPU utilization (lowest first)
+    suitable.sort(key=lambda x: x[1])
+    return [h for h, _ in suitable]

@@ -3009,20 +3009,22 @@ class TrainingScheduler:
                     print(f"[Training] Deferred by duration scheduler: {schedule_reason}")
                 return None
 
-        # Health-aware training: defer when cluster is overloaded (>80% utilization)
-        # This helps maintain 60-80% utilization target by prioritizing selfplay when busy
+        # Health-aware training: defer only when GPU is overloaded (>85% utilization)
+        # Training is GPU-bound, so only gate on GPU utilization - not CPU.
+        # This allows CPU-bound selfplay and GPU-bound training to run independently,
+        # pursuing 70% utilization targets for each resource independently.
         if HAS_RESOURCE_OPTIMIZER and get_utilization_status is not None:
             try:
                 util_status = get_utilization_status()
                 cpu_util = util_status.get('cpu_util', 70)
                 gpu_util = util_status.get('gpu_util', 70)
-                status = util_status.get('status', 'unknown')
 
-                # If cluster is overloaded, defer training to let selfplay use capacity
-                if status == 'above' or cpu_util > 85 or gpu_util > 85:
+                # Only defer training if GPU is overloaded - CPU utilization is irrelevant
+                # for GPU-bound training tasks
+                if gpu_util > 85:
                     if self.state.verbose:
-                        print(f"[Training] Deferred due to high utilization "
-                              f"(CPU={cpu_util:.1f}%, GPU={gpu_util:.1f}%)")
+                        print(f"[Training] Deferred due to high GPU utilization "
+                              f"(GPU={gpu_util:.1f}%, CPU={cpu_util:.1f}% - CPU ignored for GPU tasks)")
                     return None
             except Exception:
                 pass  # Non-critical, proceed with training

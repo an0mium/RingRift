@@ -1843,6 +1843,102 @@ class P2POrchestrator:
         self.voter_grant_lease_id = ""
         self.voter_grant_expires = 0.0
 
+    def _enable_partition_local_election(self) -> bool:
+        """Enable local leader election for partitioned nodes.
+
+        When a partition is detected and no voters are reachable, this method
+        temporarily adds reachable nodes to the voter set so they can elect a
+        local leader and continue operating autonomously.
+
+        This is a self-healing mechanism for network splits. When connectivity
+        is restored, the partition will merge back with the main cluster.
+
+        Returns:
+            True if local election was enabled
+        """
+        # Don't override env-configured voters
+        if (os.environ.get("RINGRIFT_P2P_VOTERS") or "").strip():
+            return False
+
+        # Check if we have any voters configured
+        voters = list(getattr(self, "voter_node_ids", []) or [])
+
+        # Count how many voters are reachable
+        with self.peers_lock:
+            peers_by_id = dict(self.peers)
+        reachable_voters = 0
+        for voter_id in voters:
+            if voter_id == self.node_id:
+                reachable_voters += 1
+                continue
+            peer = peers_by_id.get(voter_id)
+            if peer and peer.is_alive():
+                reachable_voters += 1
+
+        # If we have quorum, no need for partition election
+        quorum = (len(voters) // 2 + 1) if voters else 1
+        if reachable_voters >= quorum:
+            return False
+
+        # Build local partition voter set from reachable nodes
+        local_voters = [self.node_id]  # Always include self
+        for node_id, peer in peers_by_id.items():
+            if peer.is_alive() and node_id not in local_voters:
+                local_voters.append(node_id)
+
+        if len(local_voters) < 2:
+            # Need at least 2 nodes for meaningful election
+            return False
+
+        # Store original voters for restoration
+        if not hasattr(self, "_original_voters"):
+            self._original_voters = voters.copy()
+            self._partition_election_started = time.time()
+
+        # Enable partition-local election
+        self.voter_node_ids = sorted(local_voters)
+        self.voter_quorum_size = len(local_voters) // 2 + 1
+        self.voter_config_source = "partition-local"
+        print(
+            f"[P2P] PARTITION: Enabling local election with {len(local_voters)} nodes: "
+            f"{', '.join(local_voters)} (quorum={self.voter_quorum_size})"
+        )
+        return True
+
+    def _restore_original_voters(self) -> bool:
+        """Restore original voter configuration after partition heals.
+
+        Called when connectivity to the main cluster is restored.
+
+        Returns:
+            True if voters were restored
+        """
+        if not hasattr(self, "_original_voters"):
+            return False
+
+        original = getattr(self, "_original_voters", [])
+        if not original:
+            return False
+
+        # Check if we can reach any original voters
+        with self.peers_lock:
+            peers_by_id = dict(self.peers)
+        for voter_id in original:
+            if voter_id == self.node_id:
+                continue
+            peer = peers_by_id.get(voter_id)
+            if peer and peer.is_alive():
+                # We can reach at least one original voter, restore config
+                self.voter_node_ids = original.copy()
+                self.voter_quorum_size = len(original) // 2 + 1
+                self.voter_config_source = "restored"
+                delattr(self, "_original_voters")
+                if hasattr(self, "_partition_election_started"):
+                    delattr(self, "_partition_election_started")
+                print(f"[P2P] Partition healed: restored original voters {', '.join(original)}")
+                return True
+        return False
+
     async def _acquire_voter_lease_quorum(self, lease_id: str, duration: int) -> Optional[float]:
         """Acquire/renew an exclusive leader lease from a quorum of voters.
 
@@ -2754,6 +2850,73 @@ class P2POrchestrator:
             return self._is_tailscale_host(host) or self._is_tailscale_host(reported_host)
         except Exception:
             return False
+
+    def _get_tailscale_ip_for_peer(self, node_id: str) -> str:
+        """Look up a peer's Tailscale IP from the dynamic registry.
+
+        This enables automatic fallback to Tailscale mesh when public IPs fail.
+
+        Args:
+            node_id: The peer's node identifier
+
+        Returns:
+            Tailscale IP (100.x.x.x) if available, else empty string
+        """
+        if not HAS_DYNAMIC_REGISTRY or get_registry is None:
+            return ""
+        try:
+            registry = get_registry()
+            with registry._lock:
+                if node_id in registry._nodes:
+                    return registry._nodes[node_id].tailscale_ip or ""
+            return ""
+        except Exception:
+            return ""
+
+    def _detect_network_partition(self) -> bool:
+        """Detect if we're in a network partition (>50% peers unreachable via primary IP).
+
+        Used to trigger Tailscale-first connectivity mode when the public network
+        is fragmented but mesh connectivity remains intact.
+
+        Returns:
+            True if partition detected (majority of peers unreachable)
+        """
+        with self.peers_lock:
+            peers_snapshot = [p for p in self.peers.values() if p.node_id != self.node_id]
+
+        if len(peers_snapshot) < 2:
+            return False
+
+        # Count peers with recent heartbeat failures
+        now = time.time()
+        unreachable = 0
+        for peer in peers_snapshot:
+            if peer.consecutive_failures >= 3 or (now - peer.last_heartbeat > PEER_TIMEOUT):
+                unreachable += 1
+
+        partition_ratio = unreachable / len(peers_snapshot)
+        if partition_ratio > 0.5:
+            print(f"[P2P] Network partition detected: {unreachable}/{len(peers_snapshot)} peers unreachable ({partition_ratio:.0%})")
+            return True
+        return False
+
+    def _get_tailscale_priority_mode(self) -> bool:
+        """Check if Tailscale-first mode is enabled (partition recovery)."""
+        return getattr(self, "_tailscale_priority", False)
+
+    def _enable_tailscale_priority(self) -> None:
+        """Enable Tailscale-first mode for heartbeats during partition recovery."""
+        if not getattr(self, "_tailscale_priority", False):
+            print("[P2P] Enabling Tailscale-priority mode for partition recovery")
+            self._tailscale_priority = True
+            self._tailscale_priority_until = time.time() + 300  # 5 minutes
+
+    def _disable_tailscale_priority(self) -> None:
+        """Disable Tailscale-first mode when connectivity recovers."""
+        if getattr(self, "_tailscale_priority", False):
+            print("[P2P] Disabling Tailscale-priority mode (connectivity recovered)")
+            self._tailscale_priority = False
 
     def _get_resource_usage(self) -> Dict[str, float]:
         """Get current resource usage."""
@@ -3857,6 +4020,58 @@ class P2POrchestrator:
             except Exception as e:
                 print(f"[P2P] Training sync loop error: {e}")
                 await asyncio.sleep(60)  # Wait before retrying
+
+    async def _force_ip_refresh_all_sources(self) -> int:
+        """Force immediate refresh of IPs from all CLI sources (Tailscale, Vast, AWS).
+
+        Called when network partition is detected to aggressively discover
+        alternative paths to reach peers.
+
+        Returns:
+            Total number of IPs updated across all sources
+        """
+        if not HAS_DYNAMIC_REGISTRY or get_registry is None:
+            return 0
+
+        registry = get_registry()
+        total_updated = 0
+
+        print("[P2P] Force-refreshing all IP sources for partition recovery...")
+
+        # Refresh Tailscale first (most likely to help in partition)
+        try:
+            # Reset rate limit to force immediate check
+            registry._last_tailscale_check = 0
+            updated = await registry.update_tailscale_ips()
+            if updated > 0:
+                print(f"[P2P] Tailscale refresh: {updated} IPs updated")
+                total_updated += updated
+        except Exception as e:
+            print(f"[P2P] Tailscale refresh error: {e}")
+
+        # Refresh Vast IPs
+        try:
+            registry._last_vast_check = 0
+            updated = await registry.update_vast_ips()
+            if updated > 0:
+                print(f"[P2P] Vast refresh: {updated} IPs updated")
+                total_updated += updated
+        except Exception as e:
+            print(f"[P2P] Vast refresh error: {e}")
+
+        # Refresh AWS IPs
+        try:
+            registry._last_aws_check = 0
+            updated = await registry.update_aws_ips()
+            if updated > 0:
+                print(f"[P2P] AWS refresh: {updated} IPs updated")
+                total_updated += updated
+        except Exception as e:
+            print(f"[P2P] AWS refresh error: {e}")
+
+        if total_updated > 0:
+            print(f"[P2P] Force refresh complete: {total_updated} total IPs updated")
+        return total_updated
 
     async def _vast_ip_update_loop(self):
         """Background loop to periodically refresh Vast instance connection info.
@@ -15024,6 +15239,14 @@ print(json.dumps({{
                                 rh, rp = "", 0
                             if rh and rp and (rh != peer.host or rp != peer.port):
                                 info = await self._send_heartbeat_to_peer(rh, rp, scheme=peer_scheme)
+                        # Self-healing: Tailscale IP fallback when both primary and reported fail
+                        if not info:
+                            ts_ip = self._get_tailscale_ip_for_peer(peer.node_id)
+                            if ts_ip and ts_ip != peer.host:
+                                # Try Tailscale mesh IP (100.x.x.x)
+                                info = await self._send_heartbeat_to_peer(ts_ip, peer.port, scheme=peer_scheme)
+                                if info:
+                                    print(f"[P2P] Reached {peer.node_id} via Tailscale ({ts_ip})")
                         if info:
                             info.consecutive_failures = 0
                             info.last_failure_time = 0.0
@@ -15084,6 +15307,29 @@ print(json.dumps({{
 
                 # Check for dead peers
                 self._check_dead_peers()
+
+                # Self-healing: detect network partition and trigger Tailscale-priority mode
+                if self._detect_network_partition():
+                    self._enable_tailscale_priority()
+                    # Also enable partition-local election if no voters reachable
+                    if not self._has_voter_quorum():
+                        self._enable_partition_local_election()
+                    # Force refresh all IP sources to discover alternative paths
+                    last_refresh = getattr(self, "_last_partition_ip_refresh", 0)
+                    if time.time() - last_refresh > 60:  # Refresh at most once per minute
+                        self._last_partition_ip_refresh = time.time()
+                        asyncio.create_task(self._force_ip_refresh_all_sources())
+                elif getattr(self, "_tailscale_priority", False):
+                    # Check if priority mode should expire
+                    if time.time() > getattr(self, "_tailscale_priority_until", 0):
+                        # Check if connectivity recovered
+                        alive_count = sum(1 for p in self.peers.values() if p.is_alive() and p.node_id != self.node_id)
+                        if alive_count > 0:
+                            self._disable_tailscale_priority()
+
+                # Self-healing: check if partition healed and restore original voters
+                if hasattr(self, "_original_voters"):
+                    self._restore_original_voters()
 
                 # LEARNED LESSONS - Lease renewal to maintain leadership
                 if self.role == NodeRole.LEADER:
@@ -16726,8 +16972,12 @@ print(json.dumps({{
                 )
                 output_dir.mkdir(parents=True, exist_ok=True)
 
+                # Use venv python if available, otherwise fall back to system python3
+                venv_python = Path(self.ringrift_path, "ai-service", "venv", "bin", "python")
+                python_exec = str(venv_python) if venv_python.exists() else "python3"
+
                 cmd = [
-                    "python3",
+                    python_exec,
                     f"{self.ringrift_path}/ai-service/scripts/run_self_play_soak.py",
                     "--num-games", str(num_games),
                     "--board-type", board_type,
@@ -16834,8 +17084,12 @@ print(json.dumps({{
                 )
                 output_dir.mkdir(parents=True, exist_ok=True)
 
+                # Use venv python if available, otherwise fall back to system python3
+                venv_python = Path(self.ringrift_path, "ai-service", "venv", "bin", "python")
+                python_exec = str(venv_python) if venv_python.exists() else "python3"
+
                 cmd = [
-                    "python3",
+                    python_exec,
                     f"{self.ringrift_path}/ai-service/scripts/run_gpu_selfplay.py",
                     "--board", board_arg,
                     "--engine-mode", gpu_engine_mode,
@@ -16950,8 +17204,12 @@ print(json.dumps({{
                 # Normalize board type for hybrid script (uses 'hex' not 'hexagonal')
                 board_arg = "hex" if board_type == "hexagonal" else board_type
 
+                # Use venv python if available, otherwise fall back to system python3
+                venv_python = Path(self.ringrift_path, "ai-service", "venv", "bin", "python")
+                python_exec = str(venv_python) if venv_python.exists() else "python3"
+
                 cmd = [
-                    "python3",
+                    python_exec,
                     f"{self.ringrift_path}/ai-service/scripts/run_hybrid_selfplay.py",
                     "--board-type", board_arg,
                     "--num-players", str(num_players),
