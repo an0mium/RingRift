@@ -18012,12 +18012,22 @@ print(json.dumps({{
             try:
                 # ==== DECENTRALIZED OPERATIONS (all nodes) ====
                 # These run on every node to ensure cluster health even without a leader
+                # Makes the cluster resilient to leader instability
 
                 # Local data consolidation: merge siloed job DBs to main selfplay.db
                 await self._consolidate_selfplay_data()
 
                 # Local stuck job detection: each node monitors its own processes
                 await self._check_local_stuck_jobs()
+
+                # Local resource cleanup: handle disk/memory pressure independently
+                await self._local_resource_cleanup()
+
+                # Local job management: start/stop jobs based on node capacity
+                await self._manage_local_jobs_decentralized()
+
+                # Local GPU auto-scaling: optimize GPU utilization independently
+                await self._local_gpu_auto_scale()
 
                 # Leaderless training fallback: trigger local training if no leader for too long
                 await self._check_local_training_fallback()
@@ -18220,6 +18230,244 @@ print(json.dumps({{
         except Exception as e:
             print(f"[P2P] Failed to kill stuck job on {target_node}: {e}")
             return False
+
+    async def _manage_local_jobs_decentralized(self) -> int:
+        """DECENTRALIZED: Each node manages its own job count without leader.
+
+        Runs on ALL nodes to ensure selfplay continues even during leader elections.
+        Each node autonomously:
+        1. Checks its own resource pressure (disk, memory, CPU)
+        2. Calculates target job count based on hardware
+        3. Starts or stops local jobs as needed
+
+        This prevents the cluster from being idle during leader instability.
+
+        Returns:
+            Number of jobs started/stopped
+        """
+        changes = 0
+        now = time.time()
+
+        # Rate limit: check every 60 seconds
+        last_check = getattr(self, "_last_local_job_manage", 0)
+        if now - last_check < 60:
+            return 0
+        self._last_local_job_manage = now
+
+        # Skip if leader is managing (avoid conflicts)
+        # But continue if leaderless for > 60 seconds
+        if self.role == NodeRole.LEADER:
+            return 0  # Leader uses centralized management
+        if self.leader_id:
+            leaderless_duration = now - getattr(self, "last_leader_seen", now)
+            if leaderless_duration < 60:
+                return 0  # Have a leader, let them manage
+
+        # Update self info
+        self._update_self_info()
+        node = self.self_info
+
+        # Check resource pressure - don't start jobs if under pressure
+        if node.disk_percent >= DISK_WARNING_THRESHOLD:
+            print(f"[P2P] LOCAL: Disk at {node.disk_percent:.0f}% - skipping job starts")
+            await self._cleanup_local_disk()
+            return 0
+
+        if node.memory_percent >= MEMORY_WARNING_THRESHOLD:
+            print(f"[P2P] LOCAL: Memory at {node.memory_percent:.0f}% - skipping job starts")
+            return 0
+
+        # Calculate target jobs for this node
+        target_selfplay = self._target_selfplay_jobs_for_node(node)
+        current_jobs = int(getattr(node, "selfplay_jobs", 0) or 0)
+
+        # Start jobs if below target
+        if current_jobs < target_selfplay:
+            needed = min(target_selfplay - current_jobs, 3)  # Max 3 per cycle
+            print(f"[P2P] LOCAL: Starting {needed} selfplay job(s) ({current_jobs}/{target_selfplay})")
+
+            for _ in range(needed):
+                try:
+                    # Pick a config weighted by priority (same as leader logic)
+                    config = self._pick_weighted_selfplay_config(node)
+                    if config:
+                        job = await self._start_local_selfplay_job(config)
+                        if job:
+                            changes += 1
+                except Exception as e:
+                    print(f"[P2P] LOCAL: Failed to start selfplay: {e}")
+                    break
+
+        # Stop jobs if way over target (2x or more)
+        elif current_jobs > target_selfplay * 2:
+            excess = current_jobs - target_selfplay
+            print(f"[P2P] LOCAL: Reducing selfplay jobs by {excess} ({current_jobs}/{target_selfplay})")
+            await self._reduce_local_selfplay_jobs(target_selfplay, reason="over_target")
+            changes += excess
+
+        if changes > 0:
+            print(f"[P2P] LOCAL job management: {changes} change(s)")
+        return changes
+
+    async def _local_gpu_auto_scale(self) -> int:
+        """DECENTRALIZED: Each GPU node manages its own GPU utilization.
+
+        Runs on ALL GPU nodes to ensure optimal GPU usage without leader.
+        Targets 60-80% GPU utilization by starting/stopping GPU selfplay jobs.
+
+        Returns:
+            Number of GPU jobs started
+        """
+        started = 0
+        now = time.time()
+
+        # Rate limit: check every 2 minutes
+        last_check = getattr(self, "_last_local_gpu_scale", 0)
+        if now - last_check < 120:
+            return 0
+        self._last_local_gpu_scale = now
+
+        # Skip if not a GPU node
+        if not getattr(self.self_info, "has_gpu", False):
+            return 0
+
+        # Skip if training is running (training uses GPU)
+        training_jobs = int(getattr(self.self_info, "training_jobs", 0) or 0)
+        if training_jobs > 0:
+            return 0
+
+        # Skip if leader is active (avoid conflicts)
+        if self.role == NodeRole.LEADER or self.leader_id:
+            leaderless_duration = now - getattr(self, "last_leader_seen", now)
+            if leaderless_duration < 120:
+                return 0
+
+        TARGET_GPU_MIN = 60.0
+        TARGET_GPU_MAX = 80.0
+        MIN_IDLE_TIME = 120
+
+        gpu_percent = float(getattr(self.self_info, "gpu_percent", 0) or 0)
+        selfplay_jobs = int(getattr(self.self_info, "selfplay_jobs", 0) or 0)
+        gpu_name = (getattr(self.self_info, "gpu_name", "") or "").lower()
+
+        # Track GPU idle time
+        if gpu_percent < TARGET_GPU_MIN:
+            idle_since = getattr(self, "_local_gpu_idle_since", 0)
+            if idle_since == 0:
+                self._local_gpu_idle_since = now
+            elif now - idle_since > MIN_IDLE_TIME:
+                # Calculate new jobs to add
+                gpu_headroom = TARGET_GPU_MAX - gpu_percent
+                if any(tag in gpu_name for tag in ("h100", "h200", "gh200", "5090")):
+                    jobs_per_10_percent = 2
+                elif any(tag in gpu_name for tag in ("a100", "4090", "3090")):
+                    jobs_per_10_percent = 1.5
+                else:
+                    jobs_per_10_percent = 1
+
+                new_jobs = max(1, int(gpu_headroom / 10 * jobs_per_10_percent))
+                new_jobs = min(new_jobs, 3)  # Cap at 3 per cycle
+
+                print(f"[P2P] LOCAL GPU: {gpu_percent:.0f}% util, starting {new_jobs} GPU selfplay job(s)")
+
+                for _ in range(new_jobs):
+                    try:
+                        config = self._pick_weighted_selfplay_config(self.self_info)
+                        if config:
+                            # Force GPU mode
+                            config["engine_mode"] = "nn-only"
+                            job = await self._start_local_selfplay_job(config)
+                            if job:
+                                started += 1
+                    except Exception as e:
+                        print(f"[P2P] LOCAL GPU: Failed to start GPU selfplay: {e}")
+                        break
+
+                self._local_gpu_idle_since = now  # Reset after action
+        else:
+            self._local_gpu_idle_since = 0  # GPU is busy, reset
+
+        if started > 0:
+            print(f"[P2P] LOCAL GPU auto-scale: started {started} job(s)")
+        return started
+
+    async def _local_resource_cleanup(self):
+        """DECENTRALIZED: Each node handles its own resource pressure.
+
+        Runs on ALL nodes to ensure resource cleanup without leader coordination.
+        Handles disk cleanup, memory pressure, and log rotation.
+        """
+        now = time.time()
+
+        # Rate limit: check every 5 minutes
+        last_check = getattr(self, "_last_local_resource_check", 0)
+        if now - last_check < 300:
+            return
+        self._last_local_resource_check = now
+
+        self._update_self_info()
+        node = self.self_info
+
+        # Disk cleanup
+        if node.disk_percent >= DISK_CLEANUP_THRESHOLD:
+            print(f"[P2P] LOCAL: Disk at {node.disk_percent:.0f}% - triggering cleanup")
+            await self._cleanup_local_disk()
+
+        # Memory pressure - reduce jobs
+        if node.memory_percent >= MEMORY_CRITICAL_THRESHOLD:
+            print(f"[P2P] LOCAL: Memory CRITICAL at {node.memory_percent:.0f}%")
+            await self._reduce_local_selfplay_jobs(0, reason="memory_critical")
+        elif node.memory_percent >= MEMORY_WARNING_THRESHOLD:
+            current = int(getattr(node, "selfplay_jobs", 0) or 0)
+            target = max(1, current // 2)
+            print(f"[P2P] LOCAL: Memory warning at {node.memory_percent:.0f}% - reducing jobs to {target}")
+            await self._reduce_local_selfplay_jobs(target, reason="memory_warning")
+
+    def _pick_weighted_selfplay_config(self, node) -> Optional[Dict[str, Any]]:
+        """Pick a selfplay config weighted by priority and node capabilities.
+
+        Returns config dict with board_type, num_players, engine_mode.
+        """
+        # Get the selfplay configs from the leader job scheduling logic
+        selfplay_configs = [
+            # Priority 7: Underrepresented combos
+            {"board_type": "hexagonal", "num_players": 2, "engine_mode": "nn-only", "priority": 7},
+            {"board_type": "hexagonal", "num_players": 4, "engine_mode": "nn-only", "priority": 7},
+            {"board_type": "square19", "num_players": 3, "engine_mode": "nn-only", "priority": 7},
+            # Priority 6: Cross-AI matches
+            {"board_type": "square8", "num_players": 2, "engine_mode": "heuristic-vs-mcts", "priority": 6},
+            {"board_type": "square8", "num_players": 3, "engine_mode": "heuristic-vs-mcts", "priority": 6},
+            {"board_type": "hexagonal", "num_players": 2, "engine_mode": "heuristic-vs-mcts", "priority": 6},
+            {"board_type": "hexagonal", "num_players": 3, "engine_mode": "heuristic-vs-mcts", "priority": 6},
+            # Priority 5: NN modes
+            {"board_type": "square8", "num_players": 2, "engine_mode": "nn-only", "priority": 5},
+            {"board_type": "square8", "num_players": 3, "engine_mode": "nn-only", "priority": 5},
+            {"board_type": "square8", "num_players": 4, "engine_mode": "nn-only", "priority": 5},
+            {"board_type": "square19", "num_players": 2, "engine_mode": "nn-only", "priority": 5},
+            {"board_type": "square19", "num_players": 4, "engine_mode": "nn-only", "priority": 5},
+            # Priority 4: Tournament varied
+            {"board_type": "square8", "num_players": 2, "engine_mode": "tournament-varied", "priority": 4},
+            {"board_type": "hexagonal", "num_players": 2, "engine_mode": "tournament-varied", "priority": 4},
+            # Priority 3: CPU-bound
+            {"board_type": "square8", "num_players": 2, "engine_mode": "mcts-only", "priority": 3},
+            {"board_type": "square8", "num_players": 2, "engine_mode": "descent-only", "priority": 3},
+        ]
+
+        # Filter by node memory (avoid large boards on small nodes)
+        node_mem = int(getattr(node, "memory_gb", 0) or 0)
+        if node_mem and node_mem < 48:
+            selfplay_configs = [c for c in selfplay_configs if c.get("board_type") == "square8"]
+
+        if not selfplay_configs:
+            return None
+
+        # Build weighted list by priority
+        weighted = []
+        for cfg in selfplay_configs:
+            weighted.extend([cfg] * cfg.get("priority", 1))
+
+        import random
+        return random.choice(weighted) if weighted else None
 
     async def _auto_scale_gpu_utilization(self) -> int:
         """Auto-scale GPU selfplay jobs to reach 60-80% GPU utilization.
