@@ -216,3 +216,6 @@ results/load/
 # SQLite WAL temp files
 *.db-shm
 *.db-wal
+
+# Coordination lock files
+ai-service/data/coordination/locks/*.lock

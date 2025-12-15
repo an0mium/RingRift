@@ -156,6 +156,24 @@ except ImportError:
     get_healthy_hosts = None
     PreSpawnHealthStatus = None
 
+# Import circuit breaker for fault-tolerant remote operations
+try:
+    from app.distributed.circuit_breaker import (
+        CircuitBreaker,
+        CircuitState,
+        CircuitOpenError,
+        get_host_breaker,
+        get_training_breaker,
+    )
+    HAS_CIRCUIT_BREAKER = True
+except ImportError:
+    HAS_CIRCUIT_BREAKER = False
+    CircuitBreaker = None
+    CircuitState = None
+    CircuitOpenError = None
+    get_host_breaker = None
+    get_training_breaker = None
+
 # Memory and local task configuration
 MIN_MEMORY_GB = 64  # Minimum RAM to run the unified loop
 DISABLE_LOCAL_TASKS = os.environ.get("RINGRIFT_DISABLE_LOCAL_TASKS", "").lower() in ("1", "true", "yes", "on")
@@ -1019,6 +1037,15 @@ class StreamingDataCollector:
                 host.consecutive_failures += 1
                 if host.consecutive_failures <= 1:  # Only log first failure
                     print(f"[DataCollector] Skipping {host.name}: host unhealthy (cached check)")
+                return 0
+
+        # Circuit breaker check - prevent repeated failures
+        if HAS_CIRCUIT_BREAKER:
+            breaker = get_host_breaker()
+            if not breaker.can_execute(host.ssh_host):
+                state = breaker.get_state(host.ssh_host)
+                if state == CircuitState.OPEN:
+                    print(f"[DataCollector] Skipping {host.name}: circuit open (cooldown)")
                 return 0
 
         try:
@@ -3312,6 +3339,13 @@ class UnifiedAILoop:
         self._load_state()
         self._load_hosts()
         self._init_configs()
+
+        # Update component state references (state object may have been replaced by _load_state)
+        self.data_collector.state = self.state
+        self.shadow_tournament.state = self.state
+        self.training_scheduler.state = self.state
+        self.model_promoter.state = self.state
+        self.curriculum_controller.state = self.state
 
         dry_run_msg = " (DRY RUN)" if self.config.dry_run else ""
         print(f"[UnifiedLoop] Starting with {len(self.state.hosts)} hosts, {len(self.state.configs)} configs{dry_run_msg}")
