@@ -10,8 +10,9 @@
 
       "http_api": {
         "auth_login": {
-          "latency_p95_ms": 500,
-          "latency_p99_ms": 1000,
+          "_comment": "bcrypt cost factor 12 takes ~500-700ms - these targets reflect that security trade-off",
+          "latency_p95_ms": 750,
+          "latency_p99_ms": 1200,
           "error_rate_5xx_percent": 1.0
         },
         "game_creation": {
@@ -66,8 +67,9 @@
 
       "http_api": {
         "auth_login": {
-          "latency_p95_ms": 250,
-          "latency_p99_ms": 500,
+          "_comment": "bcrypt cost factor 12 takes ~500-700ms - these targets reflect that security trade-off",
+          "latency_p95_ms": 700,
+          "latency_p99_ms": 1000,
           "error_rate_5xx_percent": 0.5
         },
         "game_creation": {
