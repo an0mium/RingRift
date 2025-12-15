@@ -2006,6 +2006,131 @@ def get_utilization_status() -> Dict[str, Any]:
 
 
 # =============================================================================
+# Hardware-Aware Selfplay Limits (Single Source of Truth)
+# =============================================================================
+
+def get_max_selfplay_for_node(
+    node_id: str,
+    gpu_count: int = 0,
+    gpu_name: str = "",
+    cpu_count: int = 0,
+    memory_gb: float = 0,
+    has_gpu: bool = False,
+) -> int:
+    """Get hardware-aware max selfplay jobs for a node.
+
+    This is the SINGLE SOURCE OF TRUTH for max_selfplay calculations.
+    Used by: resource_targets.py, p2p_orchestrator.py, unified_ai_loop.py
+
+    The calculation considers:
+    1. GPU type and count (datacenter GPUs can handle more parallelism)
+    2. CPU count (for CPU-bound parts of hybrid selfplay)
+    3. Memory constraints (each job needs ~2GB)
+
+    Args:
+        node_id: Node identifier (used for logging/debugging)
+        gpu_count: Number of GPUs on node
+        gpu_name: GPU model name (e.g., "H100", "RTX 4090")
+        cpu_count: Number of CPU cores
+        memory_gb: Total memory in GB
+        has_gpu: Whether node has GPU capability
+
+    Returns:
+        Maximum recommended selfplay jobs for this node
+    """
+    # Base limits - conservative to prevent process explosion
+    BASE_MAX = 8  # Default max per node
+    HIGH_END_MAX = 12  # For powerful nodes
+
+    if has_gpu and gpu_count > 0:
+        # GPU nodes: scale with GPU count and type
+        gpu_upper = gpu_name.upper() if gpu_name else ""
+
+        # Jobs per GPU based on GPU tier
+        if any(g in gpu_upper for g in ["H100", "H200", "GH200", "A100", "L40"]):
+            jobs_per_gpu = 4  # Datacenter GPUs handle more parallelism
+        elif any(g in gpu_upper for g in ["A10", "4090", "5090", "3090"]):
+            jobs_per_gpu = 3  # High-end consumer/prosumer
+        elif any(g in gpu_upper for g in ["4080", "4070", "3080", "3070"]):
+            jobs_per_gpu = 2  # Mid-range consumer
+        else:
+            jobs_per_gpu = 2  # Default for unknown GPUs
+
+        gpu_based_max = gpu_count * jobs_per_gpu
+
+        # Also consider CPU capacity (hybrid selfplay has CPU-bound phases)
+        cpu_based_max = max(4, cpu_count // 4) if cpu_count > 0 else BASE_MAX
+
+        # Memory constraint (~2GB per job)
+        mem_based_max = max(4, int(memory_gb / 2)) if memory_gb > 0 else 32
+
+        # Take the minimum of all constraints, capped at HIGH_END_MAX
+        max_selfplay = min(gpu_based_max, cpu_based_max, mem_based_max, HIGH_END_MAX)
+
+    else:
+        # CPU-only nodes: scale with CPU count
+        if cpu_count > 0:
+            cpu_based_max = max(2, cpu_count // 4)  # ~1 job per 4 cores
+            mem_based_max = max(2, int(memory_gb / 2)) if memory_gb > 0 else 16
+            max_selfplay = min(cpu_based_max, mem_based_max, BASE_MAX)
+        else:
+            # Unknown CPU count - use conservative default
+            max_selfplay = 4
+
+    # Apply memory constraint for all nodes
+    if memory_gb > 0 and memory_gb < 16:
+        max_selfplay = min(max_selfplay, max(2, int(memory_gb / 2)))
+
+    return max(1, max_selfplay)
+
+
+def get_node_hardware_info(node_id: str) -> Optional[Dict[str, Any]]:
+    """Get hardware info for a node from the coordination DB.
+
+    Returns:
+        Dict with gpu_count, gpu_name, cpu_count, memory_gb, has_gpu
+        or None if node not found
+    """
+    node = get_resource_optimizer().get_node_resources(node_id)
+    if node is None:
+        return None
+    return {
+        "gpu_count": node.gpu_count,
+        "gpu_name": node.gpu_name,
+        "cpu_count": node.cpu_count,
+        "memory_gb": node.memory_gb,
+        "has_gpu": node.has_gpu,
+    }
+
+
+def get_max_selfplay_for_node_by_id(node_id: str) -> int:
+    """Get hardware-aware max selfplay by looking up node info.
+
+    Convenience function that queries the coordination DB for hardware info.
+    Falls back to conservative defaults if node not found.
+    """
+    hw = get_node_hardware_info(node_id)
+    if hw is None:
+        # Node not in DB - use conservative default based on hostname patterns
+        node_lower = node_id.lower()
+        if any(g in node_lower for g in ["h100", "h200", "gh200"]):
+            return 12  # HIGH_END
+        elif any(g in node_lower for g in ["a100", "4090", "a10"]):
+            return 8  # MID_TIER
+        else:
+            return 6  # Conservative default
+
+    return get_max_selfplay_for_node(
+        node_id=node_id,
+        gpu_count=hw["gpu_count"],
+        gpu_name=hw["gpu_name"],
+        cpu_count=hw["cpu_count"],
+        memory_gb=hw["memory_gb"],
+        has_gpu=hw["has_gpu"],
+    )
+
+
+# =============================================================================
 # Config Weighting Functions
 # =============================================================================
 

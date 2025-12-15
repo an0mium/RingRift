@@ -40,6 +40,27 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
+# Import hardware-aware selfplay limits from resource_optimizer (single source of truth)
+# Lazy import to avoid circular dependency
+_get_max_selfplay_for_node = None
+
+
+def _get_hw_max_selfplay(node_id: str, gpu_name: str = "", cpu_count: int = 0,
+                          memory_gb: float = 0, gpu_count: int = 0, has_gpu: bool = False) -> int:
+    """Get hardware-aware max selfplay (lazy import to avoid circular dependency)."""
+    global _get_max_selfplay_for_node
+    if _get_max_selfplay_for_node is None:
+        try:
+            from app.coordination.resource_optimizer import get_max_selfplay_for_node
+            _get_max_selfplay_for_node = get_max_selfplay_for_node
+        except ImportError:
+            # Fallback if resource_optimizer not available
+            return 8  # Conservative default
+    return _get_max_selfplay_for_node(
+        node_id=node_id, gpu_count=gpu_count, gpu_name=gpu_name,
+        cpu_count=cpu_count, memory_gb=memory_gb, has_gpu=has_gpu
+    )
+
 
 # Default coordination DB path
 _DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "data" / "coordination.db"
@@ -311,8 +332,34 @@ class ResourceTargetManager:
             self._host_targets[host] = self._compute_host_targets(host)
         return self._host_targets[host]
 
+    def _get_node_hardware(self, host: str) -> Optional[Dict[str, Any]]:
+        """Get hardware info for a node from the coordination DB."""
+        try:
+            conn = sqlite3.connect(self._db_path, timeout=5.0)
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT gpu_count, gpu_name, cpu_count, memory_gb, has_gpu FROM node_resources WHERE node_id = ?",
+                (host,)
+            ).fetchone()
+            conn.close()
+            if row:
+                return {
+                    "gpu_count": row["gpu_count"] or 0,
+                    "gpu_name": row["gpu_name"] or "",
+                    "cpu_count": row["cpu_count"] or 0,
+                    "memory_gb": row["memory_gb"] or 0,
+                    "has_gpu": bool(row["has_gpu"]),
+                }
+        except Exception:
+            pass
+        return None
+
     def _compute_host_targets(self, host: str) -> HostTargets:
-        """Compute tier-adjusted targets for a host."""
+        """Compute tier-adjusted targets for a host.
+
+        Uses hardware-aware limits from resource_optimizer when available,
+        falling back to tier-based defaults if hardware info not found.
+        """
         # Determine host tier
         tier = HOST_TIER_MAP.get(host, HostTier.LOW_TIER)
 
@@ -340,6 +387,30 @@ class ResourceTargetManager:
         gpu_min = adj.get("gpu_min", base.gpu_min + adj.get("gpu_boost", 0.0))
         gpu_max = adj.get("gpu_max", base.gpu_max + adj.get("gpu_boost", 0.0))
 
+        # Get hardware-aware max_selfplay from resource_optimizer (single source of truth)
+        hw = self._get_node_hardware(host)
+        if hw is not None:
+            # Use hardware-aware calculation
+            max_selfplay = _get_hw_max_selfplay(
+                node_id=host,
+                gpu_name=hw["gpu_name"],
+                cpu_count=hw["cpu_count"],
+                memory_gb=hw["memory_gb"],
+                gpu_count=hw["gpu_count"],
+                has_gpu=hw["has_gpu"],
+            )
+        else:
+            # Fallback to tier-based calculation (when hardware info not available)
+            # These values are consistent with resource_optimizer.get_max_selfplay_for_node_by_id()
+            if tier == HostTier.HIGH_END:
+                max_selfplay = 12
+            elif tier == HostTier.MID_TIER:
+                max_selfplay = 8
+            elif tier == HostTier.CPU_ONLY:
+                max_selfplay = 4
+            else:
+                max_selfplay = 6  # LOW_TIER default
+
         return HostTargets(
             host=host,
             tier=tier,
@@ -350,9 +421,7 @@ class ResourceTargetManager:
             gpu_target=gpu_target * bp_factor,
             gpu_max=gpu_max,
             max_jobs=max_jobs,
-            # Conservative selfplay limit: base of 8 jobs per node (matching safeguards.max_selfplay_per_node)
-            # HIGH_END: 8 * 1.5 = 12 max, MID_TIER: 8, LOW_TIER: 8 * 0.7 = 5, CPU_ONLY: 8 * 0.5 = 4
-            max_selfplay=int(8 * adj.get("job_multiplier", 1.0)),
+            max_selfplay=max_selfplay,
             max_training=1 if tier in (HostTier.HIGH_END, HostTier.MID_TIER) else 0,
         )
 

@@ -231,14 +231,18 @@ try:
         get_utilization_status,
         update_config_weights,
         get_config_weights,
+        # Hardware-aware selfplay limits (single source of truth)
+        get_max_selfplay_for_node,
     )
     HAS_RATE_NEGOTIATION = True
     HAS_NEW_COORDINATION = True
+    HAS_HW_AWARE_LIMITS = True
     # Get targets from unified source
     _unified_targets = get_resource_targets()
 except ImportError:
     HAS_NEW_COORDINATION = False
     HAS_RATE_NEGOTIATION = False
+    HAS_HW_AWARE_LIMITS = False
     OrchestratorRole = None
     _unified_targets = None
     negotiate_selfplay_rate = None
@@ -247,6 +251,7 @@ except ImportError:
     get_utilization_status = None
     update_config_weights = None
     get_config_weights = None
+    get_max_selfplay_for_node = None
 
 # P2P-integrated monitoring management
 try:
