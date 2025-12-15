@@ -935,7 +935,7 @@ class ModelPromoter:
 
         try:
             # Query Elo database for candidates
-            elo_db_path = AI_SERVICE_ROOT / "data" / "unified_elo.db"
+            elo_db_path = AI_SERVICE_ROOT / "data" / "elo_leaderboard.db"
             if not elo_db_path.exists():
                 return []
 
@@ -1071,7 +1071,7 @@ class AdaptiveCurriculum:
 
         try:
             # Query Elo by config
-            elo_db_path = AI_SERVICE_ROOT / "data" / "unified_elo.db"
+            elo_db_path = AI_SERVICE_ROOT / "data" / "elo_leaderboard.db"
             if not elo_db_path.exists():
                 return {}
 
@@ -1257,7 +1257,7 @@ class UnifiedAILoop:
             MODEL_PROMOTIONS.set(self.state.total_promotions)
 
             # Update Elo and win rates from Elo database
-            elo_db_path = AI_SERVICE_ROOT / "data" / "unified_elo.db"
+            elo_db_path = AI_SERVICE_ROOT / "data" / "elo_leaderboard.db"
             if elo_db_path.exists():
                 conn = sqlite3.connect(elo_db_path)
                 cursor = conn.cursor()

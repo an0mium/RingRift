@@ -877,7 +877,7 @@ class HexStateEncoderV3:
 
         # Channel 14/15: Ring placement validity
         # Indicates cells where rings can legally be placed
-        pos_key_this = Position(0, 0).to_key()  # Just to get the string format
+        # Note: pos_key_this was unused - removed
         for cy in range(self.board_size):
             for cx in range(self.board_size):
                 if not self._valid_mask[cy, cx]:
