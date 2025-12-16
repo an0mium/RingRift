@@ -127,17 +127,99 @@ scrape_configs:
     scrape_timeout: 10s
 
   # ---------------------------------------------------------------------------
-  # RingRift P2P Orchestrator (cluster, selfplay, training metrics)
+  # RingRift P2P Orchestrator - Local node
   # ---------------------------------------------------------------------------
-  - job_name: 'ringrift-p2p-orchestrator'
+  - job_name: 'ringrift-p2p-local'
     static_configs:
       - targets: ['host.docker.internal:8770']
         labels:
           service: 'ringrift'
           component: 'p2p-orchestrator'
+          node: 'local'
     metrics_path: '/metrics'
     scrape_interval: 15s
     scrape_timeout: 10s
+
+  # ---------------------------------------------------------------------------
+  # RingRift P2P Cluster Nodes (via Tailscale)
+  # ---------------------------------------------------------------------------
+  - job_name: 'ringrift-p2p-cluster'
+    static_configs:
+      # Lambda H100/A10 nodes
+      - targets: ['100.78.101.123:8770']
+        labels:
+          node: 'lambda-h100'
+          gpu: 'H100'
+      - targets: ['100.97.104.89:8770']
+        labels:
+          node: 'lambda-2xh100'
+          gpu: '2xH100'
+      - targets: ['100.91.25.13:8770']
+        labels:
+          node: 'lambda-a10'
+          gpu: 'A10'
+      # Lambda GH200 cluster
+      - targets: ['100.123.183.70:8770']
+        labels:
+          node: 'lambda-gh200-a'
+          gpu: 'GH200'
+      - targets: ['100.104.34.73:8770']
+        labels:
+          node: 'lambda-gh200-b'
+          gpu: 'GH200'
+      - targets: ['100.88.35.19:8770']
+        labels:
+          node: 'lambda-gh200-c'
+          gpu: 'GH200'
+      - targets: ['100.75.84.47:8770']
+        labels:
+          node: 'lambda-gh200-d'
+          gpu: 'GH200'
+      - targets: ['100.88.176.74:8770']
+        labels:
+          node: 'lambda-gh200-e'
+          gpu: 'GH200'
+      - targets: ['100.104.165.116:8770']
+        labels:
+          node: 'lambda-gh200-f'
+          gpu: 'GH200'
+      - targets: ['100.104.126.58:8770']
+        labels:
+          node: 'lambda-gh200-g'
+          gpu: 'GH200'
+      - targets: ['100.65.88.62:8770']
+        labels:
+          node: 'lambda-gh200-h'
+          gpu: 'GH200'
+      - targets: ['100.99.27.56:8770']
+        labels:
+          node: 'lambda-gh200-i'
+          gpu: 'GH200'
+      - targets: ['100.96.142.42:8770']
+        labels:
+          node: 'lambda-gh200-k'
+          gpu: 'GH200'
+      - targets: ['100.76.145.60:8770']
+        labels:
+          node: 'lambda-gh200-l'
+          gpu: 'GH200'
+      # AWS nodes
+      - targets: ['100.115.97.24:8770']
+        labels:
+          node: 'aws-staging'
+          provider: 'aws'
+      - targets: ['100.121.198.28:8770']
+        labels:
+          node: 'aws-proxy'
+          provider: 'aws'
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 15s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):\d+'
+        replacement: '${1}'
 
   # ---------------------------------------------------------------------------
   # Redis (if using redis_exporter)
