@@ -34,18 +34,21 @@ P2P_PORT="${P2P_PORT:-8770}"
 LOG_DIR="/var/log/ringrift"
 CONF_DIR="/etc/ringrift"
 
-# Default peers (Lambda nodes that are usually online)
-# Using PUBLIC IPs instead of Tailscale IPs because vast containers run Tailscale
-# in userspace-networking mode which doesn't route Tailscale IPs properly.
-# lambda-a10: 150.136.65.197
-# lambda-gh200-a: 192.222.51.29
-# lambda-gh200-e: 192.222.57.162
-# AWS proxy: 52.15.114.79 (relay hub for NAT-blocked nodes)
-DEFAULT_PEERS="http://52.15.114.79:8770,http://150.136.65.197:8770,http://192.222.57.162:8770,http://192.222.51.29:8770"
+# Default peers for vast nodes
+# Priority order:
+#   1. Cloudflare tunnel (most reliable - bypasses NAT, stable URL)
+#   2. AWS proxy (relay hub for NAT-blocked nodes)
+#   3. Public IPs (fallback if tunnel is down)
+#
+# Cloudflare tunnel: p2p.ringrift.ai -> lambda-gh200-e:8770
+# AWS proxy: 52.15.114.79 (relay hub)
+# lambda-gh200-e: 192.222.57.162 (direct fallback)
+# lambda-gh200-a: 192.222.51.29 (direct fallback)
+DEFAULT_PEERS="https://p2p.ringrift.ai,http://52.15.114.79:8770,http://192.222.57.162:8770,http://192.222.51.29:8770"
 
-# Relay peers - AWS proxy serves as relay hub for NAT-blocked Vast nodes
-# These peers will receive relay heartbeats instead of direct heartbeats
-RELAY_PEERS="http://52.15.114.79:8770"
+# Relay peers - these receive relay heartbeats for NAT-blocked vast nodes
+# Both Cloudflare tunnel and AWS proxy can relay heartbeats to the cluster
+RELAY_PEERS="https://p2p.ringrift.ai,http://52.15.114.79:8770"
 
 # Colors
 RED='\033[0;31m'
@@ -173,10 +176,13 @@ if [ ! -x "$PY" ]; then PY="/usr/bin/python3"; fi
 cd "$AI_SERVICE_PATH"
 export PYTHONPATH="$AI_SERVICE_PATH:$PYTHONPATH"
 
-# Build relay-peers argument if set
+# Build relay-peers argument if supported and set
 RELAY_ARG=""
 if [ -n "$RELAY_PEERS" ]; then
-    RELAY_ARG="--relay-peers $RELAY_PEERS"
+    # Check if --relay-peers is supported by checking help output
+    if "$PY" scripts/p2p_orchestrator.py --help 2>&1 | grep -q "relay-peers"; then
+        RELAY_ARG="--relay-peers $RELAY_PEERS"
+    fi
 fi
 
 exec "$PY" scripts/p2p_orchestrator.py \

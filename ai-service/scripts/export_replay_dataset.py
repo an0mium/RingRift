@@ -81,9 +81,12 @@ def build_encoder(board_type: BoardType, encoder_version: str = "default") -> Ne
     placeholder; we never call select_move(), only the encoding helpers.
 
     For hexagonal boards, encoder_version can be:
-      - "default": Use NeuralNetAI._extract_features (14 channels)
+      - "default": Maps to "v3" (HexStateEncoderV3, 16 channels)
       - "v2": Use HexStateEncoder (10 channels) for HexNeuralNet_v2
       - "v3": Use HexStateEncoderV3 (16 channels) for HexNeuralNet_v3
+
+    IMPORTANT: Hex boards ALWAYS use specialized encoders to ensure consistent
+    feature shapes across all games. The "default" option maps to v3.
     """
     # Prefer CPU by default to avoid accidental MPS/OMP issues; callers can
     # override via env (e.g. RINGRIFT_FORCE_CPU=0) if they want GPU.
@@ -107,10 +110,12 @@ def build_encoder(board_type: BoardType, encoder_version: str = "default") -> Ne
         BoardType.HEXAGONAL: 25,
     }.get(board_type, 8)
 
-    # For hex boards, attach a specialized encoder if requested
-    if board_type == BoardType.HEXAGONAL and encoder_version in ("v2", "v3"):
-        encoder._hex_encoder = get_encoder_for_board_type(board_type, encoder_version)
-        encoder._hex_encoder_version = encoder_version
+    # For hex boards, ALWAYS attach a specialized encoder to ensure consistent
+    # feature shapes. Default to v3 (newest, 16 channels).
+    if board_type == BoardType.HEXAGONAL:
+        effective_version = encoder_version if encoder_version in ("v2", "v3") else "v3"
+        encoder._hex_encoder = get_encoder_for_board_type(board_type, effective_version)
+        encoder._hex_encoder_version = effective_version
 
     return encoder
 
@@ -848,10 +853,10 @@ def _parse_args(argv: List[str] | None = None) -> argparse.Namespace:
         default="default",
         help=(
             "Encoder version for hex boards. "
-            "'default' uses NeuralNetAI (14 channels), "
+            "'default' maps to 'v3' (recommended), "
             "'v2' uses HexStateEncoder (10 channels for HexNeuralNet_v2), "
             "'v3' uses HexStateEncoderV3 (16 channels for HexNeuralNet_v3). "
-            "Ignored for non-hex boards."
+            "Hex boards ALWAYS use specialized encoders for consistent shapes."
         ),
     )
     parser.add_argument(

@@ -251,9 +251,12 @@ class HexStateEncoder:
         """
         return _from_canonical_xy(board, cx, cy)
 
-    def encode(self, state: GameState) -> Tuple[np.ndarray, np.ndarray]:
+    def encode_state(self, state: GameState) -> Tuple[np.ndarray, np.ndarray]:
         """
         Encode a hex game state to feature tensors.
+
+        This is the canonical API method name used by the export pipeline.
+        See also: encode() which is an alias for backwards compatibility.
 
         Args:
             state: The game state to encode
@@ -261,7 +264,7 @@ class HexStateEncoder:
         Returns:
             Tuple of (board_features, global_features):
             - board_features: shape (10, board_size, board_size)
-            - global_features: shape (10,)
+            - global_features: shape (20,)
         """
         board = state.board
 
@@ -526,6 +529,12 @@ class HexStateEncoder:
 
         return features, globals_vec
 
+    def encode(self, state: GameState) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Alias for encode_state() for backwards compatibility.
+        """
+        return self.encode_state(state)
+
     def encode_with_history(
         self,
         state: GameState,
@@ -545,7 +554,7 @@ class HexStateEncoder:
             - stacked_features: shape (10 * (history_length + 1), H, W)
             - global_features: shape (20,)
         """
-        features, globals_vec = self.encode(state)
+        features, globals_vec = self.encode_state(state)
 
         # Build history list (newest first)
         hist = history_frames[::-1][:history_length]
