@@ -68,12 +68,14 @@ class ModelCullingController:
     Protections:
     - Always keeps at least MIN_KEEP models
     - Never culls baselines (top 4 by Elo)
+    - Never culls models with < MIN_GAMES_FOR_CULL games (high uncertainty)
     - Archives to recoverable location, doesn't delete
     """
 
     CULL_THRESHOLD = 100  # Trigger culling when > 100 models
     KEEP_FRACTION = 0.25  # Keep top 25% (quartile)
     MIN_KEEP = 25         # Always keep at least 25 models
+    MIN_GAMES_FOR_CULL = 20  # Don't cull models with < 20 games (high uncertainty)
 
     def __init__(
         self,
@@ -235,7 +237,24 @@ class ModelCullingController:
 
         # Split into keep and cull lists
         to_keep = models[:keep_count]
-        to_cull = models[keep_count:]
+        candidates_for_cull = models[keep_count:]
+
+        # Filter out models with high uncertainty (too few games)
+        # These models haven't been properly evaluated yet
+        to_cull = [
+            m for m in candidates_for_cull
+            if m.games_played >= self.MIN_GAMES_FOR_CULL
+        ]
+        protected_by_uncertainty = [
+            m for m in candidates_for_cull
+            if m.games_played < self.MIN_GAMES_FOR_CULL
+        ]
+
+        if protected_by_uncertainty:
+            logger.info(
+                f"[Culling] {config_key}: Protecting {len(protected_by_uncertainty)} "
+                f"models with < {self.MIN_GAMES_FOR_CULL} games (high uncertainty)"
+            )
 
         logger.info(
             f"[Culling] {config_key}: {model_count} models, "
@@ -252,12 +271,15 @@ class ModelCullingController:
         # Update last cull time
         self._last_cull[config_key] = time.time()
 
+        # Count all kept models: top quartile + uncertainty-protected
+        all_kept = to_keep + protected_by_uncertainty
+
         return CullResult(
             config_key=config_key,
             culled=len(archived),
-            kept=len(to_keep),
+            kept=len(all_kept),
             archived_models=archived,
-            preserved_models=[m.model_id for m in to_keep],
+            preserved_models=[m.model_id for m in all_kept],
             timestamp=time.time(),
         )
 

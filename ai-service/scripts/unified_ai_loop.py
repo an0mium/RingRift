@@ -623,6 +623,28 @@ except ImportError:
     get_ephemeral_hosts = None
     create_sync_profile = None
 
+# Gauntlet evaluation and model culling
+try:
+    from app.tournament.distributed_gauntlet import (
+        DistributedNNGauntlet,
+        GauntletConfig,
+        CONFIG_KEYS as GAUNTLET_CONFIG_KEYS,
+        get_gauntlet,
+    )
+    from app.tournament.model_culling import (
+        ModelCullingController,
+        get_culling_controller,
+    )
+    HAS_GAUNTLET = True
+except ImportError:
+    HAS_GAUNTLET = False
+    DistributedNNGauntlet = None
+    GauntletConfig = None
+    GAUNTLET_CONFIG_KEYS = []
+    get_gauntlet = None
+    ModelCullingController = None
+    get_culling_controller = None
+
 # Memory and local task configuration
 MIN_MEMORY_GB = 64  # Minimum RAM to run the unified loop
 DISABLE_LOCAL_TASKS = os.environ.get("RINGRIFT_DISABLE_LOCAL_TASKS", "").lower() in ("1", "true", "yes", "on")
@@ -5096,6 +5118,21 @@ class UnifiedAILoop:
         self._last_diverse_tournament: float = 0.0
         self._started_time: float = 0.0
 
+        # Gauntlet evaluation and model culling
+        self.gauntlet: Optional[DistributedNNGauntlet] = None
+        self.culler: Optional[ModelCullingController] = None
+        self._last_gauntlet_check: float = 0.0
+        self._gauntlet_interval: float = 1800.0  # 30 minutes between gauntlet checks
+        if HAS_GAUNTLET:
+            try:
+                elo_db_path = AI_SERVICE_ROOT / "data" / "unified_elo.db"
+                model_dir = AI_SERVICE_ROOT / "data" / "models"
+                self.gauntlet = get_gauntlet(elo_db_path, model_dir)
+                self.culler = get_culling_controller(elo_db_path, model_dir)
+                print("[UnifiedLoop] Gauntlet evaluator and model culler initialized")
+            except Exception as e:
+                print(f"[UnifiedLoop] Warning: Failed to initialize gauntlet/culler: {e}")
+
     def _setup_stage_event_bridge(self):
         """Bridge StageEventBus events to the main EventBus for unified coordination.
 
@@ -7965,6 +8002,74 @@ class UnifiedAILoop:
             except asyncio.TimeoutError:
                 pass
 
+    async def _gauntlet_culling_loop(self):
+        """Gauntlet evaluation and model culling loop.
+
+        Periodically checks if any config has:
+        1. Many unrated models → run gauntlet evaluation
+        2. Model count > 100 → cull bottom 75% (keeping top quartile)
+
+        Respects uncertainty: models with < 20 games are protected from culling.
+        """
+        if not HAS_GAUNTLET or self.gauntlet is None or self.culler is None:
+            print("[Gauntlet] Not available - skipping")
+            return
+
+        # Initial delay to let other loops stabilize
+        await asyncio.sleep(60)
+
+        print("[Gauntlet] Gauntlet evaluation and model culling loop started")
+
+        while self._running:
+            try:
+                now = time.time()
+
+                # Check if enough time has passed since last check
+                if now - self._last_gauntlet_check >= self._gauntlet_interval:
+                    self._last_gauntlet_check = now
+
+                    # Check each of the 9 configs
+                    for config_key in GAUNTLET_CONFIG_KEYS:
+                        # Check for unrated models
+                        unrated_count = len(self.gauntlet.get_unrated_models(config_key))
+                        model_count = self.culler.count_models(config_key)
+
+                        # Run gauntlet if many unrated models
+                        if unrated_count > 20:
+                            print(f"[Gauntlet] {config_key}: {unrated_count} unrated models - running gauntlet")
+                            try:
+                                result = await self.gauntlet.run_gauntlet(config_key)
+                                print(f"[Gauntlet] {config_key}: Evaluated {result.models_evaluated} models")
+                            except Exception as e:
+                                print(f"[Gauntlet] {config_key}: Gauntlet error: {e}")
+
+                        # Cull if over threshold
+                        if self.culler.needs_culling(config_key):
+                            print(f"[Gauntlet] {config_key}: {model_count} models - culling to top quartile")
+                            try:
+                                cull_result = self.culler.check_and_cull(config_key)
+                                print(
+                                    f"[Gauntlet] {config_key}: Culled {cull_result.culled}, "
+                                    f"kept {cull_result.kept}"
+                                )
+                            except Exception as e:
+                                print(f"[Gauntlet] {config_key}: Culling error: {e}")
+
+                        # Small delay between configs to avoid overload
+                        await asyncio.sleep(1)
+
+            except Exception as e:
+                print(f"[Gauntlet] Error in gauntlet/culling loop: {e}")
+
+            try:
+                await asyncio.wait_for(
+                    self._shutdown_event.wait(),
+                    timeout=300  # Check every 5 minutes (inner interval check handles 30 min)
+                )
+                break
+            except asyncio.TimeoutError:
+                pass
+
     async def _cross_process_event_loop(self):
         """Poll for cross-process events from other daemons.
 
@@ -8216,7 +8321,7 @@ class UnifiedAILoop:
                 "data_collection", "evaluation", "training", "promotion",
                 "curriculum", "metrics", "health_check", "utilization_optimization",
                 "hp_tuning_sync", "external_drive_sync", "pbt", "nas",
-                "per", "cross_process_event", "health_recovery"
+                "per", "cross_process_event", "health_recovery", "gauntlet_culling"
             ]
             results = await asyncio.gather(
                 self._data_collection_loop(),
@@ -8234,6 +8339,7 @@ class UnifiedAILoop:
                 self._per_loop(),
                 self._cross_process_event_loop(),
                 self._health_recovery_loop(),  # Automatic issue detection and healing
+                self._gauntlet_culling_loop(),  # Model evaluation and top-quartile culling
                 return_exceptions=True,  # Don't crash if one loop fails
             )
             # Log any exceptions from loops

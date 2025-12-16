@@ -49,9 +49,13 @@ logger = logging.getLogger(__name__)
 MODEL_COUNT_THRESHOLD = 100
 TOP_QUARTILE_KEEP = 0.25
 GAMES_PER_BASELINE = 10
-PARALLEL_WORKERS = 50  # Adjust based on available CPUs
+PARALLEL_WORKERS = 100  # Default for high-CPU hosts
 ARCHIVE_DIR = AI_SERVICE_ROOT / "models" / "archived"
 RESULTS_DIR = AI_SERVICE_ROOT / "data" / "evaluations"
+
+# Speed settings
+DEFAULT_SEARCH_DEPTH = 4  # For accurate evaluation
+FAST_SEARCH_DEPTH = 2  # For quick filtering (~3x faster)
 
 # Cluster nodes for distributed evaluation
 CLUSTER_NODES = [
@@ -101,8 +105,13 @@ def play_single_game(
     opponent_type: str,
     board_type: BoardType = BoardType.SQUARE8,
     model_plays_first: bool = True,
+    search_depth: int = DEFAULT_SEARCH_DEPTH,
 ) -> Optional[int]:
-    """Play a single game, return winner or None for error."""
+    """Play a single game, return winner or None for error.
+
+    Args:
+        search_depth: Minimax search depth (2=fast, 4=accurate)
+    """
     try:
         from app.game_engine import GameEngine
         from app.main import _create_ai_instance
@@ -118,7 +127,7 @@ def play_single_game(
             opp_config = AIConfig(ai_type=opp_type, difficulty=1)
         else:  # heuristic
             opp_type = AIType.HEURISTIC
-            opp_config = AIConfig(ai_type=opp_type, difficulty=3)
+            opp_config = AIConfig(ai_type=opp_type, difficulty=2)  # Lower for speed
         opponent = _create_ai_instance(opp_type, opp_player, opp_config)
 
         # Create model AI
@@ -127,12 +136,12 @@ def play_single_game(
             model_ai_type = AIType.MINIMAX
             model_config = AIConfig(
                 ai_type=model_ai_type,
-                difficulty=4,
+                difficulty=search_depth,
                 nnue_model_path=model_path,
             )
         else:
             model_ai_type = AIType.HEURISTIC
-            model_config = AIConfig(ai_type=model_ai_type, difficulty=5)
+            model_config = AIConfig(ai_type=model_ai_type, difficulty=3)  # Lower for speed
         model_ai = _create_ai_instance(model_ai_type, model_player, model_config)
 
         ais = {model_player: model_ai, opp_player: opponent}
@@ -164,8 +173,13 @@ def evaluate_model(
     model_path: str,
     model_type: str,
     num_games: int = 10,
+    search_depth: int = DEFAULT_SEARCH_DEPTH,
 ) -> ModelScore:
-    """Evaluate a single model against baselines."""
+    """Evaluate a single model against baselines.
+
+    Args:
+        search_depth: Minimax search depth (2=fast ~10s/game, 4=accurate ~45s/game)
+    """
     wins_random = 0
     wins_heuristic = 0
     games_random = 0
@@ -176,14 +190,20 @@ def evaluate_model(
         model_player = 1 if model_first else 2
 
         # vs Random
-        winner = play_single_game(model_path, model_type, "random", model_plays_first=model_first)
+        winner = play_single_game(
+            model_path, model_type, "random",
+            model_plays_first=model_first, search_depth=search_depth
+        )
         if winner is not None:
             games_random += 1
             if winner == model_player:
                 wins_random += 1
 
         # vs Heuristic
-        winner = play_single_game(model_path, model_type, "heuristic", model_plays_first=model_first)
+        winner = play_single_game(
+            model_path, model_type, "heuristic",
+            model_plays_first=model_first, search_depth=search_depth
+        )
         if winner is not None:
             games_heuristic += 1
             if winner == model_player:
@@ -208,19 +228,26 @@ def evaluate_model(
 
 def evaluate_model_wrapper(args: Tuple) -> ModelScore:
     """Wrapper for parallel evaluation."""
-    model_path, model_type, num_games = args
-    return evaluate_model(model_path, model_type, num_games)
+    model_path, model_type, num_games, search_depth = args
+    return evaluate_model(model_path, model_type, num_games, search_depth)
 
 
 def run_distributed_evaluation(
     models: List[Tuple[str, str]],  # (path, type)
     parallel_workers: int = PARALLEL_WORKERS,
     games_per_baseline: int = GAMES_PER_BASELINE,
+    search_depth: int = DEFAULT_SEARCH_DEPTH,
 ) -> List[ModelScore]:
-    """Run parallel evaluation across all models."""
-    logger.info(f"Evaluating {len(models)} models with {parallel_workers} workers")
+    """Run parallel evaluation across all models.
 
-    args_list = [(path, mtype, games_per_baseline) for path, mtype in models]
+    Args:
+        search_depth: Minimax search depth (2=fast, 4=accurate).
+                     For 500 models with depth=2: ~30 min
+                     For 500 models with depth=4: ~2 hours
+    """
+    logger.info(f"Evaluating {len(models)} models with {parallel_workers} workers (depth={search_depth})")
+
+    args_list = [(path, mtype, games_per_baseline, search_depth) for path, mtype in models]
     results = []
 
     with ProcessPoolExecutor(max_workers=parallel_workers) as executor:
@@ -305,8 +332,14 @@ def run_evaluation_cycle(
     threshold: int = MODEL_COUNT_THRESHOLD,
     workers: int = PARALLEL_WORKERS,
     games: int = GAMES_PER_BASELINE,
+    depth: int = DEFAULT_SEARCH_DEPTH,
 ):
-    """Run a complete evaluation and pruning cycle."""
+    """Run a complete evaluation and pruning cycle.
+
+    Args:
+        depth: Minimax search depth. Use 2 for fast (~1hr for 500 models),
+               4 for accurate (~3hr for 500 models).
+    """
     models_dir = AI_SERVICE_ROOT / "models"
 
     # Discover models
@@ -320,6 +353,13 @@ def run_evaluation_cycle(
         logger.info(f"Model count ({total_count}) below threshold ({threshold}), skipping evaluation")
         return None
 
+    # Estimate time
+    games_total = total_count * games * 2  # 2 baselines
+    time_per_game = 10 if depth <= 2 else 45  # seconds
+    batches = (total_count + workers - 1) // workers
+    est_minutes = (batches * games * 2 * time_per_game) / 60
+    logger.info(f"Estimated time: {est_minutes:.0f} minutes ({games_total} games, {workers} workers, depth={depth})")
+
     # Prepare model list
     models = []
     for path in discovered["nn"]:
@@ -328,7 +368,7 @@ def run_evaluation_cycle(
         models.append((str(path), "nnue"))
 
     # Run evaluation
-    scores = run_distributed_evaluation(models, workers, games)
+    scores = run_distributed_evaluation(models, workers, games, depth)
 
     # Select models
     to_keep, to_prune = select_models_to_keep(scores)
@@ -350,14 +390,15 @@ def run_daemon(
     threshold: int = MODEL_COUNT_THRESHOLD,
     workers: int = PARALLEL_WORKERS,
     games: int = GAMES_PER_BASELINE,
+    depth: int = FAST_SEARCH_DEPTH,  # Use fast depth by default for daemon
 ):
     """Run as daemon, checking periodically."""
-    logger.info(f"Starting evaluation daemon (interval: {interval_seconds}s)")
+    logger.info(f"Starting evaluation daemon (interval: {interval_seconds}s, depth={depth})")
 
     while True:
         try:
             logger.info("Running scheduled evaluation cycle...")
-            run_evaluation_cycle(threshold=threshold, workers=workers, games=games)
+            run_evaluation_cycle(threshold=threshold, workers=workers, games=games, depth=depth)
         except Exception as e:
             logger.error(f"Evaluation cycle failed: {e}")
 
@@ -366,24 +407,40 @@ def run_daemon(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Distributed Model Evaluator")
+    parser = argparse.ArgumentParser(
+        description="Distributed Model Evaluator - Fast parallel model filtering",
+        epilog="""
+Examples:
+  # Fast evaluation (~30 min for 500 models on 100 workers)
+  python scripts/distributed_model_evaluator.py --run --fast --workers 100
+
+  # Accurate evaluation (~2 hours for 500 models on 100 workers)
+  python scripts/distributed_model_evaluator.py --run --depth 4 --workers 100
+
+  # Run as daemon with fast evaluation every hour
+  python scripts/distributed_model_evaluator.py --daemon --fast --workers 100
+        """
+    )
     parser.add_argument("--run", action="store_true", help="Run evaluation cycle")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be pruned")
     parser.add_argument("--force", action="store_true", help="Force evaluation even below threshold")
     parser.add_argument("--daemon", action="store_true", help="Run as daemon")
     parser.add_argument("--interval", type=int, default=3600, help="Daemon interval in seconds")
     parser.add_argument("--threshold", type=int, default=MODEL_COUNT_THRESHOLD, help="Model count threshold")
-    parser.add_argument("--workers", type=int, default=PARALLEL_WORKERS, help="Parallel workers")
+    parser.add_argument("--workers", "-j", type=int, default=PARALLEL_WORKERS, help="Parallel workers (default: 100)")
     parser.add_argument("--games", type=int, default=GAMES_PER_BASELINE, help="Games per baseline")
+    parser.add_argument("--depth", type=int, default=DEFAULT_SEARCH_DEPTH, help="Minimax search depth (2=fast, 4=accurate)")
+    parser.add_argument("--fast", action="store_true", help="Use fast mode (depth=2, ~3x faster)")
 
     args = parser.parse_args()
 
     threshold = args.threshold
     workers = args.workers
     games = args.games
+    depth = FAST_SEARCH_DEPTH if args.fast else args.depth
 
     if args.daemon:
-        run_daemon(args.interval, threshold, workers, games)
+        run_daemon(args.interval, threshold, workers, games, depth)
     elif args.run or args.dry_run:
         run_evaluation_cycle(
             dry_run=args.dry_run,
@@ -391,6 +448,7 @@ def main():
             threshold=threshold,
             workers=workers,
             games=games,
+            depth=depth,
         )
     else:
         parser.print_help()

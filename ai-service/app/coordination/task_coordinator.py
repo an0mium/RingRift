@@ -698,6 +698,10 @@ class TaskCoordinator:
         self._resource_cache: Dict[str, Dict[str, float]] = {}
         self._resource_cache_time: float = 0
 
+        # Gauntlet evaluation: reserved workers
+        self._gauntlet_reserved: Set[str] = set()
+        self._gauntlet_lock = threading.RLock()
+
         logger.info("Task coordinator initialized")
 
     def _shutdown(self) -> None:
@@ -739,6 +743,97 @@ class TaskCoordinator:
     def emergency_stop(self) -> None:
         """Emergency stop - halt all spawning and signal shutdown."""
         self.set_state(CoordinatorState.EMERGENCY)
+
+    # ==========================================
+    # Gauntlet Worker Reservation
+    # ==========================================
+
+    def reserve_for_gauntlet(self, node_ids: List[str]) -> List[str]:
+        """Reserve workers for gauntlet evaluation.
+
+        Reserved workers are excluded from selfplay task assignment
+        until released.
+
+        Args:
+            node_ids: List of node IDs to reserve
+
+        Returns:
+            List of successfully reserved node IDs
+        """
+        reserved = []
+        with self._gauntlet_lock:
+            for node_id in node_ids:
+                if node_id not in self._gauntlet_reserved:
+                    self._gauntlet_reserved.add(node_id)
+                    reserved.append(node_id)
+                    logger.info(f"[Gauntlet] Reserved worker: {node_id}")
+        return reserved
+
+    def release_from_gauntlet(self, node_ids: List[str]) -> None:
+        """Release workers from gauntlet reservation.
+
+        Args:
+            node_ids: List of node IDs to release
+        """
+        with self._gauntlet_lock:
+            for node_id in node_ids:
+                if node_id in self._gauntlet_reserved:
+                    self._gauntlet_reserved.discard(node_id)
+                    logger.info(f"[Gauntlet] Released worker: {node_id}")
+
+    def release_all_gauntlet(self) -> int:
+        """Release all workers from gauntlet reservation.
+
+        Returns:
+            Number of workers released
+        """
+        with self._gauntlet_lock:
+            count = len(self._gauntlet_reserved)
+            self._gauntlet_reserved.clear()
+            if count > 0:
+                logger.info(f"[Gauntlet] Released all {count} workers")
+            return count
+
+    def is_reserved_for_gauntlet(self, node_id: str) -> bool:
+        """Check if a worker is reserved for gauntlet.
+
+        Args:
+            node_id: Node ID to check
+
+        Returns:
+            True if reserved
+        """
+        with self._gauntlet_lock:
+            return node_id in self._gauntlet_reserved
+
+    def get_gauntlet_reserved(self) -> Set[str]:
+        """Get set of all workers reserved for gauntlet."""
+        with self._gauntlet_lock:
+            return self._gauntlet_reserved.copy()
+
+    def get_available_for_gauntlet(self, all_nodes: List[str], count: int = 2) -> List[str]:
+        """Get available nodes that can be reserved for gauntlet.
+
+        Prefers CPU-only nodes over GPU nodes for gauntlet evaluation.
+
+        Args:
+            all_nodes: List of all known node IDs
+            count: Number of nodes to reserve
+
+        Returns:
+            List of node IDs to reserve
+        """
+        with self._gauntlet_lock:
+            # Filter out already reserved nodes
+            available = [n for n in all_nodes if n not in self._gauntlet_reserved]
+
+            # Prefer nodes with "cpu" in their ID
+            cpu_nodes = [n for n in available if "cpu" in n.lower()]
+            other_nodes = [n for n in available if "cpu" not in n.lower()]
+
+            # Take from CPU nodes first, then others
+            candidates = cpu_nodes + other_nodes
+            return candidates[:count]
 
     # ==========================================
     # Admission Control
