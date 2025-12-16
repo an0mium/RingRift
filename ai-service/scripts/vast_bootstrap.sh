@@ -35,7 +35,17 @@ LOG_DIR="/var/log/ringrift"
 CONF_DIR="/etc/ringrift"
 
 # Default peers (Lambda nodes that are usually online)
-DEFAULT_PEERS="100.91.25.13:8770,100.88.176.74:8770,100.123.183.70:8770"
+# Using PUBLIC IPs instead of Tailscale IPs because vast containers run Tailscale
+# in userspace-networking mode which doesn't route Tailscale IPs properly.
+# lambda-a10: 150.136.65.197
+# lambda-gh200-a: 192.222.51.29
+# lambda-gh200-e: 192.222.57.162
+# AWS proxy: 52.15.114.79 (relay hub for NAT-blocked nodes)
+DEFAULT_PEERS="http://52.15.114.79:8770,http://150.136.65.197:8770,http://192.222.57.162:8770,http://192.222.51.29:8770"
+
+# Relay peers - AWS proxy serves as relay hub for NAT-blocked Vast nodes
+# These peers will receive relay heartbeats instead of direct heartbeats
+RELAY_PEERS="http://52.15.114.79:8770"
 
 # Colors
 RED='\033[0;31m'
@@ -138,6 +148,7 @@ setup_p2p_service() {
 NODE_ID=$node_id
 P2P_PORT=$P2P_PORT
 PEERS=$peers
+RELAY_PEERS=$RELAY_PEERS
 RINGRIFT_PATH=$RINGRIFT_ROOT
 AI_SERVICE_PATH=$AI_SERVICE
 EOF
@@ -161,10 +172,18 @@ if [ ! -x "$PY" ]; then PY="/usr/bin/python3"; fi
 # Start P2P orchestrator
 cd "$AI_SERVICE_PATH"
 export PYTHONPATH="$AI_SERVICE_PATH:$PYTHONPATH"
+
+# Build relay-peers argument if set
+RELAY_ARG=""
+if [ -n "$RELAY_PEERS" ]; then
+    RELAY_ARG="--relay-peers $RELAY_PEERS"
+fi
+
 exec "$PY" scripts/p2p_orchestrator.py \
     --node-id "$NODE_ID" \
     --port "$P2P_PORT" \
     --peers "$PEERS" \
+    $RELAY_ARG \
     --ringrift-path "$RINGRIFT_PATH" \
     >> /var/log/ringrift/p2p.log 2>&1
 STARTSCRIPT
