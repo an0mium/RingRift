@@ -22836,23 +22836,23 @@ print(json.dumps({{
                 new_jobs = max(1, int(gpu_headroom / 10 * jobs_per_10_percent))
                 new_jobs = min(new_jobs, max_jobs_per_cycle)  # Cap based on leader presence
 
-                print(f"[P2P] LOCAL GPU: {gpu_percent:.0f}% util, starting {new_jobs} GPU selfplay job(s)")
+                print(f"[P2P] LOCAL: {gpu_percent:.0f}% GPU util, starting {new_jobs} diverse/hybrid selfplay job(s)")
 
                 for _ in range(new_jobs):
                     try:
                         config = self._pick_weighted_selfplay_config(self.self_info)
                         if config:
-                            # Force GPU mode
+                            # Use hybrid mode (CPU rules + GPU eval) for quality + speed
                             job = await self._start_local_job(
                                 JobType.HYBRID_SELFPLAY,
                                 board_type=config["board_type"],
                                 num_players=config["num_players"],
-                                engine_mode="nn-only",
+                                engine_mode="mixed",  # Diverse AI matchups for better training data
                             )
                             if job:
                                 started += 1
                     except Exception as e:
-                        print(f"[P2P] LOCAL GPU: Failed to start GPU selfplay: {e}")
+                        print(f"[P2P] LOCAL: Failed to start diverse selfplay: {e}")
                         break
 
                 self._local_gpu_idle_since = now  # Reset after action
@@ -22945,29 +22945,31 @@ print(json.dumps({{
 
         Returns config dict with board_type, num_players, engine_mode.
         """
-        # Get the selfplay configs from the leader job scheduling logic
+        # Get the selfplay configs - DIVERSE mode prioritized for high-quality training data
+        # Uses "mixed" engine mode for varied AI matchups (NNUE, MCTS, heuristic combinations)
         selfplay_configs = [
-            # Priority 7: Underrepresented combos
-            {"board_type": "hexagonal", "num_players": 2, "engine_mode": "nn-only", "priority": 7},
-            {"board_type": "hexagonal", "num_players": 4, "engine_mode": "nn-only", "priority": 7},
-            {"board_type": "square19", "num_players": 3, "engine_mode": "nn-only", "priority": 7},
-            # Priority 6: Cross-AI matches
+            # Priority 8: Underrepresented hex/sq19 combos with diverse AI (highest priority)
+            {"board_type": "hexagonal", "num_players": 3, "engine_mode": "mixed", "priority": 8},
+            {"board_type": "hexagonal", "num_players": 2, "engine_mode": "mixed", "priority": 8},
+            {"board_type": "hexagonal", "num_players": 4, "engine_mode": "mixed", "priority": 8},
+            {"board_type": "square19", "num_players": 3, "engine_mode": "mixed", "priority": 8},
+            {"board_type": "square19", "num_players": 2, "engine_mode": "mixed", "priority": 8},
+            {"board_type": "square19", "num_players": 4, "engine_mode": "mixed", "priority": 8},
+            # Priority 7: Square8 multi-player with diverse AI
+            {"board_type": "square8", "num_players": 3, "engine_mode": "mixed", "priority": 7},
+            {"board_type": "square8", "num_players": 4, "engine_mode": "mixed", "priority": 7},
+            # Priority 6: Cross-AI matches (specific matchup types)
             {"board_type": "square8", "num_players": 2, "engine_mode": "heuristic-vs-mcts", "priority": 6},
-            {"board_type": "square8", "num_players": 3, "engine_mode": "heuristic-vs-mcts", "priority": 6},
-            {"board_type": "hexagonal", "num_players": 2, "engine_mode": "heuristic-vs-mcts", "priority": 6},
             {"board_type": "hexagonal", "num_players": 3, "engine_mode": "heuristic-vs-mcts", "priority": 6},
-            # Priority 5: NN modes
-            {"board_type": "square8", "num_players": 2, "engine_mode": "nn-only", "priority": 5},
-            {"board_type": "square8", "num_players": 3, "engine_mode": "nn-only", "priority": 5},
-            {"board_type": "square8", "num_players": 4, "engine_mode": "nn-only", "priority": 5},
-            {"board_type": "square19", "num_players": 2, "engine_mode": "nn-only", "priority": 5},
-            {"board_type": "square19", "num_players": 4, "engine_mode": "nn-only", "priority": 5},
-            # Priority 4: Tournament varied
+            {"board_type": "square19", "num_players": 2, "engine_mode": "heuristic-vs-mcts", "priority": 6},
+            # Priority 5: Standard 2p square8 with diverse AI
+            {"board_type": "square8", "num_players": 2, "engine_mode": "mixed", "priority": 5},
+            # Priority 4: Tournament varied (for evaluation-style games)
             {"board_type": "square8", "num_players": 2, "engine_mode": "tournament-varied", "priority": 4},
             {"board_type": "hexagonal", "num_players": 2, "engine_mode": "tournament-varied", "priority": 4},
-            # Priority 3: CPU-bound
+            # Priority 3: CPU-bound specialized modes
             {"board_type": "square8", "num_players": 2, "engine_mode": "mcts-only", "priority": 3},
-            {"board_type": "square8", "num_players": 2, "engine_mode": "descent-only", "priority": 3},
+            {"board_type": "hexagonal", "num_players": 2, "engine_mode": "descent-only", "priority": 3},
         ]
 
         # Filter by node memory (avoid large boards on small nodes)
@@ -23680,18 +23682,32 @@ print(json.dumps({{
                 # NOTE: Heuristic-only modes removed to ensure NN/strong AI in every game
                 selfplay_configs = [
                     # ================================================================
-                    # UNDERREPRESENTED COMBINATIONS (HIGHEST PRIORITY 7)
-                    # These combinations have 0 trained NN models - critical to balance
+                    # UNDERREPRESENTED COMBINATIONS - MIXED MODE (HIGHEST PRIORITY 8)
+                    # "mixed" mode provides varied AI matchups (NNUE, MCTS, heuristic combos)
+                    # for maximum training data diversity
+                    # ================================================================
+                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "mixed", "priority": 8},
+                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "mixed", "priority": 8},
+                    {"board_type": "hexagonal", "num_players": 4, "engine_mode": "mixed", "priority": 8},
+                    {"board_type": "square19", "num_players": 3, "engine_mode": "mixed", "priority": 8},
+                    {"board_type": "square19", "num_players": 2, "engine_mode": "mixed", "priority": 8},
+                    {"board_type": "square19", "num_players": 4, "engine_mode": "mixed", "priority": 8},
+                    # ================================================================
+                    # UNDERREPRESENTED COMBINATIONS (PRIORITY 7)
+                    # Specific AI matchup modes for variety
                     # ================================================================
                     {"board_type": "square19", "num_players": 2, "engine_mode": "nn-only", "priority": 7},
                     {"board_type": "square19", "num_players": 2, "engine_mode": "nn-vs-mcts", "priority": 7},
-                    {"board_type": "square19", "num_players": 2, "engine_mode": "mcts-only", "priority": 7},
                     {"board_type": "hexagonal", "num_players": 2, "engine_mode": "nn-only", "priority": 7},
                     {"board_type": "hexagonal", "num_players": 2, "engine_mode": "nn-vs-mcts", "priority": 7},
-                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "mcts-only", "priority": 7},
                     {"board_type": "hexagonal", "num_players": 3, "engine_mode": "nn-only", "priority": 7},
                     {"board_type": "hexagonal", "num_players": 3, "engine_mode": "nn-vs-mcts", "priority": 7},
-                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "mcts-only", "priority": 7},
+                    # ================================================================
+                    # SQUARE8 MULTI-PLAYER WITH MIXED MODE (PRIORITY 6.5)
+                    # ================================================================
+                    {"board_type": "square8", "num_players": 3, "engine_mode": "mixed", "priority": 7},
+                    {"board_type": "square8", "num_players": 4, "engine_mode": "mixed", "priority": 7},
+                    {"board_type": "square8", "num_players": 2, "engine_mode": "mixed", "priority": 6},
                     # ================================================================
                     # CROSS-AI MATCHES (PRIORITY 6) - Variety via asymmetric opponents
                     # heuristic/random vs strong AI (MCTS, Minimax, Descent, NN)

@@ -107,27 +107,36 @@ def get_remote_game_count(node_name: str, config: Dict) -> int:
     ssh_key = config.get("ssh_key", "~/.ssh/id_cluster")
     ssh_port = config.get("ssh_port")
 
+    # Expand ~ to absolute path for reliability
+    db_abs_path = db_path.replace("~", "$HOME")
+
     # Build SSH command using Python to query SQLite
+    # Use bash -c to properly expand $HOME and handle the python command
     python_cmd = (
-        f"python3 -c \"import sqlite3; "
-        f"conn=sqlite3.connect('{db_path}'); "
-        f"print(conn.execute('SELECT COUNT(*) FROM games WHERE winner IS NOT NULL').fetchone()[0])\" "
-        f"2>/dev/null || echo 0"
+        f"bash -c 'python3 -c \"import sqlite3; "
+        f"conn=sqlite3.connect(\\\"{db_abs_path}\\\"); "
+        f"print(conn.execute(\\\"SELECT COUNT(*) FROM games WHERE winner IS NOT NULL\\\").fetchone()[0])\" "
+        f"2>/dev/null || echo 0'"
     )
 
     ssh_cmd = ["ssh"]
     if ssh_port:
         ssh_cmd.extend(["-p", str(ssh_port)])
-    ssh_cmd.extend(["-i", os.path.expanduser(ssh_key), "-o", "ConnectTimeout=10"])
+    ssh_cmd.extend(["-i", os.path.expanduser(ssh_key), "-o", "ConnectTimeout=15", "-o", "StrictHostKeyChecking=no"])
     ssh_cmd.append(ssh_host)
     ssh_cmd.append(python_cmd)
 
     try:
         result = subprocess.run(
-            ssh_cmd, capture_output=True, text=True, timeout=30
+            ssh_cmd, capture_output=True, text=True, timeout=45
         )
-        count = int(result.stdout.strip().split("\n")[-1])
-        return count
+        # Parse output, handling Vast welcome messages
+        lines = result.stdout.strip().split("\n")
+        for line in reversed(lines):
+            line = line.strip()
+            if line.isdigit():
+                return int(line)
+        return 0
     except Exception as e:
         logger.warning(f"Error getting count from {node_name}: {e}")
         return 0
