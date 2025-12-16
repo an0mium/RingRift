@@ -46,9 +46,10 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
 
 - **Players.** 2–4 players; 3-player games are the default in all examples.
 - **Board types.**
-  - `square8`: 8×8 orthogonal grid.
-  - `square19`: 19×19 orthogonal grid.
-- `hexagonal`: hex board with radius 12 (13 cells per side).
+  - `square8`: 8×8 orthogonal grid (64 cells).
+  - `square19`: 19×19 orthogonal grid (361 cells).
+  - `hex8`: hex board with radius 4 (61 cells) - parallel to square8.
+  - `hexagonal`: hex board with radius 12 (469 cells) - parallel to square19.
 - **Notation.**
   - "Stack" = one or more rings in a single cell.
   - "Cap" = all consecutive rings from the top of a stack belonging to the controlling player.
@@ -64,13 +65,15 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
 ### 1.1 Board types and geometry
 
 - **[RR-CANON-R001] Board type configuration.**
-  - For each `BoardType ∈ { square8, square19, hexagonal }`, define:
+  - For each `BoardType ∈ { square8, square19, hex8, hexagonal }`, define:
     - `size`, `totalSpaces`, `ringsPerPlayer`, `lineLength`, `movementAdjacency`, `lineAdjacency`, `territoryAdjacency`, `boardGeometry` exactly as in the table in the Compact Spec (§1.1).
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §1.1; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§1.2.1, 16.10.
 
 - **[RR-CANON-R002] Coordinate systems.**
   - Square boards use integer coordinates `(x,y)` with `0 ≤ x,y < size`.
-  - Hex board uses cube coordinates `(x,y,z)` with `x + y + z = 0` and `max(|x|,|y|,|z|) ≤ size-1`.
+  - Hex boards (`hex8`, `hexagonal`) use cube coordinates `(x,y,z)` with `x + y + z = 0` and `max(|x|,|y|,|z|) ≤ radius`.
+    - `hex8`: radius = 4, bounding box = 9×9
+    - `hexagonal`: radius = 12, bounding box = 25×25
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §1.1.
 
 - **[RR-CANON-R003] Adjacency relations.**
@@ -92,6 +95,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - For each board type, each player P has a fixed personal supply of rings of P's **own colour**:
     - `square8`: 18 rings.
     - `square19`: 72 rings.
+    - `hex8`: 18 rings (parallel to square8).
     - `hexagonal`: 96 rings.
   - At all times, the total number of rings of P's colour that are **in play** (on the board in any stack, regardless of which player currently controls those stacks, plus in P's hand) must be ≤ this `ringsPerPlayer` value for the chosen board type.
   - Rings of other colours that P has captured and that are buried in stacks P controls **do not** count against P's `ringsPerPlayer` cap; they continue to belong, by colour, to their original owners for conservation, elimination, and victory accounting.
@@ -354,7 +358,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
       - In `line_processing`: any legal `process_line` or `choose_line_option` decision for P under RR-CANON-R120–R122.
       - In `territory_processing`: any legal `choose_territory_option` or `eliminate_rings_from_stack` decision for P under RR-CANON-R140–R145.
     - A legal **forced-elimination** action for P under RR-CANON-R100 (see RR-CANON-R205).
-  - Global legal actions are defined uniformly for all supported board types (`square8`, `square19`, `hexagonal`) and for all supported player counts (2–4 players).
+  - Global legal actions are defined uniformly for all supported board types (`square8`, `square19`, `hex8`, `hexagonal`) and for all supported player counts (2–4 players).
 
 - **[RR-CANON-R201] Turn-material, recovery-eligible players, and turn rotation.**
   - A player P has **turn-material** in a state if and only if either:
