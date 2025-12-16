@@ -1,7 +1,14 @@
 #!/bin/bash
 # RingRift Local Data Sync
 # Runs from local machine, syncs game data from all Vast.ai nodes
-# Add to crontab: */10 * * * * /path/to/local_data_sync.sh >> /tmp/ringrift_sync.log 2>&1
+# Add to crontab: */15 * * * * /path/to/local_data_sync.sh >> /tmp/ringrift_sync.log 2>&1
+#
+# This script syncs:
+#   1. JSONL files → aggregated to selfplay_stats.db (for monitoring)
+#   2. Canonical DBs → data/selfplay/remote_sync/ (for training)
+#
+# NOTE: For training, use data/selfplay/diverse/*.db or data/canonical/*.db
+#       NOT the selfplay_stats.db (which lacks game_moves table)
 
 set -e
 
@@ -59,6 +66,29 @@ for node_entry in "${NODES[@]}"; do
 done
 
 log "Sync complete: $online_nodes nodes online, $total_synced files synced"
+
+# Also sync canonical DBs (with game_moves table) for training
+log "Syncing canonical training DBs..."
+TRAINING_SYNC_DIR="/Users/armand/Development/RingRift/ai-service/data/selfplay/remote_sync"
+mkdir -p "$TRAINING_SYNC_DIR"
+
+for node_entry in "${NODES[@]}"; do
+    IFS=':' read -r name ip path <<< "$node_entry"
+
+    # Skip if node is offline
+    if ! timeout 5 ssh -o ConnectTimeout=3 -o BatchMode=yes "root@$ip" "echo ok" >/dev/null 2>&1; then
+        continue
+    fi
+
+    # Sync any DBs that have game_moves table (canonical format)
+    node_train_dir="$TRAINING_SYNC_DIR/$name"
+    mkdir -p "$node_train_dir"
+
+    # Rsync canonical DBs (look for selfplay DBs with proper schema)
+    rsync -avz --progress -e "ssh -o ConnectTimeout=30" \
+        --include="*/" --include="*.db" --exclude="*" \
+        "root@$ip:${path%/games}/selfplay/" "$node_train_dir/" 2>/dev/null || true
+done
 
 # Clean null bytes from sparse files
 log "Cleaning sparse files..."

@@ -30,43 +30,52 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 # Format: (board_type, num_players) -> list of database paths
 # Updated to use verified canonical DBs with game_moves table
 CONFIG_DATABASES: Dict[Tuple[str, int], List[str]] = {
+    # NOTE: data/games/selfplay.db is the PRIMARY source - it receives synced
+    # game data WITH game_moves from all cluster nodes via simple_game_sync.py
     ("square8", 2): [
+        "data/games/selfplay.db",  # Primary - synced with game_moves
         "data/canonical/canonical_square8_2p.db",
         "data/selfplay/5090_imports/5090_quad_selfplay.db",
         "data/selfplay/mcts_nn_v5/square8_2p.db",
-        "data/selfplay/fallback",  # Directory with fallback DBs
-        "data/selfplay/vast_sync",  # Directory with synced DBs
+        "data/selfplay/fallback",
+        "data/selfplay/vast_sync",
     ],
     ("square8", 3): [
+        "data/games/selfplay.db",  # Primary - synced with game_moves
         "data/selfplay/vast_sync/ssh1_4060ti/p2p/square8_3p",
         "data/selfplay/vast_sync/ssh1_4060ti/p2p_hybrid/square8_3p",
-        "data/selfplay/vast_sync/ssh2_2060s/p2p_hybrid/square8_3p",
     ],
     ("square8", 4): [
-        "data/selfplay/vast_sync",  # Look for square8_4p in subdirs
+        "data/games/selfplay.db",  # Primary - synced with game_moves
+        "data/selfplay/vast_sync",
     ],
     ("square19", 2): [
+        "data/games/selfplay.db",  # Primary - synced with game_moves
         "data/selfplay/diverse/square19_2p.db",
         "data/selfplay/diverse_synced/square19_2p.db",
     ],
     ("square19", 3): [
+        "data/games/selfplay.db",  # Primary - synced with game_moves
         "data/selfplay/diverse/square19_3p.db",
         "data/selfplay/diverse_synced/square19_3p.db",
         "data/selfplay/vast_sync/ssh1_4060ti/p2p/square19_3p",
-        "data/selfplay/vast_sync/ssh1_4060ti/p2p_hybrid/square19_3p",
     ],
     ("square19", 4): [
+        "data/games/selfplay.db",  # Primary - synced with game_moves
         "data/selfplay/diverse/square19_4p.db",
         "data/selfplay/diverse_synced/square19_4p.db",
     ],
     ("hexagonal", 2): [
-        "data/selfplay/vast_sync",  # Look for hexagonal_2p in subdirs
+        "data/games/selfplay.db",  # Primary - synced with game_moves
+        "data/selfplay/vast_sync",
     ],
     ("hexagonal", 3): [
+        "data/games/selfplay.db",  # Primary - synced with game_moves
         "data/selfplay/vast_sync/ssh1_4060ti/p2p/hexagonal_3p",
     ],
     ("hexagonal", 4): [
-        "data/selfplay/vast_sync",  # Look for hexagonal_4p in subdirs
+        "data/games/selfplay.db",  # Primary - synced with game_moves
+        "data/selfplay/vast_sync",
     ],
 }
 

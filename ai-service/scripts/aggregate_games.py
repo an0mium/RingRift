@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
 """
-Aggregate games from JSONL files to SQLite database.
+Aggregate games from JSONL files to SQLite database for STATISTICS ONLY.
+
+IMPORTANT: This script creates a simple schema optimized for monitoring and stats.
+It is NOT compatible with the training pipeline, which requires the full
+GameReplayDB schema with game_moves table.
+
+For training data:
+- Use run_self_play_soak.py --record-db to generate canonical games
+- Or use data from data/selfplay/diverse/*.db or data/canonical/*.db
+
 Designed for automated cron execution.
 """
 import os
@@ -11,7 +20,8 @@ import sys
 from datetime import datetime
 
 DATA_DIR = os.environ.get("DATA_DIR", "data/games")
-DB_PATH = os.path.join(DATA_DIR, "selfplay.db")
+# Use _stats suffix to clearly indicate this is for monitoring, not training
+DB_PATH = os.path.join(DATA_DIR, "selfplay_stats.db")
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
