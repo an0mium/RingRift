@@ -74,7 +74,7 @@ class BoardManager:
             return 0 <= position.x < 8 and 0 <= position.y < 8
         elif board_type == BoardType.SQUARE19:
             return 0 <= position.x < 19 and 0 <= position.y < 19
-        elif board_type == BoardType.HEXAGONAL:
+        elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             # Compute z from x,y if not provided (hex constraint: x + y + z = 0)
             z = position.z if position.z is not None else -position.x - position.y
             radius = size - 1
@@ -267,7 +267,7 @@ class BoardManager:
             for x in range(19):
                 for y in range(19):
                     positions.append(Position(x=x, y=y))
-        elif board.type == BoardType.HEXAGONAL:
+        elif board.type in (BoardType.HEXAGONAL, BoardType.HEX8):
             radius = board.size - 1
             for x in range(-radius, radius + 1):
                 for y in range(-radius, radius + 1):
@@ -623,7 +623,7 @@ class BoardManager:
             # For square boards, expand using Moore adjacency (8 directions).
             # For hex boards, TS's getMooreNeighbors effectively contributes
             # no additional neighbors; we mirror that by skipping expansion.
-            if board.type == BoardType.HEXAGONAL:
+            if board.type in (BoardType.HEXAGONAL, BoardType.HEX8):
                 neighbors: List[Position] = []
             else:
                 neighbors = []
@@ -662,7 +662,7 @@ class BoardManager:
     def _get_territory_neighbors(
         pos: Position, board_type: BoardType
     ) -> List[Position]:
-        if board_type == BoardType.HEXAGONAL:
+        if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             return [
                 Position(
                     x=pos.x+1, y=pos.y,
@@ -710,7 +710,7 @@ class BoardManager:
         - Square boards: E, SE, S, NE
         - Hex boards: three axial directions (E, NE, NW in cube coords)
         """
-        if board_type == BoardType.HEXAGONAL:
+        if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             return [
                 (1, 0, -1),   # East
                 (1, -1, 0),   # Northeast
@@ -783,7 +783,7 @@ class BoardManager:
     def _get_all_directions(
         board_type: BoardType
     ) -> List[Tuple[int, int, Optional[int]]]:
-        if board_type == BoardType.HEXAGONAL:
+        if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             return [
                 (1, 0, -1), (0, 1, -1), (-1, 1, 0),
                 (-1, 0, 1), (0, -1, 1), (1, -1, 0)

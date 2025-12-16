@@ -159,7 +159,7 @@ def _get_moore_directions(board_type: BoardType) -> List[Tuple[int, int, Optiona
     Get Moore neighborhood directions (8 directions for square boards,
     6 axial directions for hex).
     """
-    if board_type == BoardType.HEXAGONAL:
+    if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
         return [(1, 0, -1), (0, 1, -1), (-1, 1, 0), (-1, 0, 1), (0, -1, 1), (1, -1, 0)]
     else:
         # Moore neighborhood: 8 directions
@@ -188,7 +188,7 @@ def _is_adjacent(board_type: BoardType, pos1: Position, pos2: Position) -> bool:
     for direction in directions:
         neighbor = _add_direction(pos1, direction, 1)
         if neighbor.x == pos2.x and neighbor.y == pos2.y:
-            if board_type == BoardType.HEXAGONAL:
+            if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
                 # For hex, also check z coordinate
                 if neighbor.z == pos2.z:
                     return True

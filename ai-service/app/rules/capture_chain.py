@@ -133,7 +133,7 @@ def validate_capture_segment_on_board_py(
     dy = target_pos.y - from_pos.y
     dz = (target_pos.z or 0) - (from_pos.z or 0)
 
-    if board_type == BoardType.HEXAGONAL:
+    if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
         coord_changes = sum(1 for d in (dx, dy, dz) if d != 0)
         if coord_changes != 2:
             return False
@@ -302,7 +302,7 @@ def enumerate_capture_moves_py(
             # Distance constraint: total_distance >= attacker.stack_height
             # For square boards, steps = distance
             # For hex boards, calculate actual distance
-            if board_type == BoardType.HEXAGONAL:
+            if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
                 segment_distance = BoardGeometry.calculate_distance(
                     board_type, from_pos, landing_pos
                 )

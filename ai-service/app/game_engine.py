@@ -1689,7 +1689,7 @@ class GameEngine:
         dy = to_pos.y - from_pos.y
         dz = (to_pos.z or 0) - (from_pos.z or 0)
 
-        if board_type == BoardType.HEXAGONAL:
+        if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             # In cube coordinates, an axis-aligned ray changes exactly two
             # coordinates (the third is implied by x + y + z = 0).
             coord_changes = sum(1 for d in (dx, dy, dz) if d != 0)
@@ -1991,7 +1991,7 @@ class GameEngine:
         dy = target_pos.y - from_pos.y
         dz = (target_pos.z or 0) - (from_pos.z or 0)
 
-        if board_type == BoardType.HEXAGONAL:
+        if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             coord_changes = sum(1 for d in (dx, dy, dz) if d != 0)
             if coord_changes != 2:
                 return False
@@ -4266,7 +4266,7 @@ class GameEngine:
             for x in range(19):
                 for y in range(19):
                     positions.append(Position(x=x, y=y))
-        elif board_type == BoardType.HEXAGONAL:
+        elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             radius = size - 1
             for x in range(-radius, radius + 1):
                 for y in range(-radius, radius + 1):
@@ -4294,7 +4294,7 @@ class GameEngine:
                     if 0 <= new_x < limit and 0 <= new_y < limit:
                         adjacent.append(Position(x=new_x, y=new_y))
 
-        elif board_type == BoardType.HEXAGONAL:
+        elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             hex_directions = [(1, 0, -1), (-1, 0, 1), (0, 1, -1), (0, -1, 1), (1, -1, 0), (-1, 1, 0)]
             radius = size - 1
             for dx, dy, dz in hex_directions:
@@ -4325,7 +4325,7 @@ class GameEngine:
                     if dx == 0 and dy == 0:
                         continue
                     directions.append((dx, dy, 0))
-        elif board_type == BoardType.HEXAGONAL:
+        elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             # 6 directions for hexagonal board
             directions = [(1, 0, -1), (-1, 0, 1), (0, 1, -1), (0, -1, 1), (1, -1, 0), (-1, 1, 0)]
 
@@ -4346,12 +4346,12 @@ class GameEngine:
                 if board_type in [BoardType.SQUARE8, BoardType.SQUARE19]:
                     if not (0 <= curr_x < limit and 0 <= curr_y < limit):
                         break
-                elif board_type == BoardType.HEXAGONAL:
+                elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
                     if not (abs(curr_x) <= radius and abs(curr_y) <= radius and abs(curr_z) <= radius):
                         break
 
                 curr_pos_key = f"{curr_x},{curr_y}"
-                if board_type == BoardType.HEXAGONAL:
+                if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
                     curr_pos_key += f",{curr_z}"
 
                 # Check for stack

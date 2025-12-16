@@ -111,12 +111,13 @@ class BoardGeometry:
                     if abs(x) <= 1 and abs(y) <= 1 and abs(z) <= 1:
                         center.add(f"{x},{y},{z}")
 
-        elif board_type == BoardType.HEXAGONAL:
-            # Center hexagon (distance 0-2 from origin)
-            for x in range(-2, 3):
-                for y in range(-2, 3):
+        elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
+            # Center hexagon (distance 0-2 from origin for large hex, 0-1 for hex8)
+            center_radius = 1 if board_type == BoardType.HEX8 else 2
+            for x in range(-center_radius, center_radius + 1):
+                for y in range(-center_radius, center_radius + 1):
                     z = -x - y
-                    if abs(x) <= 2 and abs(y) <= 2 and abs(z) <= 2:
+                    if abs(x) <= center_radius and abs(y) <= center_radius and abs(z) <= center_radius:
                         center.add(f"{x},{y},{z}")
 
         return center

@@ -208,7 +208,7 @@ def calculate_distance(
     Calculate distance between two positions.
     Mirrors core.ts:calculateDistance
     """
-    if board_type == BoardType.HEXAGONAL:
+    if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
         dx = to_pos.x - from_pos.x
         dy = to_pos.y - from_pos.y
         dz = (to_pos.z or 0) - (from_pos.z or 0)
