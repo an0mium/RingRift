@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import gzip
 import hashlib
 import ipaddress
 import json
@@ -6972,6 +6973,9 @@ class P2POrchestrator:
         Each node shares its state with random peers, and information
         propagates through the cluster without leader coordination.
 
+        GOSSIP COMPRESSION: Supports gzip-compressed requests and responses
+        to reduce network bandwidth. Check Content-Encoding header.
+
         Request body:
         {
             "sender": "node-id",
@@ -6990,7 +6994,14 @@ class P2POrchestrator:
             if self.auth_token and not self._is_request_authorized(request):
                 return web.json_response({"error": "unauthorized"}, status=401)
 
-            data = await request.json()
+            # GOSSIP COMPRESSION: Handle gzip-compressed requests
+            content_encoding = request.headers.get("Content-Encoding", "")
+            if content_encoding == "gzip":
+                compressed_body = await request.read()
+                decompressed = gzip.decompress(compressed_body)
+                data = json.loads(decompressed.decode("utf-8"))
+            else:
+                data = await request.json()
         except Exception:
             data = {}
 
@@ -7039,11 +7050,21 @@ class P2POrchestrator:
             if local_manifest and hasattr(local_manifest, "to_dict"):
                 peer_manifests[self.node_id] = local_manifest.to_dict()
 
-            return web.json_response({
+            response_data = {
                 "sender_state": our_state,
                 "known_states": known_states,
                 "peer_manifests": peer_manifests,
-            })
+            }
+
+            # GOSSIP COMPRESSION: Send compressed response if client accepts it
+            # Always compress responses for efficiency
+            response_json = json.dumps(response_data).encode("utf-8")
+            compressed_response = gzip.compress(response_json, compresslevel=6)
+            return web.Response(
+                body=compressed_response,
+                content_type="application/json",
+                headers={"Content-Encoding": "gzip"},
+            )
 
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
@@ -11754,11 +11775,17 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             lines.append("# TYPE ringrift_gossip_messages_received counter")
             lines.append("# HELP ringrift_gossip_state_updates Total state updates from gossip")
             lines.append("# TYPE ringrift_gossip_state_updates counter")
+            lines.append("# HELP ringrift_gossip_compression_ratio Gossip compression ratio (1.0 = 100% compressed)")
+            lines.append("# TYPE ringrift_gossip_compression_ratio gauge")
+            lines.append("# HELP ringrift_gossip_bytes_saved_kb Total bytes saved by compression")
+            lines.append("# TYPE ringrift_gossip_bytes_saved_kb counter")
             try:
                 gossip = self._get_gossip_metrics_summary()
-                lines.append(f'ringrift_gossip_messages_sent {gossip.get("messages_sent", 0)}')
-                lines.append(f'ringrift_gossip_messages_received {gossip.get("messages_received", 0)}')
+                lines.append(f'ringrift_gossip_messages_sent {gossip.get("message_sent", 0)}')
+                lines.append(f'ringrift_gossip_messages_received {gossip.get("message_received", 0)}')
                 lines.append(f'ringrift_gossip_state_updates {gossip.get("state_updates", 0)}')
+                lines.append(f'ringrift_gossip_compression_ratio {gossip.get("compression_ratio", 0)}')
+                lines.append(f'ringrift_gossip_bytes_saved_kb {gossip.get("bytes_saved_kb", 0)}')
             except Exception:
                 pass
 
@@ -18842,13 +18869,32 @@ print(json.dumps({{
                         "known_states": self._get_gossip_known_states(),
                     }
 
+                    # GOSSIP COMPRESSION: Compress payload with gzip to reduce network transfer
+                    json_bytes = json.dumps(gossip_payload).encode("utf-8")
+                    original_size = len(json_bytes)
+                    compressed_bytes = gzip.compress(json_bytes, compresslevel=6)
+                    compressed_size = len(compressed_bytes)
+
+                    # Track compression metrics
+                    self._record_gossip_compression(original_size, compressed_size)
+
                     start_time = time.time()
                     for url in self._urls_for_peer(peer, "/gossip"):
                         try:
-                            async with session.post(url, json=gossip_payload, headers=self._auth_headers()) as resp:
+                            headers = self._auth_headers()
+                            headers["Content-Encoding"] = "gzip"
+                            headers["Content-Type"] = "application/json"
+                            async with session.post(url, data=compressed_bytes, headers=headers) as resp:
                                 if resp.status == 200:
                                     # Process response (peer shares their state back)
-                                    response_data = await resp.json()
+                                    # Check if response is compressed
+                                    content_encoding = resp.headers.get("Content-Encoding", "")
+                                    if content_encoding == "gzip":
+                                        response_bytes = await resp.read()
+                                        decompressed = gzip.decompress(response_bytes)
+                                        response_data = json.loads(decompressed.decode("utf-8"))
+                                    else:
+                                        response_data = await resp.json()
                                     self._process_gossip_response(response_data)
                                     # Record metrics
                                     latency_ms = (time.time() - start_time) * 1000
@@ -18992,10 +19038,35 @@ print(json.dumps({{
                   f"updates={old_metrics['state_updates']} repairs={old_metrics['anti_entropy_repairs']} "
                   f"stale={old_metrics['stale_states_detected']} avg_latency={avg_latency:.1f}ms")
 
+    def _record_gossip_compression(self, original_size: int, compressed_size: int):
+        """Record gossip compression metrics.
+
+        COMPRESSION METRICS: Track how effective compression is for gossip messages.
+        Typical JSON gossip payloads compress 60-80% with gzip level 6.
+        """
+        if not hasattr(self, "_gossip_compression_stats"):
+            self._gossip_compression_stats = {
+                "total_original_bytes": 0,
+                "total_compressed_bytes": 0,
+                "messages_compressed": 0,
+            }
+
+        stats = self._gossip_compression_stats
+        stats["total_original_bytes"] += original_size
+        stats["total_compressed_bytes"] += compressed_size
+        stats["messages_compressed"] += 1
+
     def _get_gossip_metrics_summary(self) -> dict:
         """Get summary of gossip metrics for /status endpoint."""
         metrics = getattr(self, "_gossip_metrics", {})
         delays = metrics.get("propagation_delay_ms", [])
+
+        # Include compression stats
+        compression = getattr(self, "_gossip_compression_stats", {})
+        original = compression.get("total_original_bytes", 0)
+        compressed = compression.get("total_compressed_bytes", 0)
+        compression_ratio = 1.0 - (compressed / original) if original > 0 else 0
+
         return {
             "message_sent": metrics.get("message_sent", 0),
             "message_received": metrics.get("message_received", 0),
@@ -19003,6 +19074,8 @@ print(json.dumps({{
             "anti_entropy_repairs": metrics.get("anti_entropy_repairs", 0),
             "stale_states_detected": metrics.get("stale_states_detected", 0),
             "avg_latency_ms": sum(delays) / max(1, len(delays)) if delays else 0,
+            "compression_ratio": round(compression_ratio, 3),
+            "bytes_saved_kb": round((original - compressed) / 1024, 2),
         }
 
     async def _gossip_anti_entropy_repair(self):

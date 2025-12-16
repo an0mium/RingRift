@@ -141,6 +141,7 @@ class NNUESQLiteDataset(Dataset):
               AND board_type = ?
               AND num_players = ?
               AND total_moves >= ?
+              AND COALESCE(excluded_from_training, 0) = 0
         """
         cursor.execute(query, (
             board_type_str,
@@ -460,6 +461,7 @@ class NNUEStreamingDataset(IterableDataset):
               AND g.board_type = ?
               AND g.num_players = ?
               AND g.total_moves >= ?
+              AND COALESCE(g.excluded_from_training, 0) = 0
             ORDER BY g.game_id, s.move_number
         """
         cursor.execute(query, (
@@ -575,6 +577,7 @@ def count_available_samples(
                       AND g.num_players = ?
                       AND g.total_moves >= ?
                       AND s.move_number % ? = 0
+                      AND COALESCE(g.excluded_from_training, 0) = 0
                 )
             """
             cursor.execute(query, (

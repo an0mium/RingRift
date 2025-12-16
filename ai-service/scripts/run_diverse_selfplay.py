@@ -49,6 +49,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.models import BoardType
+from app.training.env import get_theoretical_max_moves
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [DiverseSelfplay] %(levelname)s: %(message)s',
@@ -97,10 +100,28 @@ class DiverseSelfplayConfig:
     board_type: str
     num_players: int
     games_per_matchup: int = 50
-    max_moves: int = 500
+    max_moves: Optional[int] = None  # Auto-calculated from board_type/num_players
     output_dir: Optional[Path] = None
     gpu_id: int = 0
     batch_size: int = 32
+
+    def __post_init__(self):
+        """Auto-calculate max_moves if not specified."""
+        if self.max_moves is None:
+            # Map board_type string to BoardType enum
+            board_type_map = {
+                "square8": BoardType.SQUARE8,
+                "square19": BoardType.SQUARE19,
+                "hexagonal": BoardType.HEXAGONAL,
+            }
+            board_enum = board_type_map.get(self.board_type.lower())
+            if board_enum:
+                self.max_moves = get_theoretical_max_moves(board_enum, self.num_players)
+                logger.info(f"Auto-calculated max_moves={self.max_moves} for {self.board_type} {self.num_players}p")
+            else:
+                # Fallback for unknown board types
+                self.max_moves = 10000
+                logger.warning(f"Unknown board type '{self.board_type}', using default max_moves=10000")
 
     # Matchup distribution weights
     # Higher weight = more games of this type
