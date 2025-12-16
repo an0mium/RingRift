@@ -84,10 +84,20 @@ for node_entry in "${NODES[@]}"; do
     node_train_dir="$TRAINING_SYNC_DIR/$name"
     mkdir -p "$node_train_dir"
 
-    # Rsync canonical DBs (look for selfplay DBs with proper schema)
+    # Rsync canonical DBs from selfplay directory
     rsync -avz --progress -e "ssh -o ConnectTimeout=30" \
         --include="*/" --include="*.db" --exclude="*" \
         "root@$ip:${path%/games}/selfplay/" "$node_train_dir/" 2>/dev/null || true
+
+    # Also sync from canonical subdirectory (new canonical selfplay location)
+    rsync -avz --progress -e "ssh -o ConnectTimeout=30" \
+        "root@$ip:${path%/games}/selfplay/canonical/" "$node_train_dir/canonical/" 2>/dev/null || true
+
+    # Count synced DBs
+    db_count=$(find "$node_train_dir" -name "*.db" -type f 2>/dev/null | wc -l)
+    if [ "$db_count" -gt 0 ]; then
+        log "  $name: synced $db_count canonical DBs"
+    fi
 done
 
 # Clean null bytes from sparse files
