@@ -5510,6 +5510,43 @@ class UnifiedAILoop:
     # Feedback Controller Callbacks
     # =========================================================================
 
+    async def _trigger_elo_sync_after_evaluation(self, num_matches: int = 1):
+        """Trigger ELO sync after evaluation to ensure cluster consistency.
+
+        This is called after evaluation completion to ensure other nodes
+        receive updated ELO ratings promptly. Debounces to avoid sync storms.
+        """
+        if not HAS_ELO_SYNC or self.elo_sync_manager is None:
+            return
+
+        MIN_MATCHES_FOR_IMMEDIATE_SYNC = 10
+        MIN_INTERVAL_BETWEEN_SYNCS = 30  # seconds
+
+        try:
+            last_sync = getattr(self, '_last_eval_elo_sync', 0)
+            now = time.time()
+
+            # Accumulate pending matches
+            pending = getattr(self, '_pending_eval_sync_matches', 0) + num_matches
+            self._pending_eval_sync_matches = pending
+
+            # Check if we should sync now
+            should_sync = (
+                pending >= MIN_MATCHES_FOR_IMMEDIATE_SYNC or
+                (now - last_sync) >= MIN_INTERVAL_BETWEEN_SYNCS
+            )
+
+            if should_sync:
+                self._last_eval_elo_sync = now
+                self._pending_eval_sync_matches = 0
+                self._last_elo_sync = now  # Update main sync timer too
+                success = await self.elo_sync_manager.sync_with_cluster()
+                if success:
+                    print(f"[EloSync] Triggered after evaluation: "
+                          f"{self.elo_sync_manager.state.local_match_count} matches")
+        except Exception as e:
+            print(f"[EloSync] Trigger after evaluation error: {e}")
+
     async def _on_evaluation_for_feedback(self, event: DataEvent):
         """Handle evaluation completion for feedback loop."""
         if not self.feedback:
@@ -5527,6 +5564,10 @@ class UnifiedAILoop:
                 'win_rate': win_rate,
                 'elo': elo,
             })
+
+            # Trigger ELO sync to propagate updated ratings to cluster
+            num_matches = payload.get('games_played', 1)
+            asyncio.create_task(self._trigger_elo_sync_after_evaluation(num_matches))
 
             # Check for CMA-ES trigger signals
             pending_actions = self.feedback.get_pending_actions()

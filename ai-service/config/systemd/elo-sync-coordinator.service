@@ -1,0 +1,22 @@
+[Unit]
+Description=RingRift Elo Sync Coordinator
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/ringrift/ai-service
+Environment=PYTHONPATH=/home/ubuntu/ringrift/ai-service
+ExecStart=/home/ubuntu/ringrift/ai-service/venv/bin/python scripts/elo_db_sync.py --mode coordinator --port 8766
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/ubuntu/ringrift/ai-service/logs/elo_sync_coordinator.log
+StandardError=append:/home/ubuntu/ringrift/ai-service/logs/elo_sync_coordinator.log
+
+# Resource limits
+MemoryMax=512M
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target

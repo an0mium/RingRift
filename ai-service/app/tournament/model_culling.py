@@ -6,6 +6,9 @@ Elo rating, keeping only the top quartile.
 
 This prevents unbounded model growth while preserving the best performers.
 
+After culling, automatically triggers cluster-wide Elo sync to propagate
+the archive markers to all nodes.
+
 Usage:
     from app.tournament.model_culling import ModelCullingController
 
@@ -17,13 +20,16 @@ Usage:
 """
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import sqlite3
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+import urllib.request
 
 logger = logging.getLogger(__name__)
 
@@ -274,6 +280,8 @@ class ModelCullingController:
         # Export cull manifest so sync respects the culled models
         if archived:
             self.export_cull_manifest()
+            # Trigger cluster sync to propagate archive markers
+            self._trigger_cluster_sync(config_key, len(archived))
 
         # Count all kept models: top quartile + uncertainty-protected
         all_kept = to_keep + protected_by_uncertainty
@@ -286,6 +294,51 @@ class ModelCullingController:
             preserved_models=[m.model_id for m in all_kept],
             timestamp=time.time(),
         )
+
+    def _trigger_cluster_sync(self, config_key: str, culled_count: int) -> None:
+        """Trigger cluster-wide Elo sync after culling.
+
+        Pushes the updated Elo database (with archive markers) to all
+        reachable nodes in the cluster.
+        """
+        logger.info(
+            f"[Culling] Triggering cluster sync after archiving {culled_count} models "
+            f"for {config_key}"
+        )
+
+        # Try using the elo_db_sync script
+        sync_script = Path(__file__).parent.parent.parent / "scripts" / "elo_db_sync.py"
+        if sync_script.exists():
+            try:
+                result = subprocess.run(
+                    ["python", str(sync_script), "--mode", "cluster-sync"],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                    cwd=str(sync_script.parent.parent),
+                    env={**dict(__import__('os').environ), "PYTHONPATH": str(sync_script.parent.parent)}
+                )
+                if result.returncode == 0:
+                    logger.info(f"[Culling] Cluster sync completed: {result.stdout.strip()[-200:]}")
+                else:
+                    logger.warning(f"[Culling] Cluster sync failed: {result.stderr.strip()[-200:]}")
+            except subprocess.TimeoutExpired:
+                logger.warning("[Culling] Cluster sync timed out after 120s")
+            except Exception as e:
+                logger.warning(f"[Culling] Cluster sync error: {e}")
+        else:
+            # Fallback: push directly to coordinator
+            try:
+                from app.sync.cluster_hosts import get_coordinator_address
+                coord_ip, coord_port = get_coordinator_address()
+
+                # Read new matches since last sync and push
+                url = f"http://{coord_ip}:{coord_port}/status"
+                with urllib.request.urlopen(url, timeout=10) as resp:
+                    status = json.loads(resp.read().decode())
+                    logger.info(f"[Culling] Coordinator status: {status.get('matches', 0)} matches")
+            except Exception as e:
+                logger.debug(f"[Culling] Could not reach coordinator: {e}")
 
     def _archive_model(self, model: ModelInfo, config_key: str) -> bool:
         """Archive a single model.

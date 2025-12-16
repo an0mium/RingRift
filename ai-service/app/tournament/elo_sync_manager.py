@@ -36,8 +36,21 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Any, Callable
-import aiohttp
-import aiofiles
+
+# Optional async libraries (may not be available on all nodes)
+try:
+    import aiohttp
+    HAS_AIOHTTP = True
+except ImportError:
+    HAS_AIOHTTP = False
+    aiohttp = None
+
+try:
+    import aiofiles
+    HAS_AIOFILES = True
+except ImportError:
+    HAS_AIOFILES = False
+    aiofiles = None
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +269,8 @@ class EloSyncManager:
 
     async def _discover_nodes(self):
         """Discover cluster nodes from P2P coordinator."""
+        if not HAS_AIOHTTP:
+            return
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
@@ -590,6 +605,8 @@ class EloSyncManager:
 
     async def _sync_via_cloudflare(self, node: NodeInfo) -> bool:
         """Sync via Cloudflare Zero Trust tunnel (works through NAT/firewalls)."""
+        if not HAS_AIOHTTP or not HAS_AIOFILES:
+            return False
         tunnel_url = node.cloudflare_tunnel
         if not tunnel_url:
             return False
@@ -756,6 +773,8 @@ class EloSyncManager:
 
     async def _sync_via_http(self, node: NodeInfo) -> bool:
         """Sync via HTTP (Cloudflare Zero Trust compatible)."""
+        if not HAS_AIOHTTP or not HAS_AIOFILES:
+            return False
         if not node.http_url:
             return False
 

@@ -12097,6 +12097,10 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     tournament_id=tournament_id,
                 )
                 print(f"[P2P] Recorded tournament result to unified Elo DB")
+
+                # Trigger Elo sync to propagate to cluster
+                if HAS_ELO_SYNC and self.elo_sync_manager:
+                    asyncio.create_task(self._trigger_elo_sync_after_matches(1))
             except Exception as e:
                 print(f"[P2P] Elo database update failed (non-fatal): {e}")
 
@@ -15800,6 +15804,45 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
+
+    async def _trigger_elo_sync_after_matches(self, num_matches: int = 1):
+        """Trigger Elo sync after recording new matches.
+
+        This is called after recording match results to ensure cluster-wide
+        consistency. It debounces sync requests to avoid overwhelming the
+        network with syncs after every individual match.
+        """
+        if not self.elo_sync_manager:
+            return
+
+        # Debounce: only sync if enough new matches or enough time has passed
+        # This prevents sync storms when processing many matches in quick succession
+        MIN_MATCHES_FOR_IMMEDIATE_SYNC = 10
+        MIN_INTERVAL_BETWEEN_SYNCS = 30  # seconds
+
+        try:
+            last_sync = getattr(self, '_last_elo_sync_trigger', 0)
+            now = time.time()
+
+            # Accumulate pending matches
+            pending = getattr(self, '_pending_sync_matches', 0) + num_matches
+            self._pending_sync_matches = pending
+
+            # Check if we should sync now
+            should_sync = (
+                pending >= MIN_MATCHES_FOR_IMMEDIATE_SYNC or
+                (now - last_sync) >= MIN_INTERVAL_BETWEEN_SYNCS
+            )
+
+            if should_sync and not self.sync_in_progress:
+                self._last_elo_sync_trigger = now
+                self._pending_sync_matches = 0
+                success = await self.elo_sync_manager.sync_with_cluster()
+                if success:
+                    print(f"[P2P] Elo sync triggered after {pending} matches: "
+                          f"{self.elo_sync_manager.state.local_match_count} total")
+        except Exception as e:
+            print(f"[P2P] Elo sync trigger error: {e}")
 
     async def _elo_sync_loop(self):
         """Background loop for periodic Elo database synchronization."""

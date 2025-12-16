@@ -1,0 +1,22 @@
+[Unit]
+Description=RingRift Elo Sync Worker
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/ringrift/ai-service
+Environment=PYTHONPATH=/home/ubuntu/ringrift/ai-service
+ExecStart=/home/ubuntu/ringrift/ai-service/venv/bin/python scripts/elo_db_sync.py --mode worker --interval 300
+Restart=always
+RestartSec=30
+StandardOutput=append:/home/ubuntu/ringrift/ai-service/logs/elo_sync_worker.log
+StandardError=append:/home/ubuntu/ringrift/ai-service/logs/elo_sync_worker.log
+
+# Resource limits
+MemoryMax=256M
+CPUQuota=25%
+
+[Install]
+WantedBy=multi-user.target

@@ -24,21 +24,59 @@ import urllib.request
 import urllib.error
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(AI_SERVICE_ROOT))
 
-# Mac Studio is the authoritative source for Elo ratings
-MAC_STUDIO_ELO_URL = "http://100.107.168.125:8770/api/elo/leaderboard"
+# Import shared cluster host utilities
+try:
+    from app.sync.cluster_hosts import (
+        get_active_nodes,
+        get_coordinator_node,
+        get_elo_sync_config,
+        ClusterNode,
+    )
+    USE_SHARED_CONFIG = True
+except ImportError:
+    USE_SHARED_CONFIG = False
+
 LOCAL_ELO_DB = AI_SERVICE_ROOT / "data" / "unified_elo.db"
 
-# Cluster nodes to validate
-CLUSTER_NODES = [
-    ("mac-studio", "100.107.168.125"),
-    ("lambda-h100", "209.20.157.81"),
-    ("lambda-2xh100", "192.222.53.22"),
-    ("lambda-gh200-a", "192.222.51.29"),
-]
 
-# Maximum allowed Elo difference before flagging divergence
-ELO_DIVERGENCE_THRESHOLD = 50.0
+def get_cluster_nodes_for_validation() -> List[Tuple[str, str]]:
+    """Get cluster nodes from shared config or fallback to hardcoded."""
+    if USE_SHARED_CONFIG:
+        nodes = get_active_nodes()
+        return [(n.name, n.best_ip) for n in nodes if n.best_ip]
+
+    # Fallback to hardcoded nodes
+    return [
+        ("mac-studio", "100.107.168.125"),
+        ("lambda-h100", "100.78.101.123"),
+        ("lambda-2xh100", "100.97.104.89"),
+        ("lambda-gh200-a", "100.123.183.70"),
+    ]
+
+
+def get_coordinator_ip() -> str:
+    """Get coordinator IP from shared config or fallback."""
+    if USE_SHARED_CONFIG:
+        coord = get_coordinator_node()
+        if coord and coord.best_ip:
+            return coord.best_ip
+    return "100.107.168.125"
+
+
+def get_divergence_threshold() -> float:
+    """Get divergence threshold from shared config or fallback."""
+    if USE_SHARED_CONFIG:
+        config = get_elo_sync_config()
+        return float(config.divergence_threshold)
+    return 50.0
+
+
+# Legacy constants for backwards compatibility
+MAC_STUDIO_ELO_URL = f"http://{get_coordinator_ip()}:8770/api/elo/leaderboard"
+CLUSTER_NODES = get_cluster_nodes_for_validation()
+ELO_DIVERGENCE_THRESHOLD = get_divergence_threshold()
 
 
 def fetch_elo_from_node(host: str, port: int = 8770, timeout: int = 10) -> Optional[Dict[str, Any]]:
