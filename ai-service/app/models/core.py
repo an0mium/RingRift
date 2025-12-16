@@ -36,7 +36,9 @@ else:
 
         def model_dump(self, *, by_alias: bool = False, **kwargs) -> Dict[str, Any]:
             """v2 alias for v1's dict()"""
-            return self.dict(by_alias=by_alias, **kwargs)
+            # Filter out v2-only kwargs that v1's dict() doesn't support
+            v1_kwargs = {k: v for k, v in kwargs.items() if k not in ('mode', 'round_trip', 'warnings')}
+            return self.dict(by_alias=by_alias, **v1_kwargs)
 
         @classmethod
         def model_validate(cls: type[T], obj: Any) -> T:
