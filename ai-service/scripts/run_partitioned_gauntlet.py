@@ -26,8 +26,9 @@ from app.tournament.distributed_gauntlet import get_gauntlet, GauntletConfig
 
 
 def hash_model_id(model_id: str) -> int:
-    """Simple hash for partitioning."""
-    return hash(model_id)
+    """Deterministic hash for partitioning (Python's hash() varies across runs)."""
+    import hashlib
+    return int(hashlib.md5(model_id.encode()).hexdigest(), 16)
 
 
 async def run_partitioned_gauntlet(
