@@ -11730,6 +11730,74 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             except Exception:
                 pass
 
+            # === P2P ENHANCEMENT METRICS ===
+
+            # Adaptive Sync Intervals
+            lines.append("# HELP ringrift_sync_interval_data Current data sync interval in seconds")
+            lines.append("# TYPE ringrift_sync_interval_data gauge")
+            lines.append("# HELP ringrift_sync_interval_model Current model sync interval in seconds")
+            lines.append("# TYPE ringrift_sync_interval_model gauge")
+            lines.append("# HELP ringrift_sync_activity_factor Cluster activity factor (lower = more active)")
+            lines.append("# TYPE ringrift_sync_activity_factor gauge")
+            try:
+                sync_summary = self._get_sync_interval_summary()
+                lines.append(f'ringrift_sync_interval_data {sync_summary.get("data_interval", 300)}')
+                lines.append(f'ringrift_sync_interval_model {sync_summary.get("model_interval", 180)}')
+                lines.append(f'ringrift_sync_activity_factor {sync_summary.get("activity_factor", 1.0)}')
+            except Exception:
+                pass
+
+            # Gossip Protocol Metrics
+            lines.append("# HELP ringrift_gossip_messages_sent Total gossip messages sent")
+            lines.append("# TYPE ringrift_gossip_messages_sent counter")
+            lines.append("# HELP ringrift_gossip_messages_received Total gossip messages received")
+            lines.append("# TYPE ringrift_gossip_messages_received counter")
+            lines.append("# HELP ringrift_gossip_state_updates Total state updates from gossip")
+            lines.append("# TYPE ringrift_gossip_state_updates counter")
+            try:
+                gossip = self._get_gossip_metrics_summary()
+                lines.append(f'ringrift_gossip_messages_sent {gossip.get("messages_sent", 0)}')
+                lines.append(f'ringrift_gossip_messages_received {gossip.get("messages_received", 0)}')
+                lines.append(f'ringrift_gossip_state_updates {gossip.get("state_updates", 0)}')
+            except Exception:
+                pass
+
+            # Leader Consensus Metrics
+            lines.append("# HELP ringrift_leader_agreement Nodes agreeing on current leader")
+            lines.append("# TYPE ringrift_leader_agreement gauge")
+            try:
+                consensus = self._get_cluster_leader_consensus()
+                lines.append(f'ringrift_leader_agreement {consensus.get("leader_agreement", 0)}')
+            except Exception:
+                pass
+
+            # Data Deduplication Metrics
+            lines.append("# HELP ringrift_dedup_files_skipped Files skipped due to deduplication")
+            lines.append("# TYPE ringrift_dedup_files_skipped counter")
+            lines.append("# HELP ringrift_dedup_bytes_saved_mb Megabytes saved by deduplication")
+            lines.append("# TYPE ringrift_dedup_bytes_saved_mb gauge")
+            lines.append("# HELP ringrift_dedup_known_hashes Number of file hashes tracked")
+            lines.append("# TYPE ringrift_dedup_known_hashes gauge")
+            try:
+                dedup = self._get_dedup_summary()
+                lines.append(f'ringrift_dedup_files_skipped {dedup.get("files_skipped", 0)}')
+                lines.append(f'ringrift_dedup_bytes_saved_mb {dedup.get("bytes_saved_mb", 0)}')
+                lines.append(f'ringrift_dedup_known_hashes {dedup.get("known_file_hashes", 0)}')
+            except Exception:
+                pass
+
+            # Tournament Scheduling Metrics
+            lines.append("# HELP ringrift_tournament_proposals_pending Pending tournament proposals")
+            lines.append("# TYPE ringrift_tournament_proposals_pending gauge")
+            lines.append("# HELP ringrift_tournament_active Active distributed tournaments")
+            lines.append("# TYPE ringrift_tournament_active gauge")
+            try:
+                tourney = self._get_distributed_tournament_summary()
+                lines.append(f'ringrift_tournament_proposals_pending {tourney.get("pending_proposals", 0)}')
+                lines.append(f'ringrift_tournament_active {tourney.get("active_tournaments", 0)}')
+            except Exception:
+                pass
+
             # Uptime metric
             if hasattr(self, 'start_time'):
                 uptime = now - self.start_time
