@@ -196,6 +196,20 @@ except ImportError:
     GossipSyncDaemon = None
     GOSSIP_PORT = 8771
 
+# Aria2 transport for high-performance multi-connection downloads
+try:
+    from app.distributed.aria2_transport import (
+        Aria2Transport,
+        Aria2Config,
+        create_aria2_transport,
+        check_aria2_available,
+    )
+    HAS_ARIA2_TRANSPORT = True
+except ImportError:
+    HAS_ARIA2_TRANSPORT = False
+    Aria2Transport = None
+    check_aria2_available = lambda: False
+
 
 # =============================================================================
 # Configuration
@@ -274,6 +288,13 @@ class SyncConfig:
     # Gossip sync (P2P data replication)
     enable_gossip_sync: bool = False  # Disabled by default, enable for P2P replication
     gossip_port: int = 8771
+
+    # Aria2 transport (high-performance multi-connection downloads)
+    enable_aria2_transport: bool = True  # Enable aria2 when available
+    aria2_data_server_port: int = 8766  # Port for aria2 data servers
+    aria2_connections_per_server: int = 16
+    aria2_split: int = 16
+    aria2_source_urls: List[str] = field(default_factory=list)  # type: ignore[misc]
 
 
 # HostSyncState - use unified implementation if available
@@ -552,6 +573,7 @@ class UnifiedDataSyncService:
         self._sync_stats = {
             "ssh": 0,
             "p2p_http": 0,
+            "aria2": 0,
             "failed": 0,
             "deduplicated": 0,
         }
@@ -571,6 +593,7 @@ class UnifiedDataSyncService:
         self._content_deduplicator: Optional[ContentDeduplicator] = None
         self._ingestion_wal: Optional[IngestionWAL] = None
         self._gossip_daemon: Optional[GossipSyncDaemon] = None
+        self._aria2_transport: Optional[Aria2Transport] = None
 
         self._init_components()
 
@@ -650,6 +673,22 @@ class UnifiedDataSyncService:
                 logger.info(f"Gossip sync enabled ({len(peers_config)} peers)")
             except Exception as e:
                 logger.warning(f"Could not initialize gossip sync: {e}")
+
+        # Aria2 transport for high-performance multi-connection downloads
+        if self.config.enable_aria2_transport and HAS_ARIA2_TRANSPORT:
+            try:
+                if check_aria2_available():
+                    aria2_config = {
+                        "connections_per_server": self.config.aria2_connections_per_server,
+                        "split": self.config.aria2_split,
+                        "data_server_port": self.config.aria2_data_server_port,
+                    }
+                    self._aria2_transport = create_aria2_transport(aria2_config)
+                    logger.info("Aria2 transport enabled (high-performance multi-connection downloads)")
+                else:
+                    logger.info("Aria2 transport disabled (aria2c not found)")
+            except Exception as e:
+                logger.warning(f"Could not initialize aria2 transport: {e}")
 
     def _build_ssh_args(self, host: HostConfig) -> str:
         """Build SSH arguments string.
@@ -788,6 +827,79 @@ class UnifiedDataSyncService:
         except Exception as e:
             return 0, str(e)[:200]
 
+    async def _sync_host_aria2(self, host: HostConfig, local_dir: Path) -> Tuple[int, str]:
+        """Sync from host using aria2 high-performance transport.
+
+        Returns (games_synced, error_message).
+        """
+        if not self._aria2_transport:
+            return 0, "Aria2 transport not available"
+
+        try:
+            # Build source URL from host info
+            source_url = f"http://{host.ssh_host}:{self.config.aria2_data_server_port}"
+
+            # Use aria2 to sync games
+            result = await self._aria2_transport.sync_games(
+                source_urls=[source_url],
+                local_dir=local_dir,
+                max_age_hours=168,  # 1 week
+            )
+
+            if result.success or result.files_synced > 0:
+                return result.files_synced, ""
+            elif result.errors:
+                return 0, "; ".join(result.errors[:3])
+            else:
+                return 0, "Aria2 sync returned no files"
+
+        except Exception as e:
+            return 0, str(e)[:200]
+
+    async def _sync_cluster_aria2(self) -> int:
+        """Sync from all known cluster nodes using aria2.
+
+        This method syncs from all configured source URLs simultaneously,
+        using aria2's multi-source download capability for maximum throughput.
+
+        Returns total games synced.
+        """
+        if not self._aria2_transport:
+            return 0
+
+        if not self.config.aria2_source_urls:
+            # Build source URLs from hosts
+            source_urls = [
+                f"http://{h.ssh_host}:{self.config.aria2_data_server_port}"
+                for h in self.hosts.values()
+                if h.enabled
+            ]
+        else:
+            source_urls = self.config.aria2_source_urls
+
+        if not source_urls:
+            return 0
+
+        try:
+            local_dir = AI_SERVICE_ROOT / self.config.local_sync_dir
+            result = await self._aria2_transport.sync_games(
+                source_urls=source_urls,
+                local_dir=local_dir,
+                max_age_hours=168,
+            )
+
+            if result.files_synced > 0:
+                logger.info(
+                    f"Aria2 cluster sync: {result.files_synced} files, "
+                    f"{result.bytes_transferred / (1024*1024):.1f}MB in {result.duration_seconds:.1f}s"
+                )
+
+            return result.files_synced
+
+        except Exception as e:
+            logger.warning(f"Aria2 cluster sync failed: {e}")
+            return 0
+
     async def _sync_host(self, host: HostConfig) -> int:
         """Sync games from a single host. Returns count of new games."""
         state = self.host_states[host.name]
@@ -843,6 +955,12 @@ class UnifiedDataSyncService:
                 logger.info(f"{host.name}: SSH failed ({error}), trying P2P fallback")
                 games_synced, error = await self._sync_host_p2p(host, local_dir)
                 sync_method = "p2p_http" if games_synced > 0 else "failed"
+
+            # Fallback to aria2 if P2P also failed
+            if games_synced == 0 and error and self._aria2_transport:
+                logger.info(f"{host.name}: P2P failed ({error}), trying aria2 transport")
+                games_synced, error = await self._sync_host_aria2(host, local_dir)
+                sync_method = "aria2" if games_synced > 0 else "failed"
 
             if games_synced == 0 and error:
                 raise RuntimeError(error)
@@ -1028,6 +1146,7 @@ class UnifiedDataSyncService:
                 "components": {
                     "manifest_replication": self._manifest_replicator is not None,
                     "p2p_fallback": self._p2p_fallback is not None,
+                    "aria2_transport": self._aria2_transport is not None,
                     "content_deduplication": self._content_deduplicator is not None,
                     "wal": self._ingestion_wal is not None,
                     "gossip_sync": self._gossip_daemon is not None,
@@ -1214,6 +1333,7 @@ class UnifiedDataSyncService:
 
         # Build sync config
         di = data.get("data_ingestion", {})
+        aria2_cfg = di.get("aria2", {})
         config = SyncConfig(
             poll_interval_seconds=di.get("poll_interval_seconds", 60),
             ephemeral_poll_interval_seconds=di.get("ephemeral_poll_interval_seconds", 15),
@@ -1227,6 +1347,12 @@ class UnifiedDataSyncService:
             training_threshold=data.get("training", {}).get("trigger_threshold_games", 300),
             enable_gossip_sync=di.get("enable_gossip_sync", False),
             gossip_port=di.get("gossip_port", GOSSIP_PORT),
+            # Aria2 transport configuration
+            enable_aria2_transport=aria2_cfg.get("enabled", True),
+            aria2_data_server_port=aria2_cfg.get("data_server_port", 8766),
+            aria2_connections_per_server=aria2_cfg.get("connections_per_server", 16),
+            aria2_split=aria2_cfg.get("split", 16),
+            aria2_source_urls=aria2_cfg.get("source_urls", []),
         )
 
         # Determine hosts config path
@@ -1348,6 +1474,7 @@ Examples:
         logger.info(f"Components enabled:")
         logger.info(f"  Manifest replication: {service._manifest_replicator is not None}")
         logger.info(f"  P2P fallback: {service._p2p_fallback is not None}")
+        logger.info(f"  Aria2 transport: {service._aria2_transport is not None}")
         logger.info(f"  Content dedup: {service._content_deduplicator is not None}")
         logger.info(f"  WAL: {service._ingestion_wal is not None}")
         logger.info(f"  Gossip sync: {service._gossip_daemon is not None}")

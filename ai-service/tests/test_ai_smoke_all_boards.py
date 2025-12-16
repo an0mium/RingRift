@@ -10,6 +10,9 @@ import pytest
         ("square19", 2),
         ("square19", 3),
         ("square19", 4),
+        ("hex8", 2),
+        ("hex8", 3),
+        ("hex8", 4),
         ("hexagonal", 2),
         ("hexagonal", 3),
         ("hexagonal", 4),
@@ -58,6 +61,8 @@ def test_ai_smoke_select_move_all_boards(
             nn_model_id = f"ringrift_best_sq8_{num_players}p"
         elif board_type == "square19":
             nn_model_id = f"ringrift_best_sq19_{num_players}p"
+        elif board_type == "hex8":
+            nn_model_id = f"ringrift_best_hex8_{num_players}p"
         else:
             nn_model_id = f"ringrift_best_hex_{num_players}p"
 

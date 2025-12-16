@@ -52,6 +52,7 @@ class DataSourceType(Enum):
     HDF5 = "hdf5"  # HDF5 files
     STREAMING = "streaming"  # Real-time streaming
     REMOTE = "remote"  # Remote sources (via rsync)
+    ARIA2 = "aria2"  # Remote sources (via aria2 multi-connection download)
 
 
 class PipelineMode(Enum):
@@ -73,6 +74,9 @@ class DataSourceConfig:
     num_players: Optional[int] = None
     enabled: bool = True
     priority: int = 0  # Higher = preferred when multiple sources available
+    # Remote source options (for ARIA2/REMOTE types)
+    remote_urls: Optional[List[str]] = None  # URLs for aria2 download
+    sync_on_startup: bool = False  # Whether to sync before loading
 
 
 @dataclass
@@ -233,6 +237,102 @@ class DataPipelineController:
     def get_sources(self) -> List[DataSourceConfig]:
         """Get all configured data sources."""
         return self._sources.copy()
+
+    async def sync_remote_sources(
+        self,
+        source_urls: Optional[List[str]] = None,
+        categories: Optional[List[str]] = None,
+        max_age_hours: float = 168,
+    ) -> Dict[str, int]:
+        """Sync data from remote sources using aria2 transport.
+
+        This method fetches training data from remote cluster nodes using
+        aria2's high-performance multi-connection downloads.
+
+        Args:
+            source_urls: List of data server URLs (e.g., ["http://host1:8766"])
+                        If None, uses configured remote_urls from sources
+            categories: Data categories to sync (default: ["games", "training"])
+            max_age_hours: Only sync files newer than this
+
+        Returns:
+            Dict mapping category to number of files synced
+        """
+        try:
+            from app.distributed.aria2_transport import Aria2Transport, check_aria2_available
+        except ImportError:
+            logger.warning("aria2_transport not available, skipping remote sync")
+            return {}
+
+        if not check_aria2_available():
+            logger.warning("aria2c not available, skipping remote sync")
+            return {}
+
+        # Collect source URLs from config if not provided
+        if source_urls is None:
+            source_urls = []
+            for source in self._sources:
+                if source.remote_urls:
+                    source_urls.extend(source.remote_urls)
+
+        if not source_urls:
+            logger.debug("No remote source URLs configured")
+            return {}
+
+        if categories is None:
+            categories = ["games", "training"]
+
+        transport = Aria2Transport()
+        results = {}
+
+        try:
+            local_dir = Path(os.path.dirname(self._db_paths[0]) if self._db_paths else "data/games")
+            sync_results = await transport.full_cluster_sync(
+                source_urls=source_urls,
+                local_dir=local_dir.parent,
+                categories=categories,
+            )
+
+            for category, result in sync_results.items():
+                results[category] = result.files_synced
+                if result.files_synced > 0:
+                    logger.info(
+                        f"Synced {result.files_synced} {category} files "
+                        f"({result.bytes_transferred / (1024*1024):.1f}MB)"
+                    )
+
+        except Exception as e:
+            logger.error(f"Remote sync failed: {e}")
+
+        finally:
+            await transport.close()
+
+        return results
+
+    def add_aria2_source(
+        self,
+        local_path: str,
+        remote_urls: List[str],
+        sync_on_startup: bool = True,
+        priority: int = 80,
+    ):
+        """Add an aria2-backed remote data source.
+
+        Args:
+            local_path: Local path where synced data will be stored
+            remote_urls: List of remote data server URLs
+            sync_on_startup: Whether to sync data before loading
+            priority: Source priority (higher = preferred)
+        """
+        source = DataSourceConfig(
+            source_type=DataSourceType.ARIA2,
+            path=local_path,
+            remote_urls=remote_urls,
+            sync_on_startup=sync_on_startup,
+            priority=priority,
+        )
+        self.add_source(source)
+        logger.info(f"Added aria2 source: {local_path} from {len(remote_urls)} remotes")
 
     def _get_streaming_pipeline(self):
         """Lazy-load the streaming pipeline."""
