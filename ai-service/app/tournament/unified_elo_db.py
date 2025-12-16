@@ -516,8 +516,25 @@ class EloDatabase:
             for pid in participant_ids
         }
 
+    # Pinned baselines that should not have their ELO updated (anchor points)
+    PINNED_BASELINES = {
+        "baseline_random": 400.0,  # Random player pinned at 400 ELO as anchor
+    }
+
+    def _is_pinned_baseline(self, participant_id: str) -> Optional[float]:
+        """Check if participant is a pinned baseline and return pinned ELO if so."""
+        for prefix, pinned_elo in self.PINNED_BASELINES.items():
+            if participant_id.startswith(prefix):
+                return pinned_elo
+        return None
+
     def update_rating(self, rating: UnifiedEloRating) -> None:
         """Update a single rating."""
+        # Check if this is a pinned baseline - if so, force the pinned rating
+        pinned_elo = self._is_pinned_baseline(rating.participant_id)
+        if pinned_elo is not None:
+            rating.rating = pinned_elo
+
         conn = self._get_connection()
         conn.execute("""
             INSERT INTO elo_ratings
@@ -551,6 +568,10 @@ class EloDatabase:
         conn = self._get_connection()
         now = time.time()
         for r in ratings:
+            # Check if this is a pinned baseline - if so, force the pinned rating
+            pinned_elo = self._is_pinned_baseline(r.participant_id)
+            if pinned_elo is not None:
+                r.rating = pinned_elo
             conn.execute("""
                 INSERT INTO elo_ratings
                 (participant_id, board_type, num_players, rating, games_played,
