@@ -280,10 +280,10 @@ def generate_report(verbose: bool = False) -> Dict[str, Any]:
     elif disk_percent >= THRESHOLDS["disk_warning_percent"]:
         alerts.append(Alert("warning", "disk_space", f"Disk usage high: {disk_percent:.1f}%"))
 
-    # Check key databases
+    # Check key databases used by multi_config_training_loop.py
+    # Note: all_jsonl_training.db was deprecated in favor of selfplay.db with game_moves
     key_dbs = [
-        "data/games/all_jsonl_training.db",
-        "data/games/selfplay.db",
+        "data/games/selfplay.db",  # Canonical DB with game_moves table
         "data/unified_elo.db",
     ]
 
