@@ -1,21 +1,28 @@
 #!/usr/bin/env python3
 """Training Loop Monitor - Tracks health and progress of the unified AI loop.
 
-This script monitors the training loop and reports on:
-- Training runs and model production
-- Data collection rates
-- Model promotions
-- System health
+Unified monitoring and alerting for the training pipeline. This script:
+- Monitors training runs and model production
+- Checks data collection rates and database health
+- Tracks model promotions and Elo progression
+- Generates alerts for issues (critical/warning/info levels)
+- Checks disk usage and system health
 
 Usage:
     # One-shot status check
     python scripts/training_monitor.py
 
-    # Continuous monitoring (for cron)
-    python scripts/training_monitor.py --log
-
-    # Detailed report
+    # Detailed report with alerts
     python scripts/training_monitor.py --verbose
+
+    # JSON output for automation
+    python scripts/training_monitor.py --json
+
+    # Cron mode (exit 1 if critical alerts)
+    python scripts/training_monitor.py --cron
+
+    # Save alerts to file
+    python scripts/training_monitor.py --output alerts.json
 """
 
 from __future__ import annotations
@@ -23,11 +30,13 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
+import shutil
 import sqlite3
+import subprocess
 import sys
 import time
-from datetime import datetime, timedelta
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -42,6 +51,28 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
+
+# Alert thresholds
+THRESHOLDS = {
+    "training_stale_hours": 24,           # Alert if no training for 24h
+    "model_stale_hours": 48,              # Alert if no new model in 48h
+    "disk_warning_percent": 70,           # Disk usage warning
+    "disk_critical_percent": 85,          # Disk usage critical
+    "consecutive_failures_warning": 3,    # Failures before warning
+    "low_gpu_utilization": 10,            # GPU util % threshold
+}
+
+# Priority configs that need attention
+PRIORITY_CONFIGS = ["hexagonal_2p", "hexagonal_4p", "square19_3p"]
+
+
+@dataclass
+class Alert:
+    """Represents a monitoring alert."""
+    level: str  # "info", "warning", "critical"
+    category: str
+    message: str
+    details: Dict[str, Any] = field(default_factory=dict)
 
 
 def load_unified_state() -> Optional[Dict[str, Any]]:
@@ -129,7 +160,6 @@ def check_gpu_processes() -> List[Dict[str, Any]]:
 
 def check_gpu_utilization() -> Optional[int]:
     """Get current GPU utilization percentage."""
-    import subprocess
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
@@ -142,45 +172,113 @@ def check_gpu_utilization() -> Optional[int]:
     return None
 
 
+def check_disk_usage() -> Tuple[float, float]:
+    """Check disk usage. Returns (percent_used, free_gb)."""
+    data_dir = AI_SERVICE_ROOT / "data"
+    try:
+        total, used, free = shutil.disk_usage(str(data_dir))
+        percent = (used / total) * 100
+        return percent, free / (1024**3)
+    except Exception:
+        return 0.0, 0.0
+
+
+def check_model_age() -> Tuple[Optional[float], Optional[str]]:
+    """Check age of most recent model. Returns (hours_since, model_name)."""
+    models_dir = AI_SERVICE_ROOT / "models"
+    if not models_dir.exists():
+        return None, None
+
+    model_files = list(models_dir.glob("*.pt"))
+    if not model_files:
+        return None, None
+
+    most_recent = max(model_files, key=lambda p: p.stat().st_mtime)
+    hours_since = (time.time() - most_recent.stat().st_mtime) / 3600
+    return hours_since, most_recent.name
+
+
 def generate_report(verbose: bool = False) -> Dict[str, Any]:
-    """Generate a comprehensive training status report."""
+    """Generate a comprehensive training status report with alerts."""
+    alerts: List[Alert] = []
     report = {
         "timestamp": datetime.now().isoformat(),
         "status": "unknown",
-        "issues": [],
+        "alerts": [],
         "metrics": {}
     }
 
     # Load state
     state = load_unified_state()
     if not state:
-        report["status"] = "error"
-        report["issues"].append("Could not load unified loop state")
-        return report
+        alerts.append(Alert("critical", "training_loop", "State file not found - loop may not be running"))
+    else:
+        # Basic metrics
+        report["metrics"]["total_training_runs"] = state.get("total_training_runs", 0)
+        report["metrics"]["total_promotions"] = state.get("total_promotions", 0)
+        report["metrics"]["total_data_syncs"] = state.get("total_data_syncs", 0)
+        report["metrics"]["consecutive_failures"] = state.get("consecutive_failures", 0)
+        report["metrics"]["training_in_progress"] = state.get("training_in_progress", False)
 
-    # Basic metrics
-    report["metrics"]["total_training_runs"] = state.get("total_training_runs", 0)
-    report["metrics"]["total_promotions"] = state.get("total_promotions", 0)
-    report["metrics"]["total_data_syncs"] = state.get("total_data_syncs", 0)
-    report["metrics"]["consecutive_failures"] = state.get("consecutive_failures", 0)
-    report["metrics"]["training_in_progress"] = state.get("training_in_progress", False)
+        # Check consecutive failures
+        failures = state.get("consecutive_failures", 0)
+        if failures >= THRESHOLDS["consecutive_failures_warning"]:
+            alerts.append(Alert("warning", "training_loop", f"High consecutive failures: {failures}"))
 
-    # Check for issues
-    if state.get("consecutive_failures", 0) > 3:
-        report["issues"].append(f"High consecutive failures: {state['consecutive_failures']}")
+        # Check training staleness per config
+        now = time.time()
+        for config_name, config_data in state.get("configs", {}).items():
+            last_training = config_data.get("last_training_time", 0)
+            hours_since = (now - last_training) / 3600 if last_training > 0 else float('inf')
+
+            if config_name in PRIORITY_CONFIGS and hours_since > THRESHOLDS["training_stale_hours"]:
+                alerts.append(Alert(
+                    "warning", "training_stale",
+                    f"Priority config {config_name} hasn't trained in {hours_since:.1f}h",
+                    {"config": config_name, "hours_since": hours_since}
+                ))
+
+        # Config status
+        configs_status = {}
+        for config_key, config in state.get("configs", {}).items():
+            configs_status[config_key] = {
+                "games_since_training": config.get("games_since_training", 0),
+                "current_elo": config.get("current_elo", 1500),
+            }
+        report["metrics"]["configs"] = configs_status
 
     # Check recent models
     recent_models = check_recent_models(24)
     report["metrics"]["models_last_24h"] = len(recent_models)
-    if len(recent_models) == 0:
-        report["issues"].append("No new models in last 24 hours")
+
+    # Check model age
+    model_hours, model_name = check_model_age()
+    if model_hours is not None:
+        report["metrics"]["model_age_hours"] = round(model_hours, 1)
+        if model_hours > THRESHOLDS["model_stale_hours"]:
+            alerts.append(Alert(
+                "warning", "model_stale",
+                f"No new models in {model_hours:.1f}h (last: {model_name})",
+                {"hours_since": model_hours, "last_model": model_name}
+            ))
+    elif model_name is None:
+        alerts.append(Alert("warning", "models", "No model files found"))
 
     # Check GPU
     gpu_util = check_gpu_utilization()
     if gpu_util is not None:
         report["metrics"]["gpu_utilization"] = gpu_util
-        if gpu_util < 10:
-            report["issues"].append(f"Low GPU utilization: {gpu_util}%")
+        if gpu_util < THRESHOLDS["low_gpu_utilization"]:
+            alerts.append(Alert("warning", "gpu", f"Low GPU utilization: {gpu_util}%"))
+
+    # Check disk usage
+    disk_percent, disk_free_gb = check_disk_usage()
+    report["metrics"]["disk_percent"] = round(disk_percent, 1)
+    report["metrics"]["disk_free_gb"] = round(disk_free_gb, 1)
+    if disk_percent >= THRESHOLDS["disk_critical_percent"]:
+        alerts.append(Alert("critical", "disk_space", f"Disk usage critical: {disk_percent:.1f}%"))
+    elif disk_percent >= THRESHOLDS["disk_warning_percent"]:
+        alerts.append(Alert("warning", "disk_space", f"Disk usage high: {disk_percent:.1f}%"))
 
     # Check key databases
     key_dbs = [
@@ -199,83 +297,101 @@ def generate_report(verbose: bool = False) -> Dict[str, Any]:
             "game_count": count
         }
         if not healthy:
-            report["issues"].append(f"DB issue - {db_rel_path}: {msg}")
+            alerts.append(Alert("warning", "database", f"DB issue - {db_rel_path}: {msg}"))
 
     report["metrics"]["databases"] = db_status
 
-    # Config status
-    configs_status = {}
-    for config_key, config in state.get("configs", {}).items():
-        configs_status[config_key] = {
-            "games_since_training": config.get("games_since_training", 0),
-            "current_elo": config.get("current_elo", 1500),
-        }
-    report["metrics"]["configs"] = configs_status
+    # Convert alerts to serializable format
+    report["alerts"] = [
+        {"level": a.level, "category": a.category, "message": a.message, "details": a.details}
+        for a in alerts
+    ]
+
+    # Count by level
+    critical_count = sum(1 for a in alerts if a.level == "critical")
+    warning_count = sum(1 for a in alerts if a.level == "warning")
+    report["critical_count"] = critical_count
+    report["warning_count"] = warning_count
 
     # Determine overall status
-    if len(report["issues"]) == 0:
-        report["status"] = "healthy"
-    elif len(report["issues"]) <= 2:
+    if critical_count > 0:
+        report["status"] = "critical"
+    elif warning_count > 0:
         report["status"] = "warning"
     else:
-        report["status"] = "critical"
+        report["status"] = "healthy"
 
     return report
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Training Loop Monitor")
+    parser = argparse.ArgumentParser(description="Training Loop Monitor and Alerting")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
-    parser.add_argument("--log", action="store_true", help="Log output for cron")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
+    parser.add_argument("--cron", action="store_true", help="Exit with code 1 if critical alerts")
+    parser.add_argument("--output", type=str, help="Save report to JSON file")
     args = parser.parse_args()
 
     report = generate_report(verbose=args.verbose)
 
+    # Save to file if requested
+    if args.output:
+        with open(args.output, "w") as f:
+            json.dump(report, f, indent=2)
+        logger.info(f"Report saved to: {args.output}")
+
     if args.json:
         print(json.dumps(report, indent=2, default=str))
-        return
-
-    # Print summary
-    status_emoji = {"healthy": "✓", "warning": "⚠", "critical": "✗", "unknown": "?"}
-    print(f"\n{'='*60}")
-    print(f"Training Loop Status: {status_emoji.get(report['status'], '?')} {report['status'].upper()}")
-    print(f"{'='*60}")
-    print(f"Timestamp: {report['timestamp']}")
-    print()
-
-    # Metrics
-    m = report["metrics"]
-    print("Metrics:")
-    print(f"  Training runs: {m.get('total_training_runs', 'N/A')}")
-    print(f"  Promotions: {m.get('total_promotions', 'N/A')}")
-    print(f"  Data syncs: {m.get('total_data_syncs', 'N/A')}")
-    print(f"  Models (24h): {m.get('models_last_24h', 'N/A')}")
-    print(f"  GPU utilization: {m.get('gpu_utilization', 'N/A')}%")
-    print(f"  Training in progress: {m.get('training_in_progress', 'N/A')}")
-    print()
-
-    # Issues
-    if report["issues"]:
-        print("Issues:")
-        for issue in report["issues"]:
-            print(f"  - {issue}")
+    else:
+        # Print summary
+        status_emoji = {"healthy": "✓", "warning": "⚠", "critical": "✗", "unknown": "?"}
+        print(f"\n{'='*60}")
+        print(f"Training Loop Status: {status_emoji.get(report['status'], '?')} {report['status'].upper()}")
+        print(f"{'='*60}")
+        print(f"Timestamp: {report['timestamp']}")
         print()
 
-    # Database status
-    if args.verbose and "databases" in m:
-        print("Databases:")
-        for db_path, status in m["databases"].items():
-            icon = "✓" if status["healthy"] else "✗"
-            print(f"  {icon} {db_path}: {status['message']} ({status['game_count']} games)")
+        # Metrics
+        m = report["metrics"]
+        print("Metrics:")
+        print(f"  Training runs: {m.get('total_training_runs', 'N/A')}")
+        print(f"  Promotions: {m.get('total_promotions', 'N/A')}")
+        print(f"  Data syncs: {m.get('total_data_syncs', 'N/A')}")
+        print(f"  Models (24h): {m.get('models_last_24h', 'N/A')}")
+        print(f"  GPU utilization: {m.get('gpu_utilization', 'N/A')}%")
+        print(f"  Disk usage: {m.get('disk_percent', 'N/A')}% ({m.get('disk_free_gb', 'N/A')}GB free)")
+        print(f"  Training in progress: {m.get('training_in_progress', 'N/A')}")
         print()
 
-    # Config status
-    if args.verbose and "configs" in m:
-        print("Configs:")
-        for config_key, status in m["configs"].items():
-            print(f"  {config_key}: {status['games_since_training']} games pending, Elo={status['current_elo']:.0f}")
-        print()
+        # Alerts
+        alerts = report.get("alerts", [])
+        if alerts:
+            print(f"Alerts ({report['critical_count']} critical, {report['warning_count']} warning):")
+            for alert in alerts:
+                icon = {"critical": "X", "warning": "!", "info": "i"}.get(alert["level"], "?")
+                print(f"  [{icon}] {alert['category']}: {alert['message']}")
+            print()
+        else:
+            print("No alerts - pipeline healthy\n")
+
+        # Database status (verbose)
+        if args.verbose and "databases" in m:
+            print("Databases:")
+            for db_path, status in m["databases"].items():
+                icon = "✓" if status["healthy"] else "✗"
+                print(f"  {icon} {db_path}: {status['message']} ({status['game_count']} games)")
+            print()
+
+        # Config status (verbose)
+        if args.verbose and "configs" in m:
+            print("Configs:")
+            for config_key, status in m["configs"].items():
+                print(f"  {config_key}: {status['games_since_training']} games pending, Elo={status['current_elo']:.0f}")
+            print()
+
+    # Exit with error if critical alerts (for cron)
+    if args.cron and report.get("critical_count", 0) > 0:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

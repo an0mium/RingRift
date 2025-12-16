@@ -29,53 +29,51 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 # Database sources for each config - databases that have games WITH moves
 # Format: (board_type, num_players) -> list of database paths
 # Updated to use verified canonical DBs with game_moves table
+# NOTE: selfplay_stats.db is for monitoring ONLY (no game_moves table)
 CONFIG_DATABASES: Dict[Tuple[str, int], List[str]] = {
-    # NOTE: data/games/selfplay.db is the PRIMARY source - it receives synced
-    # game data WITH game_moves from all cluster nodes via simple_game_sync.py
     ("square8", 2): [
-        "data/games/selfplay.db",  # Primary - synced with game_moves
-        "data/canonical/canonical_square8_2p.db",
-        "data/selfplay/5090_imports/5090_quad_selfplay.db",
-        "data/selfplay/mcts_nn_v5/square8_2p.db",
-        "data/selfplay/fallback",
-        "data/selfplay/vast_sync",
+        # Large multi-config DBs (filter by board_type/num_players in query)
+        "data/games/vast_training.db",  # 4668 games, 2.4M moves total
+        "data/games/lambda_h100_sync.db",  # 1193 games
+        "data/games/mac_sync/mac_studio_selfplay.db",  # 3567 games, 488K moves
+        # Dedicated square8 2p DBs
+        "data/canonical/canonical_square8_2p.db",  # 108 games
+        "data/selfplay/cluster_h100/5090_imports/5090_quad_selfplay.db",  # 964 games
+        "data/selfplay/aggregated/2xh100/mcts_nn_v5/square8_2p.db",  # 601 games
+        # Remote sync (new canonical selfplay)
+        "data/selfplay/remote_sync",
     ],
     ("square8", 3): [
-        "data/games/selfplay.db",  # Primary - synced with game_moves
-        "data/selfplay/vast_sync/ssh1_4060ti/p2p/square8_3p",
-        "data/selfplay/vast_sync/ssh1_4060ti/p2p_hybrid/square8_3p",
+        "data/games/vast_training.db",  # 10739 games
+        "data/games/lambda_h100_sync.db",  # 2659 games
+        "data/selfplay/remote_sync",
     ],
     ("square8", 4): [
-        "data/games/selfplay.db",  # Primary - synced with game_moves
-        "data/selfplay/vast_sync",
+        "data/games/lambda_h100_sync.db",  # 2136 games
+        "data/selfplay/remote_sync",
     ],
     ("square19", 2): [
-        "data/games/selfplay.db",  # Primary - synced with game_moves
-        "data/selfplay/diverse/square19_2p.db",
-        "data/selfplay/diverse_synced/square19_2p.db",
+        "data/selfplay/cluster_h100/diverse/square19_2p.db",  # 100 games, 63K moves
+        "data/selfplay/remote_sync",
     ],
     ("square19", 3): [
-        "data/games/selfplay.db",  # Primary - synced with game_moves
-        "data/selfplay/diverse/square19_3p.db",
-        "data/selfplay/diverse_synced/square19_3p.db",
-        "data/selfplay/vast_sync/ssh1_4060ti/p2p/square19_3p",
+        "data/games/lambda_h100_sync.db",  # 323 games
+        "data/selfplay/cluster_h100/diverse/square19_3p.db",  # 100 games, 69K moves
+        "data/selfplay/remote_sync",
     ],
     ("square19", 4): [
-        "data/games/selfplay.db",  # Primary - synced with game_moves
-        "data/selfplay/diverse/square19_4p.db",
-        "data/selfplay/diverse_synced/square19_4p.db",
+        "data/selfplay/remote_sync",
     ],
     ("hexagonal", 2): [
-        "data/games/selfplay.db",  # Primary - synced with game_moves
-        "data/selfplay/vast_sync",
+        "data/games/mac_sync/mac_studio_selfplay.db",  # 10 games
+        "data/selfplay/remote_sync",
     ],
     ("hexagonal", 3): [
-        "data/games/selfplay.db",  # Primary - synced with game_moves
-        "data/selfplay/vast_sync/ssh1_4060ti/p2p/hexagonal_3p",
+        "data/games/lambda_h100_sync.db",  # 302 games
+        "data/selfplay/remote_sync",
     ],
     ("hexagonal", 4): [
-        "data/games/selfplay.db",  # Primary - synced with game_moves
-        "data/selfplay/vast_sync",
+        "data/selfplay/remote_sync",
     ],
 }
 
