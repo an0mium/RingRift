@@ -5154,10 +5154,16 @@ class P2POrchestrator:
                 self._db_integrity_counter += 1
                 if self._db_integrity_counter % 6 == 0:
                     try:
-                        db_results = check_and_repair_databases(auto_remove=True)
+                        data_dir = Path(self.ringrift_path) / "ai-service" / "data" / "games"
+                        db_results = check_and_repair_databases(
+                            data_dir=data_dir,
+                            auto_repair=False,  # Just move corrupted, don't attempt recovery
+                            log_prefix="[P2P]"
+                        )
                         if db_results["corrupted"] > 0:
+                            moved = db_results.get("failed", 0)  # "failed" = moved without recovery
                             print(f"[P2P] DB integrity: {db_results['checked']} checked, "
-                                  f"{db_results['corrupted']} corrupted, {db_results['removed']} removed")
+                                  f"{db_results['corrupted']} corrupted, {moved} moved")
                     except Exception as db_err:
                         print(f"[P2P] DB integrity check error: {db_err}")
 
@@ -7693,55 +7699,62 @@ class P2POrchestrator:
     ) -> Dict[str, Any]:
         """Synchronously run a single gauntlet game.
 
-        This runs in a thread pool executor.
+        This runs in a thread pool executor. Uses GameExecutor for consistent
+        game execution across all gauntlet modes.
         """
         try:
-            from app.tournament.agents import AIAgentRegistry
-            from app.game.board import create_board
-            from app.game.engine import GameEngine
+            from app.execution.game_executor import GameExecutor
 
-            # Create board
-            board = create_board(board_type)
-
-            # Load agents
-            registry = AIAgentRegistry()
+            # Map model IDs to player configs
+            player_configs = []
 
             # Model agent (player 0)
             if model_id == "random_ai":
-                model_agent = registry.get_agent("random")
+                player_configs.append({"ai_type": "random", "difficulty": 1})
             else:
                 model_path = model_dir / f"{model_id}.pth"
                 if model_path.exists():
-                    model_agent = registry.get_agent("nn", model_path=str(model_path))
+                    # Use high difficulty MCTS with neural guidance
+                    player_configs.append({
+                        "ai_type": "mcts_100",
+                        "difficulty": 7,
+                        "nn_model_id": model_id,
+                    })
                 else:
                     # Model file not found, use MCTS fallback
-                    model_agent = registry.get_agent("mcts", iterations=100)
+                    player_configs.append({"ai_type": "mcts_100", "difficulty": 5})
 
             # Baseline agent (player 1)
             if baseline_id == "random_ai":
-                baseline_agent = registry.get_agent("random")
+                player_configs.append({"ai_type": "random", "difficulty": 1})
             else:
                 baseline_path = model_dir / f"{baseline_id}.pth"
                 if baseline_path.exists():
-                    baseline_agent = registry.get_agent("nn", model_path=str(baseline_path))
+                    player_configs.append({
+                        "ai_type": "mcts_100",
+                        "difficulty": 7,
+                        "nn_model_id": baseline_id,
+                    })
                 else:
-                    baseline_agent = registry.get_agent("mcts", iterations=100)
+                    player_configs.append({"ai_type": "mcts_100", "difficulty": 5})
 
-            # Create agents list
-            agents = [model_agent, baseline_agent]
-            # Add more agents for 3p/4p games
-            while len(agents) < num_players:
-                agents.append(registry.get_agent("random"))
+            # Add random players for 3p/4p games
+            while len(player_configs) < num_players:
+                player_configs.append({"ai_type": "random", "difficulty": 1})
 
-            # Run game
-            engine = GameEngine(board, agents)
+            # Run game using GameExecutor
             max_moves = 2000 if "19" in board_type else 500
-            winner = engine.play(max_moves=max_moves)
+            executor = GameExecutor(board_type=board_type, num_players=num_players)
+            result = executor.run_game(
+                player_configs=player_configs,
+                max_moves=max_moves,
+            )
 
-            game_length = engine.move_count
+            game_length = result.move_count
 
-            # Determine result
-            if winner is None:
+            # Convert executor result to gauntlet result format
+            # GameExecutor uses 1-indexed winner (1 = player 1 = model)
+            if result.winner is None or result.outcome.value == "draw":
                 return {
                     "task_id": task_id,
                     "model_id": model_id,
@@ -7752,7 +7765,7 @@ class P2POrchestrator:
                     "game_length": game_length,
                     "duration_sec": 0.0,
                 }
-            elif winner == 0:
+            elif result.winner == 1:  # Player 1 (model) won
                 return {
                     "task_id": task_id,
                     "model_id": model_id,
@@ -7763,7 +7776,7 @@ class P2POrchestrator:
                     "game_length": game_length,
                     "duration_sec": 0.0,
                 }
-            else:
+            else:  # Player 2+ (baseline or other) won
                 return {
                     "task_id": task_id,
                     "model_id": model_id,

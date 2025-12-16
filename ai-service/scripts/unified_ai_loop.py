@@ -51,6 +51,13 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import yaml
 
+# Shared database integrity utilities
+from app.db.integrity import (
+    check_database_integrity,
+    check_and_repair_databases,
+    recover_corrupted_database,
+)
+
 # Optional Prometheus client
 try:
     from prometheus_client import Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST
@@ -693,147 +700,9 @@ def check_disk_has_capacity(threshold: float = None) -> Tuple[bool, float]:
 # =============================================================================
 # Database Integrity Checking
 # =============================================================================
-
-def check_database_integrity(db_path: Path) -> Tuple[bool, str]:
-    """Check SQLite database integrity.
-
-    Args:
-        db_path: Path to the SQLite database file
-
-    Returns:
-        Tuple of (is_healthy: bool, error_message: str or "ok")
-    """
-    try:
-        conn = sqlite3.connect(str(db_path), timeout=10.0)
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA integrity_check")
-        result = cursor.fetchone()
-        conn.close()
-        if result and result[0] == "ok":
-            return True, "ok"
-        else:
-            return False, result[0] if result else "unknown error"
-    except sqlite3.DatabaseError as e:
-        return False, str(e)
-    except Exception as e:
-        return False, f"check failed: {e}"
-
-
-def recover_corrupted_database(db_path: Path) -> bool:
-    """Attempt to recover a corrupted database using .dump and reimport.
-
-    Args:
-        db_path: Path to the corrupted database
-
-    Returns:
-        True if recovery succeeded, False otherwise
-    """
-    corrupted_dir = db_path.parent / "corrupted"
-    corrupted_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = corrupted_dir / f"{db_path.stem}_{timestamp}.db.corrupted"
-
-    try:
-        # Try to dump the database
-        dump_path = db_path.with_suffix(".sql")
-        result = subprocess.run(
-            ["sqlite3", str(db_path), ".dump"],
-            capture_output=True,
-            timeout=300
-        )
-        if result.returncode != 0 or not result.stdout:
-            # Dump failed - just archive the corrupted file
-            print(f"[DBIntegrity] Cannot dump {db_path.name}, archiving corrupted file")
-            db_path.rename(backup_path)
-            return False
-
-        # Write dump to file
-        with open(dump_path, "wb") as f:
-            f.write(result.stdout)
-
-        # Archive the corrupted original
-        db_path.rename(backup_path)
-
-        # Reimport from dump
-        new_db_path = db_path
-        result = subprocess.run(
-            ["sqlite3", str(new_db_path)],
-            input=result.stdout,
-            capture_output=True,
-            timeout=600
-        )
-        if result.returncode == 0:
-            # Verify the recovered database
-            is_healthy, _ = check_database_integrity(new_db_path)
-            if is_healthy:
-                print(f"[DBIntegrity] Successfully recovered {db_path.name}")
-                dump_path.unlink()  # Remove dump file
-                return True
-
-        # Recovery failed - remove partial file
-        if new_db_path.exists():
-            new_db_path.unlink()
-        print(f"[DBIntegrity] Recovery failed for {db_path.name}, kept backup at {backup_path}")
-        return False
-
-    except subprocess.TimeoutExpired:
-        print(f"[DBIntegrity] Recovery timed out for {db_path.name}")
-        return False
-    except Exception as e:
-        print(f"[DBIntegrity] Recovery error for {db_path.name}: {e}")
-        return False
-
-
-def check_and_repair_databases(
-    data_dir: Path = None,
-    auto_repair: bool = True,
-    min_size_bytes: int = 1024 * 1024  # Only check DBs > 1MB
-) -> Dict[str, Any]:
-    """Scan and repair corrupted SQLite databases.
-
-    Args:
-        data_dir: Directory to scan (defaults to AI_SERVICE_ROOT/data/games)
-        auto_repair: Whether to attempt automatic recovery
-        min_size_bytes: Minimum file size to check (smaller files are skipped)
-
-    Returns:
-        Dict with counts: checked, healthy, corrupted, recovered, failed
-    """
-    data_dir = data_dir or (AI_SERVICE_ROOT / "data" / "games")
-    results = {
-        "checked": 0,
-        "healthy": 0,
-        "corrupted": 0,
-        "recovered": 0,
-        "failed": 0,
-        "corrupted_files": [],
-    }
-
-    if not data_dir.exists():
-        return results
-
-    for db_path in data_dir.glob("*.db"):
-        # Skip small files (likely empty/test DBs)
-        if db_path.stat().st_size < min_size_bytes:
-            continue
-
-        results["checked"] += 1
-        is_healthy, error_msg = check_database_integrity(db_path)
-
-        if is_healthy:
-            results["healthy"] += 1
-        else:
-            results["corrupted"] += 1
-            results["corrupted_files"].append(str(db_path))
-            print(f"[DBIntegrity] CORRUPTED: {db_path.name} - {error_msg}")
-
-            if auto_repair:
-                if recover_corrupted_database(db_path):
-                    results["recovered"] += 1
-                else:
-                    results["failed"] += 1
-
-    return results
+# Note: check_database_integrity, check_and_repair_databases, and
+# recover_corrupted_database are now imported from app.db.integrity
+# to avoid code duplication with p2p_orchestrator.py
 
 
 # =============================================================================
@@ -7448,7 +7317,11 @@ class UnifiedAILoop:
 
                 if self._db_integrity_check_counter % 6 == 0:
                     try:
-                        db_results = check_and_repair_databases(auto_repair=True)
+                        db_results = check_and_repair_databases(
+                            data_dir=AI_SERVICE_ROOT / "data" / "games",
+                            auto_repair=True,
+                            log_prefix="[UnifiedLoop]"
+                        )
                         if db_results["corrupted"] > 0:
                             print(f"[DBIntegrity] Checked {db_results['checked']} DBs: "
                                   f"{db_results['corrupted']} corrupted, "
