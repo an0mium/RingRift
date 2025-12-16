@@ -65,9 +65,9 @@ DEFAULT_DB_PATH = ROOT / "data" / "unified_elo.db"
 SYNC_STATE_FILE = ROOT / "data" / "elo_sync_state.json"
 HOSTS_CONFIG = ROOT / "config" / "distributed_hosts.yaml"
 
-# Default coordinator (Mac Studio via Tailscale)
-DEFAULT_COORDINATOR_IP = "100.107.168.125"
-DEFAULT_COORDINATOR_HOST = "mac-studio"
+# Default coordinator (MacBook Pro via Tailscale - current active coordinator)
+DEFAULT_COORDINATOR_IP = "100.77.77.122"
+DEFAULT_COORDINATOR_HOST = "macbook-pro"
 DEFAULT_PORT = 8766
 
 # Transport timeouts
