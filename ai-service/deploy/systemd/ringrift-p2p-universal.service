@@ -11,9 +11,10 @@ EnvironmentFile=/etc/ringrift/node.conf
 # Kill any rogue orchestrator holding the port before starting
 ExecStartPre=/bin/bash -c 'pid=$(lsof -ti:${P2P_PORT:-8770} 2>/dev/null | head -1); if [ -n "$pid" ]; then echo "[ringrift-p2p] Killing process $pid on port ${P2P_PORT:-8770}"; kill -9 "$pid" 2>/dev/null || true; sleep 2; fi'
 
-# Start orchestrator - auto-detect python path
+# Start orchestrator - auto-detect python path and set PYTHONPATH
 ExecStart=/bin/bash -c '\
   RINGRIFT_PATH="${RINGRIFT_PATH:-/home/ubuntu/ringrift}"; \
+  export PYTHONPATH="$RINGRIFT_PATH/ai-service"; \
   PY="$RINGRIFT_PATH/ai-service/venv/bin/python"; \
   if [ ! -x "$PY" ]; then PY="/usr/bin/python3"; fi; \
   cd "$RINGRIFT_PATH/ai-service" && \
