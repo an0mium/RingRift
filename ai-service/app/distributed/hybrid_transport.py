@@ -29,6 +29,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,8 @@ class TransportType(str, Enum):
     """Transport method for P2P communication."""
     HTTP = "http"
     TAILSCALE = "tailscale"
+    CLOUDFLARE = "cloudflare"  # Cloudflare Zero Trust tunnel
+    ARIA2 = "aria2"  # aria2 parallel download for large files
     SSH = "ssh"
 
 
@@ -60,6 +63,15 @@ class NodeTransportState:
     # Tailscale tracking
     tailscale_consecutive_failures: int = 0
     tailscale_last_success: float = 0.0
+
+    # Cloudflare Zero Trust tracking
+    cloudflare_consecutive_failures: int = 0
+    cloudflare_last_success: float = 0.0
+    cloudflare_tunnel: Optional[str] = None
+
+    # Aria2 tracking (for large file transfers)
+    aria2_available: bool = False
+    aria2_last_success: float = 0.0
 
     # SSH tracking
     ssh_consecutive_successes: int = 0
@@ -99,6 +111,31 @@ class NodeTransportState:
     def record_tailscale_failure(self) -> None:
         """Record Tailscale failure."""
         self.tailscale_consecutive_failures += 1
+
+    def record_cloudflare_success(self) -> None:
+        """Record successful Cloudflare Zero Trust tunnel communication."""
+        self.cloudflare_consecutive_failures = 0
+        self.cloudflare_last_success = time.time()
+
+    def record_cloudflare_failure(self) -> None:
+        """Record Cloudflare tunnel failure."""
+        self.cloudflare_consecutive_failures += 1
+
+    def record_aria2_success(self) -> None:
+        """Record successful aria2 file transfer."""
+        self.aria2_available = True
+        self.aria2_last_success = time.time()
+
+    def should_try_cloudflare(self) -> bool:
+        """Check if Cloudflare tunnel is configured and working."""
+        return (
+            self.cloudflare_tunnel is not None
+            and self.cloudflare_consecutive_failures < 3
+        )
+
+    def should_try_aria2(self) -> bool:
+        """Check if aria2 is available for large file transfers."""
+        return self.aria2_available
 
     def record_ssh_success(self) -> None:
         """Record successful SSH communication."""
@@ -224,6 +261,98 @@ class HybridTransport:
             return False, None
         except Exception as e:
             logger.debug(f"Tailscale request to {node_id} failed: {e}")
+            return False, None
+
+    async def _try_cloudflare(
+        self,
+        node_id: str,
+        path: str,
+        method: str = "POST",
+        payload: Optional[Dict[str, Any]] = None,
+        timeout: float = 15.0,
+    ) -> Tuple[bool, Optional[Dict[str, Any]]]:
+        """Try communication via Cloudflare Zero Trust tunnel.
+
+        Returns:
+            Tuple of (success, response_dict or None)
+        """
+        state = self._get_state(node_id)
+        if not state.cloudflare_tunnel:
+            return False, None
+
+        try:
+            tunnel_url = f"https://{state.cloudflare_tunnel}{path}"
+            return await self._try_http(node_id, tunnel_url, method, payload, timeout)
+        except Exception as e:
+            logger.debug(f"Cloudflare request to {node_id} failed: {e}")
+            return False, None
+
+    async def _try_aria2(
+        self,
+        node_id: str,
+        urls: List[str],
+        local_path: str,
+        max_connections: int = 16,
+    ) -> Tuple[bool, Optional[str]]:
+        """Download file using aria2 with parallel connections.
+
+        Best for large files like model checkpoints.
+
+        Returns:
+            Tuple of (success, local_path or None)
+        """
+        try:
+            import tempfile
+
+            # Create aria2 input file with all source URLs
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+                for url in urls:
+                    f.write(f"{url}\n")
+                input_file = f.name
+
+            cmd = [
+                "aria2c",
+                "--input-file", input_file,
+                "--dir", str(Path(local_path).parent),
+                "--out", Path(local_path).name,
+                "--max-connection-per-server", str(max_connections),
+                "--split", str(len(urls)),
+                "--min-split-size", "1M",
+                "--file-allocation", "none",
+                "--auto-file-renaming", "false",
+                "--allow-overwrite", "true",
+                "--console-log-level", "warn",
+                "--summary-interval", "0",
+            ]
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+
+            # Clean up input file
+            try:
+                Path(input_file).unlink()
+            except Exception:
+                pass
+
+            if proc.returncode == 0:
+                self._get_state(node_id).record_aria2_success()
+                return True, local_path
+            else:
+                logger.debug(f"aria2 download failed: {stderr.decode()}")
+                return False, None
+
+        except asyncio.TimeoutError:
+            logger.warning(f"aria2 download timed out for {node_id}")
+            return False, None
+        except FileNotFoundError:
+            logger.debug("aria2c not installed")
+            return False, None
+        except Exception as e:
+            logger.debug(f"aria2 download failed: {e}")
             return False, None
 
     async def _try_ssh(
