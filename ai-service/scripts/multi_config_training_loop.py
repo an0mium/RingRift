@@ -21,8 +21,9 @@ import re
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 
-# Base paths
-BASE_DIR = os.path.expanduser("~/ringrift/ai-service")
+# Base paths - auto-detect from script location or use env var
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.environ.get("RINGRIFT_BASE_DIR", os.path.dirname(SCRIPT_DIR))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 
 # Database sources for each config - databases that have games WITH moves

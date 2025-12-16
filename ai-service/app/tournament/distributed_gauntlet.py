@@ -679,8 +679,7 @@ class DistributedNNGauntlet:
                     logger.debug(f"[Gauntlet] Skipping {node_id}: no host/IP address")
                     continue
 
-                # Prefer nodes with GPUs but accept CPU-only for gauntlet
-                # (gauntlet games are lighter than training)
+                # Collect worker info for gauntlet evaluation
                 workers.append({
                     "node_id": node_id,
                     "host": host,
@@ -688,12 +687,33 @@ class DistributedNNGauntlet:
                     "has_gpu": peer_info.get("has_gpu", False),
                     "gpu_name": peer_info.get("gpu_name", ""),
                     "selfplay_jobs": peer_info.get("selfplay_jobs", 0),
+                    "training_jobs": peer_info.get("training_jobs", 0),
                 })
 
             logger.info(f"[Gauntlet] Found {len(workers)} alive workers from {len(peers)} peers")
 
-            # Sort by GPU power, then by current load
-            workers.sort(key=lambda w: (-1 if w["has_gpu"] else 0, w["selfplay_jobs"]))
+            # Sort workers to prefer Vast nodes with strong CPUs for gauntlet
+            # Priority: Vast nodes > CPU-only nodes > idle Lambda nodes
+            # Gauntlet is CPU-bound, so prefer strong CPUs over GPUs
+            def gauntlet_worker_priority(w):
+                node_id = w["node_id"]
+                is_vast = node_id.startswith("vast-")
+                is_lambda_gpu = node_id.startswith("lambda-") and w["has_gpu"]
+                total_jobs = w["selfplay_jobs"] + w["training_jobs"]
+
+                # Lower score = higher priority
+                # Vast nodes get priority 0, CPU-only 1, busy Lambda GPU 2+
+                if is_vast:
+                    return (0, total_jobs)  # Vast nodes first, prefer idle
+                elif not w["has_gpu"]:
+                    return (1, total_jobs)  # CPU-only nodes second
+                elif is_lambda_gpu:
+                    # Lambda GPU nodes last - they should focus on training
+                    return (2, -total_jobs)  # Deprioritize busy GPU nodes
+                else:
+                    return (1, total_jobs)  # Other nodes
+
+            workers.sort(key=gauntlet_worker_priority)
 
             # Limit to reserved workers (default 2-4)
             max_workers = self.config.reserved_workers * 2  # Allow some extra

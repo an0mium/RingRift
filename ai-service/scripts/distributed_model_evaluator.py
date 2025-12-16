@@ -38,6 +38,7 @@ AI_SERVICE_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 from app.models import BoardType, AIType, AIConfig, GameStatus
+from app.models.discovery import discover_models, ModelInfo
 
 logging.basicConfig(
     level=logging.INFO,

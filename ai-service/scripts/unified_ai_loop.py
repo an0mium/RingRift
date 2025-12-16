@@ -519,6 +519,8 @@ try:
         check_host_health,
         get_healthy_hosts,
         clear_health_cache,
+        gate_on_cluster_health,
+        is_cluster_healthy,
         HealthStatus as PreSpawnHealthStatus,
     )
     HAS_PRE_SPAWN_HEALTH = True
@@ -527,6 +529,8 @@ except ImportError:
     is_host_healthy = None
     check_host_health = None
     get_healthy_hosts = None
+    gate_on_cluster_health = None
+    is_cluster_healthy = None
     clear_health_cache = None
     PreSpawnHealthStatus = None
 
@@ -3651,6 +3655,24 @@ class TrainingScheduler:
                     return None
             except Exception:
                 pass  # Non-critical, proceed with training
+
+        # Cluster health gate: defer training if cluster is degraded
+        # This prevents wasting compute when hosts are unreachable
+        if HAS_PRE_SPAWN_HEALTH and gate_on_cluster_health is not None:
+            try:
+                can_proceed, health_msg = gate_on_cluster_health(
+                    "training",
+                    min_healthy=2,  # Need at least 2 hosts for distributed training
+                    min_healthy_ratio=0.4,  # Allow training if 40%+ hosts healthy
+                )
+                if not can_proceed:
+                    if self.config.verbose:
+                        print(f"[Training] Deferred: {health_msg}")
+                    return None
+            except Exception as e:
+                # Non-critical, proceed with training
+                if self.config.verbose:
+                    print(f"[Training] Cluster health check failed: {e}, proceeding anyway")
 
         now = time.time()
 
