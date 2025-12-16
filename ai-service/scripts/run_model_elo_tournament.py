@@ -1422,7 +1422,7 @@ def main():
     parser.add_argument("--leaderboard-only", action="store_true", help="Just show leaderboard")
     parser.add_argument("--run", action="store_true", help="Actually run games (otherwise just shows plan)")
     parser.add_argument("--mcts-sims", type=int, default=50, help="MCTS simulations per move")
-    parser.add_argument("--db", type=str, help="Path to Elo database")
+    parser.add_argument("--db", type=str, help="DEPRECATED: Always uses unified_elo.db for data integrity. This flag is ignored.")
     parser.add_argument("--all-configs", action="store_true", help="Run tournament for all board/player configurations")
     parser.add_argument("--elo-matchmaking", action="store_true", help="Use Elo-based matchmaking (pair similar-rated models)")
     parser.add_argument("--elo-range", type=int, default=200, help="Max Elo difference for matchmaking (default: 200)")

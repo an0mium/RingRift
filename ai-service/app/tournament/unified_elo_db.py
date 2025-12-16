@@ -1123,6 +1123,138 @@ class EloDatabase:
             "configurations": [dict(c) for c in configs],
         }
 
+    def check_win_loss_invariant(
+        self,
+        board_type: Optional[str] = None,
+        raise_on_violation: bool = False,
+    ) -> Dict[str, Any]:
+        """Check win/loss conservation invariant for 2-player games.
+
+        In 2-player games, every win corresponds to exactly one loss.
+        Therefore: SUM(wins) == SUM(losses) for all active ratings.
+
+        Args:
+            board_type: Optional filter by board type
+            raise_on_violation: If True, raises ValueError on imbalance
+
+        Returns:
+            Dict with total_wins, total_losses, imbalance, and is_valid fields
+        """
+        conn = self._get_connection()
+
+        query = """
+            SELECT SUM(wins) as total_wins, SUM(losses) as total_losses
+            FROM elo_ratings
+            WHERE num_players = 2 AND archived_at IS NULL
+        """
+        params: List[Any] = []
+
+        if board_type:
+            query = """
+                SELECT SUM(wins) as total_wins, SUM(losses) as total_losses
+                FROM elo_ratings
+                WHERE num_players = 2 AND archived_at IS NULL AND board_type = ?
+            """
+            params.append(board_type)
+
+        row = conn.execute(query, params).fetchone()
+        total_wins = row["total_wins"] or 0
+        total_losses = row["total_losses"] or 0
+        imbalance = abs(total_wins - total_losses)
+        is_valid = imbalance == 0
+
+        result = {
+            "total_wins": total_wins,
+            "total_losses": total_losses,
+            "imbalance": imbalance,
+            "is_valid": is_valid,
+            "board_type": board_type or "all",
+        }
+
+        if not is_valid:
+            logger.warning(
+                f"Win/loss invariant VIOLATED: {total_wins} wins vs {total_losses} losses "
+                f"(imbalance: {imbalance}) for board_type={board_type or 'all'}"
+            )
+            if raise_on_violation:
+                raise ValueError(
+                    f"Win/loss invariant violated: {imbalance} imbalance"
+                )
+        else:
+            logger.debug(
+                f"Win/loss invariant OK: {total_wins} wins == {total_losses} losses"
+            )
+
+        return result
+
+    def verify_database_integrity(self) -> Dict[str, Any]:
+        """Run comprehensive database integrity checks.
+
+        Returns dict with results of all checks:
+        - win_loss_invariant: Win/loss conservation for 2-player games
+        - duplicate_game_ids: Count of duplicate game_ids
+        - null_game_ids: Count of matches without game_id
+        - pinned_baselines: Status of pinned baseline ratings
+        """
+        conn = self._get_connection()
+        results = {}
+
+        # Check 1: Win/loss invariant
+        results["win_loss_invariant"] = self.check_win_loss_invariant()
+
+        # Check 2: Duplicate game_ids
+        dup_row = conn.execute("""
+            SELECT COUNT(*) as dup_count FROM (
+                SELECT game_id, COUNT(*) as cnt
+                FROM match_history
+                WHERE game_id IS NOT NULL AND game_id != ''
+                GROUP BY game_id
+                HAVING cnt > 1
+            )
+        """).fetchone()
+        results["duplicate_game_ids"] = {
+            "count": dup_row["dup_count"] if dup_row else 0,
+            "is_valid": (dup_row["dup_count"] if dup_row else 0) == 0,
+        }
+
+        # Check 3: Null game_ids
+        null_row = conn.execute("""
+            SELECT COUNT(*) as null_count
+            FROM match_history
+            WHERE game_id IS NULL OR game_id = ''
+        """).fetchone()
+        results["null_game_ids"] = {
+            "count": null_row["null_count"] if null_row else 0,
+        }
+
+        # Check 4: Pinned baselines
+        baseline_rows = conn.execute("""
+            SELECT participant_id, rating
+            FROM elo_ratings
+            WHERE participant_id LIKE 'baseline_random%'
+            AND archived_at IS NULL
+        """).fetchall()
+
+        unpinned_baselines = [
+            {"id": row["participant_id"], "rating": row["rating"]}
+            for row in baseline_rows
+            if abs(row["rating"] - 400.0) > 0.01
+        ]
+        results["pinned_baselines"] = {
+            "total": len(baseline_rows),
+            "unpinned": unpinned_baselines,
+            "is_valid": len(unpinned_baselines) == 0,
+        }
+
+        # Overall validity
+        results["all_valid"] = (
+            results["win_loss_invariant"]["is_valid"]
+            and results["duplicate_game_ids"]["is_valid"]
+            and results["pinned_baselines"]["is_valid"]
+        )
+
+        return results
+
 
 # =============================================================================
 # Singleton Access

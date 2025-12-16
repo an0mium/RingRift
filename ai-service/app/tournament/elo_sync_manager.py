@@ -488,10 +488,16 @@ class EloSyncManager:
                 count = cursor.fetchone()[0]
                 conn.close()
 
-                # Replace local database
-                shutil.move(temp_path, self.db_path)
-                logger.info(f"Pulled {count} matches from {host}")
-                return True
+                # Use merge instead of replace to preserve local data
+                if self.enable_merge:
+                    success = await self._merge_databases(temp_path)
+                    if success:
+                        logger.info(f"Merged {count} matches from {host}")
+                    return success
+                else:
+                    shutil.move(temp_path, self.db_path)
+                    logger.info(f"Pulled {count} matches from {host}")
+                    return True
             except Exception as e:
                 logger.error(f"Database verification failed: {e}")
                 temp_path.unlink(missing_ok=True)
@@ -705,6 +711,9 @@ class EloSyncManager:
         """
         Merge remote database into local, preserving all unique matches.
         Uses game_id for deduplication if available, otherwise match signature.
+
+        After merging match_history, recalculates all elo_ratings from scratch
+        to ensure win/loss conservation invariant is maintained.
         """
         if not remote_db_path.exists():
             return False
@@ -753,7 +762,6 @@ class EloSyncManager:
                         existing_ids.add(match_id)
 
             local_conn.commit()
-            local_conn.close()
             remote_conn.close()
 
             # Cleanup temp file
@@ -761,15 +769,134 @@ class EloSyncManager:
 
             if inserted > 0:
                 logger.info(f"Merged {inserted} new matches from remote")
+                # Recalculate ratings from merged match history
+                await self._recalculate_ratings_from_history(local_conn)
             else:
                 logger.debug("No new matches to merge")
 
+            local_conn.close()
             return True
 
         except Exception as e:
             logger.error(f"Database merge failed: {e}")
             remote_db_path.unlink(missing_ok=True)
             return False
+
+    async def _recalculate_ratings_from_history(self, conn: sqlite3.Connection) -> None:
+        """
+        Recalculate all ELO ratings from match history.
+
+        This ensures win/loss conservation after merging databases.
+        Replays all matches chronologically to rebuild accurate ratings.
+        """
+        from collections import defaultdict
+
+        # ELO calculation constants
+        INITIAL_RATING = 1500.0
+        K_FACTOR = 32.0
+
+        # Pinned baselines (anchors to prevent ELO inflation)
+        PINNED_BASELINES = {
+            "baseline_random": 400.0,
+        }
+
+        def get_pinned_rating(participant_id: str):
+            for prefix, rating in PINNED_BASELINES.items():
+                if participant_id.startswith(prefix):
+                    return rating
+            return None
+
+        def expected_score(rating_a: float, rating_b: float) -> float:
+            return 1.0 / (1.0 + 10 ** ((rating_b - rating_a) / 400.0))
+
+        cur = conn.cursor()
+
+        logger.info("Recalculating ratings from match history...")
+
+        # Get all matches ordered by timestamp
+        cur.execute("""
+            SELECT participant_a, participant_b, winner, board_type, num_players, timestamp
+            FROM match_history
+            WHERE winner IS NOT NULL
+            ORDER BY timestamp
+        """)
+        matches = cur.fetchall()
+
+        # Initialize ratings storage: (board_type, num_players, participant_id) -> rating_data
+        ratings = defaultdict(lambda: {
+            "rating": INITIAL_RATING,
+            "games_played": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+        })
+
+        # Replay all matches
+        for p_a, p_b, winner, board_type, num_players, ts in matches:
+            key_a = (board_type, num_players, p_a)
+            key_b = (board_type, num_players, p_b)
+
+            r_a = ratings[key_a]
+            r_b = ratings[key_b]
+
+            # Calculate expected scores
+            exp_a = expected_score(r_a["rating"], r_b["rating"])
+            exp_b = 1.0 - exp_a
+
+            # Determine actual scores
+            if winner == p_a:
+                score_a, score_b = 1.0, 0.0
+                r_a["wins"] += 1
+                r_b["losses"] += 1
+            elif winner == p_b:
+                score_a, score_b = 0.0, 1.0
+                r_a["losses"] += 1
+                r_b["wins"] += 1
+            elif winner == "draw":
+                score_a, score_b = 0.5, 0.5
+                r_a["draws"] += 1
+                r_b["draws"] += 1
+            else:
+                continue
+
+            # Update ratings (unless pinned)
+            pinned_a = get_pinned_rating(p_a)
+            pinned_b = get_pinned_rating(p_b)
+
+            if pinned_a is None:
+                r_a["rating"] += K_FACTOR * (score_a - exp_a)
+            else:
+                r_a["rating"] = pinned_a
+
+            if pinned_b is None:
+                r_b["rating"] += K_FACTOR * (score_b - exp_b)
+            else:
+                r_b["rating"] = pinned_b
+
+            r_a["games_played"] += 1
+            r_b["games_played"] += 1
+
+        # Clear existing ratings
+        cur.execute("DELETE FROM elo_ratings")
+
+        # Insert recalculated ratings
+        now = time.time()
+        for (board_type, num_players, participant_id), data in ratings.items():
+            cur.execute("""
+                INSERT INTO elo_ratings
+                (participant_id, board_type, num_players, rating, games_played,
+                 wins, losses, draws, rating_deviation, last_update)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                participant_id, board_type, num_players,
+                data["rating"], data["games_played"],
+                data["wins"], data["losses"], data["draws"],
+                350.0,  # Initial rating deviation
+                now,
+            ))
+
+        conn.commit()
+        logger.info(f"Recalculated {len(ratings)} ratings from {len(matches)} matches")
 
     async def _sync_via_http(self, node: NodeInfo) -> bool:
         """Sync via HTTP (Cloudflare Zero Trust compatible)."""
@@ -800,9 +927,16 @@ class EloSyncManager:
                             temp_path = self.db_path.with_suffix('.db.tmp')
                             async with aiofiles.open(temp_path, 'wb') as f:
                                 await f.write(await resp.read())
-                            shutil.move(temp_path, self.db_path)
-                            logger.info(f"Downloaded {remote_count} matches via HTTP")
-                            return True
+                            # Use merge instead of replace to preserve local data
+                            if self.enable_merge:
+                                success = await self._merge_databases(temp_path)
+                                if success:
+                                    logger.info(f"Merged {remote_count} matches via HTTP")
+                                return success
+                            else:
+                                shutil.move(temp_path, self.db_path)
+                                logger.info(f"Downloaded {remote_count} matches via HTTP")
+                                return True
 
                 elif remote_count < self.state.local_match_count:
                     # Upload database
