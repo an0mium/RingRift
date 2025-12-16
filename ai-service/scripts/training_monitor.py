@@ -62,8 +62,11 @@ THRESHOLDS = {
     "low_gpu_utilization": 10,            # GPU util % threshold
 }
 
-# Priority configs that need attention
-PRIORITY_CONFIGS = ["hexagonal_2p", "hexagonal_4p", "square19_3p"]
+# Priority configs that need attention (sparse data configs)
+PRIORITY_CONFIGS = [
+    "hexagonal_2p", "hexagonal_3p", "hexagonal_4p",
+    "square19_2p", "square19_3p", "square19_4p",
+]
 
 
 @dataclass
@@ -433,7 +436,9 @@ def main():
             print("Databases:")
             for db_path, status in m["databases"].items():
                 icon = "✓" if status["healthy"] else "✗"
-                print(f"  {icon} {db_path}: {status['message']} ({status['game_count']} games)")
+                trainable = status.get('trainable_games', 0)
+                total = status.get('total_games', 0)
+                print(f"  {icon} {db_path}: {status['message']} ({trainable}/{total} trainable)")
             print()
 
         # Config status (verbose)
