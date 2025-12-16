@@ -51,6 +51,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Import DataSyncManager for transport fallback chain (tailscale → cloudflare → ssh)
+try:
+    from app.distributed.data_sync import DataSyncManager, get_sync_manager
+    HAS_DATA_SYNC = True
+except ImportError:
+    HAS_DATA_SYNC = False
+    logger.warning("DataSyncManager not available, using direct rsync")
+
 
 @dataclass
 class NodeStatus:
@@ -382,6 +390,18 @@ class ClusterSyncCoordinator:
 
                 if best_models:
                     results["models_synced"] = await self.sync_models_cluster_wide(best_models)
+
+            # 5. Use DataSyncManager for transport fallback (tailscale → cloudflare → ssh)
+            if HAS_DATA_SYNC:
+                try:
+                    sync_manager = get_sync_manager()
+                    model_results = await sync_manager.sync_best_models()
+                    fallback_synced = sum(1 for v in model_results.values() if v is True)
+                    if fallback_synced > 0:
+                        results["models_synced"] += fallback_synced
+                        logger.info(f"DataSyncManager fallback: {fallback_synced} additional syncs")
+                except Exception as e:
+                    logger.warning(f"DataSyncManager fallback failed: {e}")
 
             self.state.last_sync = time.time()
 
