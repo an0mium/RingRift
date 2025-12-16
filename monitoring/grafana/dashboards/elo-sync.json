@@ -1,0 +1,198 @@
+{
+  "dashboard": {
+    "title": "Elo Sync Dashboard",
+    "uid": "elo-sync",
+    "tags": ["ringrift", "elo", "sync"],
+    "timezone": "browser",
+    "refresh": "30s",
+    "panels": [
+      {
+        "title": "Total Matches",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "expr": "ringrift_elo_matches_total",
+            "legendFormat": "Matches"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "steps": [{ "color": "blue", "value": 0 }]
+            }
+          }
+        }
+      },
+      {
+        "title": "Active Models",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+        "targets": [
+          {
+            "expr": "ringrift_elo_active_models",
+            "legendFormat": "Active Models"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "steps": [{ "color": "green", "value": 0 }]
+            }
+          }
+        }
+      },
+      {
+        "title": "Sync Requests",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+        "targets": [
+          {
+            "expr": "ringrift_elo_sync_requests_total",
+            "legendFormat": "Total Requests"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "steps": [{ "color": "blue", "value": 0 }]
+            }
+          }
+        }
+      },
+      {
+        "title": "Sync Errors",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+        "targets": [
+          {
+            "expr": "ringrift_elo_sync_errors_total",
+            "legendFormat": "Errors"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "steps": [
+                { "color": "green", "value": 0 },
+                { "color": "yellow", "value": 1 },
+                { "color": "red", "value": 5 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "Matches Over Time",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+        "targets": [
+          {
+            "expr": "ringrift_elo_matches_total",
+            "legendFormat": "Total Matches"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "title": "Sync Rate",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+        "targets": [
+          {
+            "expr": "rate(ringrift_elo_sync_matches_total[5m]) * 60",
+            "legendFormat": "Matches/min"
+          },
+          {
+            "expr": "rate(ringrift_elo_sync_requests_total[5m]) * 60",
+            "legendFormat": "Requests/min"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "title": "Database Size",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 6, "x": 0, "y": 12 },
+        "targets": [
+          {
+            "expr": "ringrift_elo_db_size_bytes",
+            "legendFormat": "DB Size"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes"
+          }
+        }
+      },
+      {
+        "title": "Total Models",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 6, "x": 6, "y": 12 },
+        "targets": [
+          {
+            "expr": "ringrift_elo_models_total",
+            "legendFormat": "Total Models"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "title": "Matches Synced",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 6, "x": 12, "y": 12 },
+        "targets": [
+          {
+            "expr": "ringrift_elo_sync_matches_total",
+            "legendFormat": "Total Synced"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "title": "Last Sync",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 6, "x": 18, "y": 12 },
+        "targets": [
+          {
+            "expr": "time() - ringrift_elo_last_sync_timestamp",
+            "legendFormat": "Seconds Ago"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "thresholds": {
+              "steps": [
+                { "color": "green", "value": 0 },
+                { "color": "yellow", "value": 600 },
+                { "color": "red", "value": 1800 }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,52 @@
+groups:
+  - name: elo_sync
+    rules:
+      # Alert if no sync in last 10 minutes
+      - alert: EloSyncStale
+        expr: time() - ringrift_elo_last_sync_timestamp > 600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Elo sync is stale'
+          description: 'No Elo sync received in the last 10 minutes. Last sync was {{ $value | humanizeDuration }} ago.'
+
+      # Alert if sync errors are increasing
+      - alert: EloSyncErrors
+        expr: increase(ringrift_elo_sync_errors_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Elo sync errors detected'
+          description: '{{ $value }} sync errors in the last 10 minutes.'
+
+      # Alert if coordinator is down
+      - alert: EloCoordinatorDown
+        expr: up{job="elo_sync"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Elo sync coordinator is down'
+          description: 'The Elo sync coordinator has been down for more than 2 minutes.'
+
+      # Alert if database size grows too fast (possible data corruption)
+      - alert: EloDatabaseGrowthAnomaly
+        expr: increase(ringrift_elo_db_size_bytes[1h]) > 100000000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Unusual Elo database growth'
+          description: 'Elo database has grown by {{ $value | humanize1024 }} in the last hour.'
+
+      # Alert if model count drops significantly (unexpected culling)
+      - alert: EloModelCountDrop
+        expr: ringrift_elo_active_models < 25
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Low active model count'
+          description: 'Only {{ $value }} active models in Elo database. Expected at least 25.'

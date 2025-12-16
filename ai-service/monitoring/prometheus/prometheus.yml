@@ -29,6 +29,13 @@ scrape_configs:
     metrics_path: /metrics
     scrape_interval: 30s
 
+  # Elo Sync Coordinator metrics
+  - job_name: 'elo_sync'
+    static_configs:
+      - targets: ['localhost:8766']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
   # Remote cluster nodes (optional - update with actual IPs)
   # - job_name: 'cluster_nodes'
   #   static_configs:

@@ -770,7 +770,7 @@ class RingRiftDataset(Dataset):
     ):
         self.data_path = data_path
         self.board_type = board_type
-        self.augment_hex = augment_hex and board_type == BoardType.HEXAGONAL
+        self.augment_hex = augment_hex and board_type in (BoardType.HEXAGONAL, BoardType.HEX8)
         # When True and the underlying dataset provides 'values_mp' and
         # 'num_players', __getitem__ will surface vector value targets
         # suitable for multi-player value heads.
@@ -930,7 +930,7 @@ class RingRiftDataset(Dataset):
             # model constructors in train_model():
             # - Square boards: 14 base channels × (history_length+1=4) = 56
             # - Hex boards:    10 base channels × (history_length+1=4) = 40
-            dummy_input_channels = 40 if self.board_type == BoardType.HEXAGONAL else 56
+            dummy_input_channels = 40 if self.board_type in (BoardType.HEXAGONAL, BoardType.HEX8) else 56
             # Model expects 20 global features (see neural_net.py global_features default)
             dummy_global_features = 20
             if self.board_type == BoardType.SQUARE19:
@@ -939,6 +939,9 @@ class RingRiftDataset(Dataset):
             elif self.board_type == BoardType.HEXAGONAL:
                 dummy_h = HEX_BOARD_SIZE
                 dummy_w = HEX_BOARD_SIZE
+            elif self.board_type == BoardType.HEX8:
+                dummy_h = HEX8_BOARD_SIZE
+                dummy_w = HEX8_BOARD_SIZE
             else:
                 dummy_h = 8
                 dummy_w = 8

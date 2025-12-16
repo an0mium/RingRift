@@ -2549,7 +2549,8 @@ def create_model_for_board(
     tier = memory_tier if memory_tier is not None else get_memory_tier()
 
     # Create model based on board type and memory tier
-    if board_type == BoardType.HEXAGONAL:
+    # Both HEX8 (radius-4) and HEXAGONAL (radius-12) use hexagonal neural network architectures
+    if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
         if tier == "v4":
             raise ValueError(
                 "V4 architecture is not yet available for hexagonal boards. "
