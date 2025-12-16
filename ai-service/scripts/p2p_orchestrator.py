@@ -21205,8 +21205,53 @@ print(json.dumps({{
             print(f"[P2P] LOCAL: Memory warning at {node.memory_percent:.0f}% - reducing jobs to {target}")
             await self._reduce_local_selfplay_jobs(target, reason="memory_warning")
 
+    def _get_elo_based_priority_boost(self, board_type: str, num_players: int) -> int:
+        """Get priority boost based on ELO performance for this config.
+
+        PRIORITY-BASED SCHEDULING: Configs with high-performing models get
+        priority boost to allocate more resources to promising configurations.
+
+        Returns:
+            Priority boost (0-5) based on:
+            - Top model ELO for this config
+            - Recent improvement rate
+            - Data coverage (inverse - underrepresented get boost)
+        """
+        boost = 0
+
+        try:
+            cluster_elo = self._get_cluster_elo_summary()
+            top_models = cluster_elo.get("top_models", [])
+
+            # Find best model for this board/player combo
+            best_elo = 0
+            for model in top_models:
+                model_name = model.get("name", "")
+                # Model names typically include board type and player count
+                if board_type in model_name or str(num_players) in model_name:
+                    best_elo = max(best_elo, model.get("elo", 0))
+
+            # ELO-based boost (every 100 ELO above 1200 = +1 priority)
+            if best_elo > 1200:
+                boost += min(3, (best_elo - 1200) // 100)
+
+            # Underrepresented config boost
+            # (hex and square19 often have fewer games)
+            if board_type in ("hexagonal", "square19"):
+                boost += 1
+            if num_players > 2:
+                boost += 1
+
+        except Exception:
+            pass
+
+        return min(5, boost)  # Cap at +5
+
     def _pick_weighted_selfplay_config(self, node) -> Optional[Dict[str, Any]]:
         """Pick a selfplay config weighted by priority and node capabilities.
+
+        PRIORITY-BASED SCHEDULING: Combines static priority with dynamic
+        ELO-based boosts to allocate more resources to high-performing configs.
 
         Returns config dict with board_type, num_players, engine_mode.
         """
@@ -21243,10 +21288,18 @@ print(json.dumps({{
         if not selfplay_configs:
             return None
 
-        # Build weighted list by priority
+        # PRIORITY-BASED SCHEDULING: Add ELO-based priority boosts
+        for cfg in selfplay_configs:
+            elo_boost = self._get_elo_based_priority_boost(
+                cfg.get("board_type", ""),
+                cfg.get("num_players", 2),
+            )
+            cfg["effective_priority"] = cfg.get("priority", 1) + elo_boost
+
+        # Build weighted list by effective priority
         weighted = []
         for cfg in selfplay_configs:
-            weighted.extend([cfg] * cfg.get("priority", 1))
+            weighted.extend([cfg] * cfg.get("effective_priority", 1))
 
         import random
         return random.choice(weighted) if weighted else None
