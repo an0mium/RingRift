@@ -652,12 +652,29 @@ class UnifiedDataSyncService:
                 logger.warning(f"Could not initialize gossip sync: {e}")
 
     def _build_ssh_args(self, host: HostConfig) -> str:
-        """Build SSH arguments string."""
-        args = [f"-o ConnectTimeout={self.config.ssh_timeout}"]
+        """Build SSH arguments string.
+
+        Uses secure TOFU (Trust On First Use) model:
+        - StrictHostKeyChecking=accept-new: Accept new keys, reject changed keys
+        - BatchMode=yes: Never prompt for passwords (fail fast instead)
+        - ServerAliveInterval: Detect dead connections
+
+        For new hosts, run: scripts/cluster_ssh_init.py --scan
+        """
+        args = [
+            f"-o ConnectTimeout={self.config.ssh_timeout}",
+            "-o StrictHostKeyChecking=accept-new",  # Secure: accept new, reject changed
+            "-o BatchMode=yes",
+            "-o ServerAliveInterval=15",
+            "-o ServerAliveCountMax=3",
+        ]
         if host.ssh_port != 22:
             args.append(f"-p {host.ssh_port}")
         if host.ssh_key:
-            args.append(f"-i {host.ssh_key}")
+            # Only add key if file exists
+            key_path = os.path.expanduser(host.ssh_key)
+            if os.path.exists(key_path):
+                args.append(f"-i {key_path}")
         return " ".join(args)
 
     def _release_resources(

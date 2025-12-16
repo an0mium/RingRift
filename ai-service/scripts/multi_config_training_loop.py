@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Multi-config training loop that monitors game databases and triggers training
-when enough new games are available for each board/player configuration.
+Multi-config training loop that monitors game databases AND JSONL files,
+triggering training when enough new games are available.
 
 Key improvements:
 - Uses config-specific databases with full move data
+- Supports JSONL files directly via jsonl_to_npz.py (no DB conversion needed)
 - Only counts games that have moves (required for training)
-- Supports multiple database sources per config
+- Supports multiple database AND JSONL sources per config
 - More efficient database queries
 - BALANCE MODE: Prioritizes least-represented board/player combos
 - Counts existing trained models per config for balanced training
@@ -18,8 +19,9 @@ import sqlite3
 import subprocess
 import glob
 import re
+import json
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Set
 
 # Base paths - auto-detect from script location or use env var
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -64,6 +66,49 @@ CONFIG_DATABASES: Dict[Tuple[str, int], List[str]] = {
     ],
     ("hexagonal", 4): [
         "data/games/selfplay.db",
+    ],
+}
+
+# JSONL source directories for each config
+# These are converted directly to NPZ using jsonl_to_npz.py (no DB needed)
+# JSONL from tournaments and hybrid selfplay are canonical format
+CONFIG_JSONL_DIRS: Dict[Tuple[str, int], List[str]] = {
+    # All configs can use canonical JSONL from tournaments
+    ("square8", 2): [
+        "data/selfplay/canonical",  # Canonical selfplay JSONL
+        "data/games",  # Tournament JSONL (games.jsonl, etc.)
+    ],
+    ("square8", 3): [
+        "data/selfplay/canonical",
+        "data/games",
+    ],
+    ("square8", 4): [
+        "data/selfplay/canonical",
+        "data/games",
+    ],
+    ("square19", 2): [
+        "data/selfplay/canonical",
+        "data/games",
+    ],
+    ("square19", 3): [
+        "data/selfplay/canonical",
+        "data/games",
+    ],
+    ("square19", 4): [
+        "data/selfplay/canonical",
+        "data/games",
+    ],
+    ("hexagonal", 2): [
+        "data/selfplay/canonical",
+        "data/games",
+    ],
+    ("hexagonal", 3): [
+        "data/selfplay/canonical",
+        "data/games",
+    ],
+    ("hexagonal", 4): [
+        "data/selfplay/canonical",
+        "data/games",
     ],
 }
 
@@ -179,6 +224,90 @@ def find_databases(path: str) -> List[str]:
     return []
 
 
+def find_jsonl_files(path: str) -> List[str]:
+    """Find all .jsonl files in a path (file or directory)."""
+    full_path = os.path.join(BASE_DIR, path) if not path.startswith("/") else path
+
+    if os.path.isfile(full_path) and full_path.endswith(".jsonl"):
+        return [full_path]
+    elif os.path.isdir(full_path):
+        jsonl_files = []
+        for root, _, files in os.walk(full_path):
+            for f in files:
+                if f.endswith(".jsonl"):
+                    jsonl_files.append(os.path.join(root, f))
+        return jsonl_files
+    return []
+
+
+def count_jsonl_games(jsonl_path: str, board_type: str, num_players: int) -> Tuple[int, Set[str]]:
+    """Count games in JSONL file matching board_type and num_players.
+
+    Returns (count, set of game_ids) for deduplication.
+    Only counts games with canonical format (has 'moves' array).
+    """
+    if not os.path.exists(jsonl_path):
+        return 0, set()
+
+    variants = BOARD_VARIANTS.get(board_type, [board_type])
+    count = 0
+    game_ids = set()
+
+    try:
+        with open(jsonl_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    game = json.loads(line)
+                    game_board = game.get("board_type", "")
+                    game_players = game.get("num_players", 0)
+                    game_id = game.get("game_id", "")
+
+                    # Check board type variants
+                    board_match = game_board in variants or game_board == board_type
+
+                    # Check players match
+                    players_match = game_players == num_players
+
+                    # Must have moves array (canonical format)
+                    has_moves = "moves" in game and len(game.get("moves", [])) > 0
+
+                    if board_match and players_match and has_moves:
+                        if game_id and game_id not in game_ids:
+                            game_ids.add(game_id)
+                            count += 1
+                except json.JSONDecodeError:
+                    continue
+    except Exception as e:
+        return 0, set()
+
+    return count, game_ids
+
+
+def get_jsonl_counts(board_type: str, num_players: int) -> Tuple[int, List[str]]:
+    """Get total JSONL game counts for a config, returning (total_count, jsonl_files_with_games)."""
+    config = (board_type, num_players)
+    jsonl_dirs = CONFIG_JSONL_DIRS.get(config, [])
+
+    total_count = 0
+    jsonl_with_games = []
+    seen_game_ids: Set[str] = set()  # Dedupe across files
+
+    for path in jsonl_dirs:
+        for jsonl_path in find_jsonl_files(path):
+            count, game_ids = count_jsonl_games(jsonl_path, board_type, num_players)
+            # Only count games not seen before (deduplication)
+            new_ids = game_ids - seen_game_ids
+            if new_ids:
+                total_count += len(new_ids)
+                seen_game_ids.update(new_ids)
+                jsonl_with_games.append(jsonl_path)
+
+    return total_count, jsonl_with_games
+
+
 def count_games_with_moves(db_path: str, board_type: str, num_players: int) -> int:
     """Count games that have move data and are not excluded from training.
 
@@ -235,29 +364,43 @@ def count_games_with_moves(db_path: str, board_type: str, num_players: int) -> i
         return 0
 
 
-def get_config_counts() -> Dict[Tuple[str, int], Tuple[int, List[str]]]:
-    """Get game counts for each config, returning (total_count, all_db_paths_with_games)."""
+def get_config_counts() -> Dict[Tuple[str, int], Tuple[int, List[str], int, List[str]]]:
+    """Get game counts for each config from both DB and JSONL sources.
+
+    Returns dict of config -> (db_count, db_paths, jsonl_count, jsonl_paths).
+    """
     results = {}
 
     for config, db_paths in CONFIG_DATABASES.items():
         board_type, num_players = config
-        total_count = 0
+        db_count = 0
         dbs_with_games = []
 
+        # Count DB games
         for path in db_paths:
             for db_path in find_databases(path):
                 count = count_games_with_moves(db_path, board_type, num_players)
                 if count > 0:
-                    total_count += count
+                    db_count += count
                     dbs_with_games.append(db_path)
 
-        results[config] = (total_count, dbs_with_games)
+        # Count JSONL games
+        jsonl_count, jsonl_with_games = get_jsonl_counts(board_type, num_players)
+
+        results[config] = (db_count, dbs_with_games, jsonl_count, jsonl_with_games)
 
     return results
 
 
-def run_training(board_type: str, num_players: int, db_paths: List[str], current_count: int) -> bool:
-    """Run export and training for a config using multiple data sources with deduplication."""
+def run_training(board_type: str, num_players: int, db_paths: List[str],
+                  jsonl_paths: List[str], current_count: int) -> bool:
+    """Run export and training for a config using DB and/or JSONL sources.
+
+    Supports three modes:
+    1. DB only: Uses export_replay_dataset.py
+    2. JSONL only: Uses jsonl_to_npz.py (faster, no DB needed)
+    3. Both: Exports both, merges NPZ files
+    """
     key = (board_type, num_players)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     short = short_name(board_type, num_players)
@@ -267,53 +410,109 @@ def run_training(board_type: str, num_players: int, db_paths: List[str], current
         key, (DEFAULT_MAX_GAMES, DEFAULT_SAMPLE_EVERY, DEFAULT_EPOCHS)
     )
 
-    db_names = [os.path.basename(p) for p in db_paths[:3]]  # Show first 3
-    if len(db_paths) > 3:
-        db_names.append(f"...+{len(db_paths)-3} more")
-    print(f"[{ts}] Training {short} from {len(db_paths)} DB(s): {', '.join(db_names)} "
-          f"(max_games={max_games}, sample_every={sample_every})...", flush=True)
-
-    # Export training data from all sources with deduplication
-    npz = os.path.join(BASE_DIR, f"data/training/selfplay_{short}_{ts}.npz")
-    exp_cmd = [
-        sys.executable, os.path.join(BASE_DIR, "scripts/export_replay_dataset.py"),
-        "--board-type", board_type,
-        "--num-players", str(num_players),
-        "--output", npz,
-        "--sample-every", str(sample_every),
-        "--max-games", str(max_games),
-    ]
-    # Add all database paths with separate --db arguments
-    for db_path in db_paths:
-        exp_cmd.extend(["--db", db_path])
-
-    print(f"  Exporting {short}...", flush=True)
     env = os.environ.copy()
     env["PYTHONPATH"] = BASE_DIR
 
     # Longer timeout for hex games (1000+ moves per game)
     export_timeout = 1800 if board_type == "hexagonal" else 600
 
-    try:
-        r = subprocess.run(exp_cmd, capture_output=True, text=True, timeout=export_timeout, env=env)
-        if r.returncode != 0:
-            print(f"  Export failed: {r.stderr[:500] if r.stderr else r.stdout[:500]}", flush=True)
-            last_trained_counts[key] = current_count  # Skip to avoid repeated failures
-            return False
-        if "No samples generated" in (r.stdout or ""):
-            print(f"  No samples generated, skipping training", flush=True)
-            last_trained_counts[key] = current_count
-            return False
-    except subprocess.TimeoutExpired:
-        print(f"  Export timeout after {export_timeout}s", flush=True)
+    # Output NPZ path
+    npz = os.path.join(BASE_DIR, f"data/training/selfplay_{short}_{ts}.npz")
+    os.makedirs(os.path.dirname(npz), exist_ok=True)
+
+    # Determine export mode and log sources
+    has_db = len(db_paths) > 0
+    has_jsonl = len(jsonl_paths) > 0
+
+    source_info = []
+    if has_db:
+        db_names = [os.path.basename(p) for p in db_paths[:3]]
+        if len(db_paths) > 3:
+            db_names.append(f"...+{len(db_paths)-3}")
+        source_info.append(f"{len(db_paths)} DB(s): {', '.join(db_names)}")
+    if has_jsonl:
+        jsonl_names = [os.path.basename(p) for p in jsonl_paths[:3]]
+        if len(jsonl_paths) > 3:
+            jsonl_names.append(f"...+{len(jsonl_paths)-3}")
+        source_info.append(f"{len(jsonl_paths)} JSONL(s): {', '.join(jsonl_names)}")
+
+    print(f"[{ts}] Training {short} from {' + '.join(source_info)} "
+          f"(max_games={max_games}, sample_every={sample_every})...", flush=True)
+
+    # Export based on available sources
+    npz_files = []
+
+    # Export from JSONL if available (preferred - faster, no DB overhead)
+    if has_jsonl:
+        jsonl_npz = os.path.join(BASE_DIR, f"data/training/jsonl_{short}_{ts}.npz")
+        exp_cmd = [
+            sys.executable, os.path.join(BASE_DIR, "scripts/jsonl_to_npz.py"),
+            "--output", jsonl_npz,
+            "--board-type", board_type,
+            "--num-players", str(num_players),
+            "--sample-every", str(sample_every),
+            "--max-games", str(max_games),
+        ]
+        # Add each JSONL file as --input
+        for jsonl_path in jsonl_paths:
+            exp_cmd.extend(["--input", jsonl_path])
+
+        print(f"  Exporting from JSONL...", flush=True)
+        try:
+            r = subprocess.run(exp_cmd, capture_output=True, text=True, timeout=export_timeout, env=env)
+            if r.returncode == 0 and os.path.exists(jsonl_npz):
+                npz_files.append(jsonl_npz)
+                print(f"  JSONL export complete", flush=True)
+            else:
+                print(f"  JSONL export failed: {r.stderr[:300] if r.stderr else r.stdout[:300]}", flush=True)
+        except subprocess.TimeoutExpired:
+            print(f"  JSONL export timeout", flush=True)
+
+    # Export from DB if available (and JSONL didn't produce enough)
+    if has_db:
+        db_npz = os.path.join(BASE_DIR, f"data/training/db_{short}_{ts}.npz")
+        exp_cmd = [
+            sys.executable, os.path.join(BASE_DIR, "scripts/export_replay_dataset.py"),
+            "--board-type", board_type,
+            "--num-players", str(num_players),
+            "--output", db_npz,
+            "--sample-every", str(sample_every),
+            "--max-games", str(max_games),
+        ]
+        for db_path in db_paths:
+            exp_cmd.extend(["--db", db_path])
+
+        print(f"  Exporting from DB...", flush=True)
+        try:
+            r = subprocess.run(exp_cmd, capture_output=True, text=True, timeout=export_timeout, env=env)
+            if r.returncode == 0 and os.path.exists(db_npz):
+                npz_files.append(db_npz)
+                print(f"  DB export complete", flush=True)
+            else:
+                print(f"  DB export failed: {r.stderr[:300] if r.stderr else r.stdout[:300]}", flush=True)
+        except subprocess.TimeoutExpired:
+            print(f"  DB export timeout", flush=True)
+
+    # Check if we have any data
+    if not npz_files:
+        print(f"  No data exported, skipping training", flush=True)
         last_trained_counts[key] = current_count
         return False
 
-    # Verify NPZ was created
-    if not os.path.exists(npz):
-        print(f"  NPZ file not created, skipping training", flush=True)
-        last_trained_counts[key] = current_count
-        return False
+    # If multiple NPZ files, use the first one (TODO: merge them)
+    # For now, prefer JSONL (first in list) as it's canonical format
+    final_npz = npz_files[0]
+    if len(npz_files) > 1:
+        print(f"  Using {os.path.basename(final_npz)} (TODO: merge {len(npz_files)} sources)", flush=True)
+
+    # Rename to final output path
+    if final_npz != npz:
+        os.rename(final_npz, npz)
+
+    # Clean up other NPZ files
+    for f in npz_files[1:]:
+        if os.path.exists(f):
+            os.remove(f)
 
     # Run training
     run_dir = os.path.join(BASE_DIR, f"data/training/runs/auto_{short}_{ts}")
@@ -347,10 +546,11 @@ def main():
     global last_trained_counts
 
     print("=" * 60, flush=True)
-    print("Multi-Config Training Loop v4 (BALANCED)", flush=True)
+    print("Multi-Config Training Loop v5 (BALANCED + JSONL)", flush=True)
     print(f"Base dir: {BASE_DIR}", flush=True)
     print("Configs: " + ", ".join(short_name(bt, np) for bt, np in THRESHOLDS.keys()), flush=True)
     print("Mode: BALANCE - prioritizes least-represented combos", flush=True)
+    print("Sources: DB + JSONL (tournaments, canonical selfplay)", flush=True)
     print("Note: Excludes games marked excluded_from_training=1", flush=True)
     print("=" * 60, flush=True)
 
@@ -368,19 +568,24 @@ def main():
 
             for config, threshold in THRESHOLDS.items():
                 board_type, num_players = config
-                count, db_paths = counts.get(config, (0, []))
+                # New format: (db_count, db_paths, jsonl_count, jsonl_paths)
+                db_count, db_paths, jsonl_count, jsonl_paths = counts.get(config, (0, [], 0, []))
+                total_count = db_count + jsonl_count
                 last = last_trained_counts.get(config, 0)
-                new_games = count - last
+                new_games = total_count - last
                 models = model_counts.get(config, 0)
                 sn = short_name(board_type, num_players)
 
-                if count > 0:
-                    # Show games and model count: hex_2p:1500(+100/50)M:2
-                    status_parts.append(f"{sn}:{count}(+{new_games}/{threshold})M:{models}")
+                if total_count > 0:
+                    # Show games (DB+JSONL) and model count: hex_2p:1500(+100/50)M:2
+                    if jsonl_count > 0:
+                        status_parts.append(f"{sn}:{db_count}+{jsonl_count}j(+{new_games}/{threshold})M:{models}")
+                    else:
+                        status_parts.append(f"{sn}:{total_count}(+{new_games}/{threshold})M:{models}")
 
-                # Check if ready for training
-                if new_games >= threshold and db_paths:
-                    training_candidates.append((config, db_paths, count, new_games, models))
+                # Check if ready for training (need at least some data paths)
+                if new_games >= threshold and (db_paths or jsonl_paths):
+                    training_candidates.append((config, db_paths, jsonl_paths, total_count, new_games, models))
 
             print(f"[{ts}] iter={iteration} | {' '.join(status_parts)}", flush=True)
 
@@ -389,12 +594,12 @@ def main():
             # Ties broken by most new games available
             if training_candidates:
                 # Sort by: (1) fewest models ASCENDING, (2) most new games DESCENDING
-                training_candidates.sort(key=lambda x: (x[4], -x[3]))
-                config, db_paths, count, new_games, models = training_candidates[0]
+                training_candidates.sort(key=lambda x: (x[5], -x[4]))
+                config, db_paths, jsonl_paths, total_count, new_games, models = training_candidates[0]
                 board_type, num_players = config
                 sn = short_name(board_type, num_players)
                 print(f"[{ts}] BALANCE: Training {sn} (has only {models} models, {new_games} new games)", flush=True)
-                run_training(board_type, num_players, db_paths, count)
+                run_training(board_type, num_players, db_paths, jsonl_paths, total_count)
 
             time.sleep(60)
 

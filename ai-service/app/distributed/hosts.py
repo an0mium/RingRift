@@ -530,20 +530,31 @@ class SSHExecutor:
         return command
 
     def _build_ssh_cmd(self, ssh_target: str) -> List[str]:
-        """Build the base SSH command."""
+        """Build the base SSH command.
+
+        Options for reliable automated connections:
+        - StrictHostKeyChecking=accept-new: Accept new keys, reject changed keys (secure TOFU)
+        - BatchMode=yes: Never prompt for passwords (fail fast)
+        - ServerAliveInterval: Detect dead connections
+
+        For hosts not in known_hosts, run: scripts/cluster_ssh_init.py --scan
+        """
         cmd = [
             "ssh",
-            "-o",
-            "ConnectTimeout=10",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "StrictHostKeyChecking=no",
+            "-o", "ConnectTimeout=10",
+            "-o", "BatchMode=yes",
+            "-o", "StrictHostKeyChecking=accept-new",  # Secure: accept new, reject changed
+            "-o", "ServerAliveInterval=15",
+            "-o", "ServerAliveCountMax=3",
         ]
         if self.host.ssh_port and int(self.host.ssh_port) != 22:
             cmd.extend(["-p", str(int(self.host.ssh_port))])
+        # Only add key if it exists - allows fallback to ssh-agent or default keys
         if self.host.ssh_key:
-            cmd.extend(["-i", self.host.ssh_key_path])
+            key_path = self.host.ssh_key_path
+            if os.path.exists(key_path):
+                cmd.extend(["-i", key_path])
+            # else: let SSH try default keys or ssh-agent
         cmd.append(ssh_target)
         return cmd
 
@@ -680,9 +691,17 @@ class SSHExecutor:
         """Copy a file from the remote host to local filesystem via scp."""
         last_result: Optional[subprocess.CompletedProcess] = None
         for target in self.host.ssh_targets:
-            cmd = ["scp", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
+            cmd = [
+                "scp",
+                "-o", "ConnectTimeout=10",
+                "-o", "BatchMode=yes",
+                "-o", "StrictHostKeyChecking=accept-new",  # Secure TOFU
+            ]
+            # Only add key if it exists
             if self.host.ssh_key:
-                cmd.extend(["-i", self.host.ssh_key_path])
+                key_path = self.host.ssh_key_path
+                if os.path.exists(key_path):
+                    cmd.extend(["-i", key_path])
             if self.host.ssh_port and int(self.host.ssh_port) != 22:
                 cmd.extend(["-P", str(int(self.host.ssh_port))])
             cmd.extend([f"{target}:{remote_path}", local_path])
