@@ -115,6 +115,51 @@ The `archive/` subdirectory contains deprecated scripts that have been supersede
 | `export_replay_dataset.py`               | Direct DB queries                          |
 | `validate_canonical_training_sources.py` | Data quality gates in `unified_ai_loop.py` |
 
+## Resource Management
+
+All scripts enforce **80% maximum resource utilization** to prevent overloading:
+
+### Resource Limits (enforced 2025-12-16)
+| Resource | Warning | Critical | Notes |
+| -------- | ------- | -------- | ----- |
+| Disk | 65% | 70% | Tighter limit - cleanup takes time |
+| Memory | 70% | 80% | Hard stop when exceeded |
+| CPU | 70% | 80% | Hard stop when exceeded |
+| GPU | 70% | 80% | CUDA memory safety |
+| Load Avg | - | 1.5x CPUs | System overload detection |
+
+### Using Resource Guard
+```python
+from app.utils.resource_guard import (
+    check_disk_space, check_memory, check_gpu_memory,
+    can_proceed, wait_for_resources, ResourceGuard
+)
+
+# Pre-flight check before heavy operations
+if not can_proceed(disk_required_gb=5.0, mem_required_gb=2.0):
+    logger.error("Resource limits exceeded")
+    sys.exit(1)
+
+# Context manager for resource-safe operations
+with ResourceGuard(disk_required_gb=5.0, mem_required_gb=2.0) as guard:
+    if not guard.ok:
+        return  # Resources not available
+    # ... do work ...
+
+# Periodic check in long-running loops
+for i in range(num_games):
+    if i % 50 == 0 and not check_memory():
+        logger.warning("Memory pressure, stopping early")
+        break
+```
+
+### Key Files
+- `app/utils/resource_guard.py` - Unified resource checking utilities
+- `app/coordination/safeguards.py` - Circuit breakers and backpressure
+- `app/coordination/resource_targets.py` - Utilization targets for scaling
+- `app/coordination/resource_optimizer.py` - PID-based workload adjustment
+- `scripts/disk_monitor.py` - Disk cleanup automation
+
 ## Environment Variables
 
 | Variable                         | Description                                 |
