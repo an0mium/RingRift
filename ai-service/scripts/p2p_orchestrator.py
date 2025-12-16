@@ -57,6 +57,22 @@ from app.db.integrity import (
     check_and_repair_databases,
 )
 
+# ELO database sync manager for cluster-wide consistency
+try:
+    from app.tournament.elo_sync_manager import (
+        EloSyncManager,
+        get_elo_sync_manager,
+        sync_elo_after_games,
+        ensure_elo_synced,
+    )
+    HAS_ELO_SYNC = True
+except ImportError:
+    HAS_ELO_SYNC = False
+    EloSyncManager = None
+    get_elo_sync_manager = None
+    sync_elo_after_games = None
+    ensure_elo_synced = None
+
 # HTTP server imports
 try:
     from aiohttp import web, ClientSession, ClientTimeout
@@ -1685,6 +1701,20 @@ class P2POrchestrator:
         # Key: test_id (UUID), Value: ABTestState dict
         self.ab_tests: Dict[str, Dict[str, Any]] = {}
         self.ab_test_lock = threading.RLock()
+
+        # Elo Sync Manager - Keeps unified_elo.db consistent across cluster
+        self.elo_sync_manager: Optional[EloSyncManager] = None
+        if HAS_ELO_SYNC:
+            try:
+                db_path = Path(self.ringrift_path) / "ai-service" / "data" / "unified_elo.db"
+                self.elo_sync_manager = EloSyncManager(
+                    db_path=db_path,
+                    coordinator_host="lambda-h100",  # Default coordinator
+                    sync_interval=300,  # Sync every 5 minutes
+                )
+                print(f"[P2P] EloSyncManager initialized (db: {db_path})")
+            except Exception as e:
+                print(f"[P2P] Failed to initialize EloSyncManager: {e}")
 
         # Locks for thread safety
         # Use RLock (reentrant lock) to allow nested acquisitions from same thread
@@ -9636,6 +9666,10 @@ print(json.dumps(result))
                 )
 
             print(f"[P2P] Persisted {len(state.results)} matches to unified Elo database")
+
+            # Trigger Elo sync to propagate matches to cluster
+            if HAS_ELO_SYNC and self.elo_sync_manager:
+                asyncio.create_task(self._trigger_elo_sync_after_matches(len(state.results)))
         except Exception as e:
             print(f"[P2P] Warning: Failed to persist to unified Elo database: {e}")
 
@@ -15663,6 +15697,135 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
         except Exception as e:
             return web.json_response([{"error": str(e)}])
+
+    # === Elo Sync Endpoints ===
+
+    async def handle_elo_sync_status(self, request: web.Request) -> web.Response:
+        """GET /elo/sync/status - Get Elo database sync status."""
+        try:
+            if not self.elo_sync_manager:
+                return web.json_response({
+                    "enabled": False,
+                    "error": "EloSyncManager not initialized"
+                })
+
+            status = self.elo_sync_manager.get_status()
+            status["enabled"] = True
+            status["node_id"] = self.node_id
+
+            return web.json_response(status)
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_elo_sync_trigger(self, request: web.Request) -> web.Response:
+        """POST /elo/sync/trigger - Manually trigger Elo database sync."""
+        try:
+            if not self.elo_sync_manager:
+                return web.json_response({
+                    "success": False,
+                    "error": "EloSyncManager not initialized"
+                }, status=503)
+
+            # Trigger sync
+            success = await self.elo_sync_manager.sync_with_cluster()
+
+            return web.json_response({
+                "success": success,
+                "status": self.elo_sync_manager.get_status()
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_elo_sync_download(self, request: web.Request) -> web.Response:
+        """GET /elo/sync/db - Download unified_elo.db for cluster sync."""
+        try:
+            ai_root = Path(self.ringrift_path) / "ai-service"
+            db_path = ai_root / "data" / "unified_elo.db"
+
+            if not db_path.exists():
+                return web.json_response({"error": "Database not found"}, status=404)
+
+            # Read and return the database file
+            with open(db_path, 'rb') as f:
+                data = f.read()
+
+            return web.Response(
+                body=data,
+                content_type='application/octet-stream',
+                headers={
+                    'Content-Disposition': 'attachment; filename="unified_elo.db"',
+                    'Content-Length': str(len(data))
+                }
+            )
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_elo_sync_upload(self, request: web.Request) -> web.Response:
+        """POST /elo/sync/upload - Upload/merge unified_elo.db from another node."""
+        try:
+            if not self.elo_sync_manager:
+                return web.json_response({
+                    "success": False,
+                    "error": "EloSyncManager not initialized"
+                }, status=503)
+
+            # Read uploaded database
+            data = await request.read()
+            if not data:
+                return web.json_response({"error": "No data received"}, status=400)
+
+            # Save to temp file and merge
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.db') as f:
+                f.write(data)
+                temp_path = Path(f.name)
+
+            try:
+                # Use merge if enabled
+                if self.elo_sync_manager.enable_merge:
+                    success = await self.elo_sync_manager._merge_databases(temp_path)
+                else:
+                    # Simple replace
+                    shutil.copy(temp_path, self.elo_sync_manager.db_path)
+                    success = True
+
+                self.elo_sync_manager._update_local_stats()
+
+                return web.json_response({
+                    "success": success,
+                    "match_count": self.elo_sync_manager.state.local_match_count
+                })
+            finally:
+                temp_path.unlink(missing_ok=True)
+
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _elo_sync_loop(self):
+        """Background loop for periodic Elo database synchronization."""
+        if not self.elo_sync_manager:
+            return
+
+        # Initialize the sync manager
+        try:
+            await self.elo_sync_manager.initialize()
+        except Exception as e:
+            print(f"[P2P] EloSyncManager initialization failed: {e}")
+            return
+
+        print(f"[P2P] Elo sync loop started (interval: {self.elo_sync_manager.sync_interval}s)")
+
+        while self.running:
+            try:
+                # Only sync if we're not currently busy with training
+                if not self.sync_in_progress:
+                    success = await self.elo_sync_manager.sync_with_cluster()
+                    if success:
+                        print(f"[P2P] Elo sync completed: {self.elo_sync_manager.state.local_match_count} matches")
+            except Exception as e:
+                print(f"[P2P] Elo sync error: {e}")
+
+            await asyncio.sleep(self.elo_sync_manager.sync_interval)
 
     async def handle_games_analytics(self, request: web.Request) -> web.Response:
         """GET /games/analytics - Game statistics for dashboards.
@@ -25012,6 +25175,12 @@ print(json.dumps({{
         app.router.add_get('/api/elo/leaderboard', self.handle_api_elo_leaderboard)
         app.router.add_get('/elo/table', self.handle_elo_table)
         app.router.add_get('/elo/history', self.handle_elo_history)
+
+        # Elo Database Sync routes (cluster-wide Elo consistency)
+        app.router.add_get('/elo/sync/status', self.handle_elo_sync_status)
+        app.router.add_post('/elo/sync/trigger', self.handle_elo_sync_trigger)
+        app.router.add_get('/elo/sync/db', self.handle_elo_sync_download)
+        app.router.add_post('/elo/sync/upload', self.handle_elo_sync_upload)
         app.router.add_get('/nodes/table', self.handle_nodes_table)
         app.router.add_get('/victory/table', self.handle_victory_table)
         app.router.add_get('/games/analytics', self.handle_games_analytics)
@@ -25110,6 +25279,10 @@ print(json.dumps({{
         # Add model sync loop (syncs NN/NNUE models across cluster)
         if HAS_MODEL_SYNC:
             tasks.append(asyncio.create_task(self._model_sync_loop()))
+
+        # Add Elo database sync loop (cluster-wide Elo consistency)
+        if HAS_ELO_SYNC and self.elo_sync_manager:
+            tasks.append(asyncio.create_task(self._elo_sync_loop()))
 
         # Best-effort bootstrap from seed peers before running elections. This
         # helps newly started cloud nodes quickly learn about the full cluster.

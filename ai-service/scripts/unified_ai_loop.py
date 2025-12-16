@@ -656,6 +656,22 @@ except ImportError:
     ModelCullingController = None
     get_culling_controller = None
 
+# Elo database synchronization for cluster-wide consistency
+try:
+    from app.tournament.elo_sync_manager import (
+        EloSyncManager,
+        get_elo_sync_manager,
+        sync_elo_after_games,
+        ensure_elo_synced,
+    )
+    HAS_ELO_SYNC = True
+except ImportError:
+    HAS_ELO_SYNC = False
+    EloSyncManager = None
+    get_elo_sync_manager = None
+    sync_elo_after_games = None
+    ensure_elo_synced = None
+
 # Memory and local task configuration
 MIN_MEMORY_GB = 64  # Minimum RAM to run the unified loop
 DISABLE_LOCAL_TASKS = os.environ.get("RINGRIFT_DISABLE_LOCAL_TASKS", "").lower() in ("1", "true", "yes", "on")
@@ -5065,6 +5081,21 @@ class UnifiedAILoop:
             except Exception as e:
                 print(f"[UnifiedLoop] Warning: Failed to initialize gauntlet/culler: {e}")
 
+        # Elo database synchronization for cluster-wide consistency
+        self.elo_sync_manager: Optional[EloSyncManager] = None
+        self._elo_sync_interval: float = 300.0  # 5 minutes
+        self._last_elo_sync: float = 0.0
+        if HAS_ELO_SYNC:
+            try:
+                elo_db_path = AI_SERVICE_ROOT / "data" / "unified_elo.db"
+                self.elo_sync_manager = get_elo_sync_manager(
+                    db_path=elo_db_path,
+                    coordinator_host="lambda-h100"
+                )
+                print("[UnifiedLoop] EloSyncManager initialized for cluster-wide Elo consistency")
+            except Exception as e:
+                print(f"[UnifiedLoop] Warning: Failed to initialize EloSyncManager: {e}")
+
     def _setup_stage_event_bridge(self):
         """Bridge StageEventBus events to the main EventBus for unified coordination.
 
@@ -8004,6 +8035,65 @@ class UnifiedAILoop:
             except asyncio.TimeoutError:
                 pass
 
+    async def _elo_sync_loop(self):
+        """Elo database synchronization loop for cluster-wide consistency.
+
+        Periodically syncs the unified_elo.db with other nodes in the cluster
+        to ensure all nodes have consistent Elo ratings for model evaluation
+        and promotion decisions.
+
+        Uses multi-transport failover (Tailscale, SSH, HTTP, aria2) with
+        circuit breakers for fault tolerance.
+        """
+        if not HAS_ELO_SYNC or self.elo_sync_manager is None:
+            print("[EloSync] Not available - skipping")
+            return
+
+        # Initial delay to let other systems stabilize
+        await asyncio.sleep(30)
+
+        # Initialize the sync manager
+        try:
+            await self.elo_sync_manager.initialize()
+            print(f"[EloSync] Initialized - {self.elo_sync_manager.state.local_match_count} local matches")
+        except Exception as e:
+            print(f"[EloSync] Initialization failed: {e}")
+            return
+
+        print(f"[EloSync] Cluster-wide Elo sync loop started (interval: {self._elo_sync_interval}s)")
+
+        while self._running:
+            try:
+                now = time.time()
+
+                # Check if enough time has passed since last sync
+                if now - self._last_elo_sync >= self._elo_sync_interval:
+                    self._last_elo_sync = now
+
+                    # Sync with cluster
+                    success = await self.elo_sync_manager.sync_with_cluster()
+
+                    if success:
+                        print(
+                            f"[EloSync] Sync complete: {self.elo_sync_manager.state.local_match_count} matches, "
+                            f"synced from {self.elo_sync_manager.state.synced_from}"
+                        )
+                    else:
+                        errors = self.elo_sync_manager.state.sync_errors[-3:]
+                        print(f"[EloSync] Sync failed - recent errors: {errors}")
+
+            except Exception as e:
+                print(f"[EloSync] Error in sync loop: {e}")
+
+            try:
+                await asyncio.wait_for(
+                    self._shutdown_event.wait(),
+                    timeout=60  # Check shutdown every minute
+                )
+                break
+            except asyncio.TimeoutError:
+                pass
+
     async def _cross_process_event_loop(self):
         """Poll for cross-process events from other daemons.
 
@@ -8255,7 +8345,8 @@ class UnifiedAILoop:
                 "data_collection", "evaluation", "training", "promotion",
                 "curriculum", "metrics", "health_check", "utilization_optimization",
                 "hp_tuning_sync", "external_drive_sync", "pbt", "nas",
-                "per", "cross_process_event", "health_recovery", "gauntlet_culling"
+                "per", "cross_process_event", "health_recovery", "gauntlet_culling",
+                "elo_sync"
             ]
             results = await asyncio.gather(
                 self._data_collection_loop(),
@@ -8274,6 +8365,7 @@ class UnifiedAILoop:
                 self._cross_process_event_loop(),
                 self._health_recovery_loop(),  # Automatic issue detection and healing
                 self._gauntlet_culling_loop(),  # Model evaluation and top-quartile culling
+                self._elo_sync_loop(),  # Cluster-wide Elo database consistency
                 return_exceptions=True,  # Don't crash if one loop fails
             )
             # Log any exceptions from loops
