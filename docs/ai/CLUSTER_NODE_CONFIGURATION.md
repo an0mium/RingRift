@@ -174,6 +174,37 @@ Voters participate in leader election. Only add stable, reliable nodes.
 2. Add `p2p_voter: true` to the node entry in `distributed_hosts.yaml`
 3. Restart P2P services on all nodes
 
+## Autossh Backup Tunnels (Vast Instances)
+
+For Vast instances with unreliable Tailscale connectivity, autossh provides persistent backup tunnels.
+
+### Create Reverse Tunnel
+
+Run on the Vast instance to allow the relay (Lambda H100) to reach it:
+
+```bash
+./scripts/autossh_p2p_tunnel.sh reverse \
+    --relay ubuntu@100.78.101.123 \
+    --node-id vast-5080
+```
+
+This forwards the local P2P port (8770) through an SSH tunnel to the relay. The relay can then reach this node at `localhost:<tunnel_port>`.
+
+### Automatic Tunnel (via node_resilience.py)
+
+For Vast instances, node_resilience.py automatically starts autossh tunnels when cluster connectivity fails:
+
+```bash
+# Vast instances auto-detect and use autossh
+python scripts/node_resilience.py --node-id vast-5080 --coordinator https://p2p.ringrift.ai
+```
+
+### Manual Tunnel Status
+
+```bash
+./scripts/autossh_p2p_tunnel.sh status
+```
+
 ## Troubleshooting
 
 ### Node Not Connecting

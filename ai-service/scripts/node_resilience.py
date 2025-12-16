@@ -222,6 +222,62 @@ class NodeResilience:
         except Exception:
             return False
 
+    def check_autossh_tunnel(self) -> bool:
+        """Check if autossh P2P tunnel is running."""
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", "autossh"],
+                capture_output=True,
+                timeout=5,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def start_autossh_tunnel(self, relay_host: str = "100.78.101.123") -> bool:
+        """Start autossh reverse tunnel when P2P connectivity fails.
+
+        This is useful for Vast instances behind carrier NAT where Tailscale
+        may be unreliable. The tunnel forwards the local P2P port to the relay.
+        """
+        if self.check_autossh_tunnel():
+            logger.debug("Autossh tunnel already running")
+            return True
+
+        # Only use autossh on Vast instances or when explicitly enabled
+        node_id = self.config.node_id
+        if not node_id.startswith("vast") and not os.environ.get("RINGRIFT_USE_AUTOSSH"):
+            return False
+
+        tunnel_script = Path(self.config.ai_service_dir) / "scripts" / "autossh_p2p_tunnel.sh"
+        if not tunnel_script.exists():
+            logger.warning(f"Autossh tunnel script not found: {tunnel_script}")
+            return False
+
+        try:
+            logger.info(f"Starting autossh reverse tunnel to {relay_host}")
+            result = subprocess.run(
+                [
+                    str(tunnel_script),
+                    "reverse",
+                    "--relay", f"ubuntu@{relay_host}",
+                    "--node-id", node_id,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=self.config.ai_service_dir,
+            )
+            if result.returncode == 0:
+                logger.info("Autossh tunnel started successfully")
+                return True
+            else:
+                logger.warning(f"Autossh tunnel failed: {result.stderr}")
+                return False
+        except Exception as e:
+            logger.error(f"Error starting autossh tunnel: {e}")
+            return False
+
     def _systemd_usable(self) -> bool:
         """Return True when systemd appears to be the active init system.
 
@@ -1158,6 +1214,10 @@ class NodeResilience:
             # Try to start P2P orchestrator
             if not p2p_healthy:
                 self.start_p2p_orchestrator()
+
+            # For Vast instances, try autossh tunnel as backup connectivity
+            if not cluster_connected and self.config.node_id.startswith("vast"):
+                self.start_autossh_tunnel()
 
             # Start local fallback work
             self.start_local_fallback_work()
