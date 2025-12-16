@@ -5992,6 +5992,8 @@ class P2POrchestrator:
         p2p_sync_metrics = getattr(self, "_p2p_sync_metrics", {})
         gossip_metrics = self._get_gossip_metrics_summary()
         distributed_training = self._get_distributed_training_summary()
+        cluster_elo = self._get_cluster_elo_summary()
+        node_recovery = self._get_node_recovery_metrics()
 
         return web.json_response({
             "node_id": self.node_id,
@@ -6013,6 +6015,8 @@ class P2POrchestrator:
             "gossip_metrics": gossip_metrics,
             "p2p_sync_metrics": p2p_sync_metrics,
             "distributed_training": distributed_training,
+            "cluster_elo": cluster_elo,
+            "node_recovery": node_recovery,
         })
 
     async def handle_election(self, request: web.Request) -> web.Response:
@@ -18284,12 +18288,18 @@ print(json.dumps({{
                 if modified_at < last_sync_time and rel_path in local_files:
                     continue
 
-                # Calculate priority (models > training > selfplay)
+                # Calculate priority (models > ELO/training DBs > training data > selfplay)
                 priority = 0
                 if "models/" in rel_path or rel_path.endswith(".pt") or rel_path.endswith(".onnx"):
                     priority = 100  # Highest priority for models
+                elif rel_path.endswith(".db") and ("unified_elo" in rel_path or "elo_ratings" in rel_path):
+                    priority = 90  # Very high priority for ELO database
+                elif rel_path.endswith(".db") and ("canonical_" in rel_path or "consolidated_training" in rel_path or "training_pool" in rel_path):
+                    priority = 80  # High priority for training databases
                 elif "training/" in rel_path:
                     priority = 50
+                elif rel_path.endswith(".db"):
+                    priority = 30  # Medium priority for other databases
                 else:
                     priority = 10
 
@@ -18454,6 +18464,126 @@ print(json.dumps({{
             print(f"[P2P] MODEL SYNC: Error: {e}")
             self.sync_in_progress = False
 
+    async def _p2p_training_db_sync(self):
+        """DECENTRALIZED: Sync training databases via P2P for improved training diversity.
+
+        TRAINING DB P2P SYNC: Ensures all nodes have access to consolidated training
+        data without relying on leader-coordinated sync. Prioritizes:
+        - canonical_*.db (canonical training data)
+        - consolidated_training*.db (merged training data)
+        - training_pool*.db (training pool databases)
+
+        This improves training diversity by ensuring all nodes can train on
+        cluster-wide data, not just their local selfplay games.
+        """
+        now = time.time()
+
+        # Rate limit: check every 10 minutes (less frequent than models)
+        last_check = getattr(self, "_last_p2p_training_db_sync", 0)
+        if now - last_check < 600:
+            return
+        self._last_p2p_training_db_sync = now
+
+        # Skip if sync is in progress
+        if getattr(self, "sync_in_progress", False):
+            return
+
+        # Skip if under disk pressure
+        if getattr(self.self_info, "disk_percent", 0) > 80:
+            return
+
+        # Get our local files
+        local_manifest = getattr(self, "local_data_manifest", None)
+        if not local_manifest:
+            return
+
+        local_dbs = set()
+        local_db_sizes = {}
+        for file_info in getattr(local_manifest, "files", []) or []:
+            rel_path = getattr(file_info, "relative_path", "")
+            if rel_path.endswith(".db"):
+                local_dbs.add(rel_path)
+                local_db_sizes[rel_path] = getattr(file_info, "size_bytes", 0)
+
+        # Check peer manifests for training databases
+        peer_manifests = getattr(self, "_gossip_peer_manifests", {})
+        if not peer_manifests:
+            return
+
+        # Find training databases we're missing or have smaller versions of
+        missing_dbs: Dict[str, List[tuple]] = {}  # peer_id -> [(db_path, size)]
+
+        for peer_id, peer_manifest in peer_manifests.items():
+            if peer_id == self.node_id:
+                continue
+
+            # Check circuit breaker
+            health = self._get_peer_health_score(peer_id)
+            if health <= 0:
+                continue
+
+            peer_files = getattr(peer_manifest, "files", []) or []
+            for file_info in peer_files:
+                rel_path = getattr(file_info, "relative_path", "")
+                size = getattr(file_info, "size_bytes", 0)
+
+                # Only sync training-related databases and ELO database
+                if not rel_path.endswith(".db"):
+                    continue
+                if not ("canonical_" in rel_path or "consolidated_training" in rel_path or
+                        "training_pool" in rel_path or "unified_elo" in rel_path or
+                        "elo_ratings" in rel_path):
+                    continue
+
+                # Skip empty databases
+                if size < 1024:
+                    continue
+
+                # Check if we don't have it or have a smaller version
+                local_size = local_db_sizes.get(rel_path, 0)
+                if local_size >= size:
+                    continue
+
+                if peer_id not in missing_dbs:
+                    missing_dbs[peer_id] = []
+                missing_dbs[peer_id].append((rel_path, size, health))
+
+        if not missing_dbs:
+            return
+
+        # Pick healthiest peer with training DBs
+        best_peer = max(missing_dbs.keys(), key=lambda p: self._get_peer_health_score(p))
+        dbs_to_sync = [db[0] for db in missing_dbs[best_peer][:3]]  # Max 3 DBs per cycle
+
+        # Check if peer is alive
+        with self.peers_lock:
+            peer = self.peers.get(best_peer)
+        if not peer or not peer.is_alive():
+            return
+
+        print(f"[P2P] TRAINING DB SYNC: Requesting {len(dbs_to_sync)} training DBs from {best_peer}")
+
+        try:
+            import uuid
+            job = DataSyncJob(
+                job_id=f"traindb_{uuid.uuid4().hex[:8]}",
+                source_node=best_peer,
+                target_node=self.node_id,
+                files=dbs_to_sync,
+            )
+
+            self.sync_in_progress = True
+            try:
+                success = await self._request_node_sync(job)
+                self._record_p2p_sync_result(best_peer, success)
+                if success:
+                    print(f"[P2P] TRAINING DB SYNC: Got {len(dbs_to_sync)} training DBs from {best_peer}")
+            finally:
+                self.sync_in_progress = False
+        except Exception as e:
+            print(f"[P2P] TRAINING DB SYNC: Error: {e}")
+            self.sync_in_progress = False
+
     async def _gossip_state_to_peers(self):
         """DECENTRALIZED: Share node state with random peers using gossip protocol.
 
@@ -18503,6 +18633,9 @@ print(json.dumps({{
         # DISTRIBUTED TRAINING COORDINATION: Include active training configs
         # This allows nodes to coordinate training without a leader
         local_state["active_training_configs"] = self._get_local_active_training_configs()
+
+        # DISTRIBUTED ELO: Include ELO summary for cluster-wide visibility
+        local_state["elo_summary"] = self._get_local_elo_summary()
 
         # Include manifest summary if available
         local_manifest = getattr(self, "local_data_manifest", None)
@@ -18934,6 +19067,266 @@ print(json.dumps({{
             "configs_by_node_count": {k: len(v) for k, v in cluster_configs.items()},
         }
 
+    # =========================================================================
+    # DISTRIBUTED ELO
+    # =========================================================================
+    # Share ELO ratings via gossip for cluster-wide visibility without
+    # requiring every node to query the ELO database directly.
+    # =========================================================================
+
+    def _get_local_elo_summary(self) -> dict:
+        """Get summary of local ELO ratings for gossip propagation.
+
+        DISTRIBUTED ELO: Share top models and their ratings via gossip so all
+        nodes have visibility into model performance without querying the DB.
+
+        Returns dict with:
+        - top_models: List of top 5 models with ratings
+        - total_models: Total number of rated models
+        - last_update: Timestamp of last ELO update
+        """
+        # Rate limit ELO summary collection (expensive query)
+        now = time.time()
+        cache_key = "_elo_summary_cache"
+        cache_time_key = "_elo_summary_cache_time"
+        cached = getattr(self, cache_key, None)
+        cached_time = getattr(self, cache_time_key, 0)
+
+        if cached and now - cached_time < 300:  # 5 minute cache
+            return cached
+
+        summary = {
+            "top_models": [],
+            "total_models": 0,
+            "last_update": 0,
+        }
+
+        try:
+            from app.tournament.unified_elo_db import get_elo_database
+            db = get_elo_database()
+
+            # Get top 5 models by ELO
+            with db._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT model_name, elo_rating, games_played, last_updated
+                    FROM elo_ratings
+                    ORDER BY elo_rating DESC
+                    LIMIT 5
+                """)
+                rows = cursor.fetchall()
+
+                for row in rows:
+                    summary["top_models"].append({
+                        "model": row[0],
+                        "elo": round(row[1]),
+                        "games": row[2],
+                    })
+
+                # Get total count
+                cursor.execute("SELECT COUNT(*) FROM elo_ratings")
+                summary["total_models"] = cursor.fetchone()[0]
+
+                # Get last update time
+                cursor.execute("SELECT MAX(last_updated) FROM elo_ratings")
+                last_update = cursor.fetchone()[0]
+                if last_update:
+                    summary["last_update"] = last_update
+
+        except Exception as e:
+            # Silently fail - ELO summary is optional
+            pass
+
+        # Cache the result
+        setattr(self, cache_key, summary)
+        setattr(self, cache_time_key, now)
+
+        return summary
+
+    def _get_cluster_elo_summary(self) -> dict:
+        """Get cluster-wide ELO summary from gossip state.
+
+        DISTRIBUTED ELO: Aggregate ELO info from all nodes via gossip to get
+        a cluster-wide view of model performance.
+        """
+        all_models = {}
+        gossip_states = getattr(self, "_gossip_peer_states", {})
+        now = time.time()
+
+        # Include our own ELO summary
+        local_summary = self._get_local_elo_summary()
+        for model_info in local_summary.get("top_models", []):
+            model_name = model_info.get("model", "")
+            if model_name:
+                all_models[model_name] = model_info
+
+        # Include ELO summaries from gossip
+        for node_id, state in gossip_states.items():
+            if state.get("timestamp", 0) < now - 300:  # Skip stale states
+                continue
+
+            elo_summary = state.get("elo_summary", {})
+            for model_info in elo_summary.get("top_models", []):
+                model_name = model_info.get("model", "")
+                if model_name:
+                    # Keep highest ELO seen for each model
+                    existing = all_models.get(model_name, {})
+                    if model_info.get("elo", 0) > existing.get("elo", 0):
+                        all_models[model_name] = model_info
+
+        # Sort by ELO and return top 10
+        sorted_models = sorted(all_models.values(), key=lambda x: x.get("elo", 0), reverse=True)
+        return {
+            "top_models": sorted_models[:10],
+            "total_unique_models": len(all_models),
+        }
+
+    # =========================================================================
+    # AUTOMATIC NODE RECOVERY
+    # =========================================================================
+    # Detect stuck/unhealthy nodes via gossip and trigger automatic recovery
+    # (service restart) to maintain cluster health without manual intervention.
+    # =========================================================================
+
+    async def _check_node_recovery(self):
+        """DECENTRALIZED: Detect and recover stuck nodes via gossip.
+
+        AUTOMATIC NODE RECOVERY: Uses gossip to detect nodes that are:
+        - Unresponsive (stale gossip timestamp)
+        - Stuck (high failure count, no job progress)
+        - Resource-exhausted (high disk/memory)
+
+        Recovery actions:
+        - SSH to node and restart the ringrift-p2p service
+        - Only leader attempts recovery to avoid duplicate restarts
+        - Rate limit recovery attempts (one per node per 10 minutes)
+        """
+        # Only leader performs recovery to avoid duplicate restarts
+        if self.role != NodeRole.LEADER:
+            return
+
+        now = time.time()
+
+        # Rate limit: check every 2 minutes
+        last_check = getattr(self, "_last_node_recovery_check", 0)
+        if now - last_check < 120:
+            return
+        self._last_node_recovery_check = now
+
+        # Initialize recovery tracking
+        if not hasattr(self, "_node_recovery_attempts"):
+            self._node_recovery_attempts = {}  # node_id -> last_attempt_time
+        if not hasattr(self, "_node_recovery_metrics"):
+            self._node_recovery_metrics = {"attempts": 0, "successes": 0, "failures": 0}
+
+        # Check each peer for health issues
+        gossip_states = getattr(self, "_gossip_peer_states", {})
+        nodes_to_recover = []
+
+        with self.peers_lock:
+            for node_id, peer in self.peers.items():
+                if node_id == self.node_id:
+                    continue
+
+                # Skip recently recovered nodes (10 minute cooldown)
+                last_attempt = self._node_recovery_attempts.get(node_id, 0)
+                if now - last_attempt < 600:
+                    continue
+
+                # Check for unhealthy indicators
+                needs_recovery = False
+                reason = ""
+
+                # 1. Peer not alive (no recent heartbeat)
+                if not peer.is_alive():
+                    needs_recovery = True
+                    reason = "not responding to heartbeat"
+
+                # 2. Stale gossip state (no updates in 5 minutes)
+                elif node_id in gossip_states:
+                    state = gossip_states[node_id]
+                    state_age = now - state.get("timestamp", 0)
+                    if state_age > 300:
+                        needs_recovery = True
+                        reason = f"stale gossip ({int(state_age)}s old)"
+
+                # 3. High consecutive failures
+                elif getattr(peer, "consecutive_failures", 0) >= 5:
+                    needs_recovery = True
+                    reason = f"high failure count ({peer.consecutive_failures})"
+
+                # 4. Disk nearly full (>95%)
+                elif getattr(peer, "disk_percent", 0) > 95:
+                    needs_recovery = True
+                    reason = f"disk full ({peer.disk_percent}%)"
+
+                if needs_recovery:
+                    nodes_to_recover.append((node_id, peer, reason))
+
+        # Attempt recovery for identified nodes (max 2 per cycle)
+        for node_id, peer, reason in nodes_to_recover[:2]:
+            print(f"[P2P] NODE RECOVERY: Attempting to recover {node_id} ({reason})")
+            self._node_recovery_attempts[node_id] = now
+            self._node_recovery_metrics["attempts"] += 1
+
+            success = await self._attempt_node_recovery(node_id, peer)
+            if success:
+                self._node_recovery_metrics["successes"] += 1
+                print(f"[P2P] NODE RECOVERY: Successfully restarted {node_id}")
+            else:
+                self._node_recovery_metrics["failures"] += 1
+                print(f"[P2P] NODE RECOVERY: Failed to restart {node_id}")
+
+    async def _attempt_node_recovery(self, node_id: str, peer) -> bool:
+        """Attempt to recover a node by restarting its service via SSH.
+
+        Returns True if recovery command succeeded, False otherwise.
+        """
+        host = getattr(peer, "host", None)
+        if not host:
+            return False
+
+        try:
+            import asyncio.subprocess as subprocess
+
+            # Try to restart the service via SSH
+            cmd = f"timeout 30 ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no {host} 'sudo systemctl restart ringrift-p2p'"
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=45)
+
+            if proc.returncode == 0:
+                return True
+            else:
+                print(f"[P2P] NODE RECOVERY: SSH failed for {node_id}: {stderr.decode()[:100]}")
+                return False
+
+        except asyncio.TimeoutError:
+            print(f"[P2P] NODE RECOVERY: SSH timeout for {node_id}")
+            return False
+        except Exception as e:
+            print(f"[P2P] NODE RECOVERY: Error recovering {node_id}: {e}")
+            return False
+
+    def _get_node_recovery_metrics(self) -> dict:
+        """Get node recovery metrics for /status endpoint."""
+        metrics = getattr(self, "_node_recovery_metrics", {"attempts": 0, "successes": 0, "failures": 0})
+        attempts = getattr(self, "_node_recovery_attempts", {})
+        now = time.time()
+
+        # Count nodes in recovery cooldown
+        in_cooldown = sum(1 for t in attempts.values() if now - t < 600)
+
+        return {
+            "total_attempts": metrics.get("attempts", 0),
+            "successes": metrics.get("successes", 0),
+            "failures": metrics.get("failures", 0),
+            "nodes_in_cooldown": in_cooldown,
+        }
+
     async def _start_monitoring_if_leader(self):
         """Start Prometheus/Grafana when we become leader (P2P monitoring resilience)."""
         if not self.monitoring_manager:
@@ -19249,6 +19642,9 @@ print(json.dumps({{
                 # P2P model sync: dedicated model distribution (more frequent)
                 await self._p2p_model_sync()
 
+                # P2P training DB sync: sync training databases for diversity
+                await self._p2p_training_db_sync()
+
                 # Gossip protocol: share state with random peers
                 await self._gossip_state_to_peers()
 
@@ -19276,6 +19672,8 @@ print(json.dumps({{
                     await self._auto_scale_gpu_utilization()
                     # Self-healing: probe NAT-blocked peers to check if they've become reachable
                     await self._sweep_nat_recovery()
+                    # Self-healing: detect and recover stuck nodes via SSH restart
+                    await self._check_node_recovery()
             except Exception as e:
                 print(f"[P2P] Job management error: {e}")
 
