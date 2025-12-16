@@ -115,16 +115,13 @@ def load_hosts_config() -> Dict[str, Any]:
 
 
 def get_coordinator_address() -> Tuple[str, int]:
-    """Get coordinator address from config or use default."""
-    hosts = load_hosts_config()
+    """Get coordinator address from config or use default.
 
-    # Mac Studio is the authoritative coordinator
-    if 'mac-studio' in hosts:
-        mac_config = hosts['mac-studio']
-        # Prefer Tailscale IP for direct connection
-        ip = mac_config.get('ssh_host', DEFAULT_COORDINATOR_IP)
-        return ip, DEFAULT_PORT
-
+    Returns the DEFAULT_COORDINATOR_IP which should be set to whichever
+    machine is currently running the coordinator.
+    """
+    # Use the hardcoded default which points to the active coordinator
+    # This avoids issues with config files pointing to the wrong machine
     return DEFAULT_COORDINATOR_IP, DEFAULT_PORT
 
 
