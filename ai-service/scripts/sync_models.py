@@ -509,7 +509,7 @@ def sync_model_to_host(
     if HAS_BANDWIDTH_MANAGER:
         try:
             bandwidth_allocated = request_bandwidth(
-                host.name, estimated_mb=50, priority=TransferPriority.HIGH, timeout=30.0
+                host.name, mbps=50.0, priority=TransferPriority.HIGH
             )
             if not bandwidth_allocated:
                 logger.warning(f"{host.name}: Bandwidth unavailable, proceeding anyway")
@@ -581,7 +581,7 @@ def collect_model_from_host(
     if HAS_BANDWIDTH_MANAGER:
         try:
             bandwidth_allocated = request_bandwidth(
-                host.name, estimated_mb=50, priority=TransferPriority.HIGH, timeout=30.0
+                host.name, mbps=50.0, priority=TransferPriority.HIGH
             )
             if not bandwidth_allocated:
                 logger.warning(f"{host.name}: Bandwidth unavailable, proceeding anyway")
