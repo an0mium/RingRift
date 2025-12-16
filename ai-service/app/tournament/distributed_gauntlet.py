@@ -208,11 +208,17 @@ class DistributedNNGauntlet:
             columns = {row[1] for row in cursor.fetchall()}
             id_col = "model_id" if "model_id" in columns else "participant_id"
 
+            # Filter out archived models
+            archived_filter = ""
+            if "archived_at" in columns:
+                archived_filter = "AND (archived_at IS NULL OR archived_at = 0)"
+
             cursor = conn.execute(f"""
                 SELECT {id_col}
                 FROM elo_ratings
                 WHERE board_type = ? AND num_players = ?
                 AND games_played < ?
+                {archived_filter}
             """, (board_type, num_players, min_games))
 
             return [row[0] for row in cursor.fetchall()]
