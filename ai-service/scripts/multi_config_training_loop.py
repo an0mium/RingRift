@@ -113,6 +113,19 @@ BOARD_VARIANTS = {
     "hexagonal": ["hex", "hexagonal"],
 }
 
+# Short names for display - must be unique per board type
+BOARD_SHORT_NAMES = {
+    "square8": "sq8",
+    "square19": "sq19",
+    "hexagonal": "hex",
+}
+
+
+def short_name(board_type: str, num_players: int) -> str:
+    """Generate a unique short name for a board/player config."""
+    prefix = BOARD_SHORT_NAMES.get(board_type, board_type[:4])
+    return f"{prefix}_{num_players}p"
+
 
 def count_trained_models(board_type: str, num_players: int) -> int:
     """Count existing trained models for a specific board/player config.
@@ -167,7 +180,11 @@ def find_databases(path: str) -> List[str]:
 
 
 def count_games_with_moves(db_path: str, board_type: str, num_players: int) -> int:
-    """Count games that have move data (required for training export)."""
+    """Count games that have move data and are not excluded from training.
+
+    This must match the filtering in export_replay_dataset.py which uses
+    GameReplayDB.query_games with exclude_training_excluded=True (default).
+    """
     if not os.path.exists(db_path):
         return 0
     try:
@@ -180,18 +197,33 @@ def count_games_with_moves(db_path: str, board_type: str, num_players: int) -> i
             conn.close()
             return 0
 
+        # Check if excluded_from_training column exists
+        cur.execute("PRAGMA table_info(games)")
+        columns = {row[1] for row in cur.fetchall()}
+        has_excluded_col = "excluded_from_training" in columns
+
         # Try with different board type name variants
         variants = BOARD_VARIANTS.get(board_type, [board_type])
         total = 0
         for variant in variants:
             try:
-                # Try query without excluded_from_training first (more compatible)
-                cur.execute("""
-                    SELECT COUNT(DISTINCT g.game_id)
-                    FROM games g
-                    INNER JOIN game_moves gm ON g.game_id = gm.game_id
-                    WHERE g.board_type = ? AND g.num_players = ?
-                """, (variant, num_players))
+                # Count games with moves, excluding training-excluded games
+                # COALESCE handles NULL values (treat as not excluded)
+                if has_excluded_col:
+                    cur.execute("""
+                        SELECT COUNT(DISTINCT g.game_id)
+                        FROM games g
+                        INNER JOIN game_moves gm ON g.game_id = gm.game_id
+                        WHERE g.board_type = ? AND g.num_players = ?
+                        AND COALESCE(g.excluded_from_training, 0) = 0
+                    """, (variant, num_players))
+                else:
+                    cur.execute("""
+                        SELECT COUNT(DISTINCT g.game_id)
+                        FROM games g
+                        INNER JOIN game_moves gm ON g.game_id = gm.game_id
+                        WHERE g.board_type = ? AND g.num_players = ?
+                    """, (variant, num_players))
                 result = cur.fetchone()
                 if result and result[0] > 0:
                     total += result[0]
@@ -228,7 +260,7 @@ def run_training(board_type: str, num_players: int, db_paths: List[str], current
     """Run export and training for a config using multiple data sources with deduplication."""
     key = (board_type, num_players)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    short = f"{board_type[:3]}{num_players}p"
+    short = short_name(board_type, num_players)
 
     # Get config-specific export settings
     max_games, sample_every, epochs = EXPORT_SETTINGS.get(
@@ -315,10 +347,11 @@ def main():
     global last_trained_counts
 
     print("=" * 60, flush=True)
-    print("Multi-Config Training Loop v3 (BALANCED)", flush=True)
+    print("Multi-Config Training Loop v4 (BALANCED)", flush=True)
     print(f"Base dir: {BASE_DIR}", flush=True)
-    print("Configs: " + ", ".join(f"{bt[:3]}{np}p" for bt, np in THRESHOLDS.keys()), flush=True)
+    print("Configs: " + ", ".join(short_name(bt, np) for bt, np in THRESHOLDS.keys()), flush=True)
     print("Mode: BALANCE - prioritizes least-represented combos", flush=True)
+    print("Note: Excludes games marked excluded_from_training=1", flush=True)
     print("=" * 60, flush=True)
 
     iteration = 0
@@ -339,11 +372,11 @@ def main():
                 last = last_trained_counts.get(config, 0)
                 new_games = count - last
                 models = model_counts.get(config, 0)
-                short = f"{board_type[:3]}{num_players}p"
+                sn = short_name(board_type, num_players)
 
                 if count > 0:
-                    # Show games and model count: hex2p:1500(+100/50)[3db]M:2
-                    status_parts.append(f"{short}:{count}(+{new_games}/{threshold})M:{models}")
+                    # Show games and model count: hex_2p:1500(+100/50)M:2
+                    status_parts.append(f"{sn}:{count}(+{new_games}/{threshold})M:{models}")
 
                 # Check if ready for training
                 if new_games >= threshold and db_paths:
@@ -359,8 +392,8 @@ def main():
                 training_candidates.sort(key=lambda x: (x[4], -x[3]))
                 config, db_paths, count, new_games, models = training_candidates[0]
                 board_type, num_players = config
-                short = f"{board_type[:3]}{num_players}p"
-                print(f"[{ts}] BALANCE: Training {short} (has only {models} models, {new_games} new games)", flush=True)
+                sn = short_name(board_type, num_players)
+                print(f"[{ts}] BALANCE: Training {sn} (has only {models} models, {new_games} new games)", flush=True)
                 run_training(board_type, num_players, db_paths, count)
 
             time.sleep(60)
