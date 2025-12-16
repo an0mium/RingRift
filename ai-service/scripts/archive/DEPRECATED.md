@@ -63,6 +63,30 @@ The improvement cycle manager bridged P2P orchestrator with AI training. Its fea
 - A/B testing → Use `model_promotion_manager.py` with significance testing
 - Curriculum learning → `UnifiedLoop.AdaptiveCurriculum` with Elo-weighted training
 
+### streaming_data_collector.py
+
+**Archived:** 2025-12-16
+**Reason:** Superseded by `unified_data_sync.py`
+**Replacement:** Use `unified_data_sync.py` for data collection
+
+### collector_watchdog.py
+
+**Archived:** 2025-12-16
+**Reason:** Superseded by `unified_data_sync.py --watchdog`
+**Replacement:** Use `unified_data_sync.py --watchdog` for monitoring
+
+### sync_models_to_cluster.py
+
+**Archived:** 2025-12-16
+**Reason:** Superseded by `sync_models.py` (canonical model sync script)
+**Replacement:** Use `sync_models.py` for all model synchronization
+
+The canonical `sync_models.py` consolidates features from:
+
+- `sync_models_to_cluster.py` (cluster-aware, parallel scanning)
+- `sync_staging_ai_artifacts.py` (tarball sync, daemon integration)
+- `sync_cluster_data.sh` (resilient connections, Tailscale fallback)
+
 ### Other Archived Scripts (from previous consolidation)
 
 - `master_self_improvement.py` - Superseded by unified_ai_loop.py

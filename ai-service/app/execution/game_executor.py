@@ -199,7 +199,7 @@ class GameExecutor:
     def rules_engine(self):
         """Lazy-load rules engine."""
         if self._rules_engine is None:
-            from app.rules_engine import DefaultRulesEngine
+            from app.rules.default_engine import DefaultRulesEngine
             self._rules_engine = DefaultRulesEngine()
         return self._rules_engine
 
