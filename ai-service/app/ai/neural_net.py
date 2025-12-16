@@ -3460,6 +3460,7 @@ class NeuralNetAI(BaseAI):
             "RingRiftCNN_v2_Lite": RingRiftCNN_v2_Lite,
             "RingRiftCNN_v3": RingRiftCNN_v3,
             "RingRiftCNN_v3_Lite": RingRiftCNN_v3_Lite,
+            "RingRiftCNN_v4": RingRiftCNN_v4,
         }
 
         if model_class_name in square_model_classes:
@@ -3701,6 +3702,7 @@ class NeuralNetAI(BaseAI):
             "RingRiftCNN_v2_Lite": RingRiftCNN_v2_Lite,
             "RingRiftCNN_v3": RingRiftCNN_v3,
             "RingRiftCNN_v3_Lite": RingRiftCNN_v3_Lite,
+            "RingRiftCNN_v4": RingRiftCNN_v4,
         }
         cls = square_model_classes.get(model_class)
         if cls is None:

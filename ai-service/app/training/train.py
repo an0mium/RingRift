@@ -1462,26 +1462,104 @@ def train_model(
                     config.board_type.name,
                 )
     else:
-        # Hex or streaming: rely on board defaults.
-        if use_hex_model:
+        # Hex or streaming: try to infer from data, fall back to board defaults.
+        inferred_hex_size: Optional[int] = None
+        if use_hex_model and not use_streaming:
+            # Try to infer policy_size from hex data
+            if isinstance(data_path, list):
+                data_path_str = data_path[0] if data_path else ""
+            else:
+                data_path_str = data_path
+            if data_path_str:
+                try:
+                    if os.path.exists(data_path_str):
+                        with np.load(data_path_str, mmap_mode="r", allow_pickle=True) as d:
+                            if "policy_indices" in d:
+                                pi = d["policy_indices"]
+                                max_idx = -1
+                                for i in range(len(pi)):
+                                    arr = np.asarray(pi[i])
+                                    if arr.size == 0:
+                                        continue
+                                    local_max = int(np.asarray(arr).max())
+                                    if local_max > max_idx:
+                                        max_idx = local_max
+                                if max_idx >= 0:
+                                    inferred_hex_size = max_idx + 1
+                except Exception as exc:
+                    if not distributed or is_main_process():
+                        logger.warning(
+                            "Failed to infer hex policy_size from %s: %s",
+                            data_path_str,
+                            exc,
+                        )
+
+        if inferred_hex_size is not None:
+            policy_size = inferred_hex_size
+            if not distributed or is_main_process():
+                logger.info(
+                    "Using inferred hex policy_size=%d from dataset %s",
+                    policy_size,
+                    data_path_str,
+                )
+        elif use_hex_model:
             policy_size = P_HEX
+            if not distributed or is_main_process():
+                logger.info(
+                    "Using board-default hex policy_size=%d for board_type=%s",
+                    policy_size,
+                    config.board_type.name,
+                )
         else:
             policy_size = get_policy_size_for_board(config.board_type)
-        if not distributed or is_main_process():
-            logger.info(
-                "Using board-default policy_size=%d for board_type=%s "
-                "(hex or streaming path)",
-                policy_size,
-                config.board_type.name,
-            )
+            if not distributed or is_main_process():
+                logger.info(
+                    "Using board-default policy_size=%d for board_type=%s "
+                    "(streaming path)",
+                    policy_size,
+                    config.board_type.name,
+                )
 
     hex_in_channels = 0
     hex_num_players = num_players
-    use_hex_v3 = use_hex_model and model_version == 'v3'
+    # NOTE: HexNeuralNet_v3 has hardcoded spatial policy indices that assume P_HEX encoding.
+    # If the dataset uses a different policy encoding, v3 will fail with scatter index OOB.
+    # For now, disable v3 and always use v2 which has a flexible FC policy head.
+    use_hex_v3 = False  # Disabled: use_hex_model and model_version == 'v3'
     if use_hex_model:
-        # V3 hex encoder has 16 base channels, V2 has 10
-        hex_base_channels = 16 if use_hex_v3 else 10
-        hex_in_channels = hex_base_channels * (config.history_length + 1)
+        # Try to infer in_channels from the dataset's feature shape
+        inferred_in_channels = None
+        if isinstance(data_path, list):
+            data_path_str = data_path[0] if data_path else ""
+        else:
+            data_path_str = data_path
+        if data_path_str and os.path.exists(data_path_str):
+            try:
+                with np.load(data_path_str, mmap_mode="r", allow_pickle=True) as d:
+                    if "features" in d:
+                        feat_shape = d["features"].shape
+                        if len(feat_shape) >= 2:
+                            inferred_in_channels = feat_shape[1]  # (N, C, H, W)
+            except Exception as exc:
+                if not distributed or is_main_process():
+                    logger.warning(
+                        "Failed to infer hex in_channels from %s: %s",
+                        data_path_str,
+                        exc,
+                    )
+
+        if inferred_in_channels is not None:
+            hex_in_channels = inferred_in_channels
+            if not distributed or is_main_process():
+                logger.info(
+                    "Using inferred hex in_channels=%d from dataset %s",
+                    hex_in_channels,
+                    data_path_str,
+                )
+        else:
+            # Fallback to computed value
+            hex_base_channels = 16 if use_hex_v3 else 10
+            hex_in_channels = hex_base_channels * (config.history_length + 1)
         hex_num_players = MAX_PLAYERS if multi_player else num_players
 
     if not distributed or is_main_process():
