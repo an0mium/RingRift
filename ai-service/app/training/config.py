@@ -43,7 +43,9 @@ def _scale_batch_size_for_gpu(base_batch: int, policy_size: int = 7000) -> int:
     max_batch = int(available_mb / mem_per_sample_mb)
 
     # Scale up from base but cap at max
-    if gpu_mem >= 70:  # H100 class
+    if gpu_mem >= 90:  # GH200 class (96GB)
+        scaled = base_batch * 32
+    elif gpu_mem >= 70:  # H100 class (80GB)
         scaled = base_batch * 16
     elif gpu_mem >= 30:  # A100 class
         scaled = base_batch * 8
@@ -52,7 +54,7 @@ def _scale_batch_size_for_gpu(base_batch: int, policy_size: int = 7000) -> int:
     else:  # Consumer GPUs
         scaled = base_batch * 2
 
-    return min(scaled, max_batch, 4096)  # Cap at 4096
+    return min(scaled, max_batch, 8192)  # Cap at 8192
 
 
 @dataclass

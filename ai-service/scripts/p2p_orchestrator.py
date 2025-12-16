@@ -1003,7 +1003,7 @@ class TrainingJob:
     completed_at: float = 0.0
     # Training configuration
     epochs: int = 100
-    batch_size: int = 2048
+    batch_size: int = 4096  # Increased for GH200/H100 GPUs
     learning_rate: float = 0.001
     # Data sources
     data_paths: List[str] = field(default_factory=list)
@@ -10566,7 +10566,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 num_players=num_players,
                 worker_node=gpu_worker.node_id,
                 epochs=job_config.get("epochs", 100),
-                batch_size=job_config.get("batch_size", 2048),
+                batch_size=job_config.get("batch_size", 4096),
                 learning_rate=job_config.get("learning_rate", 0.001),
                 data_games_count=job_config.get("total_games", 0),
             )
@@ -10844,7 +10844,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             board_type = data.get("board_type", "square8")
             num_players = data.get("num_players", 2)
             epochs = data.get("epochs", 100)
-            batch_size = data.get("batch_size", 2048)
+            batch_size = data.get("batch_size", 4096)
             learning_rate = data.get("learning_rate", None)
 
             # Start NNUE training subprocess
