@@ -1,0 +1,150 @@
+{
+  "dashboard": {
+    "title": "P2P Cluster Health",
+    "uid": "p2p-cluster-health",
+    "tags": ["ringrift", "p2p", "cluster"],
+    "timezone": "browser",
+    "refresh": "30s",
+    "panels": [
+      {
+        "title": "P2P Nodes Up",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "expr": "count(up{job=\"ringrift-p2p-cluster\"} == 1)",
+            "legendFormat": "Nodes Up"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                { "color": "red", "value": 0 },
+                { "color": "yellow", "value": 5 },
+                { "color": "green", "value": 10 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "P2P Nodes Down",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+        "targets": [
+          {
+            "expr": "count(up{job=\"ringrift-p2p-cluster\"} == 0)",
+            "legendFormat": "Nodes Down"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                { "color": "green", "value": 0 },
+                { "color": "yellow", "value": 2 },
+                { "color": "red", "value": 5 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "Node Exporter Up",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+        "targets": [
+          {
+            "expr": "count(up{job=\"node-exporter-cluster\"} == 1)",
+            "legendFormat": "Host Metrics"
+          }
+        ]
+      },
+      {
+        "title": "Alerts Firing",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+        "targets": [
+          {
+            "expr": "count(ALERTS{alertstate=\"firing\"})",
+            "legendFormat": "Firing"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                { "color": "green", "value": 0 },
+                { "color": "yellow", "value": 1 },
+                { "color": "red", "value": 3 }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "P2P Node Status",
+        "type": "table",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+        "targets": [
+          {
+            "expr": "up{job=\"ringrift-p2p-cluster\"}",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": { "excludeByName": { "Time": true, "__name__": true, "job": true } }
+          }
+        ]
+      },
+      {
+        "title": "Host CPU Usage",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+        "targets": [
+          {
+            "expr": "100 - (avg by(node) (rate(node_cpu_seconds_total{mode=\"idle\",job=\"node-exporter-cluster\"}[5m])) * 100)",
+            "legendFormat": "{{node}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "percent", "max": 100 }
+        }
+      },
+      {
+        "title": "Host Memory Usage",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+        "targets": [
+          {
+            "expr": "(1 - (node_memory_MemAvailable_bytes{job=\"node-exporter-cluster\"} / node_memory_MemTotal_bytes{job=\"node-exporter-cluster\"})) * 100",
+            "legendFormat": "{{node}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "percent", "max": 100 }
+        }
+      },
+      {
+        "title": "Host Disk Usage",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+        "targets": [
+          {
+            "expr": "(1 - (node_filesystem_avail_bytes{job=\"node-exporter-cluster\",mountpoint=\"/\"} / node_filesystem_size_bytes{job=\"node-exporter-cluster\",mountpoint=\"/\"})) * 100",
+            "legendFormat": "{{node}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "percent", "max": 100 }
+        }
+      }
+    ],
+    "schemaVersion": 38
+  },
+  "overwrite": true
+}

@@ -55,75 +55,88 @@ scrape_configs:
 
   # ---------------------------------------------------------------------------
   # RingRift Application (Node.js backend)
+  # NOTE: Commented out - not deployed on aws-staging monitoring host
   # ---------------------------------------------------------------------------
-  - job_name: 'ringrift-app'
-    static_configs:
-      - targets: ['app:3000']
-        labels:
-          service: 'ringrift'
-          component: 'backend'
-    metrics_path: '/metrics'
-    scrape_interval: 15s
-    scrape_timeout: 10s
-    # Honor labels from the scraped target
-    honor_labels: true
-    # Relabel to add instance labels
-    relabel_configs:
-      - source_labels: [__address__]
-        target_label: instance
-        regex: '([^:]+):\d+'
-        replacement: '${1}'
+  # - job_name: 'ringrift-app'
+  #   static_configs:
+  #     - targets: ['app:3000']
+  #       labels:
+  #         service: 'ringrift'
+  #         component: 'backend'
+  #   metrics_path: '/metrics'
+  #   scrape_interval: 15s
 
   # ---------------------------------------------------------------------------
   # RingRift AI Service (Python FastAPI)
+  # NOTE: Commented out - not deployed on aws-staging monitoring host
   # ---------------------------------------------------------------------------
-  - job_name: 'ringrift-ai-service'
-    static_configs:
-      - targets: ['ai-service:8001']
-        labels:
-          service: 'ringrift'
-          component: 'ai-service'
-    metrics_path: '/metrics'
-    scrape_interval: 15s
-    scrape_timeout: 10s
+  # - job_name: 'ringrift-ai-service'
+  #   static_configs:
+  #     - targets: ['ai-service:8001']
+  #       labels:
+  #         service: 'ringrift'
+  #         component: 'ai-service'
+  #   metrics_path: '/metrics'
+  #   scrape_interval: 15s
 
   # ---------------------------------------------------------------------------
   # RingRift Elo Metrics Exporter (for model improvement tracking)
+  # NOTE: Commented out - not deployed on aws-staging monitoring host
   # ---------------------------------------------------------------------------
-  - job_name: 'ringrift-elo-metrics'
-    static_configs:
-      - targets: ['host.docker.internal:9092']
-        labels:
-          service: 'ringrift'
-          component: 'elo-metrics'
-    metrics_path: '/metrics'
-    scrape_interval: 30s
-    scrape_timeout: 15s
+  # - job_name: 'ringrift-elo-metrics'
+  #   static_configs:
+  #     - targets: ['host.docker.internal:9092']
+  #       labels:
+  #         service: 'ringrift'
+  #         component: 'elo-metrics'
+  #   metrics_path: '/metrics'
+  #   scrape_interval: 30s
 
   # ---------------------------------------------------------------------------
   # RingRift Data Quality Monitor (training data quality metrics)
+  # NOTE: Commented out - not deployed on aws-staging monitoring host
   # ---------------------------------------------------------------------------
-  - job_name: 'ringrift-data-quality'
-    static_configs:
-      - targets: ['host.docker.internal:9093']
-        labels:
-          service: 'ringrift'
-          component: 'data-quality'
-    metrics_path: '/metrics'
-    scrape_interval: 60s
-    scrape_timeout: 30s
+  # - job_name: 'ringrift-data-quality'
+  #   static_configs:
+  #     - targets: ['host.docker.internal:9093']
+  #       labels:
+  #         service: 'ringrift'
+  #         component: 'data-quality'
+  #   metrics_path: '/metrics'
+  #   scrape_interval: 60s
 
   # ---------------------------------------------------------------------------
   # RingRift Unified AI Loop (training, evaluation, promotion metrics)
+  # NOTE: Commented out - not deployed on aws-staging monitoring host
   # ---------------------------------------------------------------------------
-  - job_name: 'ringrift-unified-loop'
+  # - job_name: 'ringrift-unified-loop'
+  #   static_configs:
+  #     - targets: ['host.docker.internal:9091']
+  #       labels:
+  #         service: 'ringrift'
+  #         component: 'unified-loop'
+  #   metrics_path: '/metrics'
+  #   scrape_interval: 15s
+
+  # ---------------------------------------------------------------------------
+  # Node Exporter - Cluster Host Metrics
+  # ---------------------------------------------------------------------------
+  - job_name: 'node-exporter-cluster'
     static_configs:
-      - targets: ['host.docker.internal:9091']
+      - targets: ['100.78.101.123:9100']
         labels:
-          service: 'ringrift'
-          component: 'unified-loop'
+          node: 'lambda-h100'
+      - targets: ['100.97.104.89:9100']
+        labels:
+          node: 'lambda-2xh100'
+      - targets: ['100.91.25.13:9100']
+        labels:
+          node: 'lambda-a10'
+      - targets: ['100.115.97.24:9100']
+        labels:
+          node: 'aws-staging'
     metrics_path: '/metrics'
-    scrape_interval: 15s
+    scrape_interval: 30s
     scrape_timeout: 10s
 
   # ---------------------------------------------------------------------------

@@ -224,6 +224,52 @@ python scripts/node_resilience.py --node-id vast-5080 --coordinator https://p2p.
 1. Run cleanup manually: `~/ringrift/ai-service/scripts/disk_cleanup.sh`
 2. Remove old checkpoints: `find ~/ringrift/ai-service/models -name "*_202*.pth" -mtime +1 -delete`
 
+### Vast.ai SSH Connection Issues
+
+Vast.ai SSH connections can be unstable, dropping immediately after the welcome banner. This is a known issue with Vast's SSH proxy infrastructure.
+
+**Symptoms:**
+
+- SSH connects but exits with code 255
+- Welcome message appears but command never runs
+- Timeout during banner exchange
+
+**Workarounds:**
+
+1. **Use Vast CLI instead of SSH:**
+
+   ```bash
+   # Install vast CLI
+   pip install vastai
+
+   # List instances
+   vastai show instances
+
+   # Reboot problematic instance
+   vastai reboot instance <INSTANCE_ID>
+
+   # Execute command on instance
+   vastai execute <INSTANCE_ID> "command here"
+   ```
+
+2. **Use Tailscale IP if connected:**
+
+   ```bash
+   # Check if instance has Tailscale
+   tailscale status | grep vast
+
+   # Connect via Tailscale IP
+   ssh root@<TAILSCALE_IP>
+   ```
+
+3. **Reboot via Vast Dashboard:**
+   - Go to https://cloud.vast.ai/instances/
+   - Find the instance and click "Reboot"
+
+4. **Wait and retry:**
+   - SSH proxy issues are often temporary
+   - Wait 30-60 seconds and retry the connection
+
 ## Key Tailscale IPs
 
 | Node           | Tailscale IP   |
