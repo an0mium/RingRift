@@ -10,14 +10,16 @@ Usage:
 
 import argparse
 import logging
-import os
 import sqlite3
-import subprocess
 import sys
 import time
-import yaml
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import List, Optional, Set, Tuple
+
+# Use shared modules from app/
+from app.distributed.hosts import HostConfig, load_remote_hosts
+from app.distributed.sync_utils import rsync_file
+from app.execution.executor import run_ssh_command_sync
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,7 +29,6 @@ logger = logging.getLogger(__name__)
 
 SCRIPT_DIR = Path(__file__).parent
 AI_SERVICE_ROOT = SCRIPT_DIR.parent
-CONFIG_PATH = AI_SERVICE_ROOT / "config" / "distributed_hosts.yaml"
 
 # Local paths
 LOCAL_GAMES_DIR = AI_SERVICE_ROOT / "data" / "games"
@@ -37,116 +38,45 @@ SYNC_TEMP_DIR = AI_SERVICE_ROOT / "data" / "sync_temp"
 SSH_TIMEOUT = 15
 
 
-def load_hosts_from_config() -> List[Dict]:
-    """Load active hosts from distributed_hosts.yaml."""
-    if not CONFIG_PATH.exists():
-        logger.warning(f"Config not found: {CONFIG_PATH}")
-        return []
+def load_active_hosts() -> List[HostConfig]:
+    """Load active hosts from distributed_hosts.yaml using shared module."""
+    all_hosts = load_remote_hosts()
+    active_hosts = []
 
-    try:
-        with open(CONFIG_PATH) as f:
-            config = yaml.safe_load(f)
+    for host in all_hosts.values():
+        # Skip stopped/disabled hosts by checking properties
+        status = host.properties.get('status', 'active')
+        if status in ('stopped', 'disabled', 'setup', 'unstable'):
+            continue
+        active_hosts.append(host)
 
-        hosts = []
-        for name, cfg in config.get('hosts', {}).items():
-            # Skip stopped/disabled hosts
-            if cfg.get('status') in ('stopped', 'disabled', 'setup', 'unstable'):
-                continue
-
-            # Prefer Tailscale IP for reliable connectivity, fall back to ssh_host
-            host_ip = cfg.get('tailscale_ip') or cfg.get('ssh_host')
-            if not host_ip:
-                continue
-
-            hosts.append({
-                'name': name,
-                'ip': host_ip,
-                'user': cfg.get('ssh_user', 'ubuntu'),
-                'ssh_key': cfg.get('ssh_key'),
-                'ssh_port': cfg.get('ssh_port', 22),
-                'ringrift_path': cfg.get('ringrift_path', '~/ringrift/ai-service'),
-            })
-
-        logger.info(f"Loaded {len(hosts)} active hosts from config")
-        return hosts
-    except Exception as e:
-        logger.error(f"Failed to load config: {e}")
-        return []
+    logger.info(f"Loaded {len(active_hosts)} active hosts from config")
+    return active_hosts
 
 
-def run_ssh(host_cfg: Dict, cmd: str, timeout: int = SSH_TIMEOUT) -> Optional[str]:
-    """Run SSH command and return output."""
-    try:
-        ssh_args = [
-            "ssh",
-            "-o", f"ConnectTimeout={timeout}",
-            "-o", "BatchMode=yes",
-            "-o", "StrictHostKeyChecking=no",
-        ]
-
-        # Add SSH key if specified
-        if host_cfg.get('ssh_key'):
-            key_path = os.path.expanduser(host_cfg['ssh_key'])
-            ssh_args.extend(["-i", key_path])
-
-        # Add port if non-standard
-        if host_cfg.get('ssh_port', 22) != 22:
-            ssh_args.extend(["-p", str(host_cfg['ssh_port'])])
-
-        # Build host string
-        host_str = f"{host_cfg['user']}@{host_cfg['ip']}"
-        ssh_args.extend([host_str, cmd])
-
-        result = subprocess.run(
-            ssh_args,
-            capture_output=True, text=True, timeout=timeout + 5
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-        return None
-    except Exception:
-        return None
+def run_ssh(host: HostConfig, cmd: str, timeout: int = SSH_TIMEOUT) -> Optional[str]:
+    """Run SSH command and return output using shared executor."""
+    result = run_ssh_command_sync(
+        host=host.ssh_host,
+        command=cmd,
+        user=host.ssh_user,
+        port=host.ssh_port,
+        key_path=host.ssh_key_path if host.ssh_key else None,
+        timeout=timeout,
+    )
+    if result.success:
+        return result.stdout.strip()
+    return None
 
 
-def rsync_file(host_cfg: Dict, remote_path: str, local_path: Path) -> bool:
-    """Rsync a single file from remote host."""
-    try:
-        local_path.parent.mkdir(parents=True, exist_ok=True)
-
-        rsync_args = ["rsync", "-az", "--timeout=60"]
-
-        # Build SSH command with options
-        ssh_cmd = "ssh -o StrictHostKeyChecking=no -o BatchMode=yes"
-        if host_cfg.get('ssh_key'):
-            key_path = os.path.expanduser(host_cfg['ssh_key'])
-            ssh_cmd += f" -i {key_path}"
-        if host_cfg.get('ssh_port', 22) != 22:
-            ssh_cmd += f" -p {host_cfg['ssh_port']}"
-
-        rsync_args.extend(["-e", ssh_cmd])
-
-        # Build source path
-        host_str = f"{host_cfg['user']}@{host_cfg['ip']}"
-        rsync_args.extend([f"{host_str}:{remote_path}", str(local_path)])
-
-        result = subprocess.run(
-            rsync_args,
-            capture_output=True, timeout=120
-        )
-        return result.returncode == 0
-    except Exception as e:
-        logger.warning(f"Rsync failed for {host_cfg['name']}:{remote_path}: {e}")
-        return False
-
-
-def find_remote_dbs(host_cfg: Dict) -> List[str]:
+def find_remote_dbs(host: HostConfig) -> List[str]:
     """Find all game databases on a remote host."""
     dbs = []
-    work_dir = host_cfg.get('ringrift_path', '~/ringrift/ai-service')
+    work_dir = host.work_directory
 
     # Find all .db files with games
     cmd = f"cd {work_dir} && find data -name '*.db' -size +10k 2>/dev/null | head -50"
-    result = run_ssh(host_cfg, cmd, timeout=30)
+    result = run_ssh(host, cmd, timeout=30)
 
     if result:
         for line in result.strip().split('\n'):
@@ -327,33 +257,32 @@ def merge_database(source_db: Path, target_db: Path) -> Tuple[int, int]:
         return 0, 0
 
 
-def sync_from_host(host_cfg: Dict) -> Tuple[int, int]:
+def sync_from_host(host: HostConfig) -> Tuple[int, int]:
     """Sync all game databases from a single host. Returns (new_games, dbs_synced)."""
-    host_name = host_cfg['name']
-    logger.info(f"Syncing from {host_name} ({host_cfg['ip']})...")
+    logger.info(f"Syncing from {host.name} ({host.ssh_host})...")
 
     # Check if host is reachable
-    if not run_ssh(host_cfg, "echo ok"):
-        logger.warning(f"  {host_name} unreachable")
+    if not run_ssh(host, "echo ok"):
+        logger.warning(f"  {host.name} unreachable")
         return 0, 0
 
     # Find databases on remote host
-    remote_dbs = find_remote_dbs(host_cfg)
+    remote_dbs = find_remote_dbs(host)
     if not remote_dbs:
-        logger.info(f"  {host_name}: no databases found")
+        logger.info(f"  {host.name}: no databases found")
         return 0, 0
 
-    logger.info(f"  {host_name}: found {len(remote_dbs)} databases")
+    logger.info(f"  {host.name}: found {len(remote_dbs)} databases")
 
     total_new = 0
     dbs_synced = 0
-    work_dir = host_cfg.get('ringrift_path', '~/ringrift/ai-service')
+    work_dir = host.work_directory
 
     for remote_db in remote_dbs[:20]:  # Limit to 20 dbs per host
         # Download to temp location
-        temp_path = SYNC_TEMP_DIR / host_name / Path(remote_db).name
+        temp_path = SYNC_TEMP_DIR / host.name / Path(remote_db).name
 
-        if rsync_file(host_cfg, f"{work_dir}/{remote_db}", temp_path):
+        if rsync_file(host, f"{work_dir}/{remote_db}", temp_path):
             # Merge into main database
             new_games, total = merge_database(temp_path, LOCAL_SELFPLAY_DB)
             if new_games > 0:
@@ -374,8 +303,8 @@ def run_sync_cycle() -> Tuple[int, int, int]:
     """Run one sync cycle. Returns (new_games, hosts_synced, dbs_synced)."""
     SYNC_TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Load hosts from config
-    hosts = load_hosts_from_config()
+    # Load hosts using shared module
+    hosts = load_active_hosts()
     if not hosts:
         logger.warning("No hosts loaded from config")
         return 0, 0, 0
@@ -384,8 +313,8 @@ def run_sync_cycle() -> Tuple[int, int, int]:
     hosts_synced = 0
     total_dbs = 0
 
-    for host_cfg in hosts:
-        new_games, dbs = sync_from_host(host_cfg)
+    for host in hosts:
+        new_games, dbs = sync_from_host(host)
         if new_games > 0:
             total_new += new_games
             hosts_synced += 1

@@ -149,6 +149,11 @@ from .ingestion_wal import (
     WALCheckpoint,
     create_ingestion_wal,
 )
+from .sync_utils import (
+    rsync_file,
+    rsync_directory,
+    rsync_push_file,
+)
 
 __all__ = [
     # Host configuration and memory detection
@@ -267,4 +272,8 @@ __all__ = [
     "WALEntry",
     "WALCheckpoint",
     "create_ingestion_wal",
+    # Sync utilities
+    "rsync_file",
+    "rsync_directory",
+    "rsync_push_file",
 ]
