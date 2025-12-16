@@ -337,6 +337,159 @@
       "title": "Average Elo Gain on Promotion",
       "type": "timeseries",
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } } }
+    },
+    {
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 46 },
+      "id": 21,
+      "options": {
+        "content": "## P2P Gossip Protocol\nReal-time monitoring of cluster gossip protocol, compression, and sync intervals.",
+        "mode": "markdown"
+      },
+      "title": "",
+      "type": "text"
+    },
+    {
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 50 },
+      "id": 22,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [{ "expr": "ringrift_gossip_messages_sent", "legendFormat": "Sent" }],
+      "title": "Gossip Messages Sent",
+      "type": "stat"
+    },
+    {
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 50 },
+      "id": 23,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [{ "expr": "ringrift_gossip_messages_received", "legendFormat": "Received" }],
+      "title": "Gossip Messages Received",
+      "type": "stat"
+    },
+    {
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 50 },
+      "id": 24,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        { "expr": "ringrift_gossip_compression_ratio * 100", "legendFormat": "Compression %" }
+      ],
+      "title": "Compression Ratio",
+      "type": "stat",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "yellow", "value": null },
+              { "color": "green", "value": 60 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 50 },
+      "id": 25,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [{ "expr": "ringrift_gossip_bytes_saved_kb", "legendFormat": "KB Saved" }],
+      "title": "Bytes Saved (KB)",
+      "type": "stat",
+      "fieldConfig": { "defaults": { "unit": "KBs" } }
+    },
+    {
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 50 },
+      "id": 26,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [{ "expr": "ringrift_sync_interval_data", "legendFormat": "Data Sync" }],
+      "title": "Data Sync Interval",
+      "type": "stat",
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 50 },
+      "id": 27,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [{ "expr": "ringrift_sync_activity_factor", "legendFormat": "Activity Factor" }],
+      "title": "Activity Factor",
+      "type": "stat",
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1.0 },
+              { "color": "red", "value": 1.5 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 54 },
+      "id": 28,
+      "options": {
+        "legend": { "calcs": ["mean", "last"], "displayMode": "table", "placement": "right" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        { "expr": "ringrift_dedup_files_skipped", "legendFormat": "Files Skipped" },
+        { "expr": "ringrift_dedup_bytes_saved_mb", "legendFormat": "MB Saved" }
+      ],
+      "title": "Data Deduplication",
+      "type": "timeseries"
+    },
+    {
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 54 },
+      "id": 29,
+      "options": {
+        "legend": { "calcs": ["mean", "last"], "displayMode": "table", "placement": "right" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [{ "expr": "ringrift_leader_agreement", "legendFormat": "Leader Agreement" }],
+      "title": "Leader Consensus",
+      "type": "timeseries"
     }
   ],
   "refresh": "30s",
