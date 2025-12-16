@@ -485,31 +485,17 @@ def export_replay_dataset_multi(
                         games_skipped += 1
                         continue
 
+            # NOTE: We defer final_state computation until after incremental replay
+            # to avoid slow db.get_state_at_move() call. The incremental replay will
+            # give us the final state naturally.
             final_state_index = total_moves - 1
             if max_safe_move_index is not None:
                 final_state_index = min(final_state_index, max_safe_move_index)
 
-            try:
-                final_state = db.get_state_at_move(game_id, final_state_index)
-            except Exception as e:
-                logger.debug(f"Skipping game {game_id}: replay error: {e}")
-                games_skipped += 1
-                continue
-            if final_state is None:
-                continue
+            num_players_in_game = len(initial_state.players)
 
-            num_players_in_game = len(final_state.players)
-            if use_rank_aware_values:
-                values_vec = np.asarray(
-                    compute_multi_player_values(final_state, num_players=num_players_in_game),
-                    dtype=np.float32,
-                )
-            else:
-                values_vec = np.zeros(4, dtype=np.float32)
-                for p in final_state.players:
-                    base = value_from_final_winner(final_state, p.number)
-                    values_vec[p.number - 1] = float(base)
-
+            # Collect samples first, then compute values after we have final state
+            game_samples: List[Tuple[np.ndarray, np.ndarray, int, int, str]] = []
             history_frames: List[np.ndarray] = []
             samples_before = len(features_list)
 
@@ -518,6 +504,7 @@ def export_replay_dataset_multi(
             from app.game_engine import GameEngine
 
             current_state = initial_state
+            replay_succeeded = True
             for move_index, move in enumerate(moves):
                 if max_safe_move_index is not None and move_index > max_safe_move_index:
                     break
@@ -533,6 +520,7 @@ def export_replay_dataset_multi(
                     current_state = GameEngine.apply_move(current_state, move, trace_mode=True)
                 except Exception as e:
                     logger.debug(f"Skipping game {game_id} at move {move_index}: {e}")
+                    replay_succeeded = False
                     break
 
                 # Skip if not sampling this move
@@ -560,12 +548,45 @@ def export_replay_dataset_multi(
                 if idx == INVALID_MOVE_INDEX:
                     continue
 
+                # Store sample with perspective for later value computation
+                phase_str = (
+                    str(state_before.current_phase.value)
+                    if hasattr(state_before.current_phase, "value")
+                    else str(state_before.current_phase)
+                )
+                game_samples.append((
+                    stacked, globals_vec, idx, state_before.current_player,
+                    move_index, phase_str
+                ))
+
+            # Skip this game if replay failed
+            if not replay_succeeded or not game_samples:
+                games_skipped += 1
+                continue
+
+            # Now we have final_state = current_state from incremental replay
+            final_state = current_state
+
+            # Compute values using the final replayed state
+            if use_rank_aware_values:
+                values_vec = np.asarray(
+                    compute_multi_player_values(final_state, num_players=num_players_in_game),
+                    dtype=np.float32,
+                )
+            else:
+                values_vec = np.zeros(4, dtype=np.float32)
+                for p in final_state.players:
+                    base = value_from_final_winner(final_state, p.player_number)
+                    values_vec[p.player_number - 1] = float(base)
+
+            # Add all samples from this game with computed values
+            for stacked, globals_vec, idx, perspective, move_index, phase_str in game_samples:
                 if use_rank_aware_values:
                     value = value_from_final_ranking(
-                        final_state, perspective=state_before.current_player, num_players=num_players
+                        final_state, perspective=perspective, num_players=num_players
                     )
                 else:
-                    value = value_from_final_winner(final_state, perspective=state_before.current_player)
+                    value = value_from_final_winner(final_state, perspective=perspective)
 
                 features_list.append(stacked)
                 globals_list.append(globals_vec)
@@ -576,11 +597,6 @@ def export_replay_dataset_multi(
                 num_players_list.append(num_players_in_game)
                 move_numbers_list.append(move_index)
                 total_game_moves_list.append(total_moves)
-                phase_str = (
-                    str(state_before.current_phase.value)
-                    if hasattr(state_before.current_phase, "value")
-                    else str(state_before.current_phase)
-                )
                 phases_list.append(phase_str)
 
             samples_added = len(features_list) - samples_before
