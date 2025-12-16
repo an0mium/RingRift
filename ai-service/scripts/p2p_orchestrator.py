@@ -108,32 +108,31 @@ def systemd_notify_ready():
 
 
 class AsyncLockWrapper:
-    """Async context manager wrapper for threading locks.
+    """Synchronous context manager wrapper for threading locks in async code.
 
-    This allows using threading.RLock in async code without blocking the event loop.
-    The lock acquisition/release happens in a thread pool, preventing event loop starvation
-    when many concurrent requests try to acquire the same lock.
+    This wraps a threading.RLock for use in async handlers. Since the critical
+    sections protected by this lock are typically fast (reading/copying dicts),
+    we use synchronous locking which briefly blocks the event loop but guarantees
+    correct RLock semantics (same-thread acquire/release).
+
+    For long-running critical sections, consider using asyncio.Lock instead.
 
     Usage:
         # Instead of: with self.peers_lock:
         async with AsyncLockWrapper(self.peers_lock):
-            # ... critical section
+            # ... critical section (keep it fast!)
     """
 
     def __init__(self, lock: threading.RLock):
         self._lock = lock
-        self._acquired = False
 
     async def __aenter__(self):
-        # Acquire lock in thread pool to avoid blocking event loop
-        await asyncio.get_event_loop().run_in_executor(None, self._lock.acquire)
-        self._acquired = True
+        # Synchronous acquire - blocks event loop briefly but guarantees correctness
+        self._lock.acquire()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self._acquired:
-            self._lock.release()
-            self._acquired = False
+        self._lock.release()
         return False
 
 
