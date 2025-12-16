@@ -33,6 +33,20 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
+# Unified resource checking utilities (80% max utilization)
+try:
+    from app.utils.resource_guard import (
+        check_disk_space as unified_check_disk,
+        get_disk_usage as unified_get_disk_usage,
+        LIMITS as RESOURCE_LIMITS,
+    )
+    HAS_RESOURCE_GUARD = True
+except ImportError:
+    HAS_RESOURCE_GUARD = False
+    unified_check_disk = None
+    unified_get_disk_usage = None
+    RESOURCE_LIMITS = None
+
 # Disk usage limits - 70% max enforced 2025-12-16
 MAX_DISK_USAGE_PERCENT = float(os.environ.get("RINGRIFT_MAX_DISK_PERCENT", "70"))
 
@@ -46,13 +60,29 @@ DATA_DIR = Path(__file__).parent.parent.parent / "data"
 def check_disk_usage(path: Path = None) -> Tuple[bool, float]:
     """Check if disk has capacity for syncing.
 
+    Uses unified resource_guard utilities when available for consistent
+    80% max utilization enforcement (70% for disk).
+
     Args:
         path: Path to check disk usage for. Defaults to DATA_DIR.
 
     Returns:
         Tuple of (has_capacity, current_usage_percent)
     """
-    check_path = path or DATA_DIR
+    check_path = str(path) if path else str(DATA_DIR)
+
+    # Use unified utilities when available
+    if HAS_RESOURCE_GUARD and unified_get_disk_usage is not None:
+        try:
+            percent, _, _ = unified_get_disk_usage(check_path)
+            has_capacity = percent < MAX_DISK_USAGE_PERCENT
+            if not has_capacity:
+                logger.warning(f"Disk usage {percent:.1f}% exceeds limit {MAX_DISK_USAGE_PERCENT}%")
+            return has_capacity, percent
+        except Exception:
+            pass  # Fall through to original implementation
+
+    # Fallback to original implementation
     try:
         usage = shutil.disk_usage(check_path)
         percent = 100.0 * usage.used / usage.total

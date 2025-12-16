@@ -58,6 +58,26 @@ from app.db.integrity import (
     recover_corrupted_database,
 )
 
+# Unified resource checking utilities (80% max utilization)
+try:
+    from app.utils.resource_guard import (
+        check_disk_space as unified_check_disk,
+        check_memory as unified_check_memory,
+        check_cpu as unified_check_cpu,
+        get_disk_usage,
+        get_memory_usage,
+        get_cpu_usage,
+        can_proceed as resources_can_proceed,
+        LIMITS as RESOURCE_LIMITS,
+    )
+    HAS_RESOURCE_GUARD = True
+except ImportError:
+    HAS_RESOURCE_GUARD = False
+    unified_check_disk = None
+    unified_check_memory = None
+    unified_check_cpu = None
+    RESOURCE_LIMITS = None
+
 # Optional Prometheus client
 try:
     from prometheus_client import Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST
@@ -683,9 +703,19 @@ MAX_DISK_USAGE_PERCENT = float(os.environ.get("RINGRIFT_MAX_DISK_PERCENT", "70")
 def get_disk_usage_percent(path: str = None) -> float:
     """Get disk usage percentage for the given path (defaults to AI_SERVICE_ROOT).
 
+    Uses unified resource_guard utilities when available for consistent
+    80% max utilization enforcement across the codebase.
+
     Returns:
         Disk usage as a percentage (0-100), or 100.0 on error.
     """
+    if HAS_RESOURCE_GUARD and get_disk_usage is not None:
+        try:
+            used_pct, _, _ = get_disk_usage(path)
+            return used_pct
+        except Exception:
+            pass
+    # Fallback to original implementation
     check_path = path or str(AI_SERVICE_ROOT)
     try:
         stat = os.statvfs(check_path)
@@ -702,6 +732,9 @@ def get_disk_usage_percent(path: str = None) -> float:
 def check_disk_has_capacity(threshold: float = None) -> Tuple[bool, float]:
     """Check if disk has capacity below threshold for data sync.
 
+    Uses unified resource_guard utilities when available for consistent
+    80% max utilization enforcement (70% for disk).
+
     Args:
         threshold: Max disk usage percentage (defaults to MAX_DISK_USAGE_PERCENT)
 
@@ -711,6 +744,43 @@ def check_disk_has_capacity(threshold: float = None) -> Tuple[bool, float]:
     threshold = threshold or MAX_DISK_USAGE_PERCENT
     current = get_disk_usage_percent()
     return (current < threshold, current)
+
+
+def check_all_resources() -> Tuple[bool, str]:
+    """Check if all resources (CPU, memory, disk) are within limits.
+
+    Uses unified 80% max utilization thresholds from resource_guard.
+
+    Returns:
+        Tuple of (can_proceed: bool, reason: str)
+    """
+    if not HAS_RESOURCE_GUARD:
+        # Fallback: only check disk
+        has_disk, disk_pct = check_disk_has_capacity()
+        if not has_disk:
+            return False, f"Disk at {disk_pct:.1f}%"
+        return True, "OK"
+
+    reasons = []
+
+    # Check disk (70% limit)
+    if not unified_check_disk(log_warning=False):
+        disk_pct, _, _ = get_disk_usage()
+        reasons.append(f"Disk {disk_pct:.1f}%")
+
+    # Check memory (80% limit)
+    if not unified_check_memory(log_warning=False):
+        mem_pct, _, _ = get_memory_usage()
+        reasons.append(f"Memory {mem_pct:.1f}%")
+
+    # Check CPU (80% limit)
+    if not unified_check_cpu(log_warning=False):
+        cpu_pct, _, _ = get_cpu_usage()
+        reasons.append(f"CPU {cpu_pct:.1f}%")
+
+    if reasons:
+        return False, ", ".join(reasons)
+    return True, "OK"
 
 
 # =============================================================================
