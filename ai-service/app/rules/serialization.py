@@ -228,10 +228,10 @@ def serialize_move(move: Move) -> Dict[str, Any]:
         "moveNumber": move.move_number,
     }
 
-    if move.from_pos:
+    if move.from_pos is not None:
         result["from"] = serialize_position(move.from_pos)
 
-    if move.capture_target:
+    if move.capture_target is not None:
         result["captureTarget"] = serialize_position(move.capture_target)
 
     if move.placement_count is not None and move.placement_count > 0:
