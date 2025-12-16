@@ -97,31 +97,30 @@ def discover_all_models(models_dir: Path, board_filter: Optional[str] = None) ->
     """
     result = {"nn": [], "nnue": []}
 
-    # Use unified discovery API
+    # Use unified discovery API - get all models including unknown for logging
     all_models = discover_models(
         models_dir=models_dir,
-        board_type=board_filter,
-        include_unknown=False,  # Skip models with unknown board type
+        board_type=None,  # Get all board types first
+        include_unknown=True,
     )
 
     for model_info in all_models:
         path = Path(model_info.path)
         board_type = model_info.board_type
 
+        # Log unknown board types
+        if board_type == "unknown":
+            logger.warning(f"Unknown board type for {model_info.name}, skipping")
+            continue
+
+        # Apply board filter if specified
+        if board_filter and board_type != board_filter:
+            continue
+
         if model_info.model_type == "nn":
             result["nn"].append((path, board_type))
         elif model_info.model_type == "nnue":
             result["nnue"].append((path, board_type))
-
-    # Log any skipped models (unknown board type)
-    unknown_models = discover_models(
-        models_dir=models_dir,
-        board_type=None,
-        include_unknown=True,
-    )
-    for m in unknown_models:
-        if m.board_type == "unknown":
-            logger.warning(f"Unknown board type for {m.name}, skipping")
 
     return result
 
