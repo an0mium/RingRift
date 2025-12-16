@@ -432,19 +432,172 @@ def pre_spawn_check(
     return True, f"OK (latency: {status.latency_ms:.0f}ms)" if status.latency_ms else "OK"
 
 
+# =============================================================================
+# Cluster-wide Health Gates
+# =============================================================================
+
+# Default minimum healthy hosts for expensive operations
+DEFAULT_MIN_HEALTHY_HOSTS = 2
+# Cache for cluster health status
+_cluster_health_cache: Dict[str, Any] = {}
+_cluster_health_lock = threading.RLock()
+CLUSTER_HEALTH_CACHE_TTL = 120  # 2 minutes
+
+
+def check_cluster_health(
+    hosts: Optional[List[str]] = None,
+    min_healthy: int = DEFAULT_MIN_HEALTHY_HOSTS,
+    min_healthy_ratio: float = 0.5,
+    force_refresh: bool = False,
+) -> Tuple[bool, Dict[str, Any]]:
+    """Check if cluster has enough healthy hosts for expensive operations.
+
+    Use this before starting training, large evaluations, or critical syncs
+    to avoid wasting resources when the cluster is degraded.
+
+    Args:
+        hosts: List of hosts to check. If None, loads from distributed_hosts.yaml
+        min_healthy: Minimum absolute number of healthy hosts required
+        min_healthy_ratio: Minimum ratio of healthy hosts (e.g., 0.5 = 50%)
+        force_refresh: Bypass cache and check all hosts
+
+    Returns:
+        Tuple of (cluster_healthy: bool, details: Dict) with health summary
+    """
+    global _cluster_health_cache
+
+    # Load hosts if not provided
+    if hosts is None:
+        try:
+            from app.distributed.hosts import load_remote_hosts
+            hosts = list(load_remote_hosts().keys())
+        except ImportError:
+            # No distributed hosts configured, cluster check passes
+            return True, {"status": "ok", "reason": "no distributed hosts configured"}
+
+    if not hosts:
+        return True, {"status": "ok", "reason": "no hosts to check"}
+
+    # Check cache (unless force refresh)
+    cache_key = f"{','.join(sorted(hosts))}:{min_healthy}:{min_healthy_ratio}"
+    with _cluster_health_lock:
+        if not force_refresh and cache_key in _cluster_health_cache:
+            cached = _cluster_health_cache[cache_key]
+            if time.time() - cached["checked_at"] < CLUSTER_HEALTH_CACHE_TTL:
+                return cached["healthy"], cached
+
+    # Perform health checks in parallel
+    healthy_hosts = get_healthy_hosts(hosts, force_refresh=force_refresh, parallel=True)
+
+    total = len(hosts)
+    healthy = len(healthy_hosts)
+    unhealthy = total - healthy
+    ratio = healthy / total if total > 0 else 0
+
+    # Determine cluster health
+    is_healthy = healthy >= min_healthy and ratio >= min_healthy_ratio
+
+    details = {
+        "healthy": is_healthy,
+        "status": "healthy" if is_healthy else "degraded",
+        "checked_at": time.time(),
+        "total_hosts": total,
+        "healthy_hosts": healthy,
+        "unhealthy_hosts": unhealthy,
+        "healthy_ratio": round(ratio, 2),
+        "healthy_host_names": healthy_hosts,
+        "unhealthy_host_names": [h for h in hosts if h not in healthy_hosts],
+        "min_required": min_healthy,
+        "min_ratio_required": min_healthy_ratio,
+    }
+
+    if not is_healthy:
+        if healthy < min_healthy:
+            details["reason"] = f"Only {healthy}/{min_healthy} required hosts healthy"
+        else:
+            details["reason"] = f"Only {ratio:.0%} of hosts healthy (need {min_healthy_ratio:.0%})"
+    else:
+        details["reason"] = f"{healthy}/{total} hosts healthy ({ratio:.0%})"
+
+    # Cache result
+    with _cluster_health_lock:
+        _cluster_health_cache[cache_key] = details
+
+    return is_healthy, details
+
+
+def is_cluster_healthy(
+    min_healthy: int = DEFAULT_MIN_HEALTHY_HOSTS,
+    min_healthy_ratio: float = 0.5,
+) -> bool:
+    """Quick check if cluster is healthy enough for expensive operations.
+
+    Args:
+        min_healthy: Minimum number of healthy hosts
+        min_healthy_ratio: Minimum ratio of healthy hosts
+
+    Returns:
+        True if cluster is healthy, False otherwise
+    """
+    healthy, _ = check_cluster_health(
+        min_healthy=min_healthy,
+        min_healthy_ratio=min_healthy_ratio,
+    )
+    return healthy
+
+
+def gate_on_cluster_health(
+    operation_name: str,
+    min_healthy: int = DEFAULT_MIN_HEALTHY_HOSTS,
+    min_healthy_ratio: float = 0.5,
+) -> Tuple[bool, str]:
+    """Health gate for expensive operations.
+
+    Use this at the start of expensive operations to fail fast if the
+    cluster is unhealthy.
+
+    Args:
+        operation_name: Name of the operation (for logging)
+        min_healthy: Minimum healthy hosts required
+        min_healthy_ratio: Minimum healthy ratio required
+
+    Returns:
+        Tuple of (can_proceed: bool, message: str)
+
+    Example:
+        can_proceed, msg = gate_on_cluster_health("training")
+        if not can_proceed:
+            print(f"[Training] Skipping: {msg}")
+            return
+    """
+    healthy, details = check_cluster_health(
+        min_healthy=min_healthy,
+        min_healthy_ratio=min_healthy_ratio,
+    )
+
+    if healthy:
+        return True, f"Cluster healthy: {details['reason']}"
+    else:
+        return False, f"Cluster degraded: {details['reason']}"
+
+
 # Command-line interface
 
 if __name__ == "__main__":
     import argparse
     import json
+    import sys
 
     parser = argparse.ArgumentParser(description="Host health check utilities")
     parser.add_argument("--check", type=str, nargs="+", help="Check specific host(s)")
     parser.add_argument("--all", action="store_true", help="Check all configured hosts")
+    parser.add_argument("--cluster", action="store_true", help="Check cluster health gate")
     parser.add_argument("--summary", action="store_true", help="Show summary only")
     parser.add_argument("--cache", action="store_true", help="Show cache status")
     parser.add_argument("--clear", action="store_true", help="Clear health cache")
     parser.add_argument("--force", action="store_true", help="Force refresh (bypass cache)")
+    parser.add_argument("--min-healthy", type=int, default=2, help="Min healthy hosts for cluster check")
+    parser.add_argument("--min-ratio", type=float, default=0.5, help="Min healthy ratio for cluster check")
     args = parser.parse_args()
 
     if args.clear:
@@ -453,6 +606,21 @@ if __name__ == "__main__":
 
     elif args.cache:
         print(json.dumps(get_cache_status(), indent=2))
+
+    elif args.cluster:
+        # Cluster health gate check
+        healthy, details = check_cluster_health(
+            min_healthy=args.min_healthy,
+            min_healthy_ratio=args.min_ratio,
+            force_refresh=args.force,
+        )
+        status_icon = "✓" if healthy else "✗"
+        print(f"{status_icon} Cluster {details['status']}: {details.get('reason', 'unknown')}")
+        print(f"  Hosts: {details.get('healthy_hosts', 0)}/{details.get('total_hosts', 0)} healthy")
+        if details.get('unhealthy_host_names'):
+            print(f"  Unhealthy: {', '.join(details['unhealthy_host_names'])}")
+        # Exit with appropriate code for scripting
+        sys.exit(0 if healthy else 1)
 
     elif args.all:
         try:
