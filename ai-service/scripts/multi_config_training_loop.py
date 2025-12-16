@@ -43,28 +43,34 @@ CONFIG_DATABASES: Dict[Tuple[str, int], List[str]] = {
     ],
     ("square19", 2): [
         "data/selfplay/diverse/square19_2p.db",
+        "data/games/square19_diverse.db",  # Cross-AI diverse games
         "data/selfplay/p2p/square19_2p",
         "data/games/selfplay.db",
     ],
     ("square19", 3): [
         "data/selfplay/diverse/square19_3p.db",
+        "data/games/square19_diverse.db",  # Cross-AI diverse games
         "data/selfplay/p2p/square19_3p",
     ],
     ("square19", 4): [
         "data/selfplay/diverse/square19_4p.db",
+        "data/games/square19_diverse.db",  # Cross-AI diverse games
         "data/games/new_square19_4p.db",
         "data/selfplay/p2p/square19_4p",
     ],
     ("hexagonal", 2): [
         "data/selfplay/diverse/hex_2p.db",
+        "data/games/hexagonal_diverse.db",  # Cross-AI diverse games
         "data/selfplay/p2p/hexagonal_2p",
     ],
     ("hexagonal", 3): [
         "data/selfplay/diverse/hex_3p.db",
+        "data/games/hexagonal_diverse.db",  # Cross-AI diverse games
         "data/selfplay/p2p/hexagonal_3p",
     ],
     ("hexagonal", 4): [
         "data/selfplay/diverse/hex_4p.db",
+        "data/games/hexagonal_diverse.db",  # Cross-AI diverse games
         "data/selfplay/p2p/hexagonal_4p",
     ],
 }
