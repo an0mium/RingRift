@@ -172,7 +172,7 @@ def get_game_ids(db_path: Path) -> Set[str]:
 
 
 def merge_database(source_db: Path, target_db: Path) -> Tuple[int, int]:
-    """Merge games from source into target. Returns (new_games, total_games)."""
+    """Merge games AND game_moves from source into target. Returns (new_games, total_games)."""
     if not source_db.exists():
         return 0, 0
 
@@ -195,25 +195,47 @@ def merge_database(source_db: Path, target_db: Path) -> Tuple[int, int]:
         columns = [desc[0] for desc in src_cursor.description]
 
         new_games = []
+        new_game_ids = []
         for row in src_cursor.fetchall():
             game_dict = dict(zip(columns, row))
             game_id = game_dict.get('game_id')
             if game_id and game_id not in existing_ids:
                 new_games.append(row)
+                new_game_ids.append(game_id)
+
+        if not new_games:
+            src_conn.close()
+            return 0, len(existing_ids)
+
+        # Get moves for new games
+        new_moves = []
+        moves_columns = None
+        src_cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='game_moves'")
+        if src_cursor.fetchone() and new_game_ids:
+            placeholders = ','.join(['?' for _ in new_game_ids])
+            src_cursor.execute(f"SELECT * FROM game_moves WHERE game_id IN ({placeholders})", new_game_ids)
+            moves_columns = [desc[0] for desc in src_cursor.description]
+            new_moves = src_cursor.fetchall()
+
+        # Get choices for new games
+        new_choices = []
+        choices_columns = None
+        src_cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='game_choices'")
+        if src_cursor.fetchone() and new_game_ids:
+            placeholders = ','.join(['?' for _ in new_game_ids])
+            src_cursor.execute(f"SELECT * FROM game_choices WHERE game_id IN ({placeholders})", new_game_ids)
+            choices_columns = [desc[0] for desc in src_cursor.description]
+            new_choices = src_cursor.fetchall()
 
         src_conn.close()
 
-        if not new_games:
-            return 0, len(existing_ids)
-
-        # Connect to target and insert new games
+        # Connect to target and insert
         tgt_conn = sqlite3.connect(str(target_db), timeout=30)
         tgt_cursor = tgt_conn.cursor()
 
-        # Ensure table exists with same schema
+        # Ensure games table exists
         tgt_cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='games'")
         if not tgt_cursor.fetchone():
-            # Create table with standard schema
             tgt_cursor.execute("""
                 CREATE TABLE IF NOT EXISTS games (
                     game_id TEXT PRIMARY KEY,
@@ -228,10 +250,35 @@ def merge_database(source_db: Path, target_db: Path) -> Tuple[int, int]:
                 )
             """)
 
+        # Ensure game_moves table exists
+        tgt_cursor.execute("""
+            CREATE TABLE IF NOT EXISTS game_moves (
+                game_id TEXT NOT NULL,
+                move_number INTEGER NOT NULL,
+                turn_number INTEGER,
+                player INTEGER,
+                phase TEXT,
+                move_type TEXT,
+                move_json TEXT,
+                PRIMARY KEY (game_id, move_number)
+            )
+        """)
+
+        # Ensure game_choices table exists
+        tgt_cursor.execute("""
+            CREATE TABLE IF NOT EXISTS game_choices (
+                game_id TEXT NOT NULL,
+                move_number INTEGER NOT NULL,
+                player INTEGER,
+                legal_moves_json TEXT,
+                chosen_move_idx INTEGER,
+                PRIMARY KEY (game_id, move_number)
+            )
+        """)
+
         # Insert new games
         placeholders = ','.join(['?' for _ in columns])
         col_names = ','.join(columns)
-
         for row in new_games:
             try:
                 tgt_cursor.execute(
@@ -239,11 +286,39 @@ def merge_database(source_db: Path, target_db: Path) -> Tuple[int, int]:
                     row
                 )
             except sqlite3.OperationalError:
-                # Column mismatch, try inserting just core columns
                 pass
+
+        # Insert game_moves
+        if new_moves and moves_columns:
+            placeholders = ','.join(['?' for _ in moves_columns])
+            col_names = ','.join(moves_columns)
+            for row in new_moves:
+                try:
+                    tgt_cursor.execute(
+                        f"INSERT OR IGNORE INTO game_moves ({col_names}) VALUES ({placeholders})",
+                        row
+                    )
+                except sqlite3.OperationalError:
+                    pass
+
+        # Insert game_choices
+        if new_choices and choices_columns:
+            placeholders = ','.join(['?' for _ in choices_columns])
+            col_names = ','.join(choices_columns)
+            for row in new_choices:
+                try:
+                    tgt_cursor.execute(
+                        f"INSERT OR IGNORE INTO game_choices ({col_names}) VALUES ({placeholders})",
+                        row
+                    )
+                except sqlite3.OperationalError:
+                    pass
 
         tgt_conn.commit()
         tgt_conn.close()
+
+        moves_info = f" (+{len(new_moves)} moves)" if new_moves else ""
+        logger.debug(f"Merged {len(new_games)} games{moves_info}")
 
         return len(new_games), len(existing_ids) + len(new_games)
 
