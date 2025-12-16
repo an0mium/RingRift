@@ -969,6 +969,37 @@ The TypeScript side uses the [`SeededRNG`](../src/shared/utils/rng.ts:1) class (
 | [AI Training Plan](docs/AI_TRAINING_PLAN.md)             | CMA-ES and neural network training   |
 | [Distributed Selfplay](docs/DISTRIBUTED_SELFPLAY.md)     | Remote worker setup                  |
 
+### Resource Management
+
+The codebase enforces **80% max utilization** across CPU, GPU, and memory to prevent system overload and maintain stability. Disk has a tighter **70% limit** because cleanup operations take time.
+
+| Resource | Warning | Critical | Rationale                          |
+| -------- | ------- | -------- | ---------------------------------- |
+| CPU      | 70%     | 80%      | Leave headroom for spikes          |
+| GPU      | 70%     | 80%      | CUDA memory safety                 |
+| Memory   | 70%     | 80%      | Prevent OOM kills                  |
+| Disk     | 65%     | 70%      | Allow time for cleanup operations  |
+
+**Key modules:**
+- [`app/utils/resource_guard.py`](app/utils/resource_guard.py) - Sync-focused utilities with psutil/PyTorch
+- [`app/utils/resource_limiter.py`](app/utils/resource_limiter.py) - Async-focused with decorators and backoff
+- [`app/coordination/resource_targets.py`](app/coordination/resource_targets.py) - PID-controlled target utilization
+- [`app/coordination/safeguards.py`](app/coordination/safeguards.py) - Emergency halt and spawn limits
+
+**Usage:**
+```python
+from app.utils.resource_guard import check_disk_space, check_memory, can_proceed
+
+# Quick check before starting work
+if not can_proceed():
+    logger.warning("Resources over limit, backing off")
+    return
+
+# Check specific resources
+if not check_disk_space(required_gb=5.0):
+    logger.error("Insufficient disk space")
+```
+
 ### Infrastructure & Deployment
 
 | Document                                                           | Description                     |
