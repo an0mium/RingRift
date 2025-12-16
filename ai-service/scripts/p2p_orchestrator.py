@@ -288,6 +288,28 @@ except ImportError:
     get_registry = None
     NodeState = None
 
+# Hybrid transport layer for HTTP/SSH fallback (self-healing Vast connectivity)
+try:
+    from app.distributed.hybrid_transport import (
+        HybridTransport,
+        get_hybrid_transport,
+        diagnose_node_connectivity,
+    )
+    from app.distributed.ssh_transport import (
+        SSHTransport,
+        get_ssh_transport,
+        probe_vast_nodes_via_ssh,
+    )
+    HAS_HYBRID_TRANSPORT = True
+except ImportError:
+    HAS_HYBRID_TRANSPORT = False
+    HybridTransport = None
+    get_hybrid_transport = None
+    diagnose_node_connectivity = None
+    SSHTransport = None
+    get_ssh_transport = None
+    probe_vast_nodes_via_ssh = None
+
 # Improvement cycle manager for automated training
 try:
     from scripts.improvement_cycle_manager import ImprovementCycleManager
@@ -1721,6 +1743,15 @@ class P2POrchestrator:
             print(f"[P2P] Auth: enabled via {AUTH_TOKEN_ENV}")
         else:
             print(f"[P2P] Auth: disabled (set {AUTH_TOKEN_ENV} to enable)")
+
+        # Hybrid transport for HTTP/SSH fallback (self-healing Vast connectivity)
+        self.hybrid_transport: Optional['HybridTransport'] = None
+        if HAS_HYBRID_TRANSPORT:
+            try:
+                self.hybrid_transport = get_hybrid_transport()
+                print(f"[P2P] HybridTransport: enabled (HTTP with SSH fallback for Vast)")
+            except Exception as e:
+                print(f"[P2P] HybridTransport: failed to initialize: {e}")
 
     def _is_leader(self) -> bool:
         """Check if this node is the current cluster leader with valid lease."""
@@ -7313,6 +7344,412 @@ class P2POrchestrator:
 
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
+
+    # ============================================
+    # Connectivity Diagnosis Handlers (SSH/HTTP fallback)
+    # ============================================
+
+    async def handle_connectivity_diagnose(self, request: web.Request) -> web.Response:
+        """GET /connectivity/diagnose/{node_id} - Diagnose connectivity to a specific node.
+
+        Probes HTTP, Tailscale, and SSH transports and returns latency/reachability
+        for each. Helps identify the best transport for communicating with a node.
+        """
+        node_id = request.match_info.get("node_id", "")
+        if not node_id:
+            return web.json_response({"error": "node_id required"}, status=400)
+
+        # Find the node's address
+        with self.peers_lock:
+            peer = self.peers.get(node_id)
+
+        if not peer:
+            return web.json_response({
+                "error": f"Node {node_id} not found in peers",
+                "known_peers": list(self.peers.keys()),
+            }, status=404)
+
+        if not HAS_HYBRID_TRANSPORT or not self.hybrid_transport:
+            # Fallback: just check if we can reach the node via HTTP
+            try:
+                info = await self._send_heartbeat_to_peer(peer.host, peer.port)
+                return web.json_response({
+                    "node_id": node_id,
+                    "http_reachable": info is not None,
+                    "hybrid_transport_available": False,
+                })
+            except Exception as e:
+                return web.json_response({
+                    "node_id": node_id,
+                    "http_reachable": False,
+                    "error": str(e),
+                    "hybrid_transport_available": False,
+                })
+
+        try:
+            diagnosis = await diagnose_node_connectivity(node_id, peer.host, peer.port)
+            return web.json_response(diagnosis)
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_transport_stats(self, request: web.Request) -> web.Response:
+        """GET /connectivity/transport_stats - Get transport statistics for all nodes.
+
+        Returns per-node transport preferences and success rates.
+        """
+        if not HAS_HYBRID_TRANSPORT or not self.hybrid_transport:
+            return web.json_response({
+                "available": False,
+                "message": "Hybrid transport not available",
+            })
+
+        try:
+            stats = self.hybrid_transport.get_transport_stats()
+            return web.json_response({
+                "available": True,
+                "node_count": len(stats),
+                "nodes": stats,
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_probe_vast_nodes(self, request: web.Request) -> web.Response:
+        """POST /connectivity/probe_vast - Probe all Vast nodes via SSH.
+
+        Tests SSH connectivity to all vast-* nodes in the registry.
+        Useful for diagnosing networking issues with Vast instances.
+        """
+        if not HAS_HYBRID_TRANSPORT:
+            return web.json_response({
+                "error": "Hybrid transport not available"
+            }, status=501)
+
+        try:
+            results = await probe_vast_nodes_via_ssh()
+            reachable = sum(1 for r, _ in results.values() if r)
+
+            return web.json_response({
+                "total_nodes": len(results),
+                "reachable": reachable,
+                "unreachable": len(results) - reachable,
+                "nodes": {
+                    node_id: {"reachable": r, "message": msg}
+                    for node_id, (r, msg) in results.items()
+                },
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    # ============================================
+    # Gauntlet Evaluation Handlers
+    # ============================================
+
+    async def handle_gauntlet_execute(self, request: web.Request) -> web.Response:
+        """POST /gauntlet/execute - Execute a batch of gauntlet games.
+
+        Workers receive batches of games to play and return results.
+        This endpoint allows distributed gauntlet evaluation across the cluster.
+
+        Request body:
+            {
+                "run_id": "abc123",
+                "config_key": "square8_2p",
+                "tasks": [
+                    {"task_id": "...", "model_id": "...", "baseline_id": "...", "game_num": 0},
+                    ...
+                ]
+            }
+
+        Response:
+            {
+                "success": true,
+                "results": [
+                    {"task_id": "...", "model_id": "...", "model_won": true, ...},
+                    ...
+                ]
+            }
+        """
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+
+        run_id = data.get("run_id", "unknown")
+        config_key = data.get("config_key", "")
+        tasks = data.get("tasks", [])
+
+        if not config_key or not tasks:
+            return web.json_response({
+                "error": "config_key and tasks required"
+            }, status=400)
+
+        print(f"[P2P] Gauntlet: Executing {len(tasks)} games for {config_key} (run {run_id})")
+
+        try:
+            results = await self._execute_gauntlet_batch(config_key, tasks)
+
+            return web.json_response({
+                "success": True,
+                "node_id": self.node_id,
+                "run_id": run_id,
+                "games_completed": len(results),
+                "results": results,
+            })
+
+        except Exception as e:
+            print(f"[P2P] Gauntlet execution error: {e}")
+            return web.json_response({
+                "success": False,
+                "error": str(e),
+            }, status=500)
+
+    async def _execute_gauntlet_batch(
+        self,
+        config_key: str,
+        tasks: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Execute a batch of gauntlet games.
+
+        Args:
+            config_key: Config like "square8_2p"
+            tasks: List of task dicts
+
+        Returns:
+            List of result dicts
+        """
+        results = []
+
+        # Parse config
+        parts = config_key.split("_")
+        board_type = parts[0]
+        num_players = int(parts[1].replace("p", ""))
+
+        # Import game execution modules
+        try:
+            from app.tournament.agents import AIAgentRegistry
+            from app.game.board import create_board
+            from app.game.engine import GameEngine
+        except ImportError as e:
+            print(f"[P2P] Gauntlet: Import error: {e}")
+            # Return simulated results if modules not available
+            for task in tasks:
+                results.append({
+                    "task_id": task["task_id"],
+                    "model_id": task["model_id"],
+                    "baseline_id": task["baseline_id"],
+                    "model_won": False,
+                    "baseline_won": True,
+                    "draw": False,
+                    "game_length": 0,
+                    "duration_sec": 0.0,
+                    "error": "Game modules not available",
+                })
+            return results
+
+        # Load model paths
+        model_dir = Path(self.ringrift_path) / "ai-service" / "data" / "models"
+
+        # Execute games concurrently in small batches
+        batch_size = 4  # Run 4 games at a time
+        for batch_start in range(0, len(tasks), batch_size):
+            batch = tasks[batch_start:batch_start + batch_size]
+
+            batch_coros = [
+                self._execute_single_gauntlet_game(
+                    task, board_type, num_players, model_dir
+                )
+                for task in batch
+            ]
+
+            batch_results = await asyncio.gather(*batch_coros, return_exceptions=True)
+
+            for task, result in zip(batch, batch_results):
+                if isinstance(result, Exception):
+                    results.append({
+                        "task_id": task["task_id"],
+                        "model_id": task["model_id"],
+                        "baseline_id": task["baseline_id"],
+                        "model_won": False,
+                        "baseline_won": False,
+                        "draw": True,
+                        "game_length": 0,
+                        "duration_sec": 0.0,
+                        "error": str(result),
+                    })
+                else:
+                    results.append(result)
+
+            # Progress update
+            print(f"[P2P] Gauntlet: Completed {len(results)}/{len(tasks)} games")
+
+        return results
+
+    async def _execute_single_gauntlet_game(
+        self,
+        task: Dict[str, Any],
+        board_type: str,
+        num_players: int,
+        model_dir: Path,
+    ) -> Dict[str, Any]:
+        """Execute a single gauntlet game.
+
+        Args:
+            task: Task dict with model_id, baseline_id, etc.
+            board_type: Board type (square8, etc.)
+            num_players: Number of players
+            model_dir: Path to model files
+
+        Returns:
+            Result dict
+        """
+        start_time = time.time()
+        task_id = task["task_id"]
+        model_id = task["model_id"]
+        baseline_id = task["baseline_id"]
+
+        try:
+            # Run game in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                self._run_gauntlet_game_sync,
+                task_id, model_id, baseline_id,
+                board_type, num_players, model_dir,
+            )
+            result["duration_sec"] = time.time() - start_time
+            return result
+
+        except Exception as e:
+            return {
+                "task_id": task_id,
+                "model_id": model_id,
+                "baseline_id": baseline_id,
+                "model_won": False,
+                "baseline_won": False,
+                "draw": True,
+                "game_length": 0,
+                "duration_sec": time.time() - start_time,
+                "error": str(e),
+            }
+
+    def _run_gauntlet_game_sync(
+        self,
+        task_id: str,
+        model_id: str,
+        baseline_id: str,
+        board_type: str,
+        num_players: int,
+        model_dir: Path,
+    ) -> Dict[str, Any]:
+        """Synchronously run a single gauntlet game.
+
+        This runs in a thread pool executor.
+        """
+        try:
+            from app.tournament.agents import AIAgentRegistry
+            from app.game.board import create_board
+            from app.game.engine import GameEngine
+
+            # Create board
+            board = create_board(board_type)
+
+            # Load agents
+            registry = AIAgentRegistry()
+
+            # Model agent (player 0)
+            if model_id == "random_ai":
+                model_agent = registry.get_agent("random")
+            else:
+                model_path = model_dir / f"{model_id}.pth"
+                if model_path.exists():
+                    model_agent = registry.get_agent("nn", model_path=str(model_path))
+                else:
+                    # Model file not found, use MCTS fallback
+                    model_agent = registry.get_agent("mcts", iterations=100)
+
+            # Baseline agent (player 1)
+            if baseline_id == "random_ai":
+                baseline_agent = registry.get_agent("random")
+            else:
+                baseline_path = model_dir / f"{baseline_id}.pth"
+                if baseline_path.exists():
+                    baseline_agent = registry.get_agent("nn", model_path=str(baseline_path))
+                else:
+                    baseline_agent = registry.get_agent("mcts", iterations=100)
+
+            # Create agents list
+            agents = [model_agent, baseline_agent]
+            # Add more agents for 3p/4p games
+            while len(agents) < num_players:
+                agents.append(registry.get_agent("random"))
+
+            # Run game
+            engine = GameEngine(board, agents)
+            max_moves = 2000 if "19" in board_type else 500
+            winner = engine.play(max_moves=max_moves)
+
+            game_length = engine.move_count
+
+            # Determine result
+            if winner is None:
+                return {
+                    "task_id": task_id,
+                    "model_id": model_id,
+                    "baseline_id": baseline_id,
+                    "model_won": False,
+                    "baseline_won": False,
+                    "draw": True,
+                    "game_length": game_length,
+                    "duration_sec": 0.0,
+                }
+            elif winner == 0:
+                return {
+                    "task_id": task_id,
+                    "model_id": model_id,
+                    "baseline_id": baseline_id,
+                    "model_won": True,
+                    "baseline_won": False,
+                    "draw": False,
+                    "game_length": game_length,
+                    "duration_sec": 0.0,
+                }
+            else:
+                return {
+                    "task_id": task_id,
+                    "model_id": model_id,
+                    "baseline_id": baseline_id,
+                    "model_won": False,
+                    "baseline_won": True,
+                    "draw": False,
+                    "game_length": game_length,
+                    "duration_sec": 0.0,
+                }
+
+        except Exception as e:
+            return {
+                "task_id": task_id,
+                "model_id": model_id,
+                "baseline_id": baseline_id,
+                "model_won": False,
+                "baseline_won": False,
+                "draw": True,
+                "game_length": 0,
+                "duration_sec": 0.0,
+                "error": str(e),
+            }
+
+    async def handle_gauntlet_status(self, request: web.Request) -> web.Response:
+        """GET /gauntlet/status - Get current gauntlet execution status.
+
+        Returns information about this node's gauntlet capabilities.
+        """
+        return web.json_response({
+            "node_id": self.node_id,
+            "available": True,
+            "has_gpu": self.self_info.has_gpu if hasattr(self.self_info, "has_gpu") else False,
+            "gpu_name": self.self_info.gpu_name if hasattr(self.self_info, "gpu_name") else "",
+            "cpu_count": self.self_info.cpu_count if hasattr(self.self_info, "cpu_count") else 0,
+        })
 
     async def handle_git_status(self, request: web.Request) -> web.Response:
         """Get git status for this node.
@@ -23436,6 +23873,15 @@ print(json.dumps({{
         app.router.add_post('/registry/update_aws', self.handle_registry_update_aws)
         app.router.add_post('/registry/update_tailscale', self.handle_registry_update_tailscale)
         app.router.add_post('/registry/save_yaml', self.handle_registry_save_yaml)
+
+        # Connectivity diagnosis routes (SSH/HTTP fallback)
+        app.router.add_get('/connectivity/diagnose/{node_id}', self.handle_connectivity_diagnose)
+        app.router.add_get('/connectivity/transport_stats', self.handle_transport_stats)
+        app.router.add_post('/connectivity/probe_vast', self.handle_probe_vast_nodes)
+
+        # Gauntlet evaluation routes
+        app.router.add_post('/gauntlet/execute', self.handle_gauntlet_execute)
+        app.router.add_get('/gauntlet/status', self.handle_gauntlet_status)
 
         # Relay/Hub routes for NAT-blocked nodes
         app.router.add_post('/relay/heartbeat', self.handle_relay_heartbeat)

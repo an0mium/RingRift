@@ -4,24 +4,44 @@ This module implements an efficient gauntlet-style evaluation where each model
 plays against a fixed set of baselines rather than O(n²) round-robin. This makes
 large-scale model evaluation tractable.
 
+Architecture:
+    - Leader node runs gauntlet coordinator
+    - Worker nodes (including Vast instances) execute games
+    - Hybrid transport ensures reliable communication even with NAT
+    - Games dispatched in batches for efficiency
+
 Usage:
     from app.tournament.distributed_gauntlet import DistributedNNGauntlet
 
     gauntlet = DistributedNNGauntlet(elo_db, model_dir)
     results = await gauntlet.run_gauntlet("square8_2p")
+
+    # Or run distributed across cluster
+    results = await gauntlet.run_gauntlet_distributed("square8_2p")
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import sqlite3
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
+
+# Try to import hybrid transport for distributed execution
+try:
+    from app.distributed.hybrid_transport import get_hybrid_transport, HybridTransport
+    HAS_HYBRID_TRANSPORT = True
+except ImportError:
+    HAS_HYBRID_TRANSPORT = False
+    get_hybrid_transport = None
+    HybridTransport = None
 
 # Config keys for all 9 board/player combinations
 CONFIG_KEYS = [
@@ -497,6 +517,405 @@ class DistributedNNGauntlet:
                         stats["draws"],
                     ))
             conn.commit()
+        finally:
+            conn.close()
+
+    # ============================================
+    # Distributed Execution via P2P Cluster
+    # ============================================
+
+    async def run_gauntlet_distributed(
+        self,
+        config_key: str,
+        p2p_url: Optional[str] = None,
+    ) -> GauntletResult:
+        """Run gauntlet evaluation distributed across the P2P cluster.
+
+        Uses the hybrid transport to dispatch games to available workers,
+        including Vast instances behind NAT.
+
+        Args:
+            config_key: Config like "square8_2p"
+            p2p_url: URL of P2P orchestrator (default: localhost:8770)
+
+        Returns:
+            GauntletResult with evaluation outcomes
+        """
+        self._init_gauntlet_tables()
+
+        p2p_url = p2p_url or os.environ.get("RINGRIFT_P2P_URL", "http://localhost:8770")
+
+        run_id = str(uuid.uuid4())[:8]
+        self._current_run = GauntletResult(
+            run_id=run_id,
+            config_key=config_key,
+            started_at=time.time(),
+            status="running",
+        )
+
+        # Record run start
+        conn = self._get_db_connection()
+        try:
+            conn.execute("""
+                INSERT INTO gauntlet_runs (run_id, config_key, started_at, status)
+                VALUES (?, ?, ?, ?)
+            """, (run_id, config_key, self._current_run.started_at, "running"))
+            conn.commit()
+        finally:
+            conn.close()
+
+        logger.info(f"[Gauntlet] Starting distributed run {run_id} for {config_key}")
+
+        # Get models to evaluate
+        unrated = self.get_unrated_models(config_key)
+        if not unrated:
+            logger.info(f"[Gauntlet] No unrated models for {config_key}")
+            self._current_run.status = "no_work"
+            return self._current_run
+
+        logger.info(f"[Gauntlet] Found {len(unrated)} unrated models")
+
+        # Select baselines
+        baselines = self.select_baselines(config_key)
+        logger.info(f"[Gauntlet] Baselines: {baselines}")
+
+        # Create game tasks
+        tasks = self.create_game_tasks(unrated, baselines, config_key)
+        self._current_run.total_games = len(tasks)
+        logger.info(f"[Gauntlet] Created {len(tasks)} game tasks")
+
+        # Discover available workers
+        workers = await self._discover_workers(p2p_url)
+        if not workers:
+            logger.warning("[Gauntlet] No workers available, falling back to local execution")
+            results = await self._execute_tasks_local(tasks, config_key)
+        else:
+            logger.info(f"[Gauntlet] Distributing to {len(workers)} workers: {[w['node_id'] for w in workers]}")
+            results = await self._execute_tasks_distributed(tasks, workers, config_key)
+
+        # Aggregate results and update Elo
+        self._aggregate_results(results)
+        await self._update_elo_from_results(config_key, results)
+
+        # Mark complete
+        self._current_run.completed_at = time.time()
+        self._current_run.status = "completed"
+        self._current_run.models_evaluated = len(unrated)
+
+        conn = self._get_db_connection()
+        try:
+            conn.execute("""
+                UPDATE gauntlet_runs
+                SET completed_at = ?, status = ?, models_evaluated = ?, total_games = ?
+                WHERE run_id = ?
+            """, (
+                self._current_run.completed_at,
+                "completed",
+                len(unrated),
+                len(results),
+                run_id,
+            ))
+            conn.commit()
+        finally:
+            conn.close()
+
+        duration = self._current_run.completed_at - self._current_run.started_at
+        logger.info(
+            f"[Gauntlet] Completed {run_id}: {len(unrated)} models, "
+            f"{len(results)} games in {duration:.1f}s"
+        )
+
+        return self._current_run
+
+    async def _discover_workers(self, p2p_url: str) -> List[Dict[str, Any]]:
+        """Discover available gauntlet workers from P2P cluster.
+
+        Args:
+            p2p_url: URL of P2P orchestrator
+
+        Returns:
+            List of worker info dicts with node_id, host, port
+        """
+        try:
+            import aiohttp
+            from aiohttp import ClientTimeout
+
+            timeout = ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(f"{p2p_url}/status") as resp:
+                    if resp.status != 200:
+                        logger.warning(f"[Gauntlet] P2P status failed: {resp.status}")
+                        return []
+
+                    data = await resp.json()
+
+            # Find workers that are alive and have capacity
+            workers = []
+            peers = data.get("peers", {})
+
+            for node_id, peer_info in peers.items():
+                # Skip nodes that are down
+                if not peer_info.get("is_alive", False):
+                    continue
+
+                # Prefer nodes with GPUs but accept CPU-only for gauntlet
+                # (gauntlet games are lighter than training)
+                workers.append({
+                    "node_id": node_id,
+                    "host": peer_info.get("host", ""),
+                    "port": peer_info.get("port", 8770),
+                    "has_gpu": peer_info.get("has_gpu", False),
+                    "gpu_name": peer_info.get("gpu_name", ""),
+                    "selfplay_jobs": peer_info.get("selfplay_jobs", 0),
+                })
+
+            # Sort by GPU power, then by current load
+            workers.sort(key=lambda w: (-1 if w["has_gpu"] else 0, w["selfplay_jobs"]))
+
+            # Limit to reserved workers (default 2-4)
+            max_workers = self.config.reserved_workers * 2  # Allow some extra
+            return workers[:max_workers]
+
+        except Exception as e:
+            logger.error(f"[Gauntlet] Failed to discover workers: {e}")
+            return []
+
+    async def _execute_tasks_distributed(
+        self,
+        tasks: List[GameTask],
+        workers: List[Dict[str, Any]],
+        config_key: str,
+    ) -> List[GameResult]:
+        """Execute game tasks distributed across workers.
+
+        Dispatches batches of games to workers and collects results.
+
+        Args:
+            tasks: List of game tasks to execute
+            workers: Available workers
+            config_key: Config for the games
+
+        Returns:
+            List of game results
+        """
+        results = []
+        batch_size = self.config.parallel_games
+
+        # Split tasks into batches for each worker
+        worker_batches: Dict[str, List[GameTask]] = {w["node_id"]: [] for w in workers}
+
+        for i, task in enumerate(tasks):
+            worker_idx = i % len(workers)
+            worker = workers[worker_idx]
+            worker_batches[worker["node_id"]].append(task)
+
+        # Dispatch all batches concurrently
+        dispatch_tasks = []
+        for worker in workers:
+            batch = worker_batches[worker["node_id"]]
+            if batch:
+                dispatch_tasks.append(
+                    self._dispatch_and_wait(worker, batch, config_key)
+                )
+
+        # Wait for all workers to complete
+        batch_results = await asyncio.gather(*dispatch_tasks, return_exceptions=True)
+
+        # Flatten results
+        for batch_result in batch_results:
+            if isinstance(batch_result, Exception):
+                logger.error(f"[Gauntlet] Worker batch failed: {batch_result}")
+                continue
+            if isinstance(batch_result, list):
+                results.extend(batch_result)
+
+        logger.info(f"[Gauntlet] Collected {len(results)}/{len(tasks)} results")
+        return results
+
+    async def _dispatch_and_wait(
+        self,
+        worker: Dict[str, Any],
+        tasks: List[GameTask],
+        config_key: str,
+    ) -> List[GameResult]:
+        """Dispatch a batch of tasks to a worker and wait for results.
+
+        Uses hybrid transport for reliable communication.
+
+        Args:
+            worker: Worker info dict
+            tasks: Tasks to execute
+            config_key: Config for the games
+
+        Returns:
+            List of game results
+        """
+        node_id = worker["node_id"]
+        host = worker["host"]
+        port = worker["port"]
+
+        # Prepare batch payload
+        payload = {
+            "run_id": self._current_run.run_id if self._current_run else "unknown",
+            "config_key": config_key,
+            "tasks": [
+                {
+                    "task_id": t.task_id,
+                    "model_id": t.model_id,
+                    "baseline_id": t.baseline_id,
+                    "game_num": t.game_num,
+                }
+                for t in tasks
+            ],
+        }
+
+        # Try to use hybrid transport if available
+        if HAS_HYBRID_TRANSPORT:
+            transport = get_hybrid_transport()
+            success, response = await transport.send_request(
+                node_id=node_id,
+                host=host,
+                port=port,
+                path="/gauntlet/execute",
+                method="POST",
+                payload=payload,
+                command_type="gauntlet_execute",
+                timeout=self.config.timeout_seconds * len(tasks),
+            )
+
+            if success and response:
+                return self._parse_batch_response(response)
+            else:
+                logger.warning(f"[Gauntlet] Hybrid transport failed for {node_id}")
+
+        # Fallback to direct HTTP
+        try:
+            import aiohttp
+            from aiohttp import ClientTimeout
+
+            timeout = ClientTimeout(total=self.config.timeout_seconds * len(tasks))
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                url = f"http://{host}:{port}/gauntlet/execute"
+                async with session.post(url, json=payload) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        return self._parse_batch_response(data)
+                    else:
+                        logger.error(f"[Gauntlet] Worker {node_id} returned {resp.status}")
+                        return []
+
+        except Exception as e:
+            logger.error(f"[Gauntlet] Dispatch to {node_id} failed: {e}")
+            return []
+
+    def _parse_batch_response(self, response: Dict[str, Any]) -> List[GameResult]:
+        """Parse batch response from worker into GameResult objects."""
+        results = []
+
+        for r in response.get("results", []):
+            try:
+                result = GameResult(
+                    task_id=r["task_id"],
+                    model_id=r["model_id"],
+                    baseline_id=r["baseline_id"],
+                    model_won=r.get("model_won", False),
+                    baseline_won=r.get("baseline_won", False),
+                    draw=r.get("draw", False),
+                    game_length=r.get("game_length", 0),
+                    duration_sec=r.get("duration_sec", 0.0),
+                )
+                results.append(result)
+            except (KeyError, TypeError) as e:
+                logger.warning(f"[Gauntlet] Invalid result format: {e}")
+
+        return results
+
+    async def _update_elo_from_results(
+        self,
+        config_key: str,
+        results: List[GameResult],
+    ) -> None:
+        """Update Elo ratings based on gauntlet results.
+
+        Uses standard Elo update formula.
+
+        Args:
+            config_key: Config for the games
+            results: List of game results
+        """
+        parts = config_key.split("_")
+        board_type = parts[0]
+        num_players = int(parts[1].replace("p", ""))
+
+        K = 32  # Standard Elo K-factor
+
+        conn = self._get_db_connection()
+        try:
+            cursor = conn.execute("PRAGMA table_info(elo_ratings)")
+            columns = {row[1] for row in cursor.fetchall()}
+            id_col = "model_id" if "model_id" in columns else "participant_id"
+
+            # Get current ratings for all models
+            cursor = conn.execute(f"""
+                SELECT {id_col}, rating, games_played
+                FROM elo_ratings
+                WHERE board_type = ? AND num_players = ?
+            """, (board_type, num_players))
+
+            ratings = {}
+            games_played = {}
+            for row in cursor.fetchall():
+                ratings[row[0]] = row[1]
+                games_played[row[0]] = row[2]
+
+            # Default rating for new models and random_ai
+            DEFAULT_RATING = 1500.0
+            ratings.setdefault("random_ai", DEFAULT_RATING)
+
+            # Calculate Elo changes
+            elo_changes: Dict[str, float] = {}
+
+            for result in results:
+                model_id = result.model_id
+                baseline_id = result.baseline_id
+
+                model_rating = ratings.get(model_id, DEFAULT_RATING)
+                baseline_rating = ratings.get(baseline_id, DEFAULT_RATING)
+
+                # Expected score
+                expected = 1 / (1 + 10 ** ((baseline_rating - model_rating) / 400))
+
+                # Actual score
+                if result.model_won:
+                    actual = 1.0
+                elif result.draw:
+                    actual = 0.5
+                else:
+                    actual = 0.0
+
+                # Elo change
+                delta = K * (actual - expected)
+
+                if model_id not in elo_changes:
+                    elo_changes[model_id] = 0.0
+                elo_changes[model_id] += delta
+
+            # Update database
+            for model_id, delta in elo_changes.items():
+                new_rating = ratings.get(model_id, DEFAULT_RATING) + delta
+                new_games = games_played.get(model_id, 0) + 1
+
+                conn.execute(f"""
+                    UPDATE elo_ratings
+                    SET rating = ?, games_played = ?
+                    WHERE {id_col} = ? AND board_type = ? AND num_players = ?
+                """, (new_rating, new_games, model_id, board_type, num_players))
+
+            conn.commit()
+            logger.info(f"[Gauntlet] Updated Elo for {len(elo_changes)} models")
+
+        except Exception as e:
+            logger.error(f"[Gauntlet] Failed to update Elo: {e}")
         finally:
             conn.close()
 

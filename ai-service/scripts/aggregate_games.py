@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""
+Aggregate games from JSONL files to SQLite database.
+Designed for automated cron execution.
+"""
+import os
+import json
+import sqlite3
+import glob
+import sys
+from datetime import datetime
+
+DATA_DIR = os.environ.get("DATA_DIR", "data/games")
+DB_PATH = os.path.join(DATA_DIR, "selfplay.db")
+
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""CREATE TABLE IF NOT EXISTS games (
+        game_id TEXT PRIMARY KEY,
+        board_type TEXT,
+        num_players INTEGER,
+        moves TEXT,
+        winner INTEGER,
+        final_scores TEXT,
+        metadata TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        source_file TEXT
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_board_players ON games(board_type, num_players)")
+    conn.commit()
+    return conn
+
+def aggregate():
+    conn = init_db()
+    total_imported = 0
+    
+    for jsonl_file in glob.glob(os.path.join(DATA_DIR, "*.jsonl")):
+        imported = 0
+        with open(jsonl_file) as f:
+            for line in f:
+                try:
+                    g = json.loads(line.strip())
+                    conn.execute(
+                        "INSERT OR IGNORE INTO games (game_id, board_type, num_players, moves, winner, final_scores, metadata, source_file) VALUES (?,?,?,?,?,?,?,?)",
+                        (g.get("game_id"), g.get("board_type"), g.get("num_players"), 
+                         json.dumps(g.get("moves", [])), g.get("winner"), 
+                         json.dumps(g.get("final_scores", {})), json.dumps(g),
+                         os.path.basename(jsonl_file))
+                    )
+                    imported += 1
+                except:
+                    pass
+        conn.commit()
+        if imported > 0:
+            print(f"  {os.path.basename(jsonl_file)}: +{imported}")
+            total_imported += imported
+    
+    # Print stats
+    print(f"\nTotal imported: {total_imported}")
+    print("\nDatabase totals:")
+    for row in conn.execute("SELECT board_type, num_players, COUNT(*) FROM games GROUP BY 1,2 ORDER BY 3 DESC"):
+        print(f"  {row[0]} {row[1]}p: {row[2]}")
+    total = conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+    print(f"TOTAL: {total}")
+    
+    conn.close()
+    return total
+
+if __name__ == "__main__":
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Aggregating games to {DB_PATH}")
+    aggregate()

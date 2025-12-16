@@ -113,6 +113,9 @@ def play_single_game(
         search_depth: Minimax search depth (2=fast, 4=accurate)
     """
     try:
+        # Enable neural demo AI for NN model evaluation
+        os.environ["AI_ENGINE_NEURAL_DEMO_ENABLED"] = "true"
+
         from app.game_engine import GameEngine
         from app.main import _create_ai_instance
         from app.training.generate_data import create_initial_state
@@ -140,8 +143,16 @@ def play_single_game(
                 nnue_model_path=model_path,
             )
         else:
-            model_ai_type = AIType.HEURISTIC
-            model_config = AIConfig(ai_type=model_ai_type, difficulty=3)  # Lower for speed
+            # NN model - use NeuralNetAI to actually evaluate the neural network
+            # Extract model name (stem) from path for nn_model_id
+            from pathlib import Path
+            model_name = Path(model_path).stem
+            model_ai_type = AIType.NEURAL_DEMO
+            model_config = AIConfig(
+                ai_type=model_ai_type,
+                difficulty=5,
+                nn_model_id=model_name,
+            )
         model_ai = _create_ai_instance(model_ai_type, model_player, model_config)
 
         ais = {model_player: model_ai, opp_player: opponent}
