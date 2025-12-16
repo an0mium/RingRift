@@ -2397,13 +2397,17 @@ class StreamingDataCollector:
             ssh_target = f"{host.ssh_user}@{host.ssh_host}"
             port_arg = f"-p {host.ssh_port}" if host.ssh_port != 22 else ""
 
-            # Get game count from all DBs (using Python since sqlite3 CLI may not be installed)
+            # Get game count from all DBs AND JSONL files (GPU selfplay outputs JSONL)
             python_script = (
                 "import sqlite3, glob, os; "
                 "os.chdir(os.path.expanduser('~/ringrift/ai-service')); "
-                "dbs=glob.glob('data/games/*.db'); "
                 "total=0; "
+                # Count from DB files
+                "dbs=glob.glob('data/games/*.db'); "
                 "[total := total + sqlite3.connect(db).execute('SELECT COUNT(*) FROM games').fetchone()[0] for db in dbs if 'schema' not in db]; "
+                # Count from JSONL files (one game per line)
+                "jsonls=glob.glob('data/games/gpu_selfplay/*/games.jsonl'); "
+                "[total := total + sum(1 for _ in open(j)) for j in jsonls]; "
                 "print(total)"
             )
             cmd = f'ssh -o ConnectTimeout=10 {port_arg} {ssh_target} "python3 -c \\"{python_script}\\"" 2>/dev/null'
@@ -2798,37 +2802,54 @@ class StreamingDataCollector:
         Distributes new games across configs based on what's in synced databases.
         Falls back to proportional distribution if db parsing fails.
         """
-        synced_dir = AI_SERVICE_ROOT / "data" / "games" / "synced"
-        if not synced_dir.exists():
-            # Fallback: distribute to square8_2p (most common)
-            if "square8_2p" in self.state.configs:
-                self.state.configs["square8_2p"].games_since_training += new_games
-            return
-
-        # Count games per config from database filenames
+        # Count games from multiple sources:
+        # 1. Synced DB files: data/games/synced/*.db
+        # 2. GPU selfplay JSONL: data/games/gpu_selfplay/{config}/games.jsonl
         config_counts: Dict[str, int] = {}
         total_counted = 0
 
-        for db_path in synced_dir.rglob("*.db"):
-            try:
-                db_name = db_path.stem.lower()
-                # Parse config from filename patterns like "selfplay_square8_2p.db"
-                config_key = None
-                for ck in self.state.configs.keys():
-                    if ck.replace("_", "") in db_name.replace("_", "") or ck in db_name:
-                        config_key = ck
-                        break
+        # Source 1: Synced DB files
+        synced_dir = AI_SERVICE_ROOT / "data" / "games" / "synced"
+        if synced_dir.exists():
+            for db_path in synced_dir.rglob("*.db"):
+                try:
+                    db_name = db_path.stem.lower()
+                    # Parse config from filename patterns like "selfplay_square8_2p.db"
+                    config_key = None
+                    for ck in self.state.configs.keys():
+                        if ck.replace("_", "") in db_name.replace("_", "") or ck in db_name:
+                            config_key = ck
+                            break
 
-                if config_key:
-                    conn = sqlite3.connect(str(db_path))
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT COUNT(*) FROM games")
-                    count = cursor.fetchone()[0]
-                    conn.close()
-                    config_counts[config_key] = config_counts.get(config_key, 0) + count
-                    total_counted += count
-            except Exception:
-                pass
+                    if config_key:
+                        conn = sqlite3.connect(str(db_path))
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT COUNT(*) FROM games")
+                        count = cursor.fetchone()[0]
+                        conn.close()
+                        config_counts[config_key] = config_counts.get(config_key, 0) + count
+                        total_counted += count
+                except Exception:
+                    pass
+
+        # Source 2: GPU selfplay JSONL files (primary source for GPU-generated games)
+        gpu_selfplay_dir = AI_SERVICE_ROOT / "data" / "games" / "gpu_selfplay"
+        if gpu_selfplay_dir.exists():
+            for config_dir in gpu_selfplay_dir.iterdir():
+                if config_dir.is_dir():
+                    # Directory name is the config key (e.g., "hexagonal_3p", "square19_4p")
+                    config_key = config_dir.name
+                    if config_key in self.state.configs:
+                        jsonl_path = config_dir / "games.jsonl"
+                        if jsonl_path.exists():
+                            try:
+                                # Count lines = count games
+                                with open(jsonl_path, 'r') as f:
+                                    count = sum(1 for _ in f)
+                                config_counts[config_key] = config_counts.get(config_key, 0) + count
+                                total_counted += count
+                            except Exception:
+                                pass
 
         # Distribute new games proportionally based on existing counts
         if total_counted > 0:
@@ -3773,9 +3794,14 @@ class TrainingScheduler:
             # Use v3 for all board types (best architecture with spatial policy heads)
             model_version = "v3"
 
-            # Find game database - include both local and synced cluster data
+            # Find game data - check both DB files and JSONL files (GPU selfplay)
             games_dir = AI_SERVICE_ROOT / "data" / "games"
             synced_dir = games_dir / "synced"
+            gpu_selfplay_dir = games_dir / "gpu_selfplay"
+
+            # Check for JSONL data for this config (preferred for GPU selfplay)
+            jsonl_path = gpu_selfplay_dir / config_key / "games.jsonl"
+            has_jsonl_data = jsonl_path.exists() and jsonl_path.stat().st_size > 0
 
             # Collect databases from main games dir and synced subdirectory
             game_dbs = list(games_dir.glob("*.db"))
@@ -3783,18 +3809,25 @@ class TrainingScheduler:
                 # Include all synced databases (cluster data)
                 game_dbs.extend(synced_dir.rglob("*.db"))
 
-            if not game_dbs:
-                print(f"[Training] No game databases found in {games_dir} or {synced_dir}")
+            if not game_dbs and not has_jsonl_data:
+                print(f"[Training] No game data found (DB: {games_dir}, JSONL: {jsonl_path})")
                 self.state.training_in_progress = False
                 self._release_training_lock()
                 return False
 
+            if has_jsonl_data:
+                print(f"[Training] Found JSONL data for {config_key}: {jsonl_path}")
+
             # Auto-consolidate databases if consolidated DB is stale or missing
+            # Skip consolidation if using JSONL data (will use jsonl_to_npz.py instead)
             consolidated_db = games_dir / "consolidated_training_v2.db"
             consolidation_max_age = 6 * 3600  # 6 hours
 
             should_consolidate = False
-            if not consolidated_db.exists():
+            if has_jsonl_data:
+                # Using JSONL data - skip DB consolidation
+                print(f"[Training] Using JSONL data, skipping DB consolidation")
+            elif not consolidated_db.exists():
                 should_consolidate = True
                 print(f"[Training] Consolidated DB missing, will merge databases")
             elif time.time() - consolidated_db.stat().st_mtime > consolidation_max_age:
@@ -3937,25 +3970,45 @@ class TrainingScheduler:
                     print(f"[Training] Skipping export - NPZ file recent ({npz_age/3600:.1f}h old < {export_max_age/3600:.0f}h)")
                     skip_export = True
 
-            # Determine encoder version (v3 for hex, default for square)
-            encoder_version = self.config.hex_encoder_version if board_type == "hexagonal" else "default"
+            # Use JSONL export if we have JSONL data (checked earlier)
+            use_jsonl_export = has_jsonl_data
+
+            # Determine encoder version (v2 for hex to match 20 global features)
+            encoder_version = "v2" if board_type == "hexagonal" else "default"
 
             if not skip_export:
-                export_cmd = [
-                    sys.executable,
-                    str(AI_SERVICE_ROOT / self.config.export_script),
-                    "--db", str(largest_db),
-                    "--output", str(data_path),
-                    "--board-type", board_type,
-                    "--num-players", str(num_players),
-                    "--sample-every", "2",
-                    # Quality filters - only train on good data
-                    "--require-completed",  # Only games that completed normally
-                    "--min-moves", "10",    # Filter out trivially short games
-                    "--exclude-recovery",   # Exclude error recovery games
-                ]
-                if encoder_version != "default":
-                    export_cmd.extend(["--encoder-version", encoder_version])
+                if use_jsonl_export:
+                    # Use jsonl_to_npz.py for JSONL data (from GPU selfplay)
+                    print(f"[Training] Using JSONL source: {jsonl_path}")
+                    export_cmd = [
+                        sys.executable,
+                        str(AI_SERVICE_ROOT / "scripts" / "jsonl_to_npz.py"),
+                        "--input", str(jsonl_path),
+                        "--output", str(data_path),
+                        "--board-type", board_type,
+                        "--num-players", str(num_players),
+                        "--gpu-selfplay",  # Flag for GPU selfplay format
+                        "--max-games", "10000",  # Reasonable limit
+                    ]
+                    if encoder_version != "default":
+                        export_cmd.extend(["--encoder-version", encoder_version])
+                else:
+                    # Use export_replay_dataset.py for DB data
+                    export_cmd = [
+                        sys.executable,
+                        str(AI_SERVICE_ROOT / self.config.export_script),
+                        "--db", str(largest_db),
+                        "--output", str(data_path),
+                        "--board-type", board_type,
+                        "--num-players", str(num_players),
+                        "--sample-every", "2",
+                        # Quality filters - only train on good data
+                        "--require-completed",  # Only games that completed normally
+                        "--min-moves", "10",    # Filter out trivially short games
+                        "--exclude-recovery",   # Exclude error recovery games
+                    ]
+                    if encoder_version != "default":
+                        export_cmd.extend(["--encoder-version", encoder_version])
 
                 # Use parity fixtures to truncate games at safe points (avoid parity divergence)
                 parity_fixtures_dir = AI_SERVICE_ROOT / "data" / "parity_fixtures"
