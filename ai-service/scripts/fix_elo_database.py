@@ -142,7 +142,20 @@ def deduplicate_matches(db_path: Path, dry_run: bool = False) -> int:
     for match in matches:
         match_id, p_a, p_b, winner, board, players, ts, game_id = match
         # Round timestamp to nearest second for grouping
-        rounded_ts = int(ts) if ts else 0
+        # Handle both Unix timestamp (float) and ISO format (string)
+        if ts:
+            if isinstance(ts, str):
+                # ISO format timestamp - extract seconds portion
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                    rounded_ts = int(dt.timestamp())
+                except (ValueError, TypeError):
+                    rounded_ts = hash(ts) % 1000000000  # Fallback hash
+            else:
+                rounded_ts = int(ts)
+        else:
+            rounded_ts = 0
         sig = f"{p_a}|{p_b}|{winner}|{board}|{players}|{rounded_ts}"
         signatures[sig].append(match_id)
 
