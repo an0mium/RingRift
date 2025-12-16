@@ -530,7 +530,7 @@ class DistributedNNGauntlet:
         max_moves = MAX_MOVES.get(config_key, 2000)
 
         # Run games in parallel using thread pool
-        max_workers = min(8, len(tasks))  # Limit concurrency
+        max_workers = min(self.config.parallel_games, len(tasks))  # Use config parallelism
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {}
