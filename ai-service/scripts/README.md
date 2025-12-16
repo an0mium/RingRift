@@ -53,6 +53,13 @@ Features:
 
 ### Data Management
 
+- `cluster_sync_coordinator.py` - **Cluster-wide sync orchestrator** (coordinates all sync utilities)
+  - Full sync: `python scripts/cluster_sync_coordinator.py --mode full`
+  - Models only: `python scripts/cluster_sync_coordinator.py --mode models`
+  - Games only: `python scripts/cluster_sync_coordinator.py --mode games`
+  - ELO only: `python scripts/cluster_sync_coordinator.py --mode elo`
+  - Status: `python scripts/cluster_sync_coordinator.py --status`
+  - Uses aria2/tailscale/cloudflare for hard-to-reach nodes
 - `unified_data_sync.py` - **Unified data sync service** (replaces deprecated scripts below)
   - Run as daemon: `python scripts/unified_data_sync.py`
   - With watchdog: `python scripts/unified_data_sync.py --watchdog`
@@ -62,6 +69,7 @@ Features:
 - `sync_all_data.py` - _(DEPRECATED)_ Batch data sync - use `unified_data_sync.py --once`
 - `build_canonical_training_pool_db.py` - Training data pooling
 - `aggregate_jsonl_to_db.py` - JSONL to SQLite conversion
+- `elo_db_sync.py` - ELO database synchronization across cluster
 
 ### Model Management
 
