@@ -579,6 +579,8 @@ def get_cpu_rich_hosts(
     host_enabled: Optional[Callable[[Any], bool]] = None,
     host_get_name: Optional[Callable[[Any], str]] = None,
     host_get_cpus: Optional[Callable[[Any], int]] = None,
+    host_get_role: Optional[Callable[[Any], str]] = None,
+    host_has_expensive_gpu: Optional[Callable[[Any], bool]] = None,
     status_get_cpu: Optional[Callable[[Any], float]] = None,
     status_is_reachable: Optional[Callable[[Any], bool]] = None,
 ) -> List[Tuple[Any, Any]]:
@@ -587,7 +589,11 @@ def get_cpu_rich_hosts(
     Prioritizes hosts with:
     - High CPU count
     - Low current CPU utilization (< 60%)
-    - Not GPU-constrained (or no GPU)
+    - Not GPU-constrained (or no expensive GPU)
+
+    When selecting hosts for CPU-bound tasks, hosts with expensive GPUs
+    (H100, GH200, A100, etc.) are deprioritized to avoid wasting GPU resources.
+    Hosts with role="cpu_selfplay" are boosted in priority.
 
     Args:
         hosts: List of host configs
@@ -595,11 +601,13 @@ def get_cpu_rich_hosts(
         host_enabled: Function to check if host is enabled
         host_get_name: Function to get host name
         host_get_cpus: Function to get CPU count
+        host_get_role: Function to get host role
+        host_has_expensive_gpu: Function to check if host has expensive GPU
         status_get_cpu: Function to get CPU usage
         status_is_reachable: Function to check reachability
 
     Returns:
-        List of (host, status) tuples sorted by CPU count descending
+        List of (host, status) tuples sorted by CPU priority score (descending)
     """
     # Default accessor functions
     def _enabled(h: Any) -> bool:
@@ -615,7 +623,27 @@ def get_cpu_rich_hosts(
     def _get_cpus(h: Any) -> int:
         if host_get_cpus:
             return host_get_cpus(h)
-        return getattr(h, "cpus", 0)
+        # Check both direct attribute and properties dict
+        cpus = getattr(h, "cpus", None)
+        if cpus is None:
+            props = getattr(h, "properties", {})
+            cpus = props.get("cpus", 0) if props else 0
+        return cpus or 0
+
+    def _get_role(h: Any) -> str:
+        if host_get_role:
+            return host_get_role(h)
+        props = getattr(h, "properties", {})
+        return props.get("role", "") if props else ""
+
+    def _has_expensive_gpu(h: Any) -> bool:
+        if host_has_expensive_gpu:
+            return host_has_expensive_gpu(h)
+        # Check GPU field for expensive models
+        props = getattr(h, "properties", {})
+        gpu = props.get("gpu", "") if props else ""
+        expensive_patterns = ["H100", "GH200", "A100", "A10", "5090", "4090"]
+        return any(p in gpu for p in expensive_patterns)
 
     def _get_cpu(s: Any) -> float:
         if status_get_cpu:
@@ -626,6 +654,22 @@ def get_cpu_rich_hosts(
         if status_is_reachable:
             return status_is_reachable(s)
         return getattr(s, "reachable", True)
+
+    def _cpu_priority_score(h: Any) -> float:
+        """Calculate priority score for CPU task assignment.
+
+        Higher score = better for CPU tasks.
+        - Base: CPU count
+        - Boost: +1000 for cpu_selfplay role (prioritize dedicated CPU hosts)
+        - Penalty: -500 for expensive GPUs (save for GPU tasks)
+        """
+        score = float(_get_cpus(h))
+        role = _get_role(h)
+        if role == "cpu_selfplay":
+            score += 1000  # Strongly prefer dedicated CPU hosts
+        if _has_expensive_gpu(h):
+            score -= 500  # Deprioritize expensive GPU hosts for CPU tasks
+        return score
 
     cpu_hosts = []
     for host in hosts:
@@ -639,8 +683,8 @@ def get_cpu_rich_hosts(
         if _get_cpu(status) < TARGET_CPU_UTILIZATION_MIN:
             cpu_hosts.append((host, status))
 
-    # Sort by CPU count (descending) - bigger hosts first
-    cpu_hosts.sort(key=lambda x: _get_cpus(x[0]), reverse=True)
+    # Sort by CPU priority score (descending) - prioritize CPU-focused hosts
+    cpu_hosts.sort(key=lambda x: _cpu_priority_score(x[0]), reverse=True)
     return cpu_hosts
 
 
