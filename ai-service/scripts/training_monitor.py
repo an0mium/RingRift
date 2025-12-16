@@ -104,31 +104,71 @@ def check_recent_models(hours: int = 24) -> List[Tuple[str, datetime, int]]:
     return sorted(recent, key=lambda x: x[1], reverse=True)
 
 
-def check_db_health(db_path: Path) -> Tuple[bool, str, int]:
-    """Check if a SQLite database is healthy."""
+def check_db_health(db_path: Path) -> Tuple[bool, str, int, int, int]:
+    """Check if a SQLite database is healthy.
+
+    Returns: (healthy, message, total_games, trainable_games, games_with_moves)
+    """
     if not db_path.exists():
-        return False, "File not found", 0
+        return False, "File not found", 0, 0, 0
 
     if db_path.stat().st_size == 0:
-        return False, "Empty file", 0
+        return False, "Empty file", 0, 0, 0
 
     try:
         conn = sqlite3.connect(str(db_path))
         result = conn.execute("PRAGMA integrity_check").fetchone()
         if result[0] != "ok":
             conn.close()
-            return False, f"Integrity check failed: {result[0]}", 0
+            return False, f"Integrity check failed: {result[0]}", 0, 0, 0
 
         # Try to count games
+        total_count = 0
+        trainable_count = 0
+        with_moves_count = 0
+
         try:
-            count = conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+            total_count = conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
         except:
-            count = 0
+            pass
+
+        # Check columns
+        try:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(games)").fetchall()}
+            tables = {row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()}
+
+            has_excluded = "excluded_from_training" in cols
+            has_moves_table = "game_moves" in tables
+
+            # Count trainable games (not excluded)
+            if has_excluded:
+                trainable_count = conn.execute(
+                    "SELECT COUNT(*) FROM games WHERE COALESCE(excluded_from_training, 0) = 0"
+                ).fetchone()[0]
+            else:
+                trainable_count = total_count
+
+            # Count games with move data
+            if has_moves_table:
+                if has_excluded:
+                    with_moves_count = conn.execute("""
+                        SELECT COUNT(DISTINCT g.game_id) FROM games g
+                        INNER JOIN game_moves gm ON g.game_id = gm.game_id
+                        WHERE COALESCE(g.excluded_from_training, 0) = 0
+                    """).fetchone()[0]
+                else:
+                    with_moves_count = conn.execute("""
+                        SELECT COUNT(DISTINCT game_id) FROM game_moves
+                    """).fetchone()[0]
+        except:
+            pass
 
         conn.close()
-        return True, "OK", count
+        return True, "OK", total_count, trainable_count, with_moves_count
     except Exception as e:
-        return False, str(e), 0
+        return False, str(e), 0, 0, 0
 
 
 def check_gpu_processes() -> List[Dict[str, Any]]:
@@ -288,18 +328,32 @@ def generate_report(verbose: bool = False) -> Dict[str, Any]:
     ]
 
     db_status = {}
+    total_trainable = 0
+    total_with_moves = 0
     for db_rel_path in key_dbs:
         db_path = AI_SERVICE_ROOT / db_rel_path
-        healthy, msg, count = check_db_health(db_path)
+        healthy, msg, total_count, trainable_count, with_moves_count = check_db_health(db_path)
         db_status[db_rel_path] = {
             "healthy": healthy,
             "message": msg,
-            "game_count": count
+            "total_games": total_count,
+            "trainable_games": trainable_count,
+            "games_with_moves": with_moves_count,
         }
+        total_trainable += trainable_count
+        total_with_moves += with_moves_count
         if not healthy:
             alerts.append(Alert("warning", "database", f"DB issue - {db_rel_path}: {msg}"))
+        elif total_count > 0 and trainable_count == 0:
+            alerts.append(Alert("warning", "database",
+                f"{db_rel_path}: {total_count} games but 0 trainable (all excluded)"))
+        elif total_count > 0 and with_moves_count == 0:
+            alerts.append(Alert("warning", "database",
+                f"{db_rel_path}: {total_count} games but 0 with move data"))
 
     report["metrics"]["databases"] = db_status
+    report["metrics"]["total_trainable_games"] = total_trainable
+    report["metrics"]["total_games_with_moves"] = total_with_moves
 
     # Convert alerts to serializable format
     report["alerts"] = [

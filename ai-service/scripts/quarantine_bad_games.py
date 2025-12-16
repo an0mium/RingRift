@@ -70,20 +70,46 @@ def get_problematic_games(conn: sqlite3.Connection) -> dict:
             issues["no_winner"].add(row[0])
 
     # High move counts (timeout games)
+    # Only exclude if the game didn't complete normally - games that ended by
+    # elimination/victory are valid even if they have many moves
     moves_col = "total_moves" if "total_moves" in cols else ("num_moves" if "num_moves" in cols else None)
+    has_termination = "termination_reason" in cols
     if moves_col and "board_type" in cols:
         for board_type, limit in MOVE_LIMITS.items():
-            cursor.execute(f"""
-                SELECT game_id FROM games
-                WHERE board_type = ? AND {moves_col} >= ?
-            """, (board_type, limit))
+            if has_termination:
+                # Only exclude high-move games that didn't complete normally
+                cursor.execute(f"""
+                    SELECT game_id FROM games
+                    WHERE board_type = ? AND {moves_col} >= ?
+                    AND (termination_reason IS NULL
+                         OR termination_reason = ''
+                         OR termination_reason LIKE '%timeout%'
+                         OR termination_reason LIKE '%env_done%'
+                         OR termination_reason NOT LIKE '%completed%')
+                """, (board_type, limit))
+            else:
+                cursor.execute(f"""
+                    SELECT game_id FROM games
+                    WHERE board_type = ? AND {moves_col} >= ?
+                """, (board_type, limit))
             for row in cursor.fetchall():
                 issues["timeout_high_moves"].add(row[0])
     elif moves_col:
         # If no board_type, use conservative limit
-        cursor.execute(f"""
-            SELECT game_id FROM games WHERE {moves_col} >= 400
-        """)
+        if has_termination:
+            cursor.execute(f"""
+                SELECT game_id FROM games
+                WHERE {moves_col} >= 400
+                AND (termination_reason IS NULL
+                     OR termination_reason = ''
+                     OR termination_reason LIKE '%timeout%'
+                     OR termination_reason LIKE '%env_done%'
+                     OR termination_reason NOT LIKE '%completed%')
+            """)
+        else:
+            cursor.execute(f"""
+                SELECT game_id FROM games WHERE {moves_col} >= 400
+            """)
         for row in cursor.fetchall():
             issues["timeout_high_moves"].add(row[0])
 
@@ -169,25 +195,112 @@ def quarantine_games(db_path: Path, dry_run: bool = True) -> dict:
     return stats
 
 
+def unquarantine_valid_games(db_path: Path, dry_run: bool = True) -> dict:
+    """Un-quarantine games that were incorrectly excluded.
+
+    This finds games marked excluded_from_training=1 that actually completed
+    normally (have a winner and valid termination_reason) and clears the flag.
+    """
+    stats = {
+        "db": str(db_path),
+        "unquarantined": 0,
+        "errors": [],
+    }
+
+    if not db_path.exists():
+        stats["errors"].append(f"Database not found: {db_path}")
+        return stats
+
+    try:
+        conn = sqlite3.connect(db_path, timeout=30)
+        cursor = conn.cursor()
+
+        # Check columns
+        cursor.execute("PRAGMA table_info(games)")
+        cols = {row[1] for row in cursor.fetchall()}
+
+        if "excluded_from_training" not in cols:
+            conn.close()
+            return stats
+
+        # Find games that are excluded but completed normally
+        # These should be un-quarantined
+        cursor.execute("""
+            SELECT game_id FROM games
+            WHERE excluded_from_training = 1
+            AND winner IS NOT NULL AND winner > 0
+            AND termination_reason LIKE '%completed%'
+        """)
+        valid_game_ids = [row[0] for row in cursor.fetchall()]
+
+        stats["unquarantined"] = len(valid_game_ids)
+
+        if dry_run or not valid_game_ids:
+            conn.close()
+            return stats
+
+        # Clear the exclusion flag
+        for i in range(0, len(valid_game_ids), 500):
+            batch = valid_game_ids[i:i+500]
+            placeholders = ",".join(["?"] * len(batch))
+            cursor.execute(f"""
+                UPDATE games
+                SET excluded_from_training = 0
+                WHERE game_id IN ({placeholders})
+            """, batch)
+
+        conn.commit()
+        conn.close()
+
+    except Exception as e:
+        stats["errors"].append(str(e))
+
+    return stats
+
+
 def main():
     parser = argparse.ArgumentParser(description="Quarantine problematic games")
     parser.add_argument("--db", type=str, help="Specific database to process")
     parser.add_argument("--data-dir", type=str, default="data", help="Data directory to scan")
     parser.add_argument("--dry-run", action="store_true", default=True, help="Report only, don't modify")
     parser.add_argument("--apply", action="store_true", help="Actually apply quarantine")
+    parser.add_argument("--unquarantine", action="store_true", help="Un-quarantine valid games that were incorrectly excluded")
     args = parser.parse_args()
 
     dry_run = not args.apply
-
-    print(f"{'[DRY RUN] ' if dry_run else ''}Quarantine Bad Games")
-    print(f"Time: {datetime.now().isoformat()}")
-    print("=" * 70)
 
     if args.db:
         db_paths = [Path(args.db)]
     else:
         data_dir = Path(args.data_dir)
         db_paths = list(data_dir.glob("**/*.db"))
+
+    # Handle unquarantine mode
+    if args.unquarantine:
+        print(f"{'[DRY RUN] ' if dry_run else ''}Un-quarantine Valid Games")
+        print(f"Time: {datetime.now().isoformat()}")
+        print("=" * 70)
+        print(f"Scanning {len(db_paths)} databases...\n")
+
+        total_unquarantined = 0
+        for db_path in sorted(db_paths):
+            if any(x in str(db_path) for x in ["manifest", "elo", "tournament"]):
+                continue
+            stats = unquarantine_valid_games(db_path, dry_run=dry_run)
+            if stats["unquarantined"] > 0:
+                print(f"  {db_path.name}: {stats['unquarantined']} games to restore")
+                total_unquarantined += stats["unquarantined"]
+
+        print(f"\nTotal games to un-quarantine: {total_unquarantined:,}")
+        if dry_run:
+            print("\n[DRY RUN] No changes made. Use --apply --unquarantine to restore games.")
+        else:
+            print(f"\n[APPLIED] Restored {total_unquarantined:,} games (set excluded_from_training=0)")
+        return
+
+    print(f"{'[DRY RUN] ' if dry_run else ''}Quarantine Bad Games")
+    print(f"Time: {datetime.now().isoformat()}")
+    print("=" * 70)
 
     print(f"Scanning {len(db_paths)} databases...\n")
 
