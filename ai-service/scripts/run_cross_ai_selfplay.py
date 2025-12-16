@@ -37,8 +37,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import uuid
 
-# Skip shadow contracts for selfplay (avoids hanging on initialization)
-os.environ.setdefault("RINGRIFT_SKIP_SHADOW_CONTRACTS", "true")
+# NOTE: Shadow contracts are now enabled to validate training data against TS rules.
+# Requires Node.js and compiled TypeScript (npm install && npx tsc -p tsconfig.server.json)
 
 # Ensure app.* imports resolve
 ROOT = Path(__file__).resolve().parents[1]
