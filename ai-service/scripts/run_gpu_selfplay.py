@@ -882,8 +882,8 @@ def run_gpu_selfplay(
         noise_scale=noise_scale,
     )
 
-    # Generate games
-    games_file = os.path.join(output_dir, "games.jsonl")
+    # Generate games - use unique filename per config to avoid lock contention
+    games_file = os.path.join(output_dir, f"games_{board_type}_{num_players}p_{os.getpid()}.jsonl")
     records = generator.generate_games(
         num_games=num_games,
         output_file=games_file,
