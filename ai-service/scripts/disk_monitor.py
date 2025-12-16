@@ -341,16 +341,47 @@ def cleanup_old_synced_game_bundles(
     These directories are derived artifacts (often multi-GB) created by cluster
     sync/collection scripts. Keeping a small number for debugging is useful,
     but allowing them to accumulate can brick nodes via disk pressure.
+
+    Handles:
+    - synced_* directories (pattern match)
+    - synced/ directory (host subdirectories inside)
     """
     results: List[CleanupResult] = []
     games_dir = Path(ringrift_path) / "ai-service" / "data" / "games"
     if not games_dir.exists():
         return results
 
+    # Handle synced_* pattern directories
     candidates = [
         p for p in games_dir.glob("synced_*")
         if p.is_dir()
     ]
+
+    # Also handle the synced/ directory itself with per-host subdirs
+    synced_dir = games_dir / "synced"
+    if synced_dir.exists() and synced_dir.is_dir():
+        # Get subdirectories sorted by mtime (oldest first for deletion)
+        host_dirs = [p for p in synced_dir.iterdir() if p.is_dir()]
+        host_dirs.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0.0)
+
+        # Keep only the newest `keep_latest` per-host dirs
+        if len(host_dirs) > keep_latest:
+            for host_dir in host_dirs[:-keep_latest] if keep_latest else host_dirs:
+                try:
+                    size = _dir_size_bytes(host_dir)
+                    if not dry_run:
+                        shutil.rmtree(host_dir)
+                    results.append(
+                        CleanupResult(
+                            path=str(host_dir),
+                            size_bytes=size,
+                            deleted=not dry_run,
+                            reason="synced_host_dir_prune",
+                        )
+                    )
+                except (OSError, PermissionError):
+                    continue
+
     if not candidates:
         return results
 
