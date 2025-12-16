@@ -10066,6 +10066,21 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 if data.get("error"):
                     job.status = "failed"
                     job.error_message = data["error"]
+                    # ALERTING: Notify on training failure
+                    asyncio.create_task(self.notifier.send(
+                        title="Training Job Failed",
+                        message=f"Training job {job.job_id} failed: {data['error'][:100]}",
+                        level="error",
+                        fields={
+                            "Job ID": job.job_id,
+                            "Type": job.job_type,
+                            "Config": f"{job.board_type}_{job.num_players}p",
+                            "Worker": job.worker_node or "unknown",
+                            "Error": data["error"][:200],
+                            "Checkpoint": job.checkpoint_path or "none",
+                        },
+                        node_id=self.node_id,
+                    ))
 
                 # TRAINING CHECKPOINTING: Track checkpoint progress
                 if data.get("checkpoint_path"):
@@ -19095,6 +19110,20 @@ print(json.dumps({{
             print(f"[GOSSIP METRICS] Hourly: sent={old_metrics['message_sent']} recv={old_metrics['message_received']} "
                   f"updates={old_metrics['state_updates']} repairs={old_metrics['anti_entropy_repairs']} "
                   f"stale={old_metrics['stale_states_detected']} avg_latency={avg_latency:.1f}ms")
+            # ALERTING: Notify on high gossip latency (>1000ms average)
+            if avg_latency > 1000 and len(old_metrics["propagation_delay_ms"]) > 10:
+                asyncio.create_task(self.notifier.send(
+                    title="High Gossip Latency",
+                    message=f"Average gossip latency {avg_latency:.0f}ms exceeds 1000ms threshold",
+                    level="warning",
+                    fields={
+                        "Avg Latency": f"{avg_latency:.0f}ms",
+                        "Messages Sent": str(old_metrics['message_sent']),
+                        "Stale States": str(old_metrics['stale_states_detected']),
+                        "Repairs": str(old_metrics['anti_entropy_repairs']),
+                    },
+                    node_id=self.node_id,
+                ))
 
     def _record_gossip_compression(self, original_size: int, compressed_size: int):
         """Record gossip compression metrics.
@@ -19597,13 +19626,46 @@ print(json.dumps({{
             self._node_recovery_attempts[node_id] = now
             self._node_recovery_metrics["attempts"] += 1
 
+            # ALERTING: Notify on node recovery attempt
+            asyncio.create_task(self.notifier.send(
+                title="Node Recovery Initiated",
+                message=f"Attempting to recover node {node_id}: {reason}",
+                level="warning",
+                fields={
+                    "Node": node_id,
+                    "Reason": reason,
+                    "Host": getattr(peer, "host", "unknown"),
+                },
+                node_id=self.node_id,
+            ))
+
             success = await self._attempt_node_recovery(node_id, peer)
             if success:
                 self._node_recovery_metrics["successes"] += 1
                 print(f"[P2P] NODE RECOVERY: Successfully restarted {node_id}")
+                # ALERTING: Notify on successful recovery
+                asyncio.create_task(self.notifier.send(
+                    title="Node Recovery Success",
+                    message=f"Successfully recovered node {node_id}",
+                    level="info",
+                    fields={"Node": node_id, "Reason": reason},
+                    node_id=self.node_id,
+                ))
             else:
                 self._node_recovery_metrics["failures"] += 1
                 print(f"[P2P] NODE RECOVERY: Failed to restart {node_id}")
+                # ALERTING: Notify on failed recovery
+                asyncio.create_task(self.notifier.send(
+                    title="Node Recovery Failed",
+                    message=f"Failed to recover node {node_id} ({reason})",
+                    level="error",
+                    fields={
+                        "Node": node_id,
+                        "Reason": reason,
+                        "Action": "Manual intervention may be required",
+                    },
+                    node_id=self.node_id,
+                ))
 
     async def _attempt_node_recovery(self, node_id: str, peer) -> bool:
         """Attempt to recover a node by restarting its service via SSH.
@@ -19736,13 +19798,34 @@ print(json.dumps({{
         consensus_leader = max(leader_votes.items(), key=lambda x: x[1])[0] if leader_votes else None
         consensus_successor = max(successor_votes.items(), key=lambda x: x[1])[0] if successor_votes else None
 
-        return {
+        result = {
             "consensus_leader": consensus_leader,
             "leader_agreement": leader_votes.get(consensus_leader, 0) if consensus_leader else 0,
             "consensus_successor": consensus_successor,
             "successor_agreement": successor_votes.get(consensus_successor, 0) if consensus_successor else 0,
             "total_voters": len(gossip_states) + 1,
         }
+
+        # ALERTING: Check for low leader consensus (only leader alerts, rate limited)
+        if self.role == NodeRole.LEADER and result["total_voters"] >= 3:
+            agreement_ratio = result["leader_agreement"] / result["total_voters"]
+            last_low_consensus_alert = getattr(self, "_last_low_consensus_alert", 0)
+            if agreement_ratio < 0.5 and now - last_low_consensus_alert > 3600:  # Alert once per hour max
+                self._last_low_consensus_alert = now
+                asyncio.create_task(self.notifier.send(
+                    title="Low Leader Consensus",
+                    message=f"Only {result['leader_agreement']}/{result['total_voters']} nodes agree on leader",
+                    level="warning",
+                    fields={
+                        "Agreement": f"{agreement_ratio*100:.0f}%",
+                        "Consensus Leader": str(consensus_leader),
+                        "Total Voters": str(result["total_voters"]),
+                        "Action": "Check for network partitions or stale nodes",
+                    },
+                    node_id=self.node_id,
+                ))
+
+        return result
 
     # =========================================================================
     # PEER REPUTATION TRACKING
@@ -20940,6 +21023,20 @@ print(json.dumps({{
                 job.completed_at = now
                 killed += 1
                 print(f"[P2P] Killed stuck training job {job.job_id}")
+                # ALERTING: Notify when stuck job is killed
+                asyncio.create_task(self.notifier.send(
+                    title="Stuck Job Killed",
+                    message=f"Training job {job.job_id} killed after no progress for {int((now - last_progress)/60)}min",
+                    level="warning",
+                    fields={
+                        "Job ID": job.job_id,
+                        "Type": job.job_type,
+                        "Node": job.target_node or "local",
+                        "Config": f"{job.board_type}_{job.num_players}p",
+                        "Stuck For": f"{int((now - last_progress)/60)} minutes",
+                    },
+                    node_id=self.node_id,
+                ))
 
         # Check for GPU nodes with 0% GPU but running GPU jobs
         with self.peers_lock:
