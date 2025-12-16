@@ -492,56 +492,62 @@ class DistributedNNGauntlet:
     ) -> GameResult:
         """Run a single game synchronously.
 
-        Called from thread pool.
+        Called from thread pool. Uses GameExecutor for consistent game execution.
         """
         start_time = time.time()
 
         try:
-            from app.tournament.agents import AIAgentRegistry
-            from app.game.board import create_board
-            from app.game.engine import GameEngine
+            from app.execution.game_executor import GameExecutor
 
-            # Create board
-            board = create_board(board_type)
-
-            # Load agents
-            registry = AIAgentRegistry()
+            # Map model IDs to player configs
+            player_configs = []
 
             # Model agent (player 0)
             if task.model_id == "random_ai":
-                model_agent = registry.get_agent("random")
+                player_configs.append({"ai_type": "random", "difficulty": 1})
             else:
                 model_path = self.model_dir / f"{task.model_id}.pth"
                 if model_path.exists():
-                    model_agent = registry.get_agent("nn", model_path=str(model_path))
+                    player_configs.append({
+                        "ai_type": "nn",
+                        "model_path": str(model_path),
+                        "difficulty": 10,
+                    })
                 else:
                     # Model file not found, use MCTS fallback
-                    model_agent = registry.get_agent("mcts", iterations=100)
+                    player_configs.append({"ai_type": "mcts", "difficulty": 5})
 
             # Baseline agent (player 1)
             if task.baseline_id == "random_ai":
-                baseline_agent = registry.get_agent("random")
+                player_configs.append({"ai_type": "random", "difficulty": 1})
             else:
                 baseline_path = self.model_dir / f"{task.baseline_id}.pth"
                 if baseline_path.exists():
-                    baseline_agent = registry.get_agent("nn", model_path=str(baseline_path))
+                    player_configs.append({
+                        "ai_type": "nn",
+                        "model_path": str(baseline_path),
+                        "difficulty": 10,
+                    })
                 else:
-                    baseline_agent = registry.get_agent("mcts", iterations=100)
+                    player_configs.append({"ai_type": "mcts", "difficulty": 5})
 
-            # Create agents list
-            agents = [model_agent, baseline_agent]
-            # Add more agents for 3p/4p games
-            while len(agents) < num_players:
-                agents.append(registry.get_agent("random"))
+            # Add random players for 3p/4p games
+            while len(player_configs) < num_players:
+                player_configs.append({"ai_type": "random", "difficulty": 1})
 
-            # Run game
-            engine = GameEngine(board, agents)
-            winner = engine.play(max_moves=max_moves)
-            game_length = engine.move_count
+            # Run game using GameExecutor
+            executor = GameExecutor(board_type=board_type, num_players=num_players)
+            result = executor.run_game(
+                player_configs=player_configs,
+                max_moves=max_moves,
+            )
+
+            game_length = result.move_count
             duration = time.time() - start_time
 
-            # Determine result
-            if winner is None:
+            # Convert executor result to gauntlet result
+            # winner is 1-indexed in GameExecutor, 0 means player 1 won (model)
+            if result.winner is None or result.outcome.value == "draw":
                 return GameResult(
                     task_id=task.task_id,
                     model_id=task.model_id,
@@ -552,7 +558,7 @@ class DistributedNNGauntlet:
                     game_length=game_length,
                     duration_sec=duration,
                 )
-            elif winner == 0:
+            elif result.winner == 1:  # Player 1 (model) won
                 return GameResult(
                     task_id=task.task_id,
                     model_id=task.model_id,
@@ -563,13 +569,13 @@ class DistributedNNGauntlet:
                     game_length=game_length,
                     duration_sec=duration,
                 )
-            else:
+            else:  # Player 2 (baseline) won
                 return GameResult(
                     task_id=task.task_id,
                     model_id=task.model_id,
                     baseline_id=task.baseline_id,
                     model_won=False,
-                    baseline_won=(winner == 1),
+                    baseline_won=True,
                     draw=False,
                     game_length=game_length,
                     duration_sec=duration,
