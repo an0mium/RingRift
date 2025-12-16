@@ -5994,6 +5994,8 @@ class P2POrchestrator:
         distributed_training = self._get_distributed_training_summary()
         cluster_elo = self._get_cluster_elo_summary()
         node_recovery = self._get_node_recovery_metrics()
+        leader_consensus = self._get_cluster_leader_consensus()
+        peer_reputation = self._get_cluster_peer_reputation()
 
         return web.json_response({
             "node_id": self.node_id,
@@ -6017,6 +6019,8 @@ class P2POrchestrator:
             "distributed_training": distributed_training,
             "cluster_elo": cluster_elo,
             "node_recovery": node_recovery,
+            "leader_consensus": leader_consensus,
+            "peer_reputation": peer_reputation,
         })
 
     async def handle_election(self, request: web.Request) -> web.Response:
@@ -18181,10 +18185,12 @@ print(json.dumps({{
         return max(0.0, min(100.0, score))
 
     def _record_p2p_sync_result(self, peer_id: str, success: bool):
-        """Record P2P sync result for circuit breaker and metrics.
+        """Record P2P sync result for circuit breaker, metrics, and reputation.
 
         CIRCUIT BREAKER: After 3 consecutive failures, open circuit for 5 minutes.
         This prevents wasting time on unreliable peers.
+
+        PEER REPUTATION: Also records sync result for reputation tracking.
         """
         if not hasattr(self, "_p2p_circuit_breaker"):
             self._p2p_circuit_breaker = {}
@@ -18192,6 +18198,9 @@ print(json.dumps({{
             self._p2p_sync_metrics = {"success": 0, "failure": 0, "bytes": 0}
 
         breaker = self._p2p_circuit_breaker.get(peer_id, {"failures": 0, "open_until": 0})
+
+        # Record for reputation tracking
+        self._record_peer_interaction(peer_id, success, "sync")
 
         if success:
             breaker["failures"] = 0
@@ -18637,6 +18646,12 @@ print(json.dumps({{
         # DISTRIBUTED ELO: Include ELO summary for cluster-wide visibility
         local_state["elo_summary"] = self._get_local_elo_summary()
 
+        # GOSSIP-BASED LEADER HINTS: Share leader preference for faster elections
+        local_state["leader_hint"] = self._get_leader_hint()
+
+        # PEER REPUTATION: Share peer reliability scores
+        local_state["peer_reputation"] = self._get_peer_reputation_summary()
+
         # Include manifest summary if available
         local_manifest = getattr(self, "local_data_manifest", None)
         if local_manifest:
@@ -19080,19 +19095,33 @@ print(json.dumps({{
         DISTRIBUTED ELO: Share top models and their ratings via gossip so all
         nodes have visibility into model performance without querying the DB.
 
+        LAZY LOADING: Defers ELO query until after startup (60s) to avoid
+        slowing node initialization. Uses 10-minute cache to reduce DB load.
+
         Returns dict with:
         - top_models: List of top 5 models with ratings
         - total_models: Total number of rated models
         - last_update: Timestamp of last ELO update
         """
-        # Rate limit ELO summary collection (expensive query)
         now = time.time()
         cache_key = "_elo_summary_cache"
         cache_time_key = "_elo_summary_cache_time"
+        startup_key = "_elo_startup_time"
         cached = getattr(self, cache_key, None)
         cached_time = getattr(self, cache_time_key, 0)
 
-        if cached and now - cached_time < 300:  # 5 minute cache
+        # Track startup time for lazy loading
+        if not hasattr(self, startup_key):
+            setattr(self, startup_key, now)
+
+        startup_time = getattr(self, startup_key, now)
+
+        # LAZY LOADING: Don't query ELO during first 60s of startup
+        if now - startup_time < 60:
+            return {"top_models": [], "total_models": 0, "last_update": 0, "deferred": True}
+
+        # Use 10-minute cache (was 5 min) to reduce DB load
+        if cached and now - cached_time < 600:
             return cached
 
         summary = {
@@ -19105,16 +19134,22 @@ print(json.dumps({{
             from app.tournament.unified_elo_db import get_elo_database
             db = get_elo_database()
 
-            # Get top 5 models by ELO
+            # Get top 5 models by ELO (single optimized query)
             with db._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT model_name, elo_rating, games_played, last_updated
+                    SELECT model_name, elo_rating, games_played, last_updated,
+                           (SELECT COUNT(*) FROM elo_ratings) as total,
+                           (SELECT MAX(last_updated) FROM elo_ratings) as max_updated
                     FROM elo_ratings
                     ORDER BY elo_rating DESC
                     LIMIT 5
                 """)
                 rows = cursor.fetchall()
+
+                if rows:
+                    summary["total_models"] = rows[0][4] if rows[0][4] else 0
+                    summary["last_update"] = rows[0][5] if rows[0][5] else 0
 
                 for row in rows:
                     summary["top_models"].append({
@@ -19122,16 +19157,6 @@ print(json.dumps({{
                         "elo": round(row[1]),
                         "games": row[2],
                     })
-
-                # Get total count
-                cursor.execute("SELECT COUNT(*) FROM elo_ratings")
-                summary["total_models"] = cursor.fetchone()[0]
-
-                # Get last update time
-                cursor.execute("SELECT MAX(last_updated) FROM elo_ratings")
-                last_update = cursor.fetchone()[0]
-                if last_update:
-                    summary["last_update"] = last_update
 
         except Exception as e:
             # Silently fail - ELO summary is optional
@@ -19325,6 +19350,243 @@ print(json.dumps({{
             "successes": metrics.get("successes", 0),
             "failures": metrics.get("failures", 0),
             "nodes_in_cooldown": in_cooldown,
+        }
+
+    # =========================================================================
+    # GOSSIP-BASED LEADER HINTS
+    # =========================================================================
+    # Share leader preferences via gossip to enable faster leader elections.
+    # When current leader fails, nodes can quickly converge on a new leader
+    # based on hints from peers rather than running full election.
+    # =========================================================================
+
+    def _get_leader_hint(self) -> dict:
+        """Get this node's leader hint for gossip propagation.
+
+        LEADER HINTS: Share information about preferred leader candidates to
+        enable faster convergence during elections. Hints include:
+        - Current known leader and lease expiry
+        - Preferred successor (highest-priority eligible node)
+        - This node's priority rank
+        """
+        hint = {
+            "current_leader": self.leader_id,
+            "lease_expires": getattr(self, "leader_lease_expires", 0),
+            "preferred_successor": None,
+            "my_priority": 0,
+        }
+
+        # Calculate this node's priority (lower is better for Bully algorithm)
+        # But we want to express it as a score (higher is better)
+        with self.peers_lock:
+            all_nodes = [self.node_id] + [p.node_id for p in self.peers.values() if p.is_alive()]
+
+        all_nodes_sorted = sorted(all_nodes, reverse=True)  # Bully: higher ID wins
+        if self.node_id in all_nodes_sorted:
+            hint["my_priority"] = len(all_nodes_sorted) - all_nodes_sorted.index(self.node_id)
+
+        # Find preferred successor (highest priority eligible node that's not current leader)
+        voter_ids = list(getattr(self, "voter_node_ids", []) or [])
+        for node_id in all_nodes_sorted:
+            if node_id == self.leader_id:
+                continue
+            if voter_ids and node_id not in voter_ids:
+                continue
+            hint["preferred_successor"] = node_id
+            break
+
+        return hint
+
+    def _get_cluster_leader_consensus(self) -> dict:
+        """Get cluster consensus on leader from gossip hints.
+
+        LEADER CONSENSUS: Aggregate leader hints from all nodes to determine
+        if there's agreement on who the leader is/should be.
+        """
+        leader_votes = {}
+        successor_votes = {}
+        gossip_states = getattr(self, "_gossip_peer_states", {})
+        now = time.time()
+
+        # Count our vote
+        our_hint = self._get_leader_hint()
+        if our_hint["current_leader"]:
+            leader_votes[our_hint["current_leader"]] = leader_votes.get(our_hint["current_leader"], 0) + 1
+        if our_hint["preferred_successor"]:
+            successor_votes[our_hint["preferred_successor"]] = successor_votes.get(our_hint["preferred_successor"], 0) + 1
+
+        # Count votes from gossip
+        for node_id, state in gossip_states.items():
+            if state.get("timestamp", 0) < now - 120:  # Skip stale states
+                continue
+
+            hint = state.get("leader_hint", {})
+            leader = hint.get("current_leader")
+            successor = hint.get("preferred_successor")
+
+            if leader:
+                leader_votes[leader] = leader_votes.get(leader, 0) + 1
+            if successor:
+                successor_votes[successor] = successor_votes.get(successor, 0) + 1
+
+        # Find consensus leader and successor
+        consensus_leader = max(leader_votes.items(), key=lambda x: x[1])[0] if leader_votes else None
+        consensus_successor = max(successor_votes.items(), key=lambda x: x[1])[0] if successor_votes else None
+
+        return {
+            "consensus_leader": consensus_leader,
+            "leader_agreement": leader_votes.get(consensus_leader, 0) if consensus_leader else 0,
+            "consensus_successor": consensus_successor,
+            "successor_agreement": successor_votes.get(consensus_successor, 0) if consensus_successor else 0,
+            "total_voters": len(gossip_states) + 1,
+        }
+
+    # =========================================================================
+    # PEER REPUTATION TRACKING
+    # =========================================================================
+    # Track peer reliability over time for better peer selection in P2P sync,
+    # gossip, and other distributed operations.
+    # =========================================================================
+
+    def _record_peer_interaction(self, peer_id: str, success: bool, interaction_type: str = "general"):
+        """Record a peer interaction for reputation tracking.
+
+        PEER REPUTATION: Track success/failure rates for different interaction types:
+        - sync: File sync operations
+        - gossip: Gossip message exchanges
+        - heartbeat: Heartbeat responses
+        - command: Remote command executions
+        """
+        if not hasattr(self, "_peer_reputation"):
+            self._peer_reputation = {}
+
+        if peer_id not in self._peer_reputation:
+            self._peer_reputation[peer_id] = {
+                "total_success": 0,
+                "total_failure": 0,
+                "recent_success": 0,
+                "recent_failure": 0,
+                "last_success": 0,
+                "last_failure": 0,
+                "last_reset": time.time(),
+                "by_type": {},
+            }
+
+        rep = self._peer_reputation[peer_id]
+        now = time.time()
+
+        # Reset recent counters every hour
+        if now - rep["last_reset"] > 3600:
+            rep["recent_success"] = 0
+            rep["recent_failure"] = 0
+            rep["last_reset"] = now
+
+        if success:
+            rep["total_success"] += 1
+            rep["recent_success"] += 1
+            rep["last_success"] = now
+        else:
+            rep["total_failure"] += 1
+            rep["recent_failure"] += 1
+            rep["last_failure"] = now
+
+        # Track by type
+        if interaction_type not in rep["by_type"]:
+            rep["by_type"][interaction_type] = {"success": 0, "failure": 0}
+        if success:
+            rep["by_type"][interaction_type]["success"] += 1
+        else:
+            rep["by_type"][interaction_type]["failure"] += 1
+
+    def _get_peer_reputation_score(self, peer_id: str) -> float:
+        """Get reputation score for a peer (0-100, higher is better).
+
+        PEER REPUTATION SCORE: Combines multiple factors:
+        - Recent success rate (70% weight) - last hour
+        - Historical success rate (20% weight) - all time
+        - Recency bonus (10% weight) - recent activity
+        """
+        if not hasattr(self, "_peer_reputation"):
+            return 50.0  # Default neutral score
+
+        rep = self._peer_reputation.get(peer_id)
+        if not rep:
+            return 50.0
+
+        now = time.time()
+
+        # Recent success rate (last hour)
+        recent_total = rep["recent_success"] + rep["recent_failure"]
+        recent_rate = rep["recent_success"] / max(1, recent_total)
+
+        # Historical success rate
+        total = rep["total_success"] + rep["total_failure"]
+        historical_rate = rep["total_success"] / max(1, total)
+
+        # Recency bonus (active peers get a boost)
+        last_interaction = max(rep["last_success"], rep["last_failure"])
+        recency_hours = (now - last_interaction) / 3600 if last_interaction > 0 else 24
+        recency_score = max(0, 1.0 - (recency_hours / 24))  # Decays over 24 hours
+
+        # Weighted score
+        score = (recent_rate * 70) + (historical_rate * 20) + (recency_score * 10)
+
+        return min(100.0, max(0.0, score))
+
+    def _get_peer_reputation_summary(self) -> dict:
+        """Get summary of peer reputation for gossip propagation.
+
+        Share top/bottom peers by reputation to help cluster converge on
+        reliable peer selection.
+        """
+        if not hasattr(self, "_peer_reputation"):
+            return {"reliable_peers": [], "unreliable_peers": []}
+
+        scores = []
+        for peer_id in self._peer_reputation:
+            score = self._get_peer_reputation_score(peer_id)
+            scores.append((peer_id, score))
+
+        scores.sort(key=lambda x: x[1], reverse=True)
+
+        return {
+            "reliable_peers": [{"peer": p, "score": round(s)} for p, s in scores[:5] if s >= 70],
+            "unreliable_peers": [{"peer": p, "score": round(s)} for p, s in scores[-3:] if s < 30],
+        }
+
+    def _get_cluster_peer_reputation(self) -> dict:
+        """Aggregate peer reputation from gossip for cluster-wide view."""
+        all_scores = {}
+        gossip_states = getattr(self, "_gossip_peer_states", {})
+        now = time.time()
+
+        # Include our own reputation data
+        local_summary = self._get_peer_reputation_summary()
+        for peer_info in local_summary.get("reliable_peers", []):
+            peer_id = peer_info["peer"]
+            if peer_id not in all_scores:
+                all_scores[peer_id] = []
+            all_scores[peer_id].append(peer_info["score"])
+
+        # Include reputation from gossip
+        for node_id, state in gossip_states.items():
+            if state.get("timestamp", 0) < now - 300:
+                continue
+
+            rep_summary = state.get("peer_reputation", {})
+            for peer_info in rep_summary.get("reliable_peers", []):
+                peer_id = peer_info["peer"]
+                if peer_id not in all_scores:
+                    all_scores[peer_id] = []
+                all_scores[peer_id].append(peer_info["score"])
+
+        # Calculate average scores
+        avg_scores = {peer: sum(scores) / len(scores) for peer, scores in all_scores.items() if scores}
+        sorted_peers = sorted(avg_scores.items(), key=lambda x: x[1], reverse=True)
+
+        return {
+            "most_reliable": [{"peer": p, "avg_score": round(s)} for p, s in sorted_peers[:10]],
+            "peers_tracked": len(all_scores),
         }
 
     async def _start_monitoring_if_leader(self):
