@@ -1408,8 +1408,8 @@ def train_model(
 
         if inferred_size is not None:
             board_default_size = get_policy_size_for_board(config.board_type)
-            if model_version == 'v3':
-                # V3 models use spatial policy heads with fixed index mappings
+            if model_version in ('v3', 'v4'):
+                # V3/V4 models use spatial policy heads with fixed index mappings
                 # (encode_move_for_board). Training must therefore use a dataset
                 # whose policy indices were encoded with the same board-aware
                 # mapping; otherwise the network learns probabilities for the
@@ -1417,7 +1417,7 @@ def train_model(
                 # rollouts.
                 if policy_encoding == "legacy_max_n":
                     raise ValueError(
-                        "Dataset uses legacy MAX_N policy encoding but --model-version=v3 "
+                        f"Dataset uses legacy MAX_N policy encoding but --model-version={model_version} "
                         "requires board-aware policy encoding.\n"
                         f"  dataset={data_path_str}\n"
                         f"  inferred_policy_size={inferred_size}\n"
@@ -1429,7 +1429,7 @@ def train_model(
                     )
                 if inferred_size > board_default_size:
                     raise ValueError(
-                        "Dataset policy indices exceed the v3 board-aware policy space. "
+                        f"Dataset policy indices exceed the {model_version} board-aware policy space. "
                         "This usually means the dataset was exported with legacy MAX_N encoding.\n"
                         f"  dataset={data_path_str}\n"
                         f"  inferred_policy_size={inferred_size}\n"
@@ -1439,8 +1439,9 @@ def train_model(
                 policy_size = board_default_size
                 if not distributed or is_main_process():
                     logger.info(
-                        "V3 model requires board-aware policy space; using "
+                        "%s model requires board-aware policy space; using "
                         "board-default policy_size=%d (dataset max index implies %d)",
+                        model_version.upper(),
                         policy_size,
                         inferred_size,
                     )

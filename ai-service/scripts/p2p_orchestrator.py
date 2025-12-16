@@ -34,6 +34,7 @@ import ipaddress
 import json
 import os
 import secrets
+import shutil
 import signal
 import socket
 import sqlite3
@@ -10914,18 +10915,33 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             return web.json_response({"success": False, "error": str(e)})
 
     async def _handle_training_job_completion(self, job: 'TrainingJob') -> None:
-        """Handle training job completion - notify cycle manager and trigger evaluation.
+        """Handle training job completion - run gauntlet, notify cycle manager, trigger evaluation.
 
         This method bridges the training completion with the improvement cycle:
-        1. Notifies improvement_cycle_manager of training completion
-        2. Schedules a model comparison tournament
-        3. Updates Elo database with results
+        1. Runs immediate gauntlet evaluation against median model
+        2. Archives model if gauntlet fails (< 50% win rate vs median)
+        3. Notifies improvement_cycle_manager of training completion
+        4. Schedules a model comparison tournament
         """
         if not self.improvement_cycle_manager:
             return
 
         try:
             print(f"[P2P] Training job {job.job_id} completed, triggering evaluation")
+
+            # NEW: Run immediate gauntlet evaluation
+            passed = await self._run_post_training_gauntlet(job)
+
+            if not passed:
+                # Archive model that failed gauntlet
+                await self._archive_failed_model(
+                    job.output_model_path,
+                    job.board_type,
+                    job.num_players,
+                    reason="failed_post_training_gauntlet"
+                )
+                print(f"[P2P] Model archived: failed post-training gauntlet (< 50% vs median)")
+                return  # Don't proceed with tournament scheduling
 
             # Notify improvement cycle manager
             self.improvement_cycle_manager.handle_training_complete(
@@ -10981,6 +10997,172 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
         except Exception as e:
             print(f"[P2P] Error scheduling tournament: {e}")
+
+    # =========================================================================
+    # POST-TRAINING GAUNTLET: Immediate evaluation after training
+    # =========================================================================
+
+    def _get_median_model(self, config_key: str) -> Optional[str]:
+        """Get the median-rated model for a config from ELO database.
+
+        Returns the model_id at the 50th percentile by rating, or None if
+        no models exist for this config.
+        """
+        elo_db_path = Path(self.ringrift_path) / "ai-service" / "data" / "unified_elo.db"
+        if not elo_db_path.exists():
+            return None
+
+        # Parse config_key like "square8_2p"
+        parts = config_key.rsplit("_", 1)
+        if len(parts) != 2:
+            return None
+        board_type = parts[0]
+        num_players = int(parts[1].rstrip("p"))
+
+        try:
+            import sqlite3
+            conn = sqlite3.connect(str(elo_db_path))
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT participant_id FROM elo_ratings
+                WHERE board_type = ? AND num_players = ? AND archived_at IS NULL
+                ORDER BY rating
+            """, (board_type, num_players))
+            rows = cursor.fetchall()
+            conn.close()
+
+            if not rows:
+                return None
+
+            # Return median model (middle of sorted list)
+            median_idx = len(rows) // 2
+            return rows[median_idx][0]
+        except Exception as e:
+            print(f"[P2P] Error getting median model: {e}")
+            return None
+
+    async def _run_post_training_gauntlet(self, job: 'TrainingJob') -> bool:
+        """Run quick gauntlet evaluation for newly trained model.
+
+        Model must beat the median-rated model with 50%+ win rate to pass.
+        Runs 8 games total (4 as player 1, 4 as player 2) for fairness.
+
+        Returns True if model passes, False if it should be archived.
+        """
+        # Check for skip flag
+        if os.environ.get("RINGRIFT_SKIP_POST_TRAINING_GAUNTLET", "0") == "1":
+            print("[P2P] Post-training gauntlet skipped (RINGRIFT_SKIP_POST_TRAINING_GAUNTLET=1)")
+            return True
+
+        config_key = f"{job.board_type}_{job.num_players}p"
+        model_path = job.output_model_path
+
+        if not model_path or not os.path.exists(model_path):
+            print(f"[P2P] Model path not found: {model_path}, skipping gauntlet")
+            return True
+
+        model_id = os.path.splitext(os.path.basename(model_path))[0]
+
+        # Get median model from ELO database
+        median_model = self._get_median_model(config_key)
+        if not median_model:
+            print(f"[P2P] No median model for {config_key}, skipping gauntlet")
+            return True  # Pass if no baseline to compare against
+
+        print(f"[P2P] Running post-training gauntlet: {model_id} vs {median_model} (median)")
+
+        # Run 8 games against median (4 as player 1, 4 as player 2)
+        GAMES_PER_SIDE = 4
+        model_dir = Path(self.ringrift_path) / "ai-service" / "models"
+
+        wins = 0
+        total_games = 0
+
+        loop = asyncio.get_event_loop()
+
+        for game_num in range(GAMES_PER_SIDE * 2):
+            try:
+                # First 4 games: new model as player 1
+                # Last 4 games: new model as player 2
+                if game_num < GAMES_PER_SIDE:
+                    result = await loop.run_in_executor(
+                        None,
+                        self._run_gauntlet_game_sync,
+                        f"gauntlet_{game_num}", model_id, median_model,
+                        job.board_type, job.num_players, model_dir
+                    )
+                    if result.get("model_won"):
+                        wins += 1
+                else:
+                    result = await loop.run_in_executor(
+                        None,
+                        self._run_gauntlet_game_sync,
+                        f"gauntlet_{game_num}", median_model, model_id,
+                        job.board_type, job.num_players, model_dir
+                    )
+                    # When new model is "baseline", baseline_won means we won
+                    if result.get("baseline_won"):
+                        wins += 1
+                total_games += 1
+            except Exception as e:
+                print(f"[P2P] Gauntlet game {game_num} error: {e}")
+                total_games += 1  # Count as played but not won
+
+        win_rate = wins / total_games if total_games > 0 else 0
+
+        # Pass criteria: beat median with 50%+ win rate
+        MIN_WIN_RATE = 0.50
+        passed = win_rate >= MIN_WIN_RATE
+
+        print(f"[P2P] Post-training gauntlet vs median: {wins}/{total_games} "
+              f"({win_rate:.1%}) {'PASSED' if passed else 'FAILED'}")
+
+        return passed
+
+    async def _archive_failed_model(self, model_path: str, board_type: str,
+                                     num_players: int, reason: str) -> None:
+        """Archive a model that failed gauntlet evaluation.
+
+        Moves the model file to models/archived/{config_key}/ and updates
+        the ELO database to mark it as archived.
+        """
+        if not model_path or not os.path.exists(model_path):
+            return
+
+        config_key = f"{board_type}_{num_players}p"
+        archive_dir = os.path.join(self.ringrift_path, "ai-service", "models",
+                                   "archived", config_key)
+        os.makedirs(archive_dir, exist_ok=True)
+
+        # Move model to archive
+        model_name = os.path.basename(model_path)
+        archive_path = os.path.join(archive_dir, model_name)
+
+        try:
+            shutil.move(model_path, archive_path)
+            print(f"[P2P] Archived {model_name} to {archive_dir} ({reason})")
+        except Exception as e:
+            print(f"[P2P] Error moving model to archive: {e}")
+            return
+
+        # Update ELO database to mark as archived
+        model_id = os.path.splitext(model_name)[0]
+        elo_db_path = Path(self.ringrift_path) / "ai-service" / "data" / "unified_elo.db"
+
+        if elo_db_path.exists():
+            try:
+                import sqlite3
+                conn = sqlite3.connect(str(elo_db_path))
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE elo_ratings
+                    SET archived_at = ?, archive_reason = ?
+                    WHERE participant_id = ? AND board_type = ? AND num_players = ?
+                """, (time.time(), reason, model_id, board_type, num_players))
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                print(f"[P2P] Error updating ELO database for archived model: {e}")
 
     async def handle_nnue_start(self, request: web.Request) -> web.Response:
         """Handle NNUE training start request (worker endpoint)."""
