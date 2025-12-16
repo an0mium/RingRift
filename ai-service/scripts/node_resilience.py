@@ -559,9 +559,9 @@ class NodeResilience:
                     ["systemctl", "start", "ringrift-p2p.service"],
                     capture_output=True,
                     text=True,
-                    timeout=10,
+                    timeout=60,  # Increased from 10s - P2P needs time to initialize
                 )
-                deadline = time.time() + 20
+                deadline = time.time() + 60  # Increased from 20s
                 while time.time() < deadline:
                     if self.check_p2p_health():
                         return True
