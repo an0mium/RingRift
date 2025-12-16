@@ -69,6 +69,11 @@ THEORETICAL_MAX_MOVES: Dict[BoardType, Dict[int, int]] = {
         3: 1600,  # additional headroom for multiplayer
         4: 2000,
     },
+    BoardType.HEX8: {
+        2: 500,   # similar to Square8 (61 cells vs 64)
+        3: 800,   # similar headroom for multiplayer
+        4: 1200,  # extrapolated
+    },
     BoardType.HEXAGONAL: {
         2: 1200,  # similar to Square19 scale
         3: 1600,
