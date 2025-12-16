@@ -6020,6 +6020,10 @@ class P2POrchestrator:
             sync_intervals = self._get_sync_interval_summary()  # ADAPTIVE SYNC INTERVALS
         except Exception as e:
             sync_intervals = {"error": str(e)}
+        try:
+            tournament_scheduling = self._get_distributed_tournament_summary()  # DISTRIBUTED TOURNAMENTS
+        except Exception as e:
+            tournament_scheduling = {"error": str(e)}
 
         return web.json_response({
             "node_id": self.node_id,
@@ -6046,6 +6050,7 @@ class P2POrchestrator:
             "leader_consensus": leader_consensus,
             "peer_reputation": peer_reputation,
             "sync_intervals": sync_intervals,
+            "tournament_scheduling": tournament_scheduling,
         })
 
     async def handle_election(self, request: web.Request) -> web.Response:
@@ -7902,9 +7907,12 @@ print(wins / total)
     # ============================================
 
     async def handle_tournament_start(self, request: web.Request) -> web.Response:
-        """Start a distributed tournament.
+        """Start or propose a distributed tournament.
 
-        Only the leader can start distributed tournaments.
+        DISTRIBUTED TOURNAMENT SCHEDULING:
+        - Leaders can start tournaments directly (immediate)
+        - Non-leaders can propose tournaments (gossip-based consensus)
+
         Request body:
         {
             "board_type": "square8",
@@ -7914,13 +7922,30 @@ print(wins / total)
         }
         """
         try:
-            if self.role != NodeRole.LEADER:
-                return web.json_response({
-                    "error": "Only the leader can start distributed tournaments",
-                    "leader_id": self.leader_id,
-                }, status=403)
-
             data = await request.json()
+
+            # Non-leaders propose tournaments via gossip consensus
+            if self.role != NodeRole.LEADER:
+                agent_ids = data.get("agent_ids", [])
+                if len(agent_ids) < 2:
+                    return web.json_response({"error": "At least 2 agents required"}, status=400)
+
+                proposal = self._propose_tournament(
+                    board_type=data.get("board_type", "square8"),
+                    num_players=data.get("num_players", 2),
+                    agent_ids=agent_ids,
+                    games_per_pairing=data.get("games_per_pairing", 2),
+                )
+
+                return web.json_response({
+                    "success": True,
+                    "mode": "proposal",
+                    "proposal_id": proposal["proposal_id"],
+                    "status": "Proposal created, awaiting gossip consensus",
+                    "agents": agent_ids,
+                })
+
+            # Leader can start tournaments directly
             job_id = f"tournament_{uuid.uuid4().hex[:8]}"
 
             agent_ids = data.get("agent_ids", [])
@@ -18690,6 +18715,9 @@ print(json.dumps({{
         # PEER REPUTATION: Share peer reliability scores
         local_state["peer_reputation"] = self._get_peer_reputation_summary()
 
+        # DISTRIBUTED TOURNAMENT: Share tournament proposals and active tournaments
+        local_state["tournament"] = self._get_tournament_gossip_state()
+
         # Include manifest summary if available
         local_manifest = getattr(self, "local_data_manifest", None)
         if local_manifest:
@@ -18800,6 +18828,23 @@ print(json.dumps({{
                     self._gossip_peer_manifests[node_id] = NodeDataManifest.from_dict(manifest_data)
                 except Exception:
                     pass
+
+        # Process tournament gossip for distributed scheduling
+        for node_id, state in known_states.items():
+            if node_id == self.node_id:
+                continue
+            tournament_state = state.get("tournament")
+            if tournament_state:
+                try:
+                    self._process_tournament_gossip(node_id, tournament_state)
+                except Exception:
+                    pass
+
+        # Check for tournament consensus after processing gossip
+        try:
+            self._check_tournament_consensus()
+        except Exception:
+            pass
 
     def _record_gossip_metrics(self, event: str, peer_id: str = None, latency_ms: float = 0):
         """Record gossip protocol metrics for monitoring.
