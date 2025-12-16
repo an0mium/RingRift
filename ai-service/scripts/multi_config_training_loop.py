@@ -11,6 +11,7 @@ Key improvements:
 - More efficient database queries
 - BALANCE MODE: Prioritizes least-represented board/player combos
 - Counts existing trained models per config for balanced training
+- ADAPTIVE CURRICULUM: Prioritizes configs with lower ELO (weaker models)
 """
 import os
 import sys
@@ -151,6 +152,9 @@ DEFAULT_EPOCHS = 5
 # Track last training count per config
 last_trained_counts: Dict[Tuple[str, int], int] = {k: 0 for k in THRESHOLDS}
 
+# Unified ELO database path
+UNIFIED_ELO_DB = os.path.join(DATA_DIR, "unified_elo.db")
+
 # Board type name variants for model file matching
 BOARD_VARIANTS = {
     "square8": ["square8", "sq8"],
@@ -170,6 +174,57 @@ def short_name(board_type: str, num_players: int) -> str:
     """Generate a unique short name for a board/player config."""
     prefix = BOARD_SHORT_NAMES.get(board_type, board_type[:4])
     return f"{prefix}_{num_players}p"
+
+
+def get_config_elo(board_type: str, num_players: int) -> float:
+    """Get the best ELO rating for a config from unified ELO database.
+
+    Returns 1500.0 (default ELO) if no ratings found or database unavailable.
+    Lower ELO means the model is weaker and should get more training attention.
+    """
+    if not os.path.exists(UNIFIED_ELO_DB):
+        return 1500.0
+
+    try:
+        conn = sqlite3.connect(UNIFIED_ELO_DB)
+        cursor = conn.execute("""
+            SELECT MAX(rating) FROM elo_ratings
+            WHERE board_type = ? AND num_players = ?
+        """, (board_type, num_players))
+        row = cursor.fetchone()
+        conn.close()
+
+        if row and row[0]:
+            return float(row[0])
+    except Exception:
+        pass
+
+    return 1500.0  # Default ELO
+
+
+def get_all_config_elos() -> Dict[Tuple[str, int], float]:
+    """Get ELO ratings for all configs at once for efficiency."""
+    elos = {k: 1500.0 for k in THRESHOLDS}
+
+    if not os.path.exists(UNIFIED_ELO_DB):
+        return elos
+
+    try:
+        conn = sqlite3.connect(UNIFIED_ELO_DB)
+        cursor = conn.execute("""
+            SELECT board_type, num_players, MAX(rating) as best_elo
+            FROM elo_ratings
+            GROUP BY board_type, num_players
+        """)
+        for row in cursor:
+            key = (row[0], row[1])
+            if key in elos and row[2]:
+                elos[key] = float(row[2])
+        conn.close()
+    except Exception:
+        pass
+
+    return elos
 
 
 def count_trained_models(board_type: str, num_players: int) -> int:
@@ -634,10 +689,10 @@ def main():
     global last_trained_counts
 
     print("=" * 60, flush=True)
-    print("Multi-Config Training Loop v5 (BALANCED + JSONL)", flush=True)
+    print("Multi-Config Training Loop v6 (ADAPTIVE CURRICULUM)", flush=True)
     print(f"Base dir: {BASE_DIR}", flush=True)
     print("Configs: " + ", ".join(short_name(bt, np) for bt, np in THRESHOLDS.keys()), flush=True)
-    print("Mode: BALANCE - prioritizes least-represented combos", flush=True)
+    print("Mode: ADAPTIVE - prioritizes low-ELO configs for balanced improvement", flush=True)
     print("Sources: DB + JSONL (tournaments, canonical selfplay)", flush=True)
     print("Note: Excludes games marked excluded_from_training=1", flush=True)
     print("=" * 60, flush=True)
@@ -677,16 +732,27 @@ def main():
 
             print(f"[{ts}] iter={iteration} | {' '.join(status_parts)}", flush=True)
 
-            # BALANCE MODE: Prioritize configs with FEWEST trained models
-            # This ensures we balance training across all 9 board/player combinations
-            # Ties broken by most new games available
+            # ADAPTIVE CURRICULUM MODE: Prioritize configs based on:
+            # 1. Fewest trained models (balance training across configs)
+            # 2. Lowest ELO (weaker models need more training)
+            # 3. Most new games available (tie-breaker)
             if training_candidates:
-                # Sort by: (1) fewest models ASCENDING, (2) most new games DESCENDING
-                training_candidates.sort(key=lambda x: (x[5], -x[4]))
+                # Get ELO ratings for adaptive curriculum
+                elo_scores = get_all_config_elos()
+
+                # Sort by: (1) fewest models ASCENDING, (2) lowest ELO ASCENDING, (3) most new games DESCENDING
+                # This prioritizes under-trained configs, then weaker models
+                def sort_key(candidate):
+                    config, _, _, _, new_games, models = candidate
+                    elo = elo_scores.get(config, 1500.0)
+                    return (models, elo, -new_games)
+
+                training_candidates.sort(key=sort_key)
                 config, db_paths, jsonl_paths, total_count, new_games, models = training_candidates[0]
                 board_type, num_players = config
                 sn = short_name(board_type, num_players)
-                print(f"[{ts}] BALANCE: Training {sn} (has only {models} models, {new_games} new games)", flush=True)
+                elo = elo_scores.get(config, 1500.0)
+                print(f"[{ts}] ADAPTIVE: Training {sn} (models={models}, ELO={elo:.0f}, new_games={new_games})", flush=True)
                 run_training(board_type, num_players, db_paths, jsonl_paths, total_count)
 
             time.sleep(60)
