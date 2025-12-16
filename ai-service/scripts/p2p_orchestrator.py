@@ -18237,11 +18237,11 @@ print(json.dumps({{
                     if info:
                         if info.node_id == self.node_id:
                             continue
-                        with self.peers_lock:
+                        async with AsyncLockWrapper(self.peers_lock):
                             info.last_heartbeat = time.time()
                             self.peers[info.node_id] = info
                         if info.role == NodeRole.LEADER and info.node_id != self.node_id:
-                            with self.peers_lock:
+                            async with AsyncLockWrapper(self.peers_lock):
                                 peers_snapshot = list(self.peers.values())
                             conflict_keys = self._endpoint_conflict_keys([self.self_info] + peers_snapshot)
                             if not self._is_leader_eligible(info, conflict_keys, require_alive=False):
@@ -18272,7 +18272,7 @@ print(json.dumps({{
                             self.role = NodeRole.FOLLOWER
 
                 # Send to discovered peers (skip NAT-blocked peers and ambiguous endpoints).
-                with self.peers_lock:
+                async with AsyncLockWrapper(self.peers_lock):
                     peers_snapshot = list(self.peers.values())
                 conflict_keys = self._endpoint_conflict_keys([self.self_info] + peers_snapshot)
                 peer_list = [
@@ -18310,7 +18310,7 @@ print(json.dumps({{
                         if info:
                             info.consecutive_failures = 0
                             info.last_failure_time = 0.0
-                            with self.peers_lock:
+                            async with AsyncLockWrapper(self.peers_lock):
                                 info.last_heartbeat = time.time()
                                 self.peers[info.node_id] = info
                             if info.role == NodeRole.LEADER and self.role != NodeRole.LEADER:
@@ -18332,7 +18332,7 @@ print(json.dumps({{
                                     self.leader_lease_expires = time.time() + LEADER_LEASE_DURATION
                                 self.role = NodeRole.FOLLOWER
                         else:
-                            with self.peers_lock:
+                            async with AsyncLockWrapper(self.peers_lock):
                                 existing = self.peers.get(peer.node_id)
                                 if existing:
                                     existing.consecutive_failures = int(getattr(existing, "consecutive_failures", 0) or 0) + 1
@@ -18471,7 +18471,7 @@ print(json.dumps({{
 
                 for voter_id in other_voters:
                     # Find voter peer info
-                    with self.peers_lock:
+                    async with AsyncLockWrapper(self.peers_lock):
                         voter_peer = self.peers.get(voter_id)
 
                     if not voter_peer:
@@ -18486,7 +18486,7 @@ print(json.dumps({{
                         # AGGRESSIVE NAT RECOVERY: Clear NAT-blocked immediately on success
                         if VOTER_NAT_RECOVERY_AGGRESSIVE and voter_peer.nat_blocked:
                             print(f"[P2P] Voter {voter_id} NAT-blocked status cleared (heartbeat succeeded)")
-                            with self.peers_lock:
+                            async with AsyncLockWrapper(self.peers_lock):
                                 if voter_id in self.peers:
                                     self.peers[voter_id].nat_blocked = False
                                     self.peers[voter_id].nat_blocked_since = 0.0
