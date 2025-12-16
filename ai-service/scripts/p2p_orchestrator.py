@@ -21886,7 +21886,12 @@ print(json.dumps({{
                     # Pick a config weighted by priority (same as leader logic)
                     config = self._pick_weighted_selfplay_config(node)
                     if config:
-                        job = await self._start_local_selfplay_job(config)
+                        job = await self._start_local_job(
+                            JobType.HYBRID_SELFPLAY,
+                            board_type=config["board_type"],
+                            num_players=config["num_players"],
+                            engine_mode=config.get("engine_mode", "descent-only"),
+                        )
                         if job:
                             changes += 1
                 except Exception as e:
@@ -21970,8 +21975,12 @@ print(json.dumps({{
                         config = self._pick_weighted_selfplay_config(self.self_info)
                         if config:
                             # Force GPU mode
-                            config["engine_mode"] = "nn-only"
-                            job = await self._start_local_selfplay_job(config)
+                            job = await self._start_local_job(
+                                JobType.HYBRID_SELFPLAY,
+                                board_type=config["board_type"],
+                                num_players=config["num_players"],
+                                engine_mode="nn-only",
+                            )
                             if job:
                                 started += 1
                     except Exception as e:
