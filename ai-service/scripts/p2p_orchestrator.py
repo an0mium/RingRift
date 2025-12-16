@@ -22995,13 +22995,17 @@ print(json.dumps({{
         return random.choice(weighted) if weighted else None
 
     async def _auto_scale_gpu_utilization(self) -> int:
-        """Auto-scale GPU selfplay jobs to reach 60-80% GPU utilization.
+        """Auto-scale diverse/hybrid selfplay jobs to reach 60-80% GPU utilization.
 
-        Detects underutilized GPU nodes and starts GPU selfplay jobs to improve
-        cluster throughput.
+        Detects underutilized GPU nodes and starts HYBRID selfplay jobs to improve
+        cluster throughput while maintaining game quality and rule fidelity.
+
+        NOTE: GPU-only selfplay is DISABLED. All auto-scaled jobs use hybrid mode
+        which provides 100% rule fidelity (CPU rules) + GPU-accelerated evaluation.
+        This produces higher quality training data than pure GPU selfplay.
 
         Returns:
-            Number of new GPU selfplay jobs started
+            Number of new diverse selfplay jobs started
         """
         TARGET_GPU_MIN = 60.0  # Target minimum GPU utilization
         TARGET_GPU_MAX = 80.0  # Target maximum GPU utilization
@@ -23075,36 +23079,49 @@ print(json.dumps({{
             new_jobs = node_info["new_jobs"]
 
             print(
-                f"[P2P] GPU Auto-scale: {node_id} at {node_info['gpu_percent']:.0f}% GPU, "
-                f"starting {new_jobs} GPU selfplay job(s)"
+                f"[P2P] Auto-scale: {node_id} at {node_info['gpu_percent']:.0f}% GPU, "
+                f"starting {new_jobs} diverse/hybrid selfplay job(s)"
             )
 
             for _ in range(new_jobs):
                 try:
-                    # Schedule GPU selfplay job
-                    job = await self._schedule_gpu_selfplay_on_node(node_id)
+                    # Schedule diverse/hybrid selfplay job (GPU-only selfplay disabled)
+                    job = await self._schedule_diverse_selfplay_on_node(node_id)
                     if job:
                         started += 1
                 except Exception as e:
-                    print(f"[P2P] Failed to start GPU selfplay on {node_id}: {e}")
+                    print(f"[P2P] Failed to start diverse selfplay on {node_id}: {e}")
                     break
 
         if started > 0:
             self._last_gpu_auto_scale = now
-            print(f"[P2P] GPU Auto-scale: started {started} new GPU selfplay job(s)")
+            print(f"[P2P] Auto-scale: started {started} new diverse/hybrid selfplay job(s)")
 
         return started
 
-    async def _schedule_gpu_selfplay_on_node(self, node_id: str) -> Optional[dict]:
-        """Schedule a GPU selfplay job on a specific node."""
+    async def _schedule_diverse_selfplay_on_node(self, node_id: str) -> Optional[dict]:
+        """Schedule a diverse/hybrid selfplay job on a specific node.
+
+        Uses HYBRID mode (CPU rules + GPU eval) for 100% rule fidelity.
+        Rotates through all board/player configurations for diversity.
+        """
         with self.peers_lock:
             peer = self.peers.get(node_id)
         if not peer or not peer.is_alive():
             return None
 
-        # Default to square8 2p for GPU selfplay
-        board_type = "square8"
-        num_players = 2
+        # Rotate through diverse configurations instead of just square8 2p
+        # Priority order: hex and square19 first (underserved), then square8
+        diverse_configs = [
+            ("hexagonal", 3), ("hexagonal", 2), ("hexagonal", 4),
+            ("square19", 3), ("square19", 2), ("square19", 4),
+            ("square8", 3), ("square8", 4), ("square8", 2),
+        ]
+        # Round-robin selection based on node-specific counter
+        counter_key = f"_diverse_config_counter_{node_id}"
+        counter = getattr(self, counter_key, 0)
+        setattr(self, counter_key, counter + 1)
+        board_type, num_players = diverse_configs[counter % len(diverse_configs)]
 
         try:
             timeout = ClientTimeout(total=30)
@@ -23113,21 +23130,26 @@ print(json.dumps({{
                 payload = {
                     "board_type": board_type,
                     "num_players": num_players,
-                    "num_games": 500,
-                    "engine_mode": "gpu",
+                    "num_games": 200,  # Smaller batches for diversity
+                    "engine_mode": "mixed",  # HYBRID mode: CPU rules + GPU eval
                     "auto_scaled": True,
+                    "job_type": "hybrid_selfplay",  # Explicitly request hybrid
                 }
                 async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
                     if resp.status == 200:
                         data = await resp.json()
+                        print(f"[P2P] Started diverse selfplay on {node_id}: {board_type} {num_players}p")
                         return data
                     else:
                         error = await resp.text()
-                        print(f"[P2P] GPU selfplay start failed on {node_id}: {error}")
+                        print(f"[P2P] Diverse selfplay start failed on {node_id}: {error}")
                         return None
         except Exception as e:
-            print(f"[P2P] Failed to schedule GPU selfplay on {node_id}: {e}")
+            print(f"[P2P] Failed to schedule diverse selfplay on {node_id}: {e}")
             return None
+
+    # Backward compatibility alias (GPU selfplay now redirects to diverse/hybrid)
+    _schedule_gpu_selfplay_on_node = _schedule_diverse_selfplay_on_node
 
     def _target_selfplay_jobs_for_node(self, node: NodeInfo) -> int:
         """Return the desired selfplay concurrency for a node.

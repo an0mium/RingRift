@@ -77,8 +77,8 @@ REMOTE_DATABASES = {
     },
 }
 
-# Local database
-LOCAL_DB = Path("data/games/hex8_local.db")
+# Local database (from current local selfplay)
+LOCAL_DB = Path("data/games/hex8_training.db")
 CONSOLIDATED_DB = Path("data/games/hex8_consolidated.db")
 TRAINING_NPZ = Path("data/training/hex8_2p_consolidated.npz")
 
@@ -101,21 +101,26 @@ def get_local_game_count(db_path: Path) -> int:
 
 
 def get_remote_game_count(node_name: str, config: Dict) -> int:
-    """Get number of completed games from a remote database."""
+    """Get number of completed games from a remote database using Python."""
     ssh_host = config["ssh_host"]
     db_path = config["db_path"]
     ssh_key = config.get("ssh_key", "~/.ssh/id_cluster")
     ssh_port = config.get("ssh_port")
 
-    # Build SSH command
+    # Build SSH command using Python to query SQLite
+    python_cmd = (
+        f"python3 -c \"import sqlite3; "
+        f"conn=sqlite3.connect('{db_path}'); "
+        f"print(conn.execute('SELECT COUNT(*) FROM games WHERE winner IS NOT NULL').fetchone()[0])\" "
+        f"2>/dev/null || echo 0"
+    )
+
     ssh_cmd = ["ssh"]
     if ssh_port:
         ssh_cmd.extend(["-p", str(ssh_port)])
     ssh_cmd.extend(["-i", os.path.expanduser(ssh_key), "-o", "ConnectTimeout=10"])
     ssh_cmd.append(ssh_host)
-    ssh_cmd.append(
-        f"sqlite3 {db_path} \"SELECT COUNT(*) FROM games WHERE winner IS NOT NULL\" 2>/dev/null || echo 0"
-    )
+    ssh_cmd.append(python_cmd)
 
     try:
         result = subprocess.run(
