@@ -275,6 +275,23 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=None,
         help="Maximum number of training samples (default: all)",
     )
+    parser.add_argument(
+        "--balanced-sampling",
+        action="store_true",
+        help="Use phase-balanced sampling (25% early, 35% mid, 40% late game)",
+    )
+    parser.add_argument(
+        "--early-end",
+        type=int,
+        default=40,
+        help="Move number where early game ends (default: 40)",
+    )
+    parser.add_argument(
+        "--mid-end",
+        type=int,
+        default=80,
+        help="Move number where mid game ends (default: 80)",
+    )
 
     # Output
     parser.add_argument(
@@ -435,6 +452,9 @@ def train_nnue(
     seed: int,
     cache_path: Optional[str] = None,
     demo: bool = False,
+    balanced_sampling: bool = False,
+    early_end: int = 40,
+    mid_end: int = 80,
 ) -> Dict[str, Any]:
     """Train NNUE model and return training report."""
     seed_all(seed)
@@ -479,10 +499,37 @@ def train_nnue(
     logger.info(f"Train size: {len(train_dataset)}, Val size: {len(val_dataset)}")
 
     # Create data loaders
+    train_sampler = None
+    if balanced_sampling and not demo and hasattr(dataset, 'get_balanced_sampler'):
+        logger.info("Using phase-balanced sampling for training")
+        # Get balanced sampler from full dataset
+        full_sampler = dataset.get_balanced_sampler(
+            early_end=early_end,
+            mid_end=mid_end,
+            target_balance=(0.25, 0.35, 0.40),
+        )
+        # Create sampler for train subset only
+        from torch.utils.data import WeightedRandomSampler
+        train_indices = train_dataset.indices
+        weights = dataset.compute_phase_balanced_weights(
+            early_end=early_end,
+            mid_end=mid_end,
+            target_balance=(0.25, 0.35, 0.40),
+        )
+        train_weights = weights[train_indices]
+        train_weights = train_weights / train_weights.sum()  # Renormalize
+        train_sampler = WeightedRandomSampler(
+            weights=torch.from_numpy(train_weights).double(),
+            num_samples=len(train_dataset),
+            replacement=True,
+        )
+        logger.info(f"Created balanced sampler for {len(train_dataset)} training samples")
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
-        shuffle=True,
+        shuffle=(train_sampler is None),  # Don't shuffle if using sampler
+        sampler=train_sampler,
         num_workers=0,  # SQLite doesn't like multiprocessing
         pin_memory=True if device.type != "cpu" else False,
     )
@@ -587,6 +634,8 @@ def train_nnue(
         "best_val_loss": best_val_loss,
         "final_val_accuracy": history["val_accuracy"][-1],
         "save_path": save_path,
+        "balanced_sampling": balanced_sampling,
+        "phase_config": {"early_end": early_end, "mid_end": mid_end} if balanced_sampling else None,
         "history": history,
     }
 
@@ -729,6 +778,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         seed=args.seed,
         cache_path=args.cache_path,
         demo=args.demo,
+        balanced_sampling=args.balanced_sampling,
+        early_end=args.early_end,
+        mid_end=args.mid_end,
     )
 
     # Add metadata to report
