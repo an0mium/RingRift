@@ -46,6 +46,11 @@ training:
   # Additional options
   warm_start: true # Continue from previous checkpoint if available
   validation_split: 0.1 # Hold out 10% for validation
+  # Optimized training settings (Phase 2.5 improvements)
+  batch_size: 256 # Higher batch size for better GPU utilization
+  sampling_weights: 'victory_type' # Balance across victory types (territory, elimination, etc.)
+  warmup_epochs: 5 # LR warmup for training stability
+  use_optimized_hyperparams: true # Load board-specific hyperparameters from config/hyperparameters.json
 
 # Continuous evaluation (shadow + full tournaments)
 evaluation:

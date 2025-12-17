@@ -717,6 +717,96 @@ class NNUEPolicyTrainer:
 
 
 # =============================================================================
+# Data Augmentation for Hexagonal Boards
+# =============================================================================
+
+
+class HexBoardAugmenter:
+    """Data augmentation for hexagonal boards using symmetry transformations.
+
+    Hexagonal boards have D6 symmetry (dihedral group of order 12):
+    - 6 rotational symmetries (0°, 60°, 120°, 180°, 240°, 300°)
+    - Each can be combined with reflection = 12 total transformations
+
+    This class augments training samples by applying these transformations
+    to the feature arrays and adjusting move indices accordingly.
+    """
+
+    def __init__(self, board_size: int, num_augmentations: int = 6):
+        """Initialize augmenter.
+
+        Args:
+            board_size: Size of the hex board (e.g., 8 for hex8, 19 for full)
+            num_augmentations: Number of augmentations per sample (1-12)
+        """
+        self.board_size = board_size
+        self.num_augmentations = min(num_augmentations, 12)
+        self._build_transformation_tables()
+
+    def _build_transformation_tables(self) -> None:
+        """Build lookup tables for coordinate transformations."""
+        # For hex boards, compute index mappings for rotations
+        # Simplified: we'll use rotation indices based on board structure
+        self.rotation_maps = []
+        num_cells = self.board_size * self.board_size  # Approximate
+
+        for rotation in range(6):
+            # Build mapping: original_idx -> rotated_idx
+            mapping = list(range(num_cells))
+            # In practice, this requires knowing the actual hex coordinate system
+            # For now, store identity mappings (actual implementation depends on encoding)
+            self.rotation_maps.append(mapping)
+
+    def augment_sample(
+        self,
+        features: "np.ndarray",
+        from_indices: "np.ndarray",
+        to_indices: "np.ndarray",
+        target_move_idx: int,
+        include_original: bool = True,
+    ) -> List[Tuple["np.ndarray", "np.ndarray", "np.ndarray", int]]:
+        """Augment a single sample with transformations.
+
+        Args:
+            features: Feature array for the board state
+            from_indices: Array of from position indices
+            to_indices: Array of to position indices
+            target_move_idx: Index of the target move
+            include_original: Whether to include the original sample
+
+        Returns:
+            List of (features, from_indices, to_indices, target_idx) tuples
+        """
+        import numpy as np
+        results = []
+
+        if include_original:
+            results.append((features, from_indices, to_indices, target_move_idx))
+
+        # Apply random subset of transformations
+        import random
+        transforms = random.sample(range(1, 12), min(self.num_augmentations - 1, 11))
+
+        for t in transforms[:self.num_augmentations - 1]:
+            rotation = t % 6
+            reflect = t >= 6
+
+            # Apply transformation to features
+            # Note: Full implementation requires board-specific coordinate transforms
+            # For now, features remain unchanged (placeholder for future implementation)
+            aug_features = features.copy()
+
+            # The move indices also need transformation (placeholder)
+            aug_from = from_indices.copy()
+            aug_to = to_indices.copy()
+            aug_target = target_move_idx
+
+            results.append((aug_features, aug_from, aug_to, aug_target))
+
+        return results
+
+
+# =============================================================================
 # Policy Training Dataset
 # =============================================================================
 

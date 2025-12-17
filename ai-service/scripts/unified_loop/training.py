@@ -805,6 +805,10 @@ class TrainingScheduler:
             else:
                 epochs = base_epochs
 
+            # Get optimized training settings
+            batch_size = self.config.batch_size or 256
+            sampling_weights = self.config.sampling_weights or "victory_type"
+
             cmd = [
                 sys.executable,
                 str(AI_SERVICE_ROOT / self.config.nn_training_script),
@@ -815,6 +819,10 @@ class TrainingScheduler:
                 "--model-id", model_id,
                 "--model-version", model_version,
                 "--epochs", str(epochs),
+                "--batch-size", str(batch_size),
+                "--sampling-weights", sampling_weights,
+                "--use-optimized-hyperparams",
+                "--warmup-epochs", "5",
             ]
 
             print(f"[Training] Starting training for {model_id}...")

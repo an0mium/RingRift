@@ -65,6 +65,11 @@ class TrainingConfig:
     hex_encoder_version: str = "v3"
     # Verbose logging for training scheduler
     verbose: bool = False
+    # Optimized training settings
+    batch_size: int = 256  # Higher batch size for better GPU utilization
+    sampling_weights: str = "victory_type"  # Balance across victory types
+    warmup_epochs: int = 5  # LR warmup for stability
+    use_optimized_hyperparams: bool = True  # Load from hyperparameters.json
 
 
 @dataclass

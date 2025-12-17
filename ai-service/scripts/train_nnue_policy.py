@@ -362,6 +362,47 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Minimum samples with MCTS policy for auto KL loss (default: 100)",
     )
 
+    # Advanced training options
+    parser.add_argument(
+        "--use-amp",
+        action="store_true",
+        default=True,
+        help="Use mixed precision (FP16) training for faster training on CUDA (default: True)",
+    )
+    parser.add_argument(
+        "--no-amp",
+        action="store_true",
+        help="Disable mixed precision training",
+    )
+    parser.add_argument(
+        "--use-ema",
+        action="store_true",
+        help="Use Exponential Moving Average for model weights (smoother final model)",
+    )
+    parser.add_argument(
+        "--ema-decay",
+        type=float,
+        default=0.999,
+        help="EMA decay rate (default: 0.999)",
+    )
+    parser.add_argument(
+        "--focal-gamma",
+        type=float,
+        default=0.0,
+        help="Focal loss gamma for hard sample mining (0 = disabled, 2.0 = typical, default: 0)",
+    )
+    parser.add_argument(
+        "--label-smoothing-warmup",
+        type=int,
+        default=0,
+        help="Number of epochs to warm up label smoothing from 0 to target (default: 0 = no warmup)",
+    )
+    parser.add_argument(
+        "--save-curves",
+        action="store_true",
+        help="Save learning curve plots (requires matplotlib)",
+    )
+
     return parser.parse_args(argv)
 
 
@@ -416,6 +457,12 @@ def train_nnue_policy(
     kl_min_samples: int = 100,
     grad_clip: float = 1.0,
     lr_scheduler: str = "plateau",
+    use_amp: bool = True,
+    use_ema: bool = False,
+    ema_decay: float = 0.999,
+    focal_gamma: float = 0.0,
+    label_smoothing_warmup: int = 0,
+    save_curves: bool = False,
 ) -> Dict[str, Any]:
     """Train NNUE policy model and return training report."""
     seed_all(seed)
@@ -586,11 +633,19 @@ def train_nnue_policy(
         grad_clip=grad_clip,
         lr_scheduler=lr_scheduler,
         total_epochs=epochs,
+        use_amp=use_amp,
+        use_ema=use_ema,
+        ema_decay=ema_decay,
+        focal_gamma=focal_gamma,
+        label_smoothing_warmup=label_smoothing_warmup,
     )
 
     logger.info(f"Temperature annealing: {temperature_start} -> {temperature_end} ({temperature_schedule})")
-    logger.info(f"Label smoothing: {label_smoothing}")
+    logger.info(f"Label smoothing: {label_smoothing}" + (f" (warmup: {label_smoothing_warmup} epochs)" if label_smoothing_warmup > 0 else ""))
     logger.info(f"LR scheduler: {lr_scheduler}, grad_clip: {grad_clip}")
+    logger.info(f"AMP: {use_amp}, EMA: {use_ema}" + (f" (decay={ema_decay})" if use_ema else ""))
+    if focal_gamma > 0:
+        logger.info(f"Focal loss enabled with gamma={focal_gamma}")
     if effective_use_kl_loss:
         logger.info("KL divergence loss ENABLED (using MCTS visit distributions)")
 
@@ -830,6 +885,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         kl_min_samples=args.kl_min_samples,
         grad_clip=args.grad_clip,
         lr_scheduler=args.lr_scheduler,
+        use_amp=args.use_amp and not args.no_amp,
+        use_ema=args.use_ema,
+        ema_decay=args.ema_decay,
+        focal_gamma=args.focal_gamma,
+        label_smoothing_warmup=args.label_smoothing_warmup,
+        save_curves=args.save_curves,
     )
 
     # Add metadata to report
