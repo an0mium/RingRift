@@ -70,6 +70,20 @@ class TrainingConfig:
     sampling_weights: str = "victory_type"  # Balance across victory types
     warmup_epochs: int = 5  # LR warmup for stability
     use_optimized_hyperparams: bool = True  # Load from hyperparameters.json
+    # Advanced training optimizations (2024-12 improvements)
+    use_spectral_norm: bool = True  # Gradient stability via spectral normalization
+    use_lars: bool = False  # LARS optimizer for distributed large-batch training
+    use_cyclic_lr: bool = True  # Cyclic LR with triangular waves
+    cyclic_lr_period: int = 5  # Cycle period in epochs
+    use_gradient_profiling: bool = False  # Track gradient norms for diagnostics
+    use_mixed_precision: bool = True  # FP16/BF16 mixed precision training
+    amp_dtype: str = "bfloat16"  # Prefer BF16 for stability
+    gradient_accumulation: int = 1  # Gradient accumulation steps
+    # Knowledge distillation (optional)
+    use_knowledge_distill: bool = False  # Train from teacher model
+    teacher_model_path: Optional[str] = None  # Path to teacher model
+    distill_alpha: float = 0.5  # Blend weight (0=pure label, 1=pure teacher)
+    distill_temperature: float = 2.0  # Softening temperature
 
 
 @dataclass

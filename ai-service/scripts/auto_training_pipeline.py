@@ -336,6 +336,10 @@ def train_nn_optimized(
     batch_size: int = 256,
     epochs: int = 50,
     sampling_weights: str = "victory_type",
+    use_spectral_norm: bool = True,
+    use_cyclic_lr: bool = True,
+    use_mixed_precision: bool = True,
+    amp_dtype: str = "bfloat16",
 ) -> Optional[Path]:
     """Train neural network model with optimized settings.
 
@@ -344,9 +348,13 @@ def train_nn_optimized(
     - Higher batch sizes for GPU utilization
     - Warmup epochs and cosine annealing
     - Board-specific hyperparameters from config/hyperparameters.json
+    - Spectral normalization for gradient stability
+    - Cyclic learning rate scheduling
+    - Mixed precision training (BF16/FP16)
     """
     logger.info(f"Training NN model for {board_type}_{num_players}p with optimized settings...")
     logger.info(f"  batch_size={batch_size}, epochs={epochs}, sampling={sampling_weights}")
+    logger.info(f"  spectral_norm={use_spectral_norm}, cyclic_lr={use_cyclic_lr}, mixed_precision={use_mixed_precision}")
 
     if dry_run:
         logger.info("  Would train NN model with optimized settings")
@@ -372,6 +380,14 @@ def train_nn_optimized(
             "--use-optimized-hyperparams",
             "--warmup-epochs", "5",
         ]
+
+        # Add advanced training optimizations
+        if use_spectral_norm:
+            cmd.append("--spectral-norm")
+        if use_cyclic_lr:
+            cmd.extend(["--cyclic-lr", "--cyclic-lr-period", "5"])
+        if use_mixed_precision:
+            cmd.extend(["--mixed-precision", "--amp-dtype", amp_dtype])
 
         result = subprocess.run(
             cmd,

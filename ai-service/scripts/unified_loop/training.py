@@ -822,8 +822,31 @@ class TrainingScheduler:
                 "--batch-size", str(batch_size),
                 "--sampling-weights", sampling_weights,
                 "--use-optimized-hyperparams",
-                "--warmup-epochs", "5",
+                "--warmup-epochs", str(self.config.warmup_epochs),
             ]
+
+            # Advanced training optimizations
+            if self.config.use_spectral_norm:
+                cmd.append("--spectral-norm")
+            if self.config.use_lars:
+                cmd.append("--lars")
+            if self.config.use_cyclic_lr:
+                cmd.extend(["--cyclic-lr", "--cyclic-lr-period", str(self.config.cyclic_lr_period)])
+            if self.config.use_gradient_profiling:
+                cmd.append("--gradient-profiling")
+            if self.config.use_mixed_precision:
+                cmd.extend(["--mixed-precision", "--amp-dtype", self.config.amp_dtype])
+            if self.config.gradient_accumulation > 1:
+                cmd.extend(["--gradient-accumulation", str(self.config.gradient_accumulation)])
+
+            # Knowledge distillation
+            if self.config.use_knowledge_distill and self.config.teacher_model_path:
+                cmd.extend([
+                    "--knowledge-distill",
+                    "--teacher-model", self.config.teacher_model_path,
+                    "--distill-alpha", str(self.config.distill_alpha),
+                    "--distill-temperature", str(self.config.distill_temperature),
+                ])
 
             print(f"[Training] Starting training for {model_id}...")
             self._training_process = await asyncio.create_subprocess_exec(
