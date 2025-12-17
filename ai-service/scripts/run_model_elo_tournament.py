@@ -227,9 +227,11 @@ def play_model_vs_model_game(
             break
 
         # Record move for training data
+        # Move object uses 'type' attribute (not 'move_type') - match play_nn_vs_nn_game format
         if save_game_history and move is not None:
+            move_type_val = move.type.value if hasattr(move.type, 'value') else str(move.type)
             move_record = {
-                'move_type': move.move_type.value if hasattr(move.move_type, 'value') else str(move.move_type),
+                'type': move_type_val,
                 'player': current_player,
             }
             if hasattr(move, 'to_key') and move.to_key:
