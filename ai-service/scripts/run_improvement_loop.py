@@ -1084,25 +1084,40 @@ def train_model(
         str(iter_model),
         # Advanced training optimizations (2024-12)
         "--spectral-norm",  # Gradient stability
-        "--cyclic-lr",  # Cyclic LR with triangular waves
-        "--mixed-precision",  # BF16 for speed+stability
+        "--cyclic-lr", "--cyclic-lr-period", "5",  # Cyclic LR with triangular waves
+        "--mixed-precision", "--amp-dtype", "bfloat16",  # BF16 for speed+stability
         "--warmup-epochs", "2",  # Short warmup for fine-tuning
         # 2024-12 Advanced Training Improvements
         "--value-whitening",  # Value head whitening for stable training
         "--ema",  # Exponential Moving Average for better generalization
+        "--stochastic-depth", "--stochastic-depth-prob", "0.1",  # Stochastic depth regularization
         "--adaptive-warmup",  # Adaptive warmup based on dataset size
-        "--hard-example-mining",  # Focus on difficult examples
+        "--hard-example-mining", "--hard-example-top-k", "0.3",  # Focus on difficult examples
         # 2024-12 Advanced Optimizer Enhancements
-        "--lookahead",  # Lookahead optimizer for better generalization
+        "--lookahead", "--lookahead-k", "5", "--lookahead-alpha", "0.5",  # Lookahead optimizer
         "--adaptive-clip",  # Adaptive gradient clipping
         "--board-nas",  # Board-specific neural architecture search
-        "--online-bootstrap",  # Online bootstrapping with soft labels
+        "--online-bootstrap", "--bootstrap-temperature", "1.5", "--bootstrap-start-epoch", "5",  # Online bootstrapping
         # 2024-12 Phase 2 Advanced Training
         "--prefetch-gpu",  # GPU prefetching for improved throughput
         "--difficulty-curriculum",  # Difficulty-aware curriculum learning
         "--quantized-eval",  # Fast quantized inference for validation
+        # Note: Experimental Phase 2 features (enable via config if needed):
+        # --use-attention, --use-moe, --use-multitask (architectural changes)
+        # --use-lamb, --gradient-compression (distributed training)
+        # --contrastive-pretrain (self-supervised pretraining)
+        # 2025-12 Training Improvements
+        "--policy-label-smoothing", "0.05",  # Prevent overconfident predictions
+        "--sampling-weights", "victory_type",  # Balance across victory types
         # 2024-12 Phase 3 Advanced Training
         "--grokking-detection",  # Monitor for delayed generalization
+        # Note: Optional Phase 3 features (enable via config if needed):
+        # --use-sam (Sharpness-Aware Minimization - better generalization)
+        # --td-lambda (Temporal Difference learning)
+        # --auxiliary-targets (auxiliary prediction heads)
+        # --pruning (post-training structured pruning)
+        # --self-play (integrated self-play data generation)
+        # --distillation (knowledge distillation from teacher)
     ]
 
     # Resume from best model if it exists (warm-start fine-tuning)

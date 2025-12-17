@@ -703,6 +703,18 @@ class GPUSelfPlayGenerator:
             # Use scripts/import_gpu_selfplay_to_db.py for post-hoc conversion.
             logger.info(f"  Note: DB output not supported for GPU games (use import_gpu_selfplay_to_db.py)")
 
+        # Buffered write for better I/O performance (flush every N records)
+        WRITE_BUFFER_SIZE = 100  # Records before flush - balances throughput vs data safety
+        write_buffer: List[str] = []
+
+        def flush_write_buffer():
+            """Flush accumulated records to file."""
+            nonlocal write_buffer
+            if file_handle and write_buffer:
+                file_handle.write("\n".join(write_buffer) + "\n")
+                file_handle.flush()
+                write_buffer = []
+
         try:
             for batch_idx in range(num_batches):
                 # Adjust batch size for last batch
@@ -757,9 +769,11 @@ class GPUSelfPlayGenerator:
                     }
                     all_records.append(record)
 
+                    # Buffered write: accumulate records and flush periodically
                     if file_handle:
-                        file_handle.write(json.dumps(record) + "\n")
-                        file_handle.flush()  # Minimize data loss on abnormal termination
+                        write_buffer.append(json.dumps(record))
+                        if len(write_buffer) >= WRITE_BUFFER_SIZE:
+                            flush_write_buffer()
 
                     # NOTE: DB storage disabled for GPU games.
                     # GPU selfplay uses simplified move semantics that don't map 1:1 to
@@ -767,6 +781,9 @@ class GPUSelfPlayGenerator:
                     # move data sufficient for training. If canonical DB format is needed,
                     # use scripts/import_gpu_selfplay_to_db.py for post-hoc conversion.
                     # See GPU_PIPELINE_ROADMAP.md for GPU/canonical parity details.
+
+                # Flush at end of each batch for safety
+                flush_write_buffer()
 
                 # Progress logging
                 if (batch_idx + 1) % progress_interval == 0:

@@ -1080,11 +1080,22 @@ def run_training(board_type: str, num_players: int, db_paths: List[str],
         "--prefetch-gpu",  # GPU prefetching for improved throughput
         "--difficulty-curriculum",  # Difficulty-aware curriculum learning
         "--quantized-eval",  # Fast quantized inference for validation
+        # Note: Experimental Phase 2 features (enable via config if needed):
+        # --use-attention, --use-moe, --use-multitask (architectural changes)
+        # --use-lamb, --gradient-compression (distributed training)
+        # --contrastive-pretrain (self-supervised pretraining)
         # 2025-12 Training Improvements
         "--policy-label-smoothing", "0.05",  # Prevent overconfident predictions
         "--sampling-weights", "victory_type",  # Balance across victory types for better generalization
         # 2024-12 Phase 3 Advanced Training
         "--grokking-detection",  # Monitor for delayed generalization
+        # Note: Optional Phase 3 features (enable via config if needed):
+        # --use-sam (Sharpness-Aware Minimization - better generalization)
+        # --td-lambda (Temporal Difference learning)
+        # --auxiliary-targets (auxiliary prediction heads)
+        # --pruning (post-training structured pruning)
+        # --self-play (integrated self-play data generation)
+        # --distillation (knowledge distillation from teacher)
     ]
 
     # D6 hex symmetry augmentation for hex boards (12x effective data)
