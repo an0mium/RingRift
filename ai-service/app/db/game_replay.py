@@ -546,9 +546,16 @@ class GameReplayDB:
 
     @contextmanager
     def _get_conn(self):
-        """Get a database connection with proper cleanup."""
-        conn = sqlite3.connect(str(self._db_path))
+        """Get a database connection with proper cleanup.
+
+        Uses WAL mode and busy timeout for better concurrency with multiple workers.
+        """
+        conn = sqlite3.connect(str(self._db_path), timeout=30.0)
         conn.row_factory = sqlite3.Row
+        # WAL mode allows concurrent reads during writes
+        conn.execute("PRAGMA journal_mode=WAL")
+        # Wait up to 30 seconds for locks instead of failing immediately
+        conn.execute("PRAGMA busy_timeout=30000")
         conn.execute("PRAGMA foreign_keys = ON")
         try:
             yield conn

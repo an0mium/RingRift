@@ -8520,11 +8520,40 @@ print(wins / total)
                     )
                     return MCTSAI(player_num, config, board_type)
 
+                elif ai_type in ("descent", "aitype.descent"):
+                    # Descent AI is CPU-based and lightweight
+                    from app.ai.descent_ai import DescentAI
+                    config = AIConfig(
+                        ai_type=AIType.DESCENT,
+                        board_type=board_type,
+                        difficulty=agent_config.get("difficulty", 5),
+                    )
+                    return DescentAI(player_num, config, board_type)
+
                 else:
-                    # For neural-net based types, use the full tournament function
-                    # but only if absolutely needed
-                    from scripts.run_model_elo_tournament import create_ai_from_model
-                    return create_ai_from_model(agent_config, player_num, board_type)
+                    # For neural-net based types (policy_only, gumbel_mcts, mcts_neural),
+                    # check available memory before loading
+                    import psutil
+                    mem = psutil.virtual_memory()
+                    available_gb = mem.available / (1024**3)
+
+                    # Require at least 4GB free for neural network loading
+                    if available_gb < 4.0:
+                        print(f"[P2P] Skipping NN-based AI {ai_type}: only {available_gb:.1f}GB available (need 4GB)")
+                        # Fall back to heuristic AI
+                        from app.ai.heuristic_ai import HeuristicAI
+                        config = AIConfig(ai_type=AIType.HEURISTIC, board_type=board_type, difficulty=7)
+                        return HeuristicAI(player_num, config)
+
+                    # Safe to load neural network AI
+                    try:
+                        from scripts.run_model_elo_tournament import create_ai_from_model
+                        return create_ai_from_model(agent_config, player_num, board_type)
+                    except Exception as e:
+                        print(f"[P2P] Failed to create NN AI {ai_type}: {e}, falling back to heuristic")
+                        from app.ai.heuristic_ai import HeuristicAI
+                        config = AIConfig(ai_type=AIType.HEURISTIC, board_type=board_type, difficulty=7)
+                        return HeuristicAI(player_num, config)
 
             # Create AIs
             ai_a = create_lightweight_ai(agent_a_config, 1)
