@@ -78,12 +78,13 @@ def discover_models(
         model_type = "nnue"
 
     # Use unified discovery API
+    # include_unknown=True allows models without sidecar JSON (uses filename-based detection)
     discovered = unified_discover_models(
         models_dir=models_dir,
         board_type=board_type,
         num_players=num_players,
         model_type=model_type,
-        include_unknown=False,
+        include_unknown=True,
     )
 
     # Convert to legacy dict format for backward compatibility
