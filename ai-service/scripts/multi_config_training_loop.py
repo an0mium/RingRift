@@ -930,6 +930,12 @@ def run_training(board_type: str, num_players: int, db_paths: List[str],
         "--cyclic-lr", "--cyclic-lr-period", "5",  # Cyclic LR with triangular waves
         "--mixed-precision", "--amp-dtype", "bfloat16",  # BF16 for speed+stability
         "--warmup-epochs", "5",  # LR warmup
+        # 2024-12 Advanced Training Improvements
+        "--value-whitening",  # Value head whitening for stable training
+        "--ema",  # Exponential Moving Average for better generalization
+        "--stochastic-depth", "--stochastic-depth-prob", "0.1",  # Stochastic depth regularization
+        "--adaptive-warmup",  # Adaptive warmup based on dataset size
+        "--hard-example-mining", "--hard-example-top-k", "0.3",  # Focus on difficult examples
     ]
 
     # Apply LR multiplier if non-default

@@ -1087,6 +1087,11 @@ def train_model(
         "--cyclic-lr",  # Cyclic LR with triangular waves
         "--mixed-precision",  # BF16 for speed+stability
         "--warmup-epochs", "2",  # Short warmup for fine-tuning
+        # 2024-12 Advanced Training Improvements
+        "--value-whitening",  # Value head whitening for stable training
+        "--ema",  # Exponential Moving Average for better generalization
+        "--adaptive-warmup",  # Adaptive warmup based on dataset size
+        "--hard-example-mining",  # Focus on difficult examples
     ]
 
     # Resume from best model if it exists (warm-start fine-tuning)

@@ -848,6 +848,42 @@ class TrainingScheduler:
                     "--distill-temperature", str(self.config.distill_temperature),
                 ])
 
+            
+            # 2024-12 Advanced Training Improvements
+            if getattr(self.config, 'use_value_whitening', True):
+                cmd.extend([
+                    "--value-whitening",
+                    "--value-whitening-momentum", str(getattr(self.config, 'value_whitening_momentum', 0.99)),
+                ])
+            if getattr(self.config, 'use_ema', True):
+                cmd.extend([
+                    "--ema",
+                    "--ema-decay", str(getattr(self.config, 'ema_decay', 0.999)),
+                ])
+            if getattr(self.config, 'use_stochastic_depth', True):
+                cmd.extend([
+                    "--stochastic-depth",
+                    "--stochastic-depth-prob", str(getattr(self.config, 'stochastic_depth_prob', 0.1)),
+                ])
+            if getattr(self.config, 'use_adaptive_warmup', True):
+                cmd.append("--adaptive-warmup")
+            if getattr(self.config, 'use_hard_example_mining', True):
+                cmd.extend([
+                    "--hard-example-mining",
+                    "--hard-example-top-k", str(getattr(self.config, 'hard_example_top_k', 0.3)),
+                ])
+            if getattr(self.config, 'use_dynamic_batch', False):
+                cmd.extend([
+                    "--dynamic-batch",
+                    "--dynamic-batch-schedule", getattr(self.config, 'dynamic_batch_schedule', 'linear'),
+                ])
+            # Cross-board transfer learning
+            if getattr(self.config, 'transfer_from_model', None):
+                cmd.extend([
+                    "--transfer-from", self.config.transfer_from_model,
+                    "--transfer-freeze-epochs", str(getattr(self.config, 'transfer_freeze_epochs', 5)),
+                ])
+
             print(f"[Training] Starting training for {model_id}...")
 
             # Also start NNUE policy training in parallel if configured

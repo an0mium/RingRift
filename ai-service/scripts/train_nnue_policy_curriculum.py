@@ -299,6 +299,13 @@ def main():
     parser.add_argument("--focal-gamma", type=float, default=2.0, help="Focal loss gamma (0 to disable)")
     parser.add_argument("--label-smoothing-warmup", type=int, default=5, help="Label smoothing warmup epochs")
 
+    # JSONL and KL loss options
+    parser.add_argument("--jsonl", type=str, nargs="+", default=[], help="JSONL files with MCTS policy data")
+    parser.add_argument("--auto-kl-loss", action="store_true", default=True, help="Auto-enable KL loss when MCTS data available")
+    parser.add_argument("--no-auto-kl-loss", action="store_true", help="Disable auto KL loss")
+    parser.add_argument("--kl-min-coverage", type=float, default=0.3, help="Min MCTS coverage for KL loss")
+    parser.add_argument("--kl-min-samples", type=int, default=50, help="Min MCTS samples for KL loss")
+
     args = parser.parse_args()
 
     # Expand db paths
@@ -311,11 +318,20 @@ def main():
         else:
             db_paths.append(pattern)
 
-    if not db_paths:
-        logger.error("No database files found")
+    # Expand JSONL paths
+    jsonl_paths = []
+    for pattern in args.jsonl:
+        expanded = glob.glob(pattern)
+        if expanded:
+            jsonl_paths.extend(expanded)
+        else:
+            jsonl_paths.append(pattern)
+
+    if not db_paths and not jsonl_paths:
+        logger.error("No database or JSONL files found")
         return 1
 
-    logger.info(f"Found {len(db_paths)} database files")
+    logger.info(f"Found {len(db_paths)} database files, {len(jsonl_paths)} JSONL files")
 
     # Build stages with custom epochs
     stages = [
@@ -359,6 +375,16 @@ def main():
         extra_args.extend(["--focal-gamma", str(args.focal_gamma)])
     if args.label_smoothing_warmup > 0:
         extra_args.extend(["--label-smoothing-warmup", str(args.label_smoothing_warmup)])
+
+    # JSONL paths for MCTS policy data
+    for jsonl_path in jsonl_paths:
+        extra_args.extend(["--jsonl", jsonl_path])
+
+    # Auto KL loss options
+    if args.auto_kl_loss and not args.no_auto_kl_loss:
+        extra_args.append("--auto-kl-loss")
+        extra_args.extend(["--kl-min-coverage", str(args.kl_min_coverage)])
+        extra_args.extend(["--kl-min-samples", str(args.kl_min_samples)])
 
     # Run curriculum
     run_curriculum_training(
