@@ -152,8 +152,8 @@ All EloService migration tasks have been completed:
 ┌─────────────────────────────────────────────────────────────┐
 │                    ORCHESTRATORS                             │
 ├─────────────────┬─────────────────┬─────────────────────────┤
-│ unified_ai_loop │ pipeline_orch   │ cluster_orchestrator    │
-│ (CANONICAL)     │ (CI/CD)         │ (distributed)           │
+│ unified_ai_loop │ pipeline_orch   │ p2p_orchestrator        │
+│ (CANONICAL)     │ (CI/CD)         │ (distributed P2P)       │
 └────────┬────────┴────────┬────────┴────────┬────────────────┘
          │                 │                 │
          ├─────────────────┼─────────────────┤

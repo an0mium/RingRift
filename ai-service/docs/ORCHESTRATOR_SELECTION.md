@@ -178,10 +178,10 @@ Do you need continuous AI improvement?
 
 ## Configuration Files
 
-| Script                          | Config File                              |
-| ------------------------------- | ---------------------------------------- |
-| `unified_ai_loop.py`            | `config/unified_loop.yaml`               |
-| `p2p_orchestrator.py`           | `config/unified_loop.yaml` (p2p section) |
-| `multi_config_training_loop.py` | `config/unified_loop.yaml`               |
-| `model_promotion_manager.py`    | Uses CLI args or `config/promotion.yaml` |
-| `auto_elo_tournament.py`        | `config/unified_loop.yaml`               |
+| Script                          | Config File                                     |
+| ------------------------------- | ----------------------------------------------- |
+| `unified_ai_loop.py`            | `config/unified_loop.yaml`                      |
+| `p2p_orchestrator.py`           | `config/unified_loop.yaml` (p2p section)        |
+| `multi_config_training_loop.py` | `config/unified_loop.yaml`                      |
+| `model_promotion_manager.py`    | Uses CLI args or `config/promotion_daemon.yaml` |
+| `auto_elo_tournament.py`        | `config/unified_loop.yaml`                      |

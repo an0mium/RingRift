@@ -39,9 +39,24 @@ Features:
   - Vast.ai and Lambda Labs integration
   - Supports all board types: square8, hex8, square19, hexagonal
   - Start: `python scripts/p2p_orchestrator.py --node-id <name> --peers <ip>:8770`
-- `vast_p2p_sync.py` - Vast.ai instance synchronization with P2P network
-- `vast_keepalive.py` - Keepalive manager for Vast.ai instances
-- `cluster_monitoring.sh` - Comprehensive cluster health monitoring
+- `vast_p2p_sync.py` - **Vast.ai instance synchronization** (22KB)
+  - Synchronizes Vast.ai instances with P2P network
+  - Instance status tracking, node unretiring, P2P orchestrator startup
+  - Auto-updates `distributed_hosts.yaml` with new instances
+  - Start: `python scripts/vast_p2p_sync.py --full` (check + sync + start P2P)
+  - Check only: `python scripts/vast_p2p_sync.py --check`
+- `vast_keepalive.py` - **Keepalive manager** for Vast.ai instances
+  - Prevents idle instance termination
+  - Heartbeat monitoring and auto-recovery
+  - Start: `python scripts/vast_keepalive.py --daemon`
+- `cluster_monitoring.sh` - **Comprehensive cluster health monitoring** (14KB)
+  - Tailscale mesh status, Vast.ai CLI monitoring, Lambda node health
+  - P2P orchestrator status, selfplay/gauntlet monitoring
+  - Continuous mode: `./scripts/cluster_monitoring.sh --continuous --interval 60`
+- `node_resilience.py` - **Node resilience daemon** (53KB)
+  - P2P orchestrator monitoring with local selfplay fallback
+  - Auto-reconnect on network changes, IP change detection
+  - Start: `python scripts/node_resilience.py --daemon`
 - `cluster_manager.py` - Cluster node management
 - `cluster_worker.py` - Worker node implementation
 - `cluster_health_check.py` - Health monitoring
@@ -126,14 +141,33 @@ Features:
 - `streaming_data_collector.py` - _(DEPRECATED)_ Incremental game data sync - use `unified_data_sync.py`
 - `collector_watchdog.py` - _(DEPRECATED)_ Collector health monitoring - use `unified_data_sync.py --watchdog`
 - `sync_all_data.py` - _(DEPRECATED)_ Batch data sync - use `unified_data_sync.py --once`
-- `build_canonical_training_pool_db.py` - Training data pooling
+- `build_canonical_training_pool_db.py` - **Canonical training pool aggregation** (32KB)
+  - Per-game canonical history and parity gates
+  - Holdout exclusion, quarantine of failing games
+  - Single ingestion point for all training data
+  - Start: `python scripts/build_canonical_training_pool_db.py --output data/games/canonical.db`
 - `aggregate_jsonl_to_db.py` - JSONL to SQLite conversion
-- `elo_db_sync.py` - ELO database synchronization across cluster
+- `elo_db_sync.py` - **Distributed Elo database sync** (32KB)
+  - Multi-transport support (Tailscale, aria2, HTTP)
+  - Worker/coordinator modes, automatic discovery
+  - Mac Studio as authoritative coordinator
+  - Start: `python scripts/elo_db_sync.py --mode coordinator`
 - `auto_export_training_data.py` - **Automated training data export**
   - Exports data for underrepresented board/player configs
   - Start: `python scripts/auto_export_training_data.py --dry-run`
-- `export_replay_dataset.py` - Export games to NPZ format for training
-- `jsonl_to_npz.py` - Convert JSONL selfplay data to NPZ training format
+- `export_replay_dataset.py` - **Export training samples from replays** (41KB)
+  - Rank-aware value encoding for multiplayer
+  - Quality filtering (completed games, move count ranges)
+  - Incremental export with caching
+  - Start: `python scripts/export_replay_dataset.py --db data/games/training.db --output data/npz/`
+- `jsonl_to_npz.py` - **JSONL to NPZ conversion** (50KB)
+  - Game replaying with proper feature extraction
+  - Checkpointing every N games, encoder selection
+  - Start: `python scripts/jsonl_to_npz.py --input data/selfplay/*.jsonl --output data/npz/`
+- `distributed_export.py` - **Distributed parallel export** (40KB)
+  - Game chunking for parallel processing, HTTP serving
+  - aria2 multi-source downloads, NPZ chunk merging
+  - Start: `python scripts/distributed_export.py --coordinator --chunks 10`
 - `filter_training_data.py` - Filter and clean training data
 
 ### Model Management
@@ -161,15 +195,31 @@ Features:
 ### Analysis
 
 - `analyze_game_statistics.py` - **Comprehensive game statistics** (107KB)
-  - Win rates, move distributions, game lengths
+  - Victory type distribution, win rates, game length stats, recovery usage
+  - AI type breakdown, data quality metrics, metadata fixing
+  - Supports JSONL recursive scanning, quarantine mode
   - Start: `python scripts/analyze_game_statistics.py --db data/games/all.db`
-- `check_ts_python_replay_parity.py` - TS/Python parity validation (77KB)
+  - JSONL: `python scripts/analyze_game_statistics.py --jsonl data/selfplay/ --recursive`
+- `check_ts_python_replay_parity.py` - **TS/Python parity validation** (77KB)
+  - Post-move/post-bridge view semantics verification
+  - Canonical/legacy parity modes, structural issue detection
+  - Critical quality gate for training data
+  - Start: `python scripts/check_ts_python_replay_parity.py --canonical --verbose`
 - `track_elo_improvement.py` - Elo trend tracking
 - `aggregate_elo_results.py` - Aggregate Elo results from multiple sources
 - `baseline_gauntlet.py` - **Run baseline model gauntlet** (20KB)
   - Evaluate models against baseline opponents
   - Start: `python scripts/baseline_gauntlet.py --model models/best.pth`
-- `two_stage_gauntlet.py` - Two-stage gauntlet evaluation
+- `two_stage_gauntlet.py` - **Two-stage model evaluation** (31KB)
+  - Stage 1 screening (10 games, 40% threshold)
+  - Stage 2 deep evaluation (50 games, Wilson score intervals)
+  - Auto-promotion of top performers with game recording
+  - Start: `python scripts/two_stage_gauntlet.py --model models/candidate.pth`
+- `shadow_tournament_service.py` - **Continuous model evaluation service** (35KB)
+  - 15-minute shadow tournaments (10-20 games)
+  - Hourly full tournaments, regression detection
+  - Provides early feedback without waiting for full Elo calibration
+  - Start: `python scripts/shadow_tournament_service.py --daemon`
 
 ### Benchmarking
 
