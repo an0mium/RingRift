@@ -1025,6 +1025,7 @@ class WeightedStreamingDataLoader(StreamingDataLoader):
                 - 'late_game': Bias toward late-game positions
                 - 'phase_emphasis': Weight by game phase
                 - 'combined': Combine late_game and phase_emphasis
+                - 'victory_type': Balance sampling across victory types
             late_game_exponent: Exponent for late-game weighting (default: 2.0)
             phase_weights: Dict mapping phase names to weights
             engine_weights: Dict mapping engine names to weights
@@ -1255,24 +1256,34 @@ class WeightedStreamingDataLoader(StreamingDataLoader):
                     np.full(len(valid_idx), 'descent', dtype=object)
                 )
 
-        if not metadata_found or not all_move_numbers:
+        # For victory_type sampling, we don't need the phase/move metadata
+        needs_phase_metadata = self.sampling_weights in (
+            'late_game', 'phase_emphasis', 'combined'
+        )
+
+        if needs_phase_metadata and (not metadata_found or not all_move_numbers):
             logger.info(
                 "Metadata not available in all files; using uniform weights"
             )
             return np.ones(self._total_samples, dtype=np.float32)
 
-        self._metadata_available = True
-
-        # Concatenate metadata
-        move_numbers = np.concatenate(all_move_numbers)
-        total_moves = np.concatenate(all_total_moves)
-        phases = np.concatenate(all_phases)
-        engines = np.concatenate(all_engines)
-
         # Compute weights
         weights = np.ones(self._total_samples, dtype=np.float32)
 
-        if self.sampling_weights in ('late_game', 'combined'):
+        # Phase/move metadata available - concatenate if needed
+        if metadata_found and all_move_numbers:
+            self._metadata_available = True
+            move_numbers = np.concatenate(all_move_numbers)
+            total_moves = np.concatenate(all_total_moves)
+            phases = np.concatenate(all_phases)
+            engines = np.concatenate(all_engines)
+        else:
+            move_numbers = np.array([])
+            total_moves = np.array([])
+            phases = np.array([])
+            engines = np.array([])
+
+        if self.sampling_weights in ('late_game', 'combined') and len(move_numbers) > 0:
             # Late-game bias: weight = (move_num / total_moves) ^ exponent
             # Later positions get higher weight
             progress = np.clip(move_numbers / np.maximum(total_moves, 1), 0, 1)
@@ -1285,7 +1296,7 @@ class WeightedStreamingDataLoader(StreamingDataLoader):
             )
             weights *= late_game_weights
 
-        if self.sampling_weights in ('phase_emphasis', 'combined'):
+        if self.sampling_weights in ('phase_emphasis', 'combined') and len(phases) > 0:
             # Phase-based weighting
             phase_weights_arr = np.array([
                 self.phase_weights.get(str(p), 1.0) for p in phases
@@ -1298,8 +1309,54 @@ class WeightedStreamingDataLoader(StreamingDataLoader):
             )
             weights *= phase_weights_arr
 
+        if self.sampling_weights == 'victory_type':
+            # Victory-type balanced sampling: weight inversely to frequency
+            all_victory_types: List[np.ndarray] = []
+            victory_type_found = True
+
+            for handle in self._file_handles:
+                if handle._data is None:
+                    continue
+
+                if 'victory_types' not in handle._data:
+                    victory_type_found = False
+                    break
+
+                valid_idx = handle._valid_indices
+                all_victory_types.append(
+                    np.array(handle._data['victory_types'])[valid_idx]
+                )
+
+            if victory_type_found and all_victory_types:
+                victory_types = np.concatenate(all_victory_types)
+                # Count each victory type
+                unique, counts = np.unique(victory_types, return_counts=True)
+                type_counts = dict(zip(unique, counts))
+
+                # Inverse frequency weighting
+                victory_weights = np.array([
+                    1.0 / type_counts[vt] for vt in victory_types
+                ], dtype=np.float32)
+
+                # Normalize to mean 1.0
+                victory_weights = (
+                    victory_weights / np.mean(victory_weights)
+                    if np.mean(victory_weights) > 0
+                    else victory_weights
+                )
+                weights *= victory_weights
+
+                logger.info(
+                    "Victory-type weighting: %s",
+                    {str(k): v for k, v in type_counts.items()}
+                )
+            else:
+                logger.warning(
+                    "victory_types not available; falling back to uniform"
+                )
+
         # Engine weighting (optional multiplier)
-        if self.engine_weights:
+        if self.engine_weights and len(engines) > 0:
             engine_weights_arr = np.array([
                 self.engine_weights.get(str(e), 1.0) for e in engines
             ], dtype=np.float32)
@@ -1335,8 +1392,9 @@ class WeightedStreamingDataLoader(StreamingDataLoader):
         if self._sample_weights is None:
             self._sample_weights = self._compute_sample_weights()
 
-        # If uniform or no metadata, use parent implementation
-        if self.sampling_weights == 'uniform' or not self._metadata_available:
+        # If uniform or weights are uniform (no metadata/victory_types), use parent
+        weights_are_uniform = np.allclose(self._sample_weights, 1.0)
+        if self.sampling_weights == 'uniform' or weights_are_uniform:
             yield from super().__iter__()
             return
 

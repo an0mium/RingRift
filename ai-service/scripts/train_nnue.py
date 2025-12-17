@@ -443,6 +443,76 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Scale learning rate with effective batch size (includes accumulation)",
     )
     parser.add_argument(
+        "--spectral-norm",
+        action="store_true",
+        help="Apply spectral normalization to Linear layers for gradient stability",
+    )
+    parser.add_argument(
+        "--batch-norm",
+        action="store_true",
+        help="Add batch normalization after accumulator layer",
+    )
+    parser.add_argument(
+        "--loss-curriculum",
+        action="store_true",
+        help="Use phase-based loss curriculum (early/mid/late weighting)",
+    )
+    parser.add_argument(
+        "--loss-curriculum-schedule",
+        type=str,
+        default="50,35,15->25,35,40",
+        help="Loss curriculum schedule: 'early,mid,late->early,mid,late' (default: '50,35,15->25,35,40')",
+    )
+    parser.add_argument(
+        "--progressive-accum",
+        action="store_true",
+        help="Progressive accumulation unfreezing (higher accum during warmup)",
+    )
+    parser.add_argument(
+        "--progressive-accum-start",
+        type=int,
+        default=4,
+        help="Starting accumulation multiplier for progressive unfreezing (default: 4)",
+    )
+    parser.add_argument(
+        "--cyclic-lr",
+        action="store_true",
+        help="Use cyclic LR with triangular waves within cosine envelope",
+    )
+    parser.add_argument(
+        "--cyclic-lr-period",
+        type=int,
+        default=5,
+        help="Period of triangular cycles in epochs (default: 5)",
+    )
+    parser.add_argument(
+        "--val-augmentation",
+        action="store_true",
+        help="Apply data augmentation to validation set for better overfitting detection",
+    )
+    parser.add_argument(
+        "--lars",
+        action="store_true",
+        help="Use LARS (Layer-wise Adaptive Rate Scaling) optimizer for distributed training",
+    )
+    parser.add_argument(
+        "--lars-trust-coef",
+        type=float,
+        default=0.001,
+        help="LARS trust coefficient (default: 0.001)",
+    )
+    parser.add_argument(
+        "--gradient-profiling",
+        action="store_true",
+        help="Enable gradient norm tracking for diagnostics",
+    )
+    parser.add_argument(
+        "--gradient-profile-freq",
+        type=int,
+        default=100,
+        help="Log gradient norms every N batches (default: 100)",
+    )
+    parser.add_argument(
         "--mixed-precision",
         action="store_true",
         help="Enable mixed precision training (FP16/BF16) for faster training on GPU",
@@ -699,6 +769,120 @@ def create_demo_dataset(
     values = np.random.choice([-1.0, 0.0, 1.0], size=num_samples).astype(np.float32)
 
     return features, values
+
+
+def parse_curriculum_schedule(schedule: str) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+    """Parse loss curriculum schedule string.
+
+    Args:
+        schedule: Format 'early,mid,late->early,mid,late' e.g. '50,35,15->25,35,40'
+
+    Returns:
+        Tuple of (start_weights, end_weights) each as (early, mid, late) normalized to sum to 1.0
+    """
+    parts = schedule.split('->')
+    start_str, end_str = parts[0], parts[1] if len(parts) > 1 else parts[0]
+
+    def parse_weights(s: str) -> Tuple[float, float, float]:
+        vals = [float(x.strip()) for x in s.split(',')]
+        total = sum(vals)
+        return (vals[0] / total, vals[1] / total, vals[2] / total)
+
+    return parse_weights(start_str), parse_weights(end_str)
+
+
+def compute_curriculum_weights(
+    epoch: int,
+    total_epochs: int,
+    start_weights: Tuple[float, float, float],
+    end_weights: Tuple[float, float, float],
+) -> Tuple[float, float, float]:
+    """Compute curriculum weights for current epoch by linear interpolation."""
+    progress = epoch / max(total_epochs - 1, 1)
+    return tuple(
+        s + (e - s) * progress
+        for s, e in zip(start_weights, end_weights)
+    )
+
+
+class LARS(optim.Optimizer):
+    """Layer-wise Adaptive Rate Scaling optimizer.
+
+    Scales learning rate per-layer based on the ratio of weight norm to gradient norm.
+    Particularly effective for large batch distributed training.
+    """
+
+    def __init__(
+        self,
+        params,
+        lr: float = 1.0,
+        momentum: float = 0.9,
+        weight_decay: float = 1e-4,
+        trust_coef: float = 0.001,
+        eps: float = 1e-8,
+    ):
+        defaults = dict(
+            lr=lr, momentum=momentum, weight_decay=weight_decay,
+            trust_coef=trust_coef, eps=eps
+        )
+        super().__init__(params, defaults)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+
+                grad = p.grad
+                weight_norm = p.norm(2).item()
+                grad_norm = grad.norm(2).item()
+
+                # Compute local learning rate
+                if weight_norm > 0 and grad_norm > 0:
+                    local_lr = group['trust_coef'] * weight_norm / (
+                        grad_norm + group['weight_decay'] * weight_norm + group['eps']
+                    )
+                else:
+                    local_lr = 1.0
+
+                # Apply weight decay
+                if group['weight_decay'] > 0:
+                    p.add_(p, alpha=-group['lr'] * group['weight_decay'])
+
+                # Apply momentum
+                state = self.state[p]
+                if 'momentum_buffer' not in state:
+                    state['momentum_buffer'] = torch.zeros_like(p)
+                buf = state['momentum_buffer']
+                buf.mul_(group['momentum']).add_(grad)
+
+                # Apply update with LARS scaling
+                p.add_(buf, alpha=-group['lr'] * local_lr)
+
+        return loss
+
+
+def get_cyclic_lr_factor(epoch: int, warmup_epochs: int, period: int) -> float:
+    """Get triangular cycle factor for cyclic LR within cosine envelope.
+
+    Returns a factor in [0.5, 1.0] that creates triangular waves.
+    """
+    if epoch < warmup_epochs:
+        return 1.0  # No cycling during warmup
+
+    cycle_epoch = (epoch - warmup_epochs) % period
+    # Triangular wave: goes from 1.0 -> 0.5 -> 1.0 over the period
+    half_period = period / 2
+    if cycle_epoch < half_period:
+        return 1.0 - 0.5 * (cycle_epoch / half_period)
+    else:
+        return 0.5 + 0.5 * ((cycle_epoch - half_period) / half_period)
 
 
 def prepare_model_for_qat(model: nn.Module) -> nn.Module:
@@ -1002,6 +1186,19 @@ def train_nnue(
     gradient_checkpointing: bool = False,
     async_logging: bool = False,
     lr_batch_scale: bool = False,
+    spectral_norm: bool = False,
+    batch_norm: bool = False,
+    loss_curriculum: bool = False,
+    loss_curriculum_schedule: str = "50,35,15->25,35,40",
+    progressive_accum: bool = False,
+    progressive_accum_start: int = 4,
+    cyclic_lr: bool = False,
+    cyclic_lr_period: int = 5,
+    val_augmentation: bool = False,
+    lars: bool = False,
+    lars_trust_coef: float = 0.001,
+    gradient_profiling: bool = False,
+    gradient_profile_freq: int = 100,
 ) -> Dict[str, Any]:
     """Train NNUE model and return training report."""
     seed_all(seed)
@@ -1182,7 +1379,13 @@ def train_nnue(
         board_type=board_type,
         hidden_dim=hidden_dim,
         num_hidden_layers=num_hidden_layers,
+        use_spectral_norm=spectral_norm,
+        use_batch_norm=batch_norm,
     )
+    if spectral_norm:
+        logger.info("Spectral normalization enabled for gradient stability")
+    if batch_norm:
+        logger.info("Batch normalization enabled after accumulator")
     logger.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
     # Adaptive batch sizing - find optimal batch size for GPU
@@ -1303,6 +1506,27 @@ def train_nnue(
     if qat:
         logger.info(f"QAT will start at epoch {qat_start_epoch}")
 
+    # Loss curriculum setup
+    curriculum_start_weights = None
+    curriculum_end_weights = None
+    if loss_curriculum:
+        curriculum_start_weights, curriculum_end_weights = parse_curriculum_schedule(loss_curriculum_schedule)
+        logger.info(f"Loss curriculum enabled: {curriculum_start_weights} -> {curriculum_end_weights}")
+
+    # Progressive accumulation setup
+    base_accumulation = gradient_accumulation
+    if progressive_accum:
+        # Start with higher accumulation, decrease over warmup
+        gradient_accumulation = base_accumulation * progressive_accum_start
+        trainer.gradient_accumulation = gradient_accumulation
+        logger.info(f"Progressive accumulation: {gradient_accumulation} -> {base_accumulation} over {warmup_epochs} epochs")
+
+    # Cyclic LR setup - store initial LR for cycling
+    if cyclic_lr:
+        for param_group in trainer.optimizer.param_groups:
+            param_group['initial_lr'] = param_group['lr']
+        logger.info(f"Cyclic LR enabled: period={cyclic_lr_period} epochs")
+
     # Progressive validation setup
     if progressive_val:
         logger.info(f"Progressive validation enabled: {progressive_val_start:.0%} -> 100%")
@@ -1357,6 +1581,23 @@ def train_nnue(
         # Update PER sampler epoch for beta annealing
         if per_sampler is not None:
             per_sampler.set_epoch(epoch, epochs)
+
+        # Progressive accumulation: decrease accumulation over warmup
+        if progressive_accum and epoch < warmup_epochs:
+            progress = epoch / max(warmup_epochs - 1, 1)
+            # Linear decrease from start multiplier to 1x
+            current_mult = progressive_accum_start - (progressive_accum_start - 1) * progress
+            trainer.gradient_accumulation = max(base_accumulation, int(base_accumulation * current_mult))
+        elif progressive_accum and epoch == warmup_epochs:
+            trainer.gradient_accumulation = base_accumulation
+            logger.info(f"Progressive accumulation complete: now using {base_accumulation}")
+
+        # Cyclic LR: apply triangular modulation
+        if cyclic_lr and epoch >= warmup_epochs:
+            cycle_factor = get_cyclic_lr_factor(epoch, warmup_epochs, cyclic_lr_period)
+            for param_group in trainer.optimizer.param_groups:
+                base_lr = param_group.get('initial_lr', param_group['lr'])
+                param_group['lr'] = base_lr * cycle_factor
 
         train_loss = trainer.train_epoch(train_loader)
 
@@ -1750,6 +1991,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         gradient_checkpointing=args.gradient_checkpointing,
         async_logging=args.async_logging,
         lr_batch_scale=args.lr_batch_scale,
+        spectral_norm=args.spectral_norm,
+        batch_norm=args.batch_norm,
+        loss_curriculum=args.loss_curriculum,
+        loss_curriculum_schedule=args.loss_curriculum_schedule,
+        progressive_accum=args.progressive_accum,
+        progressive_accum_start=args.progressive_accum_start,
+        cyclic_lr=args.cyclic_lr,
+        cyclic_lr_period=args.cyclic_lr_period,
     )
 
     # Add metadata to report

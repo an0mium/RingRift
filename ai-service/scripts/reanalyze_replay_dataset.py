@@ -42,6 +42,7 @@ def _build_encoder(board_type: BoardType, nn_model_id: Optional[str]) -> NeuralN
     enc.board_size = {
         BoardType.SQUARE8: 8,
         BoardType.SQUARE19: 19,
+        BoardType.HEX8: 9,
         BoardType.HEXAGONAL: 25,
     }.get(board_type, 8)
     return enc
@@ -378,7 +379,7 @@ def reanalyze_replay_dataset(
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--db", required=True)
-    p.add_argument("--board-type", choices=["square8", "square19", "hexagonal"], required=True)
+    p.add_argument("--board-type", choices=["square8", "square19", "hex8", "hexagonal"], required=True)
     p.add_argument("--num-players", type=int, choices=[2, 3, 4], required=True)
     p.add_argument("--output", required=True)
     p.add_argument("--history-length", type=int, default=3)

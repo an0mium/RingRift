@@ -58,9 +58,9 @@ except ImportError:
     unified_get_disk_usage = None
     RESOURCE_LIMITS = None
 
-# Disk monitoring thresholds - 70% limit enforced as of 2025-12-15
-DISK_WARNING_THRESHOLD = 65  # Pause selfplay
-DISK_CRITICAL_THRESHOLD = 70  # Abort selfplay (consistent with orchestrator MAX_DISK_USAGE_PERCENT)
+# Disk monitoring thresholds - raised to 85% as of 2025-12-17 (238GB free is plenty)
+DISK_WARNING_THRESHOLD = 75  # Pause selfplay
+DISK_CRITICAL_THRESHOLD = 85  # Abort selfplay
 
 # =============================================================================
 # Default Heuristic Weights (used when no --weights-file is specified)
@@ -354,19 +354,157 @@ def run_hybrid_selfplay(
 
     # Initialize MCTS for mcts mode
     mcts_ai = None
+    mcts_state_adapter_class = None  # Will hold the adapter class for MCTS
     if engine_mode == "mcts":
         try:
-            from app.mcts.improved_mcts import ImprovedMCTS, MCTSConfig
+            from app.mcts.improved_mcts import (
+                ImprovedMCTS, MCTSConfig, NeuralNetworkInterface,
+                GameState as MCTSGameState
+            )
+            from typing import List, Tuple
+            import hashlib
+
+            class GameStateAdapter(MCTSGameState):
+                """Adapts app.models.GameState to MCTS GameState interface.
+
+                MCTS expects integer move indices, but our game uses Move objects.
+                This adapter maintains a bidirectional mapping between them.
+                """
+
+                def __init__(self, real_state, engine, move_list=None):
+                    """
+                    Args:
+                        real_state: The actual GameState from app.models
+                        engine: The rules engine for move generation/application
+                        move_list: Optional pre-computed list of legal moves
+                    """
+                    self.real_state = real_state
+                    self.engine = engine
+                    self._current_player = real_state.current_player or 1
+                    # Cache legal moves for consistent indexing
+                    if move_list is not None:
+                        self._legal_moves = move_list
+                    else:
+                        self._legal_moves = engine.get_valid_moves(real_state, self._current_player)
+
+                def get_legal_moves(self) -> List[int]:
+                    """Return indices [0, 1, 2, ...] for legal moves."""
+                    return list(range(len(self._legal_moves)))
+
+                def apply_move(self, move_idx: int) -> 'GameStateAdapter':
+                    """Apply move by index and return new adapted state."""
+                    if move_idx < 0 or move_idx >= len(self._legal_moves):
+                        raise ValueError(f"Invalid move index {move_idx}, have {len(self._legal_moves)} moves")
+                    move = self._legal_moves[move_idx]
+                    new_real_state = self.engine.apply_move(
+                        self.real_state.model_copy(deep=True), move
+                    )
+                    return GameStateAdapter(new_real_state, self.engine)
+
+                def is_terminal(self) -> bool:
+                    """Check if game is over."""
+                    return self.real_state.game_status != "active"
+
+                def get_outcome(self, player: int) -> float:
+                    """Get outcome for specified player."""
+                    if self.real_state.winner == player:
+                        return 1.0
+                    elif self.real_state.winner is not None:
+                        return -1.0
+                    return 0.0  # Draw or ongoing
+
+                def current_player(self) -> int:
+                    """Get current player (0-indexed for MCTS)."""
+                    # MCTS typically uses 0/1, our game uses 1/2/3/4
+                    return (self._current_player - 1) % 2
+
+                def hash(self) -> str:
+                    """Generate unique hash for transposition table."""
+                    # Use board state and current player for hash
+                    board_str = str(self.real_state.board)
+                    player_str = str(self._current_player)
+                    return hashlib.md5(f"{board_str}:{player_str}".encode()).hexdigest()
+
+                def get_move_by_index(self, idx: int):
+                    """Get the actual Move object for an index."""
+                    if 0 <= idx < len(self._legal_moves):
+                        return self._legal_moves[idx]
+                    return None
+
+                def get_move_index(self, move) -> int:
+                    """Get index for a Move object."""
+                    try:
+                        return self._legal_moves.index(move)
+                    except ValueError:
+                        return -1
+
+            # Store adapter class for use in game loop
+            mcts_state_adapter_class = GameStateAdapter
+
+            # Create a heuristic-based network wrapper for pure MCTS
+            class HeuristicNetworkWrapper(NeuralNetworkInterface):
+                """Wraps heuristic evaluator as a neural network interface for MCTS."""
+
+                def __init__(self, evaluator, engine, board_size: int):
+                    self.evaluator = evaluator
+                    self.engine = engine
+                    self.board_size = board_size
+
+                def evaluate(self, state: GameStateAdapter) -> Tuple[List[float], float]:
+                    """Return uniform policy over legal moves and heuristic value.
+
+                    Policy indices match the legal move indices from GameStateAdapter.
+                    """
+                    # Get the real state and legal moves from adapter
+                    real_state = state.real_state
+                    current_player = state._current_player
+                    legal_moves = state._legal_moves
+                    num_legal = len(legal_moves)
+
+                    # Create policy - indexed by move position in legal_moves
+                    # MCTS uses indices 0..num_legal-1, so policy should have
+                    # non-zero values at these indices
+                    max_policy_size = max(num_legal, self.board_size * self.board_size * 4)
+                    policy = [0.0] * max_policy_size
+
+                    if num_legal > 0:
+                        prob = 1.0 / num_legal
+                        for i in range(num_legal):
+                            policy[i] = prob
+
+                    # Use heuristic evaluation for value
+                    try:
+                        move_scores = self.evaluator.evaluate_moves(
+                            real_state, legal_moves, current_player, self.engine
+                        )
+                        if move_scores:
+                            # Normalize scores to [-1, 1] range
+                            scores = [s for _, s in move_scores]
+                            value = sum(scores) / len(scores) / 1000.0  # Normalize
+                            value = max(-1.0, min(1.0, value))
+                        else:
+                            value = 0.0
+                    except Exception:
+                        value = 0.0
+
+                    return policy, value
+
             mcts_config = MCTSConfig(
                 num_simulations=mcts_sims,
                 cpuct=1.414,
                 root_dirichlet_alpha=0.3,
                 root_noise_weight=0.25,
             )
-            mcts_ai = ImprovedMCTS(config=mcts_config)
-            logger.info(f"MCTS initialized with {mcts_sims} simulations per move")
+
+            # Create heuristic network wrapper
+            heuristic_network = HeuristicNetworkWrapper(evaluator, GameEngine, board_size)
+            mcts_ai = ImprovedMCTS(network=heuristic_network, config=mcts_config)
+            logger.info(f"MCTS initialized with {mcts_sims} simulations per move (heuristic network)")
         except ImportError as e:
             logger.warning(f"MCTS not available: {e}. Falling back to heuristic.")
+            mcts_ai = None
+        except Exception as e:
+            logger.warning(f"MCTS initialization failed: {e}. Falling back to heuristic.")
             mcts_ai = None
 
     # Initialize Minimax AI for nn-minimax mode
@@ -568,12 +706,17 @@ def run_hybrid_selfplay(
                         else:
                             # Use random selection
                             best_move = valid_moves[np.random.randint(len(valid_moves))]
-                    elif current_engine == "mcts" and mcts_ai is not None:
+                    elif current_engine == "mcts" and mcts_ai is not None and mcts_state_adapter_class is not None:
                         # MCTS mode: Use Monte Carlo Tree Search for move selection
                         mcts_policy_dist = None  # Will be populated if MCTS succeeds
                         try:
-                            best_move = mcts_ai.search(game_state)
-                            if best_move is None or best_move not in valid_moves:
+                            # Wrap game state in adapter for MCTS (maps Move objects to int indices)
+                            adapted_state = mcts_state_adapter_class(game_state, GameEngine, valid_moves)
+
+                            # MCTS returns an integer move index
+                            move_idx = mcts_ai.search(adapted_state)
+
+                            if move_idx is None or move_idx < 0 or move_idx >= len(valid_moves):
                                 # Fallback to heuristic if MCTS fails
                                 move_scores = evaluator.evaluate_moves(
                                     game_state, valid_moves, current_player, GameEngine
@@ -585,10 +728,14 @@ def run_hybrid_selfplay(
                                 else:
                                     best_move = valid_moves[0]
                             else:
+                                # Convert index back to Move object
+                                best_move = adapted_state.get_move_by_index(move_idx)
+
                                 # Capture MCTS visit distribution for KL training
                                 try:
                                     policy_list = mcts_ai.get_policy(temperature=1.0)
                                     # Convert to sparse dict (only non-zero probs)
+                                    # Indices are positions in valid_moves list
                                     mcts_policy_dist = {
                                         idx: prob for idx, prob in enumerate(policy_list)
                                         if prob > 1e-6

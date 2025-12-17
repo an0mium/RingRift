@@ -337,6 +337,9 @@ class NNUEPolicyTrainer:
         temperature: float = 1.0,
         label_smoothing: float = 0.0,
         use_kl_loss: bool = False,
+        grad_clip: float = 1.0,
+        lr_scheduler: str = "plateau",
+        total_epochs: int = 100,
     ):
         self.model = model.to(device)
         self.device = device
@@ -346,18 +349,36 @@ class NNUEPolicyTrainer:
         self.initial_temperature = temperature
         self.label_smoothing = label_smoothing
         self.use_kl_loss = use_kl_loss
+        self.grad_clip = grad_clip
+        self.lr_scheduler_type = lr_scheduler
 
         self.optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=learning_rate,
             weight_decay=weight_decay,
         )
-        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer,
-            mode="min",
-            factor=0.5,
-            patience=5,
-        )
+
+        # Learning rate scheduler
+        if lr_scheduler == "cosine":
+            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer, T_max=total_epochs, eta_min=learning_rate * 0.01
+            )
+        elif lr_scheduler == "cosine_warmup":
+            # Cosine with linear warmup (5% of epochs)
+            warmup_epochs = max(1, total_epochs // 20)
+            self.scheduler = torch.optim.lr_scheduler.SequentialLR(
+                self.optimizer,
+                schedulers=[
+                    torch.optim.lr_scheduler.LinearLR(self.optimizer, start_factor=0.1, total_iters=warmup_epochs),
+                    torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=total_epochs - warmup_epochs, eta_min=learning_rate * 0.01),
+                ],
+                milestones=[warmup_epochs],
+            )
+        else:  # plateau (default)
+            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                self.optimizer, mode="min", factor=0.5, patience=5,
+            )
+
         self.value_criterion = nn.MSELoss()
         self.policy_criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
 
@@ -456,6 +477,11 @@ class NNUEPolicyTrainer:
         total_loss = self.value_weight * value_loss + self.policy_weight * policy_loss
 
         total_loss.backward()
+
+        # Gradient clipping to prevent exploding gradients
+        if self.grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
+
         self.optimizer.step()
 
         return total_loss.item(), value_loss.item(), policy_loss.item()
@@ -516,9 +542,22 @@ class NNUEPolicyTrainer:
 
         return total_loss.item(), value_loss.item(), policy_loss.item(), policy_accuracy.item()
 
-    def update_scheduler(self, val_loss: float) -> None:
-        """Update learning rate scheduler based on validation loss."""
-        self.scheduler.step(val_loss)
+    def update_scheduler(self, val_loss: float, epoch: Optional[int] = None) -> None:
+        """Update learning rate scheduler.
+
+        Args:
+            val_loss: Validation loss (used by plateau scheduler)
+            epoch: Current epoch (used by cosine schedulers)
+        """
+        if self.lr_scheduler_type == "plateau":
+            self.scheduler.step(val_loss)
+        else:
+            # Cosine and cosine_warmup step by epoch
+            self.scheduler.step()
+
+    def get_lr(self) -> float:
+        """Get current learning rate."""
+        return self.optimizer.param_groups[0]['lr']
 
 
 # =============================================================================

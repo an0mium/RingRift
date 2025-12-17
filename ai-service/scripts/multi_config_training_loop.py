@@ -63,7 +63,8 @@ ENABLE_AUTO_HP_TUNING = os.environ.get("RINGRIFT_ENABLE_AUTO_HP_TUNING", "0") ==
 MIN_GAMES_FOR_HP_TUNING = int(os.environ.get("RINGRIFT_MIN_GAMES_FOR_HP_TUNING", "500"))
 
 # Policy training with auto KL loss (uses MCTS visit distributions when available)
-ENABLE_POLICY_TRAINING = os.environ.get("RINGRIFT_ENABLE_POLICY_TRAINING", "0") == "1"
+# Enabled by default as of 2025-12-17 - auto-detects and falls back gracefully
+ENABLE_POLICY_TRAINING = os.environ.get("RINGRIFT_ENABLE_POLICY_TRAINING", "1") == "1"
 POLICY_AUTO_KL_LOSS = os.environ.get("RINGRIFT_POLICY_AUTO_KL_LOSS", "1") == "1"  # Auto-detect KL loss
 POLICY_KL_MIN_COVERAGE = float(os.environ.get("RINGRIFT_POLICY_KL_MIN_COVERAGE", "0.3"))  # 30% MCTS coverage threshold
 POLICY_KL_MIN_SAMPLES = int(os.environ.get("RINGRIFT_POLICY_KL_MIN_SAMPLES", "50"))  # Min samples with MCTS policy

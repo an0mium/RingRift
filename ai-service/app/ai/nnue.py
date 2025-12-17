@@ -128,35 +128,48 @@ class RingRiftNNUE(nn.Module):
     to enable fast inference without GPU.
     """
 
-    ARCHITECTURE_VERSION = "v1.0.0"
+    ARCHITECTURE_VERSION = "v1.1.0"
 
     def __init__(
         self,
         board_type: BoardType = BoardType.SQUARE8,
         hidden_dim: int = 256,
         num_hidden_layers: int = 2,
+        use_spectral_norm: bool = False,
+        use_batch_norm: bool = False,
     ):
         super().__init__()
         self.board_type = board_type
+        self.use_spectral_norm = use_spectral_norm
+        self.use_batch_norm = use_batch_norm
         input_dim = get_feature_dim(board_type)
+
+        # Helper to optionally apply spectral normalization
+        def maybe_spectral_norm(layer: nn.Linear) -> nn.Linear:
+            if use_spectral_norm:
+                return nn.utils.spectral_norm(layer)
+            return layer
 
         # Accumulator layer (like Half-King-Piece-Square in chess NNUE)
         # Projects sparse input to dense hidden representation
-        self.accumulator = nn.Linear(input_dim, hidden_dim, bias=True)
+        self.accumulator = maybe_spectral_norm(nn.Linear(input_dim, hidden_dim, bias=True))
+
+        # Optional batch normalization after accumulator
+        self.acc_batch_norm = nn.BatchNorm1d(hidden_dim) if use_batch_norm else None
 
         # Hidden layers with ClippedReLU
         layers = []
         current_dim = hidden_dim * 2  # Concatenate player perspectives
         for i in range(num_hidden_layers):
             out_dim = 32 if i < num_hidden_layers - 1 else 32
-            layers.append(nn.Linear(current_dim, out_dim))
+            layers.append(maybe_spectral_norm(nn.Linear(current_dim, out_dim)))
             layers.append(ClippedReLU())
             current_dim = out_dim
 
         self.hidden = nn.Sequential(*layers)
 
         # Output layer: single scalar value
-        self.output = nn.Linear(32, 1)
+        self.output = maybe_spectral_norm(nn.Linear(32, 1))
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         """Forward pass.
@@ -167,8 +180,15 @@ class RingRiftNNUE(nn.Module):
         Returns:
             Shape (batch, 1) values in [-1, 1]
         """
-        # Accumulator with ClippedReLU
-        acc = torch.clamp(self.accumulator(features), 0.0, 1.0)
+        # Accumulator projection
+        acc = self.accumulator(features)
+
+        # Optional batch normalization before activation
+        if self.acc_batch_norm is not None:
+            acc = self.acc_batch_norm(acc)
+
+        # ClippedReLU activation
+        acc = torch.clamp(acc, 0.0, 1.0)
 
         # Concatenate "perspectives" - simplified version using same features
         # In full NNUE, we'd have separate accumulators for each player view

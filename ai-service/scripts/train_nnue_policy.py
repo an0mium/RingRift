@@ -307,6 +307,22 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
              "0 = auto-detect (cpu_count - 2), 1 = sequential (default: 0)",
     )
 
+    # Training stability
+    parser.add_argument(
+        "--grad-clip",
+        type=float,
+        default=1.0,
+        help="Gradient clipping max norm (0 to disable, default: 1.0)",
+    )
+    parser.add_argument(
+        "--lr-scheduler",
+        type=str,
+        default="plateau",
+        choices=["plateau", "cosine", "cosine_warmup"],
+        help="Learning rate scheduler: plateau (reduce on plateau), cosine (annealing), "
+             "cosine_warmup (warmup + annealing). Default: plateau",
+    )
+
     # Other
     parser.add_argument(
         "--seed",
@@ -398,6 +414,8 @@ def train_nnue_policy(
     auto_kl_loss: bool = False,
     kl_min_coverage: float = 0.5,
     kl_min_samples: int = 100,
+    grad_clip: float = 1.0,
+    lr_scheduler: str = "plateau",
 ) -> Dict[str, Any]:
     """Train NNUE policy model and return training report."""
     seed_all(seed)
@@ -565,10 +583,14 @@ def train_nnue_policy(
         temperature=temperature_start,
         label_smoothing=label_smoothing,
         use_kl_loss=effective_use_kl_loss,
+        grad_clip=grad_clip,
+        lr_scheduler=lr_scheduler,
+        total_epochs=epochs,
     )
 
     logger.info(f"Temperature annealing: {temperature_start} -> {temperature_end} ({temperature_schedule})")
     logger.info(f"Label smoothing: {label_smoothing}")
+    logger.info(f"LR scheduler: {lr_scheduler}, grad_clip: {grad_clip}")
     if effective_use_kl_loss:
         logger.info("KL divergence loss ENABLED (using MCTS visit distributions)")
 
@@ -806,6 +828,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         auto_kl_loss=args.auto_kl_loss,
         kl_min_coverage=args.kl_min_coverage,
         kl_min_samples=args.kl_min_samples,
+        grad_clip=args.grad_clip,
+        lr_scheduler=args.lr_scheduler,
     )
 
     # Add metadata to report
