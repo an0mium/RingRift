@@ -365,6 +365,7 @@ def export_replay_dataset_multi(
     move_numbers_list: List[int] = []
     total_game_moves_list: List[int] = []
     phases_list: List[str] = []
+    victory_types_list: List[str] = []  # For victory-type-balanced sampling
 
     # Track seen game_ids for deduplication across databases
     seen_game_ids: set = set()
@@ -461,6 +462,21 @@ def export_replay_dataset_multi(
                 if term and not (term.startswith("status:completed") or term == "env_done_flag"):
                     games_skipped += 1
                     continue
+
+            # Extract victory type for balanced sampling (normalize to standard categories)
+            victory_type_raw = str(meta.get("victory_type", meta.get("termination_reason", "unknown")))
+            if "territory" in victory_type_raw.lower():
+                victory_type = "territory"
+            elif "elimination" in victory_type_raw.lower() or "ring" in victory_type_raw.lower():
+                victory_type = "elimination"
+            elif "lps" in victory_type_raw.lower() or "last_player" in victory_type_raw.lower():
+                victory_type = "lps"
+            elif "stalemate" in victory_type_raw.lower():
+                victory_type = "stalemate"
+            elif "timeout" in victory_type_raw.lower():
+                victory_type = "timeout"
+            else:
+                victory_type = "other"
 
             total_moves = meta.get("total_moves")
             if total_moves is None:
@@ -600,6 +616,7 @@ def export_replay_dataset_multi(
                 move_numbers_list.append(move_index)
                 total_game_moves_list.append(total_moves)
                 phases_list.append(phase_str)
+                victory_types_list.append(victory_type)
 
             samples_added = len(features_list) - samples_before
             if samples_added > 0:
@@ -632,6 +649,7 @@ def export_replay_dataset_multi(
     move_numbers_arr = np.array(move_numbers_list, dtype=np.int32)
     total_game_moves_arr = np.array(total_game_moves_list, dtype=np.int32)
     phases_arr = np.array(phases_list, dtype=object)
+    victory_types_arr = np.array(victory_types_list, dtype=object)  # For balanced sampling
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
@@ -668,6 +686,10 @@ def export_replay_dataset_multi(
                     values_arr = np.concatenate([existing_values, values_arr], axis=0)
                     policy_indices_arr = np.concatenate([existing_policy_indices, policy_indices_arr], axis=0)
                     policy_values_arr = np.concatenate([existing_policy_values, policy_values_arr], axis=0)
+                    # Handle victory_types if present in existing data
+                    if "victory_types" in data:
+                        existing_victory_types = data["victory_types"]
+                        victory_types_arr = np.concatenate([existing_victory_types, victory_types_arr], axis=0)
                     print(f"Appended to existing dataset at {output_path}; new total samples: {values_arr.shape[0]}")
         except Exception as exc:
             print(f"Warning: failed to append to existing {output_path}: {exc}")
@@ -684,6 +706,7 @@ def export_replay_dataset_multi(
         "move_numbers": move_numbers_arr,
         "total_game_moves": total_game_moves_arr,
         "phases": phases_arr,
+        "victory_types": victory_types_arr,  # For victory-type-balanced sampling
     }
     if write_mp:
         save_kwargs.update({"values_mp": values_mp_arr, "num_players": num_players_arr})

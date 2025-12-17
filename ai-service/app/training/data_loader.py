@@ -181,6 +181,44 @@ class FileHandle:
         """Maximum players in multi-player value vectors (default: 4)."""
         return self._max_players
 
+    def get_victory_type_weights(self) -> Optional[np.ndarray]:
+        """
+        Compute sample weights for victory-type-balanced sampling.
+
+        Returns weights inversely proportional to victory type frequency,
+        so that underrepresented victory types are sampled more often.
+
+        Returns:
+            Array of sample weights, or None if victory_types not available
+        """
+        if self._data is None or 'victory_types' not in self._data:
+            return None
+
+        # Get victory types for valid indices
+        victory_types = np.array([
+            self._data['victory_types'][int(idx)]
+            for idx in self._valid_indices
+        ])
+
+        # Count victory types
+        unique, counts = np.unique(victory_types, return_counts=True)
+        type_counts = dict(zip(unique, counts))
+
+        # Compute inverse frequency weights (normalized to sum to len)
+        weights = np.zeros(len(self._valid_indices), dtype=np.float32)
+        for i, vt in enumerate(victory_types):
+            weights[i] = 1.0 / type_counts[vt]
+
+        # Normalize so weights sum to number of samples
+        weights = weights * len(weights) / weights.sum()
+
+        logger.info(
+            f"Victory type distribution in {self.path}: "
+            f"{dict(zip(unique, counts))}"
+        )
+
+        return weights
+
     def get_sample(self, idx: int) -> Tuple[
         np.ndarray, np.ndarray, float, np.ndarray, np.ndarray
     ]:
