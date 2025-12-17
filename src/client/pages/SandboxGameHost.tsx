@@ -3154,15 +3154,16 @@ export const SandboxGameHost: React.FC = () => {
                           ? historyViewIndex - 1
                           : sandboxGameState.moveHistory.length - 1
                       }
-                      onMoveClick={
-                        hasHistorySnapshots
-                          ? (index) => {
-                              // Jump to the state after this move (index+1)
-                              setIsViewingHistory(true);
-                              setHistoryViewIndex(index + 1);
-                            }
-                          : undefined
-                      }
+                      onMoveClick={(index) => {
+                        // Jump to the state after this move (index+1)
+                        // With snapshot reconstruction, snapshots should always be available
+                        // for loaded fixtures. If not, the useEffect safety check will disable
+                        // hasHistorySnapshots and playback controls will be disabled.
+                        if (hasHistorySnapshots) {
+                          setIsViewingHistory(true);
+                          setHistoryViewIndex(index + 1);
+                        }
+                      }}
                       notationOptions={((): MoveNotationOptions | undefined => {
                         if (
                           sandboxGameState.boardType === 'square8' ||

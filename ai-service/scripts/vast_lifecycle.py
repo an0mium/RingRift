@@ -30,15 +30,6 @@ AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 LOG_DIR = AI_SERVICE_ROOT / "logs"
 LOG_FILE = LOG_DIR / "vast_lifecycle.log"
 
-# Known Vast.ai instances - update as instances change
-VAST_INSTANCES = [
-    {"host": "ssh5.vast.ai", "port": 14364, "name": "vast-1"},
-    {"host": "ssh2.vast.ai", "port": 14370, "name": "vast-2"},
-    {"host": "ssh8.vast.ai", "port": 19942, "name": "vast-3"},
-    {"host": "ssh7.vast.ai", "port": 14398, "name": "vast-4"},
-    {"host": "ssh3.vast.ai", "port": 19766, "name": "vast-5"},
-]
-
 # Lambda target for data sync
 LAMBDA_HOST = "lambda-a10"
 LAMBDA_DB = "/home/ubuntu/ringrift/ai-service/data/games/selfplay.db"
@@ -47,6 +38,119 @@ LAMBDA_DB = "/home/ubuntu/ringrift/ai-service/data/games/selfplay.db"
 MIN_GAMES_PER_HOUR = 5  # Minimum game production rate
 IDLE_THRESHOLD_HOURS = 2  # Mark as idle if no games for this long
 MAX_INSTANCE_AGE_HOURS = 48  # Consider termination after this time
+
+# GPU to board type mapping - assign appropriate workloads based on GPU capability
+GPU_BOARD_MAPPING = {
+    # Small GPUs (<=8GB) - fast hex8 games
+    "RTX 3070": "hex8",
+    "RTX 2060S": "hex8",
+    "RTX 2060 SUPER": "hex8",
+    "RTX 3060 Ti": "hex8",
+    "RTX 2080 Ti": "hex8",
+    "RTX 3060": "hex8",
+    # Mid-range GPUs (12-16GB) - standard square8
+    "RTX 4060 Ti": "square8",
+    "RTX 4080S": "square8",
+    "RTX 4080 SUPER": "square8",
+    "RTX 5080": "square8",
+    # High-end GPUs (24GB+) - large hexagonal boards
+    "A40": "hexagonal",
+    "RTX 5090": "hexagonal",
+    "RTX 5070": "hexagonal",
+    "A10": "hexagonal",
+    "H100": "hexagonal",
+}
+
+# Default board type for unknown GPUs
+DEFAULT_BOARD_TYPE = "square8"
+
+
+def get_vast_instances() -> List[Dict]:
+    """Dynamically get all running vast instances from vastai CLI."""
+    try:
+        # Try to find vastai executable
+        vastai_paths = [
+            "/Users/armand/.pyenv/versions/3.10.13/bin/vastai",
+            "vastai",
+            os.path.expanduser("~/.local/bin/vastai"),
+        ]
+
+        vastai_cmd = None
+        for path in vastai_paths:
+            try:
+                result = subprocess.run([path, "--version"], capture_output=True, timeout=5)
+                if result.returncode == 0:
+                    vastai_cmd = path
+                    break
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+
+        if not vastai_cmd:
+            logger.warning("vastai CLI not found, using fallback instance list")
+            return _get_fallback_instances()
+
+        # Get instances as JSON
+        result = subprocess.run(
+            [vastai_cmd, "show", "instances", "--raw"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        if result.returncode != 0:
+            logger.warning(f"vastai show instances failed: {result.stderr}")
+            return _get_fallback_instances()
+
+        instances_data = json.loads(result.stdout)
+
+        instances = []
+        for inst in instances_data:
+            if inst.get("actual_status") != "running":
+                continue
+
+            gpu_name = inst.get("gpu_name", "unknown")
+            num_gpus = inst.get("num_gpus", 1)
+
+            instance_id = str(inst.get("id", "unknown"))
+            instances.append({
+                "id": instance_id,
+                "host": inst.get("ssh_host"),
+                "port": inst.get("ssh_port"),
+                "name": f"vast-{instance_id[:8]}",
+                "gpu": f"{num_gpus}x {gpu_name}",
+                "gpu_name": gpu_name,
+                "num_gpus": num_gpus,
+                "vcpus": inst.get("cpu_cores_effective", 0),
+                "board_type": GPU_BOARD_MAPPING.get(gpu_name, DEFAULT_BOARD_TYPE),
+            })
+
+        logger.info(f"Discovered {len(instances)} running vast instances")
+        return instances
+
+    except Exception as e:
+        logger.error(f"Error getting vast instances: {e}")
+        return _get_fallback_instances()
+
+
+def _get_fallback_instances() -> List[Dict]:
+    """Fallback hardcoded instance list if vastai CLI unavailable."""
+    return [
+        {"host": "ssh5.vast.ai", "port": 14364, "name": "vast-3070a", "gpu": "RTX 3070", "board_type": "hex8"},
+        {"host": "ssh2.vast.ai", "port": 14370, "name": "vast-2060s", "gpu": "RTX 2060S", "board_type": "hex8"},
+        {"host": "ssh1.vast.ai", "port": 14400, "name": "vast-4060ti", "gpu": "RTX 4060 Ti", "board_type": "square8"},
+        {"host": "ssh3.vast.ai", "port": 19766, "name": "vast-3060ti", "gpu": "RTX 3060 Ti", "board_type": "hex8"},
+        {"host": "ssh2.vast.ai", "port": 19768, "name": "vast-4060ti-48", "gpu": "RTX 4060 Ti", "board_type": "square8"},
+        {"host": "ssh3.vast.ai", "port": 19940, "name": "vast-4080s", "gpu": "2x RTX 4080S", "board_type": "square8"},
+        {"host": "ssh1.vast.ai", "port": 19942, "name": "vast-5080", "gpu": "RTX 5080", "board_type": "square8"},
+        {"host": "ssh7.vast.ai", "port": 10012, "name": "vast-3070b", "gpu": "RTX 3070", "board_type": "hex8"},
+        {"host": "ssh9.vast.ai", "port": 10014, "name": "vast-2080ti", "gpu": "RTX 2080 Ti", "board_type": "hex8"},
+        {"host": "ssh8.vast.ai", "port": 17016, "name": "vast-3060ti-512", "gpu": "2x RTX 3060 Ti", "board_type": "square8"},
+        {"host": "ssh3.vast.ai", "port": 38740, "name": "vast-3060", "gpu": "4x RTX 3060", "board_type": "hex8"},
+        {"host": "ssh8.vast.ai", "port": 38742, "name": "vast-a40", "gpu": "A40", "board_type": "hexagonal"},
+        {"host": "ssh2.vast.ai", "port": 10042, "name": "vast-5070", "gpu": "4x RTX 5070", "board_type": "hexagonal"},
+        {"host": "ssh1.vast.ai", "port": 15166, "name": "vast-5090", "gpu": "RTX 5090", "board_type": "hexagonal"},
+        {"host": "ssh5.vast.ai", "port": 18168, "name": "vast-5090x8", "gpu": "8x RTX 5090", "board_type": "hexagonal"},
+    ]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -172,24 +276,58 @@ print(f'{total}|{min_age:.2f}')
 def restart_workers(instance: Dict) -> bool:
     """Restart selfplay workers on an instance."""
     host, port = instance["host"], instance["port"]
-    logger.info(f"Restarting workers on {instance['name']}...")
+    board_type = instance.get("board_type", DEFAULT_BOARD_TYPE)
+    gpu_name = instance.get("gpu", "unknown")
+    name = instance.get("name", "unknown")
+
+    logger.info(f"Restarting workers on {name} ({gpu_name}) with board_type={board_type}...")
 
     # Kill existing workers
-    run_ssh_command(host, port, "pkill -f diverse_selfplay || true", timeout=15)
+    run_ssh_command(host, port, "pkill -f 'generate_data|selfplay' || true", timeout=15)
 
-    # Start new workers
-    success, _ = run_ssh_command(
+    # Determine num_games based on board type (larger boards = fewer games)
+    num_games = {"hex8": 2000, "square8": 1500, "hexagonal": 500}.get(board_type, 1000)
+
+    # Try multiple possible paths (vast containers vary)
+    paths_to_try = [
+        "~/ringrift/ai-service",
+        "/root/ringrift/ai-service",
+        "/root/RingRift/ai-service",
+    ]
+
+    for path in paths_to_try:
+        success, output = run_ssh_command(
+            host, port,
+            f"test -d {path} && echo 'found'",
+            timeout=10,
+        )
+        if success and "found" in output:
+            break
+    else:
+        path = "~/ringrift/ai-service"  # Default
+
+    # Start new workers with GPU-appropriate board type
+    success, output = run_ssh_command(
         host, port,
-        """cd /root/RingRift/ai-service &&
-        PYTHONPATH=. nohup python3 scripts/diverse_selfplay_runner.py \\
-            --configs square8_2p --games 2000 \\
-            --record-db data/games/vast_selfplay.db \\
-            > logs/selfplay_restart.log 2>&1 &
-        echo 'started'
+        f"""cd {path} &&
+        mkdir -p data/games logs &&
+        source venv/bin/activate 2>/dev/null || true &&
+        PYTHONPATH=. nohup python3 -m app.training.generate_data \\
+            --board-type {board_type} --num-games {num_games} \\
+            --engine descent \\
+            --record-db data/games/selfplay_{board_type}_{name}.db \\
+            > logs/selfplay_{board_type}.log 2>&1 &
+        sleep 1 && pgrep -f generate_data | head -1
         """,
         timeout=30,
     )
-    return success
+
+    if success and output.strip():
+        logger.info(f"  Started PID {output.strip()} on {name}")
+        return True
+    else:
+        logger.warning(f"  Failed to start workers on {name}: {output}")
+        return False
 
 
 def sync_data_from_instance(instance: Dict) -> int:
@@ -291,29 +429,36 @@ def sync_data_from_instance(instance: Dict) -> int:
 
 def run_health_check() -> List[Dict]:
     """Run health check on all instances."""
-    logger.info("=" * 50)
+    logger.info("=" * 60)
     logger.info("VAST.AI INSTANCE HEALTH CHECK")
-    logger.info("=" * 50)
+    logger.info("=" * 60)
+
+    instances = get_vast_instances()
+    logger.info(f"Checking {len(instances)} instances...")
 
     results = []
-    for instance in VAST_INSTANCES:
+    for instance in instances:
         health = check_instance_health(instance)
+        # Preserve instance metadata
+        health["board_type"] = instance.get("board_type", DEFAULT_BOARD_TYPE)
+        health["gpu"] = instance.get("gpu", "unknown")
         results.append(health)
 
         status_emoji = {
-            "healthy": "OK",
+            "healthy": "✓",
             "idle": "IDLE",
-            "no_workers": "NO_WORKERS",
-            "no_games": "NO_GAMES",
-            "unreachable": "OFFLINE",
+            "no_workers": "NO_WRK",
+            "no_games": "NO_GAM",
+            "unreachable": "OFFLN",
             "unknown": "?",
         }.get(health["status"], "?")
 
         logger.info(
-            f"  {health['name']:<10} [{status_emoji:<12}] "
+            f"  {health['name']:<15} [{status_emoji:<6}] "
+            f"{health.get('gpu', '?'):<20} "
+            f"board={health.get('board_type', '?'):<10} "
             f"workers={health['workers_running']} "
-            f"games={health['games_count']} "
-            f"idle={health['last_game_age_hours'] or 'N/A'}h"
+            f"games={health['games_count']}"
         )
 
     return results
@@ -328,10 +473,11 @@ def run_restart_cycle(health_results: List[Dict]) -> int:
                 "host": health["host"],
                 "port": health["port"],
                 "name": health["name"],
+                "board_type": health.get("board_type", DEFAULT_BOARD_TYPE),
+                "gpu": health.get("gpu", "unknown"),
             }
             if restart_workers(instance):
                 restarted += 1
-                logger.info(f"  Restarted workers on {health['name']}")
     return restarted
 
 
@@ -354,9 +500,9 @@ def run_sync_cycle(health_results: List[Dict]) -> int:
 
 def run_auto_cycle():
     """Full automation cycle: check, restart, sync."""
-    logger.info("=" * 50)
+    logger.info("=" * 60)
     logger.info(f"VAST.AI AUTO CYCLE - {datetime.now().isoformat()}")
-    logger.info("=" * 50)
+    logger.info("=" * 60)
 
     # Health check
     health_results = run_health_check()
@@ -368,14 +514,25 @@ def run_auto_cycle():
     restarted = run_restart_cycle(health_results)
 
     # Summary
+    total = len(health_results)
     healthy = sum(1 for h in health_results if h["status"] == "healthy")
     unreachable = sum(1 for h in health_results if h["status"] == "unreachable")
+    no_workers = sum(1 for h in health_results if h["status"] == "no_workers")
+    idle = sum(1 for h in health_results if h["status"] == "idle")
 
-    logger.info("=" * 50)
-    logger.info(f"SUMMARY: {healthy}/{len(VAST_INSTANCES)} healthy, "
-                f"{unreachable} unreachable, {restarted} restarted, "
-                f"{synced} games synced")
-    logger.info("=" * 50)
+    # Count by board type
+    board_counts = {}
+    for h in health_results:
+        bt = h.get("board_type", "unknown")
+        board_counts[bt] = board_counts.get(bt, 0) + 1
+
+    logger.info("=" * 60)
+    logger.info("SUMMARY")
+    logger.info(f"  Total instances: {total}")
+    logger.info(f"  Healthy: {healthy}, Unreachable: {unreachable}, No workers: {no_workers}, Idle: {idle}")
+    logger.info(f"  Restarted: {restarted}, Games synced: {synced}")
+    logger.info(f"  Board distribution: {board_counts}")
+    logger.info("=" * 60)
 
 
 def main():

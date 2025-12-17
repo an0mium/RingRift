@@ -3606,3 +3606,42 @@ function isNoActionBookkeepingMove(type: MoveType): boolean {
     type === 'skip_placement' // Per LPS rules: skip_placement is NOT a real action
   );
 }
+
+/**
+ * Result of applying a single move for replay/snapshot purposes.
+ */
+export interface ApplyMoveForReplayResult {
+  /** The game state after applying the move */
+  nextState: GameState;
+  /** For capture moves, whether a chain capture continuation is required */
+  chainCaptureRequired?: boolean;
+  /** For capture moves, the position from which chain capture must continue */
+  chainCapturePosition?: Position;
+}
+
+/**
+ * Apply a single move to a game state for replay/snapshot reconstruction purposes.
+ *
+ * This is a lower-level function than `processTurn` - it applies the move's effects
+ * to the board but does NOT run full turn orchestration (victory checks, automatic
+ * phase transitions, etc.). Use this when replaying a sequence of moves that were
+ * already validated and processed, such as when reconstructing snapshots from
+ * move history.
+ *
+ * @param state - The current game state
+ * @param move - The move to apply
+ * @returns The resulting state after applying the move
+ */
+export function applyMoveForReplay(state: GameState, move: Move): ApplyMoveForReplayResult {
+  const result = applyMoveWithChainInfo(state, move);
+  const replayResult: ApplyMoveForReplayResult = {
+    nextState: result.nextState,
+  };
+  if (result.chainCaptureRequired !== undefined) {
+    replayResult.chainCaptureRequired = result.chainCaptureRequired;
+  }
+  if (result.chainCapturePosition !== undefined) {
+    replayResult.chainCapturePosition = result.chainCapturePosition;
+  }
+  return replayResult;
+}

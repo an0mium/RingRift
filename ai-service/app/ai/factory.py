@@ -354,6 +354,12 @@ class AIFactory:
         elif ai_type == AIType.NEURAL_DEMO:
             from app.ai.neural_net import NeuralNetAI
             ai_class = NeuralNetAI
+        elif ai_type == AIType.POLICY_ONLY:
+            from app.ai.policy_only_ai import PolicyOnlyAI
+            ai_class = PolicyOnlyAI
+        elif ai_type == AIType.GUMBEL_MCTS:
+            from app.ai.gumbel_mcts_ai import GumbelMCTSAI
+            ai_class = GumbelMCTSAI
         else:
             raise ValueError(f"Unsupported AI type: {ai_type}")
 
@@ -550,6 +556,54 @@ class AIFactory:
                 return cls.create(AIType.MCTS, player_number, config)
             except (ValueError, IndexError):
                 pass
+
+        # Policy-only AI (direct NN policy without search)
+        if agent_lower == "policy_only" or agent_lower.startswith("policy_"):
+            from app.models import BoardType as BT
+            bt = BT.SQUARE8 if board_type.lower() == "square8" else BT.HEXAGONAL
+
+            # Parse optional temperature: policy_0.5, policy_1.0, etc.
+            temperature = 1.0
+            if "_" in agent_lower:
+                try:
+                    temperature = float(agent_lower.split("_")[1])
+                except (ValueError, IndexError):
+                    pass
+
+            config = AIConfig(
+                difficulty=5,
+                rng_seed=rng_seed,
+                nn_model_id=nn_model_id,
+                policy_temperature=temperature,
+                allow_fresh_weights=False,
+            )
+            from app.ai.policy_only_ai import PolicyOnlyAI
+            return PolicyOnlyAI(player_number, config, bt)
+
+        # Gumbel MCTS AI (sample-efficient search)
+        if agent_lower == "gumbel_mcts" or agent_lower.startswith("gumbel_"):
+            from app.models import BoardType as BT
+            bt = BT.SQUARE8 if board_type.lower() == "square8" else BT.HEXAGONAL
+
+            # Parse optional budget: gumbel_100, gumbel_200, etc.
+            budget = 150
+            if "_" in agent_lower and agent_lower != "gumbel_mcts":
+                try:
+                    parts = agent_lower.split("_")
+                    if parts[1] != "mcts":
+                        budget = int(parts[1])
+                except (ValueError, IndexError):
+                    pass
+
+            config = AIConfig(
+                difficulty=5,
+                rng_seed=rng_seed,
+                nn_model_id=nn_model_id,
+                gumbel_simulation_budget=budget,
+                allow_fresh_weights=False,
+            )
+            from app.ai.gumbel_mcts_ai import GumbelMCTSAI
+            return GumbelMCTSAI(player_number, config, bt)
 
         if agent_lower.startswith("difficulty_") or agent_lower.startswith("level_"):
             # Parse difficulty level: difficulty_5, level_7, etc.

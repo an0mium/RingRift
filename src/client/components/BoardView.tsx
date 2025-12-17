@@ -296,11 +296,18 @@ const StackWidget: React.FC<{
   const verticalOffsetClasses = 'translate-y-[3px] md:translate-y-[4px]';
 
   // Mobile-responsive ring sizing for W3-12 (44px mobile cells)
-  const ringSizeClasses = isSquare8
+  // Cap rings get full height, non-cap rings are slightly shorter
+  const capRingSizeClasses = isSquare8
     ? 'w-5 sm:w-6 md:w-8 h-[4px] sm:h-[5px] md:h-[6px]'
     : isHex
       ? 'w-5 md:w-6 h-[3px] md:h-[4px]'
       : 'w-5 sm:w-6 md:w-7 h-[4px] sm:h-[4px] md:h-[5px]';
+
+  const nonCapRingSizeClasses = isSquare8
+    ? 'w-5 sm:w-6 md:w-8 h-[3.5px] sm:h-[4.5px] md:h-[5.5px]'
+    : isHex
+      ? 'w-5 md:w-6 h-[2.5px] md:h-[3.5px]'
+      : 'w-5 sm:w-6 md:w-7 h-[3.5px] sm:h-[3.5px] md:h-[4.5px]';
 
   const labelTextClasses = isSquare8
     ? 'text-[8px] sm:text-[9px] md:text-[10px]'
@@ -324,21 +331,36 @@ const StackWidget: React.FC<{
           const isTop = index === topIndex;
           const isInCap = index <= capEndIndex;
 
-          // Base shape - use 4px border for just-moved rings, 3px otherwise
-          const borderWidth = isJustMoved ? 'border-[4px]' : 'border-[3px]';
-          const baseShape = `${ringSizeClasses} rounded-full ${borderWidth}`;
-          // Cap outline for rings in the cap
-          const capOutline = isInCap
-            ? 'ring-[0.5px] ring-offset-[0.5px] ring-offset-slate-900'
-            : '';
-          const topShadow = isTop ? 'shadow-md shadow-slate-900/70' : 'shadow-sm';
+          const ringSizeClasses = isInCap ? capRingSizeClasses : nonCapRingSizeClasses;
+          const topShadow = isTop ? 'shadow-md shadow-slate-900/70' : '';
 
-          return (
-            <div
-              key={index}
-              className={`${baseShape} ${ring} ${ringBorder} ${capOutline} ${topShadow}`}
-            />
-          );
+          // Z-index: cap rings should be drawn over non-cap rings where they overlap
+          // Higher z-index for rings closer to the top (lower index)
+          const zIndex = rings.length - index;
+
+          if (isInCap) {
+            // Cap rings: thicker border (4px normal, 5px just-moved)
+            const borderWidth = isJustMoved ? 'border-[5px]' : 'border-[4px]';
+            const capOutline = 'ring-[0.5px] ring-offset-[0.5px] ring-offset-slate-900';
+            return (
+              <div
+                key={index}
+                className={`${ringSizeClasses} rounded-full ${borderWidth} ${ring} ${ringBorder} ${capOutline} ${topShadow} relative`}
+                style={{ zIndex }}
+              />
+            );
+          } else {
+            // Non-cap rings: use box-shadow for thin dark gray outline (doesn't consume element space)
+            // This allows the fill color to remain visible
+            const outlineWidth = isJustMoved ? '0.5px' : '0.5px';
+            return (
+              <div
+                key={index}
+                className={`${ringSizeClasses} rounded-full ${ring} ${topShadow} relative`}
+                style={{ zIndex, boxShadow: `0 0 0 ${outlineWidth} rgb(55 65 81)` }}
+              />
+            );
+          }
         })}
       </div>
       <div className={`mt-[1px] leading-tight font-semibold text-slate-900 ${labelTextClasses}`}>
@@ -371,11 +393,18 @@ const StackFromViewModel: React.FC<{
   const verticalOffsetClasses = 'translate-y-[3px] md:translate-y-[4px]';
 
   // Mobile-responsive ring sizing for W3-12 (44px mobile cells)
-  const ringSizeClasses = isSquare8
+  // Cap rings get full height, non-cap rings are slightly shorter
+  const capRingSizeClasses = isSquare8
     ? 'w-5 sm:w-6 md:w-8 h-[4px] sm:h-[5px] md:h-[6px]'
     : isHex
       ? 'w-5 md:w-6 h-[3px] md:h-[4px]'
       : 'w-5 sm:w-6 md:w-7 h-[4px] sm:h-[4px] md:h-[5px]';
+
+  const nonCapRingSizeClasses = isSquare8
+    ? 'w-5 sm:w-6 md:w-8 h-[3.5px] sm:h-[4.5px] md:h-[5.5px]'
+    : isHex
+      ? 'w-5 md:w-6 h-[2.5px] md:h-[3.5px]'
+      : 'w-5 sm:w-6 md:w-7 h-[3.5px] sm:h-[3.5px] md:h-[4.5px]';
 
   const labelTextClasses = isSquare8
     ? 'text-[8px] sm:text-[9px] md:text-[10px]'
@@ -396,20 +425,36 @@ const StackFromViewModel: React.FC<{
         {rings.map((ringVM, index) => {
           const { colorClass, borderClass, isTop, isInCap } = ringVM;
 
-          // Base shape - use 4px border for just-moved rings, 3px otherwise
-          const borderWidth = isJustMoved ? 'border-[4px]' : 'border-[3px]';
-          const baseShape = `${ringSizeClasses} rounded-full ${borderWidth}`;
-          const capOutline = isInCap
-            ? 'ring-[0.5px] ring-offset-[0.5px] ring-offset-slate-900'
-            : '';
-          const topShadow = isTop ? 'shadow-md shadow-slate-900/70' : 'shadow-sm';
+          const ringSizeClasses = isInCap ? capRingSizeClasses : nonCapRingSizeClasses;
+          const topShadow = isTop ? 'shadow-md shadow-slate-900/70' : '';
 
-          return (
-            <div
-              key={index}
-              className={`${baseShape} ${colorClass} ${borderClass} ${capOutline} ${topShadow}`}
-            />
-          );
+          // Z-index: cap rings should be drawn over non-cap rings where they overlap
+          // Higher z-index for rings closer to the top (lower index)
+          const zIndex = rings.length - index;
+
+          if (isInCap) {
+            // Cap rings: thicker border (4px normal, 5px just-moved)
+            const borderWidth = isJustMoved ? 'border-[5px]' : 'border-[4px]';
+            const capOutline = 'ring-[0.5px] ring-offset-[0.5px] ring-offset-slate-900';
+            return (
+              <div
+                key={index}
+                className={`${ringSizeClasses} rounded-full ${borderWidth} ${colorClass} ${borderClass} ${capOutline} ${topShadow} relative`}
+                style={{ zIndex }}
+              />
+            );
+          } else {
+            // Non-cap rings: use box-shadow for thin dark gray outline (doesn't consume element space)
+            // This allows the fill color to remain visible
+            const outlineWidth = isJustMoved ? '0.5px' : '0.5px';
+            return (
+              <div
+                key={index}
+                className={`${ringSizeClasses} rounded-full ${colorClass} ${topShadow} relative`}
+                style={{ zIndex, boxShadow: `0 0 0 ${outlineWidth} rgb(55 65 81)` }}
+              />
+            );
+          }
         })}
       </div>
       <div className={`mt-[1px] leading-tight font-semibold text-slate-900 ${labelTextClasses}`}>
@@ -1297,12 +1342,18 @@ export const BoardView: React.FC<BoardViewProps> = ({
     const strokeWidth = Math.max(1, scale * 0.003);
     const dotRadius = Math.max(2, scale * 0.006);
 
+    // For hex boards, apply a small offset to align the grid overlay with cells
+    // The negative spacing on hex rows causes a slight misalignment
+    const isHexBoard = effectiveBoardType === 'hexagonal' || effectiveBoardType === 'hex8';
+    const hexOffset = isHexBoard ? 'translate(-1px, 1px)' : undefined;
+
     return (
       <svg
         className="pointer-events-none absolute inset-0"
         style={{
           width: '100%',
           height: '100%',
+          transform: hexOffset,
         }}
         viewBox={`0 0 ${width} ${height}`}
         preserveAspectRatio="xMidYMid slice"

@@ -166,11 +166,11 @@ class NNUESQLiteDataset(Dataset):
             snapshots = cursor.fetchall()
 
             # Determine expected positions based on sampling rate
-            expected_samples = total_moves // self.config.sample_every_n_moves
-            snapshots_sufficient = len(snapshots) >= max(expected_samples // 2, 5)
-
-            if not snapshots or not snapshots_sufficient:
-                # Not enough snapshots - use replay to extract all positions
+            # Use snapshots if we have at least 1 - faster than full replay
+            # Note: Lowered threshold from max(expected_samples//2, 5) to 1
+            # because most cluster DBs only store final state snapshot
+            if not snapshots:
+                # No snapshots at all - must use slow replay
                 samples.extend(self._extract_via_replay(
                     conn, game_id, winner, total_moves
                 ))

@@ -352,8 +352,9 @@ def run_hybrid_selfplay(
             from app.mcts.improved_mcts import ImprovedMCTS, MCTSConfig
             mcts_config = MCTSConfig(
                 num_simulations=mcts_sims,
-                exploration_constant=1.414,
-                use_dirichlet_noise=True,
+                cpuct=1.414,
+                root_dirichlet_alpha=0.3,
+                root_noise_weight=0.25,
             )
             mcts_ai = ImprovedMCTS(config=mcts_config)
             logger.info(f"MCTS initialized with {mcts_sims} simulations per move")

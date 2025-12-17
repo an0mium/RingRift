@@ -621,5 +621,155 @@ def main():
         sys.exit(1)
 
 
+# =============================================================================
+# Training Loop Integration
+# =============================================================================
+
+
+class ModelHygieneChecker:
+    """
+    Model hygiene checker for integration into training loops.
+
+    Usage in training scripts:
+        from scripts.validate_models import ModelHygieneChecker
+
+        # Create checker (runs validation every 30 minutes by default)
+        hygiene = ModelHygieneChecker(models_dir=Path("models"), interval_minutes=30)
+
+        # In training loop:
+        for epoch in range(epochs):
+            train_epoch()
+            hygiene.check_and_cleanup()  # Only runs if interval has passed
+    """
+
+    def __init__(
+        self,
+        models_dir: Path = MODELS_DIR,
+        interval_minutes: int = 30,
+        auto_cleanup: bool = True,
+        log_only: bool = False,
+    ):
+        """
+        Initialize the hygiene checker.
+
+        Args:
+            models_dir: Directory containing model files
+            interval_minutes: How often to run validation (default 30 min)
+            auto_cleanup: Whether to automatically remove corrupted models
+            log_only: If True, only log issues without removing files
+        """
+        self.models_dir = models_dir
+        self.interval_seconds = interval_minutes * 60
+        self.auto_cleanup = auto_cleanup
+        self.log_only = log_only
+        self.last_check_time = 0.0
+        self.corrupted_count = 0
+        self.cleaned_count = 0
+
+    def check_and_cleanup(self, force: bool = False) -> Dict[str, int]:
+        """
+        Run validation if enough time has passed since last check.
+
+        Args:
+            force: If True, run regardless of interval
+
+        Returns:
+            Dict with 'scanned', 'valid', 'corrupted', 'cleaned' counts
+        """
+        current_time = time.time()
+
+        if not force and (current_time - self.last_check_time) < self.interval_seconds:
+            return {"skipped": True}
+
+        self.last_check_time = current_time
+
+        # Run scan
+        report = scan_models(self.models_dir, parallel=True, max_workers=2)
+
+        result = {
+            "scanned": report.total_models,
+            "valid": report.valid_models,
+            "corrupted": report.corrupted_models,
+            "cleaned": 0,
+        }
+
+        self.corrupted_count += report.corrupted_models
+
+        if report.corrupted_models > 0:
+            if self.log_only:
+                logger.warning(
+                    f"[ModelHygiene] Found {report.corrupted_models} corrupted models "
+                    f"(log_only mode, not cleaning)"
+                )
+                for r in report.results:
+                    if not r.valid:
+                        logger.warning(f"  Corrupted: {r.path.name} - {r.error}")
+            elif self.auto_cleanup:
+                removed = cleanup_corrupted_models(report, dry_run=False)
+                result["cleaned"] = len(removed)
+                self.cleaned_count += len(removed)
+                logger.info(
+                    f"[ModelHygiene] Cleaned {len(removed)} corrupted models"
+                )
+
+        return result
+
+    def get_stats(self) -> Dict[str, int]:
+        """Get cumulative statistics."""
+        return {
+            "total_corrupted_found": self.corrupted_count,
+            "total_cleaned": self.cleaned_count,
+            "checks_performed": int(self.last_check_time > 0),
+        }
+
+
+def validate_checkpoint_after_save(checkpoint_path: Path, expected_keys: Optional[List[str]] = None) -> bool:
+    """
+    Quick validation after saving a checkpoint.
+    Call this immediately after torch.save() to verify the file is valid.
+
+    Args:
+        checkpoint_path: Path to the saved checkpoint
+        expected_keys: Optional list of keys that should be in the checkpoint
+
+    Returns:
+        True if valid, False if corrupted
+    """
+    return validate_model_after_save(checkpoint_path, expected_keys)
+
+
+def run_startup_validation(models_dir: Path = MODELS_DIR, cleanup: bool = True) -> ValidationReport:
+    """
+    Run model validation at training startup.
+    Recommended to call this at the beginning of training scripts.
+
+    Args:
+        models_dir: Directory containing model files
+        cleanup: Whether to remove corrupted models
+
+    Returns:
+        ValidationReport with results
+    """
+    logger.info(f"[Startup Validation] Scanning models in {models_dir}...")
+
+    report = scan_models(models_dir, parallel=True)
+
+    if report.corrupted_models > 0:
+        logger.warning(
+            f"[Startup Validation] Found {report.corrupted_models} corrupted models "
+            f"({report.corrupted_size_bytes / 1024 / 1024:.1f} MB)"
+        )
+
+        if cleanup:
+            removed = cleanup_corrupted_models(report, dry_run=False)
+            logger.info(f"[Startup Validation] Removed {len(removed)} corrupted models")
+    else:
+        logger.info(
+            f"[Startup Validation] All {report.valid_models} models are valid"
+        )
+
+    return report
+
+
 if __name__ == "__main__":
     main()

@@ -57,8 +57,16 @@ from app.training.config import (  # noqa: E402
 )
 from app.training.seed_utils import seed_all  # noqa: E402
 from app.training.train import train_model  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 import numpy as np
+
+# Model hygiene: validation at startup
+try:
+    from scripts.validate_models import run_startup_validation
+    HAS_MODEL_VALIDATION = True
+except ImportError:
+    HAS_MODEL_VALIDATION = False
 
 
 def _dataset_has_multi_player_values(data_path: str) -> bool:
@@ -246,6 +254,12 @@ def _write_report(path: str, payload: Dict[str, Any]) -> None:
 
 def main(argv: Optional[list[str]] = None) -> int:
     args = parse_args(argv)
+
+    # Model hygiene: validate and clean up corrupted models at startup
+    if HAS_MODEL_VALIDATION:
+        models_dir = Path(PROJECT_ROOT) / "models"
+        if models_dir.exists():
+            run_startup_validation(models_dir, cleanup=True)
 
     board_enum = _parse_board(args.board)
     num_players = args.num_players

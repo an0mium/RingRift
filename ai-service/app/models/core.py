@@ -222,6 +222,8 @@ class AIType(str, Enum):
     MCTS = "mcts"
     DESCENT = "descent"
     NEURAL_DEMO = "neural_demo"
+    POLICY_ONLY = "policy_only"  # Direct NN policy without search
+    GUMBEL_MCTS = "gumbel_mcts"  # Gumbel AlphaZero with Sequential Halving
 
 
 class Position(BaseModel):
@@ -711,6 +713,46 @@ class AIConfig(BaseModel):
             "no neural network is available. Provides informed exploration "
             "guidance without the overhead of a full neural net. "
             "When None, defaults to True when no neural net is loaded."
+        ),
+    )
+
+    # ------------------------------------------------------------------
+    # Policy-Only AI Configuration
+    # ------------------------------------------------------------------
+
+    policy_temperature: Optional[float] = Field(
+        default=1.0,
+        ge=0.01,
+        le=10.0,
+        description=(
+            "Temperature for policy softmax in policy-only mode. Lower values "
+            "(e.g., 0.1) make the policy more deterministic (greedy), higher "
+            "values (e.g., 2.0) increase exploration. Default is 1.0."
+        ),
+    )
+
+    # ------------------------------------------------------------------
+    # Gumbel MCTS Configuration
+    # ------------------------------------------------------------------
+
+    gumbel_num_sampled_actions: Optional[int] = Field(
+        default=16,
+        ge=2,
+        le=64,
+        description=(
+            "Number of actions to sample via Gumbel-Top-K at the root for "
+            "Gumbel MCTS. Higher values explore more actions but require "
+            "more simulations. Default is 16."
+        ),
+    )
+    gumbel_simulation_budget: Optional[int] = Field(
+        default=150,
+        ge=10,
+        le=1000,
+        description=(
+            "Total simulation budget for Gumbel MCTS Sequential Halving. "
+            "Budget is divided across phases to progressively narrow down "
+            "the best action. Default is 150."
         ),
     )
 

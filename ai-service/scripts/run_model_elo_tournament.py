@@ -401,10 +401,20 @@ def play_nn_vs_nn_game(
     effective_ai_type_b = ai_type_b if ai_type_b else ai_type
     ai_types = [effective_ai_type_a, effective_ai_type_b]
 
+    # Map AI type strings to AIType enum and create configs
+    AI_TYPE_MAP = {
+        "mcts": AIType.MCTS,
+        "descent": AIType.DESCENT,
+        "policy_only": AIType.POLICY_ONLY,
+        "gumbel_mcts": AIType.GUMBEL_MCTS,
+        "maxn": AIType.MAXN,       # Multiplayer: each player maximizes own score
+        "brs": AIType.BRS,         # Multiplayer: best-reply search (fast)
+    }
+
     for i in range(num_players):
         model_idx = i % 2  # Alternate models for multiplayer
         player_ai_type = ai_types[model_idx]
-        ai_type_enum = AIType.MCTS if player_ai_type == "mcts" else AIType.DESCENT
+        ai_type_enum = AI_TYPE_MAP.get(player_ai_type, AIType.DESCENT)
         config = AIConfig(
             type=ai_type_enum,
             difficulty=10,
@@ -415,11 +425,25 @@ def play_nn_vs_nn_game(
         )
         ai_configs.append(config)
 
-    # Create neural net AIs
+    # Create AIs based on their type
     ais = []
     try:
         for i, config in enumerate(ai_configs):
-            ai = NeuralNetAI(player_number=i + 1, config=config, board_type=board_type)
+            player_ai_type = ai_types[i % 2]
+            if player_ai_type == "policy_only":
+                from app.ai.policy_only_ai import PolicyOnlyAI
+                ai = PolicyOnlyAI(player_number=i + 1, config=config, board_type=board_type)
+            elif player_ai_type == "gumbel_mcts":
+                from app.ai.gumbel_mcts_ai import GumbelMCTSAI
+                ai = GumbelMCTSAI(player_number=i + 1, config=config, board_type=board_type)
+            elif player_ai_type == "maxn":
+                from app.ai.maxn_ai import MaxNAI
+                ai = MaxNAI(player_number=i + 1, config=config)
+            elif player_ai_type == "brs":
+                from app.ai.maxn_ai import BRSAI
+                ai = BRSAI(player_number=i + 1, config=config)
+            else:
+                ai = NeuralNetAI(player_number=i + 1, config=config, board_type=board_type)
             ais.append(ai)
     except Exception as e:
         clear_model_cache()
@@ -626,14 +650,34 @@ def run_model_matchup(
 
         # Select AI type(s) for this game
         if use_both_ai_types:
-            # Cross-inference evaluation: cycle through all 4 AI type combinations
-            # This ensures each NN is evaluated with both MCTS and Descent against both
-            ai_type_combos = [
-                ("descent", "descent"),   # Both use descent
-                ("mcts", "mcts"),         # Both use MCTS
-                ("mcts", "descent"),      # A uses MCTS, B uses descent
-                ("descent", "mcts"),      # A uses descent, B uses MCTS
-            ]
+            # Cross-inference evaluation: cycle through AI type combinations
+            # This ensures each NN is evaluated with all inference methods
+            if num_players == 2:
+                # 2-player: Standard AI types
+                ai_type_combos = [
+                    ("descent", "descent"),         # Both use descent
+                    ("mcts", "mcts"),               # Both use MCTS
+                    ("policy_only", "policy_only"), # Both use Policy-Only
+                    ("gumbel_mcts", "gumbel_mcts"), # Both use Gumbel MCTS
+                    ("mcts", "descent"),            # Cross: MCTS vs Descent
+                    ("descent", "mcts"),            # Cross: Descent vs MCTS
+                    ("policy_only", "descent"),     # Cross: Policy-Only vs Descent
+                    ("gumbel_mcts", "descent"),     # Cross: Gumbel vs Descent
+                ]
+            else:
+                # 3p/4p: Include multiplayer-specific algorithms (MaxN, BRS, Paranoid MCTS)
+                ai_type_combos = [
+                    ("descent", "descent"),         # Both use descent (paranoid)
+                    ("mcts", "mcts"),               # Both use MCTS (paranoid)
+                    ("maxn", "maxn"),               # Both use MaxN (each maximizes own score)
+                    ("brs", "brs"),                 # Both use BRS (best-reply search)
+                    ("policy_only", "policy_only"), # Both use Policy-Only
+                    ("gumbel_mcts", "gumbel_mcts"), # Both use Gumbel MCTS
+                    ("mcts", "maxn"),               # Cross: MCTS vs MaxN
+                    ("descent", "maxn"),            # Cross: Descent vs MaxN
+                    ("brs", "descent"),             # Cross: BRS vs Descent
+                    ("maxn", "brs"),                # Cross: MaxN vs BRS
+                ]
             combo_idx = game_num % len(ai_type_combos)
             ai_type_a, ai_type_b = ai_type_combos[combo_idx]
         else:
@@ -1513,8 +1557,9 @@ def main():
                         help="Include baseline players (Random, Heuristic, MCTS) - DEFAULT: ON for ELO calibration")
     parser.add_argument("--no-baselines", action="store_true", help="Exclude baseline players (not recommended - breaks ELO anchoring)")
     parser.add_argument("--baselines-only", action="store_true", help="Run tournament with only baseline players (for calibration)")
-    parser.add_argument("--ai-type", choices=["mcts", "descent"], default="descent", help="AI type for neural networks (default: descent)")
-    parser.add_argument("--both-ai-types", action="store_true", help="Use BOTH MCTS and Descent AI types (half games each) for comprehensive NN evaluation")
+    parser.add_argument("--ai-type", choices=["mcts", "descent", "policy_only", "gumbel_mcts", "maxn", "brs"], default="descent", help="AI type for neural networks when --no-both-ai-types is used (default: descent). MaxN/BRS are for multiplayer (3p/4p).")
+    parser.add_argument("--both-ai-types", action="store_true", default=True, help="Use ALL AI types (MCTS, Descent, Policy-Only, Gumbel MCTS) for comprehensive NN evaluation (DEFAULT: ON)")
+    parser.add_argument("--no-both-ai-types", action="store_true", help="Disable multi-AI-type evaluation, use only --ai-type")
     parser.add_argument("--include-nnue", action="store_true", help="Include NNUE models from models/nnue/ directory")
     parser.add_argument("--nnue-only", action="store_true", help="Run tournament with only NNUE models")
 
@@ -1530,6 +1575,10 @@ def main():
                         help="Training mode: tag games as 'elo_selfplay' so they feed into training pool instead of being filtered as holdout")
 
     args = parser.parse_args()
+
+    # Handle --no-both-ai-types flag (overrides default True for --both-ai-types)
+    if args.no_both_ai_types:
+        args.both_ai_types = False
 
     # === TRAINING MODE: Change source tag so games feed into training pool ===
     global GAME_SOURCE_TAG

@@ -1,0 +1,589 @@
+"""Gumbel MCTS AI implementation for RingRift.
+
+This module implements Gumbel AlphaZero-style MCTS with Sequential Halving
+for more sample-efficient search compared to standard MCTS.
+
+Key innovations from the Gumbel AlphaZero paper:
+1. **Gumbel-Top-K sampling**: Sample k actions without replacement at the root
+   using Gumbel noise added to policy logits. This focuses computation on the
+   most promising actions while maintaining exploration.
+
+2. **Sequential Halving**: Divide the simulation budget across log2(k) phases,
+   progressively halving the number of candidate actions. This is more
+   efficient than uniform allocation across all actions.
+
+3. **Completed Q-values**: Use a principled estimate of action values that
+   accounts for visit count asymmetry between actions.
+
+References:
+- Danihelka et al. "Policy improvement by planning with Gumbel" (2022)
+- https://arxiv.org/abs/2104.06303
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+import time
+from dataclasses import dataclass, field
+from typing import Optional, List, Dict, Any, Tuple, cast
+
+import numpy as np
+
+from .base import BaseAI
+from .neural_net import NeuralNetAI, INVALID_MOVE_INDEX
+from ..models import GameState, Move, AIConfig, BoardType, MoveType
+from ..rules.mutable_state import MutableGameState, MoveUndo
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class GumbelAction:
+    """Represents an action with its Gumbel-perturbed value and statistics."""
+
+    move: Move
+    policy_logit: float  # Raw log-probability from NN
+    gumbel_noise: float  # Gumbel(0,1) noise sample
+    perturbed_value: float  # logit + gumbel (for initial ranking)
+    visit_count: int = 0
+    total_value: float = 0.0  # Sum of values from simulations
+
+    @property
+    def mean_value(self) -> float:
+        """Mean value from simulations (Q-value)."""
+        if self.visit_count == 0:
+            return 0.0
+        return self.total_value / self.visit_count
+
+    def completed_q(self, max_visits: int, c_visit: float = 50.0) -> float:
+        """Compute the completed Q-value for action selection.
+
+        This accounts for visit count asymmetry by mixing the empirical
+        Q-value with a prior-based completion.
+
+        Args:
+            max_visits: Maximum visit count among all actions.
+            c_visit: Mixing coefficient for visit completion.
+
+        Returns:
+            Completed Q-value estimate.
+        """
+        if self.visit_count == 0:
+            # Use prior value (normalized policy logit as proxy)
+            return self.policy_logit / 10.0  # Scale to reasonable range
+
+        # Mix empirical Q with prior based on visit ratio
+        visit_ratio = self.visit_count / (max_visits + 1e-8)
+        mix = c_visit / (c_visit + max_visits)
+        return (1 - mix) * self.mean_value + mix * (self.policy_logit / 10.0)
+
+
+@dataclass
+class GumbelNode:
+    """Lightweight node for Gumbel MCTS tree traversal."""
+
+    move: Optional[Move] = None
+    parent: Optional["GumbelNode"] = None
+    children: Dict[str, "GumbelNode"] = field(default_factory=dict)
+    visit_count: int = 0
+    total_value: float = 0.0
+    prior: float = 0.0
+    to_move_is_root: bool = True
+
+    @property
+    def mean_value(self) -> float:
+        """Mean value (Q-value) for this node."""
+        if self.visit_count == 0:
+            return 0.0
+        return self.total_value / self.visit_count
+
+
+class GumbelMCTSAI(BaseAI):
+    """Gumbel MCTS AI with Sequential Halving for sample-efficient search.
+
+    This AI combines neural network policy/value evaluation with Gumbel-based
+    action sampling and Sequential Halving for budget allocation.
+
+    Compared to standard MCTS:
+    - More sample-efficient (better use of limited simulations)
+    - Focuses computation on promising actions
+    - Better theoretical guarantees for action selection
+
+    Attributes:
+        neural_net: Neural network for policy/value evaluation.
+        num_sampled_actions: Number of actions for Gumbel-Top-K (m).
+        simulation_budget: Total simulation budget (n).
+        c_puct: Exploration constant for tree traversal.
+    """
+
+    def __init__(
+        self,
+        player_number: int,
+        config: AIConfig,
+        board_type: BoardType = BoardType.SQUARE8,
+    ) -> None:
+        """Initialize Gumbel MCTS AI.
+
+        Args:
+            player_number: The player number this AI controls.
+            config: AI configuration including nn_model_id and gumbel parameters.
+            board_type: Board type for move encoding.
+
+        Raises:
+            RuntimeError: If neural network cannot be loaded.
+        """
+        super().__init__(player_number, config)
+
+        self.board_type = board_type
+
+        # Gumbel MCTS parameters
+        self.num_sampled_actions = config.gumbel_num_sampled_actions or 16
+        self.simulation_budget = config.gumbel_simulation_budget or 150
+        self.c_puct = 1.5  # Exploration constant for tree policy
+
+        # Load neural network (required for Gumbel MCTS)
+        self.neural_net: Optional[NeuralNetAI] = None
+        try:
+            self.neural_net = NeuralNetAI(player_number, config)
+            logger.info(
+                f"GumbelMCTSAI(player={player_number}): loaded neural network "
+                f"(model={config.nn_model_id}, m={self.num_sampled_actions}, "
+                f"budget={self.simulation_budget})"
+            )
+        except Exception as e:
+            if not config.allow_fresh_weights:
+                raise RuntimeError(
+                    f"GumbelMCTSAI requires a neural network but failed to load: {e}"
+                ) from e
+            logger.warning(f"GumbelMCTSAI: failed to load neural net ({e})")
+            self.neural_net = None
+
+    def select_move(self, game_state: GameState) -> Optional[Move]:
+        """Select best move using Gumbel MCTS with Sequential Halving.
+
+        Args:
+            game_state: Current game state.
+
+        Returns:
+            Selected move or None if no valid moves.
+        """
+        valid_moves = self.get_valid_moves(game_state)
+
+        if not valid_moves:
+            return None
+
+        if len(valid_moves) == 1:
+            self.move_count += 1
+            return valid_moves[0]
+
+        # Check for swap decision first
+        swap_move = self.maybe_select_swap_move(game_state, valid_moves)
+        if swap_move is not None:
+            self.move_count += 1
+            return swap_move
+
+        # Run Gumbel MCTS
+        best_move = self._gumbel_mcts_search(game_state, valid_moves)
+
+        self.move_count += 1
+        return best_move
+
+    def _gumbel_mcts_search(
+        self,
+        game_state: GameState,
+        valid_moves: List[Move],
+    ) -> Move:
+        """Run Gumbel MCTS search with Sequential Halving.
+
+        Args:
+            game_state: Current game state.
+            valid_moves: List of valid moves.
+
+        Returns:
+            Best move according to search.
+        """
+        # Get policy logits from neural network
+        policy_logits = self._get_policy_logits(game_state, valid_moves)
+
+        # Step 1: Gumbel-Top-K sampling
+        actions = self._gumbel_top_k_sample(valid_moves, policy_logits)
+
+        if len(actions) == 1:
+            return actions[0].move
+
+        # Step 2: Sequential Halving
+        best_action = self._sequential_halving(game_state, actions)
+
+        return best_action.move
+
+    def _get_policy_logits(
+        self,
+        game_state: GameState,
+        valid_moves: List[Move],
+    ) -> np.ndarray:
+        """Get policy logits for valid moves from neural network.
+
+        Args:
+            game_state: Current game state.
+            valid_moves: List of valid moves.
+
+        Returns:
+            Array of log-probabilities for each valid move.
+        """
+        if self.neural_net is None:
+            # Uniform logits when no neural net
+            return np.zeros(len(valid_moves))
+
+        try:
+            _, policy = self.neural_net.evaluate_batch([game_state])
+
+            if policy.size == 0:
+                return np.zeros(len(valid_moves))
+
+            policy_vec = policy[0]
+
+            logits = []
+            for move in valid_moves:
+                idx = self.neural_net.encode_move(move, game_state.board)
+                if idx != INVALID_MOVE_INDEX and 0 <= idx < len(policy_vec):
+                    # Convert probability to logit (log-odds)
+                    prob = max(float(policy_vec[idx]), 1e-10)
+                    logit = np.log(prob)
+                else:
+                    logit = -10.0  # Low logit for unrecognized moves
+
+                logits.append(logit)
+
+            return np.array(logits, dtype=np.float32)
+
+        except Exception as e:
+            logger.warning(f"GumbelMCTSAI: policy evaluation failed ({e})")
+            return np.zeros(len(valid_moves))
+
+    def _gumbel_top_k_sample(
+        self,
+        valid_moves: List[Move],
+        policy_logits: np.ndarray,
+    ) -> List[GumbelAction]:
+        """Sample top-k actions using Gumbel-Top-K.
+
+        This samples k actions without replacement by adding Gumbel noise
+        to the policy logits and taking the top k.
+
+        Args:
+            valid_moves: List of valid moves.
+            policy_logits: Log-probabilities for each move.
+
+        Returns:
+            List of GumbelAction objects for the top-k actions.
+        """
+        k = min(self.num_sampled_actions, len(valid_moves))
+
+        # Generate Gumbel(0,1) noise using inverse CDF method
+        # Gumbel(0,1) = -log(-log(U)) where U ~ Uniform(0,1)
+        seed = int(self.rng.randrange(0, 2**32 - 1))
+        np_rng = np.random.default_rng(seed)
+        uniform = np_rng.uniform(1e-10, 1.0 - 1e-10, size=len(valid_moves))
+        gumbel_noise = -np.log(-np.log(uniform))
+
+        # Perturb logits with Gumbel noise
+        perturbed = policy_logits + gumbel_noise
+
+        # Select top-k indices
+        top_k_indices = np.argsort(perturbed)[-k:][::-1]
+
+        # Create GumbelAction objects
+        actions = []
+        for idx in top_k_indices:
+            action = GumbelAction(
+                move=valid_moves[idx],
+                policy_logit=float(policy_logits[idx]),
+                gumbel_noise=float(gumbel_noise[idx]),
+                perturbed_value=float(perturbed[idx]),
+            )
+            actions.append(action)
+
+        return actions
+
+    def _sequential_halving(
+        self,
+        game_state: GameState,
+        actions: List[GumbelAction],
+    ) -> GumbelAction:
+        """Run Sequential Halving to find the best action.
+
+        Progressively halves the number of candidate actions, allocating
+        simulation budget evenly across phases.
+
+        Args:
+            game_state: Current game state.
+            actions: List of candidate actions from Gumbel-Top-K.
+
+        Returns:
+            Best action after Sequential Halving.
+        """
+        m = len(actions)
+        if m == 1:
+            return actions[0]
+
+        # Number of phases = ceil(log2(m))
+        num_phases = int(np.ceil(np.log2(m)))
+        budget_per_phase = self.simulation_budget // max(num_phases, 1)
+
+        remaining = list(actions)
+
+        for phase in range(num_phases):
+            if len(remaining) == 1:
+                break
+
+            # Allocate budget evenly across remaining actions
+            sims_per_action = max(1, budget_per_phase // len(remaining))
+
+            # Run simulations for each remaining action
+            for action in remaining:
+                value_sum = self._simulate_action(
+                    game_state, action.move, sims_per_action
+                )
+                action.visit_count += sims_per_action
+                action.total_value += value_sum
+
+            # Sort by completed Q-value and keep top half
+            max_visits = max(a.visit_count for a in remaining)
+            remaining.sort(key=lambda a: a.completed_q(max_visits), reverse=True)
+            remaining = remaining[: max(1, len(remaining) // 2)]
+
+        return remaining[0]
+
+    def _simulate_action(
+        self,
+        game_state: GameState,
+        action: Move,
+        num_sims: int,
+    ) -> float:
+        """Simulate an action and return cumulative value.
+
+        Runs MCTS-style simulations from the state after taking the action.
+
+        Args:
+            game_state: Current game state.
+            action: Action to simulate.
+            num_sims: Number of simulations to run.
+
+        Returns:
+            Sum of values from all simulations.
+        """
+        # Create mutable state for simulation
+        mstate = MutableGameState.from_immutable(game_state)
+
+        # Apply the action
+        undo = mstate.make_move(action)
+
+        total_value = 0.0
+
+        for _ in range(num_sims):
+            # Evaluate the resulting position with neural network
+            sim_state = mstate.to_immutable()
+
+            if sim_state.game_status == "completed":
+                # Terminal state - use game result
+                winner = sim_state.winner
+                if winner == self.player_number:
+                    value = 1.0
+                elif winner is None:
+                    value = 0.0  # Draw
+                else:
+                    value = -1.0
+            elif self.neural_net is not None:
+                # Use neural network value
+                try:
+                    values, _ = self.neural_net.evaluate_batch([sim_state])
+                    value = values[0] if values else 0.0
+
+                    # Adjust for perspective
+                    if sim_state.current_player != self.player_number:
+                        value = -value
+                except Exception:
+                    value = 0.0
+            else:
+                value = 0.0
+
+            total_value += value
+
+        # Unmake the action
+        mstate.unmake_move(undo)
+
+        return total_value
+
+    def _run_tree_simulation(
+        self,
+        mstate: MutableGameState,
+        root: GumbelNode,
+        max_depth: int = 10,
+    ) -> float:
+        """Run a single tree simulation from the current state.
+
+        Uses PUCT-style selection for internal nodes and neural network
+        evaluation at leaves.
+
+        Args:
+            mstate: Mutable game state (will be modified in-place).
+            root: Root node of the search tree.
+            max_depth: Maximum depth to search.
+
+        Returns:
+            Value estimate from the simulation.
+        """
+        path: List[Tuple[GumbelNode, MoveUndo]] = []
+        node = root
+        depth = 0
+
+        # Selection phase - traverse tree until leaf
+        while depth < max_depth and not mstate.is_game_over():
+            valid_moves = self.rules_engine.get_valid_moves(
+                mstate.to_immutable(), mstate.current_player
+            )
+
+            if not valid_moves:
+                break
+
+            # Check if node is fully expanded
+            unexpanded = [m for m in valid_moves if str(m) not in node.children]
+
+            if unexpanded:
+                # Expansion - add new child
+                move = self.rng.choice(unexpanded)
+                undo = mstate.make_move(move)
+
+                child = GumbelNode(
+                    move=move,
+                    parent=node,
+                    prior=1.0 / len(valid_moves),
+                    to_move_is_root=(mstate.current_player == self.player_number),
+                )
+                node.children[str(move)] = child
+                path.append((child, undo))
+                node = child
+                break
+            else:
+                # Selection - pick best child by PUCT
+                best_move = self._select_puct_move(node, valid_moves)
+                undo = mstate.make_move(best_move)
+
+                child = node.children.get(str(best_move))
+                if child is None:
+                    # Shouldn't happen but handle gracefully
+                    break
+
+                path.append((child, undo))
+                node = child
+                depth += 1
+
+        # Evaluation phase
+        if mstate.is_game_over():
+            winner = mstate.winner
+            if winner == self.player_number:
+                value = 1.0
+            elif winner is None:
+                value = 0.0
+            else:
+                value = -1.0
+        elif self.neural_net is not None:
+            try:
+                sim_state = mstate.to_immutable()
+                values, _ = self.neural_net.evaluate_batch([sim_state])
+                value = values[0] if values else 0.0
+
+                if sim_state.current_player != self.player_number:
+                    value = -value
+            except Exception:
+                value = 0.0
+        else:
+            value = 0.0
+
+        # Backpropagation - update all nodes in path
+        current_value = value
+        for child_node, undo in reversed(path):
+            child_node.visit_count += 1
+            child_node.total_value += current_value
+
+            # Flip value for opponent nodes
+            if child_node.parent and (
+                child_node.to_move_is_root
+                != getattr(child_node.parent, "to_move_is_root", True)
+            ):
+                current_value = -current_value
+
+            # Unmake move
+            mstate.unmake_move(undo)
+
+        return value
+
+    def _select_puct_move(
+        self,
+        node: GumbelNode,
+        valid_moves: List[Move],
+    ) -> Move:
+        """Select move using PUCT formula.
+
+        Args:
+            node: Current node with children.
+            valid_moves: Valid moves from current position.
+
+        Returns:
+            Best move according to PUCT.
+        """
+        total_visits = node.visit_count + 1
+
+        def puct_score(move: Move) -> float:
+            child = node.children.get(str(move))
+            if child is None:
+                return float("inf")  # Prefer unexplored
+
+            q = child.mean_value
+            # Flip Q for opponent nodes
+            if not child.to_move_is_root:
+                q = -q
+
+            u = self.c_puct * child.prior * math.sqrt(total_visits) / (
+                1 + child.visit_count
+            )
+            return q + u
+
+        return max(valid_moves, key=puct_score)
+
+    def evaluate_position(self, game_state: GameState) -> float:
+        """Evaluate position using neural network.
+
+        Args:
+            game_state: Current game state.
+
+        Returns:
+            Value estimate from neural network.
+        """
+        if self.neural_net is None:
+            return 0.0
+
+        try:
+            values, _ = self.neural_net.evaluate_batch([game_state])
+            return values[0] if values else 0.0
+        except Exception:
+            return 0.0
+
+    def reset_for_new_game(self, *, rng_seed: Optional[int] = None) -> None:
+        """Reset state for a new game.
+
+        Args:
+            rng_seed: Optional new RNG seed.
+        """
+        super().reset_for_new_game(rng_seed=rng_seed)
+        # No persistent tree to reset in Gumbel MCTS (tree is built fresh each move)
+
+    def __repr__(self) -> str:
+        """String representation."""
+        return (
+            f"GumbelMCTSAI(player={self.player_number}, "
+            f"m={self.num_sampled_actions}, "
+            f"budget={self.simulation_budget}, "
+            f"model={self.config.nn_model_id})"
+        )

@@ -113,6 +113,8 @@ import {
   SandboxStateAccessor,
   SandboxDecisionHandler,
 } from './SandboxOrchestratorAdapter';
+import { createInitialGameState } from '../../shared/engine/initialState';
+import { applyMoveForReplay } from '../../shared/engine/orchestration/turnOrchestrator';
 import {
   mapPendingDecisionToPlayerChoice as mapDecisionToChoice,
   mapPlayerChoiceResponseToMove as mapResponseToMove,
@@ -897,6 +899,93 @@ export class ClientSandboxEngine {
   }
 
   /**
+   * Rebuild state snapshots from a game's move history.
+   *
+   * When loading a fixture/saved state that has move history, this method
+   * reconstructs the intermediate game states by replaying all moves from
+   * a fresh initial state. This enables history playback for loaded games.
+   *
+   * @param finalState - The final game state (after all moves)
+   */
+  private rebuildSnapshotsFromMoveHistory(finalState: GameState): void {
+    const moveHistory = finalState.moveHistory;
+
+    // No moves to replay - nothing to do
+    if (!moveHistory || moveHistory.length === 0) {
+      return;
+    }
+
+    try {
+      // Create a fresh initial state matching the fixture's configuration.
+      // We use the final state's metadata (boardType, players, timeControl, etc.)
+      // but with an empty board and no moves.
+      const initialState = createInitialGameState(
+        finalState.id,
+        finalState.boardType,
+        // Reset player state to initial values
+        finalState.players.map((p) => ({
+          ...p,
+          ringsInHand: BOARD_CONFIGS[finalState.boardType].ringsPerPlayer,
+          eliminatedRings: 0,
+          territorySpaces: 0,
+        })),
+        finalState.timeControl,
+        finalState.isRated,
+        finalState.rngSeed,
+        finalState.rulesOptions
+      );
+
+      // Mark the game as active (createInitialGameState sets it to 'waiting')
+      let currentState: GameState = {
+        ...initialState,
+        gameStatus: 'active',
+      };
+
+      // Store the initial state snapshot (state before any moves)
+      this._initialStateSnapshot = this.cloneGameState(currentState);
+
+      // Replay each move and capture snapshots
+      for (const move of moveHistory) {
+        try {
+          const result = applyMoveForReplay(currentState, move);
+          currentState = result.nextState;
+
+          // Add the move to the replayed state's history
+          currentState = {
+            ...currentState,
+            moveHistory: [...currentState.moveHistory, move],
+          };
+
+          // Capture snapshot after this move
+          this._stateSnapshots.push(this.cloneGameState(currentState));
+        } catch (err) {
+          // If a move fails to apply, stop reconstruction but keep what we have
+          if (process.env.NODE_ENV === 'development') {
+            console.warn(
+              '[ClientSandboxEngine] Failed to apply move during snapshot reconstruction:',
+              move,
+              err
+            );
+          }
+          break;
+        }
+      }
+
+      if (process.env.NODE_ENV === 'development') {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[ClientSandboxEngine] Rebuilt ${this._stateSnapshots.length} snapshots from ${moveHistory.length} moves`
+        );
+      }
+    } catch (err) {
+      // If initial state creation fails, leave snapshots empty
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('[ClientSandboxEngine] Failed to rebuild snapshots from move history:', err);
+      }
+    }
+  }
+
+  /**
    * Initialize the sandbox engine from a pre-existing serialized game state.
    * Used by the Scenario Picker to load test vectors and saved states.
    *
@@ -982,9 +1071,12 @@ export class ClientSandboxEngine {
     // 5. Reset LPS tracking state using shared helper
     this._lpsState = createLpsTrackingState();
 
-    // 5b. Clear state snapshots (fixtures don't have them, they'll be captured for new moves)
+    // 5b. Rebuild state snapshots from move history for playback support.
+    // When loading a fixture with move history, we reconstruct snapshots by
+    // replaying all moves from the initial state.
     this._stateSnapshots = [];
     this._initialStateSnapshot = null;
+    this.rebuildSnapshotsFromMoveHistory(gameState);
 
     // 6. Clear victory result
     this.victoryResult = null;
@@ -2746,6 +2838,24 @@ export class ClientSandboxEngine {
         !!this.interactionHandler && isHumanPlayer && !this.traceMode && eligible.length > 0;
 
       if (shouldPromptRegionOrder) {
+        // Populate board.territories with the eligible regions so that:
+        // 1. gameViewModels.ts can highlight all cells in each region
+        // 2. useSandboxInteractions.ts click handler can match clicks to regions
+        // Keys must match the regionId values used in the choice options.
+        const newTerritories = new Map(state.board.territories);
+        eligible.forEach((region, index) => {
+          newTerritories.set(String(index), region);
+        });
+        state = {
+          ...state,
+          board: {
+            ...state.board,
+            territories: newTerritories,
+          },
+        };
+        // Also update the instance state so getGameState() returns the populated territories
+        this.gameState = state;
+
         const choice: RegionOrderChoice = {
           id: `sandbox-region-${Date.now()}-${Math.random().toString(36).slice(2)}`,
           gameId: state.id,
