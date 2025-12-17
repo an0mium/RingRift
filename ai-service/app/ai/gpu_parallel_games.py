@@ -276,7 +276,7 @@ def select_moves_heuristic(
 
     target_heights = state.stack_height[game_idx, to_y, to_x].float()
     # Only count for captures (move_type == MoveType.CAPTURE)
-    is_capture = moves.move_type == 3  # MoveType.CAPTURE = 3
+    is_capture = moves.move_type == MoveType.CAPTURE
     capture_score = torch.where(
         is_capture,
         target_heights * weights.get("capture_value", 5.0),
