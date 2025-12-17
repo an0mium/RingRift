@@ -7,19 +7,78 @@ This package provides training infrastructure including:
 - Tier promotion for difficulty ladder
 - Consolidated training components (December 2025)
 
-Usage:
-    # Promotion controller
+Architecture Overview (December 2025)
+=====================================
+
+1. DATA LOADING & AUGMENTATION
+   - data_loader.py: StreamingDataLoader, WeightedStreamingDataLoader
+   - hot_data_buffer.py: HotDataBuffer for priority experience replay
+   - data_augmentation.py: DataAugmentor (unified factory)
+   - elo_weighting.py: EloWeightedSampler for opponent-strength weighting
+
+2. DISTRIBUTED TRAINING
+   - distributed_unified.py: CANONICAL - UnifiedDistributedTrainer
+     (gradient compression, async SGD, mixed precision)
+   - distributed.py: Helper functions + basic DistributedTrainer
+     (setup_distributed, cleanup_distributed, is_main_process, etc.)
+   - checkpoint_unified.py: UnifiedCheckpointManager
+     (adaptive checkpointing, hash verification, lineage tracking)
+
+3. ADVANCED FEATURES
+   - integrated_enhancements.py: Unified config combining:
+     * auxiliary_tasks.py: Multi-task heads (game length, piece count, outcome)
+     * gradient_surgery.py: PCGrad/CAGrad for multi-task gradients
+     * batch_scheduling.py: Dynamic batch size scheduling
+     * curriculum.py: Progressive difficulty staging
+   - unified_orchestrator.py: UnifiedTrainingOrchestrator
+     (combines all components with context manager interface)
+
+4. SCHEDULING & CONTROL
+   - temperature_scheduling.py: CANONICAL scheduler module
+     (TemperatureScheduler, multiple schedule types)
+   - promotion_controller.py: Model promotion decisions
+   - regression_detector.py: Elo regression detection
+
+5. UTILITIES
+   - significance.py: Statistical utilities (wilson_score_interval)
+   - value_calibration.py: CalibrationTracker for value head
+   - seed_utils.py: Reproducibility helpers
+
+Quick Start
+-----------
+    # Basic training with unified orchestrator
+    from app.training import (
+        UnifiedTrainingOrchestrator,
+        OrchestratorConfig,
+    )
+
+    config = OrchestratorConfig(
+        board_type="square8",
+        enable_hot_buffer=True,
+        enable_curriculum=True,
+    )
+
+    with UnifiedTrainingOrchestrator(model, config) as orchestrator:
+        for batch in dataloader:
+            metrics = orchestrator.train_step(batch)
+
+    # Distributed training
+    from app.training import (
+        setup_distributed,
+        cleanup_distributed,
+        is_main_process,
+        DistributedMetrics,
+    )
+
+    setup_distributed()
+    # ... training loop ...
+    cleanup_distributed()
+
+    # Model promotion
     from app.training import PromotionController, get_promotion_controller
 
-    # Integrated enhancements
-    from app.training import IntegratedTrainingManager, create_integrated_manager
-
-    # Consolidated modules
-    from app.training import (
-        UnifiedCheckpointManager,
-        UnifiedDistributedTrainer,
-        UnifiedTrainingOrchestrator,
-    )
+    controller = get_promotion_controller()
+    decision = controller.should_promote(model_id, metrics)
 """
 
 # Import promotion controller if available
@@ -218,4 +277,70 @@ if HAS_REGRESSION_DETECTOR:
         "RegressionListener",
         "get_regression_detector",
         "create_regression_detector",
+    ])
+
+# Import statistical utilities (December 2025)
+try:
+    from app.training.significance import (
+        wilson_score_interval,
+        wilson_lower_bound,
+    )
+    HAS_SIGNIFICANCE = True
+except ImportError:
+    HAS_SIGNIFICANCE = False
+
+__all__.append("HAS_SIGNIFICANCE")
+
+if HAS_SIGNIFICANCE:
+    __all__.extend([
+        "wilson_score_interval",
+        "wilson_lower_bound",
+    ])
+
+# Import crossboard strength analysis (December 2025)
+try:
+    from app.training.crossboard_strength import (
+        normalise_tier_name,
+        tier_number,
+        rank_order_from_elos,
+        spearman_rank_correlation,
+        inversion_count,
+        summarize_crossboard_tier_strength,
+    )
+    HAS_CROSSBOARD_STRENGTH = True
+except ImportError:
+    HAS_CROSSBOARD_STRENGTH = False
+
+__all__.append("HAS_CROSSBOARD_STRENGTH")
+
+if HAS_CROSSBOARD_STRENGTH:
+    __all__.extend([
+        "normalise_tier_name",
+        "tier_number",
+        "rank_order_from_elos",
+        "spearman_rank_correlation",
+        "inversion_count",
+        "summarize_crossboard_tier_strength",
+    ])
+
+# Import value calibration utilities (December 2025)
+try:
+    from app.training.value_calibration import (
+        CalibrationTracker,
+        CalibrationReport,
+        ValueCalibrator,
+        create_reliability_diagram,
+    )
+    HAS_VALUE_CALIBRATION = True
+except ImportError:
+    HAS_VALUE_CALIBRATION = False
+
+__all__.append("HAS_VALUE_CALIBRATION")
+
+if HAS_VALUE_CALIBRATION:
+    __all__.extend([
+        "CalibrationTracker",
+        "CalibrationReport",
+        "ValueCalibrator",
+        "create_reliability_diagram",
     ])

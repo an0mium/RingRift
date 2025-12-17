@@ -3,12 +3,46 @@
 Coordinates training across multiple GPUs and nodes using PyTorch
 Distributed Data Parallel (DDP) with gradient synchronization.
 
+.. note:: MIGRATION NOTICE (December 2025)
+
+    For new code, consider using ``distributed_unified.py`` which provides:
+    - UnifiedDistributedTrainer: Enhanced trainer with gradient compression, async SGD
+    - Better integration with checkpoint_unified.py
+    - Mixed precision (AMP) support built-in
+
+    This module (distributed.py) remains for:
+    - Helper functions: setup_distributed(), cleanup_distributed(), etc.
+    - Basic DistributedTrainer without advanced features
+    - Backwards compatibility with existing training scripts
+
+    Example migration::
+
+        # Old (this module)
+        from app.training.distributed import DistributedTrainer, DistributedConfig
+
+        # New (recommended for advanced features)
+        from app.training.distributed_unified import (
+            UnifiedDistributedTrainer,
+            UnifiedDistributedConfig,
+        )
+
 Features:
 1. Multi-GPU training on a single node
 2. Multi-node training with TCP/NCCL backend
 3. Gradient averaging and synchronization
 4. Fault tolerance with checkpoint recovery
 5. Elastic scaling support
+
+Helper Functions (use these regardless of trainer choice):
+    - setup_distributed(): Initialize process group
+    - cleanup_distributed(): Destroy process group
+    - is_main_process(): Check if rank 0
+    - get_rank(), get_world_size(), get_local_rank()
+    - get_distributed_sampler(): Create DistributedSampler
+    - wrap_model_ddp(): Wrap model with DDP
+    - seed_everything(): Seed all RNGs
+    - scale_learning_rate(): Scale LR for distributed
+    - DistributedMetrics: Cross-process metric aggregation
 
 Usage:
     from app.training.distributed import DistributedTrainer, DistributedConfig
