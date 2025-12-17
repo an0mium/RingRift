@@ -6423,6 +6423,66 @@ class P2POrchestrator:
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
+    async def handle_admin_unretire(self, request: web.Request) -> web.Response:
+        """Unretire a specific peer node.
+
+        This endpoint allows external systems (like vast_p2p_sync.py) to
+        programmatically unretire nodes that are known to be active but were
+        marked as retired due to temporary connectivity issues.
+
+        Query params:
+            node_id: The node ID to unretire (required)
+
+        Returns:
+            JSON with success status and node info
+        """
+        try:
+            node_id = request.query.get("node_id", "").strip()
+            if not node_id:
+                return web.json_response({
+                    "error": "node_id parameter is required"
+                }, status=400)
+
+            async with AsyncLockWrapper(self.peers_lock):
+                if node_id not in self.peers:
+                    # List available nodes for debugging
+                    available = list(self.peers.keys())
+                    return web.json_response({
+                        "error": f"Node '{node_id}' not found in peer registry",
+                        "available_nodes": available[:20],  # Limit to first 20
+                        "total_nodes": len(available),
+                    }, status=404)
+
+                peer_info = self.peers[node_id]
+                was_retired = getattr(peer_info, "retired", False)
+
+                if not was_retired:
+                    return web.json_response({
+                        "success": True,
+                        "message": f"Node '{node_id}' was not retired",
+                        "already_active": True,
+                    })
+
+                # Unretire the node
+                peer_info.retired = False
+                peer_info.retired_at = 0.0
+
+                # Also reset failure counters to give it a fresh start
+                peer_info.consecutive_failures = 0
+                peer_info.last_failure_time = 0.0
+
+                print(f"[P2P] Unretired peer: {node_id} (admin request)")
+
+            return web.json_response({
+                "success": True,
+                "message": f"Node '{node_id}' has been unretired",
+                "node_id": node_id,
+                "host": getattr(peer_info, "host", ""),
+                "gpu_name": getattr(peer_info, "gpu_name", ""),
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
     async def handle_training_sync(self, request: web.Request) -> web.Response:
         """Manually trigger sync of selfplay data to training nodes.
 
@@ -24738,6 +24798,7 @@ print(json.dumps({{
         app.router.add_post('/cleanup/files', self.handle_cleanup_files)   # File-specific cleanup
         app.router.add_get('/admin/purge_retired', self.handle_purge_retired_peers)  # Purge retired peers (GET for auth bypass)
         app.router.add_get('/admin/purge_stale', self.handle_purge_stale_peers)      # Purge stale peers by heartbeat age
+        app.router.add_post('/admin/unretire', self.handle_admin_unretire)           # Unretire specific node
 
         # Phase 3: Training pipeline routes
         app.router.add_post('/training/start', self.handle_training_start)
