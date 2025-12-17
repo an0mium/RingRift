@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/an0mium/RingRift/blob/main/ringrift_simple_human_rules.md
+    about: Read the game rules and documentation
+  - name: Play RingRift
+    url: https://ringrift.ai
+    about: Play the game online

@@ -7,8 +7,10 @@
 - [ ] Rules / engine (`src/shared/engine/**`, RulesMatrix, FAQ scenarios)
 - [ ] Backend host / WebSocket / GameSession (`src/server/game/**`, `src/server/websocket/**`)
 - [ ] Client sandbox / AI (`src/client/sandbox/**`)
-- [ ] AI service / Python
+- [ ] AI service / Python (`ai-service/**`)
+- [ ] AI training / models
 - [ ] UI / UX only
+- [ ] Infrastructure / DevOps
 - [ ] Documentation / meta only
 
 ## Checklist
