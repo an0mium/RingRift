@@ -38,11 +38,16 @@ from app.mcts.improved_mcts import GameState as MCTSGameState
 from app.training.generate_data import create_initial_state
 import hashlib
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
-logger = logging.getLogger(__name__)
+# Unified logging setup
+try:
+    from app.core.logging_config import setup_logging
+    logger = setup_logging("reanalyze_mcts_policy", log_dir="logs")
+except ImportError:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+    )
+    logger = logging.getLogger(__name__)
 
 
 class GameStateAdapter(MCTSGameState):
