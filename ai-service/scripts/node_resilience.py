@@ -234,12 +234,36 @@ class NodeResilience:
         except Exception:
             return False
 
-    def start_autossh_tunnel(self, relay_host: str = "100.78.101.123") -> bool:
+    def start_autossh_tunnel(self, relay_host: str = None) -> bool:
         """Start autossh reverse tunnel when P2P connectivity fails.
 
         This is useful for Vast instances behind carrier NAT where Tailscale
         may be unreliable. The tunnel forwards the local P2P port to the relay.
+
+        Args:
+            relay_host: Relay IP address. If not provided, uses RINGRIFT_RELAY_HOST
+                        environment variable or loads from distributed_hosts.yaml.
         """
+        if relay_host is None:
+            relay_host = os.environ.get("RINGRIFT_RELAY_HOST")
+            if not relay_host:
+                # Try to load from config
+                config_path = Path(self.config.ai_service_dir) / "config" / "distributed_hosts.yaml"
+                if config_path.exists():
+                    try:
+                        import yaml
+                        with open(config_path) as f:
+                            config = yaml.safe_load(f) or {}
+                        # Use coordinator as relay
+                        coord = config.get("elo_sync", {}).get("coordinator", "mac-studio")
+                        hosts = config.get("hosts", {})
+                        if coord in hosts:
+                            relay_host = hosts[coord].get("tailscale_ip")
+                    except Exception:
+                        pass
+            if not relay_host:
+                logger.warning("No relay host configured for autossh tunnel")
+                return False
         if self.check_autossh_tunnel():
             logger.debug("Autossh tunnel already running")
             return True

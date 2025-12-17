@@ -163,6 +163,33 @@ class MonitoringManager:
         self._is_running = False
         self._peers: List[PeerInfo] = []
 
+    def _load_monitoring_hosts(self) -> List[tuple]:
+        """Load monitoring hosts from config/distributed_hosts.yaml."""
+        from pathlib import Path
+        config_path = Path(__file__).parent.parent.parent / "config" / "distributed_hosts.yaml"
+
+        if not config_path.exists():
+            logger.warning("[Monitoring] No config found, using empty monitoring hosts")
+            return []
+
+        try:
+            import yaml
+            with open(config_path) as f:
+                config = yaml.safe_load(f) or {}
+
+            hosts = []
+            for name, info in config.get("hosts", {}).items():
+                ip = info.get("tailscale_ip")
+                if ip and info.get("status") == "ready":
+                    # Prefer hosts with monitoring role or p2p_voter
+                    if info.get("p2p_voter") or "primary" in info.get("role", ""):
+                        hosts.append((ip, name))
+
+            return hosts[:3]  # Return top 3 as backup monitoring hosts
+        except Exception as e:
+            logger.warning(f"[Monitoring] Error loading config: {e}")
+            return []
+
     def update_peers(self, peers: List[Dict[str, Any]]):
         """Update the list of known peers for config generation.
 
@@ -192,12 +219,8 @@ class MonitoringManager:
         federation_lines = []
 
         # Known backup monitoring hosts that may have Prometheus running
-        # These are the fallback hosts from nginx config
-        backup_monitoring_hosts = [
-            ("100.97.104.89", "lambda-2xh100"),    # Primary monitoring host
-            ("100.105.151.58", "mac-studio"),       # Backup 1
-            ("100.120.69.5", "lambda-h100"),        # Backup 2
-        ]
+        # Loaded from config/distributed_hosts.yaml or hardcoded fallback
+        backup_monitoring_hosts = self._load_monitoring_hosts()
 
         for peer in self._peers:
             if not peer.is_alive:

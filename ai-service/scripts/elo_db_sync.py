@@ -6,7 +6,7 @@ Keeps unified_elo.db synchronized across all cluster nodes.
 Multi-transport support: Tailscale (preferred), aria2 (parallel), HTTP fallback.
 
 Architecture:
-- Mac Studio (100.107.168.125) is the authoritative Elo coordinator
+- The coordinator (configured in distributed_hosts.yaml) is the authoritative Elo source
 - Each node runs this script as a daemon to push new matches
 - Coordinator merges and recalculates Elo ratings
 - Updated database is distributed back to all nodes via multi-transport

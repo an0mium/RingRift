@@ -285,7 +285,24 @@ def api_throughput():
 
     hosts = {}
     try:
-        with urllib.request.urlopen("http://100.107.168.125:8770/status", timeout=5) as resp:
+        # Get P2P leader from config or environment
+        p2p_leader = os.environ.get("P2P_LEADER", "localhost")
+        if p2p_leader == "localhost":
+            # Try to load from distributed_hosts.yaml
+            config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
+            if config_path.exists():
+                try:
+                    import yaml
+                    with open(config_path) as f:
+                        config = yaml.safe_load(f) or {}
+                    # Find the coordinator/leader node
+                    coordinator = config.get("elo_sync", {}).get("coordinator", "mac-studio")
+                    hosts_config = config.get("hosts", {})
+                    if coordinator in hosts_config:
+                        p2p_leader = hosts_config[coordinator].get("tailscale_ip", "localhost")
+                except Exception:
+                    pass
+        with urllib.request.urlopen(f"http://{p2p_leader}:8770/status", timeout=5) as resp:
             data = json.loads(resp.read().decode())
             for peer_id, peer_info in data.get("peers", {}).items():
                 if not peer_info.get("retired", False):

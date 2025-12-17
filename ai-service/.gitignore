@@ -86,3 +86,25 @@ docs/CLUSTER_MIGRATION_PLAN.md
 # Cluster-specific result data (contains node IPs from actual cluster runs)
 data/aggregated_gauntlet_results.json
 data/cluster_elo_results/
+
+# Backup config files with private IPs
+config/*.bak
+config/nginx-cluster.conf
+
+# Deploy scripts with cluster-specific IPs
+deploy/deploy_cluster_resilience.py
+deploy/systemd/ringrift-p2p-universal.service
+
+# Systemd service files with private IPs
+systemd/ringrift-elo-sync.service
+
+# Monitoring configs with cluster IPs
+monitoring/prometheus.yml
+monitoring/prometheus/prometheus.yml
+
+# Scripts with cluster-specific tunnel configs
+scripts/tunnel_health_monitor.sh
+
+# Archive directories (contain deprecated code with cluster-specific IPs)
+scripts/archive/
+docs/archive/status_reports/

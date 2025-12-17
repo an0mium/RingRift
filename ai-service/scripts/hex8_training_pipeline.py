@@ -67,43 +67,53 @@ MIN_GAMES_FOR_TRAINING = 1000  # Minimum games before training
 TARGET_GAMES = 2000  # Target for robust training
 POLL_INTERVAL_SECONDS = 300  # Check every 5 minutes
 
-# Remote database locations
-REMOTE_DATABASES = {
-    "lambda-a10": {
-        "ssh_host": "ubuntu@100.91.25.13",
-        "db_path": "~/ringrift/ai-service/data/games/hex8_cluster_a10.db",
-    },
-    "hetzner-cpu1": {
-        "ssh_host": "root@46.62.147.150",
-        "ssh_key": "~/.ssh/id_cluster",
-        "db_path": "~/ringrift/ai-service/data/games/hex8_hetzner_cpu1.db",
-    },
-    "hetzner-cpu2": {
-        "ssh_host": "root@135.181.39.239",
-        "ssh_key": "~/.ssh/id_cluster",
-        "db_path": "~/ringrift/ai-service/data/games/hex8_hetzner_cpu2.db",
-    },
-    "hetzner-cpu3": {
-        "ssh_host": "root@46.62.217.168",
-        "ssh_key": "~/.ssh/id_cluster",
-        "db_path": "~/ringrift/ai-service/data/games/hex8_hetzner_cpu3.db",
-    },
-    "vast-2060s": {
-        "ssh_host": "root@ssh2.vast.ai",
-        "ssh_port": 14370,
-        "db_path": "~/ringrift/ai-service/data/games/hex8_vast_2060s.db",
-    },
-    "vast-3070-b": {
-        "ssh_host": "root@ssh7.vast.ai",
-        "ssh_port": 10012,
-        "db_path": "~/ringrift/ai-service/data/games/hex8_vast_3070b.db",
-    },
-    "vast-3060ti-64cpu": {
-        "ssh_host": "root@ssh3.vast.ai",
-        "ssh_port": 19766,
-        "db_path": "~/ringrift/ai-service/data/games/hex8_vast_3060ti_64cpu.db",
-    },
-}
+# Remote database locations - loaded from config
+def _load_remote_databases() -> dict:
+    """Load remote database hosts from config/distributed_hosts.yaml."""
+    config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
+    if not config_path.exists():
+        logger.warning("[Pipeline] No config found at %s", config_path)
+        return {}
+
+    try:
+        import yaml
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+
+        databases = {}
+        for name, info in config.get("hosts", {}).items():
+            if info.get("status") not in ("ready", "active"):
+                continue
+
+            # Get SSH connection info
+            ssh_host = info.get("tailscale_ip") or info.get("ssh_host")
+            if not ssh_host:
+                continue
+
+            ssh_user = info.get("ssh_user", "ubuntu")
+            ringrift_path = info.get("ringrift_path", "~/ringrift/ai-service")
+            db_path = f"{ringrift_path}/data/games/hex8_{name.replace('-', '_')}.db"
+
+            entry = {
+                "ssh_host": f"{ssh_user}@{ssh_host}",
+                "db_path": db_path,
+            }
+
+            # Add optional SSH key and port
+            if info.get("ssh_key"):
+                entry["ssh_key"] = info["ssh_key"]
+            if info.get("ssh_port") and info["ssh_port"] != 22:
+                entry["ssh_port"] = info["ssh_port"]
+
+            databases[name] = entry
+
+        return databases
+    except Exception as e:
+        logger.warning("[Pipeline] Error loading config: %s", e)
+        return {}
+
+
+REMOTE_DATABASES = _load_remote_databases()
 
 # Local database (from current local selfplay)
 LOCAL_DB = Path("data/games/hex8_training.db")

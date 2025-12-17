@@ -11,11 +11,14 @@ Features:
 - Configurable peer count requirements
 
 Usage:
-    # Check and restart if needed
-    python scripts/p2p_watchdog.py --node-id lambda-h100 --peers http://100.97.104.89:8770
+    # Check and restart if needed (peers loaded from config/distributed_hosts.yaml)
+    python scripts/p2p_watchdog.py --node-id my-node
+
+    # Or with explicit peers:
+    python scripts/p2p_watchdog.py --node-id my-node --peers http://PEER_IP:8770
 
     # Cron entry (every 5 minutes - recommended to allow service to stabilize):
-    */5 * * * * cd /home/ubuntu/ringrift/ai-service && python3 scripts/p2p_watchdog.py --node-id lambda-h100 --peers http://100.97.104.89:8770,http://100.91.25.13:8770 >> /tmp/p2p_watchdog.log 2>&1
+    */5 * * * * cd /home/ubuntu/ringrift/ai-service && python3 scripts/p2p_watchdog.py --node-id my-node >> /tmp/p2p_watchdog.log 2>&1
 """
 from __future__ import annotations
 
