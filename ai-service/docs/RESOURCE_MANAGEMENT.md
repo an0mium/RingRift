@@ -8,11 +8,11 @@ The resource management system prevents CPU, GPU, RAM, and disk overloading by e
 
 ## Resource Limits
 
-| Resource | Max Utilization | Warning Threshold | Reason |
-|----------|-----------------|-------------------|--------|
-| CPU      | 80%             | 70%               | Standard operating margin |
-| Memory   | 80%             | 70%               | Standard operating margin |
-| GPU      | 80%             | 70%               | Standard operating margin |
+| Resource | Max Utilization | Warning Threshold | Reason                                   |
+| -------- | --------------- | ----------------- | ---------------------------------------- |
+| CPU      | 80%             | 70%               | Standard operating margin                |
+| Memory   | 80%             | 70%               | Standard operating margin                |
+| GPU      | 80%             | 70%               | Standard operating margin                |
 | Disk     | 70%             | 65%               | Tighter limit because cleanup takes time |
 
 ## Core Module: `app/utils/resource_guard.py`
@@ -172,20 +172,26 @@ except ImportError:
 ## Related Modules
 
 ### `app/coordination/resource_targets.py`
+
 Provides tier-specific utilization targets for different host types:
+
 - HIGH_END (96GB+ RAM): Target 65% utilization
 - MID_TIER (32-64GB): Target 60% utilization
 - LOW_TIER (16-32GB): Target 55% utilization
 - CPU_ONLY: Target 50% utilization
 
 ### `app/coordination/safeguards.py`
+
 Provides circuit breakers and backpressure mechanisms:
+
 - Circuit breaker: Prevents spawning after repeated failures
 - Spawn rate tracking: Limits new process creation rate
 - Resource thresholds: Enforces 80% limits
 
 ### `app/config/config_validator.py`
+
 Validates configuration files and ensures resource limits are consistent:
+
 - Validates unified_loop.yaml
 - Checks resource limit consistency
 - Reports warnings for unsafe configurations
@@ -209,9 +215,97 @@ PYTHONPATH=. python -c "from app.config.config_validator import validate_all_con
 ## Enforcement Date
 
 Resource limits were unified and enforced starting 2025-12-16:
+
 - CPU: 80% max
 - Memory: 80% max
 - GPU: 80% max
 - Disk: 70% max
 
 All scripts were updated to use the unified resource_guard module.
+
+## Graceful Degradation
+
+The resource management system supports graceful degradation to reduce workload under resource pressure instead of failing completely.
+
+### Degradation Levels
+
+| Level | Name     | Max Ratio | Behavior                                           |
+| ----- | -------- | --------- | -------------------------------------------------- |
+| 0     | Normal   | <70%      | Full operation                                     |
+| 1     | Light    | 70-85%    | Log warning, continue                              |
+| 2     | Moderate | 85-95%    | Reduce num_games by 50%                            |
+| 3     | Heavy    | 95-100%   | Reduce num_games by 75%, block low-priority spawns |
+| 4     | Critical | ≥100%     | Abort operations, block all spawns                 |
+
+### Priority Levels
+
+Operations have assigned priorities that determine if they can proceed during degradation:
+
+```python
+class OperationPriority:
+    BACKGROUND = 0     # Optional cleanup, stats collection
+    LOW = 1            # Extra selfplay, backfill tasks
+    NORMAL = 2         # Regular selfplay, data generation
+    HIGH = 3           # Training, model evaluation
+    CRITICAL = 4       # Data sync, model promotion, health checks
+```
+
+### Usage in Selfplay Scripts
+
+```python
+from app.utils.resource_guard import (
+    should_proceed_with_priority,
+    OperationPriority,
+    get_degradation_level,
+)
+
+# Check if operation should proceed
+degradation = get_degradation_level()
+if degradation >= 4:  # CRITICAL
+    logger.error("Resources at critical levels, aborting")
+    sys.exit(1)
+elif degradation >= 3:  # HEAVY
+    if not should_proceed_with_priority(OperationPriority.NORMAL):
+        args.num_games = max(10, args.num_games // 4)  # 75% reduction
+elif degradation >= 2:  # MODERATE
+    if not should_proceed_with_priority(OperationPriority.NORMAL):
+        args.num_games = max(10, args.num_games // 2)  # 50% reduction
+```
+
+### Prometheus Metrics
+
+Graceful degradation exposes Prometheus metrics for monitoring:
+
+- `ringrift_resource_degradation_level`: Current degradation level (0-4)
+- `ringrift_resource_disk_used_percent`: Current disk usage
+- `ringrift_resource_memory_used_percent`: Current memory usage
+- `ringrift_resource_cpu_used_percent`: Current CPU usage
+- `ringrift_resource_gpu_used_percent`: Current GPU usage
+
+### Alerting Rules
+
+Prometheus alerts are configured in `monitoring/prometheus/rules/utilization_alerts.yml`:
+
+| Alert                       | Threshold | Severity |
+| --------------------------- | --------- | -------- |
+| DiskApproachingLimit        | >65%      | warning  |
+| DiskAtLimit                 | >70%      | critical |
+| MemoryApproachingLimit      | >75%      | warning  |
+| MemoryAtLimit               | >80%      | critical |
+| GracefulDegradationActive   | level ≥2  | warning  |
+| GracefulDegradationCritical | level ≥4  | critical |
+
+### Recommendations
+
+Get actionable recommendations based on current resource state:
+
+```python
+from app.utils.resource_guard import get_recommended_actions
+
+actions = get_recommended_actions()
+for action in actions:
+    print(f"- {action}")
+# Example output:
+# - Disk at 72%: Archive old games or delete unused data
+# - Memory OK at 65%
+```
