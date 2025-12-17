@@ -1,15 +1,13 @@
 {
   "weights": {
-    "square8_2p": 1.0,
-    "square8_3p": 1.2,
-    "square8_4p": 1.1,
-    "hexagonal_2p": 1.3,
-    "hexagonal_3p": 1.4,
-    "hexagonal_4p": 1.5,
-    "square19_2p": 1.2,
-    "square19_3p": 1.3,
-    "square19_4p": 1.1
+    "hexagonal_2p": 1.201832482354586,
+    "hexagonal_3p": 1.1655062361770252,
+    "hexagonal_4p": 1.0,
+    "square19_2p": 1.1655062361770252,
+    "square8_2p": 0.7,
+    "square8_3p": 0.9666443000129659,
+    "square8_4p": 0.9656511888455339
   },
-  "updated_at": 1765935100.7036731,
-  "updated_at_iso": "2025-12-17T01:31:40Z"
+  "updated_at": 1765945580.5243149,
+  "updated_at_iso": "2025-12-17T04:26:20Z"
 }

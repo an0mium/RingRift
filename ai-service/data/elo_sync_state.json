@@ -1,1 +1,7 @@
-{ "last_sync_timestamp": 1765943740.0164502, "synced_at": "2025-12-16T21:55:40.016454" }
+{
+  "last_sync_timestamp": 1765945612.374536,
+  "last_sync_hash": "699c827834a6e887c7e1143658a3ab7d",
+  "local_match_count": 5948,
+  "synced_from": "RTX4060Ti",
+  "sync_errors": []
+}
