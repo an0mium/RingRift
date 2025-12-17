@@ -45,7 +45,7 @@ ssh lambda-gh200-a 'ps aux | grep -E "(selfplay|train)" | grep -v grep | wc -l'
 # Start on a node
 ssh lambda-gh200-b 'cd ~/ringrift/ai-service && \
   nohup venv/bin/python -m scripts.run_gpu_selfplay \
-    --board square8 --players 2 --games 1000 \
+    --board square8 --num-players 2 --num-games 1000 \
     --output-dir /tmp/gpu_selfplay > /tmp/gpu_selfplay.log 2>&1 &'
 
 # Stop workers on a node
@@ -195,14 +195,14 @@ rsync -avz ai-service/data/games/merged_training.db /Volumes/RingRift-Data/db_ba
 
 ```bash
 cd ai-service
-PYTHONPATH=. python scripts/cluster_alert.py
+./scripts/cluster_alert.sh
 ```
 
 ### Run as Daemon
 
 ```bash
 RINGRIFT_WEBHOOK_URL="https://your-webhook-url" \
-PYTHONPATH=. python scripts/cluster_alert.py --daemon --interval 300
+./scripts/cluster_alert.sh --cron
 ```
 
 ## Logs

@@ -25,7 +25,7 @@ Thank you for your interest in contributing to RingRift! This document provides 
 | Metric                      | Value                      |
 | --------------------------- | -------------------------- |
 | TypeScript tests (CI-gated) | 2,987 passing              |
-| Python tests                | 1,727 passing              |
+| Python tests                | 1,824 passing              |
 | Contract vectors            | 81 (100% TS↔Python parity) |
 | Line coverage               | ~69%                       |
 | Canonical phases            | 8                          |
@@ -765,7 +765,7 @@ useGlobalGameShortcuts({
 **Quality Gates:**
 
 - All 2,987+ TypeScript tests passing
-- All 1,727+ Python tests passing
+- All 1,824+ Python tests passing
 - 81 contract vectors at 100% parity
 - No P0 bugs open
 - Load test SLOs met with headroom

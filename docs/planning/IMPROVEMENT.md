@@ -13,7 +13,7 @@
 RingRift is a sophisticated turn-based multiplayer strategy game currently in **stable beta** with a consolidated architecture. The project demonstrates strong engineering fundamentals:
 
 - **Orchestrator at 100% rollout** across all environments
-- **2,987 TypeScript tests** and **1,727 Python tests** passing
+- **2,987 TypeScript tests** and **1,824 Python tests** passing
 - **81 contract vectors** ensuring cross-language parity (0 mismatches)
 - **3 Grafana dashboards** and **k6 load testing framework** implemented
 - Comprehensive documentation ecosystem
@@ -44,7 +44,7 @@ The project is approaching production readiness but has key gaps that need addre
 | Area          | Status            | Evidence                                                     |
 | ------------- | ----------------- | ------------------------------------------------------------ |
 | Rules Engine  | Excellent (4.7/5) | Shared TS orchestrator, 6 domain aggregates, 100% rollout    |
-| Test Coverage | Good (4.0/5)      | 2,987 TS + 1,727 Python tests, 81 contract vectors           |
+| Test Coverage | Good (4.0/5)      | 2,987 TS + 1,824 Python tests, 81 contract vectors           |
 | Observability | Good (4.5/5)      | Grafana dashboards, k6 framework, Prometheus metrics         |
 | Architecture  | Excellent         | Clean separation: shared engine → host adapters → transports |
 | Documentation | Good (4.0/5)      | Comprehensive docs, DOCUMENTATION_INDEX.md                   |

@@ -137,7 +137,7 @@ cd ai-service && pytest           # Python tests
 | Metric           | Value               |
 | ---------------- | ------------------- |
 | TypeScript tests | 10,177 (595 suites) |
-| Python tests     | 1,727               |
+| Python tests     | 1,824               |
 | Contract vectors | 81 (100% parity)    |
 | Line coverage    | ~69%                |
 
