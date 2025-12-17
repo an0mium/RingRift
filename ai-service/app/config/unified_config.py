@@ -938,6 +938,12 @@ def get_config(config_path: Optional[str | Path] = None, force_reload: bool = Fa
     _config_instance = UnifiedConfig.from_yaml(config_path)
     _config_instance.apply_env_overrides()
 
+    # Validate configuration
+    validation_errors = _config_instance.validate()
+    if validation_errors:
+        for error in validation_errors:
+            logger.warning(f"Config validation: {error}")
+
     logger.info(f"Loaded unified config from {config_path}")
     logger.info(f"  Training threshold: {_config_instance.training.trigger_threshold_games}")
     logger.info(f"  Elo DB: {_config_instance.elo_db}")
