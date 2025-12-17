@@ -415,6 +415,112 @@ def cmd_compare_baselines(args: argparse.Namespace) -> int:
     return 0 if result.get("summary") != "regression_against_all" else 1
 
 
+def cmd_backfill_history(args: argparse.Namespace) -> int:
+    """Backfill drift history from existing match data.
+
+    Reads historical match data and populates the drift history
+    file by simulating reconciliation across time intervals.
+    """
+    from datetime import datetime, timedelta
+
+    reconciler = EloReconciler(
+        local_db_path=Path(args.local_db) if args.local_db else None,
+        track_history=True,
+        persist_history=True,
+    )
+
+    print(f"Backfilling drift history from {reconciler.local_db_path}...")
+
+    if not reconciler.local_db_path.exists():
+        print("Error: Local database does not exist")
+        return 1
+
+    # Get unique board_type/num_players combinations
+    import sqlite3
+    conn = sqlite3.connect(str(reconciler.local_db_path), timeout=10)
+    try:
+        cur = conn.cursor()
+
+        # Get all configurations
+        cur.execute("""
+            SELECT DISTINCT board_type, num_players
+            FROM participants
+            WHERE board_type IS NOT NULL
+        """)
+        configs = cur.fetchall()
+
+        if not configs:
+            print("No configurations found in database")
+            return 0
+
+        print(f"Found {len(configs)} configurations to process")
+
+        # Get match history with timestamps
+        backfill_count = 0
+        for board_type, num_players in configs:
+            config_key = f"{board_type}_{num_players}p"
+            print(f"\nProcessing {config_key}...")
+
+            # Get matches sorted by timestamp
+            cur.execute("""
+                SELECT m.timestamp, AVG(p.rating) as avg_rating
+                FROM match_history m
+                JOIN participants p ON p.id IN (
+                    SELECT player_id FROM match_results WHERE match_id = m.id
+                )
+                WHERE p.board_type = ? AND p.num_players = ?
+                GROUP BY DATE(m.timestamp)
+                ORDER BY m.timestamp
+            """, (board_type, num_players))
+
+            daily_ratings = cur.fetchall()
+
+            if len(daily_ratings) < 2:
+                print(f"  Insufficient data for {config_key}")
+                continue
+
+            # Simulate drift over time (comparing to previous day)
+            prev_avg = None
+            for timestamp, avg_rating in daily_ratings:
+                if prev_avg is not None:
+                    drift = avg_rating - prev_avg
+                    # Record this as drift
+                    reconciler._record_drift(board_type, num_players, {
+                        "avg_drift": drift,
+                        "max_drift": drift,
+                        "min_drift": drift,
+                        "significant_drift": abs(drift) > 50,
+                        "total_models": 1,
+                        "drift_count": 1,
+                    })
+                    backfill_count += 1
+                prev_avg = avg_rating
+
+            print(f"  Added {len(daily_ratings) - 1} drift records for {config_key}")
+
+        # Save the history
+        reconciler.save_drift_history()
+        print(f"\nBackfill complete: {backfill_count} drift records created")
+
+        # Show summary
+        if args.json:
+            print(json.dumps({
+                "status": "success",
+                "records_created": backfill_count,
+                "configurations": len(configs),
+            }, indent=2))
+        else:
+            print(f"\nDrift history saved to: {reconciler._drift_history_path}")
+
+    except sqlite3.Error as e:
+        print(f"Database error: {e}")
+        return 1
+    finally:
+        conn.close()
+
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """Show current status and configuration."""
     reconciler = EloReconciler(
@@ -702,11 +808,17 @@ def main():
         help="Elo regression threshold (default: -30.0)",
     )
 
+    # backfill-history command
+    backfill_parser = subparsers.add_parser(
+        "backfill-history",
+        help="Backfill drift history from existing match data",
+    )
+
     # Add common args to all subparsers for convenience
     all_parsers = [
         drift_parser, sync_parser, reconcile_parser, status_parser,
         history_parser, regression_parser, rollback_parser, rollback_status_parser,
-        compare_parser
+        compare_parser, backfill_parser
     ]
     for subparser in all_parsers:
         subparser.add_argument(
@@ -750,6 +862,8 @@ def main():
         return cmd_rollback_status(args)
     elif args.command == "compare-baselines":
         return cmd_compare_baselines(args)
+    elif args.command == "backfill-history":
+        return cmd_backfill_history(args)
     else:
         parser.print_help()
         return 1

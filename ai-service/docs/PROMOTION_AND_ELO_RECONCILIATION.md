@@ -506,3 +506,274 @@ Match conflicts indicate the same match_id exists with different data:
 2. Check for race conditions in match recording
 3. May need manual database inspection
 4. Consider implementing conflict resolution policy
+
+## Automatic Rollback Monitoring
+
+### Overview
+
+The `RollbackMonitor` automatically detects model regression and triggers rollbacks when necessary.
+
+### Features
+
+- **Cooldown Period**: Prevents rapid successive rollbacks (default: 1 hour)
+- **Daily Limit**: Maximum rollbacks per day before requiring manual intervention (default: 3)
+- **Multi-Model Baseline Comparison**: Compare against multiple historical models
+- **Notification Hooks**: Customizable notifications via webhooks, PagerDuty, or OpsGenie
+
+### Usage
+
+```python
+from app.training.promotion_controller import (
+    RollbackMonitor,
+    RollbackCriteria,
+)
+
+# Create monitor with custom criteria
+monitor = RollbackMonitor(
+    criteria=RollbackCriteria(
+        elo_regression_threshold=-30.0,
+        min_games_for_regression=20,
+        consecutive_checks_required=3,
+        cooldown_seconds=3600,  # 1 hour
+        max_rollbacks_per_day=3,
+    )
+)
+
+# Check for regression
+should_rollback, event = monitor.check_for_regression(
+    model_id="model_v42",
+    board_type="square8",
+    num_players=2,
+    previous_model_id="model_v41",
+)
+
+if should_rollback:
+    success = monitor.execute_rollback(event)
+```
+
+### Cooldown Management
+
+```python
+# Check if cooldown is active
+is_active, remaining = monitor.is_cooldown_active("square8", 2)
+if is_active:
+    print(f"Cooldown active: {remaining}s remaining")
+
+# Check daily rollback limit
+max_reached, count = monitor.is_max_daily_rollbacks_reached()
+if max_reached:
+    print(f"Max daily rollbacks reached: {count}")
+
+# Bypass cooldown for manual rollbacks (use with caution)
+monitor.set_cooldown_bypass(True)
+```
+
+### Rollback Criteria
+
+| Criterion                     | Default | Description                                  |
+| ----------------------------- | ------- | -------------------------------------------- |
+| `elo_regression_threshold`    | -30.0   | Elo drop triggering regression               |
+| `min_games_for_regression`    | 20      | Minimum games before checking                |
+| `consecutive_checks_required` | 3       | Consecutive failing checks to trigger        |
+| `min_win_rate`                | 0.40    | Win rate below which triggers rollback       |
+| `cooldown_seconds`            | 3600    | Seconds between rollbacks for same config    |
+| `max_rollbacks_per_day`       | 3       | Max rollbacks/day before manual intervention |
+
+## Notification Hooks
+
+### Overview
+
+Notification hooks enable alerts for rollback events via multiple channels.
+
+### Configuration
+
+Configure hooks in `config/notification_hooks.yaml`:
+
+```yaml
+enabled: true
+
+logging:
+  enabled: true
+  logger_name: 'ringrift.rollback'
+
+slack:
+  enabled: true
+  webhook_url: 'https://hooks.slack.com/services/YOUR/WEBHOOK/URL'
+  events:
+    at_risk: true
+    rollback_triggered: true
+    rollback_completed: true
+
+pagerduty:
+  enabled: true
+  routing_key: 'your-pagerduty-routing-key'
+  severity_mapping:
+    at_risk: 'warning'
+    rollback_triggered: 'critical'
+    rollback_completed: 'info'
+
+opsgenie:
+  enabled: true
+  api_key: 'your-opsgenie-api-key'
+  region: 'us' # or 'eu'
+```
+
+### Loading Configuration
+
+```python
+from app.training.notification_config import (
+    load_notification_hooks,
+    load_rollback_config,
+)
+
+# Load hooks from config file
+hooks = load_notification_hooks()
+
+# Or load full config including criteria overrides
+config = load_rollback_config()
+monitor = RollbackMonitor(
+    criteria=config.criteria,
+    notification_hooks=config.hooks,
+)
+```
+
+### Custom Hooks
+
+```python
+from app.training.promotion_controller import NotificationHook
+
+class CustomHook(NotificationHook):
+    def on_regression_detected(self, model_id, status):
+        print(f"Regression detected: {model_id}")
+
+    def on_at_risk(self, model_id, status):
+        print(f"Model at risk: {model_id}")
+
+    def on_rollback_triggered(self, event):
+        print(f"Rollback: {event.current_model_id} -> {event.rollback_model_id}")
+
+    def on_rollback_completed(self, event, success):
+        print(f"Rollback {'succeeded' if success else 'FAILED'}")
+
+monitor.add_notification_hook(CustomHook())
+```
+
+## A/B Testing
+
+### Overview
+
+The `ABTestManager` enables concurrent model comparison before promotion.
+
+### Usage
+
+```python
+from app.training.promotion_controller import (
+    ABTestManager,
+    ABTestConfig,
+)
+
+manager = ABTestManager()
+
+# Start a test
+config = ABTestConfig(
+    test_id="test_v42_vs_v41",
+    control_model_id="model_v41",
+    treatment_model_id="model_v42",
+    traffic_split=0.5,  # 50/50 split
+    min_games_per_variant=100,
+    significance_threshold=0.95,
+    auto_promote=False,
+)
+manager.start_test(config)
+
+# Get model for a game (routes based on traffic split)
+model_id = manager.get_model_for_game("test_v42_vs_v41")
+
+# Analyze results
+result = manager.analyze_test("test_v42_vs_v41")
+print(f"Elo difference: {result.elo_difference}")
+print(f"Confidence: {result.confidence:.1%}")
+print(f"Winner: {result.winner}")
+print(f"Recommendation: {result.recommendation}")
+
+# Stop test and get final results
+final_result = manager.stop_test("test_v42_vs_v41")
+```
+
+### Test Configuration
+
+| Parameter                | Default | Description                             |
+| ------------------------ | ------- | --------------------------------------- |
+| `test_id`                | —       | Unique identifier for the test          |
+| `control_model_id`       | —       | Baseline model                          |
+| `treatment_model_id`     | —       | New model being tested                  |
+| `traffic_split`          | 0.5     | Fraction of traffic to treatment (0-1)  |
+| `min_games_per_variant`  | 100     | Min games before drawing conclusions    |
+| `significance_threshold` | 0.95    | Required statistical significance       |
+| `auto_promote`           | False   | Auto-promote winner when test concludes |
+
+## CLI Commands
+
+### Rollback Commands
+
+```bash
+# Check if a model is showing regression
+python scripts/elo_reconciliation_cli.py check-regression \
+    --model-id model_v42 \
+    --baseline-model model_v41 \
+    --board-type square8
+
+# Compare against multiple baselines
+python scripts/elo_reconciliation_cli.py compare-baselines \
+    --model-id model_v42 \
+    --num-baselines 3
+
+# Manual rollback (requires confirmation)
+python scripts/elo_reconciliation_cli.py rollback \
+    --from-model model_v42 \
+    --to-model model_v41 \
+    --reason "Performance regression"
+
+# Dry run rollback
+python scripts/elo_reconciliation_cli.py rollback \
+    --from-model model_v42 \
+    --to-model model_v41 \
+    --dry-run
+
+# View rollback history and at-risk models
+python scripts/elo_reconciliation_cli.py rollback-status
+```
+
+### Drift History Commands
+
+```bash
+# View drift history with trend analysis
+python scripts/elo_reconciliation_cli.py drift-history
+
+# Backfill historical drift data from existing matches
+python scripts/elo_reconciliation_cli.py backfill-history
+```
+
+## Grafana Dashboard Panels
+
+The Rollback Monitoring section includes:
+
+| Panel                | Type       | Description                      |
+| -------------------- | ---------- | -------------------------------- |
+| Models At Risk       | Stat       | Count of at-risk models          |
+| Auto Rollbacks (24h) | Stat       | Rollbacks in last 24 hours       |
+| Model Elo Regression | Timeseries | Elo regression over time         |
+| Rollback Events      | Timeseries | Rollback events with results     |
+| Regression Checks    | Timeseries | Check frequency and trigger rate |
+
+## Alerting Rules
+
+Additional alerts in `config/monitoring/alerting-rules.yaml`:
+
+| Alert                    | Severity | Description                        |
+| ------------------------ | -------- | ---------------------------------- |
+| `AutoRollbackTriggered`  | High     | Automatic rollback triggered       |
+| `AutoRollbackFailed`     | Critical | Automatic rollback FAILED          |
+| `ModelAtRiskOfRollback`  | Warning  | Model at risk for 15+ minutes      |
+| `SevereEloRegression`    | High     | Elo regression >50 for 10+ minutes |
+| `MultipleRollbacksInDay` | Warning  | 3+ rollbacks in 24 hours           |

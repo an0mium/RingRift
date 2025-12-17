@@ -590,6 +590,10 @@ class RollbackCriteria:
     min_win_rate: float = 0.40
     # Time window in seconds for regression detection
     time_window_seconds: int = 3600  # 1 hour
+    # Cooldown period in seconds between rollbacks for the same config
+    cooldown_seconds: int = 3600  # 1 hour default
+    # Maximum rollbacks per day before requiring manual intervention
+    max_rollbacks_per_day: int = 3
 
 
 class NotificationHook:
@@ -765,6 +769,8 @@ class RollbackEvent:
     games_played: int = 0
     win_rate: Optional[float] = None
     auto_triggered: bool = True
+    board_type: str = "square8"
+    num_players: int = 2
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -776,6 +782,8 @@ class RollbackEvent:
             "games_played": self.games_played,
             "win_rate": self.win_rate,
             "auto_triggered": self.auto_triggered,
+            "board_type": self.board_type,
+            "num_players": self.num_players,
         }
 
 
@@ -820,6 +828,10 @@ class RollbackMonitor:
         self._hooks: List[NotificationHook] = notification_hooks or []
         # Track which models we've already notified about being at-risk (avoid spam)
         self._at_risk_notified: set = set()
+        # Track last rollback time per config key (board_type, num_players)
+        self._last_rollback_time: Dict[str, datetime] = {}
+        # Track cooldown bypass state (for manual overrides)
+        self._cooldown_bypass: bool = False
 
     def add_notification_hook(self, hook: NotificationHook) -> None:
         """Add a notification hook."""
@@ -863,6 +875,72 @@ class RollbackMonitor:
             except Exception as e:
                 logger.warning(f"Notification hook error: {e}")
 
+    def _config_key(self, board_type: str, num_players: int) -> str:
+        """Generate a config key for tracking cooldowns."""
+        return f"{board_type}_{num_players}p"
+
+    def is_cooldown_active(self, board_type: str, num_players: int) -> Tuple[bool, Optional[int]]:
+        """Check if rollback cooldown is active for this config.
+
+        Args:
+            board_type: Board type
+            num_players: Number of players
+
+        Returns:
+            Tuple of (is_active, seconds_remaining or None)
+        """
+        if self._cooldown_bypass:
+            return False, None
+
+        key = self._config_key(board_type, num_players)
+        last_time = self._last_rollback_time.get(key)
+        if not last_time:
+            return False, None
+
+        elapsed = (datetime.now() - last_time).total_seconds()
+        if elapsed < self.criteria.cooldown_seconds:
+            remaining = int(self.criteria.cooldown_seconds - elapsed)
+            return True, remaining
+        return False, None
+
+    def get_daily_rollback_count(self) -> int:
+        """Get the number of rollbacks in the last 24 hours."""
+        now = datetime.now()
+        cutoff = now.timestamp() - 86400  # 24 hours
+        count = 0
+        for event in self._rollback_events:
+            try:
+                event_time = datetime.fromisoformat(event.triggered_at).timestamp()
+                if event_time >= cutoff:
+                    count += 1
+            except (ValueError, TypeError):
+                pass
+        return count
+
+    def is_max_daily_rollbacks_reached(self) -> Tuple[bool, int]:
+        """Check if max daily rollbacks limit has been reached.
+
+        Returns:
+            Tuple of (is_reached, current_count)
+        """
+        count = self.get_daily_rollback_count()
+        return count >= self.criteria.max_rollbacks_per_day, count
+
+    def set_cooldown_bypass(self, bypass: bool) -> None:
+        """Enable or disable cooldown bypass for manual rollbacks.
+
+        Args:
+            bypass: If True, cooldown checks are skipped
+        """
+        self._cooldown_bypass = bypass
+        if bypass:
+            logger.warning("Rollback cooldown bypass ENABLED - use with caution")
+
+    def _record_rollback_time(self, board_type: str, num_players: int) -> None:
+        """Record the time of a rollback for cooldown tracking."""
+        key = self._config_key(board_type, num_players)
+        self._last_rollback_time[key] = datetime.now()
+
     @property
     def controller(self) -> PromotionController:
         """Lazy-load PromotionController."""
@@ -891,6 +969,24 @@ class RollbackMonitor:
             Tuple of (should_rollback, RollbackEvent or None)
         """
         now = datetime.now().isoformat()
+
+        # Check cooldown period
+        cooldown_active, cooldown_remaining = self.is_cooldown_active(board_type, num_players)
+        if cooldown_active:
+            logger.info(
+                f"Rollback cooldown active for {board_type}/{num_players}p - "
+                f"{cooldown_remaining}s remaining"
+            )
+            return False, None
+
+        # Check daily rollback limit
+        max_reached, daily_count = self.is_max_daily_rollbacks_reached()
+        if max_reached:
+            logger.warning(
+                f"Max daily rollbacks ({self.criteria.max_rollbacks_per_day}) reached. "
+                f"Manual intervention required. Count: {daily_count}"
+            )
+            return False, None
 
         # Get current model stats
         current_elo = None
@@ -985,6 +1081,8 @@ class RollbackMonitor:
             games_played=games_played,
             win_rate=win_rate,
             auto_triggered=True,
+            board_type=board_type,
+            num_players=num_players,
         )
 
         # Notify hooks about rollback being triggered
@@ -1231,6 +1329,8 @@ class RollbackMonitor:
             # Clear regression history for the model we rolled back from
             if event.current_model_id in self._regression_history:
                 del self._regression_history[event.current_model_id]
+            # Record rollback time for cooldown tracking
+            self._record_rollback_time(event.board_type, event.num_players)
 
         # Notify hooks about rollback completion
         self._notify_rollback_completed(event, success)
@@ -1303,3 +1403,481 @@ def get_rollback_monitor(
 ) -> RollbackMonitor:
     """Get a configured rollback monitor instance."""
     return RollbackMonitor(criteria=criteria)
+
+
+# =============================================================================
+# A/B Testing Support
+# =============================================================================
+
+
+@dataclass
+class ABTestConfig:
+    """Configuration for an A/B test experiment.
+
+    Attributes:
+        test_id: Unique identifier for the test
+        control_model_id: The baseline/control model
+        treatment_model_id: The new model being tested
+        board_type: Board type for the test
+        num_players: Number of players
+        traffic_split: Fraction of traffic to route to treatment (0.0-1.0)
+        min_games_per_variant: Minimum games before drawing conclusions
+        significance_threshold: Statistical significance threshold (default 95%)
+        auto_promote: Whether to auto-promote winner when test concludes
+    """
+    test_id: str
+    control_model_id: str
+    treatment_model_id: str
+    board_type: str = "square8"
+    num_players: int = 2
+    traffic_split: float = 0.5  # 50/50 split by default
+    min_games_per_variant: int = 100
+    significance_threshold: float = 0.95
+    auto_promote: bool = False
+    started_at: str = field(default_factory=lambda: datetime.now().isoformat())
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "test_id": self.test_id,
+            "control_model_id": self.control_model_id,
+            "treatment_model_id": self.treatment_model_id,
+            "board_type": self.board_type,
+            "num_players": self.num_players,
+            "traffic_split": self.traffic_split,
+            "min_games_per_variant": self.min_games_per_variant,
+            "significance_threshold": self.significance_threshold,
+            "auto_promote": self.auto_promote,
+            "started_at": self.started_at,
+        }
+
+
+@dataclass
+class ABTestResult:
+    """Results of an A/B test comparison."""
+    test_id: str
+    control_elo: float
+    treatment_elo: float
+    elo_difference: float
+    control_games: int
+    treatment_games: int
+    control_win_rate: float
+    treatment_win_rate: float
+    is_significant: bool
+    winner: Optional[str]  # "control", "treatment", or None if inconclusive
+    confidence: float  # Statistical confidence (0.0-1.0)
+    recommendation: str
+    analyzed_at: str = field(default_factory=lambda: datetime.now().isoformat())
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "test_id": self.test_id,
+            "control_elo": self.control_elo,
+            "treatment_elo": self.treatment_elo,
+            "elo_difference": self.elo_difference,
+            "control_games": self.control_games,
+            "treatment_games": self.treatment_games,
+            "control_win_rate": self.control_win_rate,
+            "treatment_win_rate": self.treatment_win_rate,
+            "is_significant": self.is_significant,
+            "winner": self.winner,
+            "confidence": self.confidence,
+            "recommendation": self.recommendation,
+            "analyzed_at": self.analyzed_at,
+        }
+
+
+class ABTestManager:
+    """Manages A/B testing experiments for model comparison.
+
+    Allows running multiple model versions concurrently and comparing
+    their Elo performance before full promotion.
+
+    Usage:
+        from app.training.promotion_controller import ABTestManager, ABTestConfig
+
+        manager = ABTestManager()
+
+        # Start a test
+        config = ABTestConfig(
+            test_id="test_v42_vs_v41",
+            control_model_id="model_v41",
+            treatment_model_id="model_v42",
+            traffic_split=0.5,
+        )
+        manager.start_test(config)
+
+        # Get model for a game (routes based on traffic split)
+        model_id = manager.get_model_for_game("test_v42_vs_v41")
+
+        # Check results
+        result = manager.analyze_test("test_v42_vs_v41")
+        if result.is_significant:
+            print(f"Winner: {result.winner}")
+    """
+
+    def __init__(
+        self,
+        elo_service: Optional[Any] = None,
+        promotion_controller: Optional[PromotionController] = None,
+    ):
+        self._elo_service = elo_service
+        self._controller = promotion_controller
+        # Active tests: test_id -> ABTestConfig
+        self._active_tests: Dict[str, ABTestConfig] = {}
+        # Completed tests: test_id -> ABTestResult
+        self._completed_tests: Dict[str, ABTestResult] = {}
+        # Random state for traffic routing (for reproducibility if needed)
+        import random
+        self._rng = random.Random()
+
+    @property
+    def elo_service(self):
+        """Lazy-load EloService."""
+        if self._elo_service is None:
+            if self._controller:
+                return self._controller.elo_service
+            try:
+                from app.training.elo_service import get_elo_service
+                self._elo_service = get_elo_service()
+            except ImportError:
+                logger.warning("EloService not available")
+        return self._elo_service
+
+    @property
+    def controller(self) -> PromotionController:
+        """Lazy-load PromotionController."""
+        if self._controller is None:
+            self._controller = PromotionController()
+        return self._controller
+
+    def start_test(self, config: ABTestConfig) -> bool:
+        """Start a new A/B test.
+
+        Args:
+            config: Test configuration
+
+        Returns:
+            True if test started successfully
+        """
+        if config.test_id in self._active_tests:
+            logger.warning(f"Test {config.test_id} already active")
+            return False
+
+        if config.traffic_split < 0 or config.traffic_split > 1:
+            logger.error(f"Invalid traffic split: {config.traffic_split}")
+            return False
+
+        self._active_tests[config.test_id] = config
+        logger.info(
+            f"Started A/B test {config.test_id}: "
+            f"{config.control_model_id} vs {config.treatment_model_id} "
+            f"({config.traffic_split:.0%} treatment traffic)"
+        )
+        return True
+
+    def stop_test(self, test_id: str, analyze: bool = True) -> Optional[ABTestResult]:
+        """Stop an active A/B test.
+
+        Args:
+            test_id: Test identifier
+            analyze: Whether to analyze results before stopping
+
+        Returns:
+            ABTestResult if analyze=True, None otherwise
+        """
+        if test_id not in self._active_tests:
+            logger.warning(f"Test {test_id} not found")
+            return None
+
+        result = None
+        if analyze:
+            result = self.analyze_test(test_id)
+            if result:
+                self._completed_tests[test_id] = result
+
+        del self._active_tests[test_id]
+        logger.info(f"Stopped A/B test {test_id}")
+        return result
+
+    def get_model_for_game(self, test_id: str) -> Optional[str]:
+        """Get the model to use for a game based on traffic routing.
+
+        Args:
+            test_id: Test identifier
+
+        Returns:
+            Model ID (control or treatment) based on traffic split
+        """
+        if test_id not in self._active_tests:
+            return None
+
+        config = self._active_tests[test_id]
+        if self._rng.random() < config.traffic_split:
+            return config.treatment_model_id
+        return config.control_model_id
+
+    def get_all_test_models(self, test_id: str) -> Tuple[Optional[str], Optional[str]]:
+        """Get both models in a test.
+
+        Args:
+            test_id: Test identifier
+
+        Returns:
+            Tuple of (control_model_id, treatment_model_id)
+        """
+        if test_id not in self._active_tests:
+            return None, None
+        config = self._active_tests[test_id]
+        return config.control_model_id, config.treatment_model_id
+
+    def analyze_test(self, test_id: str) -> Optional[ABTestResult]:
+        """Analyze the current results of an A/B test.
+
+        Args:
+            test_id: Test identifier
+
+        Returns:
+            ABTestResult with analysis
+        """
+        if test_id not in self._active_tests:
+            logger.warning(f"Test {test_id} not found")
+            return None
+
+        config = self._active_tests[test_id]
+
+        if not self.elo_service:
+            logger.error("No Elo service available for analysis")
+            return None
+
+        # Get ratings for both models
+        try:
+            control_rating = self.elo_service.get_rating(
+                config.control_model_id, config.board_type, config.num_players
+            )
+            treatment_rating = self.elo_service.get_rating(
+                config.treatment_model_id, config.board_type, config.num_players
+            )
+        except Exception as e:
+            logger.error(f"Failed to get ratings for test {test_id}: {e}")
+            return None
+
+        if not control_rating or not treatment_rating:
+            logger.warning(f"Missing ratings for test {test_id}")
+            return ABTestResult(
+                test_id=test_id,
+                control_elo=0.0,
+                treatment_elo=0.0,
+                elo_difference=0.0,
+                control_games=0,
+                treatment_games=0,
+                control_win_rate=0.0,
+                treatment_win_rate=0.0,
+                is_significant=False,
+                winner=None,
+                confidence=0.0,
+                recommendation="Insufficient data - waiting for more games",
+            )
+
+        control_elo = control_rating.rating
+        treatment_elo = treatment_rating.rating
+        elo_diff = treatment_elo - control_elo
+
+        control_games = control_rating.games_played
+        treatment_games = treatment_rating.games_played
+
+        control_win_rate = getattr(control_rating, 'win_rate', 0.5) or 0.5
+        treatment_win_rate = getattr(treatment_rating, 'win_rate', 0.5) or 0.5
+
+        # Check if we have enough games
+        min_games = config.min_games_per_variant
+        has_enough_games = (
+            control_games >= min_games and treatment_games >= min_games
+        )
+
+        # Calculate statistical significance using Elo difference
+        # Rule of thumb: ~30 Elo difference is statistically significant
+        # with 100+ games each
+        confidence = self._calculate_confidence(
+            elo_diff, control_games, treatment_games
+        )
+        is_significant = confidence >= config.significance_threshold and has_enough_games
+
+        # Determine winner
+        winner = None
+        if is_significant:
+            if elo_diff > 25:  # Treatment is significantly better
+                winner = "treatment"
+            elif elo_diff < -25:  # Control is significantly better
+                winner = "control"
+
+        # Generate recommendation
+        if not has_enough_games:
+            recommendation = (
+                f"Need more games: control={control_games}/{min_games}, "
+                f"treatment={treatment_games}/{min_games}"
+            )
+        elif not is_significant:
+            recommendation = (
+                f"Results not significant (confidence={confidence:.1%}). "
+                f"Elo diff: {elo_diff:+.1f}"
+            )
+        elif winner == "treatment":
+            recommendation = (
+                f"Treatment model ({config.treatment_model_id}) is significantly better. "
+                f"Consider promoting. Elo: {elo_diff:+.1f}"
+            )
+        elif winner == "control":
+            recommendation = (
+                f"Control model ({config.control_model_id}) is better. "
+                f"Treatment shows regression: {elo_diff:+.1f} Elo"
+            )
+        else:
+            recommendation = (
+                f"Models are statistically equivalent (diff={elo_diff:+.1f}). "
+                f"Consider other factors for decision."
+            )
+
+        result = ABTestResult(
+            test_id=test_id,
+            control_elo=control_elo,
+            treatment_elo=treatment_elo,
+            elo_difference=elo_diff,
+            control_games=control_games,
+            treatment_games=treatment_games,
+            control_win_rate=control_win_rate,
+            treatment_win_rate=treatment_win_rate,
+            is_significant=is_significant,
+            winner=winner,
+            confidence=confidence,
+            recommendation=recommendation,
+        )
+
+        # Auto-promote if configured and winner is clear
+        if config.auto_promote and is_significant and winner == "treatment":
+            self._auto_promote_winner(config, result)
+
+        return result
+
+    def _calculate_confidence(
+        self,
+        elo_diff: float,
+        control_games: int,
+        treatment_games: int,
+    ) -> float:
+        """Calculate statistical confidence of Elo difference.
+
+        Uses a simplified model based on expected Elo variance.
+        Standard error of Elo estimate ≈ 400 / sqrt(n) for random opponents.
+
+        Args:
+            elo_diff: Difference in Elo (treatment - control)
+            control_games: Number of games played by control
+            treatment_games: Number of games played by treatment
+
+        Returns:
+            Confidence level (0.0 - 1.0)
+        """
+        import math
+
+        if control_games == 0 or treatment_games == 0:
+            return 0.0
+
+        # Approximate standard error of the difference
+        # SE ≈ sqrt(SE_control^2 + SE_treatment^2)
+        se_control = 400 / math.sqrt(control_games)
+        se_treatment = 400 / math.sqrt(treatment_games)
+        se_diff = math.sqrt(se_control**2 + se_treatment**2)
+
+        if se_diff == 0:
+            return 1.0
+
+        # Z-score for the difference
+        z_score = abs(elo_diff) / se_diff
+
+        # Convert Z-score to confidence using normal CDF approximation
+        # P(|Z| > z) ≈ 2 * (1 - Φ(z))
+        # Confidence = 1 - P(|Z| > z) = 2 * Φ(z) - 1
+        def norm_cdf(x):
+            """Approximation of normal CDF."""
+            return 0.5 * (1 + math.erf(x / math.sqrt(2)))
+
+        confidence = 2 * norm_cdf(z_score) - 1
+        return min(max(confidence, 0.0), 1.0)
+
+    def _auto_promote_winner(
+        self,
+        config: ABTestConfig,
+        result: ABTestResult,
+    ) -> bool:
+        """Auto-promote the winning model.
+
+        Args:
+            config: Test configuration
+            result: Test result showing treatment won
+
+        Returns:
+            True if promotion was successful
+        """
+        logger.info(
+            f"Auto-promoting winner of test {config.test_id}: "
+            f"{config.treatment_model_id} (Elo: {result.elo_difference:+.1f})"
+        )
+
+        decision = self.controller.evaluate_promotion(
+            model_id=config.treatment_model_id,
+            board_type=config.board_type,
+            num_players=config.num_players,
+            promotion_type=PromotionType.PRODUCTION,
+            baseline_model_id=config.control_model_id,
+        )
+
+        if decision.should_promote:
+            return self.controller.execute_promotion(decision)
+        else:
+            logger.warning(
+                f"A/B test winner {config.treatment_model_id} did not pass "
+                f"standard promotion criteria: {decision.reason}"
+            )
+            return False
+
+    def list_active_tests(self) -> List[ABTestConfig]:
+        """Get all active tests."""
+        return list(self._active_tests.values())
+
+    def list_completed_tests(self) -> List[ABTestResult]:
+        """Get all completed test results."""
+        return list(self._completed_tests.values())
+
+    def get_test_status(self, test_id: str) -> Optional[Dict[str, Any]]:
+        """Get detailed status of a test.
+
+        Args:
+            test_id: Test identifier
+
+        Returns:
+            Dict with test config and current analysis
+        """
+        if test_id not in self._active_tests:
+            # Check completed tests
+            if test_id in self._completed_tests:
+                return {
+                    "status": "completed",
+                    "result": self._completed_tests[test_id].to_dict(),
+                }
+            return None
+
+        config = self._active_tests[test_id]
+        result = self.analyze_test(test_id)
+
+        return {
+            "status": "active",
+            "config": config.to_dict(),
+            "current_results": result.to_dict() if result else None,
+        }
+
+
+def get_ab_test_manager(
+    elo_service: Optional[Any] = None,
+) -> ABTestManager:
+    """Get a configured A/B test manager instance."""
+    return ABTestManager(elo_service=elo_service)

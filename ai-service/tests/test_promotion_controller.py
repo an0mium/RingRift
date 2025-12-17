@@ -765,6 +765,126 @@ class TestRollbackMonitor:
         assert event.elo_regression == -100.0
 
 
+class TestRollbackCooldown:
+    """Test rollback cooldown functionality."""
+
+    def test_cooldown_not_active_initially(self):
+        """Test cooldown is not active when no rollback has occurred."""
+        monitor = RollbackMonitor()
+        is_active, remaining = monitor.is_cooldown_active("square8", 2)
+        assert is_active is False
+        assert remaining is None
+
+    def test_cooldown_active_after_rollback(self):
+        """Test cooldown is active after a rollback."""
+        from datetime import datetime, timedelta
+
+        monitor = RollbackMonitor()
+        # Simulate a recent rollback
+        monitor._last_rollback_time["square8_2p"] = datetime.now()
+
+        is_active, remaining = monitor.is_cooldown_active("square8", 2)
+        assert is_active is True
+        assert remaining is not None
+        assert remaining > 0
+
+    def test_cooldown_expires(self):
+        """Test cooldown expires after the configured time."""
+        from datetime import datetime, timedelta
+
+        criteria = RollbackCriteria(cooldown_seconds=60)  # 1 minute
+        monitor = RollbackMonitor(criteria=criteria)
+        # Simulate a rollback 2 minutes ago
+        monitor._last_rollback_time["square8_2p"] = datetime.now() - timedelta(seconds=120)
+
+        is_active, remaining = monitor.is_cooldown_active("square8", 2)
+        assert is_active is False
+        assert remaining is None
+
+    def test_cooldown_bypass(self):
+        """Test cooldown can be bypassed."""
+        from datetime import datetime
+
+        monitor = RollbackMonitor()
+        # Simulate a recent rollback
+        monitor._last_rollback_time["square8_2p"] = datetime.now()
+
+        # Bypass cooldown
+        monitor.set_cooldown_bypass(True)
+        is_active, remaining = monitor.is_cooldown_active("square8", 2)
+        assert is_active is False
+
+    def test_max_daily_rollbacks(self):
+        """Test max daily rollbacks limit."""
+        from datetime import datetime
+
+        criteria = RollbackCriteria(max_rollbacks_per_day=2)
+        monitor = RollbackMonitor(criteria=criteria)
+
+        # Add 2 rollback events today
+        now = datetime.now().isoformat()
+        monitor._rollback_events = [
+            RollbackEvent(triggered_at=now, current_model_id="m1", rollback_model_id="m0", reason="test"),
+            RollbackEvent(triggered_at=now, current_model_id="m2", rollback_model_id="m1", reason="test"),
+        ]
+
+        is_reached, count = monitor.is_max_daily_rollbacks_reached()
+        assert is_reached is True
+        assert count == 2
+
+    def test_daily_count_excludes_old_events(self):
+        """Test daily rollback count excludes events older than 24h."""
+        from datetime import datetime, timedelta
+
+        criteria = RollbackCriteria(max_rollbacks_per_day=2)
+        monitor = RollbackMonitor(criteria=criteria)
+
+        # Add 2 old rollback events and 1 recent
+        old_time = (datetime.now() - timedelta(hours=25)).isoformat()
+        recent_time = datetime.now().isoformat()
+        monitor._rollback_events = [
+            RollbackEvent(triggered_at=old_time, current_model_id="m1", rollback_model_id="m0", reason="test"),
+            RollbackEvent(triggered_at=old_time, current_model_id="m2", rollback_model_id="m1", reason="test"),
+            RollbackEvent(triggered_at=recent_time, current_model_id="m3", rollback_model_id="m2", reason="test"),
+        ]
+
+        is_reached, count = monitor.is_max_daily_rollbacks_reached()
+        assert is_reached is False
+        assert count == 1
+
+    def test_check_for_regression_respects_cooldown(self):
+        """Test check_for_regression skips if cooldown is active."""
+        from datetime import datetime
+        from unittest.mock import MagicMock
+
+        mock_elo = MagicMock()
+        mock_rating = MagicMock()
+        mock_rating.rating = 1400  # Would trigger regression
+        mock_rating.games_played = 50
+        mock_rating.win_rate = 0.45
+
+        mock_prev_rating = MagicMock()
+        mock_prev_rating.rating = 1500
+
+        mock_elo.get_rating.side_effect = [mock_rating, mock_prev_rating]
+
+        mock_controller = MagicMock()
+        mock_controller.elo_service = mock_elo
+
+        monitor = RollbackMonitor(promotion_controller=mock_controller)
+        # Simulate a recent rollback
+        monitor._last_rollback_time["square8_2p"] = datetime.now()
+
+        # Even with regression, cooldown should prevent rollback
+        should_rollback, event = monitor.check_for_regression(
+            model_id="model_v42",
+            previous_model_id="model_v41",
+        )
+
+        assert should_rollback is False
+        assert event is None
+
+
 class TestGetRollbackMonitor:
     """Test convenience function."""
 
@@ -779,6 +899,278 @@ class TestGetRollbackMonitor:
         criteria = RollbackCriteria(min_games_for_regression=50)
         monitor = get_rollback_monitor(criteria=criteria)
         assert monitor.criteria.min_games_for_regression == 50
+
+
+class TestABTestConfig:
+    """Test A/B test configuration."""
+
+    def test_config_creation(self):
+        """Test creating A/B test config."""
+        from app.training.promotion_controller import ABTestConfig
+        config = ABTestConfig(
+            test_id="test_v42_vs_v41",
+            control_model_id="model_v41",
+            treatment_model_id="model_v42",
+        )
+        assert config.test_id == "test_v42_vs_v41"
+        assert config.control_model_id == "model_v41"
+        assert config.treatment_model_id == "model_v42"
+        assert config.traffic_split == 0.5
+
+    def test_config_to_dict(self):
+        """Test config serialization."""
+        from app.training.promotion_controller import ABTestConfig
+        config = ABTestConfig(
+            test_id="test1",
+            control_model_id="m1",
+            treatment_model_id="m2",
+            traffic_split=0.3,
+        )
+        d = config.to_dict()
+        assert d["test_id"] == "test1"
+        assert d["traffic_split"] == 0.3
+
+
+class TestABTestManager:
+    """Test A/B test manager."""
+
+    def test_start_test(self):
+        """Test starting an A/B test."""
+        from app.training.promotion_controller import ABTestManager, ABTestConfig
+        manager = ABTestManager()
+        config = ABTestConfig(
+            test_id="test1",
+            control_model_id="m1",
+            treatment_model_id="m2",
+        )
+        result = manager.start_test(config)
+        assert result is True
+        assert len(manager.list_active_tests()) == 1
+
+    def test_start_duplicate_test_fails(self):
+        """Test that starting a duplicate test fails."""
+        from app.training.promotion_controller import ABTestManager, ABTestConfig
+        manager = ABTestManager()
+        config = ABTestConfig(
+            test_id="test1",
+            control_model_id="m1",
+            treatment_model_id="m2",
+        )
+        manager.start_test(config)
+        result = manager.start_test(config)
+        assert result is False
+
+    def test_invalid_traffic_split(self):
+        """Test invalid traffic split is rejected."""
+        from app.training.promotion_controller import ABTestManager, ABTestConfig
+        manager = ABTestManager()
+        config = ABTestConfig(
+            test_id="test1",
+            control_model_id="m1",
+            treatment_model_id="m2",
+            traffic_split=1.5,  # Invalid
+        )
+        result = manager.start_test(config)
+        assert result is False
+
+    def test_get_model_for_game(self):
+        """Test traffic routing returns valid models."""
+        from app.training.promotion_controller import ABTestManager, ABTestConfig
+        manager = ABTestManager()
+        config = ABTestConfig(
+            test_id="test1",
+            control_model_id="m1",
+            treatment_model_id="m2",
+            traffic_split=0.5,
+        )
+        manager.start_test(config)
+
+        # Get models for 100 games
+        models = [manager.get_model_for_game("test1") for _ in range(100)]
+        assert all(m in ["m1", "m2"] for m in models)
+        # Should have both models represented (statistically likely with 50/50 split)
+        assert "m1" in models
+        assert "m2" in models
+
+    def test_get_model_nonexistent_test(self):
+        """Test getting model for nonexistent test."""
+        from app.training.promotion_controller import ABTestManager
+        manager = ABTestManager()
+        model = manager.get_model_for_game("nonexistent")
+        assert model is None
+
+    def test_stop_test(self):
+        """Test stopping a test."""
+        from app.training.promotion_controller import ABTestManager, ABTestConfig
+        mock_elo = MagicMock()
+        mock_rating = MagicMock()
+        mock_rating.rating = 1500
+        mock_rating.games_played = 50
+        mock_rating.win_rate = 0.55
+        mock_elo.get_rating.return_value = mock_rating
+
+        manager = ABTestManager(elo_service=mock_elo)
+        config = ABTestConfig(
+            test_id="test1",
+            control_model_id="m1",
+            treatment_model_id="m2",
+        )
+        manager.start_test(config)
+        result = manager.stop_test("test1")
+
+        assert result is not None
+        assert len(manager.list_active_tests()) == 0
+        assert len(manager.list_completed_tests()) == 1
+
+    def test_analyze_test_significant_treatment_wins(self):
+        """Test analysis when treatment is significantly better."""
+        from app.training.promotion_controller import ABTestManager, ABTestConfig
+        mock_elo = MagicMock()
+
+        # Control model - more games for statistical significance
+        control_rating = MagicMock()
+        control_rating.rating = 1500
+        control_rating.games_played = 300
+        control_rating.win_rate = 0.50
+
+        # Treatment model - significantly better
+        treatment_rating = MagicMock()
+        treatment_rating.rating = 1580  # +80 Elo
+        treatment_rating.games_played = 300
+        treatment_rating.win_rate = 0.58
+
+        mock_elo.get_rating.side_effect = lambda model_id, *args: (
+            control_rating if model_id == "m1" else treatment_rating
+        )
+
+        manager = ABTestManager(elo_service=mock_elo)
+        config = ABTestConfig(
+            test_id="test1",
+            control_model_id="m1",
+            treatment_model_id="m2",
+            min_games_per_variant=100,
+        )
+        manager.start_test(config)
+        result = manager.analyze_test("test1")
+
+        assert result is not None
+        assert result.elo_difference == 80.0
+        assert result.is_significant is True
+        assert result.winner == "treatment"
+
+    def test_analyze_test_control_wins(self):
+        """Test analysis when control is better (treatment regressed)."""
+        from app.training.promotion_controller import ABTestManager, ABTestConfig
+        mock_elo = MagicMock()
+
+        control_rating = MagicMock()
+        control_rating.rating = 1500
+        control_rating.games_played = 300
+        control_rating.win_rate = 0.55
+
+        treatment_rating = MagicMock()
+        treatment_rating.rating = 1420  # -80 Elo (regression)
+        treatment_rating.games_played = 300
+        treatment_rating.win_rate = 0.45
+
+        mock_elo.get_rating.side_effect = lambda model_id, *args: (
+            control_rating if model_id == "m1" else treatment_rating
+        )
+
+        manager = ABTestManager(elo_service=mock_elo)
+        config = ABTestConfig(
+            test_id="test1",
+            control_model_id="m1",
+            treatment_model_id="m2",
+            min_games_per_variant=100,
+        )
+        manager.start_test(config)
+        result = manager.analyze_test("test1")
+
+        assert result is not None
+        assert result.elo_difference == -80.0
+        assert result.winner == "control"
+
+    def test_analyze_test_insufficient_games(self):
+        """Test analysis with insufficient games."""
+        from app.training.promotion_controller import ABTestManager, ABTestConfig
+        mock_elo = MagicMock()
+
+        mock_rating = MagicMock()
+        mock_rating.rating = 1500
+        mock_rating.games_played = 20  # Below min_games_per_variant
+        mock_rating.win_rate = 0.50
+        mock_elo.get_rating.return_value = mock_rating
+
+        manager = ABTestManager(elo_service=mock_elo)
+        config = ABTestConfig(
+            test_id="test1",
+            control_model_id="m1",
+            treatment_model_id="m2",
+            min_games_per_variant=100,
+        )
+        manager.start_test(config)
+        result = manager.analyze_test("test1")
+
+        assert result is not None
+        assert result.is_significant is False
+        assert "Need more games" in result.recommendation
+
+    def test_get_test_status_active(self):
+        """Test getting status of active test."""
+        from app.training.promotion_controller import ABTestManager, ABTestConfig
+        mock_elo = MagicMock()
+        mock_rating = MagicMock()
+        mock_rating.rating = 1500
+        mock_rating.games_played = 50
+        mock_rating.win_rate = 0.50
+        mock_elo.get_rating.return_value = mock_rating
+
+        manager = ABTestManager(elo_service=mock_elo)
+        config = ABTestConfig(
+            test_id="test1",
+            control_model_id="m1",
+            treatment_model_id="m2",
+        )
+        manager.start_test(config)
+        status = manager.get_test_status("test1")
+
+        assert status is not None
+        assert status["status"] == "active"
+        assert status["config"]["test_id"] == "test1"
+
+    def test_get_test_status_completed(self):
+        """Test getting status of completed test."""
+        from app.training.promotion_controller import ABTestManager, ABTestConfig
+        mock_elo = MagicMock()
+        mock_rating = MagicMock()
+        mock_rating.rating = 1500
+        mock_rating.games_played = 50
+        mock_rating.win_rate = 0.50
+        mock_elo.get_rating.return_value = mock_rating
+
+        manager = ABTestManager(elo_service=mock_elo)
+        config = ABTestConfig(
+            test_id="test1",
+            control_model_id="m1",
+            treatment_model_id="m2",
+        )
+        manager.start_test(config)
+        manager.stop_test("test1")
+        status = manager.get_test_status("test1")
+
+        assert status is not None
+        assert status["status"] == "completed"
+
+
+class TestGetABTestManager:
+    """Test convenience function."""
+
+    def test_get_manager(self):
+        """Test getting manager instance."""
+        from app.training.promotion_controller import get_ab_test_manager
+        manager = get_ab_test_manager()
+        assert manager is not None
 
 
 if __name__ == "__main__":
