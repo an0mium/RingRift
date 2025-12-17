@@ -8,14 +8,14 @@ Backward Compatibility:
     from this package for backward compatibility.
 
 Module Structure:
-    - config.py: Configuration dataclasses and event types
-    - evaluation.py: Model evaluation and pruning services
-    - curriculum.py: Adaptive curriculum management
-    - promotion.py: Model promotion with holdout validation
+    - unified_loop/config.py: Configuration dataclasses and event types
+    - unified_loop/evaluation.py: Model evaluation and pruning services
+    - unified_loop/curriculum.py: Adaptive curriculum management
+    - unified_loop/promotion.py: Model promotion with holdout validation
 """
 
-# Re-export configuration classes
-from .config import (
+# Re-export configuration classes from unified_loop subpackage
+from .unified_loop.config import (
     # Configuration dataclasses
     DataIngestionConfig,
     TrainingConfig,
@@ -38,12 +38,12 @@ from .config import (
 )
 
 # Re-export service classes (Phase 2 refactoring)
-from .evaluation import ModelPruningService
-from .curriculum import AdaptiveCurriculum
-from .promotion import ModelPromoter
-from .tournament import ShadowTournamentService
-from .data_collection import StreamingDataCollector
-from .training import TrainingScheduler
+from .unified_loop.evaluation import ModelPruningService
+from .unified_loop.curriculum import AdaptiveCurriculum
+from .unified_loop.promotion import ModelPromoter
+from .unified_loop.tournament import ShadowTournamentService
+from .unified_loop.data_collection import StreamingDataCollector
+from .unified_loop.training import TrainingScheduler
 
 __all__ = [
     # Configuration
