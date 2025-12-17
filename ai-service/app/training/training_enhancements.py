@@ -22,6 +22,7 @@ Usage:
         HardExampleMiner,
         AdaptiveLRScheduler,
         WarmRestartsScheduler,
+        AdaptiveGradientClipper,
         EWCRegularizer,
         ModelEnsemble,
         EnhancedEarlyStopping,
@@ -37,11 +38,9 @@ from __future__ import annotations
 import copy
 import logging
 import math
-import os
 import time
 from collections import deque
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -52,6 +51,34 @@ import torch.optim as optim
 from torch.utils.data import Dataset, Sampler
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    # Configuration
+    "TrainingConfig",
+    # Core utilities
+    "CheckpointAverager",
+    "GradientAccumulator",
+    "DataQualityScorer",
+    "HardExampleMiner",
+    # Learning rate schedulers
+    "AdaptiveLRScheduler",
+    "WarmRestartsScheduler",
+    # Gradient management
+    "AdaptiveGradientClipper",
+    # Regularization
+    "EWCRegularizer",
+    # Ensemble
+    "ModelEnsemble",
+    # Training control
+    "EnhancedEarlyStopping",
+    "EarlyStopping",  # Backwards compatible alias
+    "TrainingAnomalyDetector",
+    "ValidationIntervalManager",
+    # Reproducibility
+    "SeedManager",
+    # Factory function
+    "create_training_enhancements",
+]
 
 
 # =============================================================================
@@ -542,6 +569,108 @@ class GradientAccumulator:
     def effective_batch_size(self) -> int:
         """Get the effective batch size multiplier."""
         return self.accumulation_steps
+
+
+# =============================================================================
+# 2b. Adaptive Gradient Clipping
+# =============================================================================
+
+
+class AdaptiveGradientClipper:
+    """
+    Adaptive gradient clipping based on gradient norm history.
+
+    Automatically adjusts clipping threshold based on recent gradient statistics.
+    Prevents both gradient explosion and overly aggressive clipping.
+
+    Features:
+    - Tracks gradient norm history
+    - Adjusts clip threshold based on percentile of recent norms
+    - Prevents both explosion (high norms) and over-clipping (low threshold)
+
+    Usage:
+        clipper = AdaptiveGradientClipper(initial_max_norm=1.0)
+
+        for batch in dataloader:
+            loss.backward()
+            grad_norm = clipper.update_and_clip(model.parameters())
+            optimizer.step()
+
+            # Optional: log statistics
+            stats = clipper.get_stats()
+    """
+
+    def __init__(
+        self,
+        initial_max_norm: float = 1.0,
+        percentile: float = 90.0,
+        history_size: int = 100,
+        min_clip: float = 0.1,
+        max_clip: float = 10.0,
+        # Backwards compatibility alias
+        initial_clip: Optional[float] = None,
+    ):
+        """
+        Args:
+            initial_max_norm: Starting gradient clipping threshold
+            percentile: Percentile of gradient norms to use for threshold
+            history_size: Number of gradient norms to track
+            min_clip: Minimum allowed clipping threshold
+            max_clip: Maximum allowed clipping threshold
+            initial_clip: Alias for initial_max_norm (backwards compatibility)
+        """
+        # Support backwards compatible parameter name
+        if initial_clip is not None:
+            initial_max_norm = initial_clip
+        self.current_max_norm = initial_max_norm
+        self.percentile = percentile
+        self.history_size = history_size
+        self.min_clip = min_clip
+        self.max_clip = max_clip
+        self.grad_norms: List[float] = []
+
+    def update_and_clip(self, parameters) -> float:
+        """
+        Update history and clip gradients.
+
+        Args:
+            parameters: Model parameters (from model.parameters())
+
+        Returns:
+            The actual gradient norm before clipping
+        """
+        total_norm = 0.0
+        for p in parameters:
+            if p.grad is not None:
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+        total_norm = total_norm ** 0.5
+
+        self.grad_norms.append(total_norm)
+        if len(self.grad_norms) > self.history_size:
+            self.grad_norms.pop(0)
+
+        # Update threshold based on history
+        if len(self.grad_norms) >= 10:
+            threshold = np.percentile(self.grad_norms, self.percentile)
+            self.current_max_norm = np.clip(threshold * 1.5, self.min_clip, self.max_clip)
+
+        # Apply clipping
+        torch.nn.utils.clip_grad_norm_(parameters, self.current_max_norm)
+        return total_norm
+
+    def get_stats(self) -> Dict[str, float]:
+        """Get current clipping statistics."""
+        return {
+            'current_clip_norm': self.current_max_norm,
+            'mean_grad_norm': np.mean(self.grad_norms) if self.grad_norms else 0,
+            'max_grad_norm': max(self.grad_norms) if self.grad_norms else 0,
+            'history_size': len(self.grad_norms),
+        }
+
+    def reset(self) -> None:
+        """Reset the gradient history."""
+        self.grad_norms.clear()
 
 
 # =============================================================================

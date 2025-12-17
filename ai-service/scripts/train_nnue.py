@@ -1099,6 +1099,48 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Enable A/B model testing framework",
     )
 
+    # Phase 7: Training Enhancements
+    parser.add_argument(
+        "--anomaly-detection",
+        action="store_true",
+        help="Enable training anomaly detection (NaN/Inf, loss spikes, gradient explosions)",
+    )
+    parser.add_argument(
+        "--halt-on-nan",
+        action="store_true",
+        default=True,
+        help="Halt training on NaN/Inf detection (default: True)",
+    )
+    parser.add_argument(
+        "--loss-spike-threshold",
+        type=float,
+        default=3.0,
+        help="Loss spike threshold as multiplier of running mean (default: 3.0)",
+    )
+    parser.add_argument(
+        "--gradient-norm-threshold",
+        type=float,
+        default=100.0,
+        help="Gradient norm threshold for explosion detection (default: 100.0)",
+    )
+    parser.add_argument(
+        "--validation-interval-steps",
+        type=int,
+        default=None,
+        help="Validate every N steps instead of per epoch (default: None = epoch-based)",
+    )
+    parser.add_argument(
+        "--training-seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducibility (default: None = random)",
+    )
+    parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        help="Enable deterministic training mode (may reduce performance)",
+    )
+
     # Add ramdrive storage options
     add_ramdrive_args(parser)
 
@@ -4267,16 +4309,21 @@ def train_nnue(
             logger.info(f"Hard example mining enabled (hard_fraction={hard_example_top_k:.0%})")
 
     # Training anomaly detection for NaN/Inf and loss spike protection
+    anomaly_detection = getattr(args, 'anomaly_detection', True)  # Default enabled
+    halt_on_nan = getattr(args, 'halt_on_nan', True)
+    loss_spike_threshold = getattr(args, 'loss_spike_threshold', 3.0)
+    gradient_norm_threshold = getattr(args, 'gradient_norm_threshold', 100.0)
+
     anomaly_detector = None
-    if TrainingAnomalyDetector is not None:
+    if anomaly_detection and TrainingAnomalyDetector is not None:
         anomaly_detector = TrainingAnomalyDetector(
-            loss_spike_threshold=3.0,      # Standard deviations above mean
-            gradient_norm_threshold=100.0, # Gradient explosion threshold
-            halt_on_nan=True,              # Halt on NaN/Inf loss
+            loss_spike_threshold=loss_spike_threshold,
+            gradient_norm_threshold=gradient_norm_threshold,
+            halt_on_nan=halt_on_nan,
             halt_on_spike=False,           # Don't halt on spikes, just log
             max_consecutive_anomalies=5,   # Max anomalies before forced halt
         )
-        logger.info("Training anomaly detector enabled (NaN/Inf/spike detection)")
+        logger.info(f"Training anomaly detector enabled (spike_threshold={loss_spike_threshold}x)")
 
     # Dynamic batch scheduling
     batch_scheduler = None
@@ -5020,6 +5067,24 @@ def main(argv: Optional[List[str]] = None) -> int:
     else:
         device = torch.device("cpu")
     logger.info(f"Using device: {device}")
+
+    # Seed management for reproducibility
+    training_seed = getattr(args, 'training_seed', None)
+    deterministic = getattr(args, 'deterministic', False)
+    if SeedManager is not None and training_seed is not None:
+        seed_mgr = SeedManager(base_seed=training_seed, deterministic=deterministic)
+        seed_mgr.set_global_seeds()
+        if deterministic:
+            logger.info(f"Deterministic training enabled with seed {training_seed}")
+        else:
+            logger.info(f"Training seed set to {training_seed}")
+    elif training_seed is not None:
+        # Fallback: manual seed setting if SeedManager unavailable
+        torch.manual_seed(training_seed)
+        np.random.seed(training_seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(training_seed)
+        logger.info(f"Training seed set to {training_seed} (manual)")
 
     # Set up output paths with optional ramdrive support
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
