@@ -45,10 +45,13 @@ Features:
   - Auto-updates `distributed_hosts.yaml` with new instances
   - Start: `python scripts/vast_p2p_sync.py --full` (check + sync + start P2P)
   - Check only: `python scripts/vast_p2p_sync.py --check`
-- `vast_keepalive.py` - **Keepalive manager** for Vast.ai instances
-  - Prevents idle instance termination
-  - Heartbeat monitoring and auto-recovery
-  - Start: `python scripts/vast_keepalive.py --daemon`
+- `vast_keepalive.py` - **Keepalive manager** for Vast.ai instances (8KB)
+  - Prevents idle instance termination via periodic heartbeats
+  - Auto-restart stopped instances via Vast.ai CLI
+  - SSH health checks and worker restart on unhealthy instances
+  - Status: `python scripts/vast_keepalive.py --status`
+  - Full cycle: `python scripts/vast_keepalive.py --auto`
+  - Install cron: `python scripts/vast_keepalive.py --install-cron`
 - `cluster_monitoring.sh` - **Comprehensive cluster health monitoring** (14KB)
   - Tailscale mesh status, Vast.ai CLI monitoring, Lambda node health
   - P2P orchestrator status, selfplay/gauntlet monitoring

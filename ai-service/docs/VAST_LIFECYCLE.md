@@ -46,25 +46,40 @@ python scripts/vast_p2p_sync.py --provision --gpu-type RTX_4090 --count 2
 
 ### vast_keepalive.py (Keepalive Manager)
 
-Prevents idle instance termination by maintaining heartbeats.
+Prevents idle instance termination by maintaining heartbeats. Designed to run via cron every 15-30 minutes.
 
 ```bash
-# Run as daemon
-python scripts/vast_keepalive.py --daemon
-
-# One-shot keepalive ping
-python scripts/vast_keepalive.py --once
-
-# Check keepalive status
+# Check all instances status
 python scripts/vast_keepalive.py --status
+
+# Send keepalive ping to all instances
+python scripts/vast_keepalive.py --keepalive
+
+# Restart stopped instances
+python scripts/vast_keepalive.py --restart-stopped
+
+# Full automation cycle (status + keepalive + restart)
+python scripts/vast_keepalive.py --auto
+
+# Install cron job locally (runs every 15 minutes)
+python scripts/vast_keepalive.py --install-cron
 ```
 
 **Features:**
 
 - Periodic heartbeat to prevent idle termination
-- Health check monitoring
-- Auto-recovery on connection loss
-- Integration with P2P orchestrator
+- Health check monitoring via SSH
+- Auto-restart of stopped instances via Vast.ai CLI
+- P2P network connectivity maintenance
+- Code sync and worker restart on unhealthy instances
+- Thread pool for parallel SSH operations
+
+**Cron Setup:**
+
+```bash
+# Recommended: run every 15-30 minutes
+*/15 * * * * cd ~/ringrift/ai-service && python scripts/vast_keepalive.py --auto >> /tmp/keepalive.log 2>&1
+```
 
 ### vast_autoscaler.py (Demand-Based Scaling)
 

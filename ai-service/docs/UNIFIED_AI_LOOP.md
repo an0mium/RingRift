@@ -61,7 +61,32 @@ python scripts/unified_ai_loop.py --halt
 
 # Resume after emergency halt
 python scripts/unified_ai_loop.py --resume
+
+# Enable Prometheus metrics on custom port
+python scripts/unified_ai_loop.py --metrics-port 9091
+
+# Disable metrics entirely
+python scripts/unified_ai_loop.py --no-metrics
+
+# Dry run (simulate without changes)
+python scripts/unified_ai_loop.py --dry-run --verbose
 ```
+
+### CLI Arguments Reference
+
+| Argument         | Description                | Default                    |
+| ---------------- | -------------------------- | -------------------------- |
+| `--start`        | Start daemon in background | -                          |
+| `--stop`         | Stop running daemon        | -                          |
+| `--status`       | Show daemon status         | -                          |
+| `--foreground`   | Run in foreground          | False                      |
+| `--verbose`      | Enable verbose logging     | False                      |
+| `--config`       | Path to config YAML        | `config/unified_loop.yaml` |
+| `--halt`         | Set emergency halt flag    | -                          |
+| `--resume`       | Clear emergency halt flag  | -                          |
+| `--metrics-port` | Prometheus metrics port    | 9090                       |
+| `--no-metrics`   | Disable Prometheus metrics | False                      |
+| `--dry-run`      | Simulate without changes   | False                      |
 
 ### Emergency Halt
 
@@ -183,11 +208,14 @@ When the Prometheus client is installed, the loop exports metrics on port 9090:
 
 ## Related Documentation
 
-- [Pipeline Orchestrator](PIPELINE_ORCHESTRATOR.md) - ⚠️ _Archived; replaced by unified loop_
+- [Training Features](TRAINING_FEATURES.md) - Training configuration options
+- [Training Triggers](TRAINING_TRIGGERS.md) - 3-signal trigger system
+- [Curriculum Feedback](CURRICULUM_FEEDBACK.md) - Adaptive curriculum weights
+- [Training Optimizations](TRAINING_OPTIMIZATIONS.md) - Pipeline optimizations
 - [Distributed Selfplay](DISTRIBUTED_SELFPLAY.md) - Remote host configuration
 - [Training Data Registry](../TRAINING_DATA_REGISTRY.md) - Canonical data management
-- [Self-Improvement Optimization](self_improvement_optimization_plan.md) - Performance tuning
+- [Pipeline Orchestrator](PIPELINE_ORCHESTRATOR.md) - ⚠️ _Archived; replaced by unified loop_
 
 ---
 
-_Last updated: 2025-12-16_
+_Last updated: 2025-12-17_

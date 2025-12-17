@@ -83,3 +83,94 @@ python scripts/pipeline_orchestrator.py --backend p2p --p2p-leader http://leader
 ```
 
 See [PIPELINE_ORCHESTRATOR.md](PIPELINE_ORCHESTRATOR.md) for full pipeline documentation.
+
+## CLI Arguments Reference
+
+### Core Arguments
+
+| Argument          | Description                   | Default     |
+| ----------------- | ----------------------------- | ----------- |
+| `--node-id`       | Unique node identifier        | hostname    |
+| `--port`          | HTTP API port                 | 8770        |
+| `--peers`         | Comma-separated peer URLs     | -           |
+| `--ringrift-path` | Path to RingRift installation | auto-detect |
+
+### Authentication Arguments
+
+| Argument         | Description              | Default |
+| ---------------- | ------------------------ | ------- |
+| `--require-auth` | Require token validation | False   |
+| `--auth-token`   | Bearer token value       | -       |
+
+### Network Resilience Arguments
+
+| Argument        | Description                       | Default |
+| --------------- | --------------------------------- | ------- |
+| `--relay-peers` | Relay peers for NAT-blocked nodes | -       |
+| `--gossip-port` | Gossip protocol port              | 8771    |
+
+### Storage Arguments
+
+| Argument                  | Description                          | Default |
+| ------------------------- | ------------------------------------ | ------- |
+| `--storage-type`          | Storage backend (disk/ramdrive/auto) | auto    |
+| `--sync-to-disk-interval` | Ramdrive sync interval (seconds)     | 300     |
+
+### Environment Variables
+
+| Variable                           | Description           |
+| ---------------------------------- | --------------------- |
+| `RINGRIFT_CLUSTER_AUTH_TOKEN`      | Bearer token value    |
+| `RINGRIFT_CLUSTER_AUTH_TOKEN_FILE` | Path to token file    |
+| `RINGRIFT_BUILD_VERSION`           | Build version string  |
+| `NAT_SYMMETRIC_DETECTION_ENABLED`  | Enable NAT detection  |
+| `DYNAMIC_VOTER_ENABLED`            | Enable dynamic quorum |
+
+## Network Resilience Features
+
+### NAT Traversal with Relay Support
+
+For nodes behind NAT that cannot receive direct connections:
+
+```bash
+python scripts/p2p_orchestrator.py \
+  --node-id nat-node \
+  --relay-peers http://relay1:8770,http://relay2:8770
+```
+
+Relay peers forward heartbeats and gossip to NAT-blocked nodes.
+
+### Ramdrive Auto-Detection
+
+The orchestrator automatically detects RAM disk availability:
+
+```bash
+# Auto-detect (default)
+--storage-type auto
+
+# Force disk storage
+--storage-type disk
+
+# Force ramdrive
+--storage-type ramdrive
+```
+
+When using ramdrive, data is synced to disk periodically:
+
+```bash
+--sync-to-disk-interval 300  # Sync every 5 minutes
+```
+
+### Gossip Protocol
+
+The P2P orchestrator uses a gossip protocol on port 8771 for:
+
+- Peer discovery
+- Data replication
+- Health propagation
+
+## Related Documentation
+
+- [VAST_P2P_ORCHESTRATION.md](VAST_P2P_ORCHESTRATION.md) - Vast.ai P2P setup
+- [DISTRIBUTED_SELFPLAY.md](DISTRIBUTED_SELFPLAY.md) - Cluster selfplay
+- [TRAINING_PIPELINE.md](TRAINING_PIPELINE.md) - Training workflow
