@@ -799,6 +799,11 @@ class MutableGameState:
             self._make_eliminate_rings_from_stack(move, undo)
         elif move.type == MoveType.FORCED_ELIMINATION:
             self._make_forced_elimination(move, undo)
+        elif move.type == MoveType.RECOVERY_SLIDE:
+            self._make_recovery_slide(move, undo)
+        elif move.type == MoveType.SKIP_RECOVERY:
+            # No board changes - just phase transition (handled below)
+            pass
 
         # Update must_move_from_stack_key
         if move.type == MoveType.PLACE_RING and move.to:
@@ -1212,8 +1217,19 @@ class MutableGameState:
             # Player has no rings to place - advance to MOVEMENT
             self._phase = GamePhase.MOVEMENT
         elif move.type == MoveType.NO_MOVEMENT_ACTION:
-            # No movement available - end turn
-            self._end_turn_for_search()
+            # No movement available - check if player controls stacks for FE
+            # Per RR-CANON-R200: if player has stacks but no moves, they must
+            # do forced elimination before their turn ends.
+            player_stacks = [
+                k for k, s in self._stacks.items()
+                if s.controlling_player == move.player
+            ]
+            if player_stacks:
+                # Player has stacks but no moves -> FORCED_ELIMINATION phase
+                self._phase = GamePhase.FORCED_ELIMINATION
+            else:
+                # No stacks - end turn
+                self._end_turn_for_search()
         elif move.type == MoveType.MOVE_STACK:
             # After movement, check for lines or end turn
             # Simplified: end turn (line detection would need BoardManager)
@@ -1246,6 +1262,12 @@ class MutableGameState:
             self._end_turn_for_search()
         elif move.type == MoveType.FORCED_ELIMINATION:
             # After forced elimination, end turn
+            self._end_turn_for_search()
+        elif move.type == MoveType.RECOVERY_SLIDE:
+            # After recovery slide, end turn (per RR-CANON-R115)
+            self._end_turn_for_search()
+        elif move.type == MoveType.SKIP_RECOVERY:
+            # Skip recovery preserves buried rings, ends turn (per RR-CANON-R115)
             self._end_turn_for_search()
 
     def _end_turn_for_search(self) -> None:
@@ -1576,6 +1598,151 @@ class MutableGameState:
         elimination logic (eliminating the entire cap from the stack).
         """
         self._make_eliminate_rings_from_stack(move, undo)
+
+    def _make_recovery_slide(self, move: Move, undo: MoveUndo) -> None:
+        """Apply RECOVERY_SLIDE move (RR-CANON-R110-R115).
+
+        Recovery slides allow temporarily eliminated players to reenter by
+        sliding markers to form lines or reposition.
+        """
+        player = move.player
+        from_key = move.from_pos.to_key() if move.from_pos else None
+        to_key = move.to.to_key() if move.to else None
+
+        if not from_key or not to_key:
+            return
+
+        recovery_mode = getattr(move, 'recoveryMode', None)
+
+        # Handle stack-strike recovery: marker attacks adjacent stack
+        if recovery_mode == "stack_strike":
+            # Remove marker
+            if from_key in self._markers:
+                undo.removed_markers[from_key] = self._markers[from_key].copy()
+                marker_hash = self._zobrist.get_marker_hash(from_key, player)
+                self._zobrist_hash ^= marker_hash
+                del self._markers[from_key]
+
+            # Strike the stack - eliminate top ring
+            if to_key in self._stacks:
+                stack = self._stacks[to_key]
+                undo.modified_stacks[to_key] = stack.copy()
+                if stack.rings:
+                    stack.rings.pop()
+                    stack.stack_height = len(stack.rings)
+                    # Credit elimination to recovering player
+                    if player not in undo.prev_eliminated_rings:
+                        undo.prev_eliminated_rings[player] = (
+                            self._players[player].eliminated_rings
+                            if player in self._players else 0
+                        )
+                    if player in self._players:
+                        self._players[player].eliminated_rings += 1
+                    self._total_rings_eliminated += 1
+
+                    if stack.stack_height == 0:
+                        undo.removed_stacks[to_key] = undo.modified_stacks.pop(to_key)
+                        del self._stacks[to_key]
+                    else:
+                        # Recalculate cap
+                        stack.controlling_player = stack.rings[-1]
+                        cap_height = 0
+                        for r in reversed(stack.rings):
+                            if r == stack.controlling_player:
+                                cap_height += 1
+                            else:
+                                break
+                        stack.cap_height = cap_height
+            return
+
+        # Move marker from from_pos to to_pos
+        if from_key in self._markers:
+            marker = self._markers[from_key]
+            undo.removed_markers[from_key] = marker.copy()
+            marker_hash = self._zobrist.get_marker_hash(from_key, marker.player)
+            self._zobrist_hash ^= marker_hash
+            del self._markers[from_key]
+
+            # Add marker at new position
+            new_marker = MutableMarker(position=move.to, player=player)
+            self._markers[to_key] = new_marker
+            undo.added_markers.add(to_key)
+            new_hash = self._zobrist.get_marker_hash(to_key, player)
+            self._zobrist_hash ^= new_hash
+
+        # For line recovery, collapse markers
+        if recovery_mode != "fallback":
+            collapse_positions = getattr(move, 'collapsePositions', None)
+            if collapse_positions:
+                for pos in collapse_positions:
+                    pos_key = pos.to_key()
+                    if pos_key in self._markers:
+                        m = self._markers[pos_key]
+                        undo.removed_markers[pos_key] = m.copy()
+                        mh = self._zobrist.get_marker_hash(pos_key, m.player)
+                        self._zobrist_hash ^= mh
+                        del self._markers[pos_key]
+
+                    # Add to collapsed
+                    if pos_key not in self._collapsed:
+                        self._collapsed[pos_key] = player
+                        undo.added_collapsed.add(pos_key)
+                        # Update territory count
+                        if player not in undo.prev_territory_spaces:
+                            undo.prev_territory_spaces[player] = (
+                                self._players[player].territory_spaces
+                                if player in self._players else 0
+                            )
+                        if player in self._players:
+                            self._players[player].territory_spaces += 1
+
+        # Extract buried rings for cost (Option 1 = 1, Option 2 = 0)
+        recovery_option = getattr(move, 'recoveryOption', 1)
+        cost = 1 if recovery_option == 1 else 0
+
+        # Fallback recovery always costs 1
+        if recovery_mode == "fallback":
+            cost = 1
+
+        if cost > 0:
+            extraction_stacks = getattr(move, 'extraction_stacks', None)
+            if extraction_stacks:
+                for stack_key in extraction_stacks:
+                    if stack_key in self._stacks:
+                        stack = self._stacks[stack_key]
+                        undo.modified_stacks[stack_key] = stack.copy()
+                        # Find player's bottommost ring
+                        try:
+                            idx = stack.rings.index(player)
+                            stack.rings.pop(idx)
+                            stack.stack_height = len(stack.rings)
+                            # Credit self-elimination
+                            if player not in undo.prev_eliminated_rings:
+                                undo.prev_eliminated_rings[player] = (
+                                    self._players[player].eliminated_rings
+                                    if player in self._players else 0
+                                )
+                            if player in self._players:
+                                self._players[player].eliminated_rings += 1
+                            self._total_rings_eliminated += 1
+
+                            if stack.stack_height == 0:
+                                undo.removed_stacks[stack_key] = (
+                                    undo.modified_stacks.pop(stack_key)
+                                )
+                                del self._stacks[stack_key]
+                            else:
+                                stack.controlling_player = stack.rings[-1]
+                                cap_height = 0
+                                for r in reversed(stack.rings):
+                                    if r == stack.controlling_player:
+                                        cap_height += 1
+                                    else:
+                                        break
+                                stack.cap_height = cap_height
+                            break
+                        except ValueError:
+                            pass
 
     def _make_process_line(self, move: Move, undo: MoveUndo) -> None:
         """Apply line processing move (PROCESS_LINE, CHOOSE_LINE_OPTION, etc.).

@@ -267,6 +267,14 @@ except ImportError:
     DataSyncManager = None
     get_sync_manager = None
 
+# Phase 3.1: Curriculum weights integration for selfplay prioritization
+try:
+    from scripts.unified_loop.curriculum import load_curriculum_weights
+    HAS_CURRICULUM_WEIGHTS = True
+except ImportError:
+    HAS_CURRICULUM_WEIGHTS = False
+    load_curriculum_weights = None
+
 # HTTP server imports
 try:
     from aiohttp import web, ClientSession, ClientTimeout
@@ -22147,17 +22155,37 @@ print(json.dumps({{
             return None
 
         # PRIORITY-BASED SCHEDULING: Add ELO-based priority boosts
+        # Phase 3.1: Also incorporate curriculum weights from unified AI loop
+        curriculum_weights = {}
+        if HAS_CURRICULUM_WEIGHTS and load_curriculum_weights is not None:
+            try:
+                curriculum_weights = load_curriculum_weights()
+            except Exception:
+                pass  # Use empty weights on error
+
         for cfg in selfplay_configs:
             elo_boost = self._get_elo_based_priority_boost(
                 cfg.get("board_type", ""),
                 cfg.get("num_players", 2),
             )
-            cfg["effective_priority"] = cfg.get("priority", 1) + elo_boost
+
+            # Phase 3.1: Apply curriculum weight boost
+            # Config keys are formatted as "board_type_Np" (e.g., "square8_2p")
+            config_key = f"{cfg.get('board_type', '')}_{cfg.get('num_players', 2)}p"
+            curriculum_weight = curriculum_weights.get(config_key, 1.0)
+            # Convert weight (0.7-1.5) to priority boost (0-3)
+            # weight 0.7 = -1 boost, weight 1.0 = 0 boost, weight 1.5 = +2 boost
+            curriculum_boost = int((curriculum_weight - 1.0) * 4)
+            curriculum_boost = max(-2, min(3, curriculum_boost))  # Clamp to -2..+3
+
+            cfg["effective_priority"] = cfg.get("priority", 1) + elo_boost + curriculum_boost
 
         # Build weighted list by effective priority
         weighted = []
         for cfg in selfplay_configs:
-            weighted.extend([cfg] * cfg.get("effective_priority", 1))
+            # Ensure minimum priority of 1
+            priority = max(1, cfg.get("effective_priority", 1))
+            weighted.extend([cfg] * priority)
 
         import random
         return random.choice(weighted) if weighted else None

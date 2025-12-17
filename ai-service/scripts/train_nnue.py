@@ -66,6 +66,26 @@ from app.training.nnue_dataset import (
 )
 from app.training.seed_utils import seed_all
 
+# Unified resource guard - 80% utilization limits (enforced 2025-12-16)
+try:
+    from app.utils.resource_guard import (
+        check_disk_space,
+        check_memory,
+        get_degradation_level,
+        should_proceed_with_priority,
+        OperationPriority,
+        get_resource_status,
+    )
+    HAS_RESOURCE_GUARD = True
+except ImportError:
+    HAS_RESOURCE_GUARD = False
+    check_disk_space = lambda *args, **kwargs: True
+    check_memory = lambda *args, **kwargs: True
+    get_degradation_level = lambda: 0
+    should_proceed_with_priority = lambda p: True
+    OperationPriority = type('OperationPriority', (), {'HIGH': 3})()
+    get_resource_status = lambda: {'can_proceed': True}
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -570,6 +590,32 @@ def train_nnue(
 def main(argv: Optional[List[str]] = None) -> int:
     """Main entry point."""
     args = parse_args(argv)
+
+    # Resource guard: Training is HIGH priority (3)
+    # Check resources before starting memory-intensive training
+    if HAS_RESOURCE_GUARD:
+        degradation = get_degradation_level()
+        if degradation >= 4:  # CRITICAL - resources at/above limits
+            logger.error("Resources at critical levels (degradation=4), aborting training")
+            return 1
+        elif degradation >= 3:  # HEAVY
+            if not should_proceed_with_priority(OperationPriority.HIGH):
+                logger.error("Heavy resource pressure (degradation=3), training blocked")
+                return 1
+            logger.warning("Heavy resource pressure, training proceeding with HIGH priority")
+        elif degradation >= 2:  # MODERATE
+            logger.info(f"Moderate resource pressure (degradation={degradation})")
+
+        # Check specific resources
+        if not check_memory(required_gb=2.0):
+            logger.warning("Memory constrained, training may be slow")
+        if not check_disk_space(required_gb=1.0):
+            logger.warning("Disk space low, checkpoint saving may fail")
+
+        status = get_resource_status()
+        logger.info(f"Resource check: disk={status['disk']['used_percent']:.1f}%, "
+                   f"memory={status['memory']['used_percent']:.1f}%, "
+                   f"degradation={degradation}")
 
     # Parse board type
     board_type = parse_board_type(args.board_type)
