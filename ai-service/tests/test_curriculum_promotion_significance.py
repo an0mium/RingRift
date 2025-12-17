@@ -1,6 +1,12 @@
+"""Tests for curriculum promotion with Wilson confidence bounds.
+
+NOTE: This test module is skipped because CurriculumTrainer is not yet implemented.
+The module tests a planned feature for curriculum learning promotion gates.
+"""
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -9,8 +15,12 @@ pytest.skip(
     allow_module_level=True
 )
 
+# Type-only imports to avoid runtime errors (module is skipped anyway)
+if TYPE_CHECKING:
+    from app.training.curriculum import CurriculumTrainer
 
-def _make_trainer(tmp_path: Path) -> CurriculumTrainer:
+
+def _make_trainer(tmp_path: Path) -> "CurriculumTrainer":
     cfg = CurriculumConfig(
         board_type=BoardType.SQUARE8,
         generations=1,
