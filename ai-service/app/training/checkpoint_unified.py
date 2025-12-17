@@ -60,6 +60,10 @@ class CheckpointMetadata:
     # Additional metadata from SmartCheckpointManager
     adaptive_interval: Optional[int] = None
     improvement_rate: Optional[float] = None
+    # Architecture versioning metadata (integrated from model_versioning.py)
+    architecture_version: Optional[str] = None
+    model_class: Optional[str] = None
+    model_config: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -299,6 +303,9 @@ class UnifiedCheckpointManager:
         training_config: Optional[Dict[str, Any]] = None,
         optimizer_state: Optional[Dict[str, Any]] = None,
         scheduler_state: Optional[Dict[str, Any]] = None,
+        architecture_version: Optional[str] = None,
+        model_class: Optional[str] = None,
+        model_config: Optional[Dict[str, Any]] = None,
     ) -> CheckpointMetadata:
         """
         Save a training checkpoint with full metadata.
@@ -311,6 +318,9 @@ class UnifiedCheckpointManager:
             training_config: Training configuration
             optimizer_state: Optional optimizer state
             scheduler_state: Optional scheduler state
+            architecture_version: Model architecture version (e.g., "v2.0.0")
+            model_class: Model class name (e.g., "RingRiftCNN_v2")
+            model_config: Model configuration dict for compatibility validation
 
         Returns:
             CheckpointMetadata for the saved checkpoint
@@ -347,6 +357,15 @@ class UnifiedCheckpointManager:
                 if scheduler_state is not None:
                     checkpoint_data['scheduler_state_dict'] = scheduler_state
 
+                # Add architecture versioning metadata (compatible with model_versioning.py)
+                if architecture_version or model_class or model_config:
+                    checkpoint_data['_versioning_metadata'] = {
+                        'architecture_version': architecture_version or 'unknown',
+                        'model_class': model_class or 'Unknown',
+                        'config': model_config or {},
+                        'created_at': datetime.now().isoformat(),
+                    }
+
                 # Save checkpoint
                 torch.save(checkpoint_data, file_path)
 
@@ -368,6 +387,9 @@ class UnifiedCheckpointManager:
                     parent_checkpoint=parent,
                     adaptive_interval=self._adaptive_interval,
                     improvement_rate=self._calculate_improvement_rate(metrics.get('loss')),
+                    architecture_version=architecture_version,
+                    model_class=model_class,
+                    model_config=model_config,
                 )
 
                 self.checkpoints.append(metadata)
@@ -461,6 +483,9 @@ class UnifiedCheckpointManager:
         checkpoint_type: Optional[CheckpointType] = None,
         best_by_metric: Optional[str] = None,
         device: str = 'cpu',
+        expected_version: Optional[str] = None,
+        expected_class: Optional[str] = None,
+        strict_version: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """
         Load a checkpoint.
@@ -470,9 +495,15 @@ class UnifiedCheckpointManager:
             checkpoint_type: Load latest checkpoint of this type
             best_by_metric: Load best checkpoint by this metric (e.g., 'loss')
             device: Device to load checkpoint to
+            expected_version: Expected architecture version for validation
+            expected_class: Expected model class name for validation
+            strict_version: If True, raise error on version mismatch; if False, log warning
 
         Returns:
             Checkpoint data dict or None
+
+        Raises:
+            ValueError: If strict_version=True and version/class mismatch detected
         """
         torch = _get_torch()
 
@@ -513,6 +544,27 @@ class UnifiedCheckpointManager:
 
         checkpoint_data = torch.load(file_path, map_location=device)
         checkpoint_data['metadata'] = metadata
+
+        # Validate architecture version if requested
+        versioning_meta = checkpoint_data.get('_versioning_metadata', {})
+        if expected_version or expected_class:
+            ckpt_version = versioning_meta.get('architecture_version')
+            ckpt_class = versioning_meta.get('model_class')
+
+            version_mismatch = expected_version and ckpt_version and ckpt_version != expected_version
+            class_mismatch = expected_class and ckpt_class and ckpt_class != expected_class
+
+            if version_mismatch or class_mismatch:
+                msg = f"Architecture mismatch for checkpoint {metadata.checkpoint_id}:"
+                if version_mismatch:
+                    msg += f" version={ckpt_version} (expected {expected_version})"
+                if class_mismatch:
+                    msg += f" class={ckpt_class} (expected {expected_class})"
+
+                if strict_version:
+                    raise ValueError(msg)
+                else:
+                    logger.warning(msg)
 
         return checkpoint_data
 

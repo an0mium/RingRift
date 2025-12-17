@@ -4,11 +4,22 @@ This module contains all configuration dataclasses and event types
 for the unified AI improvement loop.
 Extracted from unified_ai_loop.py for better modularity.
 
-NOTE: This module provides extended configuration options for the unified loop.
-For new integrations, consider using app.config.unified_config which is the
-canonical configuration location with broader adoption across the codebase.
+CONSOLIDATION NOTE (2025-12-17):
+================================
+Core configuration classes have been migrated to the canonical location:
+    app.config.unified_config
 
-See docs/CONSOLIDATION_ROADMAP.md for planned consolidation of these modules.
+The following classes are now re-exported from canonical:
+- PBTConfig, NASConfig, PERConfig, FeedbackConfig, P2PClusterConfig, ModelPruningConfig
+
+This module retains:
+- Extended TrainingConfig with advanced options
+- UnifiedLoopConfig (script-specific root config)
+- Runtime state classes (ConfigState, FeedbackState, HostState)
+- Event types (DataEventType, DataEvent)
+
+For new integrations, prefer importing from app.config.unified_config.
+See docs/CONSOLIDATION_ROADMAP.md for consolidation status.
 """
 
 from __future__ import annotations
@@ -30,6 +41,22 @@ try:
 except ImportError:
     INITIAL_ELO_RATING = 1500.0
     ELO_DROP_ROLLBACK = 50.0
+
+# Re-export migrated classes from canonical location for backward compatibility
+try:
+    from app.config.unified_config import (
+        PBTConfig,
+        NASConfig,
+        PERConfig,
+        FeedbackConfig,
+        P2PClusterConfig,
+        ModelPruningConfig,
+        IntegratedEnhancementsConfig,  # Canonical location as of 2025-12-17
+    )
+    _HAS_CANONICAL_ENHANCEMENTS = True
+except ImportError:
+    # Fallback: define locally if canonical import fails (shouldn't happen in normal use)
+    _HAS_CANONICAL_ENHANCEMENTS = False
 
 
 # =============================================================================
@@ -434,151 +461,68 @@ class CurriculumConfig:
     min_weight_multiplier: float = 0.7  # Canonical: 0.7 (was 0.5)
 
 
-@dataclass
-class PBTConfig:
-    """Configuration for Population-Based Training."""
-    enabled: bool = False  # Disabled by default - resource intensive
-    population_size: int = 8
-    exploit_interval_steps: int = 1000
-    tunable_params: List[str] = field(default_factory=lambda: ["learning_rate", "batch_size", "temperature"])
-    check_interval_seconds: int = 1800  # Check PBT status every 30 min
-    auto_start: bool = False  # Auto-start PBT when training completes
+# =============================================================================
+# MIGRATED CLASSES (now imported from app.config.unified_config)
+# =============================================================================
+# The following classes were removed and are now re-exported from canonical:
+# - PBTConfig
+# - NASConfig
+# - PERConfig
+# - FeedbackConfig
+# - P2PClusterConfig
+# - ModelPruningConfig
+# See imports at top of file for backward-compatible re-exports.
+# =============================================================================
 
 
-@dataclass
-class NASConfig:
-    """Configuration for Neural Architecture Search."""
-    enabled: bool = False  # Disabled by default - very resource intensive
-    strategy: str = "evolutionary"  # evolutionary, random, bayesian
-    population_size: int = 20
-    generations: int = 50
-    check_interval_seconds: int = 3600  # Check NAS status every hour
-    auto_start_on_plateau: bool = False  # Start NAS when Elo plateaus
+# IntegratedEnhancementsConfig is now imported from canonical location (app.config.unified_config)
+# The definition below is ONLY used as fallback if canonical import fails (standalone execution)
+if not _HAS_CANONICAL_ENHANCEMENTS:
+    @dataclass
+    class IntegratedEnhancementsConfig:
+        """Fallback: Configuration for integrated training enhancements.
 
+        NOTE: This is a fallback definition. The canonical location is:
+            app.config.unified_config.IntegratedEnhancementsConfig
 
-@dataclass
-class PERConfig:
-    """Configuration for Prioritized Experience Replay."""
-    enabled: bool = True  # Enabled by default - improves training efficiency
-    alpha: float = 0.6  # Priority exponent
-    beta: float = 0.4  # Importance sampling exponent
-    buffer_capacity: int = 100000
-    rebuild_interval_seconds: int = 7200  # Rebuild buffer every 2 hours
-
-
-@dataclass
-class FeedbackConfig:
-    """Configuration for pipeline feedback controller integration."""
-    enabled: bool = True  # Enable closed-loop feedback
-    # Performance-based training triggers
-    elo_plateau_threshold: float = 15.0  # Elo gain below this triggers plateau detection
-    elo_plateau_lookback: int = 5  # Number of evaluations to look back
-    win_rate_degradation_threshold: float = 0.40  # Win rate below this triggers retraining
-    # Data quality gates
-    max_parity_failure_rate: float = 0.10  # Block training if parity failures exceed this
-    min_data_quality_score: float = 0.70  # Minimum data quality to proceed with training
-    # CMA-ES/NAS auto-trigger
-    plateau_count_for_cmaes: int = 2  # Trigger CMA-ES after this many consecutive plateaus
-    plateau_count_for_nas: int = 4  # Trigger NAS after this many consecutive plateaus
-
-
-@dataclass
-class P2PClusterConfig:
-    """Configuration for P2P distributed cluster integration."""
-    enabled: bool = False  # Enable P2P cluster coordination
-    p2p_base_url: str = "http://localhost:8770"  # P2P orchestrator URL
-    auth_token: Optional[str] = None  # Auth token (defaults to RINGRIFT_CLUSTER_AUTH_TOKEN env)
-    model_sync_enabled: bool = True  # Auto-sync models to cluster
-    target_selfplay_games_per_hour: int = 1000  # Target selfplay rate across cluster
-    auto_scale_selfplay: bool = True  # Auto-scale selfplay workers
-    use_distributed_tournament: bool = True  # Use cluster for tournament evaluation
-    health_check_interval: int = 60  # Seconds between cluster health checks
-    sync_interval_seconds: int = 300  # Seconds between data sync with cluster
-
-
-@dataclass
-class ModelPruningConfig:
-    """Configuration for automated model pruning/evaluation."""
-    enabled: bool = True  # Enable automatic model pruning
-    threshold: int = 100  # Trigger pruning when model count exceeds this
-    check_interval_seconds: int = 3600  # Check model count every hour
-    top_quartile_keep: float = 0.25  # Keep top 25% of models
-    games_per_baseline: int = 10  # Games per baseline for evaluation
-    parallel_workers: int = 50  # Parallel evaluation workers
-    archive_models: bool = True  # Archive pruned models instead of deleting
-    prefer_high_cpu_hosts: bool = True  # Schedule on high-CPU hosts
-    evaluation_timeout_seconds: int = 7200  # 2 hour timeout
-    dry_run: bool = False  # If true, log but don't prune
-    use_elo_based_culling: bool = True  # Use fast ELO-based culling instead of games
-
-
-@dataclass
-class IntegratedEnhancementsConfig:
-    """Configuration for integrated training enhancements.
-
-    Consolidates all advanced training features into a single config block:
-    - Auxiliary Tasks (multi-task learning heads)
-    - Gradient Surgery (PCGrad for conflicting gradients)
-    - Batch Scheduling (dynamic batch sizing)
-    - Background Evaluation (continuous Elo tracking)
-    - ELO Weighting (opponent strength sampling)
-    - Curriculum Learning (progressive difficulty)
-    - Data Augmentation (board symmetry)
-    - Reanalysis (historical game re-evaluation)
-    """
-    # Master switch
-    enabled: bool = True
-
-    # Auxiliary Tasks (Multi-Task Learning)
-    auxiliary_tasks_enabled: bool = False
-    aux_game_length_weight: float = 0.1
-    aux_piece_count_weight: float = 0.1
-    aux_outcome_weight: float = 0.05
-
-    # Gradient Surgery (PCGrad)
-    gradient_surgery_enabled: bool = False
-    gradient_surgery_method: str = "pcgrad"  # "pcgrad" or "cagrad"
-    gradient_conflict_threshold: float = 0.0
-
-    # Batch Scheduling
-    batch_scheduling_enabled: bool = False
-    batch_initial_size: int = 64
-    batch_final_size: int = 512
-    batch_warmup_steps: int = 1000
-    batch_rampup_steps: int = 10000
-    batch_schedule_type: str = "linear"  # "linear", "exponential", "step"
-
-    # Background Evaluation
-    background_eval_enabled: bool = False
-    eval_interval_steps: int = 1000
-    eval_games_per_check: int = 20
-    eval_elo_checkpoint_threshold: float = 10.0
-    eval_elo_drop_threshold: float = ELO_DROP_ROLLBACK
-    eval_auto_checkpoint: bool = True
-    eval_checkpoint_dir: str = "data/eval_checkpoints"
-
-    # ELO Weighting (uses INITIAL_ELO_RATING from app.config.thresholds)
-    elo_weighting_enabled: bool = True
-    elo_base_rating: float = INITIAL_ELO_RATING
-    elo_weight_scale: float = 400.0
-    elo_min_weight: float = 0.5
-    elo_max_weight: float = 2.0
-
-    # Curriculum Learning (extends CurriculumConfig)
-    curriculum_learning_enabled: bool = True
-    curriculum_auto_advance: bool = True
-    curriculum_checkpoint_path: str = "data/curriculum_state.json"
-
-    # Data Augmentation
-    augmentation_enabled: bool = True
-    augmentation_mode: str = "all"  # "all", "random", "light"
-    augmentation_probability: float = 1.0
-
-    # Reanalysis
-    reanalysis_enabled: bool = False
-    reanalysis_blend_ratio: float = 0.5
-    reanalysis_interval_steps: int = 5000
-    reanalysis_batch_size: int = 1000
+        Only used when running standalone without app package.
+        """
+        enabled: bool = True
+        auxiliary_tasks_enabled: bool = False
+        aux_game_length_weight: float = 0.1
+        aux_piece_count_weight: float = 0.1
+        aux_outcome_weight: float = 0.05
+        gradient_surgery_enabled: bool = False
+        gradient_surgery_method: str = "pcgrad"
+        gradient_conflict_threshold: float = 0.0
+        batch_scheduling_enabled: bool = False
+        batch_initial_size: int = 64
+        batch_final_size: int = 512
+        batch_warmup_steps: int = 1000
+        batch_rampup_steps: int = 10000
+        batch_schedule_type: str = "linear"
+        background_eval_enabled: bool = False
+        eval_interval_steps: int = 1000
+        eval_games_per_check: int = 20
+        eval_elo_checkpoint_threshold: float = 10.0
+        eval_elo_drop_threshold: float = 50.0  # ELO_DROP_ROLLBACK default
+        eval_auto_checkpoint: bool = True
+        eval_checkpoint_dir: str = "data/eval_checkpoints"
+        elo_weighting_enabled: bool = True
+        elo_base_rating: float = 1500.0  # INITIAL_ELO_RATING default
+        elo_weight_scale: float = 400.0
+        elo_min_weight: float = 0.5
+        elo_max_weight: float = 2.0
+        curriculum_enabled: bool = True
+        curriculum_auto_advance: bool = True
+        curriculum_checkpoint_path: str = "data/curriculum_state.json"
+        augmentation_enabled: bool = True
+        augmentation_mode: str = "all"
+        augmentation_probability: float = 1.0
+        reanalysis_enabled: bool = False
+        reanalysis_blend_ratio: float = 0.5
+        reanalysis_interval_steps: int = 5000
+        reanalysis_batch_size: int = 1000
 
 
 @dataclass

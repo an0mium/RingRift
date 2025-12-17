@@ -4,7 +4,7 @@ Provides distributed synchronization of model registry state across cluster node
 Similar to EloSyncManager but for model lifecycle tracking.
 
 Features:
-- Multi-transport failover (Tailscale -> SSH -> HTTP)
+- Multi-transport failover (Tailscale -> SSH -> HTTP) via ClusterTransport
 - Merge-based conflict resolution (union of models)
 - Periodic sync with cluster nodes
 - Integration with UnifiedAILoop
@@ -35,6 +35,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+# Import CircuitBreaker from unified cluster transport layer
+from app.coordination.cluster_transport import CircuitBreaker
+
 logger = logging.getLogger(__name__)
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[2]
@@ -54,7 +57,7 @@ class SyncState:
 
 @dataclass
 class NodeInfo:
-    """Information about a cluster node."""
+    """Information about a cluster node for registry sync."""
     hostname: str
     registry_path: str = "ai-service/data/model_registry.db"
     last_seen: float = 0.0
@@ -63,35 +66,6 @@ class NodeInfo:
     reachable: bool = True
     tailscale_ip: Optional[str] = None
     ssh_port: int = 22
-
-
-class CircuitBreaker:
-    """Simple circuit breaker for fault tolerance."""
-
-    def __init__(self, failure_threshold: int = 3, recovery_timeout: int = 300):
-        self.failure_threshold = failure_threshold
-        self.recovery_timeout = recovery_timeout
-        self.failures = 0
-        self.last_failure = 0.0
-        self.state = "closed"
-
-    def record_success(self):
-        self.failures = 0
-        self.state = "closed"
-
-    def record_failure(self):
-        self.failures += 1
-        self.last_failure = time.time()
-        if self.failures >= self.failure_threshold:
-            self.state = "open"
-
-    def can_attempt(self) -> bool:
-        if self.state == "closed":
-            return True
-        if time.time() - self.last_failure > self.recovery_timeout:
-            self.state = "half-open"
-            return True
-        return False
 
 
 class RegistrySyncManager:

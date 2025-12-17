@@ -239,15 +239,27 @@ class ModelMetadata:
 # These should be imported from neural_net.py after we add them there
 # For now, define defaults here
 
+# Architecture version constants
+# These match the ARCHITECTURE_VERSION class attributes in neural_net.py
 RINGRIFT_CNN_V2_VERSION = "v2.0.0"
+RINGRIFT_CNN_V3_VERSION = "v3.1.0"
+RINGRIFT_CNN_V4_VERSION = "v4.0.0"
 HEX_NEURAL_NET_V2_VERSION = "v2.0.0"
+HEX_NEURAL_NET_V3_VERSION = "v3.0.0"
 
 # Model class name to version mapping
 MODEL_VERSIONS: Dict[str, str] = {
+    # Square board models
     "RingRiftCNN_v2": RINGRIFT_CNN_V2_VERSION,
-    "RingRiftCNN_v2_Lite": RINGRIFT_CNN_V2_VERSION,
+    "RingRiftCNN_v2_Lite": "v2.0.0-lite",
+    "RingRiftCNN_v3": RINGRIFT_CNN_V3_VERSION,
+    "RingRiftCNN_v3_Lite": "v3.1.0-lite",
+    "RingRiftCNN_v4": RINGRIFT_CNN_V4_VERSION,
+    # Hex board models
     "HexNeuralNet_v2": HEX_NEURAL_NET_V2_VERSION,
-    "HexNeuralNet_v2_Lite": HEX_NEURAL_NET_V2_VERSION,
+    "HexNeuralNet_v2_Lite": "v2.0.0-lite",
+    "HexNeuralNet_v3": HEX_NEURAL_NET_V3_VERSION,
+    "HexNeuralNet_v3_Lite": "v3.0.0-lite",
 }
 
 

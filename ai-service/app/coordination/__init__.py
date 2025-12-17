@@ -219,6 +219,15 @@ from app.coordination.sync_coordinator import (
     reset_sync_coordinator,
 )
 
+# Cluster transport layer (unified multi-transport communication)
+from app.coordination.cluster_transport import (
+    ClusterTransport,
+    CircuitBreaker,
+    NodeConfig,
+    TransportResult,
+    get_cluster_transport,
+)
+
 # Ephemeral data guard exports (data insurance for ephemeral hosts)
 from app.coordination.ephemeral_data_guard import (
     EphemeralDataGuard,

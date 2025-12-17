@@ -1,12 +1,12 @@
-"""Simplified Training Triggers for Unified Loop.
+"""Training Triggers - Adapter Layer for Unified Signal Computation.
 
-Consolidates training decision logic into 3 core signals:
+This module provides the stable API for training decisions.
+Internally delegates to UnifiedSignalComputer for actual computation.
+
+The 3 core signals are:
 1. Data Freshness: New games available since last training
 2. Model Staleness: Time since last training for config
 3. Performance Regression: Elo/win rate below acceptable threshold
-
-This replaces the complex 8+ signal system with a cleaner, more predictable
-approach that's easier to understand and tune.
 
 Usage:
     from app.training.training_triggers import TrainingTriggers, should_train
@@ -19,17 +19,24 @@ Usage:
         print(f"Training triggered by: {decision.reason}")
 
 See: app.config.thresholds for canonical threshold constants.
+See: app.training.unified_signals for the centralized signal computation.
 """
 
 from __future__ import annotations
 
 import logging
-import sqlite3
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from .unified_signals import (
+    get_signal_computer,
+    TrainingUrgency,
+    TrainingSignals,
+    UnifiedSignalComputer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -122,12 +129,18 @@ class ConfigState:
 
 
 class TrainingTriggers:
-    """Simplified training trigger system with 3 core signals."""
+    """Simplified training trigger system with 3 core signals.
+
+    Delegates actual computation to UnifiedSignalComputer for consistency
+    across all training decision systems.
+    """
 
     def __init__(self, config: Optional[TriggerConfig] = None):
         self.config = config or TriggerConfig()
         self._config_states: Dict[str, ConfigState] = {}
         self._last_training_times: Dict[str, float] = {}
+        # Delegate to unified signal computer
+        self._signal_computer = get_signal_computer()
 
     def get_config_state(self, config_key: str) -> ConfigState:
         """Get or create state for a config."""
@@ -143,7 +156,10 @@ class TrainingTriggers:
         win_rate: Optional[float] = None,
         model_count: Optional[int] = None,
     ) -> None:
-        """Update state for a config."""
+        """Update state for a config.
+
+        Updates both local state and the unified signal computer.
+        """
         state = self.get_config_state(config_key)
 
         if games_count is not None:
@@ -161,18 +177,39 @@ class TrainingTriggers:
         if model_count is not None:
             state.model_count = model_count
 
-    def record_training_complete(self, config_key: str, games_at_training: int) -> None:
-        """Record that training completed for a config."""
+        # Sync with unified signal computer
+        self._signal_computer.update_config_state(
+            config_key=config_key,
+            model_count=model_count,
+            current_elo=elo,
+            win_rate=win_rate,
+        )
+
+    def record_training_complete(
+        self,
+        config_key: str,
+        games_at_training: int,
+        new_elo: Optional[float] = None,
+    ) -> None:
+        """Record that training completed for a config.
+
+        Updates both local state and the unified signal computer.
+        """
         state = self.get_config_state(config_key)
         state.last_training_time = time.time()
         state.last_training_games = games_at_training
         state.games_since_training = 0
         self._last_training_times[config_key] = time.time()
 
+        # Sync with unified signal computer
+        self._signal_computer.record_training_started(games_at_training, config_key)
+        self._signal_computer.record_training_completed(new_elo, config_key)
+
     def should_train(self, config_key: str, state: Optional[ConfigState] = None) -> TriggerDecision:
         """Evaluate whether training should run for a config.
 
-        Uses 3 core signals:
+        Uses UnifiedSignalComputer for consistent signal computation.
+        The 3 core signals are:
         1. Data Freshness: Are there enough new games?
         2. Model Staleness: Has it been too long since training?
         3. Performance Regression: Is the model underperforming?
@@ -182,83 +219,35 @@ class TrainingTriggers:
         if state is None:
             state = self.get_config_state(config_key)
 
-        now = time.time()
-        cfg = self.config
-        signal_scores: Dict[str, float] = {}
+        # Compute current games count from state
+        current_games = state.last_training_games + state.games_since_training
 
-        # Check minimum interval constraint
-        last_training = self._last_training_times.get(config_key, 0)
-        minutes_since_training = (now - last_training) / 60
-        if minutes_since_training < cfg.min_interval_minutes:
-            return TriggerDecision(
-                should_train=False,
-                reason=f"Too soon since last training ({minutes_since_training:.0f}m < {cfg.min_interval_minutes}m)",
-                signal_scores={},
-                config_key=config_key,
-                priority=0,
-            )
-
-        # Bootstrap check: new configs with no models get priority
-        if state.model_count == 0 and state.games_since_training >= cfg.bootstrap_threshold:
-            return TriggerDecision(
-                should_train=True,
-                reason=f"Bootstrap: config has 0 models and {state.games_since_training} games",
-                signal_scores={"bootstrap": 1.0},
-                config_key=config_key,
-                priority=10.0,  # Highest priority for bootstrap
-            )
-
-        # Signal 1: Data Freshness
-        freshness_score = min(1.0, state.games_since_training / cfg.freshness_threshold)
-        signal_scores["freshness"] = freshness_score
-
-        # Signal 2: Model Staleness
-        hours_since_training = (now - state.last_training_time) / 3600
-        staleness_score = min(1.0, hours_since_training / cfg.staleness_hours)
-        signal_scores["staleness"] = staleness_score
-
-        # Signal 3: Performance Regression
-        regression_score = 0.0
-        if state.win_rate < cfg.min_win_rate:
-            # Strong regression signal
-            regression_score = 1.0 - (state.win_rate / cfg.min_win_rate)
-        elif state.win_rate_trend < -0.05:
-            # Declining performance (not yet critical)
-            regression_score = min(0.5, abs(state.win_rate_trend) * 5)
-        signal_scores["regression"] = regression_score
-
-        # Compute weighted priority score
-        priority = (
-            freshness_score * cfg.freshness_weight +
-            staleness_score * cfg.staleness_weight +
-            regression_score * cfg.regression_weight
+        # Delegate to unified signal computer
+        signals = self._signal_computer.compute_signals(
+            current_games=current_games,
+            current_elo=state.current_elo,
+            config_key=config_key,
+            win_rate=state.win_rate,
+            model_count=state.model_count,
         )
 
-        # Determine if we should train
-        # Training triggers if:
-        # 1. Enough new data (freshness >= 1.0), OR
-        # 2. Model is stale AND has some new data, OR
-        # 3. Performance regression detected
+        # Build signal scores for backward compatibility
+        signal_scores: Dict[str, float] = {
+            "freshness": signals.games_threshold_ratio,
+            "staleness": signals.staleness_ratio,
+            "regression": 1.0 if signals.win_rate_regression or signals.elo_regression_detected else 0.0,
+        }
 
-        should_train = False
-        reason = ""
-
-        if freshness_score >= 1.0:
-            should_train = True
-            reason = f"Data freshness: {state.games_since_training} new games"
-        elif staleness_score >= 1.0 and freshness_score >= 0.3:
-            should_train = True
-            reason = f"Model staleness: {hours_since_training:.1f}h since training"
-        elif regression_score >= 0.5:
-            should_train = True
-            reason = f"Performance regression: win_rate={state.win_rate:.1%}"
+        # Add bootstrap indicator
+        if signals.is_bootstrap:
+            signal_scores["bootstrap"] = 1.0
 
         return TriggerDecision(
-            should_train=should_train,
-            reason=reason,
+            should_train=signals.should_train,
+            reason=signals.reason,
             signal_scores=signal_scores,
             config_key=config_key,
-            priority=priority,
+            priority=signals.priority,
         )
 
     def get_training_queue(self) -> List[TriggerDecision]:
@@ -278,6 +267,57 @@ class TrainingTriggers:
         """Get the highest priority config that should train."""
         queue = self.get_training_queue()
         return queue[0] if queue else None
+
+    def get_urgency(self, config_key: str) -> TrainingUrgency:
+        """Get current training urgency level for a config.
+
+        Returns:
+            TrainingUrgency enum value
+        """
+        state = self.get_config_state(config_key)
+        current_games = state.last_training_games + state.games_since_training
+
+        signals = self._signal_computer.compute_signals(
+            current_games=current_games,
+            current_elo=state.current_elo,
+            config_key=config_key,
+            win_rate=state.win_rate,
+            model_count=state.model_count,
+        )
+        return signals.urgency
+
+    def get_detailed_status(self, config_key: str) -> Dict[str, Any]:
+        """Get detailed status for logging/debugging.
+
+        Returns a dictionary with all signal details.
+        """
+        state = self.get_config_state(config_key)
+        current_games = state.last_training_games + state.games_since_training
+
+        signals = self._signal_computer.compute_signals(
+            current_games=current_games,
+            current_elo=state.current_elo,
+            config_key=config_key,
+            win_rate=state.win_rate,
+            model_count=state.model_count,
+        )
+
+        return {
+            "should_train": signals.should_train,
+            "urgency": signals.urgency.value,
+            "reason": signals.reason,
+            "games_ratio": signals.games_threshold_ratio,
+            "games_since_training": signals.games_since_last_training,
+            "games_threshold": signals.games_threshold,
+            "elo_trend": signals.elo_trend,
+            "time_threshold_met": signals.time_threshold_met,
+            "staleness_hours": signals.staleness_hours,
+            "win_rate": signals.win_rate,
+            "win_rate_regression": signals.win_rate_regression,
+            "elo_regression_detected": signals.elo_regression_detected,
+            "priority": signals.priority,
+            "is_bootstrap": signals.is_bootstrap,
+        }
 
 
 # Convenience singleton

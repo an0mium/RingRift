@@ -52,6 +52,14 @@ try:
 except ImportError:
     INITIAL_ELO_RATING = 1500.0
 
+# Import unified signals for cross-system consistency
+from .unified_signals import (
+    get_signal_computer,
+    TrainingUrgency,
+    TrainingSignals,
+    UnifiedSignalComputer,
+)
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -292,6 +300,9 @@ class FeedbackAccelerator:
         # Callbacks for training triggers
         self._training_callbacks: List[Callable[[str, TrainingDecision], None]] = []
 
+        # Unified signal computer for cross-system consistency
+        self._signal_computer = get_signal_computer()
+
         # Initialize database
         self._init_db()
         self._load_state()
@@ -448,6 +459,12 @@ class FeedbackAccelerator:
         # Add snapshot and update momentum
         momentum.add_snapshot(new_elo, games_played, model_id)
 
+        # Sync with unified signal computer for cross-system consistency
+        self._signal_computer.update_config_state(
+            config_key=config_key,
+            current_elo=new_elo,
+        )
+
         # Save to database
         with self._db_lock:
             with self._get_connection() as conn:
@@ -483,8 +500,12 @@ class FeedbackAccelerator:
         config_key: str,
         success: bool = True,
         new_elo: Optional[float] = None,
+        games_at_training: Optional[int] = None,
     ) -> None:
-        """Record that training completed for a config."""
+        """Record that training completed for a config.
+
+        Syncs state with unified signal computer for cross-system consistency.
+        """
         if config_key not in self._configs:
             return
 
@@ -494,6 +515,11 @@ class FeedbackAccelerator:
 
         if new_elo is not None:
             momentum.add_snapshot(new_elo, momentum.elo_history[-1].games_played if momentum.elo_history else 0)
+
+        # Sync with unified signal computer
+        if games_at_training is not None:
+            self._signal_computer.record_training_started(games_at_training, config_key)
+        self._signal_computer.record_training_completed(new_elo, config_key)
 
         self._save_config(config_key)
 
@@ -791,6 +817,49 @@ class FeedbackAccelerator:
             k for k, v in self._configs.items()
             if v.momentum_state == MomentumState.PLATEAU
         ]
+
+    def get_unified_urgency(self, config_key: str) -> TrainingUrgency:
+        """Get unified training urgency for a config.
+
+        Maps FeedbackAccelerator's intensity to unified TrainingUrgency.
+        This provides cross-system compatibility.
+        """
+        if config_key not in self._configs:
+            return TrainingUrgency.NONE
+
+        momentum = self._configs[config_key]
+
+        # Map intensity to urgency
+        intensity_to_urgency = {
+            TrainingIntensity.HOT_PATH: TrainingUrgency.CRITICAL,
+            TrainingIntensity.ACCELERATED: TrainingUrgency.HIGH,
+            TrainingIntensity.NORMAL: TrainingUrgency.NORMAL,
+            TrainingIntensity.REDUCED: TrainingUrgency.LOW,
+            TrainingIntensity.PAUSED: TrainingUrgency.NONE,
+        }
+
+        return intensity_to_urgency.get(momentum.intensity, TrainingUrgency.NORMAL)
+
+    def get_unified_signals(self, config_key: str) -> Optional[TrainingSignals]:
+        """Get unified training signals for a config.
+
+        Combines FeedbackAccelerator state with unified signal computer
+        for cross-system consistency.
+        """
+        if config_key not in self._configs:
+            return None
+
+        momentum = self._configs[config_key]
+
+        # Get base signals from unified computer
+        current_games = momentum.elo_history[-1].games_played if momentum.elo_history else 0
+        signals = self._signal_computer.compute_signals(
+            current_games=current_games,
+            current_elo=momentum.current_elo,
+            config_key=config_key,
+        )
+
+        return signals
 
     def get_status_summary(self) -> Dict[str, Any]:
         """Get summary of feedback accelerator status."""
