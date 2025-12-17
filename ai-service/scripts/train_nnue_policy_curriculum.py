@@ -99,7 +99,7 @@ def run_training_stage(
         "--epochs", str(stage.epochs),
         "--min-move-number", str(stage.min_move),
         "--max-move-number", str(stage.max_move),
-        "--output-dir", str(stage_dir),
+        "--run-dir", str(stage_dir),
     ]
 
     # Add db paths
