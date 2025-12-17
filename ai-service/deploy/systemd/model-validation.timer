@@ -1,0 +1,13 @@
+[Unit]
+Description=RingRift Model Validation Timer
+Documentation=https://github.com/an0mium/RingRift
+
+[Timer]
+# Run every 6 hours
+OnCalendar=*-*-* 00,06,12,18:00:00
+# Randomize start within 10 minutes to avoid cluster-wide spike
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

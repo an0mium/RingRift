@@ -1,0 +1,16 @@
+[Unit]
+Description=RingRift Model Validation Service
+Documentation=https://github.com/an0mium/RingRift
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/ringrift/ai-service
+ExecStart=/usr/bin/python3 scripts/validate_models.py --cleanup --update-db
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
