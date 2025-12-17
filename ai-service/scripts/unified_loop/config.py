@@ -21,6 +21,16 @@ from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
+# Import canonical threshold constants
+try:
+    from app.config.thresholds import (
+        INITIAL_ELO_RATING,
+        ELO_DROP_ROLLBACK,
+    )
+except ImportError:
+    INITIAL_ELO_RATING = 1500.0
+    ELO_DROP_ROLLBACK = 50.0
+
 
 # =============================================================================
 # Configuration Dataclasses
@@ -353,7 +363,7 @@ class TrainingConfig:
     eval_elo_checkpoint_threshold: float = 10.0
     # ELO Weighting - weight samples by opponent strength
     elo_weighting_enabled: bool = True
-    elo_base_rating: float = 1500.0
+    elo_base_rating: float = INITIAL_ELO_RATING
     elo_weight_scale: float = 400.0
     elo_min_weight: float = 0.5
     elo_max_weight: float = 2.0
@@ -543,13 +553,13 @@ class IntegratedEnhancementsConfig:
     eval_interval_steps: int = 1000
     eval_games_per_check: int = 20
     eval_elo_checkpoint_threshold: float = 10.0
-    eval_elo_drop_threshold: float = 50.0
+    eval_elo_drop_threshold: float = ELO_DROP_ROLLBACK
     eval_auto_checkpoint: bool = True
     eval_checkpoint_dir: str = "data/eval_checkpoints"
 
-    # ELO Weighting
+    # ELO Weighting (uses INITIAL_ELO_RATING from app.config.thresholds)
     elo_weighting_enabled: bool = True
-    elo_base_rating: float = 1500.0
+    elo_base_rating: float = INITIAL_ELO_RATING
     elo_weight_scale: float = 400.0
     elo_min_weight: float = 0.5
     elo_max_weight: float = 2.0
@@ -798,10 +808,10 @@ class FeedbackState:
     parity_checks_total: int = 0  # Total parity checks performed
     data_quality_score: float = 1.0  # Composite quality metric (0-1)
 
-    # Elo feedback
-    elo_current: float = 1500.0
+    # Elo feedback (uses INITIAL_ELO_RATING from app.config.thresholds)
+    elo_current: float = INITIAL_ELO_RATING
     elo_trend: float = 0.0  # Positive = improving, negative = declining
-    elo_peak: float = 1500.0  # Historical peak Elo
+    elo_peak: float = INITIAL_ELO_RATING  # Historical peak Elo
     elo_plateau_count: int = 0  # Consecutive evaluations without gain
 
     # Win rate feedback
@@ -956,7 +966,10 @@ class FeedbackState:
 
 @dataclass
 class ConfigState:
-    """State for a board/player configuration."""
+    """State for a board/player configuration.
+
+    Note: Uses INITIAL_ELO_RATING from app.config.thresholds as default.
+    """
     board_type: str
     num_players: int
     game_count: int = 0
@@ -964,7 +977,7 @@ class ConfigState:
     last_training_time: float = 0.0
     last_evaluation_time: float = 0.0
     last_promotion_time: float = 0.0  # For dynamic threshold calculation
-    current_elo: float = 1500.0
+    current_elo: float = INITIAL_ELO_RATING
     elo_trend: float = 0.0  # Positive = improving
     training_weight: float = 1.0
     # Win rate tracking for training feedback (Phase 2.4)
