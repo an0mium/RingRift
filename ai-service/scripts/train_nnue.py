@@ -1016,6 +1016,89 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     )
     # Note: --distill-temp and --distill-alpha already defined above (reuses existing args)
 
+    # Phase 5: Production Optimization Arguments (2024-12)
+    parser.add_argument(
+        "--gradient-accumulation",
+        type=int,
+        default=1,
+        help="Gradient accumulation steps (default: 1, auto-adjusts if --adaptive-accumulation)",
+    )
+    parser.add_argument(
+        "--adaptive-accumulation",
+        action="store_true",
+        help="Enable adaptive gradient accumulation based on memory pressure",
+    )
+    parser.add_argument(
+        "--activation-checkpointing",
+        action="store_true",
+        help="Enable activation checkpointing for memory efficiency",
+    )
+    parser.add_argument(
+        "--checkpoint-ratio",
+        type=float,
+        default=0.5,
+        help="Fraction of layers to checkpoint (default: 0.5)",
+    )
+    parser.add_argument(
+        "--flash-attention",
+        action="store_true",
+        help="Use Flash Attention 2 for memory-efficient attention",
+    )
+    parser.add_argument(
+        "--ddp",
+        action="store_true",
+        help="Enable Distributed Data Parallel training",
+    )
+    parser.add_argument(
+        "--ddp-backend",
+        type=str,
+        default="nccl",
+        choices=["nccl", "gloo"],
+        help="DDP backend (default: nccl for GPU, gloo for CPU)",
+    )
+    parser.add_argument(
+        "--dynamic-loss-scaling",
+        action="store_true",
+        help="Enable dynamic loss scaling for mixed precision",
+    )
+    parser.add_argument(
+        "--zero-optimizer",
+        action="store_true",
+        help="Enable ZeRO Stage 1 optimizer state partitioning",
+    )
+    parser.add_argument(
+        "--elastic-training",
+        action="store_true",
+        help="Enable elastic training with worker join/leave support",
+    )
+    parser.add_argument(
+        "--streaming-npz",
+        action="store_true",
+        help="Enable streaming NPZ loading for large datasets",
+    )
+    parser.add_argument(
+        "--streaming-chunk-size",
+        type=int,
+        default=10000,
+        help="Chunk size for streaming NPZ loader (default: 10000)",
+    )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Enable PyTorch Profiler with TensorBoard integration",
+    )
+    parser.add_argument(
+        "--profile-dir",
+        type=str,
+        default=None,
+        help="Directory for profiler output (default: runs/profile)",
+    )
+    parser.add_argument(
+        "--ab-testing",
+        action="store_true",
+        help="Enable A/B model testing framework",
+    )
+
     # Add ramdrive storage options
     add_ramdrive_args(parser)
 

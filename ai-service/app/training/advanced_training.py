@@ -1881,3 +1881,1243 @@ def create_phase4_training_suite(
         suite['checkpoint_manager'] = SmartCheckpointManager(save_dir)
 
     return suite
+
+
+# =============================================================================
+# Phase 5: Production Optimization (2024-12)
+# =============================================================================
+
+
+class GradientAccumulationScheduler:
+    """
+    Dynamic gradient accumulation scheduling based on memory pressure.
+
+    Adjusts accumulation steps during training to maximize throughput
+    while staying within memory limits. Useful for large batch training
+    on memory-constrained GPUs.
+    """
+
+    def __init__(
+        self,
+        initial_accumulation: int = 1,
+        min_accumulation: int = 1,
+        max_accumulation: int = 16,
+        target_memory_fraction: float = 0.85,
+        adjustment_interval: int = 100,
+        warmup_steps: int = 50,
+    ):
+        self.accumulation_steps = initial_accumulation
+        self.min_accumulation = min_accumulation
+        self.max_accumulation = max_accumulation
+        self.target_memory_fraction = target_memory_fraction
+        self.adjustment_interval = adjustment_interval
+        self.warmup_steps = warmup_steps
+
+        self._step_count = 0
+        self._memory_history: deque = deque(maxlen=100)
+        self._accumulation_history: List[Tuple[int, int]] = []
+        self._effective_batch_sizes: List[int] = []
+
+    def get_memory_usage(self) -> float:
+        """Get current GPU memory usage fraction."""
+        if not torch.cuda.is_available():
+            return 0.0
+        try:
+            allocated = torch.cuda.memory_allocated()
+            total = torch.cuda.get_device_properties(0).total_memory
+            return allocated / total
+        except Exception:
+            return 0.0
+
+    def step(self, batch_size: int) -> int:
+        """
+        Update accumulation schedule and return current accumulation steps.
+
+        Args:
+            batch_size: Current batch size
+
+        Returns:
+            Number of gradient accumulation steps to use
+        """
+        self._step_count += 1
+
+        # Record memory usage
+        mem_usage = self.get_memory_usage()
+        self._memory_history.append(mem_usage)
+        self._effective_batch_sizes.append(batch_size * self.accumulation_steps)
+
+        # Skip adjustment during warmup
+        if self._step_count < self.warmup_steps:
+            return self.accumulation_steps
+
+        # Adjust at intervals
+        if self._step_count % self.adjustment_interval == 0:
+            self._adjust_accumulation()
+
+        return self.accumulation_steps
+
+    def _adjust_accumulation(self) -> None:
+        """Adjust accumulation based on memory pressure."""
+        if not self._memory_history:
+            return
+
+        avg_memory = sum(self._memory_history) / len(self._memory_history)
+        old_accumulation = self.accumulation_steps
+
+        if avg_memory > self.target_memory_fraction + 0.05:
+            # Memory too high, increase accumulation (smaller effective batches)
+            self.accumulation_steps = min(
+                self.max_accumulation,
+                self.accumulation_steps * 2
+            )
+        elif avg_memory < self.target_memory_fraction - 0.15:
+            # Memory has room, decrease accumulation (larger effective batches)
+            self.accumulation_steps = max(
+                self.min_accumulation,
+                self.accumulation_steps // 2
+            )
+
+        if self.accumulation_steps != old_accumulation:
+            self._accumulation_history.append((self._step_count, self.accumulation_steps))
+            logger.info(
+                f"Gradient accumulation adjusted: {old_accumulation} -> {self.accumulation_steps} "
+                f"(memory: {avg_memory:.1%})"
+            )
+
+    def should_step_optimizer(self, micro_step: int) -> bool:
+        """Check if optimizer should step after this micro-batch."""
+        return (micro_step + 1) % self.accumulation_steps == 0
+
+    def scale_loss(self, loss: torch.Tensor) -> torch.Tensor:
+        """Scale loss for gradient accumulation."""
+        return loss / self.accumulation_steps
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get accumulation statistics."""
+        return {
+            'current_accumulation': self.accumulation_steps,
+            'avg_memory_usage': sum(self._memory_history) / max(1, len(self._memory_history)),
+            'effective_batch_size': self._effective_batch_sizes[-1] if self._effective_batch_sizes else 0,
+            'adjustment_history': self._accumulation_history[-10:],
+        }
+
+
+class MemoryEfficientAttention:
+    """
+    Memory-efficient attention implementation using chunked computation.
+
+    When Flash Attention is not available, provides a fallback that
+    chunks the attention computation to reduce peak memory usage.
+    """
+
+    def __init__(
+        self,
+        chunk_size: int = 1024,
+        use_flash_attention: bool = True,
+        dropout: float = 0.0,
+    ):
+        self.chunk_size = chunk_size
+        self.dropout = dropout
+        self._use_flash = use_flash_attention and self._check_flash_available()
+        self._attention_stats: Dict[str, float] = {}
+
+    def _check_flash_available(self) -> bool:
+        """Check if Flash Attention 2 is available."""
+        try:
+            # Check for PyTorch 2.0+ scaled_dot_product_attention
+            if hasattr(torch.nn.functional, 'scaled_dot_product_attention'):
+                return True
+            # Check for flash-attn package
+            import flash_attn
+            return True
+        except ImportError:
+            return False
+
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        attn_mask: Optional[torch.Tensor] = None,
+        is_causal: bool = False,
+    ) -> torch.Tensor:
+        """
+        Compute attention with memory efficiency.
+
+        Args:
+            query: Query tensor [B, N, H, D]
+            key: Key tensor [B, S, H, D]
+            value: Value tensor [B, S, H, D]
+            attn_mask: Optional attention mask
+            is_causal: Whether to use causal masking
+
+        Returns:
+            Attention output [B, N, H, D]
+        """
+        if self._use_flash:
+            return self._flash_attention(query, key, value, attn_mask, is_causal)
+        else:
+            return self._chunked_attention(query, key, value, attn_mask, is_causal)
+
+    def _flash_attention(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        attn_mask: Optional[torch.Tensor],
+        is_causal: bool,
+    ) -> torch.Tensor:
+        """Use PyTorch's scaled_dot_product_attention or flash-attn."""
+        # Reshape for scaled_dot_product_attention: [B, H, N, D]
+        q = query.transpose(1, 2)
+        k = key.transpose(1, 2)
+        v = value.transpose(1, 2)
+
+        with torch.backends.cuda.sdp_kernel(
+            enable_flash=True,
+            enable_math=False,
+            enable_mem_efficient=True,
+        ):
+            out = torch.nn.functional.scaled_dot_product_attention(
+                q, k, v,
+                attn_mask=attn_mask,
+                dropout_p=self.dropout if self.training else 0.0,
+                is_causal=is_causal,
+            )
+
+        return out.transpose(1, 2)
+
+    def _chunked_attention(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        attn_mask: Optional[torch.Tensor],
+        is_causal: bool,
+    ) -> torch.Tensor:
+        """Chunked attention for memory efficiency when flash is unavailable."""
+        B, N, H, D = query.shape
+        S = key.shape[1]
+
+        scale = D ** -0.5
+        output = torch.zeros_like(query)
+
+        # Process in chunks
+        for i in range(0, N, self.chunk_size):
+            end_i = min(i + self.chunk_size, N)
+            q_chunk = query[:, i:end_i]
+
+            # Compute attention scores for this chunk
+            scores = torch.einsum('bnhd,bshd->bnhs', q_chunk, key) * scale
+
+            if attn_mask is not None:
+                scores = scores + attn_mask[:, i:end_i]
+
+            if is_causal:
+                # Create causal mask for this chunk
+                causal_mask = torch.triu(
+                    torch.ones(end_i - i, S, device=query.device, dtype=torch.bool),
+                    diagonal=S - end_i + 1
+                )
+                scores = scores.masked_fill(causal_mask, float('-inf'))
+
+            attn_weights = torch.softmax(scores, dim=-1)
+
+            if self.dropout > 0 and self.training:
+                attn_weights = torch.dropout(attn_weights, self.dropout, self.training)
+
+            output[:, i:end_i] = torch.einsum('bnhs,bshd->bnhd', attn_weights, value)
+
+        return output
+
+    @property
+    def training(self) -> bool:
+        """Check if in training mode."""
+        return getattr(self, '_training', True)
+
+    @training.setter
+    def training(self, mode: bool) -> None:
+        self._training = mode
+
+
+class ActivationCheckpointingManager:
+    """
+    Intelligent activation checkpointing for trading compute for memory.
+
+    Selectively checkpoints activations based on:
+    - Layer memory footprint
+    - Compute cost
+    - Current memory pressure
+    """
+
+    def __init__(
+        self,
+        model: nn.Module,
+        checkpoint_ratio: float = 0.5,
+        min_layer_size: int = 1024,
+        adaptive: bool = True,
+    ):
+        self.model = model
+        self.checkpoint_ratio = checkpoint_ratio
+        self.min_layer_size = min_layer_size
+        self.adaptive = adaptive
+
+        self._checkpointed_layers: set = set()
+        self._layer_costs: Dict[str, float] = {}
+        self._memory_saved = 0
+
+    def analyze_model(self) -> Dict[str, Any]:
+        """Analyze model to determine checkpointing strategy."""
+        layer_info = {}
+
+        for name, module in self.model.named_modules():
+            if self._should_consider_checkpoint(module):
+                param_count = sum(p.numel() for p in module.parameters())
+                layer_info[name] = {
+                    'param_count': param_count,
+                    'type': type(module).__name__,
+                    'estimated_activation_size': self._estimate_activation_size(module),
+                }
+
+        # Sort by activation size and select top ratio for checkpointing
+        sorted_layers = sorted(
+            layer_info.items(),
+            key=lambda x: x[1]['estimated_activation_size'],
+            reverse=True
+        )
+
+        num_to_checkpoint = int(len(sorted_layers) * self.checkpoint_ratio)
+        self._checkpointed_layers = {name for name, _ in sorted_layers[:num_to_checkpoint]}
+
+        return {
+            'total_layers': len(layer_info),
+            'checkpointed_layers': len(self._checkpointed_layers),
+            'layer_info': layer_info,
+        }
+
+    def _should_consider_checkpoint(self, module: nn.Module) -> bool:
+        """Check if module should be considered for checkpointing."""
+        # Only checkpoint significant layers
+        if isinstance(module, (nn.Linear, nn.Conv2d, nn.MultiheadAttention)):
+            param_count = sum(p.numel() for p in module.parameters())
+            return param_count >= self.min_layer_size
+        return False
+
+    def _estimate_activation_size(self, module: nn.Module) -> int:
+        """Estimate activation memory size for a module."""
+        if isinstance(module, nn.Linear):
+            return module.out_features
+        elif isinstance(module, nn.Conv2d):
+            return module.out_channels
+        elif isinstance(module, nn.MultiheadAttention):
+            return module.embed_dim
+        return 0
+
+    def wrap_model(self) -> nn.Module:
+        """Wrap model with activation checkpointing."""
+        from torch.utils.checkpoint import checkpoint_sequential
+
+        def checkpoint_wrapper(module):
+            """Wrapper that applies checkpointing to forward pass."""
+            original_forward = module.forward
+
+            def checkpointed_forward(*args, **kwargs):
+                # Use checkpoint for this module
+                return torch.utils.checkpoint.checkpoint(
+                    original_forward, *args, use_reentrant=False, **kwargs
+                )
+
+            return checkpointed_forward
+
+        # Apply checkpointing to selected layers
+        for name, module in self.model.named_modules():
+            if name in self._checkpointed_layers:
+                module.forward = checkpoint_wrapper(module)
+                logger.debug(f"Checkpointing enabled for {name}")
+
+        return self.model
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get checkpointing statistics."""
+        return {
+            'checkpointed_layers': list(self._checkpointed_layers),
+            'num_checkpointed': len(self._checkpointed_layers),
+            'memory_saved_estimate': self._memory_saved,
+        }
+
+
+class DistributedDataParallelManager:
+    """
+    Manages Distributed Data Parallel (DDP) training setup.
+
+    Handles:
+    - Process group initialization
+    - Model wrapping
+    - Gradient synchronization
+    - Multi-node coordination
+    """
+
+    def __init__(
+        self,
+        backend: str = "nccl",
+        find_unused_parameters: bool = False,
+        broadcast_buffers: bool = True,
+        gradient_as_bucket_view: bool = True,
+        bucket_cap_mb: int = 25,
+    ):
+        self.backend = backend
+        self.find_unused_parameters = find_unused_parameters
+        self.broadcast_buffers = broadcast_buffers
+        self.gradient_as_bucket_view = gradient_as_bucket_view
+        self.bucket_cap_mb = bucket_cap_mb
+
+        self._initialized = False
+        self._rank = 0
+        self._world_size = 1
+        self._local_rank = 0
+
+    def setup(self, rank: int, world_size: int, master_addr: str = "localhost", master_port: str = "12355") -> None:
+        """Initialize distributed training environment."""
+        import torch.distributed as dist
+
+        os.environ["MASTER_ADDR"] = master_addr
+        os.environ["MASTER_PORT"] = master_port
+
+        dist.init_process_group(
+            backend=self.backend,
+            rank=rank,
+            world_size=world_size,
+        )
+
+        self._rank = rank
+        self._world_size = world_size
+        self._local_rank = rank % torch.cuda.device_count() if torch.cuda.is_available() else 0
+        self._initialized = True
+
+        logger.info(f"DDP initialized: rank {rank}/{world_size}, local_rank {self._local_rank}")
+
+    def wrap_model(self, model: nn.Module, device_ids: Optional[List[int]] = None) -> nn.Module:
+        """Wrap model with DistributedDataParallel."""
+        if not self._initialized:
+            raise RuntimeError("DDP not initialized. Call setup() first.")
+
+        from torch.nn.parallel import DistributedDataParallel as DDP
+
+        if device_ids is None:
+            device_ids = [self._local_rank]
+
+        wrapped = DDP(
+            model,
+            device_ids=device_ids,
+            find_unused_parameters=self.find_unused_parameters,
+            broadcast_buffers=self.broadcast_buffers,
+            gradient_as_bucket_view=self.gradient_as_bucket_view,
+            bucket_cap_mb=self.bucket_cap_mb,
+        )
+
+        return wrapped
+
+    def sync_gradients(self) -> None:
+        """Synchronize gradients across all processes."""
+        import torch.distributed as dist
+        if self._initialized:
+            dist.barrier()
+
+    def all_reduce(self, tensor: torch.Tensor, op: str = "mean") -> torch.Tensor:
+        """All-reduce a tensor across all processes."""
+        import torch.distributed as dist
+
+        if not self._initialized:
+            return tensor
+
+        dist.all_reduce(tensor)
+        if op == "mean":
+            tensor /= self._world_size
+
+        return tensor
+
+    def cleanup(self) -> None:
+        """Clean up distributed training."""
+        import torch.distributed as dist
+        if self._initialized:
+            dist.destroy_process_group()
+            self._initialized = False
+
+    @property
+    def is_main_process(self) -> bool:
+        """Check if this is the main process."""
+        return self._rank == 0
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get DDP statistics."""
+        return {
+            'initialized': self._initialized,
+            'rank': self._rank,
+            'world_size': self._world_size,
+            'local_rank': self._local_rank,
+            'backend': self.backend,
+        }
+
+
+class DynamicLossScaler:
+    """
+    Dynamic loss scaling for mixed precision training.
+
+    Implements adaptive loss scaling that:
+    - Automatically finds optimal scale
+    - Recovers from overflow/underflow
+    - Tracks scaling history for debugging
+    """
+
+    def __init__(
+        self,
+        init_scale: float = 65536.0,
+        growth_factor: float = 2.0,
+        backoff_factor: float = 0.5,
+        growth_interval: int = 2000,
+        max_scale: float = 2**24,
+        min_scale: float = 1.0,
+    ):
+        self.scale = init_scale
+        self.growth_factor = growth_factor
+        self.backoff_factor = backoff_factor
+        self.growth_interval = growth_interval
+        self.max_scale = max_scale
+        self.min_scale = min_scale
+
+        self._growth_tracker = 0
+        self._overflow_count = 0
+        self._scale_history: List[Tuple[int, float]] = []
+        self._step_count = 0
+
+    def scale_loss(self, loss: torch.Tensor) -> torch.Tensor:
+        """Scale loss for mixed precision."""
+        return loss * self.scale
+
+    def unscale_gradients(self, optimizer: optim.Optimizer) -> bool:
+        """
+        Unscale gradients and check for overflow.
+
+        Returns:
+            True if gradients are valid, False if overflow detected
+        """
+        has_overflow = False
+        inv_scale = 1.0 / self.scale
+
+        for group in optimizer.param_groups:
+            for param in group['params']:
+                if param.grad is not None:
+                    param.grad.data.mul_(inv_scale)
+
+                    # Check for inf/nan
+                    if torch.isnan(param.grad).any() or torch.isinf(param.grad).any():
+                        has_overflow = True
+                        break
+
+            if has_overflow:
+                break
+
+        return not has_overflow
+
+    def update(self, overflow: bool) -> None:
+        """Update scale based on overflow status."""
+        self._step_count += 1
+
+        if overflow:
+            # Reduce scale on overflow
+            self.scale = max(self.min_scale, self.scale * self.backoff_factor)
+            self._growth_tracker = 0
+            self._overflow_count += 1
+            self._scale_history.append((self._step_count, self.scale))
+            logger.debug(f"Loss scale reduced to {self.scale} due to overflow")
+        else:
+            # Potentially increase scale
+            self._growth_tracker += 1
+            if self._growth_tracker >= self.growth_interval:
+                self.scale = min(self.max_scale, self.scale * self.growth_factor)
+                self._growth_tracker = 0
+                self._scale_history.append((self._step_count, self.scale))
+                logger.debug(f"Loss scale increased to {self.scale}")
+
+    def step(self, optimizer: optim.Optimizer, closure: Optional[Callable] = None) -> bool:
+        """
+        Perform optimizer step with loss scaling.
+
+        Returns:
+            True if step was successful, False if skipped due to overflow
+        """
+        # Unscale and check for overflow
+        valid = self.unscale_gradients(optimizer)
+
+        if valid:
+            if closure is not None:
+                optimizer.step(closure)
+            else:
+                optimizer.step()
+            self.update(overflow=False)
+            return True
+        else:
+            # Skip step and reduce scale
+            optimizer.zero_grad()
+            self.update(overflow=True)
+            return False
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get scaler statistics."""
+        return {
+            'current_scale': self.scale,
+            'overflow_count': self._overflow_count,
+            'growth_tracker': self._growth_tracker,
+            'scale_history': self._scale_history[-20:],
+            'overflow_rate': self._overflow_count / max(1, self._step_count),
+        }
+
+
+class ZeROOptimizer:
+    """
+    ZeRO (Zero Redundancy Optimizer) style optimizer wrapper.
+
+    Implements ZeRO Stage 1: Optimizer state partitioning across GPUs.
+    For full ZeRO, consider using DeepSpeed or FSDP.
+    """
+
+    def __init__(
+        self,
+        optimizer: optim.Optimizer,
+        world_size: int = 1,
+        rank: int = 0,
+        overlap_communication: bool = True,
+    ):
+        self.optimizer = optimizer
+        self.world_size = world_size
+        self.rank = rank
+        self.overlap_communication = overlap_communication
+
+        self._param_to_partition: Dict[int, int] = {}
+        self._partition_params: Dict[int, List[torch.Tensor]] = {}
+
+        if world_size > 1:
+            self._partition_parameters()
+
+    def _partition_parameters(self) -> None:
+        """Partition parameters across ranks."""
+        all_params = []
+        for group in self.optimizer.param_groups:
+            all_params.extend(group['params'])
+
+        # Distribute parameters round-robin
+        for i, param in enumerate(all_params):
+            partition = i % self.world_size
+            self._param_to_partition[id(param)] = partition
+
+            if partition not in self._partition_params:
+                self._partition_params[partition] = []
+            self._partition_params[partition].append(param)
+
+    def step(self, closure: Optional[Callable] = None) -> None:
+        """Perform optimizer step with state partitioning."""
+        if self.world_size == 1:
+            self.optimizer.step(closure)
+            return
+
+        import torch.distributed as dist
+
+        # Only update parameters in our partition
+        my_params = self._partition_params.get(self.rank, [])
+
+        # Zero gradients for parameters not in our partition
+        for group in self.optimizer.param_groups:
+            for param in group['params']:
+                if id(param) not in [id(p) for p in my_params]:
+                    if param.grad is not None:
+                        param.grad.zero_()
+
+        # Step optimizer
+        self.optimizer.step(closure)
+
+        # All-gather updated parameters
+        for partition_rank in range(self.world_size):
+            partition_params = self._partition_params.get(partition_rank, [])
+            for param in partition_params:
+                dist.broadcast(param.data, src=partition_rank)
+
+    def zero_grad(self, set_to_none: bool = False) -> None:
+        """Zero gradients."""
+        self.optimizer.zero_grad(set_to_none=set_to_none)
+
+    @property
+    def param_groups(self):
+        return self.optimizer.param_groups
+
+
+class ElasticTrainingManager:
+    """
+    Elastic training manager for dynamic worker scaling.
+
+    Handles:
+    - Worker joins/leaves during training
+    - Checkpoint save/restore for elasticity
+    - Batch size adjustment based on worker count
+    """
+
+    def __init__(
+        self,
+        min_workers: int = 1,
+        max_workers: int = 8,
+        checkpoint_dir: Path = Path("checkpoints/elastic"),
+        heartbeat_interval: float = 30.0,
+    ):
+        self.min_workers = min_workers
+        self.max_workers = max_workers
+        self.checkpoint_dir = Path(checkpoint_dir)
+        self.heartbeat_interval = heartbeat_interval
+
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+        self._current_workers = 1
+        self._worker_history: List[Tuple[float, int]] = []
+        self._last_checkpoint_step = 0
+
+    def register_worker(self, worker_id: str) -> int:
+        """Register a new worker joining training."""
+        self._current_workers = min(self._current_workers + 1, self.max_workers)
+        self._worker_history.append((time.time(), self._current_workers))
+        logger.info(f"Worker {worker_id} joined. Total workers: {self._current_workers}")
+        return self._current_workers
+
+    def remove_worker(self, worker_id: str) -> int:
+        """Remove a worker that left training."""
+        self._current_workers = max(self._current_workers - 1, self.min_workers)
+        self._worker_history.append((time.time(), self._current_workers))
+        logger.info(f"Worker {worker_id} left. Total workers: {self._current_workers}")
+        return self._current_workers
+
+    def save_elastic_checkpoint(
+        self,
+        model: nn.Module,
+        optimizer: optim.Optimizer,
+        step: int,
+        extra: Optional[Dict] = None,
+    ) -> Path:
+        """Save checkpoint for elastic recovery."""
+        checkpoint_path = self.checkpoint_dir / f"elastic_step_{step}.pt"
+
+        checkpoint = {
+            'step': step,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'workers': self._current_workers,
+            'timestamp': time.time(),
+        }
+
+        if extra:
+            checkpoint.update(extra)
+
+        torch.save(checkpoint, checkpoint_path)
+        self._last_checkpoint_step = step
+
+        # Clean old checkpoints (keep last 3)
+        checkpoints = sorted(self.checkpoint_dir.glob("elastic_step_*.pt"))
+        for old_ckpt in checkpoints[:-3]:
+            old_ckpt.unlink()
+
+        return checkpoint_path
+
+    def load_elastic_checkpoint(
+        self,
+        model: nn.Module,
+        optimizer: optim.Optimizer,
+    ) -> Optional[int]:
+        """Load latest elastic checkpoint."""
+        checkpoints = sorted(self.checkpoint_dir.glob("elastic_step_*.pt"))
+
+        if not checkpoints:
+            return None
+
+        latest = checkpoints[-1]
+        checkpoint = torch.load(latest, map_location='cpu')
+
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+        logger.info(f"Loaded elastic checkpoint from step {checkpoint['step']}")
+        return checkpoint['step']
+
+    def get_effective_batch_size(self, base_batch_size: int) -> int:
+        """Get batch size adjusted for current worker count."""
+        return base_batch_size * self._current_workers
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get elastic training statistics."""
+        return {
+            'current_workers': self._current_workers,
+            'worker_history': self._worker_history[-20:],
+            'last_checkpoint_step': self._last_checkpoint_step,
+        }
+
+
+class StreamingNPZLoader:
+    """
+    Streaming NPZ loader for large datasets that don't fit in memory.
+
+    Supports:
+    - Local file streaming
+    - S3/GCS URLs (requires boto3/google-cloud-storage)
+    - Chunked loading with prefetching
+    """
+
+    def __init__(
+        self,
+        paths: List[str],
+        chunk_size: int = 10000,
+        prefetch_chunks: int = 2,
+        shuffle: bool = True,
+        seed: int = 42,
+    ):
+        self.paths = paths
+        self.chunk_size = chunk_size
+        self.prefetch_chunks = prefetch_chunks
+        self.shuffle = shuffle
+        self.seed = seed
+
+        self._rng = np.random.RandomState(seed)
+        self._current_chunk: Optional[Dict[str, np.ndarray]] = None
+        self._chunk_idx = 0
+        self._file_idx = 0
+        self._total_samples = 0
+
+        # Scan files for total size
+        self._scan_files()
+
+    def _scan_files(self) -> None:
+        """Scan files to determine total dataset size."""
+        for path in self.paths:
+            if path.startswith('s3://') or path.startswith('gs://'):
+                # For cloud storage, we'd need to fetch metadata
+                # For now, estimate based on file size
+                self._total_samples += 100000
+            else:
+                try:
+                    with np.load(path, allow_pickle=True) as data:
+                        if 'features' in data:
+                            self._total_samples += len(data['features'])
+                except Exception as e:
+                    logger.warning(f"Could not scan {path}: {e}")
+
+    def _load_chunk(self, path: str, start: int, end: int) -> Dict[str, np.ndarray]:
+        """Load a chunk from file."""
+        if path.startswith('s3://'):
+            return self._load_s3_chunk(path, start, end)
+        elif path.startswith('gs://'):
+            return self._load_gcs_chunk(path, start, end)
+        else:
+            return self._load_local_chunk(path, start, end)
+
+    def _load_local_chunk(self, path: str, start: int, end: int) -> Dict[str, np.ndarray]:
+        """Load chunk from local file."""
+        with np.load(path, allow_pickle=True) as data:
+            chunk = {}
+            for key in data.files:
+                arr = data[key]
+                if len(arr) > start:
+                    chunk[key] = arr[start:min(end, len(arr))]
+            return chunk
+
+    def _load_s3_chunk(self, path: str, start: int, end: int) -> Dict[str, np.ndarray]:
+        """Load chunk from S3."""
+        try:
+            import boto3
+            import io
+
+            # Parse S3 path
+            path = path[5:]  # Remove s3://
+            bucket, key = path.split('/', 1)
+
+            s3 = boto3.client('s3')
+            response = s3.get_object(Bucket=bucket, Key=key)
+
+            # Load NPZ from bytes
+            with np.load(io.BytesIO(response['Body'].read()), allow_pickle=True) as data:
+                chunk = {}
+                for k in data.files:
+                    arr = data[k]
+                    if len(arr) > start:
+                        chunk[k] = arr[start:min(end, len(arr))]
+                return chunk
+        except ImportError:
+            logger.error("boto3 required for S3 streaming")
+            return {}
+
+    def _load_gcs_chunk(self, path: str, start: int, end: int) -> Dict[str, np.ndarray]:
+        """Load chunk from Google Cloud Storage."""
+        try:
+            from google.cloud import storage
+            import io
+
+            # Parse GCS path
+            path = path[5:]  # Remove gs://
+            bucket_name, blob_name = path.split('/', 1)
+
+            client = storage.Client()
+            bucket = client.bucket(bucket_name)
+            blob = bucket.blob(blob_name)
+
+            with np.load(io.BytesIO(blob.download_as_bytes()), allow_pickle=True) as data:
+                chunk = {}
+                for k in data.files:
+                    arr = data[k]
+                    if len(arr) > start:
+                        chunk[k] = arr[start:min(end, len(arr))]
+                return chunk
+        except ImportError:
+            logger.error("google-cloud-storage required for GCS streaming")
+            return {}
+
+    def __iter__(self):
+        """Iterate over chunks."""
+        if self.shuffle:
+            self._rng.shuffle(self.paths)
+
+        for path in self.paths:
+            offset = 0
+            while True:
+                chunk = self._load_chunk(path, offset, offset + self.chunk_size)
+                if not chunk or not any(len(v) > 0 for v in chunk.values()):
+                    break
+                yield chunk
+                offset += self.chunk_size
+
+    def __len__(self) -> int:
+        """Return total number of samples."""
+        return self._total_samples
+
+
+class TrainingProfiler:
+    """
+    Training profiler with PyTorch Profiler and TensorBoard integration.
+
+    Captures:
+    - GPU/CPU time per operation
+    - Memory allocation timeline
+    - Data loading bottlenecks
+    - Kernel execution traces
+    """
+
+    def __init__(
+        self,
+        log_dir: Path = Path("runs/profile"),
+        profile_memory: bool = True,
+        profile_shapes: bool = True,
+        record_shapes: bool = True,
+        with_stack: bool = False,
+        schedule_wait: int = 1,
+        schedule_warmup: int = 1,
+        schedule_active: int = 3,
+        schedule_repeat: int = 2,
+    ):
+        self.log_dir = Path(log_dir)
+        self.profile_memory = profile_memory
+        self.profile_shapes = profile_shapes
+        self.record_shapes = record_shapes
+        self.with_stack = with_stack
+        self.schedule_wait = schedule_wait
+        self.schedule_warmup = schedule_warmup
+        self.schedule_active = schedule_active
+        self.schedule_repeat = schedule_repeat
+
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+
+        self._profiler: Optional[torch.profiler.profile] = None
+        self._step_count = 0
+        self._profile_results: List[Dict] = []
+
+    def create_profiler(self) -> torch.profiler.profile:
+        """Create and return a PyTorch profiler."""
+        schedule = torch.profiler.schedule(
+            wait=self.schedule_wait,
+            warmup=self.schedule_warmup,
+            active=self.schedule_active,
+            repeat=self.schedule_repeat,
+        )
+
+        activities = [torch.profiler.ProfilerActivity.CPU]
+        if torch.cuda.is_available():
+            activities.append(torch.profiler.ProfilerActivity.CUDA)
+
+        self._profiler = torch.profiler.profile(
+            activities=activities,
+            schedule=schedule,
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(str(self.log_dir)),
+            record_shapes=self.record_shapes,
+            profile_memory=self.profile_memory,
+            with_stack=self.with_stack,
+        )
+
+        return self._profiler
+
+    def step(self) -> None:
+        """Step the profiler."""
+        if self._profiler is not None:
+            self._profiler.step()
+            self._step_count += 1
+
+    def get_summary(self) -> Dict[str, Any]:
+        """Get profiling summary."""
+        if self._profiler is None:
+            return {}
+
+        # Get key averages
+        try:
+            key_averages = self._profiler.key_averages()
+
+            top_ops = []
+            for event in sorted(key_averages, key=lambda x: x.cuda_time_total, reverse=True)[:10]:
+                top_ops.append({
+                    'name': event.key,
+                    'cuda_time_ms': event.cuda_time_total / 1000,
+                    'cpu_time_ms': event.cpu_time_total / 1000,
+                    'calls': event.count,
+                })
+
+            return {
+                'top_operations': top_ops,
+                'total_steps': self._step_count,
+                'log_dir': str(self.log_dir),
+            }
+        except Exception as e:
+            logger.warning(f"Could not generate profile summary: {e}")
+            return {}
+
+    def export_chrome_trace(self, path: Optional[Path] = None) -> Path:
+        """Export trace for Chrome tracing."""
+        if self._profiler is None:
+            raise RuntimeError("Profiler not created")
+
+        path = path or self.log_dir / f"trace_{self._step_count}.json"
+        self._profiler.export_chrome_trace(str(path))
+        return path
+
+
+class ABModelTester:
+    """
+    A/B testing framework for comparing model variants.
+
+    Provides statistical comparison of:
+    - Win rates
+    - Elo differences
+    - Loss distributions
+    """
+
+    def __init__(
+        self,
+        confidence_level: float = 0.95,
+        min_games: int = 100,
+        elo_k_factor: float = 32.0,
+    ):
+        self.confidence_level = confidence_level
+        self.min_games = min_games
+        self.elo_k_factor = elo_k_factor
+
+        self._results: Dict[str, List[Dict]] = {}
+        self._elo_ratings: Dict[str, float] = {}
+
+    def register_model(self, model_id: str, initial_elo: float = 1500.0) -> None:
+        """Register a model for A/B testing."""
+        self._results[model_id] = []
+        self._elo_ratings[model_id] = initial_elo
+
+    def record_game(
+        self,
+        model_a: str,
+        model_b: str,
+        winner: str,  # model_a, model_b, or draw
+        game_length: int = 0,
+        extra: Optional[Dict] = None,
+    ) -> None:
+        """Record a game result."""
+        result = {
+            'model_a': model_a,
+            'model_b': model_b,
+            'winner': winner,
+            'game_length': game_length,
+            'timestamp': time.time(),
+        }
+        if extra:
+            result.update(extra)
+
+        self._results.setdefault(model_a, []).append(result)
+        self._results.setdefault(model_b, []).append(result)
+
+        # Update Elo ratings
+        self._update_elo(model_a, model_b, winner)
+
+    def _update_elo(self, model_a: str, model_b: str, winner: str) -> None:
+        """Update Elo ratings based on game result."""
+        elo_a = self._elo_ratings.get(model_a, 1500.0)
+        elo_b = self._elo_ratings.get(model_b, 1500.0)
+
+        expected_a = 1 / (1 + 10 ** ((elo_b - elo_a) / 400))
+        expected_b = 1 - expected_a
+
+        if winner == model_a:
+            actual_a, actual_b = 1.0, 0.0
+        elif winner == model_b:
+            actual_a, actual_b = 0.0, 1.0
+        else:  # draw
+            actual_a, actual_b = 0.5, 0.5
+
+        self._elo_ratings[model_a] = elo_a + self.elo_k_factor * (actual_a - expected_a)
+        self._elo_ratings[model_b] = elo_b + self.elo_k_factor * (actual_b - expected_b)
+
+    def get_comparison(self, model_a: str, model_b: str) -> Dict[str, Any]:
+        """Get statistical comparison between two models."""
+        # Find head-to-head games
+        h2h_games = [
+            r for r in self._results.get(model_a, [])
+            if r['model_b'] == model_b or r['model_a'] == model_b
+        ]
+
+        if len(h2h_games) < self.min_games:
+            return {
+                'status': 'insufficient_data',
+                'games_played': len(h2h_games),
+                'min_required': self.min_games,
+            }
+
+        # Calculate win rates
+        wins_a = sum(1 for g in h2h_games if g['winner'] == model_a)
+        wins_b = sum(1 for g in h2h_games if g['winner'] == model_b)
+        draws = len(h2h_games) - wins_a - wins_b
+
+        win_rate_a = wins_a / len(h2h_games)
+        win_rate_b = wins_b / len(h2h_games)
+
+        # Wilson score confidence interval
+        ci_low_a, ci_high_a = self._wilson_ci(wins_a, len(h2h_games))
+        ci_low_b, ci_high_b = self._wilson_ci(wins_b, len(h2h_games))
+
+        # Statistical significance
+        is_significant = ci_high_a < ci_low_b or ci_high_b < ci_low_a
+
+        return {
+            'status': 'complete',
+            'games_played': len(h2h_games),
+            'model_a': {
+                'id': model_a,
+                'wins': wins_a,
+                'win_rate': win_rate_a,
+                'ci_low': ci_low_a,
+                'ci_high': ci_high_a,
+                'elo': self._elo_ratings.get(model_a, 1500.0),
+            },
+            'model_b': {
+                'id': model_b,
+                'wins': wins_b,
+                'win_rate': win_rate_b,
+                'ci_low': ci_low_b,
+                'ci_high': ci_high_b,
+                'elo': self._elo_ratings.get(model_b, 1500.0),
+            },
+            'draws': draws,
+            'is_significant': is_significant,
+            'elo_difference': self._elo_ratings.get(model_a, 1500.0) - self._elo_ratings.get(model_b, 1500.0),
+        }
+
+    def _wilson_ci(self, successes: int, total: int) -> Tuple[float, float]:
+        """Calculate Wilson score confidence interval."""
+        import scipy.stats as stats
+
+        if total == 0:
+            return 0.0, 1.0
+
+        p = successes / total
+        z = stats.norm.ppf(1 - (1 - self.confidence_level) / 2)
+
+        denominator = 1 + z**2 / total
+        center = (p + z**2 / (2 * total)) / denominator
+        spread = z * math.sqrt((p * (1 - p) + z**2 / (4 * total)) / total) / denominator
+
+        return max(0.0, center - spread), min(1.0, center + spread)
+
+    def get_leaderboard(self) -> List[Dict[str, Any]]:
+        """Get sorted leaderboard of all models."""
+        leaderboard = []
+        for model_id, elo in sorted(self._elo_ratings.items(), key=lambda x: -x[1]):
+            games = self._results.get(model_id, [])
+            wins = sum(1 for g in games if g['winner'] == model_id)
+            leaderboard.append({
+                'model_id': model_id,
+                'elo': elo,
+                'games': len(games),
+                'wins': wins,
+                'win_rate': wins / max(1, len(games)),
+            })
+        return leaderboard
+
+
+def create_phase5_production_suite(
+    model: nn.Module,
+    optimizer: optim.Optimizer,
+    device: torch.device,
+    save_dir: Path = Path("checkpoints"),
+    enable_gradient_accumulation: bool = True,
+    enable_activation_checkpointing: bool = False,
+    enable_profiling: bool = False,
+    enable_ab_testing: bool = True,
+    distributed_world_size: int = 1,
+    distributed_rank: int = 0,
+) -> Dict[str, Any]:
+    """
+    Create Phase 5 production optimization suite.
+
+    Args:
+        model: Model to train
+        optimizer: Optimizer
+        device: Training device
+        save_dir: Directory for checkpoints
+        enable_*: Flags to enable specific features
+        distributed_*: Distributed training settings
+
+    Returns:
+        Dictionary of Phase 5 utility objects
+    """
+    suite = {}
+
+    if enable_gradient_accumulation:
+        suite['accumulation_scheduler'] = GradientAccumulationScheduler()
+
+    if enable_activation_checkpointing:
+        checkpoint_mgr = ActivationCheckpointingManager(model)
+        checkpoint_mgr.analyze_model()
+        suite['activation_checkpointing'] = checkpoint_mgr
+
+    if enable_profiling:
+        profiler = TrainingProfiler(log_dir=save_dir / "profile")
+        suite['profiler'] = profiler
+
+    if enable_ab_testing:
+        suite['ab_tester'] = ABModelTester()
+
+    # Memory efficient attention helper
+    suite['memory_efficient_attention'] = MemoryEfficientAttention()
+
+    # Dynamic loss scaler for mixed precision
+    suite['loss_scaler'] = DynamicLossScaler()
+
+    # Elastic training support
+    suite['elastic_manager'] = ElasticTrainingManager(checkpoint_dir=save_dir / "elastic")
+
+    # Distributed training if multiple GPUs
+    if distributed_world_size > 1:
+        ddp_manager = DistributedDataParallelManager()
+        suite['ddp_manager'] = ddp_manager
+
+    # ZeRO optimizer wrapper for memory efficiency
+    if distributed_world_size > 1:
+        suite['zero_optimizer'] = ZeROOptimizer(
+            optimizer,
+            world_size=distributed_world_size,
+            rank=distributed_rank,
+        )
+
+    return suite
