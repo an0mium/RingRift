@@ -64,9 +64,47 @@ AI_TYPE_CONFIGS = {**AI_TYPE_CONFIGS_LIGHTWEIGHT, **AI_TYPE_CONFIGS_HEAVYWEIGHT}
 # Cluster configuration
 LEADER_TAILSCALE_IP = "100.78.101.123"  # lambda-h100
 LEADER_PORT = 8770
+AUTH_TOKEN_ENV = "RINGRIFT_CLUSTER_AUTH_TOKEN"
+AUTH_TOKEN_FILE_ENV = "RINGRIFT_CLUSTER_AUTH_TOKEN_FILE"
 
 # Host configurations - loaded dynamically from config + Vast.ai discovery
 SSH_HOSTS = {}  # Populated at runtime
+
+
+def get_auth_token() -> Optional[str]:
+    """Get auth token from environment or file."""
+    # Try env var first
+    token = os.environ.get(AUTH_TOKEN_ENV, "").strip()
+    if token:
+        return token
+
+    # Try token file
+    token_file = os.environ.get(AUTH_TOKEN_FILE_ENV, "").strip()
+    if token_file and os.path.exists(token_file):
+        try:
+            with open(token_file) as f:
+                return f.read().strip()
+        except Exception:
+            pass
+
+    # Try default token file locations
+    for path in ["/etc/ringrift/p2p_orchestrator.token", os.path.expanduser("~/.ringrift/p2p_orchestrator.token")]:
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    return f.read().strip()
+            except Exception:
+                pass
+
+    return None
+
+
+def get_auth_headers() -> Dict[str, str]:
+    """Get authorization headers for P2P requests."""
+    token = get_auth_token()
+    if token:
+        return {"Authorization": f"Bearer {token}"}
+    return {}
 
 
 def load_hosts_from_config() -> Dict[str, dict]:
@@ -379,7 +417,8 @@ def discover_healthy_nodes(max_workers: int = 20) -> Tuple[List[NodeStatus], Dic
                 if status.can_run_tournament:
                     healthy_nodes.append(status)
                     gpu = config.get("gpu", "CPU")
-                    print(f"  ✓ {status.node_id:<25} P2P OK  jobs={status.selfplay_jobs:<3}  {gpu}")
+                    ip = config.get("ip", "?")
+                    print(f"  ✓ {status.node_id:<25} P2P OK  jobs={status.selfplay_jobs:<3}  {gpu}  ({ip})")
                 else:
                     reason = "No P2P" if not status.has_p2p else "Unreachable"
                     # Only print failures for config hosts (not vast discovery misses)
@@ -470,10 +509,12 @@ def run_match_via_p2p(
     for attempt in range(max_retries):
         try:
             data = json.dumps(payload).encode('utf-8')
+            headers = {'Content-Type': 'application/json'}
+            headers.update(get_auth_headers())
             req = urllib.request.Request(
                 url,
                 data=data,
-                headers={'Content-Type': 'application/json'},
+                headers=headers,
                 method='POST'
             )
 
@@ -836,6 +877,9 @@ def run_distributed_tournament(
                     error_key = error[:50] if error else "Unknown"
                     error_counts[error_key] += 1
                     node_failures[node.node_id] += 1
+                    # Debug: print first few failures and all unique error types
+                    if failed <= 5 or error_key not in list(error_counts.keys())[:10]:
+                        print(f"  [FAIL] {node.node_id}: {agent_a} vs {agent_b} - {error[:100] if error else 'Unknown'}")
 
                     # Disable node if too many failures
                     if node_failures[node.node_id] >= max_node_failures:
