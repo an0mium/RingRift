@@ -39,8 +39,9 @@ hosts:
 **Memory requirements by board type:**
 
 - **square8**: 8GB minimum
+- **hex8**: 8GB minimum (radius-4, 61 cells)
 - **square19**: 48GB minimum
-- **hexagonal**: 48GB minimum
+- **hexagonal**: 48GB minimum (radius-12, 469 cells)
 
 ## Quick Start
 

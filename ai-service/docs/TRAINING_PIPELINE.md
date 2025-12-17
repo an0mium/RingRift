@@ -76,10 +76,10 @@ python scripts/unified_data_sync.py --source vast --dest local
 ```bash
 python3 scripts/aggregate_jsonl_to_db.py \
     --input-dir data/selfplay \
-    --output-db data/games/all_jsonl_training.db
+    --output-db data/games/cluster_merged.db
 ```
 
-**Output**: `data/games/all_jsonl_training.db`
+**Output**: `data/games/cluster_merged.db` (or config-specific DBs like `hex8_2p.db`)
 
 ### 4. NPZ Export
 

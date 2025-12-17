@@ -475,10 +475,10 @@ ai-service/
 │   │   ├── game_replay.py          # GameReplayDB (SQLite-backed)
 │   │   └── recording.py            # Game recording helpers
 │   └── distributed/                # Distributed computing
-├── scripts/                        # CLI tools (~196 scripts)
+├── scripts/                        # CLI tools (~380+ scripts)
 │   ├── unified_ai_loop.py          # **Canonical** self-improvement loop
-│   ├── cluster_orchestrator.py     # Distributed cluster coordination
-│   ├── pipeline_orchestrator.py    # CI/CD pipeline orchestration
+│   ├── p2p_orchestrator.py         # Distributed P2P cluster coordination
+│   ├── multi_config_training_loop.py # Multi-board training coordinator
 │   ├── model_promotion_manager.py  # Model promotion with Elo validation
 │   ├── run_cmaes_optimization.py   # CMA-ES heuristic optimization
 │   ├── run_self_play_soak.py       # Self-play game generation

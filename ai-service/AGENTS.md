@@ -33,6 +33,7 @@ must conform to them and to the TS engine, not vice versa.
   - Canonical DBs are named `canonical_<board>.db` or `canonical_<board>_<players>p.db`, e.g.:
     - `canonical_square8.db`, `canonical_square8_2p.db`, `canonical_square8_3p.db`, `canonical_square8_4p.db`
     - `canonical_square19.db`
+    - `canonical_hex8.db` (radius-4 geometry, 9×9 grid, 61 cells)
     - `canonical_hex.db` (radius-12 geometry, 25×25 grid, 469 cells)
   - Their status and provenance are documented in:
     - `ai-service/TRAINING_DATA_REGISTRY.md`

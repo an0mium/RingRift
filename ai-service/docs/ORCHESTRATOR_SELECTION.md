@@ -2,13 +2,13 @@
 
 ## Quick Reference
 
-| Use Case               | Script                         | When to Use                                    |
-| ---------------------- | ------------------------------ | ---------------------------------------------- |
-| **Full AI Loop**       | `unified_ai_loop.py`           | Production deployment, continuous improvement  |
-| **Cluster Management** | `cluster_orchestrator.py`      | Multi-node coordination, distributed selfplay  |
-| **P2P Matchmaking**    | `p2p_orchestrator.py`          | Development, human-vs-AI games, casual testing |
-| **CI/CD Pipeline**     | ~~`pipeline_orchestrator.py`~~ | ⚠️ Deprecated - use `unified_ai_loop.py`       |
-| **Model Promotion**    | `model_promotion_manager.py`   | Manual promotion, Elo testing, rollback        |
+| Use Case              | Script                          | When to Use                                       |
+| --------------------- | ------------------------------- | ------------------------------------------------- |
+| **Full AI Loop**      | `unified_ai_loop.py`            | Production deployment, continuous improvement     |
+| **P2P Cluster**       | `p2p_orchestrator.py`           | Multi-node P2P coordination, distributed selfplay |
+| **Multi-Board Train** | `multi_config_training_loop.py` | Train across hex8/square8/square19 configs        |
+| **Elo Tournament**    | `auto_elo_tournament.py`        | Automated Elo evaluation with Slack alerts        |
+| **Model Promotion**   | `model_promotion_manager.py`    | Manual promotion, Elo testing, rollback           |
 
 ---
 

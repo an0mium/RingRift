@@ -207,10 +207,169 @@ curl http://localhost:6800/jsonrpc \
 2. Test RPC: `curl http://localhost:6800/jsonrpc -d '{"jsonrpc":"2.0","method":"aria2.getVersion","id":1}'`
 3. Check data server: `curl http://localhost:8766/`
 
+## Keepalive Manager
+
+The keepalive manager prevents idle termination and maintains instance health.
+
+**Script:** `scripts/vast_keepalive.py`
+
+### Usage
+
+```bash
+# Check status of all instances
+python scripts/vast_keepalive.py --status
+
+# Send keepalive to all instances
+python scripts/vast_keepalive.py --keepalive
+
+# Restart stopped instances
+python scripts/vast_keepalive.py --restart-stopped
+
+# Full automation cycle (status + keepalive + restart + fix unhealthy)
+python scripts/vast_keepalive.py --auto
+
+# Install cron job (runs every 15 minutes)
+python scripts/vast_keepalive.py --install-cron
+```
+
+### What It Does
+
+1. **Status Check:** Monitors instance reachability, Tailscale IPs, P2P status
+2. **Keepalive:** Sends commands to prevent idle termination
+3. **Worker Management:** Restarts stopped selfplay workers
+4. **Code Sync:** Syncs code on unhealthy instances
+5. **P2P Recovery:** Ensures P2P orchestrator is running
+
+### Cron Schedule
+
+Recommended: Every 15-30 minutes
+
+```bash
+*/15 * * * * cd ~/ringrift/ai-service && python scripts/vast_keepalive.py --auto >> logs/vast_keepalive_cron.log 2>&1
+```
+
+### Logs
+
+- Main log: `logs/vast_keepalive.log`
+- Cron log: `logs/vast_keepalive_cron.log`
+
+---
+
+## P2P Sync System
+
+Synchronizes Vast instance state with P2P network membership.
+
+**Script:** `scripts/vast_p2p_sync.py`
+
+### Usage
+
+```bash
+# Check status only
+python scripts/vast_p2p_sync.py --check
+
+# Sync and unretire active instances in P2P network
+python scripts/vast_p2p_sync.py --sync
+
+# Start P2P orchestrator on instances missing it
+python scripts/vast_p2p_sync.py --start-p2p
+
+# Full sync (check + sync + start)
+python scripts/vast_p2p_sync.py --full
+
+# Update distributed_hosts.yaml with current IPs
+python scripts/vast_p2p_sync.py --update-config
+
+# Provision N new instances
+python scripts/vast_p2p_sync.py --provision 3
+```
+
+### What It Does
+
+1. **Instance Discovery:** Gets active instances from vastai CLI
+2. **P2P Comparison:** Compares with P2P network retired nodes
+3. **Unretire:** Calls `/admin/unretire` for nodes matching active instances
+4. **P2P Startup:** Starts P2P orchestrator on instances without it
+5. **Config Update:** Updates `config/distributed_hosts.yaml`
+6. **Provisioning:** Auto-provisions instances based on GPU preferences
+
+### Admin Endpoints Used
+
+```bash
+# Unretire a node
+curl -X POST http://localhost:8770/admin/unretire/vast-28928169
+
+# Get retired nodes
+curl http://localhost:8770/cluster/retired
+```
+
+### GPU Role Mapping
+
+The sync system automatically assigns roles based on GPU type:
+
+| GPU                   | Role                  | Use Case                         |
+| --------------------- | --------------------- | -------------------------------- |
+| RTX 3070, 3060, 2060S | `gpu_selfplay`        | Self-play data generation        |
+| RTX 4060 Ti, 4080S    | `gpu_selfplay`        | Self-play with larger boards     |
+| RTX 5070, 5080, 5090  | `nn_training_primary` | Neural network training          |
+| A10, A40, H100        | `nn_training_primary` | Training + large batch inference |
+
+### Auto-Provisioning
+
+Provision instances with preferred GPU types:
+
+```bash
+# Provision 3 instances with best available GPUs
+python scripts/vast_p2p_sync.py --provision 3
+```
+
+GPU preference order:
+
+1. RTX 3070 (max $0.08/hr)
+2. RTX 3060 (max $0.06/hr)
+3. RTX 4060 Ti (max $0.12/hr)
+4. RTX 2080 Ti (max $0.10/hr)
+
+### Logs
+
+- Main log: `logs/vast_p2p_sync.log`
+
+---
+
+## Orchestrator Cron Integration
+
+The keepalive and P2P sync are integrated into a unified cron system.
+
+### Recommended Cron Setup
+
+```bash
+# Edit crontab
+crontab -e
+
+# Add these entries:
+# Keepalive every 15 minutes
+*/15 * * * * cd ~/ringrift/ai-service && python scripts/vast_keepalive.py --auto >> logs/vast_keepalive_cron.log 2>&1
+
+# P2P sync every 30 minutes
+*/30 * * * * cd ~/ringrift/ai-service && python scripts/vast_p2p_sync.py --full >> logs/vast_p2p_sync_cron.log 2>&1
+
+# Config update hourly
+0 * * * * cd ~/ringrift/ai-service && python scripts/vast_p2p_sync.py --update-config >> logs/vast_config_cron.log 2>&1
+```
+
+### Install All Cron Jobs
+
+```bash
+python scripts/vast_keepalive.py --install-cron
+```
+
+---
+
 ## Related Files
 
 - `scripts/vast_p2p_setup.py` - Unified setup for SOCKS, aria2, P2P
 - `scripts/vast_lifecycle.py` - Instance lifecycle management
+- `scripts/vast_keepalive.py` - Keepalive manager (prevents idle termination)
+- `scripts/vast_p2p_sync.py` - P2P network synchronization
 - `scripts/p2p_orchestrator.py` - Main P2P orchestrator
 - `app/distributed/aria2_transport.py` - aria2 transport layer
 - `scripts/setup_cloudflare_tunnel.sh` - Cloudflare tunnel setup

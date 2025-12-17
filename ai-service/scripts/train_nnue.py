@@ -1193,6 +1193,132 @@ class AdaptiveWarmup:
         return np.clip(warmup_epochs, self.min_warmup_epochs, self.max_warmup_epochs)
 
 
+class AdaptiveGradientClipper:
+    """Adaptive gradient clipping based on gradient norm history.
+
+    Automatically adjusts clipping threshold based on recent gradient statistics.
+    Prevents both gradient explosion and overly aggressive clipping.
+    """
+
+    def __init__(
+        self,
+        initial_max_norm: float = 1.0,
+        percentile: float = 90.0,
+        history_size: int = 100,
+        min_clip: float = 0.1,
+        max_clip: float = 10.0,
+    ):
+        self.current_max_norm = initial_max_norm
+        self.percentile = percentile
+        self.history_size = history_size
+        self.min_clip = min_clip
+        self.max_clip = max_clip
+        self.grad_norms: List[float] = []
+
+    def update_and_clip(self, parameters) -> float:
+        """Update history and clip gradients, returning the actual grad norm."""
+        total_norm = 0.0
+        for p in parameters:
+            if p.grad is not None:
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+        total_norm = total_norm ** 0.5
+
+        self.grad_norms.append(total_norm)
+        if len(self.grad_norms) > self.history_size:
+            self.grad_norms.pop(0)
+
+        if len(self.grad_norms) >= 10:
+            threshold = np.percentile(self.grad_norms, self.percentile)
+            self.current_max_norm = np.clip(threshold * 1.5, self.min_clip, self.max_clip)
+
+        torch.nn.utils.clip_grad_norm_(parameters, self.current_max_norm)
+        return total_norm
+
+    def get_stats(self) -> Dict[str, float]:
+        """Get current clipping statistics."""
+        return {
+            'current_clip_norm': self.current_max_norm,
+            'mean_grad_norm': np.mean(self.grad_norms) if self.grad_norms else 0,
+            'max_grad_norm': max(self.grad_norms) if self.grad_norms else 0,
+        }
+
+
+class Lookahead(optim.Optimizer):
+    """Lookahead optimizer wrapper for improved generalization.
+
+    Maintains slow weights updated from fast weights every k steps.
+    Reference: 'Lookahead Optimizer: k steps forward, 1 step back' (NeurIPS 2019)
+    """
+
+    def __init__(self, optimizer: optim.Optimizer, k: int = 5, alpha: float = 0.5):
+        self.optimizer = optimizer
+        self.k = k
+        self.alpha = alpha
+        self.param_groups = optimizer.param_groups
+        self.state = optimizer.state
+        self._step_count = 0
+        self.slow_weights = []
+        for group in self.param_groups:
+            slow_group = []
+            for p in group['params']:
+                if p.requires_grad:
+                    slow_group.append(p.data.clone())
+            self.slow_weights.append(slow_group)
+
+    def step(self, closure=None):
+        loss = self.optimizer.step(closure)
+        self._step_count += 1
+        if self._step_count % self.k == 0:
+            for group_idx, group in enumerate(self.param_groups):
+                slow_group = self.slow_weights[group_idx]
+                param_idx = 0
+                for p in group['params']:
+                    if p.requires_grad:
+                        slow = slow_group[param_idx]
+                        slow.add_(p.data - slow, alpha=self.alpha)
+                        p.data.copy_(slow)
+                        param_idx += 1
+        return loss
+
+    def state_dict(self):
+        return {'optimizer': self.optimizer.state_dict(), 'slow_weights': self.slow_weights, 'step_count': self._step_count}
+
+    def load_state_dict(self, state_dict):
+        self.optimizer.load_state_dict(state_dict['optimizer'])
+        self.slow_weights = state_dict['slow_weights']
+        self._step_count = state_dict['step_count']
+
+    def zero_grad(self):
+        self.optimizer.zero_grad()
+
+
+class GradientNoiseInjector:
+    """Gradient noise injection for escaping sharp minima.
+
+    Adds decreasing Gaussian noise to gradients during training.
+    Reference: 'Adding Gradient Noise Improves Learning' (2015)
+    """
+
+    def __init__(self, initial_variance: float = 0.01, gamma: float = 0.55, total_epochs: int = 100):
+        self.initial_variance = initial_variance
+        self.gamma = gamma
+        self.total_epochs = total_epochs
+
+    def get_noise_std(self, epoch: int) -> float:
+        variance = self.initial_variance / (1 + epoch) ** self.gamma
+        return variance ** 0.5
+
+    def add_noise(self, parameters, epoch: int) -> None:
+        std = self.get_noise_std(epoch)
+        if std < 1e-8:
+            return
+        for p in parameters:
+            if p.grad is not None:
+                noise = torch.randn_like(p.grad) * std
+                p.grad.add_(noise)
+
+
 class LARS(optim.Optimizer):
     """Layer-wise Adaptive Rate Scaling optimizer.
 
