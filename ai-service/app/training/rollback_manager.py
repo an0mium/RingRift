@@ -1,0 +1,474 @@
+"""Model Rollback Manager.
+
+Provides automated and manual rollback capabilities for production models.
+Monitors model performance and can trigger automatic rollbacks when
+performance degrades below thresholds.
+
+Features:
+- Manual rollback to any previous version
+- Automatic rollback on performance degradation
+- Rollback history tracking
+- Integration with model registry
+- Prometheus metrics for rollback events
+
+Usage:
+    from app.training.rollback_manager import RollbackManager
+
+    manager = RollbackManager(registry)
+
+    # Manual rollback
+    result = manager.rollback_model("square8_2p", reason="Performance issues")
+
+    # Check if rollback is needed
+    if manager.should_rollback("square8_2p"):
+        manager.rollback_model("square8_2p", reason="Auto-rollback: Elo degraded")
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from dataclasses import dataclass, field, asdict
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+AI_SERVICE_ROOT = Path(__file__).resolve().parents[2]
+ROLLBACK_HISTORY_PATH = AI_SERVICE_ROOT / "data" / "rollback_history.json"
+
+
+@dataclass
+class RollbackEvent:
+    """Record of a rollback event."""
+    model_id: str
+    from_version: int
+    to_version: int
+    reason: str
+    triggered_by: str  # "manual", "auto_elo", "auto_error", etc.
+    timestamp: str
+    from_metrics: Dict[str, Any] = field(default_factory=dict)
+    to_metrics: Dict[str, Any] = field(default_factory=dict)
+    success: bool = True
+    error_message: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "RollbackEvent":
+        return cls(**d)
+
+
+@dataclass
+class RollbackThresholds:
+    """Thresholds for automatic rollback triggers."""
+    elo_drop_threshold: float = 50.0  # Elo points drop to trigger rollback
+    elo_drop_window_hours: float = 24.0  # Time window to measure drop
+    win_rate_drop_threshold: float = 0.10  # 10% win rate drop
+    error_rate_threshold: float = 0.05  # 5% error rate
+    min_games_for_evaluation: int = 50  # Minimum games before evaluating
+
+
+class RollbackManager:
+    """Manages model rollbacks with automatic detection and history tracking."""
+
+    def __init__(
+        self,
+        registry,  # ModelRegistry instance
+        thresholds: Optional[RollbackThresholds] = None,
+        history_path: Optional[Path] = None,
+    ):
+        self.registry = registry
+        self.thresholds = thresholds or RollbackThresholds()
+        self.history_path = history_path or ROLLBACK_HISTORY_PATH
+        self._history: List[RollbackEvent] = []
+        self._load_history()
+
+        # Performance baseline cache (model_id -> metrics snapshot)
+        self._baselines: Dict[str, Dict[str, Any]] = {}
+
+    def _load_history(self):
+        """Load rollback history from disk."""
+        if self.history_path.exists():
+            try:
+                with open(self.history_path) as f:
+                    data = json.load(f)
+                    self._history = [RollbackEvent.from_dict(e) for e in data]
+            except Exception as e:
+                logger.warning(f"Failed to load rollback history: {e}")
+
+    def _save_history(self):
+        """Save rollback history to disk."""
+        try:
+            self.history_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.history_path, 'w') as f:
+                json.dump([e.to_dict() for e in self._history], f, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to save rollback history: {e}")
+
+    def set_baseline(self, model_id: str, metrics: Dict[str, Any]):
+        """Set performance baseline for a model.
+
+        Call this after promoting a model to production to establish
+        the expected performance level.
+        """
+        self._baselines[model_id] = {
+            "timestamp": datetime.now().isoformat(),
+            "elo": metrics.get("elo"),
+            "win_rate": metrics.get("win_rate"),
+            "games_played": metrics.get("games_played", 0),
+        }
+        logger.info(f"Set baseline for {model_id}: Elo={metrics.get('elo')}")
+
+    def check_performance(
+        self,
+        model_id: str,
+        current_metrics: Dict[str, Any],
+    ) -> Tuple[bool, str]:
+        """Check if current performance is acceptable.
+
+        Returns:
+            Tuple of (is_degraded, reason)
+        """
+        baseline = self._baselines.get(model_id)
+        if not baseline:
+            return False, "No baseline set"
+
+        # Need minimum games to evaluate
+        current_games = current_metrics.get("games_played", 0)
+        baseline_games = baseline.get("games_played", 0)
+        games_since_baseline = current_games - baseline_games
+
+        if games_since_baseline < self.thresholds.min_games_for_evaluation:
+            return False, f"Insufficient games ({games_since_baseline})"
+
+        # Check Elo drop
+        baseline_elo = baseline.get("elo")
+        current_elo = current_metrics.get("elo")
+
+        if baseline_elo and current_elo:
+            elo_drop = baseline_elo - current_elo
+            if elo_drop >= self.thresholds.elo_drop_threshold:
+                return True, f"Elo dropped by {elo_drop:.0f} (threshold: {self.thresholds.elo_drop_threshold})"
+
+        # Check win rate drop
+        baseline_wr = baseline.get("win_rate")
+        current_wr = current_metrics.get("win_rate")
+
+        if baseline_wr and current_wr:
+            wr_drop = baseline_wr - current_wr
+            if wr_drop >= self.thresholds.win_rate_drop_threshold:
+                return True, f"Win rate dropped by {wr_drop:.1%} (threshold: {self.thresholds.win_rate_drop_threshold:.1%})"
+
+        return False, "Performance within acceptable range"
+
+    def should_rollback(
+        self,
+        model_id: str,
+        current_metrics: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[bool, str]:
+        """Check if a rollback should be triggered for the model.
+
+        Args:
+            model_id: The model to check
+            current_metrics: Current performance metrics (if not provided,
+                           will be fetched from registry)
+
+        Returns:
+            Tuple of (should_rollback, reason)
+        """
+        # Get current production model
+        prod_model = self.registry.get_production_model()
+        if not prod_model or prod_model.model_id != model_id:
+            return False, "Model not in production"
+
+        # Get current metrics
+        if current_metrics is None:
+            current_metrics = prod_model.metrics.to_dict() if prod_model.metrics else {}
+
+        # Check for rollback candidates (archived versions)
+        from app.training.model_registry import ModelStage
+        archived = self.registry.list_models(stage=ModelStage.ARCHIVED)
+        candidates = [m for m in archived if m["model_id"] == model_id]
+
+        if not candidates:
+            return False, "No rollback candidates available"
+
+        # Check performance degradation
+        is_degraded, reason = self.check_performance(model_id, current_metrics)
+        if is_degraded:
+            return True, reason
+
+        return False, "No rollback needed"
+
+    def get_rollback_candidate(self, model_id: str) -> Optional[Dict[str, Any]]:
+        """Get the best candidate for rolling back to.
+
+        Returns the most recent archived version with good metrics.
+        """
+        from app.training.model_registry import ModelStage
+
+        archived = self.registry.list_models(stage=ModelStage.ARCHIVED)
+        candidates = [m for m in archived if m["model_id"] == model_id]
+
+        if not candidates:
+            return None
+
+        # Sort by version descending (most recent first)
+        candidates.sort(key=lambda x: x["version"], reverse=True)
+
+        # Prefer candidates with good metrics
+        for candidate in candidates:
+            metrics = candidate.get("metrics", {})
+            elo = metrics.get("elo")
+            if elo and elo > 0:
+                return candidate
+
+        # Fall back to most recent
+        return candidates[0] if candidates else None
+
+    def rollback_model(
+        self,
+        model_id: str,
+        to_version: Optional[int] = None,
+        reason: str = "Manual rollback",
+        triggered_by: str = "manual",
+    ) -> Dict[str, Any]:
+        """Execute a rollback to a previous version.
+
+        Args:
+            model_id: Model to rollback
+            to_version: Specific version to rollback to (None = auto-select)
+            reason: Reason for rollback
+            triggered_by: What triggered the rollback
+
+        Returns:
+            Result dict with success status and details
+        """
+        from app.training.model_registry import ModelStage
+
+        result = {
+            "success": False,
+            "model_id": model_id,
+            "reason": reason,
+        }
+
+        # Get current production model
+        prod_model = self.registry.get_production_model()
+        if not prod_model:
+            result["error"] = "No production model found"
+            return result
+
+        if prod_model.model_id != model_id:
+            # Check if any production model matches
+            all_prod = self.registry.list_models(stage=ModelStage.PRODUCTION)
+            prod_match = next((m for m in all_prod if m["model_id"] == model_id), None)
+            if not prod_match:
+                result["error"] = f"Model {model_id} is not in production"
+                return result
+            from_version = prod_match["version"]
+            from_metrics = prod_match.get("metrics", {})
+        else:
+            from_version = prod_model.version
+            from_metrics = prod_model.metrics.to_dict() if prod_model.metrics else {}
+
+        # Find rollback target
+        if to_version:
+            target = self.registry.get_model(model_id, to_version)
+            if not target:
+                result["error"] = f"Version {to_version} not found"
+                return result
+            target_dict = {
+                "model_id": target.model_id,
+                "version": target.version,
+                "metrics": target.metrics.to_dict() if target.metrics else {},
+            }
+        else:
+            target_dict = self.get_rollback_candidate(model_id)
+            if not target_dict:
+                result["error"] = "No rollback candidate found"
+                return result
+
+        target_version = target_dict["version"]
+        target_metrics = target_dict.get("metrics", {})
+
+        logger.info(
+            f"Rolling back {model_id} from v{from_version} to v{target_version}: {reason}"
+        )
+
+        try:
+            # Execute rollback through registry promotions
+            # First: restore archived model to development
+            target_model = self.registry.get_model(model_id, target_version)
+            if target_model.stage == ModelStage.ARCHIVED:
+                self.registry.promote(
+                    model_id,
+                    target_version,
+                    ModelStage.DEVELOPMENT,
+                    reason=f"Rollback: restoring from archive",
+                    promoted_by="rollback_manager",
+                )
+
+            # Then: move through staging
+            self.registry.promote(
+                model_id,
+                target_version,
+                ModelStage.STAGING,
+                reason=f"Rollback: staging for production",
+                promoted_by="rollback_manager",
+            )
+
+            # Finally: promote to production (archives current prod)
+            self.registry.promote(
+                model_id,
+                target_version,
+                ModelStage.PRODUCTION,
+                reason=f"Rollback: {reason}",
+                promoted_by="rollback_manager",
+            )
+
+            # Record rollback event
+            event = RollbackEvent(
+                model_id=model_id,
+                from_version=from_version,
+                to_version=target_version,
+                reason=reason,
+                triggered_by=triggered_by,
+                timestamp=datetime.now().isoformat(),
+                from_metrics=from_metrics,
+                to_metrics=target_metrics,
+                success=True,
+            )
+            self._history.append(event)
+            self._save_history()
+
+            # Clear baseline after rollback
+            if model_id in self._baselines:
+                del self._baselines[model_id]
+
+            # Emit Prometheus metric if available
+            self._emit_rollback_metric(model_id, triggered_by)
+
+            result["success"] = True
+            result["from_version"] = from_version
+            result["to_version"] = target_version
+            result["from_metrics"] = from_metrics
+            result["to_metrics"] = target_metrics
+
+            logger.info(f"Rollback successful: {model_id} v{from_version} -> v{target_version}")
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Rollback failed: {error_msg}")
+
+            # Record failed rollback
+            event = RollbackEvent(
+                model_id=model_id,
+                from_version=from_version,
+                to_version=target_version,
+                reason=reason,
+                triggered_by=triggered_by,
+                timestamp=datetime.now().isoformat(),
+                success=False,
+                error_message=error_msg,
+            )
+            self._history.append(event)
+            self._save_history()
+
+            result["error"] = error_msg
+
+        return result
+
+    def _emit_rollback_metric(self, model_id: str, triggered_by: str):
+        """Emit Prometheus metric for rollback event."""
+        try:
+            from prometheus_client import Counter, REGISTRY
+
+            # Try to get existing metric or create new
+            metric_name = "ringrift_model_rollbacks_total"
+            try:
+                metric = REGISTRY._names_to_collectors.get(metric_name)
+                if metric:
+                    metric.labels(model_id=model_id, trigger=triggered_by).inc()
+            except Exception:
+                pass
+        except ImportError:
+            pass
+
+    def get_rollback_history(
+        self,
+        model_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> List[RollbackEvent]:
+        """Get rollback history, optionally filtered by model."""
+        history = self._history
+        if model_id:
+            history = [e for e in history if e.model_id == model_id]
+
+        # Return most recent first
+        return sorted(history, key=lambda e: e.timestamp, reverse=True)[:limit]
+
+    def get_rollback_stats(self) -> Dict[str, Any]:
+        """Get statistics about rollbacks."""
+        total = len(self._history)
+        successful = sum(1 for e in self._history if e.success)
+        failed = total - successful
+
+        by_trigger = {}
+        for event in self._history:
+            trigger = event.triggered_by
+            by_trigger[trigger] = by_trigger.get(trigger, 0) + 1
+
+        recent_24h = sum(
+            1 for e in self._history
+            if (datetime.now() - datetime.fromisoformat(e.timestamp)).total_seconds() < 86400
+        )
+
+        return {
+            "total_rollbacks": total,
+            "successful": successful,
+            "failed": failed,
+            "by_trigger": by_trigger,
+            "recent_24h": recent_24h,
+        }
+
+
+def create_rollback_alert_rules() -> str:
+    """Generate Prometheus alerting rules for rollback monitoring.
+
+    Returns YAML content for alert rules.
+    """
+    return """
+groups:
+  - name: model_rollback_alerts
+    rules:
+      - alert: ModelRollbackTriggered
+        expr: increase(ringrift_model_rollbacks_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Model rollback triggered"
+          description: "A model rollback was triggered for {{ $labels.model_id }} (trigger: {{ $labels.trigger }})"
+
+      - alert: MultipleRollbacksDetected
+        expr: increase(ringrift_model_rollbacks_total[24h]) > 2
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Multiple rollbacks in 24 hours"
+          description: "More than 2 rollbacks have occurred in the last 24 hours, indicating potential model stability issues"
+
+      - alert: EloDegradation
+        expr: (ringrift_production_model_elo - ringrift_production_model_baseline_elo) < -50
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Production model Elo degradation"
+          description: "Production model {{ $labels.model_id }} Elo has dropped by more than 50 points from baseline"
+"""

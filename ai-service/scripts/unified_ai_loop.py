@@ -1351,6 +1351,10 @@ class HealthTracker:
             "training_scheduler": ComponentHealth("training_scheduler", stale_threshold_seconds=7200),
             "promoter": ComponentHealth("promoter", stale_threshold_seconds=3600),
             "curriculum": ComponentHealth("curriculum", stale_threshold_seconds=3600),
+            # New components
+            "registry_sync": ComponentHealth("registry_sync", stale_threshold_seconds=1800),
+            "model_registry": ComponentHealth("model_registry", stale_threshold_seconds=3600),
+            "parity_validation": ComponentHealth("parity_validation", stale_threshold_seconds=7200),
         }
 
     def record_success(self, component: str):
@@ -5457,9 +5461,25 @@ class UnifiedAILoop:
                     if HAS_PROMETHEUS:
                         PARITY_VALIDATION_IN_PROGRESS.set(0)
 
+                    # Record health status based on validation results
+                    if self.health_tracker:
+                        if self.state.parity_validation_passed:
+                            self.health_tracker.record_success("parity_validation")
+                        else:
+                            failure_rate = (
+                                self.state.parity_games_failed /
+                                max(1, self.state.parity_games_passed + self.state.parity_games_failed)
+                            )
+                            self.health_tracker.record_failure(
+                                "parity_validation",
+                                f"Failure rate: {failure_rate:.1%}"
+                            )
+
             except Exception as e:
                 print(f"[ParityValidation] Loop error: {e}")
                 self.state.parity_validation_in_progress = False
+                if self.health_tracker:
+                    self.health_tracker.record_failure("parity_validation", str(e))
 
             # Check every 2 minutes
             try:
@@ -6394,11 +6414,17 @@ class UnifiedAILoop:
                             f"{result['models_merged']} models merged, "
                             f"{result['versions_merged']} versions merged"
                         )
+                        if self.health_tracker:
+                            self.health_tracker.record_success("registry_sync")
                     else:
                         print(f"[RegistrySync] Sync had failures: {result['nodes_failed']} nodes failed")
+                        if self.health_tracker:
+                            self.health_tracker.record_failure("registry_sync", f"{result['nodes_failed']} nodes failed")
 
             except Exception as e:
                 print(f"[RegistrySync] Error in sync loop: {e}")
+                if self.health_tracker:
+                    self.health_tracker.record_failure("registry_sync", str(e))
 
             try:
                 await asyncio.wait_for(
