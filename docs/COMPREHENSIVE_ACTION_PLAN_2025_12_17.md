@@ -202,6 +202,15 @@ This is the **highest leverage fix** in this entire document because:
 **Risk:** Medium
 **Effort:** 4-6 hours
 **Owner:** TBD
+**Status:** ✅ PARTIALLY COMPLETE (2025-12-17)
+
+> **Implementation Status:**
+>
+> - ✅ `IntegratedEnhancementsConfig` consolidated to `app/config/unified_config.py` (canonical)
+> - ✅ `scripts/unified_loop/config.py` now imports from canonical with fallback
+> - ✅ `PBTConfig`, `NASConfig`, `PERConfig`, `FeedbackConfig`, `P2PClusterConfig`, `ModelPruningConfig` migrated
+> - ✅ Threshold constants centralized in `app/config/thresholds.py`
+> - 🟡 Some legacy imports may still exist in less-used scripts
 
 ### Problem Statement
 
@@ -499,6 +508,14 @@ git checkout HEAD~1 -- ai-service/scripts/unified_loop/config.py
 **Risk:** High
 **Effort:** 8-12 hours
 **Owner:** TBD
+**Status:** ✅ PARTIALLY COMPLETE (2025-12-17)
+
+> **Implementation Status:**
+>
+> - ✅ `app/training/unified_signals.py` - Created UnifiedSignalComputer as single source of truth
+> - ✅ `app/training/regression_detector.py` - Centralized regression detection
+> - ✅ `app/config/thresholds.py` - Canonical threshold constants
+> - 🟡 Legacy systems not yet fully migrated to use unified signals
 
 ### Problem Statement
 
@@ -1053,10 +1070,18 @@ warnings.warn(
 **Risk:** High
 **Effort:** 2-3 hours
 **Owner:** TBD
+**Status:** ✅ COMPLETE (2025-12-17)
 
-### Problem Statement
+> **Implementation Status:**
+>
+> - ✅ `app/training/model_versioning.py` provides `checkpoint_version` for embeddings
+> - ✅ `app/training/checkpoint_unified.py` handles unified checkpoint management
+> - ✅ Model registry tracks versions in `data/model_registry/`
+> - ✅ Regression detection via `app/training/regression_detector.py`
 
-Saved checkpoints contain no version metadata. When architecture changes (e.g., `history_length`, `num_res_blocks`), weights silently fail to load, model falls back to random initialization.
+### Problem Statement (RESOLVED)
+
+~~Saved checkpoints contain no version metadata.~~ Model versioning is now implemented via `model_versioning.py`. When architecture changes (e.g., `history_length`, `num_res_blocks`), the checkpoint includes metadata to verify compatibility.
 
 ### Impact
 
@@ -1424,11 +1449,21 @@ if __name__ == '__main__':
 **Risk:** Low
 **Effort:** 20+ hours
 **Owner:** TBD
+**Status:** 🟡 IN PROGRESS (2025-12-17)
+
+> **Implementation Status:**
+>
+> - ✅ `HexNeuralNet` architecture exists and validated
+> - ✅ `app/training/hex_augmentation.py` - Hex-specific augmentation
+> - ✅ `scripts/hex8_training_pipeline.py` - Hex training pipeline
+> - ✅ Training logs exist: `h100_hex_2p.log`, `h100_hex_3p.log`, `h100_hex_4p.log`
+> - ✅ Parity fixtures for hex validated
+> - 🟡 Hex models still in early training phases, not production-ready
 
 ### Problem Statement
 
 - `HexNeuralNet` architecture exists but is undertrained
-- No production hex models available
+- No production hex models available ← **Still valid**
 - Hex game modes fall back to weak heuristic AI
 
 ### Impact
@@ -1660,15 +1695,24 @@ These gaps don't affect the technical correctness of the project but are critica
 **Risk:** Low (no technical risk, high visibility risk)
 **Effort:** 8-12 hours
 **Owner:** TBD
+**Status:** ✅ COMPLETE (2025-12-17)
 
-### Problem Statement
+> **Implementation Status:**
+>
+> - ✅ GitHub release v0.1.0-beta created with release notes
+> - ✅ Hosted demo live at **ringrift.ai**
+> - ✅ Release notes published in `docs/RELEASE_NOTES_v0.1.0-beta.md`
+> - 🟡 README "why it's different" pitch could still be enhanced
 
-The project has:
+### Problem Statement (RESOLVED)
 
-- **0 GitHub releases** - "No releases published"
-- **No hosted demo** - Users can't try the game without local setup
-- **No "why it's different" pitch** - README describes features but not appeal
-- **0 stars, 0 forks, 2 contributors** - Near-zero adoption signals
+~~The project has:~~
+
+~~- **0 GitHub releases** - "No releases published"~~
+~~- **No hosted demo** - Users can't try the game without local setup~~
+
+- **No "why it's different" pitch** - README describes features but not appeal (still valid)
+- **0 stars, 0 forks, 2 contributors** - Near-zero adoption signals (marketing, not engineering)
 
 ### Impact
 
