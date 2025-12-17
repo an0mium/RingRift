@@ -207,6 +207,8 @@ Gradually increase smoothing:
 
 ## Curriculum Training
 
+### Manual Phase Selection
+
 Train on move subsets by game phase:
 
 ```bash
@@ -216,6 +218,55 @@ Train on move subsets by game phase:
 # Late game only (moves 40+)
 --min-move-number 40
 ```
+
+### Staged Curriculum Training
+
+The `train_nnue_policy_curriculum.py` script implements staged training that progresses from simpler (late-game) to complex (opening) decisions:
+
+```bash
+python scripts/train_nnue_policy_curriculum.py \
+    --db data/games/*.db \
+    --board-type square8 \
+    --num-players 2
+```
+
+**Training Stages:**
+
+| Stage    | Move Range | Default Epochs | Description                |
+| -------- | ---------- | -------------- | -------------------------- |
+| Endgame  | 150+       | 20             | Clear winning/losing moves |
+| Late-mid | 80-150     | 20             | Strategic decisions        |
+| Midgame  | 30-80      | 25             | Tactical complexity        |
+| Opening  | 0-30       | 30             | Opening theory             |
+| Full     | All        | 25             | Polish with complete data  |
+
+Each stage uses transfer learning from the previous stage's weights.
+
+**Options:**
+
+```bash
+# Skip specific stages
+--skip-stages endgame late-mid
+
+# Custom epochs per stage
+--endgame-epochs 30 --full-epochs 50
+
+# JSONL data with KL loss
+--jsonl data/selfplay/mcts_*.jsonl --auto-kl-loss
+```
+
+### Board-Specific Configuration
+
+The training script auto-selects `max_moves_per_position` based on board type:
+
+| Board Type | Max Moves | Rationale   |
+| ---------- | --------- | ----------- |
+| square8    | 128       | 64 cells    |
+| square19   | 384       | 361 cells   |
+| hex8       | 256       | Smaller hex |
+| hexagonal  | 512       | ~969 cells  |
+
+Override with `--max-moves-per-position <N>`.
 
 ## Policy Distillation
 

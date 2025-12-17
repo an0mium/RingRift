@@ -11145,10 +11145,17 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 "--grokking-detection",  # Detect delayed generalization
                 "--policy-label-smoothing", "0.05",  # Prevent overconfidence
                 "--sampling-weights", "victory_type",  # Balanced sampling
+                # Phase 4: Training Stability (optional, enabled for production)
+                "--adaptive-accumulation",  # Dynamic gradient accumulation
+                # Phase 5: Production Optimization (selective)
+                "--dynamic-loss-scaling",  # Adaptive FP16 loss scaling
             ]
             # Add hex symmetry augmentation for hex boards (12x effective data)
             if board_type in ('hex8', 'hexagonal', 'hex'):
                 cmd.append("--augment-hex-symmetry")
+            # Add profiling for debug jobs
+            if os.environ.get("RINGRIFT_PROFILE_TRAINING"):
+                cmd.extend(["--profile", "--profile-dir", str(Path(output_path).parent / "profile")])
             if learning_rate is not None:
                 cmd.extend(["--learning-rate", str(learning_rate)])
 

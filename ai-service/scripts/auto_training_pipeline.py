@@ -705,12 +705,68 @@ def run_ab_test(
         return None
 
 
+def run_policy_selfplay(
+    policy_model_path: Path,
+    board_type: str = "square8",
+    num_players: int = 2,
+    num_games: int = 100,
+    dry_run: bool = False,
+) -> Optional[Path]:
+    """Run GPU selfplay using trained policy model.
+
+    Generates higher quality training data by using the policy model
+    to guide move selection during selfplay.
+    """
+    logger.info(f"Running policy-guided selfplay with {policy_model_path.name}...")
+
+    if dry_run:
+        logger.info(f"  Would generate {num_games} games")
+        return None
+
+    output_dir = DATA_DIR / "gpu_selfplay" / f"{board_type}_{num_players}p_policy"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        result = subprocess.run(
+            [
+                "python", str(AI_SERVICE_ROOT / "scripts" / "run_gpu_selfplay.py"),
+                "--board-type", board_type,
+                "--num-players", str(num_players),
+                "--games", str(num_games),
+                "--output-dir", str(output_dir),
+                "--policy-model", str(policy_model_path),
+                "--batch-size", "64",
+                "--random-opening-moves", "3",  # Add diversity
+            ],
+            cwd=str(AI_SERVICE_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=7200,  # 2 hours
+            env={**os.environ, "PYTHONPATH": str(AI_SERVICE_ROOT)},
+        )
+        if result.returncode == 0:
+            jsonl_path = output_dir / "games.jsonl"
+            if jsonl_path.exists():
+                logger.info(f"  Policy selfplay complete: {jsonl_path}")
+                return jsonl_path
+            else:
+                logger.warning(f"  Selfplay completed but no JSONL found")
+                return None
+        else:
+            logger.error(f"  Selfplay failed: {result.stderr[-500:] if result.stderr else 'no error'}")
+            return None
+    except Exception as e:
+        logger.error(f"  Selfplay error: {e}")
+        return None
+
+
 def run_pipeline(
     skip_collect: bool = False,
     skip_backfill: bool = False,
     skip_train: bool = False,
     skip_policy: bool = False,
     skip_ab_test: bool = False,
+    skip_selfplay: bool = False,
     skip_sync: bool = False,
     dry_run: bool = False,
     board_type: str = "square8",
@@ -719,6 +775,7 @@ def run_pipeline(
     batch_size: int = 256,
     sampling_weights: str = "victory_type",
     use_curriculum: bool = True,
+    selfplay_games: int = 100,
 ):
     """Run the full training pipeline."""
     logger.info("=" * 60)
@@ -912,6 +969,27 @@ def run_pipeline(
     else:
         logger.info("Skipping A/B test")
 
+    # Step 3d: Generate selfplay data with policy model
+    if not skip_selfplay and policy_model_path:
+        logger.info("")
+        logger.info("STEP 3d: Generating policy-guided selfplay data...")
+        selfplay_jsonl = run_policy_selfplay(
+            policy_model_path=policy_model_path,
+            board_type=board_type,
+            num_players=num_players,
+            num_games=selfplay_games,
+            dry_run=dry_run,
+        )
+        if selfplay_jsonl:
+            logger.info(f"  Generated {selfplay_games} games: {selfplay_jsonl}")
+        else:
+            logger.warning("  Selfplay generation did not produce output")
+    else:
+        if skip_selfplay:
+            logger.info("Skipping policy selfplay")
+        elif not policy_model_path:
+            logger.info("Skipping policy selfplay (no policy model)")
+
     # Step 4: Sync models to nodes
     if not skip_sync:
         logger.info("")
@@ -942,6 +1020,9 @@ def main():
     parser.add_argument("--skip-train", action="store_true", help="Skip value model training")
     parser.add_argument("--skip-policy", action="store_true", help="Skip policy model training")
     parser.add_argument("--skip-ab-test", action="store_true", help="Skip A/B testing")
+    parser.add_argument("--skip-selfplay", action="store_true", help="Skip policy-guided selfplay")
+    parser.add_argument("--selfplay-games", type=int, default=100,
+                        help="Number of games for policy selfplay (default: 100)")
     parser.add_argument("--skip-sync", action="store_true", help="Skip model sync to nodes")
     parser.add_argument("--board-type", default="square8", help="Board type for training")
     parser.add_argument("--num-players", type=int, default=2, help="Number of players")
@@ -976,6 +1057,7 @@ def main():
         skip_train=args.skip_train,
         skip_policy=args.skip_policy,
         skip_ab_test=args.skip_ab_test,
+        skip_selfplay=args.skip_selfplay,
         skip_sync=args.skip_sync,
         dry_run=args.dry_run,
         board_type=args.board_type,
@@ -984,6 +1066,7 @@ def main():
         batch_size=args.batch_size,
         sampling_weights=args.sampling_weights,
         use_curriculum=use_curriculum,
+        selfplay_games=args.selfplay_games,
     )
 
 
