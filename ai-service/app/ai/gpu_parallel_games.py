@@ -3903,6 +3903,11 @@ def apply_capture_moves_batch_vectorized(
     # Place marker for attacker at landing
     state.marker_owner[game_indices, to_y, to_x] = players.to(state.marker_owner.dtype)
 
+    # Clear must_move_from constraint after capture (RR-CANON-R090)
+    # The player has fulfilled their movement obligation by capturing.
+    state.must_move_from_y[game_indices] = -1
+    state.must_move_from_x[game_indices] = -1
+
     # Advance move counter only (NOT current_player - that's handled by END_TURN phase)
     # BUG FIX 2025-12-15: Removing player rotation here - it was causing players to
     # advance mid-turn, then advance again in END_TURN, resulting in players getting
