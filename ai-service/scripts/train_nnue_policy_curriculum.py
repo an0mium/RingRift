@@ -289,6 +289,16 @@ def main():
     parser.add_argument("--max-samples", type=int, default=None, help="Max samples per stage")
     parser.add_argument("--num-workers", type=int, default=0, help="Extraction workers (0=auto)")
 
+    # Advanced training options
+    parser.add_argument("--use-swa", action="store_true", default=True, help="Use Stochastic Weight Averaging")
+    parser.add_argument("--no-swa", action="store_true", help="Disable SWA")
+    parser.add_argument("--use-ema", action="store_true", default=True, help="Use Exponential Moving Average")
+    parser.add_argument("--no-ema", action="store_true", help="Disable EMA")
+    parser.add_argument("--progressive-batch", action="store_true", default=True, help="Use progressive batch sizing")
+    parser.add_argument("--no-progressive-batch", action="store_true", help="Disable progressive batching")
+    parser.add_argument("--focal-gamma", type=float, default=2.0, help="Focal loss gamma (0 to disable)")
+    parser.add_argument("--label-smoothing-warmup", type=int, default=5, help="Label smoothing warmup epochs")
+
     args = parser.parse_args()
 
     # Expand db paths
@@ -326,6 +336,10 @@ def main():
     extra_args = [
         "--batch-size", str(args.batch_size),
         "--learning-rate", str(args.learning_rate),
+        "--lr-scheduler", "cosine_warmup",
+        "--grad-clip", "1.0",
+        "--use-amp",  # Always use mixed precision
+        "--save-curves",
     ]
     if args.hidden_dim is not None:
         extra_args.extend(["--hidden-dim", str(args.hidden_dim)])
@@ -333,6 +347,18 @@ def main():
         extra_args.extend(["--max-samples", str(args.max_samples)])
     if args.num_workers != 0:
         extra_args.extend(["--num-workers", str(args.num_workers)])
+
+    # Advanced training options
+    if args.use_swa and not args.no_swa:
+        extra_args.append("--use-swa")
+    if args.use_ema and not args.no_ema:
+        extra_args.append("--use-ema")
+    if args.progressive_batch and not args.no_progressive_batch:
+        extra_args.append("--progressive-batch")
+    if args.focal_gamma > 0:
+        extra_args.extend(["--focal-gamma", str(args.focal_gamma)])
+    if args.label_smoothing_warmup > 0:
+        extra_args.extend(["--label-smoothing-warmup", str(args.label_smoothing_warmup)])
 
     # Run curriculum
     run_curriculum_training(

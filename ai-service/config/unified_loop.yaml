@@ -52,6 +52,20 @@ training:
   warmup_epochs: 5 # LR warmup for training stability
   use_optimized_hyperparams: true # Load board-specific hyperparameters from config/hyperparameters.json
 
+  # Advanced NNUE policy training options (2024-12)
+  nnue_policy_script: 'scripts/train_nnue_policy.py'
+  nnue_curriculum_script: 'scripts/train_nnue_policy_curriculum.py'
+  use_swa: true # Stochastic Weight Averaging for better generalization
+  swa_start_fraction: 0.75 # Start SWA at 75% of training
+  use_ema: true # Exponential Moving Average for smoother weights
+  ema_decay: 0.999 # EMA decay rate
+  use_progressive_batch: true # Progressive batch sizing (64 -> 512)
+  min_batch_size: 64 # Starting batch size
+  max_batch_size: 512 # Maximum batch size
+  focal_gamma: 2.0 # Focal loss gamma for hard sample mining
+  label_smoothing_warmup: 5 # Warmup epochs for label smoothing
+  use_hex_augmentation: true # D6 symmetry augmentation for hex boards
+
 # Continuous evaluation (shadow + full tournaments)
 evaluation:
   # Shadow tournaments: quick evaluation during normal operation
