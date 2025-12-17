@@ -3121,3 +3121,199 @@ def create_phase5_production_suite(
         )
 
     return suite
+
+
+# =============================================================================
+# Temperature Scheduling for Selfplay
+# =============================================================================
+
+
+@dataclass
+class TemperatureSchedule:
+    """Configuration for temperature scheduling in selfplay.
+
+    Temperature controls exploration vs exploitation:
+    - High temperature (>1.0): More exploration, diverse moves
+    - Temperature = 1.0: Standard softmax over move probabilities
+    - Low temperature (<1.0): More exploitation, stronger moves
+
+    Schedules decay temperature over training to transition from
+    exploration (diverse positions) to exploitation (optimal play).
+    """
+    initial_temp: float = 1.0  # Starting temperature
+    final_temp: float = 0.1  # Final temperature
+    decay_type: str = "exponential"  # "exponential", "linear", "cosine", "step"
+    decay_steps: int = 10000  # Steps to reach final temperature
+    warmup_steps: int = 0  # Steps at initial temp before decay
+    # For step decay
+    step_milestones: List[int] = field(default_factory=lambda: [3000, 6000, 9000])
+    step_gamma: float = 0.5  # Multiply temp by this at each milestone
+    # Move-based temperature (higher early in game)
+    use_move_temp: bool = False
+    move_temp_threshold: int = 30  # Moves before using scheduled temp
+    move_temp_initial: float = 1.5  # Temp for early moves
+
+
+class TemperatureScheduler:
+    """Scheduler for temperature decay during selfplay generation.
+
+    Implements various decay schedules to transition from exploration
+    (early training) to exploitation (late training).
+
+    Usage:
+        scheduler = TemperatureScheduler(TemperatureSchedule(
+            initial_temp=1.0,
+            final_temp=0.1,
+            decay_type="exponential",
+            decay_steps=10000,
+        ))
+
+        for step in range(total_steps):
+            temp = scheduler.get_temperature(step)
+            # Use temp in move selection...
+
+        # Or with move-aware temperature
+        temp = scheduler.get_temperature(step, move_number=15)
+    """
+
+    def __init__(self, schedule: TemperatureSchedule):
+        """Initialize the temperature scheduler.
+
+        Args:
+            schedule: Temperature schedule configuration
+        """
+        self.schedule = schedule
+        self._step = 0
+
+    def get_temperature(self, step: Optional[int] = None, move_number: int = 0) -> float:
+        """Get temperature for a given step and optionally move number.
+
+        Args:
+            step: Training step (uses internal counter if None)
+            move_number: Move number within game (for move-based temp)
+
+        Returns:
+            Temperature value
+        """
+        if step is None:
+            step = self._step
+
+        # Move-based temperature for early game exploration
+        if self.schedule.use_move_temp and move_number < self.schedule.move_temp_threshold:
+            # Interpolate from move_temp_initial to scheduled temp
+            move_progress = move_number / self.schedule.move_temp_threshold
+            scheduled_temp = self._compute_scheduled_temp(step)
+            return (
+                self.schedule.move_temp_initial * (1 - move_progress) +
+                scheduled_temp * move_progress
+            )
+
+        return self._compute_scheduled_temp(step)
+
+    def _compute_scheduled_temp(self, step: int) -> float:
+        """Compute scheduled temperature without move adjustment."""
+        schedule = self.schedule
+
+        # Warmup period - return initial temp
+        if step < schedule.warmup_steps:
+            return schedule.initial_temp
+
+        # Adjust step for warmup
+        effective_step = step - schedule.warmup_steps
+
+        # Compute progress through decay (0 to 1)
+        progress = min(1.0, effective_step / max(1, schedule.decay_steps))
+
+        if schedule.decay_type == "linear":
+            temp = schedule.initial_temp + (schedule.final_temp - schedule.initial_temp) * progress
+
+        elif schedule.decay_type == "exponential":
+            # Exponential decay: T = T0 * (Tf/T0)^progress
+            if schedule.initial_temp > 0 and schedule.final_temp > 0:
+                ratio = schedule.final_temp / schedule.initial_temp
+                temp = schedule.initial_temp * (ratio ** progress)
+            else:
+                temp = schedule.initial_temp * (1 - progress) + schedule.final_temp * progress
+
+        elif schedule.decay_type == "cosine":
+            # Cosine annealing
+            temp = schedule.final_temp + 0.5 * (schedule.initial_temp - schedule.final_temp) * (
+                1 + math.cos(math.pi * progress)
+            )
+
+        elif schedule.decay_type == "step":
+            # Step decay at milestones
+            temp = schedule.initial_temp
+            for milestone in schedule.step_milestones:
+                if effective_step >= milestone:
+                    temp *= schedule.step_gamma
+            temp = max(temp, schedule.final_temp)
+
+        else:
+            # Default to linear
+            temp = schedule.initial_temp + (schedule.final_temp - schedule.initial_temp) * progress
+
+        return max(schedule.final_temp, temp)
+
+    def step(self) -> float:
+        """Advance step counter and return current temperature."""
+        temp = self.get_temperature(self._step)
+        self._step += 1
+        return temp
+
+    def reset(self):
+        """Reset step counter."""
+        self._step = 0
+
+    @property
+    def current_step(self) -> int:
+        """Get current step."""
+        return self._step
+
+    def get_state(self) -> Dict[str, Any]:
+        """Get scheduler state for checkpointing."""
+        return {
+            "step": self._step,
+            "schedule": {
+                "initial_temp": self.schedule.initial_temp,
+                "final_temp": self.schedule.final_temp,
+                "decay_type": self.schedule.decay_type,
+                "decay_steps": self.schedule.decay_steps,
+                "warmup_steps": self.schedule.warmup_steps,
+            }
+        }
+
+    def load_state(self, state: Dict[str, Any]):
+        """Load scheduler state from checkpoint."""
+        self._step = state.get("step", 0)
+
+
+def create_temperature_scheduler(
+    initial_temp: float = 1.0,
+    final_temp: float = 0.1,
+    decay_type: str = "exponential",
+    total_games: int = 10000,
+    use_move_temp: bool = True,
+) -> TemperatureScheduler:
+    """Factory function to create a temperature scheduler.
+
+    Args:
+        initial_temp: Starting temperature
+        final_temp: Final temperature
+        decay_type: Type of decay ("exponential", "linear", "cosine", "step")
+        total_games: Total games to decay over
+        use_move_temp: Whether to use move-based temperature
+
+    Returns:
+        Configured TemperatureScheduler
+    """
+    schedule = TemperatureSchedule(
+        initial_temp=initial_temp,
+        final_temp=final_temp,
+        decay_type=decay_type,
+        decay_steps=total_games,
+        use_move_temp=use_move_temp,
+        move_temp_threshold=30,
+        move_temp_initial=1.5,
+    )
+    return TemperatureScheduler(schedule)

@@ -51,6 +51,11 @@ class SelfplayConfig:
     gumbel_top_k: int = 16
     gumbel_c_visit: float = 50.0
     gumbel_c_scale: float = 1.0
+    # Temperature scheduling for exploration/exploitation
+    temperature: float = 1.0  # Move selection temperature
+    use_temperature_decay: bool = False  # Enable temperature decay per game
+    move_temp_threshold: int = 30  # Use higher temp for first N moves
+    opening_temperature: float = 1.5  # Temperature for opening moves
 
 
 @dataclass
@@ -143,10 +148,11 @@ def _generate_single_game(args: Tuple[int, int]) -> Optional[GameResult]:
                     config=ai_config,
                 )
             elif config.engine == "gumbel":
-                # Gumbel-MCTS may have different initialization
+                # Gumbel-MCTS needs board_type for move encoding
                 ai_players[pn] = GumbelMCTSAI(
                     player_number=pn,
                     config=ai_config,
+                    board_type=config.board_type,
                 )
             else:
                 ai_players[pn] = DescentAI(
@@ -177,6 +183,23 @@ def _generate_single_game(args: Tuple[int, int]) -> Optional[GameResult]:
             ai = ai_players.get(current_player)
             if ai is None:
                 break
+
+            # Calculate temperature for this move (higher early in game for exploration)
+            if config.use_temperature_decay:
+                if move_count < config.move_temp_threshold:
+                    # Interpolate from opening to standard temperature
+                    progress = move_count / config.move_temp_threshold
+                    temp = config.opening_temperature * (1 - progress) + config.temperature * progress
+                else:
+                    temp = config.temperature
+            else:
+                temp = config.temperature
+
+            # Apply temperature to AI if supported
+            if hasattr(ai, 'temperature'):
+                ai.temperature = temp
+            if hasattr(ai, 'config') and hasattr(ai.config, 'temperature'):
+                ai.config.temperature = temp
 
             # Get move and value
             move = ai.select_move(state)
@@ -318,6 +341,11 @@ def generate_dataset_parallel(
     gumbel_top_k: int = 16,
     gumbel_c_visit: float = 50.0,
     gumbel_c_scale: float = 1.0,
+    # Temperature scheduling parameters
+    temperature: float = 1.0,
+    use_temperature_decay: bool = False,
+    opening_temperature: float = 1.5,
+    move_temp_threshold: int = 30,
 ) -> int:
     """
     Generate selfplay data using parallel workers.
@@ -368,6 +396,10 @@ def generate_dataset_parallel(
         gumbel_top_k=gumbel_top_k,
         gumbel_c_visit=gumbel_c_visit,
         gumbel_c_scale=gumbel_c_scale,
+        temperature=temperature,
+        use_temperature_decay=use_temperature_decay,
+        move_temp_threshold=move_temp_threshold,
+        opening_temperature=opening_temperature,
     )
     # Get ai-service root path to pass to workers
     from pathlib import Path
@@ -387,6 +419,10 @@ def generate_dataset_parallel(
         'gumbel_top_k': config.gumbel_top_k,
         'gumbel_c_visit': config.gumbel_c_visit,
         'gumbel_c_scale': config.gumbel_c_scale,
+        'temperature': config.temperature,
+        'use_temperature_decay': config.use_temperature_decay,
+        'move_temp_threshold': config.move_temp_threshold,
+        'opening_temperature': config.opening_temperature,
         '_ai_service_root': ai_service_root,  # Path for worker processes
     }
 

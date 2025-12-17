@@ -225,6 +225,9 @@ class LocalSelfplayGenerator:
         progress_callback: Optional[callable] = None,
         use_pfsp_opponent: bool = False,
         current_elo: float = 1500.0,
+        temperature: float = 1.0,
+        use_temperature_decay: bool = True,
+        opening_temperature: float = 1.5,
     ) -> Dict[str, Any]:
         """Generate selfplay games locally.
 
@@ -238,6 +241,9 @@ class LocalSelfplayGenerator:
             progress_callback: Optional callback(completed, total)
             use_pfsp_opponent: Whether to use PFSP for opponent selection
             current_elo: Current model Elo for PFSP matchmaking
+            temperature: Base temperature for move selection (1.0 = standard)
+            use_temperature_decay: Decay temperature from opening to base
+            opening_temperature: Higher temperature for opening moves
 
         Returns:
             Dict with generation results
@@ -290,6 +296,12 @@ class LocalSelfplayGenerator:
             logger.info(f"Starting local selfplay: {num_games} games, config={config_key}, engine={engine}{opponent_info}")
 
             # Run parallel selfplay in executor to avoid blocking event loop
+            # Temperature scheduling: higher temp early in game for diverse positions
+            temp_info = f", temp={temperature:.2f}" if temperature != 1.0 else ""
+            if use_temperature_decay:
+                temp_info = f", temp={opening_temperature:.1f}->{temperature:.2f}"
+            logger.info(f"[Temperature] {config_key}: {temp_info or 'default (1.0)'}")
+
             loop = asyncio.get_event_loop()
             total_samples = await loop.run_in_executor(
                 None,
@@ -306,6 +318,9 @@ class LocalSelfplayGenerator:
                     progress_callback=progress_callback,
                     gumbel_simulations=gumbel_simulations,
                     gumbel_top_k=gumbel_top_k,
+                    temperature=temperature,
+                    use_temperature_decay=use_temperature_decay,
+                    opening_temperature=opening_temperature,
                 )
             )
 

@@ -96,6 +96,17 @@ except ImportError:
     CMAESAutoTuner = None
     PlateauConfig = None
 
+# Incremental NPZ export for faster data pipeline
+try:
+    from app.training.incremental_export import (
+        IncrementalExporter,
+        get_incremental_exporter,
+    )
+    HAS_INCREMENTAL_EXPORT = True
+except ImportError:
+    HAS_INCREMENTAL_EXPORT = False
+    IncrementalExporter = None
+
 # Base paths - auto-detect from script location or use env var
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.environ.get("RINGRIFT_BASE_DIR", os.path.dirname(SCRIPT_DIR))
@@ -110,6 +121,10 @@ ENABLE_POLICY_TRAINING = os.environ.get("RINGRIFT_ENABLE_POLICY_TRAINING", "1") 
 POLICY_AUTO_KL_LOSS = os.environ.get("RINGRIFT_POLICY_AUTO_KL_LOSS", "1") == "1"  # Auto-detect KL loss
 POLICY_KL_MIN_COVERAGE = float(os.environ.get("RINGRIFT_POLICY_KL_MIN_COVERAGE", "0.3"))  # 30% MCTS coverage threshold
 POLICY_KL_MIN_SAMPLES = int(os.environ.get("RINGRIFT_POLICY_KL_MIN_SAMPLES", "50"))  # Min samples with MCTS policy
+
+# Incremental NPZ export - dramatically faster by only processing new games
+# Enabled by default when the module is available
+ENABLE_INCREMENTAL_EXPORT = os.environ.get("RINGRIFT_ENABLE_INCREMENTAL_EXPORT", "1") == "1" and HAS_INCREMENTAL_EXPORT
 
 # Track HP tuning recommendations
 _hp_tuning_recommendations: Dict[Tuple[str, int], bool] = {}
@@ -1464,6 +1479,11 @@ def main():
         print(f"  - CMA-ES Auto-Tuning: ENABLED (plateau detection)", flush=True)
     else:
         print(f"  - CMA-ES Auto-Tuning: disabled (import failed)", flush=True)
+    # Incremental export status
+    if ENABLE_INCREMENTAL_EXPORT:
+        print(f"  - Incremental Export: ENABLED (fast data pipeline)", flush=True)
+    else:
+        print(f"  - Incremental Export: disabled (set RINGRIFT_ENABLE_INCREMENTAL_EXPORT=1)", flush=True)
 
     # Show hyperparameter status for all configs
     if HAS_HYPERPARAMETERS:
