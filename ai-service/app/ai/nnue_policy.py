@@ -1283,3 +1283,40 @@ class NNUEPolicyDataset(Dataset):
             torch.tensor(sample.sample_weight, dtype=torch.float32),
             mcts_probs,
         )
+
+    def get_mcts_policy_stats(self) -> Dict[str, Any]:
+        """Get statistics about MCTS policy availability in the dataset.
+
+        Returns:
+            Dict with keys:
+                - total_samples: Total number of samples
+                - samples_with_mcts: Number of samples with MCTS policy
+                - mcts_coverage: Fraction of samples with MCTS policy (0.0-1.0)
+                - recommend_kl_loss: Whether KL loss is recommended (coverage >= 0.5)
+        """
+        total = len(self.samples)
+        with_mcts = sum(1 for s in self.samples if s.mcts_visit_distribution is not None)
+        coverage = with_mcts / total if total > 0 else 0.0
+
+        return {
+            "total_samples": total,
+            "samples_with_mcts": with_mcts,
+            "mcts_coverage": coverage,
+            "recommend_kl_loss": coverage >= 0.5,  # Recommend KL if >= 50% coverage
+        }
+
+    def should_use_kl_loss(self, min_coverage: float = 0.5, min_samples: int = 100) -> bool:
+        """Determine if KL loss should be used based on MCTS policy availability.
+
+        Args:
+            min_coverage: Minimum fraction of samples with MCTS policy (default: 0.5)
+            min_samples: Minimum number of samples with MCTS policy (default: 100)
+
+        Returns:
+            True if KL loss should be used, False otherwise
+        """
+        stats = self.get_mcts_policy_stats()
+        return (
+            stats["mcts_coverage"] >= min_coverage and
+            stats["samples_with_mcts"] >= min_samples
+        )

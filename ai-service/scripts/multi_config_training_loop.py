@@ -62,6 +62,12 @@ BASE_DIR = os.environ.get("RINGRIFT_BASE_DIR", os.path.dirname(SCRIPT_DIR))
 ENABLE_AUTO_HP_TUNING = os.environ.get("RINGRIFT_ENABLE_AUTO_HP_TUNING", "0") == "1"
 MIN_GAMES_FOR_HP_TUNING = int(os.environ.get("RINGRIFT_MIN_GAMES_FOR_HP_TUNING", "500"))
 
+# Policy training with auto KL loss (uses MCTS visit distributions when available)
+ENABLE_POLICY_TRAINING = os.environ.get("RINGRIFT_ENABLE_POLICY_TRAINING", "0") == "1"
+POLICY_AUTO_KL_LOSS = os.environ.get("RINGRIFT_POLICY_AUTO_KL_LOSS", "1") == "1"  # Auto-detect KL loss
+POLICY_KL_MIN_COVERAGE = float(os.environ.get("RINGRIFT_POLICY_KL_MIN_COVERAGE", "0.3"))  # 30% MCTS coverage threshold
+POLICY_KL_MIN_SAMPLES = int(os.environ.get("RINGRIFT_POLICY_KL_MIN_SAMPLES", "50"))  # Min samples with MCTS policy
+
 # Track HP tuning recommendations
 _hp_tuning_recommendations: Dict[Tuple[str, int], bool] = {}
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -947,6 +953,78 @@ def run_training(board_type: str, num_players: int, db_paths: List[str],
     return True
 
 
+def run_policy_training(board_type: str, num_players: int, db_paths: List[str],
+                         jsonl_paths: List[str], current_count: int, iteration: int = 0) -> bool:
+    """Run policy training with auto KL loss detection.
+
+    This trains a policy network using MCTS visit distributions when available.
+    Gracefully falls back to cross-entropy loss if insufficient MCTS data.
+    """
+    if not ENABLE_POLICY_TRAINING:
+        return False
+
+    key = (board_type, num_players)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    short = short_name(board_type, num_players)
+
+    # Get config-specific export settings
+    max_games, sample_every, epochs = EXPORT_SETTINGS.get(
+        key, (DEFAULT_MAX_GAMES, DEFAULT_SAMPLE_EVERY, DEFAULT_EPOCHS)
+    )
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = BASE_DIR
+
+    # Build policy training command
+    run_dir = os.path.join(BASE_DIR, f"data/training/runs/policy_{short}_{ts}")
+
+    train_cmd = [
+        sys.executable, os.path.join(BASE_DIR, "scripts/train_nnue_policy.py"),
+        "--board-type", board_type,
+        "--num-players", str(num_players),
+        "--epochs", str(epochs),
+        "--save-path", os.path.join(BASE_DIR, f"models/policy_{short}_{ts}.pth"),
+        "--sample-every-n", str(sample_every),
+        "--max-samples", str(max_games * 50),  # Approximate samples per game
+    ]
+
+    # Add database sources
+    for db_path in db_paths:
+        train_cmd.extend(["--db", db_path])
+
+    # Add auto KL loss flags
+    if POLICY_AUTO_KL_LOSS:
+        train_cmd.append("--auto-kl-loss")
+        train_cmd.extend(["--kl-min-coverage", str(POLICY_KL_MIN_COVERAGE)])
+        train_cmd.extend(["--kl-min-samples", str(POLICY_KL_MIN_SAMPLES)])
+
+    print(f"[{ts}] Policy training {short} with auto-KL (coverage>={POLICY_KL_MIN_COVERAGE:.0%})...", flush=True)
+
+    try:
+        r = subprocess.run(train_cmd, capture_output=True, text=True, timeout=1200, env=env)
+        if r.returncode != 0:
+            # Check if it's a "no data" error vs actual failure
+            if "No training samples" in r.stderr or "No training samples" in r.stdout:
+                print(f"  Policy training skipped: no policy training data available", flush=True)
+                return False
+            print(f"  Policy training failed: {r.stderr[:500] if r.stderr else r.stdout[:500]}", flush=True)
+            return False
+    except subprocess.TimeoutExpired:
+        print(f"  Policy training timeout after 1200s", flush=True)
+        return False
+
+    # Check output for KL loss status
+    output = r.stdout + r.stderr
+    if "Auto-enabled KL loss" in output:
+        print(f"  Policy training complete with KL loss (MCTS data detected)!", flush=True)
+    elif "KL loss not auto-enabled" in output:
+        print(f"  Policy training complete with cross-entropy (no MCTS data)", flush=True)
+    else:
+        print(f"  Policy training complete!", flush=True)
+
+    return True
+
+
 def main():
     global last_trained_counts
 
@@ -962,6 +1040,11 @@ def main():
     print(f"  - Feedback Accelerator: {'ENABLED' if HAS_FEEDBACK_ACCELERATOR else 'disabled'}", flush=True)
     print(f"  - Adaptive Curriculum: ENABLED (ELO-based)", flush=True)
     print(f"  - Auto HP Tuning: {'ENABLED' if ENABLE_AUTO_HP_TUNING else 'disabled (set RINGRIFT_ENABLE_AUTO_HP_TUNING=1)'}", flush=True)
+    if ENABLE_POLICY_TRAINING:
+        print(f"  - Policy Training: ENABLED (auto-KL: {POLICY_AUTO_KL_LOSS}, "
+              f"coverage>={POLICY_KL_MIN_COVERAGE:.0%}, min={POLICY_KL_MIN_SAMPLES} samples)", flush=True)
+    else:
+        print(f"  - Policy Training: disabled (set RINGRIFT_ENABLE_POLICY_TRAINING=1)", flush=True)
 
     # Show hyperparameter status for all configs
     if HAS_HYPERPARAMETERS:
@@ -1047,6 +1130,10 @@ def main():
                 elo = elo_scores.get(config, 1500.0)
                 print(f"[{ts}] ADAPTIVE: Training {sn} (models={models}, ELO={elo:.0f}, new_games={new_games})", flush=True)
                 run_training(board_type, num_players, db_paths, jsonl_paths, total_count, iteration)
+
+                # Run policy training with auto KL loss if enabled
+                if ENABLE_POLICY_TRAINING and db_paths:
+                    run_policy_training(board_type, num_players, db_paths, jsonl_paths, total_count, iteration)
 
             time.sleep(60)
 

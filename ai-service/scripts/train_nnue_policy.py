@@ -326,6 +326,25 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Use KL divergence loss with MCTS visit distributions instead of cross-entropy. "
              "Requires training data with mcts_policy field (from MCTS selfplay).",
     )
+    parser.add_argument(
+        "--auto-kl-loss",
+        action="store_true",
+        help="Automatically enable KL loss if sufficient MCTS policy data is detected "
+             "(>= 50%% coverage and >= 100 samples with MCTS policy). Falls back to "
+             "cross-entropy if insufficient data.",
+    )
+    parser.add_argument(
+        "--kl-min-coverage",
+        type=float,
+        default=0.5,
+        help="Minimum MCTS policy coverage (0.0-1.0) for auto KL loss (default: 0.5)",
+    )
+    parser.add_argument(
+        "--kl-min-samples",
+        type=int,
+        default=100,
+        help="Minimum samples with MCTS policy for auto KL loss (default: 100)",
+    )
 
     return parser.parse_args(argv)
 
@@ -376,6 +395,9 @@ def train_nnue_policy(
     min_move_number: int = 0,
     max_move_number: int = 999999,
     use_kl_loss: bool = False,
+    auto_kl_loss: bool = False,
+    kl_min_coverage: float = 0.5,
+    kl_min_samples: int = 100,
 ) -> Dict[str, Any]:
     """Train NNUE policy model and return training report."""
     seed_all(seed)
@@ -412,6 +434,21 @@ def train_nnue_policy(
         return {"error": "No training samples"}
 
     logger.info(f"Dataset size: {len(dataset)} samples")
+
+    # Auto-detect KL loss if requested
+    effective_use_kl_loss = use_kl_loss
+    mcts_stats = dataset.get_mcts_policy_stats()
+    logger.info(f"MCTS policy stats: {mcts_stats['samples_with_mcts']}/{mcts_stats['total_samples']} "
+                f"samples ({mcts_stats['mcts_coverage']:.1%} coverage)")
+
+    if auto_kl_loss and not use_kl_loss:
+        if dataset.should_use_kl_loss(min_coverage=kl_min_coverage, min_samples=kl_min_samples):
+            effective_use_kl_loss = True
+            logger.info(f"Auto-enabled KL loss (coverage {mcts_stats['mcts_coverage']:.1%} >= {kl_min_coverage:.0%}, "
+                       f"{mcts_stats['samples_with_mcts']} samples >= {kl_min_samples})")
+        else:
+            logger.info(f"KL loss not auto-enabled (coverage {mcts_stats['mcts_coverage']:.1%} < {kl_min_coverage:.0%} "
+                       f"or {mcts_stats['samples_with_mcts']} samples < {kl_min_samples})")
 
     # Split into train/val
     val_size = int(len(dataset) * val_split)
@@ -527,12 +564,12 @@ def train_nnue_policy(
         policy_weight=policy_weight,
         temperature=temperature_start,
         label_smoothing=label_smoothing,
-        use_kl_loss=use_kl_loss,
+        use_kl_loss=effective_use_kl_loss,
     )
 
     logger.info(f"Temperature annealing: {temperature_start} -> {temperature_end} ({temperature_schedule})")
     logger.info(f"Label smoothing: {label_smoothing}")
-    if use_kl_loss:
+    if effective_use_kl_loss:
         logger.info("KL divergence loss ENABLED (using MCTS visit distributions)")
 
     # Training loop
@@ -575,7 +612,7 @@ def train_nnue_policy(
             to_idx = to_idx.to(device)
             mask = mask.to(device)
             target = target.to(device)
-            mcts_probs = mcts_probs.to(device) if use_kl_loss else None
+            mcts_probs = mcts_probs.to(device) if effective_use_kl_loss else None
 
             total_loss, value_loss, policy_loss = trainer.train_step(
                 features, values, from_idx, to_idx, mask, target, mcts_probs
@@ -602,7 +639,7 @@ def train_nnue_policy(
             to_idx = to_idx.to(device)
             mask = mask.to(device)
             target = target.to(device)
-            mcts_probs = mcts_probs.to(device) if use_kl_loss else None
+            mcts_probs = mcts_probs.to(device) if effective_use_kl_loss else None
 
             total_loss, value_loss, policy_loss, accuracy = trainer.validate(
                 features, values, from_idx, to_idx, mask, target, mcts_probs
@@ -766,6 +803,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         min_move_number=args.min_move_number,
         max_move_number=args.max_move_number,
         use_kl_loss=args.use_kl_loss,
+        auto_kl_loss=args.auto_kl_loss,
+        kl_min_coverage=args.kl_min_coverage,
+        kl_min_samples=args.kl_min_samples,
     )
 
     # Add metadata to report

@@ -417,6 +417,32 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Epoch to start QAT (default: 10, allows model to converge first)",
     )
     parser.add_argument(
+        "--progressive-val",
+        action="store_true",
+        help="Progressive validation: validate on subset early, full validation later",
+    )
+    parser.add_argument(
+        "--progressive-val-start",
+        type=float,
+        default=0.2,
+        help="Initial validation fraction for progressive validation (default: 0.2)",
+    )
+    parser.add_argument(
+        "--gradient-checkpointing",
+        action="store_true",
+        help="Enable gradient checkpointing for memory efficiency (trades compute for memory)",
+    )
+    parser.add_argument(
+        "--async-logging",
+        action="store_true",
+        help="Enable async metric logging (log metrics in background thread)",
+    )
+    parser.add_argument(
+        "--lr-batch-scale",
+        action="store_true",
+        help="Scale learning rate with effective batch size (includes accumulation)",
+    )
+    parser.add_argument(
         "--mixed-precision",
         action="store_true",
         help="Enable mixed precision training (FP16/BF16) for faster training on GPU",
@@ -854,16 +880,29 @@ class NNUETrainer:
 
         return total_loss / max(num_batches, 1)
 
-    def validate(self, dataloader: DataLoader) -> Tuple[float, float]:
-        """Validate on held-out data. Returns (loss, accuracy)."""
+    def validate(self, dataloader: DataLoader, sample_fraction: float = 1.0) -> Tuple[float, float]:
+        """Validate on held-out data. Returns (loss, accuracy).
+
+        Args:
+            dataloader: Validation data loader
+            sample_fraction: Fraction of batches to evaluate (for progressive validation)
+        """
         self.model.eval()
         total_loss = 0.0
         correct = 0
         total = 0
         num_batches = 0
 
+        # Calculate number of batches to process
+        total_batches = len(dataloader)
+        batches_to_process = max(1, int(total_batches * sample_fraction))
+
         with torch.no_grad():
-            for features, values in dataloader:
+            for batch_idx, (features, values) in enumerate(dataloader):
+                # Skip batches beyond sample_fraction
+                if batch_idx >= batches_to_process:
+                    break
+
                 features = features.to(self.device)
                 values = values.to(self.device)
 
@@ -958,6 +997,11 @@ def train_nnue(
     async_pipeline: bool = False,
     qat: bool = False,
     qat_start_epoch: int = 10,
+    progressive_val: bool = False,
+    progressive_val_start: float = 0.2,
+    gradient_checkpointing: bool = False,
+    async_logging: bool = False,
+    lr_batch_scale: bool = False,
 ) -> Dict[str, Any]:
     """Train NNUE model and return training report."""
     seed_all(seed)
@@ -1220,6 +1264,14 @@ def train_nnue(
             if is_main_process():
                 logger.info(f"Using DistributedSampler for {len(train_dataset)} samples across {world_size} GPUs")
 
+    # Scale learning rate with effective batch size if requested
+    effective_batch = actual_batch_size * gradient_accumulation
+    if lr_batch_scale and effective_batch != 512:  # 512 is reference batch size
+        base_lr = learning_rate
+        # Use sqrt scaling (more stable than linear)
+        learning_rate = learning_rate * (effective_batch / 512) ** 0.5
+        logger.info(f"LR scaled for batch size {effective_batch}: {base_lr:.2e} -> {learning_rate:.2e}")
+
     # Create trainer
     trainer = NNUETrainer(
         model=model,
@@ -1232,6 +1284,7 @@ def train_nnue(
         use_amp=mixed_precision,
         amp_dtype=amp_dtype,
         gradient_accumulation=gradient_accumulation,
+        use_gradient_checkpointing=gradient_checkpointing,
         async_pipeline=async_pipeline,
     )
 
@@ -1249,6 +1302,34 @@ def train_nnue(
 
     if qat:
         logger.info(f"QAT will start at epoch {qat_start_epoch}")
+
+    # Progressive validation setup
+    if progressive_val:
+        logger.info(f"Progressive validation enabled: {progressive_val_start:.0%} -> 100%")
+
+    # Async logging setup
+    async_log_queue = None
+    async_log_thread = None
+    if async_logging:
+        from queue import Queue
+        from threading import Thread
+
+        async_log_queue = Queue()
+
+        def async_logger():
+            while True:
+                item = async_log_queue.get()
+                if item is None:
+                    break
+                try:
+                    report_training_metrics(**item)
+                except Exception as e:
+                    logger.debug(f"Async logging error: {e}")
+                async_log_queue.task_done()
+
+        async_log_thread = Thread(target=async_logger, daemon=True)
+        async_log_thread.start()
+        logger.info("Async metric logging enabled")
 
     for epoch in range(epochs):
         # Enable QAT at the specified epoch
@@ -1283,7 +1364,14 @@ def train_nnue(
         if distributed:
             train_loss_tensor = torch.tensor(train_loss, device=device)
             train_loss = reduce_tensor(train_loss_tensor).item()
-        val_loss, val_accuracy = trainer.validate(val_loader)
+
+        # Progressive validation: validate on subset early, full validation later
+        if progressive_val:
+            # Linearly increase validation fraction from start to 1.0
+            val_fraction = min(1.0, progressive_val_start + (1.0 - progressive_val_start) * (epoch / max(epochs - 1, 1)))
+            val_loss, val_accuracy = trainer.validate(val_loader, sample_fraction=val_fraction)
+        else:
+            val_loss, val_accuracy = trainer.validate(val_loader)
         trainer.update_scheduler(val_loss)
 
         # Update PER priorities based on prediction errors
@@ -1326,15 +1414,19 @@ def train_nnue(
         )
 
         # Report metrics to orchestrator for observability
-        report_training_metrics(
-            board_type=board_type,
-            num_players=num_players,
-            train_loss=train_loss,
-            val_loss=val_loss,
-            val_accuracy=val_accuracy,
-            epoch=epoch + 1,
-            model_path=str(save_path) if save_path else "",
-        )
+        metric_data = {
+            "board_type": board_type,
+            "num_players": num_players,
+            "train_loss": train_loss,
+            "val_loss": val_loss,
+            "val_accuracy": val_accuracy,
+            "epoch": epoch + 1,
+            "model_path": str(save_path) if save_path else "",
+        }
+        if async_log_queue is not None:
+            async_log_queue.put(metric_data)
+        else:
+            report_training_metrics(**metric_data)
 
         # Check for improvement
         if val_loss < best_val_loss:
@@ -1370,6 +1462,12 @@ def train_nnue(
                 logger.info(f"Early stopping at epoch {epoch+1}")
                 break
 
+    # Cleanup async logging thread
+    if async_log_queue is not None:
+        async_log_queue.put(None)  # Signal thread to exit
+        if async_log_thread is not None:
+            async_log_thread.join(timeout=5.0)
+
     # Synchronize all processes before cleanup
     if distributed:
         synchronize()
@@ -1379,6 +1477,35 @@ def train_nnue(
         model_params = sum(p.numel() for p in model.module.parameters())
     else:
         model_params = sum(p.numel() for p in model.parameters())
+
+    # Save QAT-converted quantized model if QAT was used
+    qat_model_path = None
+    if qat_enabled and (not distributed or is_main_process()):
+        try:
+            # Get the raw model (unwrap DDP if needed)
+            raw_model = model.module if distributed and hasattr(model, 'module') else model
+            quantized_model = convert_qat_model(raw_model)
+
+            # Save quantized model
+            qat_model_path = save_path.replace('.pt', '_qat_int8.pt').replace('.pth', '_qat_int8.pth')
+            if qat_model_path == save_path:
+                qat_model_path = save_path + '_qat_int8.pt'
+
+            checkpoint = {
+                "model_state_dict": quantized_model.state_dict(),
+                "board_type": board_type.value,
+                "hidden_dim": hidden_dim,
+                "num_hidden_layers": num_hidden_layers,
+                "epoch": epoch + 1,
+                "val_loss": best_val_loss,
+                "architecture_version": raw_model.ARCHITECTURE_VERSION if hasattr(raw_model, 'ARCHITECTURE_VERSION') else "v1.0.0",
+                "quantized": True,
+                "qat_trained": True,
+            }
+            torch.save(checkpoint, qat_model_path)
+            logger.info(f"Saved QAT-trained quantized model to {qat_model_path}")
+        except Exception as e:
+            logger.warning(f"Failed to save QAT model: {e}")
 
     # Training report
     report = {
@@ -1414,6 +1541,10 @@ def train_nnue(
         "world_size": get_world_size() if distributed else 1,
         "lr_scale": lr_scale if distributed else None,
         "gradient_accumulation": gradient_accumulation,
+        "qat": qat,
+        "qat_enabled": qat_enabled,
+        "qat_start_epoch": qat_start_epoch if qat else None,
+        "qat_model_path": qat_model_path,
         "history": history,
     }
 
@@ -1612,6 +1743,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         gpu_extraction_batch=args.gpu_extraction_batch,
         prefetch_factor=args.prefetch_factor,
         async_pipeline=args.async_pipeline,
+        qat=args.qat,
+        qat_start_epoch=args.qat_start_epoch,
+        progressive_val=args.progressive_val,
+        progressive_val_start=args.progressive_val_start,
+        gradient_checkpointing=args.gradient_checkpointing,
+        async_logging=args.async_logging,
+        lr_batch_scale=args.lr_batch_scale,
     )
 
     # Add metadata to report
