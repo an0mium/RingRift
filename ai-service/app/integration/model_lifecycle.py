@@ -46,6 +46,19 @@ except ImportError:
     get_min_elo_improvement = lambda: 25.0  # Fallback default
     get_training_threshold = lambda: 500  # Fallback default
 
+# Import unified signals for cross-system consistency
+try:
+    from app.training.unified_signals import (
+        get_signal_computer,
+        TrainingUrgency,
+        TrainingSignals,
+    )
+    HAS_UNIFIED_SIGNALS = True
+except ImportError:
+    HAS_UNIFIED_SIGNALS = False
+    get_signal_computer = None
+    TrainingUrgency = None
+
 
 # ============================================
 # Configuration
@@ -308,16 +321,27 @@ class TrainingTrigger:
     Determines when to trigger new training runs.
 
     Monitors data accumulation, staleness, and quality.
+    Uses UnifiedSignalComputer for base decision logic.
     """
 
     def __init__(self, config: LifecycleConfig):
         self.config = config
         self._last_training_time: Optional[datetime] = None
         self._last_games_count: int = 0
+        # Use unified signal computer if available
+        self._signal_computer = get_signal_computer() if HAS_UNIFIED_SIGNALS else None
 
-    def should_trigger_training(self, conditions: TrainingConditions) -> Tuple[bool, str]:
+    def should_trigger_training(
+        self,
+        conditions: TrainingConditions,
+        config_key: str = "",
+        current_elo: float = 1500.0,
+    ) -> Tuple[bool, str]:
         """
         Determine if training should be triggered.
+
+        Uses UnifiedSignalComputer for base decision, with additional
+        lifecycle-specific checks.
 
         Returns: (should_train, reason)
         """
@@ -329,10 +353,32 @@ class TrainingTrigger:
         if not self.config.auto_train_on_data_threshold:
             return (False, "Auto-training disabled")
 
-        # Check data quality
+        # Check data quality (lifecycle-specific check not in unified signals)
         if conditions.data_quality_score < 0.5:
             return (False, f"Data quality too low: {conditions.data_quality_score:.2f}")
 
+        # Check curriculum stage readiness (lifecycle-specific)
+        if conditions.curriculum_stage_ready:
+            return (True, "Curriculum stage ready for advancement")
+
+        # Use unified signals if available
+        if self._signal_computer is not None:
+            signals = self._signal_computer.compute_signals(
+                current_games=conditions.new_games_count + self._last_games_count,
+                current_elo=current_elo,
+                config_key=config_key,
+            )
+
+            # Override with Elo plateau check
+            if conditions.elo_plateau_detected and conditions.new_games_count >= 100:
+                return (True, "Elo plateau detected, trying new training")
+
+            if signals.should_train:
+                return (True, signals.reason)
+            else:
+                return (False, signals.reason)
+
+        # Fallback to legacy logic if unified signals not available
         # Check if enough new games
         if conditions.new_games_count >= self.config.min_games_for_training:
             return (True, f"Sufficient new games: {conditions.new_games_count}")
@@ -349,11 +395,30 @@ class TrainingTrigger:
         if conditions.elo_plateau_detected and conditions.new_games_count >= 100:
             return (True, "Elo plateau detected, trying new training")
 
-        # Check curriculum stage readiness
-        if conditions.curriculum_stage_ready:
-            return (True, "Curriculum stage ready for advancement")
-
         return (False, f"Waiting for more data: {conditions.new_games_count}/{self.config.min_games_for_training}")
+
+    def record_training_started(self, games_count: int, config_key: str = "") -> None:
+        """Record that training has started."""
+        self._last_training_time = datetime.now()
+        self._last_games_count = games_count
+        if self._signal_computer:
+            self._signal_computer.record_training_started(games_count, config_key)
+
+    def record_training_completed(self, new_elo: Optional[float] = None, config_key: str = "") -> None:
+        """Record that training has completed."""
+        if self._signal_computer:
+            self._signal_computer.record_training_completed(new_elo, config_key)
+
+    def get_unified_urgency(self, config_key: str, current_games: int, current_elo: float) -> Optional["TrainingUrgency"]:
+        """Get unified training urgency."""
+        if self._signal_computer is None:
+            return None
+        signals = self._signal_computer.compute_signals(
+            current_games=current_games,
+            current_elo=current_elo,
+            config_key=config_key,
+        )
+        return signals.urgency
 
     def record_training(self, games_count: int) -> None:
         """Record that training was performed."""

@@ -41,11 +41,14 @@ import shutil
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 import threading
 
+# Import PromotionCriteria for unified thresholds (avoid circular import)
+if TYPE_CHECKING:
+    from app.training.promotion_controller import PromotionCriteria
 
 logger = logging.getLogger(__name__)
 
@@ -785,21 +788,53 @@ class ModelRegistry:
 class AutoPromoter:
     """
     Automatic model promotion based on performance criteria.
+
+    Uses PromotionCriteria from promotion_controller.py for unified thresholds
+    across all promotion systems. Supports backward compatibility with explicit
+    threshold overrides.
     """
 
     def __init__(
         self,
         registry: ModelRegistry,
-        min_elo_improvement: float = 20.0,
-        min_games: int = 100,
-        min_win_rate_vs_current: float = 0.52,
+        criteria: Optional["PromotionCriteria"] = None,
+        min_elo_improvement: Optional[float] = None,
+        min_games: Optional[int] = None,
+        min_win_rate_vs_current: Optional[float] = None,
         auto_archive_after_days: int = 30
     ):
+        """Initialize AutoPromoter with unified or custom criteria.
+
+        Args:
+            registry: ModelRegistry instance
+            criteria: PromotionCriteria from promotion_controller (preferred)
+            min_elo_improvement: Override Elo threshold (uses PromotionCriteria default if None)
+            min_games: Override games threshold (uses PromotionCriteria default if None)
+            min_win_rate_vs_current: Override win rate (uses PromotionCriteria default if None)
+            auto_archive_after_days: Days until automatic archival
+        """
         self.registry = registry
-        self.min_elo_improvement = min_elo_improvement
-        self.min_games = min_games
-        self.min_win_rate_vs_current = min_win_rate_vs_current
         self.auto_archive_after_days = auto_archive_after_days
+
+        # Use provided criteria or create default from PromotionCriteria
+        if criteria is not None:
+            self._criteria = criteria
+            self.min_elo_improvement = criteria.min_elo_improvement
+            self.min_games = criteria.min_games_played
+            self.min_win_rate_vs_current = criteria.min_win_rate
+        else:
+            try:
+                from app.training.promotion_controller import PromotionCriteria
+                default_criteria = PromotionCriteria()
+                self._criteria = default_criteria
+                self.min_elo_improvement = min_elo_improvement if min_elo_improvement is not None else default_criteria.min_elo_improvement
+                self.min_games = min_games if min_games is not None else default_criteria.min_games_played
+                self.min_win_rate_vs_current = min_win_rate_vs_current if min_win_rate_vs_current is not None else default_criteria.min_win_rate
+            except ImportError:
+                self._criteria = None
+                self.min_elo_improvement = min_elo_improvement if min_elo_improvement is not None else 20.0
+                self.min_games = min_games if min_games is not None else 100
+                self.min_win_rate_vs_current = min_win_rate_vs_current if min_win_rate_vs_current is not None else 0.52
 
     def evaluate_for_staging(self, model_id: str, version: int) -> Tuple[bool, str]:
         """
