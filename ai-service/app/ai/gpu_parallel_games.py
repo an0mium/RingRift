@@ -3744,15 +3744,52 @@ def apply_capture_moves_batch_vectorized(
     attacker_height = state.stack_height[game_indices, from_y, from_x]
     attacker_cap_height = state.cap_height[game_indices, from_y, from_x]
 
-    # Get defender info
-    defender_owner = state.stack_owner[game_indices, to_y, to_x]
-    defender_height = state.stack_height[game_indices, to_y, to_x]
-
     # Compute direction and distance for path processing
+    # NOTE: `to` is the LANDING position, not the target. We must scan the ray to find the target.
     dy = torch.sign(to_y - from_y)
     dx = torch.sign(to_x - from_x)
     dist = torch.maximum(torch.abs(to_y - from_y), torch.abs(to_x - from_x))
     max_dist = dist.max().item() if n_games > 0 else 0
+
+    # === BUGFIX 2025-12-17: Find actual target by scanning ray from->to ===
+    # Move generation stores landing position in `to`, but target is the first
+    # non-empty stack along the ray between from and landing.
+    if max_dist > 0:
+        steps = torch.arange(1, max_dist + 1, device=device).view(1, -1)  # (1, max_dist)
+        ray_y = from_y.unsqueeze(1) + dy.unsqueeze(1) * steps  # (n_games, max_dist)
+        ray_x = from_x.unsqueeze(1) + dx.unsqueeze(1) * steps  # (n_games, max_dist)
+
+        # Clamp for safe indexing
+        ray_y_safe = torch.clamp(ray_y, 0, board_size - 1).long()
+        ray_x_safe = torch.clamp(ray_x, 0, board_size - 1).long()
+
+        game_indices_exp = game_indices.unsqueeze(1).expand(-1, max_dist)
+        ray_owners = state.stack_owner[game_indices_exp, ray_y_safe, ray_x_safe]
+
+        # Steps within landing distance (exclusive of landing itself)
+        dist_exp = dist.unsqueeze(1).expand(-1, max_dist)
+        within_landing = steps < dist_exp
+
+        # Find first non-zero stack along ray before landing
+        ray_has_stack = (ray_owners != 0) & within_landing
+
+        # Get index of first target (argmax returns first True)
+        has_any_target = ray_has_stack.any(dim=1)
+        target_step_idx = ray_has_stack.to(torch.int32).argmax(dim=1)  # (n_games,)
+
+        # Compute target positions
+        target_y = from_y + dy * (target_step_idx + 1)
+        target_x = from_x + dx * (target_step_idx + 1)
+    else:
+        # Fallback: no distance, treat to as target
+        target_y = to_y
+        target_x = to_x
+        has_any_target = torch.ones(n_games, dtype=torch.bool, device=device)
+
+    # Get defender info from TARGET position (not landing)
+    defender_owner = state.stack_owner[game_indices, target_y, target_x]
+    defender_height = state.stack_height[game_indices, target_y, target_x]
+    defender_cap_height = state.cap_height[game_indices, target_y, target_x]
 
     # Process markers along path (flip opposing markers)
     if max_dist > 1:
@@ -3765,14 +3802,14 @@ def apply_capture_moves_batch_vectorized(
         path_y_safe = torch.clamp(path_y, 0, board_size - 1).long()
         path_x_safe = torch.clamp(path_x, 0, board_size - 1).long()
 
-        game_indices_exp = game_indices.unsqueeze(1).expand(-1, max_dist - 1)
-        path_marker_owners = state.marker_owner[game_indices_exp, path_y_safe, path_x_safe]
+        game_indices_exp_markers = game_indices.unsqueeze(1).expand(-1, max_dist - 1)
+        path_marker_owners = state.marker_owner[game_indices_exp_markers, path_y_safe, path_x_safe]
 
         players_exp = players.unsqueeze(1).expand(-1, max_dist - 1)
         is_opponent_marker = (path_marker_owners != 0) & (path_marker_owners != players_exp) & valid_path
 
         if is_opponent_marker.any():
-            flip_games = game_indices_exp[is_opponent_marker]
+            flip_games = game_indices_exp_markers[is_opponent_marker]
             flip_y = path_y_safe[is_opponent_marker]
             flip_x = path_x_safe[is_opponent_marker]
             flip_players = players_exp[is_opponent_marker]
@@ -3791,19 +3828,79 @@ def apply_capture_moves_batch_vectorized(
         accumulate=True
     )
 
-    # Clear origin
+    # === Update TARGET stack (reduce height by 1, capturing the top ring) ===
+    new_target_height = torch.clamp(defender_height - 1, min=0)
+    state.stack_height[game_indices, target_y, target_x] = new_target_height.to(state.stack_height.dtype)
+
+    # Clear owner if height becomes 0
+    target_is_empty = new_target_height == 0
+    state.stack_owner[game_indices, target_y, target_x] = torch.where(
+        target_is_empty,
+        torch.zeros_like(defender_owner),
+        defender_owner
+    ).to(state.stack_owner.dtype)
+
+    # Update target cap height
+    new_target_cap = torch.clamp(defender_cap_height - 1, min=1)
+    new_target_cap = torch.minimum(new_target_cap, new_target_height)
+    new_target_cap = torch.where(target_is_empty, torch.zeros_like(new_target_cap), new_target_cap)
+    state.cap_height[game_indices, target_y, target_x] = new_target_cap.to(state.cap_height.dtype)
+
+    # Clear target marker
+    state.marker_owner[game_indices, target_y, target_x] = 0
+
+    # Track captured ring as buried for target owner
+    target_owner_nonzero = defender_owner != 0
+    if target_owner_nonzero.any():
+        state.buried_rings.index_put_(
+            (game_indices[target_owner_nonzero], defender_owner[target_owner_nonzero].long()),
+            torch.ones(target_owner_nonzero.sum(), dtype=state.buried_rings.dtype, device=device),
+            accumulate=True
+        )
+
+    # === Clear ORIGIN ===
     state.stack_owner[game_indices, from_y, from_x] = 0
     state.stack_height[game_indices, from_y, from_x] = 0
     state.cap_height[game_indices, from_y, from_x] = 0
 
-    # Merge stacks at destination
-    new_height = torch.clamp(attacker_height + defender_height - 1, max=5)
-    new_cap_height = torch.clamp(attacker_cap_height, max=5)
+    # Leave departure marker at origin (RR-CANON-R092)
+    state.marker_owner[game_indices, from_y, from_x] = players.to(state.marker_owner.dtype)
+
+    # === Move attacker to LANDING position ===
+    # Check for marker at landing (RR-CANON-R102: landing marker costs 1 ring)
+    landing_marker = state.marker_owner[game_indices, to_y, to_x]
+    landing_ring_cost = (landing_marker != 0).to(torch.int32)
+
+    # Clear landing marker if present
+    state.marker_owner[game_indices, to_y, to_x] = torch.where(
+        landing_marker != 0,
+        torch.zeros_like(landing_marker),
+        landing_marker
+    )
+
+    # Track eliminated ring from landing marker cost
+    if landing_ring_cost.any():
+        state.eliminated_rings.index_put_(
+            (game_indices, players.long()),
+            landing_ring_cost.to(state.eliminated_rings.dtype),
+            accumulate=True
+        )
+        state.rings_caused_eliminated.index_put_(
+            (game_indices, players.long()),
+            landing_ring_cost.to(state.rings_caused_eliminated.dtype),
+            accumulate=True
+        )
+
+    # Attacker gains captured ring (+1) minus landing marker cost
+    new_height = torch.clamp(attacker_height + 1 - landing_ring_cost, min=1, max=5)
+    new_cap_height = torch.clamp(attacker_cap_height - landing_ring_cost, min=1)
+    new_cap_height = torch.minimum(new_cap_height, new_height)
+
     state.stack_owner[game_indices, to_y, to_x] = players.to(state.stack_owner.dtype)
     state.stack_height[game_indices, to_y, to_x] = new_height.to(state.stack_height.dtype)
     state.cap_height[game_indices, to_y, to_x] = new_cap_height.to(state.cap_height.dtype)
 
-    # Place marker for attacker
+    # Place marker for attacker at landing
     state.marker_owner[game_indices, to_y, to_x] = players.to(state.marker_owner.dtype)
 
     # Advance move counter only (NOT current_player - that's handled by END_TURN phase)

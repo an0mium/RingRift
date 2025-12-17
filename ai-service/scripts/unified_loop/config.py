@@ -257,6 +257,24 @@ class TrainingConfig:
     streaming_poll_interval: float = 5.0  # Seconds between DB polls
     streaming_buffer_size: int = 10000  # Samples in streaming buffer
     selfplay_db_path: Path = field(default_factory=lambda: Path("data/games"))
+    # =========================================================================
+    # Parallel Selfplay Temperature Scheduling (2025-12)
+    # =========================================================================
+    # Local parallel selfplay engine selection
+    selfplay_engine: str = "descent"  # "descent", "mcts", or "gumbel"
+    selfplay_num_workers: Optional[int] = None  # Default: CPU count - 1
+    selfplay_games_per_batch: int = 20  # Games per local selfplay batch
+    # Temperature scheduling for exploration/exploitation tradeoff
+    selfplay_temperature: float = 1.0  # Base move selection temperature
+    selfplay_use_temperature_decay: bool = True  # Enable temperature decay per game
+    selfplay_move_temp_threshold: int = 30  # Use higher temp for first N moves
+    selfplay_opening_temperature: float = 1.5  # Temperature for opening moves
+    # Gumbel-MCTS specific parameters
+    gumbel_simulations: int = 64  # Simulations per move for Gumbel-MCTS
+    gumbel_top_k: int = 16  # Top-k actions for sequential halving
+    # Value calibration tracking
+    track_calibration: bool = True  # Track value head calibration metrics
+    calibration_window_size: int = 5000  # Rolling window for calibration
     # Async Shadow Validation - Non-blocking GPU/CPU parity checking
     use_async_validation: bool = True  # Enable async validation
     validation_sample_rate: float = 0.05  # Fraction of moves to validate (5%)
@@ -414,6 +432,75 @@ class ModelPruningConfig:
 
 
 @dataclass
+class IntegratedEnhancementsConfig:
+    """Configuration for integrated training enhancements.
+
+    Consolidates all advanced training features into a single config block:
+    - Auxiliary Tasks (multi-task learning heads)
+    - Gradient Surgery (PCGrad for conflicting gradients)
+    - Batch Scheduling (dynamic batch sizing)
+    - Background Evaluation (continuous Elo tracking)
+    - ELO Weighting (opponent strength sampling)
+    - Curriculum Learning (progressive difficulty)
+    - Data Augmentation (board symmetry)
+    - Reanalysis (historical game re-evaluation)
+    """
+    # Master switch
+    enabled: bool = True
+
+    # Auxiliary Tasks (Multi-Task Learning)
+    auxiliary_tasks_enabled: bool = False
+    aux_game_length_weight: float = 0.1
+    aux_piece_count_weight: float = 0.1
+    aux_outcome_weight: float = 0.05
+
+    # Gradient Surgery (PCGrad)
+    gradient_surgery_enabled: bool = False
+    gradient_surgery_method: str = "pcgrad"  # "pcgrad" or "cagrad"
+    gradient_conflict_threshold: float = 0.0
+
+    # Batch Scheduling
+    batch_scheduling_enabled: bool = False
+    batch_initial_size: int = 64
+    batch_final_size: int = 512
+    batch_warmup_steps: int = 1000
+    batch_rampup_steps: int = 10000
+    batch_schedule_type: str = "linear"  # "linear", "exponential", "step"
+
+    # Background Evaluation
+    background_eval_enabled: bool = False
+    eval_interval_steps: int = 1000
+    eval_games_per_check: int = 20
+    eval_elo_checkpoint_threshold: float = 10.0
+    eval_elo_drop_threshold: float = 50.0
+    eval_auto_checkpoint: bool = True
+    eval_checkpoint_dir: str = "data/eval_checkpoints"
+
+    # ELO Weighting
+    elo_weighting_enabled: bool = True
+    elo_base_rating: float = 1500.0
+    elo_weight_scale: float = 400.0
+    elo_min_weight: float = 0.5
+    elo_max_weight: float = 2.0
+
+    # Curriculum Learning (extends CurriculumConfig)
+    curriculum_learning_enabled: bool = True
+    curriculum_auto_advance: bool = True
+    curriculum_checkpoint_path: str = "data/curriculum_state.json"
+
+    # Data Augmentation
+    augmentation_enabled: bool = True
+    augmentation_mode: str = "all"  # "all", "random", "light"
+    augmentation_probability: float = 1.0
+
+    # Reanalysis
+    reanalysis_enabled: bool = False
+    reanalysis_blend_ratio: float = 0.5
+    reanalysis_interval_steps: int = 5000
+    reanalysis_batch_size: int = 1000
+
+
+@dataclass
 class UnifiedLoopConfig:
     """Complete configuration for the unified AI loop."""
     data_ingestion: DataIngestionConfig = field(default_factory=DataIngestionConfig)
@@ -427,6 +514,7 @@ class UnifiedLoopConfig:
     feedback: FeedbackConfig = field(default_factory=FeedbackConfig)
     p2p: P2PClusterConfig = field(default_factory=P2PClusterConfig)
     model_pruning: ModelPruningConfig = field(default_factory=ModelPruningConfig)
+    enhancements: IntegratedEnhancementsConfig = field(default_factory=IntegratedEnhancementsConfig)
 
     # Host configuration
     hosts_config_path: str = "config/remote_hosts.yaml"
@@ -511,6 +599,11 @@ class UnifiedLoopConfig:
             for k, v in data["model_pruning"].items():
                 if hasattr(config.model_pruning, k):
                     setattr(config.model_pruning, k, v)
+
+        if "enhancements" in data:
+            for k, v in data["enhancements"].items():
+                if hasattr(config.enhancements, k):
+                    setattr(config.enhancements, k, v)
 
         for key in ["hosts_config_path", "elo_db", "data_manifest_db", "log_dir",
                     "verbose", "metrics_port", "metrics_enabled", "dry_run"]:

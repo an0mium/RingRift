@@ -71,6 +71,7 @@ class GameResult:
     num_samples: int
     game_idx: int
     duration_sec: float
+    effective_temps: Optional[np.ndarray] = None  # (N,) Per-sample effective temperature
 
 
 def _worker_init(config_dict: dict) -> None:
@@ -118,6 +119,7 @@ def _generate_single_game(args: Tuple[int, int]) -> Optional[GameResult]:
         from app.ai.descent_ai import DescentAI
         from app.ai.mcts_ai import MCTSAI
         from app.ai.nnue import extract_features_from_gamestate, get_board_size, FEATURE_PLANES
+        from app.ai.neural_net import encode_move_for_board
         from app.models import AIConfig
 
         # Conditionally import GumbelMCTSAI (heavy dependencies)
@@ -210,18 +212,20 @@ def _generate_single_game(args: Tuple[int, int]) -> Optional[GameResult]:
             # Get policy distribution (soft targets for training)
             policy_indices = []
             policy_values = []
-            if config.engine == "gumbel" and hasattr(ai, 'get_search_policy'):
+            if config.engine == "gumbel" and hasattr(ai, 'get_visit_distribution'):
                 # Gumbel-MCTS: use visit-count-based soft policy targets
-                moves, probs = ai.get_search_policy()
+                moves, probs = ai.get_visit_distribution()
                 for mv, prob in zip(moves, probs):
-                    if hasattr(mv, 'id'):
-                        policy_indices.append(mv.id)
+                    idx = encode_move_for_board(mv, state.board)
+                    if idx >= 0:  # Valid move encoding
+                        policy_indices.append(idx)
                         policy_values.append(prob)
             elif hasattr(ai, 'last_root_policy') and ai.last_root_policy:
                 # Standard MCTS/Descent: use last_root_policy
                 for mv, prob in ai.last_root_policy.items():
-                    if hasattr(mv, 'id'):
-                        policy_indices.append(mv.id)
+                    idx = encode_move_for_board(mv, state.board)
+                    if idx >= 0:  # Valid move encoding
+                        policy_indices.append(idx)
                         policy_values.append(prob)
 
             # Get feature planes using NNUE feature extraction
@@ -245,7 +249,7 @@ def _generate_single_game(args: Tuple[int, int]) -> Optional[GameResult]:
             # Get globals
             globals_vec = _get_globals(state, current_player)
 
-            # Store sample
+            # Store sample (including effective temperature used for this move)
             game_history.append({
                 'features': stacked_features,
                 'globals': globals_vec,
@@ -253,6 +257,7 @@ def _generate_single_game(args: Tuple[int, int]) -> Optional[GameResult]:
                 'root_value': root_value,
                 'policy_indices': np.array(policy_indices, dtype=np.int64),
                 'policy_values': np.array(policy_values, dtype=np.float32),
+                'effective_temp': temp,  # Track temperature used for this sample
             })
 
             # Make move
@@ -283,6 +288,7 @@ def _generate_single_game(args: Tuple[int, int]) -> Optional[GameResult]:
         values = np.array([s['final_value'] for s in game_history], dtype=np.float32)
         pol_indices = [s['policy_indices'] for s in game_history]
         pol_values = [s['policy_values'] for s in game_history]
+        effective_temps = np.array([s['effective_temp'] for s in game_history], dtype=np.float32)
 
         # Multi-player values if enabled
         values_mp = None
@@ -306,6 +312,7 @@ def _generate_single_game(args: Tuple[int, int]) -> Optional[GameResult]:
             num_samples=num_samples,
             game_idx=game_idx,
             duration_sec=duration,
+            effective_temps=effective_temps,
         )
 
     except Exception as e:
@@ -496,6 +503,9 @@ def generate_dataset_parallel(
         all_values_mp = np.concatenate([r.values_mp for r in results], axis=0)
         all_num_players = np.concatenate([r.num_players for r in results], axis=0)
 
+    # Concatenate per-sample effective temperatures
+    all_effective_temps = np.concatenate([r.effective_temps for r in results], axis=0)
+
     # Save to file
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
@@ -505,6 +515,15 @@ def generate_dataset_parallel(
         'values': all_values,
         'pol_indices': np.array(all_pol_indices, dtype=object),
         'pol_values': np.array(all_pol_values, dtype=object),
+        # Per-sample effective temperature (for temperature-aware training)
+        'effective_temps': all_effective_temps,
+        # Temperature config metadata (for reproducibility/analysis)
+        'temp_config': np.array([
+            config.temperature,
+            config.opening_temperature,
+            float(config.move_temp_threshold),
+            float(config.use_temperature_decay),
+        ], dtype=np.float32),
     }
     if all_values_mp is not None:
         save_dict['values_mp'] = all_values_mp

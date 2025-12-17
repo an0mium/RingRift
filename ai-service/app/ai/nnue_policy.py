@@ -1646,9 +1646,19 @@ class NNUEPolicyDataset(Dataset):
         This is particularly useful for MCTS selfplay data that includes
         mcts_policy distributions in the move records.
 
-        For GPU selfplay data, automatically expands moves to canonical format
-        by inserting required phase-handling moves (line/territory processing,
-        skip_capture, etc.) that GPU selfplay omits.
+        IMPORTANT: GPU selfplay JSONL has known incompatibilities with CPU engine:
+        - Hex boards: GPU uses 8-dir grid movement, CPU uses 6-dir hex movement
+        - Square boards: GPU records sub-actions (place/move/capture) as separate
+          "moves" within a single turn, breaking CPU replay which expects
+          one action per turn step
+
+        For reliable training data, use:
+        - DB data from CPU-based selfplay or MCTS
+        - MCTS JSONL with mcts_policy distributions
+
+        For GPU selfplay data, this method attempts to expand moves to canonical
+        format by inserting required phase-handling moves, but results may be
+        incomplete due to the fundamental format differences.
         """
         import numpy as np
         from ..models import GameState, Move, MoveType, Position
@@ -1731,10 +1741,12 @@ class NNUEPolicyDataset(Dataset):
 
             return state
 
-        # Check for hex board + GPU selfplay incompatibility
-        # GPU selfplay uses 8-directional grid movement, hex boards require 6-directional hex movement
+        # Track GPU selfplay warnings (shown once per extraction)
+        # GPU selfplay has known incompatibilities:
+        # - Hex boards: 8-dir grid movement vs 6-dir hex movement
+        # - Square boards: sub-action recording breaks CPU replay
         is_hex_board = self.config.board_type in (BoardType.HEXAGONAL, BoardType.HEX8)
-        hex_gpu_warned = False
+        gpu_warned = False
 
         with open(jsonl_path, 'r') as f:
             for line_num, line in enumerate(f):
@@ -1765,16 +1777,27 @@ class NNUEPolicyDataset(Dataset):
                 # Detect GPU selfplay data
                 is_gpu_selfplay = game.get("source", "").startswith("run_gpu") or game.get("engine_mode") == "gpu_heuristic"
 
-                # Skip GPU selfplay hex data - movement rules are incompatible
-                # GPU uses 8-directional grid movement, hex requires 6-directional hex movement
-                if is_hex_board and is_gpu_selfplay:
-                    if not hex_gpu_warned:
+                # Warn about GPU selfplay incompatibility
+                # Hex boards: completely incompatible (skip)
+                # Square boards: partially incompatible (low extraction rate expected)
+                if is_gpu_selfplay and not gpu_warned:
+                    if is_hex_board:
                         logger.warning(
                             f"Skipping GPU selfplay JSONL for hex board ({self.config.board_type.value}). "
                             "GPU uses 8-dir grid movement, hex requires 6-dir hex movement. "
                             "Use DB data from CPU/MCTS selfplay instead."
                         )
-                        hex_gpu_warned = True
+                    else:
+                        logger.warning(
+                            f"GPU selfplay JSONL detected for {self.config.board_type.value}. "
+                            "Extraction rate will be low (~1-5 samples/game vs ~100 expected) "
+                            "due to turn structure differences. "
+                            "Use DB data from CPU/MCTS selfplay for better coverage."
+                        )
+                    gpu_warned = True
+
+                # Skip hex GPU selfplay entirely (incompatible movement rules)
+                if is_hex_board and is_gpu_selfplay:
                     games_skipped += 1
                     continue
 
@@ -1889,6 +1912,23 @@ class NNUEPolicyDataset(Dataset):
                     try:
                         move = self._parse_jsonl_move(move_dict, move_idx)
                         if move is not None:
+                            # For GPU selfplay captures, compute capture_target from current state
+                            # GPU records 'to' as landing position, but CPU needs actual target
+                            if is_gpu_selfplay and move.type in (MoveType.OVERTAKING_CAPTURE, MoveType.CHAIN_CAPTURE):
+                                if move.capture_target is None and move.from_pos and move.to:
+                                    target = self._compute_capture_target(state, move.from_pos, move.to)
+                                    if target:
+                                        move = Move(
+                                            id=move.id,
+                                            type=move.type,
+                                            player=move.player,
+                                            from_pos=move.from_pos,
+                                            to=move.to,
+                                            capture_target=target,
+                                            timestamp=move.timestamp,
+                                            think_time=move.think_time,
+                                            move_number=move.move_number,
+                                        )
                             # Use GameEngine for consistent phase handling
                             state = GameEngine.apply_move(state, move)
                             # Auto-advance through any resulting phase transitions for GPU selfplay
@@ -1955,6 +1995,19 @@ class NNUEPolicyDataset(Dataset):
         to_pos = parse_pos(move_dict.get("to"))
         capture_target = parse_pos(move_dict.get("capture_target") or move_dict.get("captureTarget"))
 
+        # For capture moves, capture_target must be provided or computed.
+        # GPU selfplay records 'to' as the LANDING position (where attacker ends up),
+        # NOT the capture target. The actual target is between from and to.
+        # We can't compute this here without game state, so we leave capture_target as None
+        # and let the caller (extraction code) compute it from the current state if needed.
+        is_capture = move_type in (
+            MoveType.OVERTAKING_CAPTURE,
+            MoveType.CHAIN_CAPTURE,
+        )
+        # NOTE: Do NOT default capture_target to to_pos for GPU moves!
+        # That's incorrect - to_pos is landing, not target.
+        # The extraction code must compute target from game state.
+
         return Move(
             id=move_dict.get("id", f"jsonl-{move_number}"),
             type=move_type,
@@ -1966,6 +2019,69 @@ class NNUEPolicyDataset(Dataset):
             think_time=move_dict.get("think_time", move_dict.get("thinkTime", 0)),
             move_number=move_dict.get("move_number", move_dict.get("moveNumber", move_number + 1)),
         )
+
+    def _compute_capture_target(
+        self, state: "GameState", from_pos: "Position", to_pos: "Position"
+    ) -> Optional["Position"]:
+        """Compute capture target by scanning from from_pos towards to_pos.
+
+        For GPU selfplay captures, 'to' is the landing position, not the target.
+        The actual target is the first occupied cell along the ray from 'from' to 'to'.
+
+        Args:
+            state: Current game state (before applying the capture)
+            from_pos: Starting position of attacker
+            to_pos: Landing position (where attacker ends up)
+
+        Returns:
+            Position of the capture target, or None if not found
+        """
+        from ..board_manager import BoardManager
+        from ..models import Position
+
+        board = state.board
+        board_type = board.type
+
+        # Calculate direction from from_pos to to_pos
+        dx = to_pos.x - from_pos.x
+        dy = to_pos.y - from_pos.y
+
+        # Normalize to unit direction
+        # For square boards, one of dx/dy is 0 or |dx| == |dy| (diagonal)
+        if dx != 0:
+            dx = dx // abs(dx)
+        if dy != 0:
+            dy = dy // abs(dy)
+
+        # Scan along ray from from_pos towards to_pos
+        step = 1
+        while True:
+            check_x = from_pos.x + dx * step
+            check_y = from_pos.y + dy * step
+            check_z = None
+            if hasattr(from_pos, 'z') and from_pos.z is not None:
+                dz = to_pos.z - from_pos.z if hasattr(to_pos, 'z') and to_pos.z is not None else 0
+                if dz != 0:
+                    dz = dz // abs(dz)
+                check_z = from_pos.z + dz * step
+
+            check_pos = Position(x=check_x, y=check_y, z=check_z)
+
+            # Stop if we've reached or passed landing
+            if check_x == to_pos.x and check_y == to_pos.y:
+                break  # Landed without finding target (shouldn't happen for valid capture)
+
+            # Check if there's a stack at this position
+            stack = BoardManager.get_stack(check_pos, board)
+            if stack and stack.stack_height > 0:
+                return check_pos  # Found the target
+
+            step += 1
+            # Safety limit
+            if step > 20:
+                break
+
+        return None
 
     def _extract_from_db_parallel(self, db_path: str) -> List[NNUEPolicySample]:
         """Extract samples using parallel processing across multiple workers."""

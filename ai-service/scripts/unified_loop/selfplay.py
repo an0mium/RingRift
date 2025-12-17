@@ -527,6 +527,7 @@ class LocalSelfplayGenerator:
             "num_workers": self.num_workers,
             "running": self._running,
             "parallel_selfplay_available": HAS_PARALLEL_SELFPLAY,
+            "gpu_selfplay_available": self._has_gpu_selfplay(),
         }
 
         # Count generated files per config
@@ -537,3 +538,122 @@ class LocalSelfplayGenerator:
                     stats[f"{config_dir.name}_files"] = len(npz_files)
 
         return stats
+
+    def _has_gpu_selfplay(self) -> bool:
+        """Check if GPU selfplay is available."""
+        try:
+            import torch
+            return torch.cuda.is_available() or (hasattr(torch.backends, 'mps') and torch.backends.mps.is_available())
+        except ImportError:
+            return False
+
+    async def generate_games_gpu(
+        self,
+        num_games: int,
+        config_key: str,
+        batch_size: int = 64,
+        nn_model_path: Optional[str] = None,
+        temperature: float = 1.0,
+    ) -> Dict[str, Any]:
+        """Generate selfplay games using GPU-accelerated parallel game runner.
+
+        This uses app/ai/gpu_parallel_games.py for maximum throughput on GPU.
+        Best for generating large volumes of games quickly.
+
+        Args:
+            num_games: Number of games to generate
+            config_key: Config identifier (e.g., "square8_2p")
+            batch_size: Number of games to run in parallel on GPU
+            nn_model_path: Optional path to policy model for move selection
+            temperature: Move selection temperature
+
+        Returns:
+            Dict with generation results
+        """
+        if DISABLE_LOCAL_TASKS:
+            return {
+                "success": False,
+                "error": "Coordinator-only mode",
+                "games": 0,
+            }
+
+        if not self._has_gpu_selfplay():
+            # Fall back to CPU parallel selfplay
+            logger.info("[GPUSelfplay] No GPU available, falling back to CPU parallel selfplay")
+            return await self.generate_games(
+                num_games=num_games,
+                config_key=config_key,
+                engine="descent",
+                temperature=temperature,
+            )
+
+        try:
+            from app.ai.gpu_parallel_games import ParallelGameRunner
+            import torch
+
+            # Parse config key
+            parts = config_key.rsplit("_", 1)
+            board_type = parts[0]
+            num_players = int(parts[1].replace("p", "")) if len(parts) > 1 else 2
+
+            # Determine board size
+            board_size = 8 if "8" in board_type else 19
+
+            # Determine device
+            if torch.cuda.is_available():
+                device = torch.device("cuda")
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                device = torch.device("mps")
+            else:
+                device = torch.device("cpu")
+
+            start_time = time.time()
+
+            runner = ParallelGameRunner(
+                batch_size=min(batch_size, num_games),
+                board_size=board_size,
+                num_players=num_players,
+                device=device,
+                temperature=temperature,
+            )
+
+            # Load policy model if provided
+            if nn_model_path:
+                runner.load_policy_model(nn_model_path)
+
+            # Run games
+            games_completed = 0
+            output_dir = AI_SERVICE_ROOT / "data" / "games" / "gpu_selfplay" / config_key
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Run in batches
+            while games_completed < num_games:
+                batch_count = min(batch_size, num_games - games_completed)
+                runner.batch_size = batch_count
+                results = runner.run_games()
+                games_completed += batch_count
+
+            duration = time.time() - start_time
+            games_per_sec = num_games / duration if duration > 0 else 0
+
+            logger.info(
+                f"[GPUSelfplay] Generated {num_games} games on {device} "
+                f"in {duration:.1f}s ({games_per_sec:.1f} games/sec)"
+            )
+
+            return {
+                "success": True,
+                "games": num_games,
+                "device": str(device),
+                "duration_seconds": duration,
+                "games_per_second": games_per_sec,
+                "config": config_key,
+            }
+
+        except Exception as e:
+            logger.error(f"[GPUSelfplay] Failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "games": 0,
+            }
