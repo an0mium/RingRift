@@ -39,6 +39,25 @@ Win by achieving **any one** of:
 2. **Territory Control** — Control your fair share of spaces AND more than all opponents combined
 3. **Last Player Standing** — Be the only player who can still take meaningful actions
 
+### Why RingRift?
+
+**For players:** A deep, deterministic strategy game where "won" positions can collapse through cascading reactions. Three distinct victory paths keep every game dynamic. No dice, no card draws — every outcome is determined by player decisions. **Start with 2-player games** for pure strategy without political dynamics; 3-4 player games add alliances and kingmaking for those who enjoy social strategy.
+
+**For AI researchers:** A novel game environment with:
+
+- Non-trivial state space (up to 469 cells on hex boards, complex stack interactions)
+- Explicit decision points (no hidden auto-execution)
+- Cross-language parity (identical rules in TypeScript and Python)
+- 81 contract vectors for correctness verification
+- AlphaZero-style training pipeline with distributed selfplay
+
+**For engineers:** A reference implementation of:
+
+- Spec-driven game engine architecture (RR-CANON-RXXX formal specification)
+- Real-time multiplayer with WebSocket sync
+- Domain-driven design with 8 canonical aggregates
+- Comprehensive testing (10,000+ tests, 100% parity)
+
 ---
 
 ## Quick Start

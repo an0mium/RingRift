@@ -50,9 +50,9 @@ These can be done immediately and provide immediate value.
 
 ### 2.1 ✅ Test Suite Fixes (COMPLETED)
 
-- ✅ Fixed `regionOrderChoiceIntegration` tests - height-1 stacks were incorrectly expected to be eligible for territory elimination
+- ✅ Fixed `regionOrderChoiceIntegration` tests - ensured stacks outside region for territory elimination
 - ✅ Fixed victory threshold test - RR-CANON-R061 formula gives 18 for 2p, not 19
-- Tests now correctly enforce RR-CANON-R145: height-1 standalone rings NOT eligible for territory elimination
+- Tests use EliminationAggregate for canonical eligibility (RR-CANON-R022/R145: all controlled stacks eligible)
 
 ### 2.2 Jest TSX Transform Issue
 

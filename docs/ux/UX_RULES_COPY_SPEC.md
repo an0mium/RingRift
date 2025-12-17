@@ -59,15 +59,15 @@ Semantics must always match:
 
 There are three distinct elimination contexts with different costs and eligible targets:
 
-| Context                  | Cost            | Eligible Stacks                                                                             |
-| ------------------------ | --------------- | ------------------------------------------------------------------------------------------- |
-| **Line Processing**      | 1 ring from top | Any controlled stack (including standalone rings)                                           |
-| **Territory Processing** | Entire cap      | Multicolor stacks OR single-color stacks height > 1 only. **Standalone rings NOT eligible** |
-| **Forced Elimination**   | Entire cap      | Any controlled stack (including standalone rings)                                           |
+| Context                  | Cost            | Eligible Stacks                                                          |
+| ------------------------ | --------------- | ------------------------------------------------------------------------ |
+| **Line Processing**      | 1 ring from top | Any controlled stack (including standalone rings)                        |
+| **Territory Processing** | Entire cap      | Any controlled stack (including standalone rings per RR-CANON-R022/R145) |
+| **Forced Elimination**   | Entire cap      | Any controlled stack (including standalone rings)                        |
 
 - _Line processing_ is the most permissive: any stack you control can lose one ring from the top.
-- _Territory processing_ requires an "entire cap" from eligible stacks only—you cannot process a territory if your only outside stacks are standalone rings.
-- _Forced elimination_ also removes entire caps but accepts any controlled stack, including standalone rings.
+- _Territory processing_ requires an "entire cap" from any controlled stack outside the region (including height-1 standalone rings per RR-CANON-R022/R145).
+- _Forced elimination_ also removes entire caps and accepts any controlled stack, including standalone rings.
 
 ## 3. Victory conditions copy
 
@@ -233,7 +233,7 @@ For scenarios like `learn.lines.formation.Rules_11_2_Q7_Q20` in [`curated.json`]
   - All spaces in that region become your Territory spaces (collapsed).
   - All rings in the region are eliminated and credited to you.
   - You must pay the **territory elimination cost** from a stack you control **outside** the region.
-- **Territory elimination cost:** Eliminate the **entire cap** from an eligible stack. Eligible targets must be either: (1) a **multicolor stack** you control (with other players' rings buried beneath your cap), or (2) a **single-color stack of height > 1** consisting entirely of your colour. **Height-1 standalone rings are NOT eligible for territory processing.**
+- **Territory elimination cost:** Eliminate the **entire cap** from any controlled stack outside the region, including height-1 standalone rings. Per RR-CANON-R022/R145, all controlled stacks are eligible.
 - Territory victory is checked whenever territory processing completes and your territory spaces exceed the threshold.
 
 **TeachingOverlay – Territory description**

@@ -487,7 +487,7 @@ The public API correctly exports the full `GameState` type for external consumer
 **Key Design Decisions**:
 
 - Four elimination contexts: `line`, `territory`, `forced`, `recovery`
-- Height-1 stacks NOT eligible for territory (RR-CANON-R145)
+- Height-1 stacks ARE eligible for territory (RR-CANON-R022/R145)
 - Context determines cost (1 ring for line, entire cap for territory/forced)
 
 ### Phase Validation Matrix (2025-12-11)
