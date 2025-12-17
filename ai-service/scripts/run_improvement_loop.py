@@ -1082,6 +1082,11 @@ def train_model(
         "256",
         "--save-path",
         str(iter_model),
+        # Advanced training optimizations (2024-12)
+        "--spectral-norm",  # Gradient stability
+        "--cyclic-lr",  # Cyclic LR with triangular waves
+        "--mixed-precision",  # BF16 for speed+stability
+        "--warmup-epochs", "2",  # Short warmup for fine-tuning
     ]
 
     # Resume from best model if it exists (warm-start fine-tuning)

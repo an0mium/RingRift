@@ -65,6 +65,17 @@ HETZNER_NODES = [
 LAMBDA_DB_PATH = "/home/ubuntu/ringrift/ai-service/data/games"
 HETZNER_DB_PATH = "/root/ringrift/ai-service/data/games"
 
+# Gauntlet games path (high-quality games from model evaluation)
+LAMBDA_GAUNTLET_PATH = "/home/ubuntu/ringrift/ai-service/data/gauntlet_games"
+VAST_GAUNTLET_PATH = "/root/ringrift/ai-service/data/gauntlet_games"
+
+# Vast SSH nodes for gauntlet collection
+VAST_SSH_NODES = [
+    ("vast-1", "ssh1.vast.ai", 14400, "root"),
+    ("vast-2", "ssh3.vast.ai", 19940, "root"),
+    ("vast-3", "ssh8.vast.ai", 38742, "root"),
+]
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -211,6 +222,91 @@ def collect_from_vast(collect_dir: Path, dry_run: bool = False) -> int:
     except Exception as e:
         logger.warning(f"  Vast collection failed: {e}")
         return 0
+
+
+def collect_gauntlet_games(collect_dir: Path, dry_run: bool = False) -> int:
+    """Collect high-quality gauntlet games from Lambda and Vast nodes.
+
+    Gauntlet games are valuable training data because they represent:
+    - Games where models beat baseline opponents (positive examples)
+    - Diverse opponent types (random, heuristic, MCTS)
+    - Full game histories with move-by-move states
+    """
+    logger.info("Collecting gauntlet games (high-quality training data)...")
+    collected = 0
+
+    # Collect from Lambda nodes
+    for node in LAMBDA_NODES:
+        success, output = run_ssh_command(
+            node,
+            f"find {LAMBDA_GAUNTLET_PATH} -name '*.db' -type f 2>/dev/null | head -20",
+            timeout=15,
+        )
+        if not success:
+            continue
+
+        db_paths = [p.strip() for p in output.split("\n") if p.strip().endswith(".db")]
+        for remote_path in db_paths:
+            db_name = Path(remote_path).name
+            local_path = collect_dir / f"gauntlet_{node}_{db_name}"
+
+            if dry_run:
+                logger.info(f"  {node}: would collect gauntlet {db_name}")
+                collected += 1
+                continue
+
+            try:
+                result = subprocess.run(
+                    ["scp", "-o", "ConnectTimeout=10", f"ubuntu@{node}:{remote_path}", str(local_path)],
+                    capture_output=True,
+                    timeout=60,
+                )
+                if result.returncode == 0:
+                    logger.info(f"  {node}: collected gauntlet {db_name}")
+                    collected += 1
+            except Exception as e:
+                logger.warning(f"  {node}: failed to collect gauntlet {db_name}: {e}")
+
+    # Collect from Vast nodes
+    for name, host, port, user in VAST_SSH_NODES:
+        try:
+            result = subprocess.run(
+                ["ssh", "-o", "ConnectTimeout=10", "-p", str(port),
+                 f"{user}@{host}", f"find {VAST_GAUNTLET_PATH} -name '*.db' -type f 2>/dev/null | head -10"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if result.returncode != 0:
+                continue
+
+            db_paths = [p.strip() for p in result.stdout.split("\n") if p.strip().endswith(".db")]
+            for remote_path in db_paths:
+                db_name = Path(remote_path).name
+                local_path = collect_dir / f"gauntlet_{name}_{db_name}"
+
+                if dry_run:
+                    logger.info(f"  {name}: would collect gauntlet {db_name}")
+                    collected += 1
+                    continue
+
+                try:
+                    scp_result = subprocess.run(
+                        ["scp", "-o", "ConnectTimeout=10", "-P", str(port),
+                         f"{user}@{host}:{remote_path}", str(local_path)],
+                        capture_output=True,
+                        timeout=60,
+                    )
+                    if scp_result.returncode == 0:
+                        logger.info(f"  {name}: collected gauntlet {db_name}")
+                        collected += 1
+                except Exception as e:
+                    logger.warning(f"  {name}: failed to collect gauntlet {db_name}: {e}")
+        except Exception as e:
+            logger.warning(f"  {name}: unreachable - {e}")
+
+    logger.info(f"  Total gauntlet databases collected: {collected}")
+    return collected
 
 
 def merge_databases(collect_dir: Path, output_db: Path, dry_run: bool = False) -> bool:

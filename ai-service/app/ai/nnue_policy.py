@@ -54,6 +54,8 @@ def get_hidden_dim_for_board(board_type: BoardType, board_size: int = 0) -> int:
         return 128  # 64 cells - smaller model
     elif board_type == BoardType.SQUARE19:
         return 512  # 361 cells - larger model
+    elif board_type == BoardType.HEX8:
+        return 256  # hex8 (61 cells) - medium model
     elif board_type == BoardType.HEXAGONAL:
         # Distinguish hex8 vs full hex by board_size
         if board_size <= 8:
@@ -259,7 +261,7 @@ def pos_to_flat_index(pos: Position, board_size: int, board_type: BoardType) -> 
     Returns:
         Flattened index in range [0, board_size * board_size)
     """
-    if board_type == BoardType.HEXAGONAL:
+    if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
         radius = (board_size - 1) // 2
         cx = pos.x + radius
         cy = pos.y + radius

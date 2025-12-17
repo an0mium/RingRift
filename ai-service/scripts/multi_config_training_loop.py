@@ -925,6 +925,11 @@ def run_training(board_type: str, num_players: int, db_paths: List[str],
         "--data-path", npz,
         "--epochs", str(adjusted_epochs),
         "--use-optimized-hyperparams",  # Load tuned HP from config/hyperparameters.json
+        # Advanced training optimizations (2024-12)
+        "--spectral-norm",  # Gradient stability
+        "--cyclic-lr", "--cyclic-lr-period", "5",  # Cyclic LR with triangular waves
+        "--mixed-precision", "--amp-dtype", "bfloat16",  # BF16 for speed+stability
+        "--warmup-epochs", "5",  # LR warmup
     ]
 
     # Apply LR multiplier if non-default
