@@ -111,6 +111,9 @@ from scripts.p2p.constants import (
     MAX_CONSECUTIVE_FAILURES,
     RETRY_DEAD_NODE_INTERVAL,
     PEER_RETIRE_AFTER_SECONDS,
+    # Elo constants (from app.config.thresholds)
+    INITIAL_ELO_RATING,
+    ELO_K_FACTOR,
     RETRY_RETIRED_NODE_INTERVAL,
     PEER_PURGE_AFTER_SECONDS,
     # NAT/Relay settings
@@ -9232,15 +9235,13 @@ print(json.dumps(result))
     def _calculate_tournament_ratings(self, state: DistributedTournamentState):
         """Calculate final Elo ratings from tournament results.
 
-        Uses standard Elo rating system with K-factor of 32.
+        Uses standard Elo rating system with K-factor from app.config.thresholds.
         Random is pinned at 400 Elo as the anchor point.
         """
-        K_FACTOR = 32
-        INITIAL_RATING = 1500
         RANDOM_ANCHOR = 400  # Random is pinned at 400 Elo
 
-        # Initialize ratings
-        ratings = {agent: float(INITIAL_RATING) for agent in state.agent_ids}
+        # Initialize ratings (using canonical constants from app.config.thresholds)
+        ratings = {agent: float(INITIAL_ELO_RATING) for agent in state.agent_ids}
         wins = {agent: 0 for agent in state.agent_ids}
         losses = {agent: 0 for agent in state.agent_ids}
         draws = {agent: 0 for agent in state.agent_ids}
@@ -9251,7 +9252,7 @@ print(json.dumps(result))
 
         def update_elo(rating: float, expected: float, actual: float) -> float:
             """Update Elo rating based on game outcome."""
-            return rating + K_FACTOR * (actual - expected)
+            return rating + ELO_K_FACTOR * (actual - expected)
 
         # Process all results
         for result in state.results:
@@ -11466,7 +11467,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                                     self.pfsp_pools[config_key].add_opponent(
                                         model_id=model_id,
                                         model_path=output_path,
-                                        elo=1500.0,  # Initial Elo, updated after evaluation
+                                        elo=INITIAL_ELO_RATING,  # From app.config.thresholds
                                         win_rate=0.5,
                                     )
                                     print(f"[P2P/PFSP] Added {model_id} to opponent pool for {config_key}")
@@ -11806,7 +11807,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             # Find best model for this config
             best_model = None
-            best_elo = 1500.0
+            best_elo = INITIAL_ELO_RATING
             models_dir = Path(self.ringrift_path) / "ai-service" / "models" / "nnue"
             pattern = f"nnue_{board_type}_{num_players}p*.pt"
 
@@ -11822,7 +11823,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             # Check for plateau
             auto_tuner = self.cmaes_auto_tuners[config_key]
-            last_elo = self.last_cmaes_elo.get(config_key, 1500.0)
+            last_elo = self.last_cmaes_elo.get(config_key, INITIAL_ELO_RATING)
 
             # Record Elo history for plateau detection
             should_tune = auto_tuner.check_plateau(best_elo)
@@ -14913,11 +14914,11 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 gpu_hours = gpu_hours_per_config.get(config, 0)
 
                 if elo_data["ratings"]:
-                    initial_elo = elo_data["ratings"][0] if elo_data["ratings"] else 1500
-                    current_elo = elo_data["ratings"][-1] if elo_data["ratings"] else 1500
+                    initial_elo = elo_data["ratings"][0] if elo_data["ratings"] else INITIAL_ELO_RATING
+                    current_elo = elo_data["ratings"][-1] if elo_data["ratings"] else INITIAL_ELO_RATING
                     elo_gain = current_elo - initial_elo
                 else:
-                    initial_elo = current_elo = 1500
+                    initial_elo = current_elo = INITIAL_ELO_RATING
                     elo_gain = 0
 
                 # Elo per GPU hour

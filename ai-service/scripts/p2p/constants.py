@@ -3,6 +3,8 @@
 This module contains configuration constants used throughout the P2P orchestrator.
 Many constants are configurable via environment variables for cluster tuning.
 Extracted from p2p_orchestrator.py for better modularity.
+
+See: app.config.thresholds for canonical Elo and training threshold constants.
 """
 
 from __future__ import annotations
@@ -10,6 +12,16 @@ from __future__ import annotations
 import ipaddress
 import os
 from pathlib import Path
+
+# Import canonical Elo constants
+try:
+    from app.config.thresholds import (
+        INITIAL_ELO_RATING,
+        ELO_K_FACTOR,
+    )
+except ImportError:
+    INITIAL_ELO_RATING = 1500.0
+    ELO_K_FACTOR = 32
 
 # ============================================
 # Network Configuration

@@ -41,6 +41,7 @@ try:
     from app.config.thresholds import (
         INITIAL_ELO_RATING,
         ELO_K_FACTOR,
+        ELO_DROP_ROLLBACK,
         MIN_GAMES_FOR_ELO,
         TRAINING_TRIGGER_GAMES,
         TRAINING_MIN_INTERVAL_SECONDS,
@@ -48,6 +49,7 @@ try:
 except ImportError:
     INITIAL_ELO_RATING = 1500.0
     ELO_K_FACTOR = 32
+    ELO_DROP_ROLLBACK = 50.0
     MIN_GAMES_FOR_ELO = 30
     TRAINING_TRIGGER_GAMES = 500
     TRAINING_MIN_INTERVAL_SECONDS = 1200
@@ -70,6 +72,9 @@ class DataIngestionConfig:
     deduplication: bool = True
     min_games_per_sync: int = 5
     remote_db_pattern: str = "data/games/*.db"
+    # sync_disabled: When true, data sync is disabled on this machine (orchestrator-only mode)
+    # Set to true on machines with limited disk space that shouldn't collect data locally
+    sync_disabled: bool = False
     use_external_sync: bool = False  # Whether to use external unified_data_sync.py
     checksum_validation: bool = True
     retry_max_attempts: int = 3
@@ -322,6 +327,9 @@ class IntegratedEnhancementsConfig:
 
     Centralizes all advanced training feature flags and parameters.
     See app/training/integrated_enhancements.py for implementation.
+
+    This is the CANONICAL location for this config. The scripts/unified_loop/config.py
+    version should import from here.
     """
     # Master toggle
     enabled: bool = True
@@ -335,6 +343,7 @@ class IntegratedEnhancementsConfig:
     # Gradient Surgery (PCGrad)
     gradient_surgery_enabled: bool = False
     gradient_surgery_method: str = "pcgrad"  # "pcgrad" or "cagrad"
+    gradient_conflict_threshold: float = 0.0  # Threshold for detecting conflicts
 
     # Batch Scheduling
     batch_scheduling_enabled: bool = False
@@ -342,12 +351,16 @@ class IntegratedEnhancementsConfig:
     batch_final_size: int = 512
     batch_warmup_steps: int = 1000
     batch_rampup_steps: int = 10000
-    batch_schedule_type: str = "linear"
+    batch_schedule_type: str = "linear"  # "linear", "exponential", "step"
 
     # Background Evaluation
     background_eval_enabled: bool = False
     eval_interval_steps: int = 1000
+    eval_games_per_check: int = 20
     eval_elo_checkpoint_threshold: float = 10.0
+    eval_elo_drop_threshold: float = ELO_DROP_ROLLBACK
+    eval_auto_checkpoint: bool = True
+    eval_checkpoint_dir: str = "data/eval_checkpoints"
 
     # ELO Weighting (uses thresholds.py constants)
     elo_weighting_enabled: bool = True
@@ -359,14 +372,18 @@ class IntegratedEnhancementsConfig:
     # Curriculum Learning
     curriculum_enabled: bool = True
     curriculum_auto_advance: bool = True
+    curriculum_checkpoint_path: str = "data/curriculum_state.json"
 
     # Data Augmentation
     augmentation_enabled: bool = True
     augmentation_mode: str = "all"  # "all", "random", "light"
+    augmentation_probability: float = 1.0
 
     # Reanalysis
     reanalysis_enabled: bool = False
     reanalysis_blend_ratio: float = 0.5
+    reanalysis_interval_steps: int = 5000
+    reanalysis_batch_size: int = 1000
 
 
 @dataclass
@@ -388,12 +405,114 @@ class HealthConfig:
 
 
 @dataclass
+class PBTConfig:
+    """Configuration for Population-Based Training.
+
+    Migrated from scripts/unified_loop/config.py for consolidation.
+    """
+    enabled: bool = False  # Disabled by default - resource intensive
+    population_size: int = 8
+    exploit_interval_steps: int = 1000
+    tunable_params: List[str] = field(default_factory=lambda: ["learning_rate", "batch_size", "temperature"])
+    check_interval_seconds: int = 1800  # Check PBT status every 30 min
+    auto_start: bool = False  # Auto-start PBT when training completes
+
+
+@dataclass
+class NASConfig:
+    """Configuration for Neural Architecture Search.
+
+    Migrated from scripts/unified_loop/config.py for consolidation.
+    """
+    enabled: bool = False  # Disabled by default - very resource intensive
+    strategy: str = "evolutionary"  # evolutionary, random, bayesian
+    population_size: int = 20
+    generations: int = 50
+    check_interval_seconds: int = 3600  # Check NAS status every hour
+    auto_start_on_plateau: bool = False  # Start NAS when Elo plateaus
+
+
+@dataclass
+class PERConfig:
+    """Configuration for Prioritized Experience Replay.
+
+    Migrated from scripts/unified_loop/config.py for consolidation.
+    """
+    enabled: bool = True  # Enabled by default - improves training efficiency
+    alpha: float = 0.6  # Priority exponent
+    beta: float = 0.4  # Importance sampling exponent
+    buffer_capacity: int = 100000
+    rebuild_interval_seconds: int = 7200  # Rebuild buffer every 2 hours
+
+
+@dataclass
+class FeedbackConfig:
+    """Configuration for pipeline feedback controller integration.
+
+    Migrated from scripts/unified_loop/config.py for consolidation.
+    """
+    enabled: bool = True  # Enable closed-loop feedback
+    # Performance-based training triggers
+    elo_plateau_threshold: float = 15.0  # Elo gain below this triggers plateau detection
+    elo_plateau_lookback: int = 5  # Number of evaluations to look back
+    win_rate_degradation_threshold: float = 0.40  # Win rate below this triggers retraining
+    # Data quality gates
+    max_parity_failure_rate: float = 0.10  # Block training if parity failures exceed this
+    min_data_quality_score: float = 0.70  # Minimum data quality to proceed with training
+    # CMA-ES/NAS auto-trigger
+    plateau_count_for_cmaes: int = 2  # Trigger CMA-ES after this many consecutive plateaus
+    plateau_count_for_nas: int = 4  # Trigger NAS after this many consecutive plateaus
+
+
+@dataclass
+class P2PClusterConfig:
+    """Configuration for P2P distributed cluster integration.
+
+    Migrated from scripts/unified_loop/config.py for consolidation.
+    """
+    enabled: bool = False  # Enable P2P cluster coordination
+    p2p_base_url: str = "http://localhost:8770"  # P2P orchestrator URL
+    auth_token: Optional[str] = None  # Auth token (defaults to RINGRIFT_CLUSTER_AUTH_TOKEN env)
+    model_sync_enabled: bool = True  # Auto-sync models to cluster
+    model_sync_on_promotion: bool = True  # Auto-sync when model is promoted
+    target_selfplay_games_per_hour: int = 1000  # Target selfplay rate across cluster
+    auto_scale_selfplay: bool = True  # Auto-scale selfplay workers
+    use_distributed_tournament: bool = True  # Use cluster for tournament evaluation
+    tournament_nodes_per_eval: int = 3  # Number of nodes per evaluation
+    health_check_interval: int = 60  # Seconds between cluster health checks
+    unhealthy_threshold: int = 3  # Failures before marking unhealthy
+    sync_interval_seconds: int = 300  # Seconds between data sync with cluster
+    # Gossip sync integration (P2P data replication)
+    gossip_sync_enabled: bool = True  # Gossip-based data replication
+    gossip_port: int = 8771  # Port for gossip protocol
+
+
+@dataclass
+class ModelPruningConfig:
+    """Configuration for automated model pruning/evaluation.
+
+    Migrated from scripts/unified_loop/config.py for consolidation.
+    """
+    enabled: bool = True  # Enable automatic model pruning
+    threshold: int = 100  # Trigger pruning when model count exceeds this
+    check_interval_seconds: int = 3600  # Check model count every hour
+    top_quartile_keep: float = 0.25  # Keep top 25% of models
+    games_per_baseline: int = 10  # Games per baseline for evaluation
+    parallel_workers: int = 50  # Parallel evaluation workers
+    archive_models: bool = True  # Archive pruned models instead of deleting
+    prefer_high_cpu_hosts: bool = True  # Schedule on high-CPU hosts
+    evaluation_timeout_seconds: int = 7200  # 2 hour timeout
+    dry_run: bool = False  # If true, log but don't prune
+    use_elo_based_culling: bool = True  # Use fast ELO-based culling instead of games
+
+
+@dataclass
 class UnifiedConfig:
     """Master configuration class that loads from unified_loop.yaml.
 
     This is the SINGLE SOURCE OF TRUTH for all configuration values.
     """
-    version: str = "1.1"
+    version: str = "1.2"  # Bumped for config consolidation
 
     # Sub-configurations
     data_ingestion: DataIngestionConfig = field(default_factory=DataIngestionConfig)
@@ -419,6 +538,14 @@ class UnifiedConfig:
 
     # Integrated training enhancements (December 2025)
     enhancements: IntegratedEnhancementsConfig = field(default_factory=IntegratedEnhancementsConfig)
+
+    # Advanced training features (migrated from scripts/unified_loop/config.py)
+    pbt: PBTConfig = field(default_factory=PBTConfig)
+    nas: NASConfig = field(default_factory=NASConfig)
+    per: PERConfig = field(default_factory=PERConfig)
+    feedback: FeedbackConfig = field(default_factory=FeedbackConfig)
+    p2p: P2PClusterConfig = field(default_factory=P2PClusterConfig)
+    model_pruning: ModelPruningConfig = field(default_factory=ModelPruningConfig)
 
     # Paths
     hosts_config_path: str = "config/remote_hosts.yaml"
@@ -637,6 +764,25 @@ class UnifiedConfig:
                 min_games_for_rating=tourn_data.get("min_games_for_rating", 30),
                 baseline_models=tourn_data.get("baseline_models", ["random", "heuristic", "mcts_100", "mcts_500"]),
             )
+
+        # Load advanced training feature configs (migrated from scripts/unified_loop/config.py)
+        if "pbt" in data:
+            config.pbt = PBTConfig(**data["pbt"])
+
+        if "nas" in data:
+            config.nas = NASConfig(**data["nas"])
+
+        if "per" in data:
+            config.per = PERConfig(**data["per"])
+
+        if "feedback" in data:
+            config.feedback = FeedbackConfig(**data["feedback"])
+
+        if "p2p" in data:
+            config.p2p = P2PClusterConfig(**data["p2p"])
+
+        if "model_pruning" in data:
+            config.model_pruning = ModelPruningConfig(**data["model_pruning"])
 
         # Load paths
         config.hosts_config_path = data.get("hosts_config_path", config.hosts_config_path)
