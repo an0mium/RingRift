@@ -214,6 +214,42 @@ class LocalSelfplayGenerator:
 
         return priorities
 
+    def get_adaptive_engine(self, config_key: str, quality_threshold: float = 0.7) -> str:
+        """Select selfplay engine based on training proximity.
+
+        Uses higher quality (but slower) 'gumbel' engine when config is
+        close to training threshold, and faster 'descent' engine when
+        far from threshold to maximize throughput.
+
+        Args:
+            config_key: Config identifier
+            quality_threshold: Proximity threshold to switch to gumbel (0-1)
+
+        Returns:
+            Engine name: 'gumbel' for high quality, 'descent' for throughput
+        """
+        priorities = self.get_config_priorities()
+        priority = priorities.get(config_key, 0.0)
+
+        # Higher priority = closer to training threshold = use higher quality engine
+        if priority >= quality_threshold:
+            logger.info(f"[AdaptiveEngine] {config_key} priority={priority:.2f} >= {quality_threshold} -> using 'gumbel'")
+            return "gumbel"
+        else:
+            logger.debug(f"[AdaptiveEngine] {config_key} priority={priority:.2f} < {quality_threshold} -> using 'descent'")
+            return "descent"
+
+    def get_all_adaptive_engines(self) -> Dict[str, str]:
+        """Get recommended engine for all configs.
+
+        Returns:
+            Dict mapping config_key to recommended engine
+        """
+        return {
+            config_key: self.get_adaptive_engine(config_key)
+            for config_key in self.state.configs
+        }
+
     async def generate_games(
         self,
         num_games: int,

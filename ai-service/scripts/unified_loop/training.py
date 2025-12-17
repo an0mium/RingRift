@@ -15,7 +15,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from .config import (
     DataEvent,
@@ -325,6 +325,10 @@ class TrainingScheduler:
         self._async_validator: Optional[Any] = None
         self._connection_pool: Optional[Any] = None
         self._parity_failure_rate: float = 0.0  # Track parity failures for training decisions
+        # Auto-recovery state (Phase 7)
+        self._retry_attempts: Dict[str, int] = {}  # config_key -> retry count
+        self._last_failure_time: Dict[str, float] = {}  # config_key -> timestamp
+        self._pending_retries: List[Tuple[str, float]] = []  # (config_key, scheduled_time)
 
         # Initialize streaming pipelines for each config
         if HAS_STREAMING_PIPELINE and getattr(config, 'use_streaming_pipeline', True):
@@ -2241,3 +2245,199 @@ class TrainingScheduler:
             'configs_in_plateau': sum(1 for p in plateau_counts if p >= 2),
             'per_config': all_feedback,
         }
+
+    # =========================================================================
+    # Training Auto-Recovery (Phase 7)
+    # =========================================================================
+
+    def schedule_training_retry(self, config_key: str) -> Optional[float]:
+        """Schedule a retry for a failed training run.
+
+        Uses exponential backoff based on retry count. Returns the
+        scheduled retry time, or None if max retries exceeded.
+
+        Args:
+            config_key: Config that failed training
+
+        Returns:
+            Scheduled retry timestamp, or None if max retries exceeded
+        """
+        max_retries = getattr(self.config, 'training_max_retries', 3)
+        base_delay = getattr(self.config, 'training_retry_backoff_base', 60.0)
+        multiplier = getattr(self.config, 'training_retry_backoff_multiplier', 2.0)
+
+        current_retries = self._retry_attempts.get(config_key, 0)
+
+        if current_retries >= max_retries:
+            print(f"[Training] Max retries ({max_retries}) exceeded for {config_key}")
+            # Reset retry count for future attempts
+            self._retry_attempts[config_key] = 0
+            return None
+
+        # Increment retry count
+        self._retry_attempts[config_key] = current_retries + 1
+        self._last_failure_time[config_key] = time.time()
+
+        # Calculate delay with exponential backoff
+        delay = base_delay * (multiplier ** current_retries)
+        scheduled_time = time.time() + delay
+
+        # Add to pending retries
+        self._pending_retries.append((config_key, scheduled_time))
+        self._pending_retries.sort(key=lambda x: x[1])  # Sort by scheduled time
+
+        print(f"[Training] Scheduled retry {current_retries + 1}/{max_retries} for {config_key} "
+              f"in {delay:.0f}s (at {datetime.fromtimestamp(scheduled_time).strftime('%H:%M:%S')})")
+
+        return scheduled_time
+
+    def reset_retry_count(self, config_key: str) -> None:
+        """Reset retry count after successful training.
+
+        Args:
+            config_key: Config that completed successfully
+        """
+        if config_key in self._retry_attempts:
+            old_count = self._retry_attempts[config_key]
+            del self._retry_attempts[config_key]
+            if old_count > 0:
+                print(f"[Training] Reset retry count for {config_key} (was {old_count})")
+
+        if config_key in self._last_failure_time:
+            del self._last_failure_time[config_key]
+
+        # Remove from pending retries
+        self._pending_retries = [
+            (k, t) for k, t in self._pending_retries if k != config_key
+        ]
+
+    def get_pending_retry(self) -> Optional[str]:
+        """Get a config that is due for retry.
+
+        Returns:
+            Config key that should be retried, or None if none due
+        """
+        if not self._pending_retries:
+            return None
+
+        now = time.time()
+        # Check first pending retry (list is sorted by time)
+        config_key, scheduled_time = self._pending_retries[0]
+
+        if now >= scheduled_time:
+            # Remove from pending list
+            self._pending_retries.pop(0)
+            return config_key
+
+        return None
+
+    async def start_training_with_retry(self, config_key: str) -> bool:
+        """Start training with automatic retry on failure.
+
+        Wraps start_training with retry logic. On failure, schedules
+        a retry with exponential backoff.
+
+        Args:
+            config_key: Config to train
+
+        Returns:
+            True if training started successfully
+        """
+        try:
+            success = await self.start_training(config_key)
+
+            if success:
+                # Training started - reset retry count
+                self.reset_retry_count(config_key)
+                return True
+            else:
+                # Training failed to start - schedule retry
+                self.schedule_training_retry(config_key)
+                return False
+
+        except Exception as e:
+            print(f"[Training] Exception during training start: {e}")
+            self.schedule_training_retry(config_key)
+            return False
+
+    def get_retry_status(self) -> Dict[str, Any]:
+        """Get current retry status for all configs.
+
+        Returns:
+            Dict with retry counts and pending retries
+        """
+        return {
+            'retry_counts': dict(self._retry_attempts),
+            'last_failures': {
+                k: datetime.fromtimestamp(v).isoformat()
+                for k, v in self._last_failure_time.items()
+            },
+            'pending_retries': [
+                {'config': k, 'scheduled_at': datetime.fromtimestamp(t).isoformat()}
+                for k, t in self._pending_retries
+            ],
+            'configs_at_max_retries': [
+                k for k, v in self._retry_attempts.items()
+                if v >= getattr(self.config, 'training_max_retries', 3)
+            ],
+        }
+
+    # =========================================================================
+    # Post-Promotion Warmup (Phase 7)
+    # =========================================================================
+
+    def is_in_warmup_period(self, config_key: str) -> Tuple[bool, str]:
+        """Check if config is in post-promotion warmup period.
+
+        After a model is promoted, we wait for:
+        1. Minimum time to pass (default 30 min)
+        2. Minimum games to be collected (default 100)
+
+        This allows the new model to generate diverse training data
+        before we train again.
+
+        Args:
+            config_key: Config to check
+
+        Returns:
+            Tuple of (is_in_warmup, reason_string)
+        """
+        config_state = self.state.configs.get(config_key)
+        if config_state is None:
+            return False, "config_not_found"
+
+        warmup_games = getattr(self.config, 'warmup_games_after_promotion', 100)
+        warmup_time = getattr(self.config, 'warmup_time_after_promotion', 1800.0)
+
+        now = time.time()
+        time_since_promotion = now - config_state.last_promotion_time
+        games_since = config_state.games_since_training
+
+        # Check time warmup
+        if time_since_promotion < warmup_time:
+            remaining = warmup_time - time_since_promotion
+            return True, f"time_warmup: {remaining:.0f}s remaining"
+
+        # Check games warmup
+        if games_since < warmup_games:
+            remaining = warmup_games - games_since
+            return True, f"games_warmup: {remaining} games remaining"
+
+        return False, "warmup_complete"
+
+    def get_warmup_status(self) -> Dict[str, Dict[str, Any]]:
+        """Get warmup status for all configs.
+
+        Returns:
+            Dict mapping config_key to warmup status
+        """
+        result = {}
+        for config_key, config_state in self.state.configs.items():
+            in_warmup, reason = self.is_in_warmup_period(config_key)
+            result[config_key] = {
+                'in_warmup': in_warmup,
+                'reason': reason,
+                'time_since_promotion': time.time() - config_state.last_promotion_time,
+                'games_since_training': config_state.games_since_training,
+            }
+        return result

@@ -263,6 +263,13 @@ class TrainingConfig:
     parity_failure_threshold: float = 0.10  # Block training above 10% failures
     # Connection Pooling - Thread-local DB connection reuse
     use_connection_pool: bool = True  # Enable connection pooling for WAL
+    # Training Auto-Recovery (Phase 7)
+    training_max_retries: int = 3  # Max retry attempts on failure
+    training_retry_backoff_base: float = 60.0  # Base delay between retries (seconds)
+    training_retry_backoff_multiplier: float = 2.0  # Exponential backoff multiplier
+    # Post-Promotion Warmup (Phase 7)
+    warmup_games_after_promotion: int = 100  # Games to collect before retraining
+    warmup_time_after_promotion: float = 1800.0  # Min seconds after promotion (30 min)
 
 
 @dataclass
@@ -703,6 +710,63 @@ class FeedbackState:
         self.urgency_score = min(1.0, urgency)
         self.last_urgency_update = time.time()
         return self.urgency_score
+
+    def compute_data_quality(
+        self,
+        sample_diversity: float = 1.0,
+        avg_game_length: float = 50.0,
+        min_game_length: float = 10.0,
+        max_game_length: float = 200.0,
+    ) -> float:
+        """Compute composite data quality score (0-1).
+
+        Factors:
+        - Parity pass rate (inverse of failure rate)
+        - Sample diversity (0-1, higher = more diverse positions)
+        - Game length normalization (penalize too short or too long)
+
+        Args:
+            sample_diversity: Diversity score from data collection (0-1)
+            avg_game_length: Average game length in moves
+            min_game_length: Expected minimum reasonable length
+            max_game_length: Expected maximum reasonable length
+
+        Returns:
+            Composite quality score (0-1)
+        """
+        quality = 0.0
+
+        # Factor 1: Parity pass rate (40% weight)
+        parity_score = 1.0 - self.parity_failure_rate
+        quality += parity_score * 0.4
+
+        # Factor 2: Sample diversity (30% weight)
+        quality += max(0, min(1.0, sample_diversity)) * 0.3
+
+        # Factor 3: Game length normalization (30% weight)
+        # Penalize games that are too short (likely errors) or too long (stalemates)
+        if avg_game_length < min_game_length:
+            length_score = avg_game_length / min_game_length
+        elif avg_game_length > max_game_length:
+            length_score = max(0.5, max_game_length / avg_game_length)
+        else:
+            # Optimal range
+            length_score = 1.0
+        quality += length_score * 0.3
+
+        self.data_quality_score = min(1.0, max(0.0, quality))
+        return self.data_quality_score
+
+    def is_data_quality_acceptable(self, threshold: float = 0.7) -> bool:
+        """Check if data quality meets minimum threshold.
+
+        Args:
+            threshold: Minimum acceptable quality score (0-1)
+
+        Returns:
+            True if data quality is acceptable
+        """
+        return self.data_quality_score >= threshold
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization/logging."""

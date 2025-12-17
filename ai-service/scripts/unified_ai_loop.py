@@ -3076,6 +3076,9 @@ class UnifiedAILoop:
         # Update training progress metrics (for dashboard compatibility)
         self._update_training_progress_metrics()
 
+        # Update consolidated FeedbackState metrics (Phase 7)
+        self._update_feedback_state_metrics()
+
         # Update cluster utilization metrics (feedback from P2P orchestrator)
         self._update_cluster_utilization_metrics()
 
@@ -3284,6 +3287,46 @@ class UnifiedAILoop:
 
         except Exception as e:
             print(f"[Metrics] Error updating training progress metrics: {e}")
+
+    def _update_feedback_state_metrics(self):
+        """Update Prometheus metrics from consolidated FeedbackState (Phase 7).
+
+        Exports urgency scores, plateau counts, curriculum weights, and data
+        quality metrics for monitoring dashboards and alerting.
+        """
+        if not HAS_PROMETHEUS:
+            return
+
+        try:
+            if not hasattr(self, 'training_scheduler') or not self.training_scheduler:
+                return
+
+            # Get feedback summary from training scheduler
+            feedback_summary = self.training_scheduler.get_feedback_summary()
+
+            # Update global parity failure rate
+            FEEDBACK_GLOBAL_PARITY_RATE.set(feedback_summary.get('global_parity_failure', 0.0))
+
+            # Update per-config metrics
+            per_config = feedback_summary.get('per_config', {})
+            for config_key, feedback_data in per_config.items():
+                FEEDBACK_URGENCY_SCORE.labels(config=config_key).set(
+                    feedback_data.get('urgency_score', 0.0)
+                )
+                FEEDBACK_PLATEAU_COUNT.labels(config=config_key).set(
+                    feedback_data.get('elo_plateau_count', 0)
+                )
+                FEEDBACK_CURRICULUM_WEIGHT.labels(config=config_key).set(
+                    feedback_data.get('curriculum_weight', 1.0)
+                )
+                FEEDBACK_DATA_QUALITY.labels(config=config_key).set(
+                    feedback_data.get('data_quality_score', 1.0)
+                )
+
+        except Exception as e:
+            # Don't fail metrics loop on feedback state errors
+            if self.config.verbose:
+                print(f"[Metrics] Error updating feedback state metrics: {e}")
 
     # =========================================================================
     # Feedback Controller Callbacks

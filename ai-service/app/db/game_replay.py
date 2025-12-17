@@ -192,6 +192,10 @@ CREATE TABLE IF NOT EXISTS game_history_entries (
 );
 
 CREATE INDEX IF NOT EXISTS idx_history_game ON game_history_entries(game_id);
+-- Phase 7: Additional indexes for training data queries
+CREATE INDEX IF NOT EXISTS idx_history_game_phase ON game_history_entries(game_id, phase_before);
+CREATE INDEX IF NOT EXISTS idx_history_game_player ON game_history_entries(game_id, player);
+CREATE INDEX IF NOT EXISTS idx_moves_player ON game_moves(game_id, player);
 
 -- v3: Add state_hash to snapshots for validation
 -- (Added via migration for existing DBs)
