@@ -304,6 +304,45 @@ The following scripts are deprecated and will be removed in a future release:
 
 These deprecated scripts emit `DeprecationWarning` on import.
 
+## Evaluation System Architecture
+
+The codebase has two main evaluation patterns: **Gauntlet** (O(n) baseline testing) and **Tournament** (round-robin or tier-based).
+
+### Canonical Evaluation Scripts
+
+| Type          | Canonical Script         | Description                             |
+| ------------- | ------------------------ | --------------------------------------- |
+| Gauntlet      | `run_gauntlet.py`        | O(n) testing against fixed baselines    |
+| Tournament    | `run_tournament.py`      | Unified tournament dispatcher (8 modes) |
+| Monitoring    | `auto_elo_tournament.py` | Continuous Elo monitoring daemon        |
+| Data Pipeline | `gauntlet_to_elo.py`     | Convert gauntlet results to Elo ratings |
+
+### Tournament Modes (via run_tournament.py)
+
+```bash
+python scripts/run_tournament.py --mode <mode>
+```
+
+| Mode          | Description                         |
+| ------------- | ----------------------------------- |
+| `basic`       | Basic AI vs AI tournament           |
+| `models`      | Neural network model Elo tournament |
+| `distributed` | Multi-tier difficulty ladder        |
+| `ssh`         | SSH-based multi-host distribution   |
+| `eval`        | Evaluation pool tournaments         |
+| `diverse`     | All board/player configurations     |
+| `weights`     | Heuristic weight profile testing    |
+| `crossboard`  | Cross-board difficulty analysis     |
+
+### Deprecated Evaluation Scripts
+
+| Deprecated             | Replacement       | Migration                                       |
+| ---------------------- | ----------------- | ----------------------------------------------- |
+| `baseline_gauntlet.py` | `run_gauntlet.py` | `python scripts/run_gauntlet.py --local`        |
+| `run_vast_gauntlet.py` | `run_gauntlet.py` | `python scripts/run_gauntlet.py --parallel 128` |
+
+These deprecated scripts emit `DeprecationWarning` on import.
+
 ## Migration Status
 
 ### Unified Logging (87 scripts migrated)

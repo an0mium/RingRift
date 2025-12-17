@@ -1,6 +1,23 @@
 #!/usr/bin/env python3
 """Baseline Gauntlet - Efficiently filter models by testing against fixed baselines.
 
+DEPRECATED: Use run_gauntlet.py instead, which provides:
+- Unified gauntlet interface with configurable modes
+- Distributed execution support
+- Integration with unified_elo.db
+- Better parallelization and fault tolerance
+
+Migration:
+    # Run baseline evaluation (equivalent to this script):
+    python scripts/run_gauntlet.py --config square8_2p --local
+
+    # With specific model types:
+    python scripts/run_gauntlet.py --config square8_2p --local --model-filter nnue
+
+This script will be removed in a future release.
+
+---
+Original description:
 Instead of O(n²) round-robin tournament, test each model against 3 baselines:
 - Random: Sanity check (should win >95%)
 - Heuristic: Medium difficulty (should win >70%)
@@ -23,6 +40,12 @@ Usage:
     # Show results from previous run
     python scripts/baseline_gauntlet.py --results
 """
+import warnings
+warnings.warn(
+    "baseline_gauntlet.py is deprecated. Use run_gauntlet.py instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 import argparse
 import json

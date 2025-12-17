@@ -1,11 +1,24 @@
 #!/usr/bin/env python3
 """High-parallelism gauntlet for Vast instances with many CPU cores.
 
+DEPRECATED: Use run_gauntlet.py instead with --parallel flag:
+    python scripts/run_gauntlet.py --config square8_2p --parallel 128
+
+This script will be removed in a future release.
+
+---
+Original description:
 Designed for 200+ vCPU instances. Runs many parallel games to maximize throughput.
 
 Usage:
     python run_vast_gauntlet.py --config square8_2p --parallel 128
 """
+import warnings
+warnings.warn(
+    "run_vast_gauntlet.py is deprecated. Use run_gauntlet.py --parallel instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 import argparse
 import asyncio
 import logging
