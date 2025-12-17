@@ -342,6 +342,7 @@ class MinimaxAI(HeuristicAI):
         if getattr(self, '_pending_nnue_init', False):
             self._pending_nnue_init = False
             try:
+                from .nnue import NNUEEvaluator  # Lazy import
                 board_type = game_state.board.type
                 self.nnue_evaluator = NNUEEvaluator(
                     board_type=board_type,
@@ -1170,6 +1171,9 @@ class MinimaxAI(HeuristicAI):
         state: MutableGameState,
     ) -> List[Move]:
         """Order moves by policy network scores (best first)."""
+        # Lazy imports for neural network components
+        import torch
+        from .nnue import get_board_size, extract_features_from_gamestate
         from .nnue_policy import pos_to_flat_index
 
         if not moves or self.policy_model is None:

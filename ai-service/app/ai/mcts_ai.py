@@ -10,38 +10,37 @@ reduce allocation overhead. The legacy path uses full :class:`GameState`
 clones for backwards‑compatible behaviour and debugging.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Optional, Dict, Any, cast, List, Tuple
+from typing import Optional, Dict, Any, cast, List, Tuple, TYPE_CHECKING
 import math
 import time
 
 import numpy as np
 import psutil
-import torch
 
 from .bounded_transposition_table import BoundedTranspositionTable
-from .async_nn_eval import AsyncNeuralBatcher
 from .game_state_utils import infer_num_players
 from .heuristic_ai import HeuristicAI
-from .neural_net import (
-    NeuralNetAI,
-    INVALID_MOVE_INDEX,
-    ActionEncoderHex,
-    HexNeuralNet_v2,
-    get_memory_tier,
-)
 from ..models import GameState, Move, MoveType, AIConfig, BoardType, GamePhase
 from ..rules.mutable_state import MutableGameState, MoveUndo
 from ..utils.memory_config import MemoryConfig
 
-# Type hint for NNUE policy model (imported lazily to avoid circular imports)
-try:
+# Lazy imports for neural network components to avoid loading torch when not needed
+# These are only imported when difficulty >= 6 (neural MCTS tiers)
+if TYPE_CHECKING:
+    import torch
+    from .async_nn_eval import AsyncNeuralBatcher
+    from .neural_net import (
+        NeuralNetAI,
+        ActionEncoderHex,
+        HexNeuralNet_v2,
+    )
     from .nnue_policy import RingRiftNNUEWithPolicy
-except ImportError:
-    RingRiftNNUEWithPolicy = None  # type: ignore[misc,assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -639,9 +638,10 @@ class MCTSAI(HeuristicAI):
             should_use_neural = True
 
         # Try to load neural net for evaluation when enabled
-        self.neural_net: Optional[NeuralNetAI] = None
+        self.neural_net: Optional["NeuralNetAI"] = None
         if should_use_neural:
             try:
+                from .neural_net import NeuralNetAI  # Lazy import
                 self.neural_net = NeuralNetAI(player_number, config)
                 logger.info(
                     f"MCTSAI(player={player_number}, difficulty={config.difficulty}): "
@@ -659,9 +659,10 @@ class MCTSAI(HeuristicAI):
             )
 
         # Thread-safe NN batcher (also used for async leaf evaluation).
-        self.nn_batcher: Optional[AsyncNeuralBatcher] = (
-            AsyncNeuralBatcher(self.neural_net) if self.neural_net else None
-        )
+        self.nn_batcher: Optional["AsyncNeuralBatcher"] = None
+        if self.neural_net is not None:
+            from .async_nn_eval import AsyncNeuralBatcher  # Lazy import
+            self.nn_batcher = AsyncNeuralBatcher(self.neural_net)
 
         # Optional vector value-head selection for multi-player search.
         # When enabled, callers can request a specific NeuralNetAI value head
@@ -696,10 +697,16 @@ class MCTSAI(HeuristicAI):
                 self._hex_eval_executor = ThreadPoolExecutor(max_workers=1)
 
         # Optional hex-specific encoder and network (used for hex boards).
-        self.hex_encoder: Optional[ActionEncoderHex]
-        self.hex_model: Optional[HexNeuralNet_v2]
+        self.hex_encoder: Optional["ActionEncoderHex"] = None
+        self.hex_model: Optional["HexNeuralNet_v2"] = None
         if self.neural_net is not None:
             try:
+                # Lazy imports for hex-specific components
+                from .neural_net import (
+                    ActionEncoderHex,
+                    HexNeuralNet_v2,
+                    get_memory_tier,
+                )
                 # V2 models use larger input channels for richer features.
                 self.hex_encoder = ActionEncoderHex()
                 memory_tier = get_memory_tier()
@@ -717,9 +724,6 @@ class MCTSAI(HeuristicAI):
             except Exception:
                 self.hex_encoder = None
                 self.hex_model = None
-        else:
-            self.hex_encoder = None
-            self.hex_model = None
 
         # Memory configuration for bounded structures
         self.memory_config = memory_config or MemoryConfig.from_env()
@@ -975,6 +979,7 @@ class MCTSAI(HeuristicAI):
         self._pending_nnue_policy_init = False
 
         try:
+            import torch  # Lazy import
             from .nnue_policy import RingRiftNNUEWithPolicy
             import re
 
@@ -1046,6 +1051,7 @@ class MCTSAI(HeuristicAI):
 
         Returns a dict mapping move string -> probability (normalized).
         """
+        import torch  # Lazy import
         from .nnue_policy import pos_to_flat_index
         from .nnue_features import extract_features_from_gamestate, get_board_size
 
@@ -1923,6 +1929,9 @@ class MCTSAI(HeuristicAI):
         self, states: List[GameState]
     ) -> Tuple[List[float], List[Any]]:
         """Evaluate a batch of hex board states."""
+        import torch  # Lazy import
+        from .neural_net import HexNeuralNet_v2  # Lazy import for cast
+
         feature_batches = []
         globals_batches = []
         nn = self.neural_net  # type assertion for Pylance
@@ -1959,6 +1968,8 @@ class MCTSAI(HeuristicAI):
         use_hex_nn: bool,
     ) -> None:
         """Update node policy priors from neural network output."""
+        from .neural_net import INVALID_MOVE_INDEX  # Lazy import
+
         # Use the host-level RulesEngine surface so that bookkeeping moves
         # (no_*_action / forced_elimination) are surfaced when required.
         valid_moves_state = self.rules_engine.get_valid_moves(
@@ -2651,6 +2662,8 @@ class MCTSAI(HeuristicAI):
         use_hex_nn: bool,
     ) -> None:
         """Update lite node policy priors from neural network output."""
+        from .neural_net import INVALID_MOVE_INDEX  # Lazy import
+
         valid_moves_state = self.rules_engine.get_valid_moves(
             state,
             state.current_player,

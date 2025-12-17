@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import math
 import os
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, TYPE_CHECKING
 import time
 from enum import Enum
 
@@ -25,24 +25,19 @@ import numpy as np
 from .base import BaseAI
 from .bounded_transposition_table import BoundedTranspositionTable
 from .game_state_utils import infer_num_players, victory_progress_for_player
-from .async_nn_eval import AsyncNeuralBatcher
-from .neural_net import (
-    NeuralNetAI,
-    INVALID_MOVE_INDEX,
-    ActionEncoderHex,
-)
 from ..models import GameState, Move, MoveType, AIConfig, BoardType
 from ..rules.mutable_state import MutableGameState
 from ..utils.memory_config import MemoryConfig
 
-# Optional GPU heuristic evaluation
-try:
-    from .gpu_batch import GPUHeuristicEvaluator, GPUBoardState, get_device
-    GPU_HEURISTIC_AVAILABLE = True
-except ImportError:
-    GPU_HEURISTIC_AVAILABLE = False
-    GPUHeuristicEvaluator = None  # type: ignore
-    GPUBoardState = None  # type: ignore
+# Lazy imports for neural network components to avoid loading torch when not needed
+if TYPE_CHECKING:
+    from .async_nn_eval import AsyncNeuralBatcher
+    from .neural_net import NeuralNetAI, ActionEncoderHex
+
+# Optional GPU heuristic evaluation - try but don't fail if unavailable
+GPU_HEURISTIC_AVAILABLE = False
+GPUHeuristicEvaluator = None  # type: ignore
+GPUBoardState = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -127,11 +122,12 @@ class DescentAI(BaseAI):
         # NeuralNetAI now uses lazy initialization to select the correct
         # board-specific model (RingRiftCNN_MPS for square, HexNeuralNet for hex)
         # when it first sees a game state.
-        self.neural_net: Optional[NeuralNetAI]
-        self.hex_encoder: Optional[ActionEncoderHex]
+        self.neural_net: Optional["NeuralNetAI"] = None
+        self.hex_encoder: Optional["ActionEncoderHex"] = None
 
         if self.use_neural_net:
             try:
+                from .neural_net import NeuralNetAI  # Lazy import
                 self.neural_net = NeuralNetAI(player_number, config)
             except Exception:
                 if self.require_neural_net:
@@ -144,15 +140,16 @@ class DescentAI(BaseAI):
                 )
                 self.neural_net = None
                 self.use_neural_net = False
-        else:
-            self.neural_net = None
 
         # Hex-specific action encoder (used for move index calculation on hex boards)
-        self.hex_encoder = ActionEncoderHex() if self.neural_net else None
+        if self.neural_net is not None:
+            from .neural_net import ActionEncoderHex  # Lazy import
+            self.hex_encoder = ActionEncoderHex()
         # Per-instance neural batcher for safe, synchronous batched evaluation.
-        self.nn_batcher: Optional[AsyncNeuralBatcher] = (
-            AsyncNeuralBatcher(self.neural_net) if self.neural_net else None
-        )
+        self.nn_batcher: Optional["AsyncNeuralBatcher"] = None
+        if self.neural_net is not None:
+            from .async_nn_eval import AsyncNeuralBatcher  # Lazy import
+            self.nn_batcher = AsyncNeuralBatcher(self.neural_net)
         # Optional async NN evaluation to overlap CPU expansion with background
         # inference. Enabled via env var and only when a non-CPU device is used.
         async_env = os.environ.get("RINGRIFT_DESCENT_ASYNC_NN_EVAL", "").lower() in {
@@ -779,6 +776,7 @@ class DescentAI(BaseAI):
             move_probs: Dict[str, float] = {}
             if self.neural_net:
                 try:
+                    from .neural_net import INVALID_MOVE_INDEX  # Lazy import
                     _, policy_batch = (
                         self.nn_batcher.evaluate([state])
                         if self.nn_batcher is not None
@@ -1094,6 +1092,7 @@ class DescentAI(BaseAI):
             move_probs: Dict[str, float] = {}
             if self.neural_net:
                 try:
+                    from .neural_net import INVALID_MOVE_INDEX  # Lazy import
                     _, policy_batch = (
                         self.nn_batcher.evaluate([immutable])
                         if self.nn_batcher is not None
