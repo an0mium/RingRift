@@ -23,29 +23,8 @@ AI_SERVICE_ROOT = Path(__file__).parent.parent
 RESULTS_DIR = AI_SERVICE_ROOT / "data" / "cluster_elo_results"
 AGGREGATED_FILE = AI_SERVICE_ROOT / "data" / "aggregated_gauntlet_results.json"
 
-# Cluster nodes configuration
-LAMBDA_NODES = [
-    ("lambda-2xh100", "ubuntu"),
-    ("lambda-a10", "ubuntu"),
-    ("lambda-gh200-b-new", "ubuntu"),
-    ("lambda-gh200-e", "ubuntu"),
-    ("lambda-gh200-f", "ubuntu"),
-    ("lambda-gh200-g", "ubuntu"),
-    ("lambda-gh200-h", "ubuntu"),
-    ("lambda-gh200-i", "ubuntu"),
-    ("lambda-gh200-k", "ubuntu"),
-    ("lambda-gh200-l", "ubuntu"),
-    ("lambda-gh200-m", "ubuntu"),
-    ("lambda-gh200-n", "ubuntu"),
-    ("lambda-gh200-o", "ubuntu"),
-]
-
-VAST_NODES = [
-    ("vast-2060s-22cpu", "root"),
-    ("vast-2080ti", "root"),
-    ("vast-3070-24cpu", "root"),
-    ("vast-a40-gauntlet", "root"),
-]
+# Cluster nodes loaded from config/distributed_hosts.yaml
+# No hardcoded fallback - must have config file
 
 
 def _load_hosts_from_config():
@@ -78,9 +57,8 @@ def _load_hosts_from_config():
         return []
 
 
-# Load hosts from config, fallback to hardcoded Lambda nodes if config fails
-CONFIG_NODES = _load_hosts_from_config()
-ALL_NODES = CONFIG_NODES if CONFIG_NODES else (LAMBDA_NODES + VAST_NODES)
+# Load hosts from config
+ALL_NODES = _load_hosts_from_config()
 
 
 @dataclass

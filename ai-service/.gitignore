@@ -117,3 +117,13 @@ docs/ai/CLUSTER_NODE_CONFIGURATION.md
 # Archive directories (contain deprecated code with cluster-specific IPs)
 scripts/archive/
 docs/archive/status_reports/
+
+# Cluster-specific operational scripts (contain node names/IPs)
+scripts/cluster/
+scripts/auto_training_pipeline.py
+scripts/cluster_auto_recovery.py
+scripts/cluster_ssh_init.py
+scripts/cluster_status.sh
+scripts/distributed_model_evaluator.py
+scripts/external_drive_sync_daemon.py
+scripts/sync_models_cluster.sh

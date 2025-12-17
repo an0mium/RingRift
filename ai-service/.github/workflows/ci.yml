@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'ai-service/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ai-service/**'
+
+defaults:
+  run:
+    working-directory: ai-service
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'ai-service/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ruff mypy
+
+      - name: Run Ruff linter
+        run: ruff check . --output-format=github
+
+      - name: Run Ruff formatter check
+        run: ruff format --check .
+
+  type-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'ai-service/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install mypy types-PyYAML types-requests
+
+      - name: Run mypy
+        run: mypy app --ignore-missing-imports --no-error-summary || true
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'ai-service/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio
+
+      - name: Run tests
+        run: |
+          pytest tests/ -v --tb=short \
+            --ignore=tests/test_training_integration.py \
+            --ignore=tests/test_distributed_training.py \
+            -x --timeout=60
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          file: ./ai-service/coverage.xml
+          fail_ci_if_error: false
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./ai-service
+          push: false
+          tags: ringrift-ai-service:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  sanity-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'ai-service/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify imports
+        run: |
+          python -c "from app.main import app; print('FastAPI app OK')"
+          python -c "from app.ai.heuristic_ai import HeuristicAI; print('HeuristicAI OK')"
+          python -c "from app.ai.nnue import NNUEEvaluator; print('NNUE OK')"
+
+      - name: Check model loading
+        run: |
+          python -c "
+          from app.ai.nnue_policy import NNUEPolicyNet
+          model = NNUEPolicyNet(board_type='square8', num_players=2)
+          print(f'Model params: {sum(p.numel() for p in model.parameters()):,}')
+          "

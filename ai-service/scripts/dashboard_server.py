@@ -309,14 +309,8 @@ def api_throughput():
                     jobs = peer_info.get("selfplay_jobs", 0)
                     hosts[peer_id] = jobs * 60  # Estimate games/hour
     except Exception:
-        # Fallback sample data
-        hosts = {
-            "mac-studio": 120,
-            "lambda-h100": 450,
-            "lambda-gh200-e": 380,
-            "lambda-gh200-c": 340,
-            "lambda-gh200-d": 290,
-        }
+        # Fallback sample data (empty - requires P2P connection)
+        hosts = {}
 
     return jsonify({"hosts": hosts})
 
