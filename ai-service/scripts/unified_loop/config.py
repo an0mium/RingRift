@@ -222,6 +222,33 @@ class TrainingConfig:
     checkpoint_top_k: int = 3  # Keep top-k checkpoints
     checkpoint_min_interval: int = 1  # Min epochs between checkpoints
     checkpoint_improvement_threshold: float = 0.01  # Save on X% improvement
+    # =========================================================================
+    # Phase 5: Production Optimization (2024-12)
+    # =========================================================================
+    # Gradient Accumulation Scheduling - Dynamic accumulation based on memory
+    use_adaptive_accumulation: bool = False  # Auto-adjust accumulation steps
+    accumulation_target_memory: float = 0.85  # Target GPU memory utilization
+    accumulation_max_steps: int = 16  # Maximum accumulation steps
+    # Activation Checkpointing - Trade compute for memory
+    use_activation_checkpointing: bool = False  # Checkpoint activations
+    checkpoint_ratio: float = 0.5  # Fraction of layers to checkpoint
+    # Flash Attention - Memory-efficient attention
+    use_flash_attention: bool = False  # Use Flash Attention 2
+    # Dynamic Loss Scaling - Adaptive mixed precision
+    use_dynamic_loss_scaling: bool = False  # Adaptive loss scaling
+    # Elastic Training - Dynamic worker scaling
+    use_elastic_training: bool = False  # Support worker join/leave
+    elastic_min_workers: int = 1  # Minimum workers
+    elastic_max_workers: int = 8  # Maximum workers
+    # Streaming NPZ - Large dataset support
+    use_streaming_npz: bool = False  # Stream from S3/GCS
+    streaming_chunk_size: int = 10000  # Samples per chunk
+    # Profiling - Performance analysis
+    use_profiling: bool = False  # Enable PyTorch Profiler
+    profile_dir: Optional[str] = None  # Profiler output directory
+    # A/B Testing - Model comparison
+    use_ab_testing: bool = False  # Enable A/B model testing
+    ab_min_games: int = 100  # Minimum games for significance
 
 
 @dataclass

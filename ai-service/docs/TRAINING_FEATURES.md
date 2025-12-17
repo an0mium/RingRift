@@ -1,6 +1,6 @@
 # RingRift Training Features Reference
 
-> **Last Updated**: 2025-12-17 (Phase 2 features added)
+> **Last Updated**: 2025-12-17 (Phase 6: Bottleneck optimizations, Gumbel-MCTS, Prometheus metrics)
 > **Status**: Active
 
 This document provides a comprehensive reference for all training features, parameters, and techniques available in the RingRift AI training pipeline.
@@ -1131,6 +1131,327 @@ torchrun --nproc_per_node=4 -m app.training.train \
   --scale-lr \
   --batch-size 256
 ```
+
+---
+
+## Phase 3: Advanced Learning Algorithms (2024-12)
+
+### Grokking Detection
+
+Monitors for delayed generalization patterns where training loss drops but validation loss stagnates.
+
+```yaml
+training:
+  use_grokking_detection: true # Default: true
+```
+
+**CLI Usage:**
+
+```bash
+python scripts/train_nnue.py --grokking-detection
+```
+
+**Benefits:**
+
+- Early warning for overfitting patterns
+- Automatic detection of generalization phase
+- Helpful for learning rate adjustment decisions
+
+### Sharpness-Aware Minimization (SAM)
+
+Optimizer that seeks flatter minima for better generalization.
+
+```yaml
+training:
+  use_sam: false # Default: false (compute intensive)
+  sam_rho: 0.05 # Perturbation radius
+```
+
+**CLI Usage:**
+
+```bash
+python scripts/train_nnue.py --use-sam --sam-rho 0.05
+```
+
+**Benefits:**
+
+- +2-4% generalization improvement
+- More robust to distribution shift
+- Better performance on unseen positions
+
+### TD-Lambda Value Learning
+
+Temporal Difference learning with lambda parameter for value estimation.
+
+```yaml
+training:
+  use_td_lambda: false # Default: false
+  td_lambda_value: 0.95 # Lambda parameter
+```
+
+**Benefits:**
+
+- Better value estimates for long games
+- Smoother credit assignment
+- Improved value head accuracy
+
+### Knowledge Distillation
+
+Train smaller student model from larger teacher model.
+
+```yaml
+training:
+  use_distillation: false
+  distillation_teacher_path: 'models/teacher_model.pt'
+  distillation_temp: 4.0
+  distillation_alpha: 0.7
+```
+
+**CLI Usage:**
+
+```bash
+python scripts/train_nnue.py \
+  --distillation \
+  --teacher-path models/large_model.pt \
+  --distill-temp 4.0 \
+  --distill-alpha 0.7
+```
+
+### Structured Pruning
+
+Post-training model pruning for inference efficiency.
+
+```yaml
+training:
+  use_pruning: false
+  pruning_ratio: 0.3 # Remove 30% of weights
+```
+
+---
+
+## Phase 4: Training Stability & Acceleration (2024-12)
+
+### Training Stability Monitor
+
+Auto-detects gradient explosions, loss spikes, and numerical instabilities.
+
+```yaml
+training:
+  use_stability_monitor: true # Default: true
+  stability_auto_recover: true # Auto-reduce LR on instability
+  gradient_clip_threshold: 10.0
+  loss_spike_threshold: 3.0 # Standard deviations
+```
+
+**Integration:**
+The stability monitor is automatically integrated into the TrainingScheduler and provides:
+
+- Gradient norm tracking
+- Loss spike detection (> 3 std from mean)
+- Automatic LR reduction on instability
+- Training health metrics logging
+
+### Adaptive Precision Manager
+
+Dynamically switches between FP32/FP16/BF16 based on training stability.
+
+```yaml
+training:
+  use_adaptive_precision: false # Default: false
+  initial_precision: 'bf16'
+  precision_auto_downgrade: true
+```
+
+### Progressive Layer Unfreezing
+
+Gradually unfreezes model layers during fine-tuning.
+
+```yaml
+training:
+  use_progressive_unfreezing: false
+  unfreezing_num_stages: 4
+```
+
+### SWA with Warm Restarts
+
+Stochastic Weight Averaging with periodic restarts for better convergence.
+
+```yaml
+training:
+  use_swa_restarts: true # Default: true
+  swa_start_fraction: 0.75
+  swa_restart_period: 10
+  swa_num_restarts: 3
+```
+
+### Smart Checkpoint Manager
+
+Intelligent checkpoint saving based on improvement patterns.
+
+```yaml
+training:
+  use_smart_checkpoints: true # Default: true
+  checkpoint_top_k: 3 # Keep top-k checkpoints
+  checkpoint_improvement_threshold: 0.01 # 1% improvement required
+```
+
+---
+
+## Phase 5: Production Optimization (2024-12)
+
+### Gradient Accumulation Scheduler
+
+Dynamically adjusts gradient accumulation based on GPU memory pressure.
+
+```yaml
+training:
+  use_adaptive_accumulation: false
+  accumulation_target_memory: 0.85 # 85% GPU memory utilization
+  accumulation_max_steps: 16
+```
+
+**CLI Usage:**
+
+```bash
+python scripts/train_nnue.py --adaptive-accumulation
+```
+
+### Activation Checkpointing
+
+Trade compute for memory by checkpointing activations.
+
+```yaml
+training:
+  use_activation_checkpointing: false
+  checkpoint_ratio: 0.5 # Checkpoint 50% of layers
+```
+
+**CLI Usage:**
+
+```bash
+python scripts/train_nnue.py --activation-checkpointing --checkpoint-ratio 0.5
+```
+
+### Flash Attention 2
+
+Memory-efficient attention implementation using Flash Attention.
+
+```yaml
+training:
+  use_flash_attention: false
+```
+
+**CLI Usage:**
+
+```bash
+python scripts/train_nnue.py --flash-attention
+```
+
+### Dynamic Loss Scaling
+
+Adaptive loss scaling for stable FP16 training.
+
+```yaml
+training:
+  use_dynamic_loss_scaling: false
+```
+
+### Elastic Training
+
+Support for dynamic worker join/leave during distributed training.
+
+```yaml
+training:
+  use_elastic_training: false
+  elastic_min_workers: 1
+  elastic_max_workers: 8
+```
+
+### Streaming NPZ Loader
+
+Stream large datasets from S3/GCS without local storage.
+
+```yaml
+training:
+  use_streaming_npz: false
+  streaming_chunk_size: 10000
+```
+
+**CLI Usage:**
+
+```bash
+python scripts/train_nnue.py --streaming-npz --streaming-chunk-size 10000
+```
+
+### Training Profiler
+
+PyTorch Profiler integration with TensorBoard output.
+
+```yaml
+training:
+  use_profiling: false
+  profile_dir: 'runs/profile'
+```
+
+**CLI Usage:**
+
+```bash
+python scripts/train_nnue.py --profile --profile-dir runs/profile
+```
+
+### A/B Model Testing
+
+Statistical framework for comparing model variants.
+
+```yaml
+training:
+  use_ab_testing: false
+  ab_min_games: 100
+```
+
+---
+
+## Integration Points
+
+### PFSP (Prioritized Fictitious Self-Play)
+
+The PFSP opponent pool is integrated into the TrainingScheduler:
+
+```python
+# In scripts/unified_loop/training.py
+scheduler = TrainingScheduler(config, state, event_bus)
+
+# Get opponent for selfplay
+opponent_path = scheduler.get_pfsp_opponent(config_key)
+
+# Update stats after evaluation
+scheduler.update_pfsp_stats(model_id, win_rate=0.55, elo=1600)
+```
+
+### CMA-ES Auto-Tuning
+
+CMA-ES hyperparameter optimization is automatically triggered on Elo plateau:
+
+```yaml
+training:
+  use_cmaes_auto_tuning: true
+  cmaes_plateau_patience: 10 # Epochs without improvement
+  cmaes_min_epochs_between: 50 # Minimum gap between tuning runs
+  cmaes_max_auto_tunes: 3 # Maximum auto-tuning attempts
+```
+
+---
+
+## Implementation Locations
+
+| Component                | File                                    | Purpose                       |
+| ------------------------ | --------------------------------------- | ----------------------------- |
+| Phase 1-3 Classes        | `scripts/train_nnue.py`                 | Core training implementations |
+| Phase 4-5 Classes        | `app/training/advanced_training.py`     | Advanced utilities            |
+| Config Options           | `scripts/unified_loop/config.py`        | TrainingConfig dataclass      |
+| Orchestrator Integration | `scripts/unified_loop/training.py`      | TrainingScheduler             |
+| P2P Integration          | `scripts/p2p_orchestrator.py`           | Distributed training          |
+| Multi-config Loop        | `scripts/multi_config_training_loop.py` | Batch training                |
 
 ---
 

@@ -33,6 +33,36 @@ from typing import (
 )
 
 import logging
+
+# Optional Prometheus metrics
+try:
+    from prometheus_client import Counter, Gauge, Histogram, REGISTRY
+    HAS_PROMETHEUS = True
+
+    # Training metrics - avoid duplicate registration
+    def _safe_metric(metric_class, name, doc, **kwargs):
+        """Create metric or get existing one."""
+        if name in REGISTRY._names_to_collectors:
+            return REGISTRY._names_to_collectors[name]
+        return metric_class(name, doc, **kwargs)
+
+    TRAINING_EPOCHS = _safe_metric(Counter, 'ringrift_training_epochs_total', 'Total training epochs completed', labelnames=['config'])
+    TRAINING_LOSS = _safe_metric(Gauge, 'ringrift_training_loss', 'Current training loss', labelnames=['config', 'loss_type'])
+    TRAINING_SAMPLES = _safe_metric(Counter, 'ringrift_training_samples_total', 'Total samples processed', labelnames=['config'])
+    TRAINING_DURATION = _safe_metric(Histogram, 'ringrift_training_epoch_duration_seconds', 'Training epoch duration', labelnames=['config'], buckets=[10, 30, 60, 120, 300, 600, 1200, 1800, 3600])
+    CALIBRATION_ECE = _safe_metric(Gauge, 'ringrift_calibration_ece', 'Expected Calibration Error', labelnames=['config'])
+    CALIBRATION_MCE = _safe_metric(Gauge, 'ringrift_calibration_mce', 'Maximum Calibration Error', labelnames=['config'])
+    BATCH_SIZE = _safe_metric(Gauge, 'ringrift_training_batch_size', 'Current training batch size', labelnames=['config'])
+except ImportError:
+    HAS_PROMETHEUS = False
+    TRAINING_EPOCHS = None
+    TRAINING_LOSS = None
+    TRAINING_SAMPLES = None
+    TRAINING_DURATION = None
+    CALIBRATION_ECE = None
+    CALIBRATION_MCE = None
+    BATCH_SIZE = None
+
 from app.ai.neural_net import (
     RingRiftCNN_v2,
     RingRiftCNN_v3,
@@ -76,6 +106,7 @@ from app.training.model_versioning import (  # noqa: E402
 )
 from app.training.seed_utils import seed_all
 from app.training.fault_tolerance import HeartbeatMonitor  # noqa: E402
+from app.training.value_calibration import CalibrationTracker  # noqa: E402
 from app.ai.heuristic_weights import (  # noqa: E402
     HEURISTIC_WEIGHT_KEYS,
     HEURISTIC_WEIGHT_PROFILES,
@@ -1463,6 +1494,7 @@ def train_model(
     hard_example_mining: bool = False,
     hard_example_top_k: float = 0.3,
     auto_tune_batch_size: bool = False,
+    track_calibration: bool = False,
 ):
     """
     Train the RingRift neural network model.
@@ -2040,6 +2072,13 @@ def train_model(
         if not distributed or is_main_process():
             logger.info("Async checkpointing enabled (non-blocking I/O)")
 
+    # Value calibration tracker for monitoring value head quality
+    calibration_tracker: Optional[CalibrationTracker] = None
+    if track_calibration:
+        calibration_tracker = CalibrationTracker(window_size=5000)
+        if not distributed or is_main_process():
+            logger.info("Value calibration tracking enabled")
+
     # Mixed precision scaler
     # Note: GradScaler is primarily for CUDA.
     # For MPS, mixed precision support is evolving.
@@ -2387,6 +2426,11 @@ def train_model(
     epoch_losses: List[Dict[str, float]] = []
     epochs_completed = 0
 
+    # Report batch size metric at start of training
+    if HAS_PROMETHEUS and (not distributed or is_main_process()):
+        config_label = f"{config.board_type.value}_{num_players}p"
+        BATCH_SIZE.labels(config=config_label).set(config.batch_size)
+
     try:
         for epoch in range(start_epoch, config.epochs_per_iter):
             # Circuit breaker: Check resources at the start of each epoch
@@ -2723,6 +2767,19 @@ def train_model(
                             'val_loss', loss.detach(), features.size(0)
                         )
 
+                    # Collect calibration samples (value predictions vs actual outcomes)
+                    if calibration_tracker is not None and not use_multi_player_loss:
+                        # Get scalar predictions and targets for calibration
+                        preds_cpu = value_pred_scalar.detach().cpu().numpy().flatten()
+                        targets_cpu = value_targets.detach().cpu().numpy().flatten()
+                        # Sample subset to avoid too much overhead
+                        sample_size = min(len(preds_cpu), 100)
+                        for i in range(sample_size):
+                            calibration_tracker.add_sample(
+                                float(preds_cpu[i]),
+                                float(targets_cpu[i])
+                            )
+
             # Compute average validation loss - single .item() at end
             if distributed and dist_metrics is not None:
                 val_metrics = dist_metrics.reduce_and_reset(device=device)
@@ -2752,12 +2809,45 @@ def train_model(
 
             # Record per-epoch losses for downstream analysis
             epochs_completed = epoch + 1
-            epoch_losses.append({
+            epoch_record = {
                 'epoch': epoch + 1,
                 'train_loss': float(avg_train_loss),
                 'val_loss': float(avg_val_loss),
                 'lr': float(optimizer.param_groups[0]['lr']),
-            })
+            }
+
+            # Compute and log calibration metrics every 5 epochs
+            if calibration_tracker is not None and (epoch + 1) % 5 == 0:
+                calibration_report = calibration_tracker.compute_current_calibration()
+                if calibration_report is not None:
+                    epoch_record['calibration_ece'] = calibration_report.ece
+                    epoch_record['calibration_mce'] = calibration_report.mce
+                    epoch_record['calibration_overconfidence'] = calibration_report.overconfidence
+                    if not distributed or is_main_process():
+                        logger.info(
+                            f"  Calibration: ECE={calibration_report.ece:.4f}, "
+                            f"MCE={calibration_report.mce:.4f}, "
+                            f"Overconfidence={calibration_report.overconfidence:.4f}"
+                        )
+                        if calibration_report.optimal_temperature is not None:
+                            logger.info(
+                                f"  Optimal temperature: {calibration_report.optimal_temperature:.3f}"
+                            )
+
+            epoch_losses.append(epoch_record)
+
+            # Update Prometheus metrics (only on main process)
+            if HAS_PROMETHEUS and (not distributed or is_main_process()):
+                config_label = f"{config.board_type.value}_{num_players}p"
+                TRAINING_EPOCHS.labels(config=config_label).inc()
+                TRAINING_LOSS.labels(config=config_label, loss_type='train').set(avg_train_loss)
+                TRAINING_LOSS.labels(config=config_label, loss_type='val').set(avg_val_loss)
+                TRAINING_DURATION.labels(config=config_label).observe(
+                    epoch_record.get('epoch_duration', 0.0)
+                )
+                if 'calibration_ece' in epoch_record:
+                    CALIBRATION_ECE.labels(config=config_label).set(epoch_record['calibration_ece'])
+                    CALIBRATION_MCE.labels(config=config_label).set(epoch_record['calibration_mce'])
 
             # Check early stopping (only on main process for DDP)
             # Get model for checkpointing (unwrap DDP if needed)
@@ -3058,6 +3148,10 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         '--auto-tune-batch-size', action='store_true',
         help='Auto-tune batch size via profiling (15-30%% faster, overrides --batch-size)'
+    )
+    parser.add_argument(
+        '--track-calibration', action='store_true',
+        help='Track value head calibration metrics during training'
     )
     parser.add_argument(
         '--learning-rate', type=float, default=None,
@@ -3510,6 +3604,7 @@ def main():
         num_res_blocks=getattr(args, 'num_res_blocks', None),
         num_filters=getattr(args, 'num_filters', None),
         auto_tune_batch_size=getattr(args, 'auto_tune_batch_size', False),
+        track_calibration=getattr(args, 'track_calibration', False),
     )
 
 

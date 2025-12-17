@@ -1232,6 +1232,34 @@ class TrainingScheduler:
                         "--distill-alpha", str(getattr(self.config, 'distillation_alpha', 0.7)),
                     ])
 
+            # Phase 4: Training Stability & Acceleration (2024-12)
+            # Note: These features are integrated but optional
+            if getattr(self.config, 'use_adaptive_accumulation', False):
+                cmd.append("--adaptive-accumulation")
+            if getattr(self.config, 'use_activation_checkpointing', False):
+                cmd.extend([
+                    "--activation-checkpointing",
+                    "--checkpoint-ratio", str(getattr(self.config, 'checkpoint_ratio', 0.5)),
+                ])
+            if getattr(self.config, 'use_flash_attention', False):
+                cmd.append("--flash-attention")
+            if getattr(self.config, 'use_dynamic_loss_scaling', False):
+                cmd.append("--dynamic-loss-scaling")
+            if getattr(self.config, 'use_elastic_training', False):
+                cmd.append("--elastic-training")
+
+            # Phase 5: Production Optimization (2024-12)
+            if getattr(self.config, 'use_streaming_npz', False):
+                cmd.extend([
+                    "--streaming-npz",
+                    "--streaming-chunk-size", str(getattr(self.config, 'streaming_chunk_size', 10000)),
+                ])
+            if getattr(self.config, 'use_profiling', False):
+                cmd.append("--profile")
+                profile_dir = getattr(self.config, 'profile_dir', None)
+                if profile_dir:
+                    cmd.extend(["--profile-dir", str(profile_dir)])
+
             print(f"[Training] Starting training for {model_id}...")
 
             # Also start NNUE policy training in parallel if configured
@@ -1425,6 +1453,35 @@ class TrainingScheduler:
                 except Exception:
                     pass
 
+            # PFSP Integration: Add successfully trained model to opponent pool
+            if success and self._pfsp_pool is not None:
+                try:
+                    model_path = self._get_latest_model_path(config_key)
+                    if model_path:
+                        self._pfsp_pool.add_opponent(
+                            model_id=model_path.stem,
+                            model_path=str(model_path),
+                            elo=1500.0,  # Initial Elo, updated after evaluation
+                            win_rate=0.5,
+                        )
+                        print(f"[PFSP] Added {model_path.stem} to opponent pool")
+                except Exception as e:
+                    print(f"[PFSP] Error adding model to pool: {e}")
+
+            # CMA-ES Auto-Tuning: Check if optimization should trigger
+            if success and config_key in self._cmaes_auto_tuners:
+                try:
+                    auto_tuner = self._cmaes_auto_tuners[config_key]
+                    config_state = self.state.configs.get(config_key)
+                    if config_state:
+                        elo = config_state.current_elo or 1500.0
+                        should_tune = auto_tuner.check_plateau(elo)
+                        if should_tune:
+                            print(f"[CMA-ES] Auto-tuning triggered for {config_key} (Elo plateau detected)")
+                            asyncio.create_task(self._trigger_cmaes_auto_tuning(config_key))
+                except Exception as e:
+                    print(f"[CMA-ES] Error checking plateau: {e}")
+
             await self.event_bus.publish(DataEvent(
                 event_type=DataEventType.TRAINING_COMPLETED,
                 payload=result
@@ -1459,6 +1516,99 @@ class TrainingScheduler:
         except Exception as e:
             print(f"[Calibration] Error analyzing {config_key}: {e}")
             return None
+
+    def _get_latest_model_path(self, config_key: str) -> Optional[Path]:
+        """Get the path to the latest trained model for a config."""
+        try:
+            models_dir = AI_SERVICE_ROOT / "models"
+            pattern = f"{config_key}*.pth"
+            models = list(models_dir.glob(pattern))
+            if not models:
+                # Try .pt extension
+                pattern = f"{config_key}*.pt"
+                models = list(models_dir.glob(pattern))
+            if models:
+                return max(models, key=lambda p: p.stat().st_mtime)
+            return None
+        except Exception:
+            return None
+
+    async def _trigger_cmaes_auto_tuning(self, config_key: str) -> None:
+        """Trigger CMA-ES auto-tuning for a specific config."""
+        try:
+            parts = config_key.rsplit("_", 1)
+            board_type = parts[0]
+            num_players = int(parts[1].replace("p", "")) if len(parts) > 1 else 2
+
+            # Find CMA-ES tuning script
+            cmaes_script = AI_SERVICE_ROOT / "scripts" / "hyperparameter_tuning.py"
+            if not cmaes_script.exists():
+                cmaes_script = AI_SERVICE_ROOT / "scripts" / "cmaes_hp_search.py"
+
+            if not cmaes_script.exists():
+                print(f"[CMA-ES] Tuning script not found")
+                return
+
+            cmd = [
+                sys.executable,
+                str(cmaes_script),
+                "--board-type", board_type,
+                "--num-players", str(num_players),
+                "--generations", "50",
+                "--population-size", "16",
+                "--games-per-eval", "20",
+            ]
+
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(AI_SERVICE_ROOT)
+
+            print(f"[CMA-ES] Starting auto-tuning for {config_key}")
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=AI_SERVICE_ROOT,
+                env=env,
+            )
+
+            # Run in background, don't wait
+            asyncio.create_task(self._monitor_cmaes_process(config_key, process))
+
+        except Exception as e:
+            print(f"[CMA-ES] Error triggering auto-tuning: {e}")
+
+    async def _monitor_cmaes_process(self, config_key: str, process) -> None:
+        """Monitor CMA-ES process completion."""
+        try:
+            stdout, stderr = await process.communicate()
+            if process.returncode == 0:
+                print(f"[CMA-ES] Auto-tuning completed for {config_key}")
+                # Mark auto-tuner as completed
+                if config_key in self._cmaes_auto_tuners:
+                    self._cmaes_auto_tuners[config_key].mark_tuning_complete()
+            else:
+                print(f"[CMA-ES] Auto-tuning failed for {config_key}: {stderr.decode()[:200]}")
+        except Exception as e:
+            print(f"[CMA-ES] Error monitoring process: {e}")
+
+    def get_pfsp_opponent(self, config_key: str) -> Optional[str]:
+        """Get a PFSP-selected opponent for selfplay."""
+        if self._pfsp_pool is None:
+            return None
+        try:
+            opponent = self._pfsp_pool.sample_opponent()
+            return opponent.model_path if opponent else None
+        except Exception:
+            return None
+
+    def update_pfsp_stats(self, model_id: str, win_rate: float, elo: float) -> None:
+        """Update PFSP stats after evaluation games."""
+        if self._pfsp_pool is None:
+            return
+        try:
+            self._pfsp_pool.update_stats(model_id, win_rate=win_rate, elo=elo)
+        except Exception as e:
+            print(f"[PFSP] Error updating stats: {e}")
 
     def get_temperature_for_move(self, move_number: int, game_state: Optional[Any] = None) -> float:
         """Get exploration temperature for a given move in self-play."""

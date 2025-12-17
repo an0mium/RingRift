@@ -563,10 +563,154 @@ def sync_model_to_nodes(model_path: Path, dry_run: bool = False) -> int:
     return synced
 
 
+def train_policy_model(
+    db_path: Path,
+    board_type: str = "square8",
+    num_players: int = 2,
+    dry_run: bool = False,
+    use_curriculum: bool = True,
+    jsonl_paths: Optional[List[str]] = None,
+) -> Optional[Path]:
+    """Train NNUE policy model for move prediction.
+
+    The policy model improves move ordering in search, providing significant
+    speedups at short think times.
+
+    Args:
+        db_path: Path to training database
+        board_type: Board type (square8, square19, hexagonal)
+        num_players: Number of players
+        dry_run: If True, just log what would be done
+        use_curriculum: If True, use curriculum learning (staged training)
+        jsonl_paths: Optional list of JSONL files with additional game data
+    """
+    logger.info(f"Training policy model for {board_type}_{num_players}p...")
+
+    if dry_run:
+        logger.info("  Would train policy model")
+        return None
+
+    model_path = MODELS_DIR / f"nnue_policy_{board_type}_{num_players}p.pt"
+
+    try:
+        if use_curriculum:
+            # Use curriculum training (staged by game phase)
+            logger.info("  Using curriculum training (endgame -> midgame -> opening -> full)")
+            cmd = [
+                "python", str(AI_SERVICE_ROOT / "scripts" / "train_nnue_policy_curriculum.py"),
+                "--board-type", board_type,
+                "--num-players", str(num_players),
+                "--output-dir", str(AI_SERVICE_ROOT / "curriculum_runs" / f"{board_type}_{num_players}p_auto"),
+            ]
+            if db_path.exists():
+                cmd.extend(["--db", str(db_path)])
+            if jsonl_paths:
+                for jp in jsonl_paths:
+                    cmd.extend(["--jsonl", jp])
+        else:
+            # Direct training
+            cmd = [
+                "python", str(AI_SERVICE_ROOT / "scripts" / "train_nnue_policy.py"),
+                "--board-type", board_type,
+                "--num-players", str(num_players),
+                "--epochs", "50",
+                "--use-amp",
+                "--use-swa",
+                "--use-ema",
+                "--progressive-batch",
+                "--focal-gamma", "2.0",
+            ]
+            if db_path.exists():
+                cmd.extend(["--db", str(db_path)])
+            if jsonl_paths:
+                for jp in jsonl_paths:
+                    cmd.extend(["--jsonl", jp])
+
+            # Add hex augmentation for hex boards
+            if board_type in ("hexagonal", "hex8"):
+                cmd.extend(["--hex-augment", "--hex-augment-count", "6"])
+
+        result = subprocess.run(
+            cmd,
+            cwd=str(AI_SERVICE_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=7200,  # 2 hours for curriculum
+            env={**os.environ, "PYTHONPATH": str(AI_SERVICE_ROOT)},
+        )
+        if result.returncode == 0 and model_path.exists():
+            logger.info(f"  Policy training complete: {model_path}")
+            return model_path
+        else:
+            logger.error(f"  Policy training failed: {result.stderr[-500:] if result.stderr else 'no error'}")
+            return None
+    except Exception as e:
+        logger.error(f"  Policy training error: {e}")
+        return None
+
+
+def run_ab_test(
+    model_path: Path,
+    board_type: str = "square8",
+    num_games: int = 20,
+    think_time: int = 200,
+    dry_run: bool = False,
+) -> Optional[dict]:
+    """Run A/B test to validate policy model improvement.
+
+    Compares the trained policy model against baseline (no policy).
+    Returns test results including win rates.
+    """
+    logger.info(f"Running A/B test for {model_path.name}...")
+
+    if dry_run:
+        logger.info("  Would run A/B test")
+        return {"dry_run": True}
+
+    try:
+        result = subprocess.run(
+            [
+                "python", str(AI_SERVICE_ROOT / "scripts" / "ab_test_policy_models.py"),
+                "--model-a", str(model_path),
+                "--board-type", board_type,
+                "--num-games", str(num_games),
+                "--think-time", str(think_time),
+            ],
+            cwd=str(AI_SERVICE_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=3600,
+            env={**os.environ, "PYTHONPATH": str(AI_SERVICE_ROOT)},
+        )
+        if result.returncode == 0:
+            # Parse results from stdout
+            import re
+            a_wins = int(re.search(r"A wins: (\d+)", result.stdout).group(1)) if re.search(r"A wins: (\d+)", result.stdout) else 0
+            b_wins = int(re.search(r"B wins: (\d+)", result.stdout).group(1)) if re.search(r"B wins: (\d+)", result.stdout) else 0
+            total = a_wins + b_wins
+            win_rate = a_wins / total if total > 0 else 0.5
+
+            logger.info(f"  A/B test complete: {a_wins}-{b_wins} (win rate: {win_rate:.1%})")
+            return {
+                "model_wins": a_wins,
+                "baseline_wins": b_wins,
+                "win_rate": win_rate,
+                "passed": win_rate >= 0.55,  # Require 55%+ to pass
+            }
+        else:
+            logger.error(f"  A/B test failed: {result.stderr[-500:] if result.stderr else 'no error'}")
+            return None
+    except Exception as e:
+        logger.error(f"  A/B test error: {e}")
+        return None
+
+
 def run_pipeline(
     skip_collect: bool = False,
     skip_backfill: bool = False,
     skip_train: bool = False,
+    skip_policy: bool = False,
+    skip_ab_test: bool = False,
     skip_sync: bool = False,
     dry_run: bool = False,
     board_type: str = "square8",
@@ -574,6 +718,7 @@ def run_pipeline(
     use_optimized: bool = True,
     batch_size: int = 256,
     sampling_weights: str = "victory_type",
+    use_curriculum: bool = True,
 ):
     """Run the full training pipeline."""
     logger.info("=" * 60)
@@ -719,12 +864,66 @@ def run_pipeline(
     else:
         logger.info("Skipping training")
 
-    # Step 4: Sync model to nodes
-    if not skip_sync and model_path:
+    # Step 3b: Train policy model
+    policy_model_path = None
+    if not skip_policy:
         logger.info("")
-        logger.info("STEP 4: Syncing model to nodes...")
-        synced = sync_model_to_nodes(model_path, dry_run)
-        logger.info(f"Model synced to {synced} nodes")
+        logger.info("STEP 3b: Training NNUE policy model...")
+
+        # Find JSONL files for policy training
+        jsonl_paths = []
+        jsonl_dir = DATA_DIR / "gpu_selfplay" / f"{board_type}_{num_players}p"
+        if jsonl_dir.exists():
+            jsonl_paths = [str(f) for f in jsonl_dir.glob("*.jsonl")]
+
+        if output_db.exists() or jsonl_paths:
+            policy_model_path = train_policy_model(
+                db_path=output_db,
+                board_type=board_type,
+                num_players=num_players,
+                dry_run=dry_run,
+                use_curriculum=use_curriculum,
+                jsonl_paths=jsonl_paths,
+            )
+            if policy_model_path:
+                logger.info(f"  Policy model trained: {policy_model_path}")
+        else:
+            logger.warning("No training data found for policy model")
+    else:
+        logger.info("Skipping policy training")
+
+    # Step 3c: A/B test policy model
+    if not skip_ab_test and policy_model_path:
+        logger.info("")
+        logger.info("STEP 3c: Running A/B test to validate policy model...")
+        ab_result = run_ab_test(
+            model_path=policy_model_path,
+            board_type=board_type,
+            num_games=20,
+            think_time=200,
+            dry_run=dry_run,
+        )
+        if ab_result and ab_result.get("passed"):
+            logger.info(f"  A/B test PASSED: {ab_result['win_rate']:.1%} win rate")
+        elif ab_result:
+            logger.warning(f"  A/B test did not meet threshold: {ab_result['win_rate']:.1%} (need 55%+)")
+        else:
+            logger.warning("  A/B test could not be completed")
+    else:
+        logger.info("Skipping A/B test")
+
+    # Step 4: Sync models to nodes
+    if not skip_sync:
+        logger.info("")
+        logger.info("STEP 4: Syncing models to nodes...")
+        if model_path:
+            synced = sync_model_to_nodes(model_path, dry_run)
+            logger.info(f"  Value model synced to {synced} nodes")
+        if policy_model_path:
+            synced = sync_model_to_nodes(policy_model_path, dry_run)
+            logger.info(f"  Policy model synced to {synced} nodes")
+        if not model_path and not policy_model_path:
+            logger.info("  No models to sync")
     else:
         logger.info("Skipping model sync")
 
@@ -740,10 +939,17 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Show what would be done")
     parser.add_argument("--skip-collect", action="store_true", help="Skip data collection")
     parser.add_argument("--skip-backfill", action="store_true", help="Skip snapshot backfill")
-    parser.add_argument("--skip-train", action="store_true", help="Skip training")
+    parser.add_argument("--skip-train", action="store_true", help="Skip value model training")
+    parser.add_argument("--skip-policy", action="store_true", help="Skip policy model training")
+    parser.add_argument("--skip-ab-test", action="store_true", help="Skip A/B testing")
     parser.add_argument("--skip-sync", action="store_true", help="Skip model sync to nodes")
     parser.add_argument("--board-type", default="square8", help="Board type for training")
     parser.add_argument("--num-players", type=int, default=2, help="Number of players")
+    # Policy training options
+    parser.add_argument("--use-curriculum", action="store_true", default=True,
+                        help="Use curriculum training for policy (default: True)")
+    parser.add_argument("--no-curriculum", action="store_true",
+                        help="Disable curriculum training, use direct training")
     # Optimized training settings
     parser.add_argument("--use-optimized", action="store_true", default=True,
                         help="Use optimized NN training (default: True)")
@@ -761,11 +967,15 @@ def main():
 
     # --use-nnue overrides --use-optimized
     use_optimized = not args.use_nnue
+    # --no-curriculum overrides --use-curriculum
+    use_curriculum = not args.no_curriculum
 
     run_pipeline(
         skip_collect=args.skip_collect,
         skip_backfill=args.skip_backfill,
         skip_train=args.skip_train,
+        skip_policy=args.skip_policy,
+        skip_ab_test=args.skip_ab_test,
         skip_sync=args.skip_sync,
         dry_run=args.dry_run,
         board_type=args.board_type,
@@ -773,6 +983,7 @@ def main():
         use_optimized=use_optimized,
         batch_size=args.batch_size,
         sampling_weights=args.sampling_weights,
+        use_curriculum=use_curriculum,
     )
 
 
