@@ -90,10 +90,9 @@ HAS_COORDINATION = has_coordination()
 
 # For backwards compatibility
 if HAS_COORDINATION:
-    from app.coordination import get_registry, can_spawn
+    from app.coordination import get_registry, can_spawn_safe
 else:
     get_registry = get_registry_safe
-    can_spawn = can_spawn_safe
 
 # Import canonical config helpers
 try:
@@ -493,7 +492,7 @@ class AutoPromotionTrigger:
         if HAS_COORDINATION and TaskCoordinator is not None:
             import socket
             node_id = socket.gethostname()
-            allowed, reason = can_spawn(TaskType.TRAINING, node_id)
+            allowed, reason = can_spawn_safe(TaskType.TRAINING, node_id)
             if not allowed:
                 if verbose:
                     print(f"[AutoPromotion] {config_key}: Promotion delayed - {reason}")
