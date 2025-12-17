@@ -253,3 +253,80 @@ pytest tests/test_resource_guard.py -v
 2. Implement in `app/training/`
 3. Integrate with `unified_ai_loop.py`
 4. Add tests
+
+## Migration Status
+
+### Scripts Using Unified Logging (20+ migrated)
+
+The following scripts have been migrated to use `app.core.logging_config.setup_logging()`:
+
+**Core Orchestration:**
+
+- `unified_ai_loop.py` (via submodules)
+- `unified_data_sync.py`
+- `unified_promotion_daemon.py`
+- `p2p_orchestrator.py`
+
+**Training & Evaluation:**
+
+- `train_nnue.py`
+- `run_gauntlet.py`
+- `run_tournament.py`
+- `hex8_training_pipeline.py`
+- `auto_training_pipeline.py`
+
+**Cluster Management:**
+
+- `cluster_manager.py`
+- `cluster_automation.py`
+- `cluster_sync_coordinator.py`
+- `cluster_worker.py`
+- `node_resilience.py`
+
+**Data Processing:**
+
+- `aggregate_jsonl_to_db.py`
+- `aria2_data_sync.py`
+- `auto_export_training_data.py`
+- `model_sync_aria2.py`
+
+**Infrastructure:**
+
+- `health_alerting.py`
+- `vast_autoscaler.py`
+- `vast_keepalive.py`
+- `vast_lifecycle.py`
+- `run_distributed_selfplay.py`
+- `auto_model_promotion.py`
+
+### Scripts Still Using basicConfig
+
+Some utility scripts still use `logging.basicConfig()`. These can be migrated incrementally using the same pattern:
+
+```python
+# Unified logging setup
+try:
+    from app.core.logging_config import setup_logging
+    logger = setup_logging("script_name", log_dir="logs")
+except ImportError:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+    )
+    logger = logging.getLogger(__name__)
+```
+
+### Config Integration
+
+The `scripts/unified_loop/config.py` module now includes integration functions:
+
+```python
+from scripts.unified_loop.config import (
+    sync_with_unified_config,      # Sync defaults from app.config.unified_config
+    get_canonical_training_threshold,  # Get threshold from canonical source
+)
+
+# Ensure config uses canonical values
+config = UnifiedLoopConfig.from_yaml(config_path)
+config = sync_with_unified_config(config)
+```
