@@ -998,6 +998,7 @@ def run_training(board_type: str, num_players: int, db_paths: List[str],
         "--quantized-eval",  # Fast quantized inference for validation
         # 2025-12 Training Improvements
         "--policy-label-smoothing", "0.05",  # Prevent overconfident predictions
+        "--sampling-weights", "victory_type",  # Balance across victory types for better generalization
     ]
 
     # D6 hex symmetry augmentation for hex boards (12x effective data)
