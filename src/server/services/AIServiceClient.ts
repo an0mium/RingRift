@@ -124,6 +124,8 @@ export enum AIType {
   MINIMAX = 'minimax',
   MCTS = 'mcts',
   DESCENT = 'descent',
+  POLICY_ONLY = 'policy_only',
+  GUMBEL_MCTS = 'gumbel_mcts',
 }
 
 export interface MoveRequest {

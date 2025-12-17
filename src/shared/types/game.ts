@@ -185,7 +185,14 @@ export interface Position {
 
 export type AIControlMode = 'local_heuristic' | 'service';
 
-export type AITacticType = 'random' | 'heuristic' | 'minimax' | 'mcts' | 'descent';
+export type AITacticType =
+  | 'random'
+  | 'heuristic'
+  | 'minimax'
+  | 'mcts'
+  | 'descent'
+  | 'policy_only'
+  | 'gumbel_mcts';
 
 /**
  * Configuration for how many AI opponents should participate in a

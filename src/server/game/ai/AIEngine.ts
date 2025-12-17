@@ -36,6 +36,8 @@ export enum AIType {
   MINIMAX = 'minimax',
   MCTS = 'mcts',
   DESCENT = 'descent',
+  POLICY_ONLY = 'policy_only',
+  GUMBEL_MCTS = 'gumbel_mcts',
 }
 
 export interface AIConfig {
@@ -1161,6 +1163,10 @@ export class AIEngine {
         return AIType.MCTS;
       case 'descent':
         return AIType.DESCENT;
+      case 'policy_only':
+        return AIType.POLICY_ONLY;
+      case 'gumbel_mcts':
+        return AIType.GUMBEL_MCTS;
       default: {
         // Exhaustive check so that adding a new AITacticType forces this
         // mapping to be updated.
@@ -1183,6 +1189,10 @@ export class AIEngine {
         return 'mcts';
       case AIType.DESCENT:
         return 'descent';
+      case AIType.POLICY_ONLY:
+        return 'policy_only';
+      case AIType.GUMBEL_MCTS:
+        return 'gumbel_mcts';
       default: {
         // Exhaustive check so that adding a new AIType forces this mapping
         // (and downstream service wiring) to be updated.
@@ -1210,6 +1220,10 @@ export class AIEngine {
         return ServiceAIType.MCTS;
       case AIType.DESCENT:
         return ServiceAIType.DESCENT;
+      case AIType.POLICY_ONLY:
+        return ServiceAIType.POLICY_ONLY;
+      case AIType.GUMBEL_MCTS:
+        return ServiceAIType.GUMBEL_MCTS;
       default: {
         const exhaustiveCheck: never = type;
         throw new Error(`Unhandled AIType in mapInternalTypeToServiceType: ${exhaustiveCheck}`);
