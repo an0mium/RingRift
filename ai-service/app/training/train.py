@@ -1462,6 +1462,7 @@ def train_model(
     adaptive_warmup: bool = False,
     hard_example_mining: bool = False,
     hard_example_top_k: float = 0.3,
+    auto_tune_batch_size: bool = False,
 ):
     """
     Train the RingRift neural network model.
@@ -1920,6 +1921,29 @@ def train_model(
             num_filters=effective_filters,
         )
     model.to(device)
+
+    # Auto-tune batch size if requested (overrides config.batch_size)
+    if auto_tune_batch_size and str(device).startswith('cuda'):
+        try:
+            from app.training.config import auto_tune_batch_size as tune_batch_fn
+            original_batch = config.batch_size
+            # Get feature shape from model if possible, otherwise use defaults
+            feature_shape = (14 * config.history_length, board_size, board_size)
+            globals_shape = (20,)  # 20 global features
+
+            logger.info(f"Auto-tuning batch size (original: {original_batch})...")
+            config.batch_size = tune_batch_fn(
+                model=model,
+                device=device,
+                feature_shape=feature_shape,
+                globals_shape=globals_shape,
+                policy_size=policy_size,
+                min_batch=max(32, original_batch // 4),
+                max_batch=min(8192, original_batch * 8),
+            )
+            logger.info(f"Auto-tuned batch size: {config.batch_size} (was {original_batch})")
+        except Exception as e:
+            logger.warning(f"Batch size auto-tuning failed: {e}. Using original batch size.")
 
     # Load existing weights if available to continue training
     if os.path.exists(save_path):
@@ -3032,6 +3056,10 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help='Training batch size'
     )
     parser.add_argument(
+        '--auto-tune-batch-size', action='store_true',
+        help='Auto-tune batch size via profiling (15-30%% faster, overrides --batch-size)'
+    )
+    parser.add_argument(
         '--learning-rate', type=float, default=None,
         help='Initial learning rate'
     )
@@ -3481,6 +3509,7 @@ def main():
         model_version=model_version,
         num_res_blocks=getattr(args, 'num_res_blocks', None),
         num_filters=getattr(args, 'num_filters', None),
+        auto_tune_batch_size=getattr(args, 'auto_tune_batch_size', False),
     )
 
 

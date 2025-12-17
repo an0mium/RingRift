@@ -1,0 +1,11 @@
+# RingRift Training Pipeline Cron Jobs
+# Install with: crontab config/crontab_training.txt
+
+# Data sync every 15 minutes
+*/15 * * * * cd ~/Development/RingRift/ai-service && ./scripts/sync_training_data_cron.sh
+
+# Model pruning daily at 3am
+0 3 * * * cd ~/Development/RingRift/ai-service && python scripts/prune_models.py --auto --keep-top 0.25 >> logs/prune_cron.log 2>&1
+
+# Vast health check every 30 minutes
+*/30 * * * * cd ~/Development/RingRift/ai-service && python scripts/vast_lifecycle.py --check >> logs/vast_health.log 2>&1

@@ -432,6 +432,108 @@ python scripts/run_hybrid_selfplay.py \
 - [HEX_AUGMENTATION.md](HEX_AUGMENTATION.md) - D6 symmetry augmentation details
 - [MCTS_INTEGRATION.md](MCTS_INTEGRATION.md) - MCTS implementation and training data generation
 
+---
+
+## Operational Runbook (2025-12-17)
+
+### Common Bottlenecks and Fixes
+
+#### 1. Data Sync Not Running
+
+**Symptom**: `total_data_syncs: 0` in unified loop state
+
+**Fix**:
+
+```bash
+# Start sync daemon
+python scripts/unified_data_sync.py --watchdog &
+
+# Or use cron script
+./scripts/sync_training_data_cron.sh
+```
+
+#### 2. Training Not Triggering
+
+**Symptom**: `total_training_runs: 0` despite sufficient games
+
+**Fix**:
+
+```bash
+# Reset loop state and restart
+python -c "
+import json
+with open('logs/unified_loop/unified_loop_state.json', 'r+') as f:
+    state = json.load(f)
+    state['training_in_progress'] = False
+    for host in state.get('hosts', {}).values():
+        host['last_sync_time'] = 0.0
+    f.seek(0)
+    json.dump(state, f, indent=2)
+    f.truncate()
+"
+pkill -f unified_ai_loop.py
+python scripts/unified_ai_loop.py --start &
+```
+
+#### 3. Underperforming Configs
+
+**Symptom**: Config has <10 models or Elo below 1500
+
+**Fix**: Launch dedicated training loop
+
+```bash
+ssh lambda-gh200-k "cd ~/ringrift/ai-service && source venv/bin/activate && \
+  python scripts/multi_config_training_loop.py --board hexagonal --players 3 --iterations 30 &"
+```
+
+#### 4. Missing MCTS Data for KL Loss
+
+**Symptom**: NNUE policy training shows "No MCTS coverage"
+
+**Fix**: Start Gumbel MCTS selfplay
+
+```bash
+python scripts/run_hybrid_selfplay.py --board-type square8 --engine-mode gumbel-mcts \
+  --mcts-sims 200 --num-games 500
+```
+
+### Cron Jobs
+
+Install with: `crontab config/crontab_training.txt`
+
+| Schedule       | Job                          | Description                  |
+| -------------- | ---------------------------- | ---------------------------- |
+| `*/15 * * * *` | `sync_training_data_cron.sh` | Sync data from GH200 cluster |
+| `0 3 * * *`    | `prune_models.py --auto`     | Daily model pruning          |
+| `*/30 * * * *` | `vast_lifecycle.py --check`  | Vast health monitoring       |
+
+### Active Daemons
+
+| Daemon                   | Host   | Purpose                     |
+| ------------------------ | ------ | --------------------------- |
+| `unified_ai_loop.py`     | Local  | Main orchestration          |
+| `unified_data_sync.py`   | Local  | Data collection             |
+| `auto_elo_tournament.py` | H100   | Model evaluation            |
+| `baseline_gauntlet.py`   | 2xH100 | Continuous baseline testing |
+
+### Quick Status Check
+
+```bash
+# Overall status
+PYTHONPATH=. python scripts/unified_ai_loop.py --status
+
+# Training jobs
+ps aux | grep -E 'train|selfplay' | grep python | wc -l
+
+# Game counts
+sqlite3 data/games/all_jsonl_training.db \
+  "SELECT board_type, num_players, COUNT(*) FROM games GROUP BY 1,2"
+
+# Model counts
+sqlite3 data/unified_elo.db \
+  "SELECT board_type, num_players, COUNT(*), MAX(rating) FROM elo_ratings WHERE archived_at IS NULL GROUP BY 1,2"
+```
+
 ## Contact
 
 For issues with the training pipeline, check:

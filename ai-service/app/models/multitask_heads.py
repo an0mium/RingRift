@@ -426,20 +426,111 @@ if TORCH_AVAILABLE:
         def get_task_weights(self) -> Dict[str, float]:
             """Get current task weights (static or learned)."""
             weights = {}
+
+            if self.config.uncertainty_weighting:
+                # Batch all log_var values into single GPU->CPU transfer
+                log_var_tensors = []
+                task_names = []
+                for task_config in self.config.tasks:
+                    if not task_config.enabled:
+                        continue
+                    task_name = task_config.task_type.value
+                    if task_name in self.log_vars:
+                        log_var_tensors.append(self.log_vars[task_name])
+                        task_names.append(task_name)
+
+                if log_var_tensors:
+                    # Single GPU->CPU transfer for all log vars
+                    stacked = torch.cat(log_var_tensors)
+                    log_var_values = stacked.detach().cpu().numpy()
+
+                    for i, task_name in enumerate(task_names):
+                        weights[task_name] = float(math.exp(-log_var_values[i]))
+
+            # Add static weights for tasks not using uncertainty weighting
+            for task_config in self.config.tasks:
+                if not task_config.enabled:
+                    continue
+                task_name = task_config.task_type.value
+                if task_name not in weights:
+                    weights[task_name] = task_config.loss_weight
+
+            return weights
+
+        def compute_losses_batched(
+            self,
+            outputs: Dict[str, torch.Tensor],
+            targets: Dict[str, torch.Tensor]
+        ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor], Dict[str, float]]:
+            """
+            Compute all task losses with batched GPU->CPU transfer for logging.
+
+            This is more efficient than compute_losses() when you need loss values
+            for logging, as it uses a single GPU->CPU transfer instead of multiple
+            .item() calls.
+
+            Args:
+                outputs: Model outputs from forward()
+                targets: Target values for each task
+
+            Returns:
+                (total_loss, individual_losses_dict, loss_values_for_logging)
+            """
+            losses = {}
+            total_loss = torch.tensor(0.0, device=outputs['policy'].device)
+            loss_tensors = []
+            loss_names = []
+
+            # Policy loss (if provided)
+            if 'policy' in targets and outputs['policy'] is not None:
+                policy_loss = F.cross_entropy(outputs['policy'], targets['policy'])
+                losses['policy'] = policy_loss
+                total_loss = total_loss + policy_loss
+                loss_tensors.append(policy_loss)
+                loss_names.append('policy')
+
+            # Value loss (if provided)
+            if 'value' in targets and outputs['value'] is not None:
+                value_loss = F.mse_loss(outputs['value'].squeeze(), targets['value'])
+                losses['value'] = value_loss
+                total_loss = total_loss + value_loss
+                loss_tensors.append(value_loss)
+                loss_names.append('value')
+
+            # Auxiliary task losses
             for task_config in self.config.tasks:
                 if not task_config.enabled:
                     continue
 
                 task_name = task_config.task_type.value
+                if task_name not in outputs or task_name not in targets:
+                    continue
 
+                head = self.task_heads[task_name]
+                task_loss = head.compute_loss(outputs[task_name], targets[task_name])
+                losses[task_name] = task_loss
+                loss_tensors.append(task_loss)
+                loss_names.append(task_name)
+
+                # Apply loss weighting
                 if self.config.uncertainty_weighting and task_name in self.log_vars:
-                    # Convert log variance to weight
-                    log_var = self.log_vars[task_name].item()
-                    weights[task_name] = math.exp(-log_var)
+                    log_var = self.log_vars[task_name]
+                    precision = torch.exp(-log_var)
+                    weighted_loss = precision * task_loss + log_var
                 else:
-                    weights[task_name] = task_config.loss_weight
+                    weighted_loss = task_config.loss_weight * task_loss
 
-            return weights
+                total_loss = total_loss + weighted_loss
+
+            # Single GPU->CPU transfer for all loss values (for logging)
+            if loss_tensors:
+                stacked_losses = torch.stack(loss_tensors).detach()
+                loss_values_np = stacked_losses.cpu().numpy()
+                loss_values = {name: float(loss_values_np[i]) for i, name in enumerate(loss_names)}
+            else:
+                loss_values = {}
+
+            return total_loss, losses, loss_values
 
 
     class GradNormBalancer:

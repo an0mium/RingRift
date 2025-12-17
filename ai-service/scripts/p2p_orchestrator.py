@@ -11121,7 +11121,34 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 "--epochs", str(epochs),
                 "--batch-size", str(batch_size),
                 "--save-path", output_path,
+                # Phase 1: Core Training Optimizations
+                "--spectral-norm",  # Gradient stability
+                "--cyclic-lr", "--cyclic-lr-period", "5",  # Cyclic LR
+                "--mixed-precision", "--amp-dtype", "bfloat16",  # BF16 speed
+                "--warmup-epochs", "3",  # LR warmup
+                # Phase 2: Advanced Training
+                "--value-whitening",  # Value head stability
+                "--ema",  # Exponential Moving Average
+                "--stochastic-depth", "--stochastic-depth-prob", "0.1",
+                "--adaptive-warmup",  # Dataset-aware warmup
+                "--hard-example-mining", "--hard-example-top-k", "0.3",
+                # Phase 2: Optimizer Enhancements
+                "--lookahead", "--lookahead-k", "5", "--lookahead-alpha", "0.5",
+                "--adaptive-clip",  # Adaptive gradient clipping
+                "--board-nas",  # Board-specific NAS
+                "--online-bootstrap", "--bootstrap-temperature", "1.5",
+                # Phase 2: Data Pipeline
+                "--prefetch-gpu",  # GPU prefetching
+                "--difficulty-curriculum",  # Curriculum learning
+                "--quantized-eval",  # Fast validation
+                # Phase 3: Advanced Learning
+                "--grokking-detection",  # Detect delayed generalization
+                "--policy-label-smoothing", "0.05",  # Prevent overconfidence
+                "--sampling-weights", "victory_type",  # Balanced sampling
             ]
+            # Add hex symmetry augmentation for hex boards (12x effective data)
+            if board_type in ('hex8', 'hexagonal', 'hex'):
+                cmd.append("--augment-hex-symmetry")
             if learning_rate is not None:
                 cmd.extend(["--learning-rate", str(learning_rate)])
 

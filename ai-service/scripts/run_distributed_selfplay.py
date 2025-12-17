@@ -1020,12 +1020,39 @@ def parse_args() -> argparse.Namespace:
         help="Log telemetry every N games (default: 50)",
     )
 
+    # Performance optimization options
+    parser.add_argument(
+        "--enable-nn-batching",
+        action="store_true",
+        help="Enable async neural network batching for improved GPU throughput",
+    )
+    parser.add_argument(
+        "--nn-batch-timeout-ms",
+        type=int,
+        default=50,
+        help="Neural batch timeout in milliseconds (default: 50)",
+    )
+    parser.add_argument(
+        "--nn-max-batch-size",
+        type=int,
+        default=256,
+        help="Maximum neural batch size (default: 256)",
+    )
+
     return parser.parse_args()
 
 
 def main():
     """Main entry point."""
     args = parse_args()
+
+    # Configure neural network batching if requested
+    # This must be done before importing AI modules
+    if args.enable_nn_batching:
+        os.environ["RINGRIFT_NN_EVAL_QUEUE"] = "1"
+        os.environ["RINGRIFT_NN_EVAL_BATCH_TIMEOUT_MS"] = str(args.nn_batch_timeout_ms)
+        os.environ["RINGRIFT_NN_EVAL_MAX_BATCH"] = str(args.nn_max_batch_size)
+        logger.info(f"Neural batching enabled: timeout={args.nn_batch_timeout_ms}ms, max_batch={args.nn_max_batch_size}")
 
     # Generate worker ID if not provided
     worker_id = args.worker_id or os.environ.get("WORKER_ID")

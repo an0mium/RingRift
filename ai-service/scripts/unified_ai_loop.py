@@ -80,6 +80,14 @@ from scripts.unified_loop.tournament import ShadowTournamentService
 from scripts.unified_loop.data_collection import StreamingDataCollector
 from scripts.unified_loop.training import TrainingScheduler
 
+# Local selfplay generation (parallel with Gumbel-MCTS support)
+try:
+    from scripts.unified_loop.selfplay import LocalSelfplayGenerator
+    HAS_LOCAL_SELFPLAY = True
+except ImportError:
+    HAS_LOCAL_SELFPLAY = False
+    LocalSelfplayGenerator = None
+
 # Shared database integrity utilities
 from app.db.integrity import (
     check_database_integrity,
@@ -2674,6 +2682,20 @@ class UnifiedAILoop:
                 print(f"[UnifiedLoop] Execution backend initialized ({type(self.backend).__name__})")
             except Exception as e:
                 print(f"[UnifiedLoop] Warning: Failed to initialize execution backend: {e}")
+
+        # Local selfplay generator (parallel with Gumbel-MCTS support)
+        self.local_selfplay: Optional[LocalSelfplayGenerator] = None
+        if HAS_LOCAL_SELFPLAY:
+            try:
+                num_workers = getattr(config, 'selfplay_workers', None)
+                self.local_selfplay = LocalSelfplayGenerator(
+                    state=self.state,
+                    event_bus=self.event_bus,
+                    num_workers=num_workers,
+                )
+                print(f"[UnifiedLoop] Local selfplay generator initialized (workers={num_workers or 'auto'})")
+            except Exception as e:
+                print(f"[UnifiedLoop] Warning: Failed to initialize local selfplay: {e}")
 
         # Resource optimizer - cooperative cluster-wide utilization targeting (60-80%)
         self.resource_optimizer: Optional[ResourceOptimizer] = None
@@ -5916,6 +5938,96 @@ class UnifiedAILoop:
         except Exception as e:
             print(f"[Backend] Error running distributed selfplay: {e}")
             return []
+
+    async def run_local_selfplay(
+        self,
+        games: int,
+        config_key: str,
+        engine: str = "descent",
+        nn_model_id: Optional[str] = None,
+        gumbel_simulations: int = 64,
+        gumbel_top_k: int = 16,
+    ) -> Dict[str, Any]:
+        """Run selfplay games locally using parallel workers.
+
+        Uses the LocalSelfplayGenerator for efficient multi-process game generation.
+        Supports multiple AI engines including Gumbel-MCTS for high-quality training data.
+
+        Args:
+            games: Number of games to generate
+            config_key: Config identifier (e.g., "square8_2p")
+            engine: AI engine ("descent", "mcts", or "gumbel")
+            nn_model_id: Neural network model ID for AI
+            gumbel_simulations: Simulations per move for Gumbel-MCTS
+            gumbel_top_k: Top-k for sequential halving
+
+        Returns:
+            Dict with generation results
+        """
+        if self.local_selfplay is None:
+            print("[LocalSelfplay] Local selfplay generator not available")
+            return {"success": False, "error": "Local selfplay not available", "games": 0, "samples": 0}
+
+        result = await self.local_selfplay.generate_games(
+            num_games=games,
+            config_key=config_key,
+            engine=engine,
+            nn_model_id=nn_model_id,
+            gumbel_simulations=gumbel_simulations,
+            gumbel_top_k=gumbel_top_k,
+        )
+
+        # Update state with new games
+        if result.get("success") and config_key in self.state.configs:
+            self.state.configs[config_key].games_since_training += result.get("games", 0)
+            self.state.total_games_pending += result.get("games", 0)
+
+            # Publish event for data pipeline
+            await self.event_bus.publish(DataEvent(
+                event_type=DataEventType.NEW_GAMES_AVAILABLE,
+                payload={
+                    "source": "local_selfplay",
+                    "config": config_key,
+                    "games": result.get("games", 0),
+                    "samples": result.get("samples", 0),
+                    "engine": engine,
+                    "output_file": result.get("output_file"),
+                }
+            ))
+
+        return result
+
+    async def run_gumbel_selfplay(
+        self,
+        games: int,
+        config_key: str,
+        nn_model_id: Optional[str] = None,
+        simulations: int = 64,
+        top_k: int = 16,
+    ) -> Dict[str, Any]:
+        """Convenience method for Gumbel-MCTS selfplay generation.
+
+        Gumbel-MCTS produces higher quality training data with soft policy
+        targets based on visit counts from sequential halving search.
+
+        Args:
+            games: Number of games to generate
+            config_key: Config identifier
+            nn_model_id: Neural network model ID
+            simulations: Simulations per move
+            top_k: Top-k actions for sequential halving
+
+        Returns:
+            Generation results
+        """
+        return await self.run_local_selfplay(
+            games=games,
+            config_key=config_key,
+            engine="gumbel",
+            nn_model_id=nn_model_id,
+            gumbel_simulations=simulations,
+            gumbel_top_k=top_k,
+        )
 
     async def sync_backend_data(self) -> Dict[str, int]:
         """Sync game data from workers using the execution backend.
