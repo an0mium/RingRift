@@ -3,6 +3,12 @@
 This module contains all configuration dataclasses and event types
 for the unified AI improvement loop.
 Extracted from unified_ai_loop.py for better modularity.
+
+NOTE: This module provides extended configuration options for the unified loop.
+For new integrations, consider using app.config.unified_config which is the
+canonical configuration location with broader adoption across the codebase.
+
+See docs/CONSOLIDATION_ROADMAP.md for planned consolidation of these modules.
 """
 
 from __future__ import annotations
@@ -323,6 +329,43 @@ class TrainingConfig:
     hard_example_buffer_size: int = 10000  # Max examples to track
     hard_example_percentile: float = 80.0  # Percentile threshold for hardness
     min_samples_before_mining: int = 1000  # Warmup before mining starts
+    # =========================================================================
+    # Integrated Training Enhancements (December 2025)
+    # =========================================================================
+    # Master toggle for integrated enhancements system
+    use_integrated_enhancements: bool = True
+    # Auxiliary Tasks (Multi-Task Learning) - predict game length, piece count
+    auxiliary_tasks_enabled: bool = False
+    aux_game_length_weight: float = 0.1
+    aux_piece_count_weight: float = 0.1
+    aux_outcome_weight: float = 0.05
+    # Gradient Surgery (PCGrad) - resolve conflicting gradients
+    gradient_surgery_enabled: bool = False
+    gradient_surgery_method: str = "pcgrad"  # "pcgrad" or "cagrad"
+    # Batch Scheduling - dynamic batch size during training
+    batch_scheduling_enabled: bool = False
+    batch_initial_size: int = 64
+    batch_final_size: int = 512
+    batch_schedule_type: str = "linear"
+    # Background Evaluation - continuous Elo tracking
+    background_eval_enabled: bool = False
+    eval_interval_steps: int = 1000
+    eval_elo_checkpoint_threshold: float = 10.0
+    # ELO Weighting - weight samples by opponent strength
+    elo_weighting_enabled: bool = True
+    elo_base_rating: float = 1500.0
+    elo_weight_scale: float = 400.0
+    elo_min_weight: float = 0.5
+    elo_max_weight: float = 2.0
+    # Curriculum Learning - progressive difficulty
+    curriculum_enabled: bool = True
+    curriculum_auto_advance: bool = True
+    # Data Augmentation - board symmetry transforms
+    augmentation_enabled: bool = True
+    augmentation_mode: str = "all"  # "all", "random", "light"
+    # Reanalysis - re-evaluate games with current model
+    reanalysis_enabled: bool = False
+    reanalysis_blend_ratio: float = 0.5
 
 
 @dataclass
@@ -930,3 +973,77 @@ class ConfigState:
     consecutive_high_win_rate: int = 0  # Count of evals with win_rate > 0.7
     # Consolidated feedback state (2025-12)
     feedback: FeedbackState = field(default_factory=FeedbackState)
+
+
+# =============================================================================
+# Integrated Enhancements Factory
+# =============================================================================
+
+def create_integrated_manager_from_config(
+    training_config: TrainingConfig,
+    model: Optional[Any] = None,
+    board_type: str = "square8",
+) -> Optional["IntegratedTrainingManager"]:
+    """Create an IntegratedTrainingManager from TrainingConfig.
+
+    Args:
+        training_config: TrainingConfig with enhancement settings
+        model: PyTorch model (optional, can be set later)
+        board_type: Board type for augmentation
+
+    Returns:
+        IntegratedTrainingManager or None if disabled
+    """
+    if not training_config.use_integrated_enhancements:
+        return None
+
+    try:
+        from app.training.integrated_enhancements import (
+            IntegratedTrainingManager,
+            IntegratedEnhancementsConfig,
+        )
+
+        # Map TrainingConfig to IntegratedEnhancementsConfig
+        enhancement_config = IntegratedEnhancementsConfig(
+            # Auxiliary Tasks
+            auxiliary_tasks_enabled=training_config.auxiliary_tasks_enabled,
+            aux_game_length_weight=training_config.aux_game_length_weight,
+            aux_piece_count_weight=training_config.aux_piece_count_weight,
+            aux_outcome_weight=training_config.aux_outcome_weight,
+            # Gradient Surgery
+            gradient_surgery_enabled=training_config.gradient_surgery_enabled,
+            gradient_surgery_method=training_config.gradient_surgery_method,
+            # Batch Scheduling
+            batch_scheduling_enabled=training_config.batch_scheduling_enabled,
+            batch_initial_size=training_config.batch_initial_size,
+            batch_final_size=training_config.batch_final_size,
+            batch_schedule_type=training_config.batch_schedule_type,
+            # Background Evaluation
+            background_eval_enabled=training_config.background_eval_enabled,
+            eval_interval_steps=training_config.eval_interval_steps,
+            eval_elo_checkpoint_threshold=training_config.eval_elo_checkpoint_threshold,
+            # ELO Weighting
+            elo_weighting_enabled=training_config.elo_weighting_enabled,
+            elo_base_rating=training_config.elo_base_rating,
+            elo_weight_scale=training_config.elo_weight_scale,
+            elo_min_weight=training_config.elo_min_weight,
+            elo_max_weight=training_config.elo_max_weight,
+            # Curriculum Learning
+            curriculum_enabled=training_config.curriculum_enabled,
+            curriculum_auto_advance=training_config.curriculum_auto_advance,
+            # Augmentation
+            augmentation_enabled=training_config.augmentation_enabled,
+            augmentation_mode=training_config.augmentation_mode,
+            # Reanalysis
+            reanalysis_enabled=training_config.reanalysis_enabled,
+            reanalysis_blend_ratio=training_config.reanalysis_blend_ratio,
+        )
+
+        return IntegratedTrainingManager(enhancement_config, model, board_type)
+
+    except ImportError as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            f"[Config] Failed to import integrated enhancements: {e}"
+        )
+        return None
