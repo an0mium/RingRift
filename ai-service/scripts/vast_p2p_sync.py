@@ -523,10 +523,14 @@ def main():
     parser.add_argument('--check', action='store_true', help='Check status only')
     parser.add_argument('--sync', action='store_true', help='Sync and unretire active instances')
     parser.add_argument('--start-p2p', action='store_true', help='Start P2P on instances missing it')
-    parser.add_argument('--full', action='store_true', help='Full sync (check + sync + start)')
+    parser.add_argument('--full', action='store_true', help='Full sync (check + sync + start + config)')
+    parser.add_argument('--update-config', action='store_true', help='Update distributed_hosts.yaml')
+    parser.add_argument('--provision', type=int, metavar='N', help='Provision N new instances')
+    parser.add_argument('--max-hourly', type=float, default=0.50, help='Max hourly budget for provisioning')
+    parser.add_argument('--sync-code', action='store_true', help='Sync git code to all instances')
     args = parser.parse_args()
 
-    if not any([args.check, args.sync, args.start_p2p, args.full]):
+    if not any([args.check, args.sync, args.start_p2p, args.full, args.update_config, args.provision, args.sync_code]):
         args.check = True  # Default to check
 
     # Get Vast instances
@@ -585,6 +589,12 @@ def main():
                 else:
                     logger.warning(f"  -> Failed to unretire via API")
 
+    # Update config
+    if args.update_config or args.full:
+        logger.info("Updating distributed_hosts.yaml...")
+        updated = update_distributed_hosts_yaml(vast_instances)
+        logger.info(f"Updated {updated} entries in config")
+
     # Start P2P actions
     if args.start_p2p or args.full:
         logger.info("Starting P2P on instances without it...")
@@ -593,6 +603,19 @@ def main():
             if not running:
                 logger.info(f"Starting P2P on instance {inst.id} ({inst.gpu_name})")
                 start_p2p_on_instance(inst)
+
+    # Sync code
+    if args.sync_code:
+        logger.info("Syncing code to all instances...")
+        synced = 0
+        for inst in vast_instances:
+            if sync_code_to_instance(inst):
+                synced += 1
+        logger.info(f"Synced code to {synced}/{len(vast_instances)} instances")
+
+    # Provision new instances
+    if args.provision:
+        provision_instances(count=args.provision, max_total_hourly=args.max_hourly)
 
 
 if __name__ == "__main__":
