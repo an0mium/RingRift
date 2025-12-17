@@ -282,7 +282,7 @@ export const TERRITORY_TIPS: TeachingTip[] = [
   },
   // GAP-TERR-03: Eligibility indicator
   {
-    text: "CAN'T PROCESS A REGION? You must have an eligible stack OUTSIDE the pending region (multicolour or single-colour height > 1) to pay the elimination cost. Height-1 standalone rings are NOT eligible.",
+    text: "CAN'T PROCESS A REGION? You must have a controlled stack OUTSIDE the pending region to pay the elimination cost. Any controlled stack is eligible, including height-1 standalone rings.",
     category: 'eligibility',
     emphasis: 'important',
     addressesGap: 'GAP-TERR-03',

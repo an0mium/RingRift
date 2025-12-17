@@ -23703,7 +23703,6 @@ print(json.dumps({{
 
                     # FIXED: Round-robin config selection to ensure all configs get coverage
                     # Use unique_configs list for fair distribution across all 9 board/player combos
-                    import random as rand_module
                     if self.improvement_cycle_manager and hasattr(self.improvement_cycle_manager, 'get_next_selfplay_config_for_node'):
                         # Node-aware dynamic selection: routes hex/sq19/3p/4p to powerful nodes
                         node_gpu_power = node.gpu_power_score() if hasattr(node, 'gpu_power_score') else 0

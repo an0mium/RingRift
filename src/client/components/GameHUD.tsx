@@ -635,13 +635,13 @@ function LegacySubPhaseDetails({ gameState }: { gameState: GameState }) {
 
   // For territory processing, we don't have a direct count in GameState,
   // but we can show a generic message
-  // RR-CANON-R022/R082: Territory processing requires entire cap from eligible stacks only
-  // (multicolor or single-color height > 1; standalone rings NOT eligible)
+  // RR-CANON-R022/R145: Territory processing requires entire cap from any controlled stack
+  // (including height-1 standalone rings)
   if (gameState.currentPhase === 'territory_processing') {
     return (
       <div className="text-sm text-gray-600 mt-1">
-        Processing disconnected regions; you must eliminate the entire cap from an eligible stack
-        outside each region (multicolor or height {'>'} 1; standalone rings not eligible).
+        Processing disconnected regions; you must eliminate the entire cap from any controlled stack
+        outside each region (including height-1 standalone rings).
       </div>
     );
   }

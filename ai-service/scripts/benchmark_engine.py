@@ -2,10 +2,7 @@
 Benchmark script to compare AI engines
 """
 
-import sys
-import os
 import time
-import random
 from datetime import datetime
 
 from app.models import GameState, BoardType, BoardState, GamePhase, GameStatus, TimeControl, Player, AIConfig

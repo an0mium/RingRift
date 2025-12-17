@@ -476,7 +476,7 @@ export const TEACHING_TOPICS_COPY: Record<string, TeachingTopicCopy> = {
     topicId: 'territory',
     heading: 'Territory',
     // UX_RULES_COPY_SPEC.md §7 – TeachingOverlay – Territory description
-    body: 'Territory spaces are collapsed cells that you permanently own. When a disconnected region of your pieces is processed, all of its spaces become your Territory and its rings are eliminated, at the cost of eliminating the entire cap from an eligible stack outside the region (multicolor stacks or single-color stacks with height > 1; standalone rings are NOT eligible). Recovery actions pay with a buried ring instead. You win by Territory when you control at least your fair share (1/N of the board) AND more than all opponents combined.',
+    body: 'Territory spaces are collapsed cells that you permanently own. When a disconnected region of your pieces is processed, all of its spaces become your Territory and its rings are eliminated, at the cost of eliminating the entire cap from any controlled stack outside the region (including height-1 standalone rings per RR-CANON-R022/R145). Recovery actions pay with a buried ring instead. You win by Territory when you control at least your fair share (1/N of the board) AND more than all opponents combined.',
   },
   active_no_moves: {
     topicId: 'active_no_moves',

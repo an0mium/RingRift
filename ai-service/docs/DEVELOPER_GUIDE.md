@@ -187,23 +187,48 @@ These are defined in `app/utils/resource_guard.py`.
 
 ## AI Factory Pattern
 
-AI creation should always use the factory:
+**Canonical Source:** `app/ai/factory.py`
+
+New code should use the AI factory for consistent difficulty profiles across the codebase:
 
 ```python
-from app.ai.factory import create_ai, get_canonical_profile
+from app.ai.factory import AIFactory, CANONICAL_DIFFICULTY_PROFILES
 
-# Create AI by difficulty
-ai = create_ai(difficulty=5, board_type="square8")
+# Create AI by difficulty (1-10 scale)
+ai = AIFactory.create_from_difficulty(
+    difficulty=5,
+    board_type="square8",
+    num_players=2
+)
 
-# Get difficulty profile
-profile = get_canonical_profile(difficulty=5)
-print(f"AI type: {profile.ai_type}, simulations: {profile.simulations}")
+# Get difficulty profile for inspection
+profile = CANONICAL_DIFFICULTY_PROFILES[5]
+print(f"AI type: {profile['ai_type']}, simulations: {profile.get('simulations', 'N/A')}")
 ```
 
-**Do NOT:**
+**Difficulty Scale:**
 
-- Instantiate AI classes directly (unless testing)
-- Hardcode AI parameters
+| Level | AI Type     | Description                    |
+| ----- | ----------- | ------------------------------ |
+| 1-2   | Random      | Random move selection          |
+| 3-4   | Heuristic   | Simple evaluation functions    |
+| 5-6   | Minimax     | Tree search with limited depth |
+| 7-8   | MCTS        | Monte Carlo Tree Search        |
+| 9-10  | Neural MCTS | Neural network guided MCTS     |
+
+**Current Status:**
+
+Many legacy scripts (42+) still create AI instances directly. This is acceptable for existing code but new scripts should use the factory pattern for:
+
+- Consistent difficulty calibration
+- Centralized parameter management
+- Easier difficulty adjustments across the codebase
+
+**Do NOT in new code:**
+
+- Instantiate AI classes directly without good reason
+- Hardcode AI parameters like simulation counts
+- Define custom difficulty scales
 
 ## Training Pipeline
 
@@ -254,57 +279,41 @@ pytest tests/test_resource_guard.py -v
 3. Integrate with `unified_ai_loop.py`
 4. Add tests
 
+## Sync System Architecture
+
+The codebase has canonical sync scripts for different data domains. Always use these instead of deprecated alternatives.
+
+### Canonical Sync Scripts
+
+| Domain       | Canonical Script              | Description                                      |
+| ------------ | ----------------------------- | ------------------------------------------------ |
+| Game Data    | `unified_data_sync.py`        | Rsync-based game database sync with P2P fallback |
+| Models       | `sync_models.py`              | Hash-based model distribution with deduplication |
+| ELO Ratings  | `elo_db_sync.py`              | ELO database synchronization                     |
+| Coordination | `cluster_sync_coordinator.py` | Meta-orchestrator for all sync operations        |
+| Vast.ai P2P  | `vast_p2p_sync.py`            | Specialized P2P sync for Vast.ai nodes           |
+
+### Deprecated Sync Scripts
+
+The following scripts are deprecated and will be removed in a future release:
+
+| Deprecated            | Replacement            | Migration                                    |
+| --------------------- | ---------------------- | -------------------------------------------- |
+| `simple_game_sync.py` | `unified_data_sync.py` | `python scripts/unified_data_sync.py --once` |
+| `model_sync_aria2.py` | `sync_models.py`       | `python scripts/sync_models.py --sync`       |
+
+These deprecated scripts emit `DeprecationWarning` on import.
+
 ## Migration Status
 
-### Scripts Using Unified Logging (20+ migrated)
+### Unified Logging (87 scripts migrated)
 
-The following scripts have been migrated to use `app.core.logging_config.setup_logging()`:
+All 87 scripts in the codebase now use the unified logging pattern from `app.core.logging_config`. The migration was completed in December 2025.
 
-**Core Orchestration:**
-
-- `unified_ai_loop.py` (via submodules)
-- `unified_data_sync.py`
-- `unified_promotion_daemon.py`
-- `p2p_orchestrator.py`
-
-**Training & Evaluation:**
-
-- `train_nnue.py`
-- `run_gauntlet.py`
-- `run_tournament.py`
-- `hex8_training_pipeline.py`
-- `auto_training_pipeline.py`
-
-**Cluster Management:**
-
-- `cluster_manager.py`
-- `cluster_automation.py`
-- `cluster_sync_coordinator.py`
-- `cluster_worker.py`
-- `node_resilience.py`
-
-**Data Processing:**
-
-- `aggregate_jsonl_to_db.py`
-- `aria2_data_sync.py`
-- `auto_export_training_data.py`
-- `model_sync_aria2.py`
-
-**Infrastructure:**
-
-- `health_alerting.py`
-- `vast_autoscaler.py`
-- `vast_keepalive.py`
-- `vast_lifecycle.py`
-- `run_distributed_selfplay.py`
-- `auto_model_promotion.py`
-
-### Scripts Still Using basicConfig
-
-Some utility scripts still use `logging.basicConfig()`. These can be migrated incrementally using the same pattern:
+**Pattern used:**
 
 ```python
-# Unified logging setup
+# Unified logging setup with graceful fallback
 try:
     from app.core.logging_config import setup_logging
     logger = setup_logging("script_name", log_dir="logs")
@@ -315,6 +324,14 @@ except ImportError:
     )
     logger = logging.getLogger(__name__)
 ```
+
+**Scripts with intentional basicConfig:**
+
+Only 3 scripts intentionally use `logging.basicConfig()` in their `main()` function for `--verbose` flag support. These configure logging at runtime based on user arguments, which is the correct pattern for CLI tools:
+
+- `vast_operations.py`
+- `vast_instance_manager.py`
+- `health_alerting.py`
 
 ### Config Integration
 

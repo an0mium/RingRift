@@ -1606,8 +1606,8 @@ export class GameEngine {
 
   /**
    * Eliminate entire stack cap using the player choice system when available.
-   * Eligible caps: (1) multicolour stacks the player controls, or (2) single-colour
-   * stacks of height > 1 of the player's colour. Height-1 standalone rings are NOT eligible.
+   * All controlled stacks are eligible, including height-1 standalone rings
+   * (per RR-CANON-R022/R145).
    * Falls back to default behaviour when no interaction manager is wired.
    */
   private async eliminatePlayerRingOrCapWithChoice(player: number): Promise<void> {

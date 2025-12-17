@@ -425,6 +425,16 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
                 {resolvedChoiceViewModel.copy.description}
               </p>
             )}
+            {resolvedChoiceViewModel.copy.strategicTip && (
+              <div className="mt-2 px-2 py-1.5 rounded bg-amber-950/40 border border-amber-800/30">
+                <span className="text-[10px] uppercase tracking-wide text-amber-400/80 font-semibold">
+                  💡 Tip:{' '}
+                </span>
+                <span className="text-xs text-amber-200/90">
+                  {resolvedChoiceViewModel.copy.strategicTip}
+                </span>
+              </div>
+            )}
           </div>
         )}
 

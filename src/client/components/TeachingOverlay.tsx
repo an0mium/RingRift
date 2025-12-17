@@ -133,10 +133,10 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
       'Crossing the territory threshold ends the game immediately, even if other wins were possible.',
       // GAP-TERR-04: Self-elimination cost explanation (FAQ Q23)
       'TERRITORY ELIMINATION COST: Processing a disconnected region eliminates all interior rings (scoring for you), but you MUST also eliminate your ENTIRE CAP from an eligible stack OUTSIDE the region.',
-      // RR-CANON-R082: Eligible cap targets for territory processing
-      'ELIGIBLE STACKS FOR TERRITORY: Only multicolor stacks you control (with buried rings of other colors) OR single-color stacks of height > 1 are eligible. Standalone rings (height 1) are NOT eligible for territory processing.',
+      // RR-CANON-R022/R145: Eligible cap targets for territory processing
+      'ELIGIBLE STACKS FOR TERRITORY: Any controlled stack outside the region is eligible, including height-1 standalone rings. Per RR-CANON-R022/R145, all controlled stacks qualify.',
       // GAP-TERR-03: Eligibility indicator
-      "CAN'T PROCESS A REGION? You must have an ELIGIBLE stack OUTSIDE the pending region. If all your outside stacks are standalone rings (height 1), you cannot process the territory.",
+      "CAN'T PROCESS A REGION? You must have a controlled stack OUTSIDE the pending region to pay the self-elimination cost.",
       // Explicit rules/FAQ reference for mini-regions
       'For the canonical mini-region pattern and numeric example, see FAQ Q23 "What happens if I cannot eliminate any rings when processing a disconnected region?" in ringrift_complete_rules §12.2.',
     ],

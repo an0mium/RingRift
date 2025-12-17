@@ -359,7 +359,7 @@ const PHASE_COPY: Record<
   territory_processing: {
     label: 'Territory Claim',
     summary:
-      'Collapse disconnected regions into Territory; pay the entire cap from an eligible stack outside each region (multicolor or height > 1; standalone rings not eligible).',
+      'Collapse disconnected regions into Territory; pay the entire cap from any controlled stack outside each region (including height-1 standalone rings).',
   },
 };
 

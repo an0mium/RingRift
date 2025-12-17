@@ -27,6 +27,11 @@ export interface ChoiceCopy {
   title: string;
   /** Optional, more detailed explanation shown below the title. */
   description?: string;
+  /**
+   * Optional strategic tip for newer players. Should explain the tradeoffs
+   * or tactical considerations involved in this choice.
+   */
+  strategicTip?: string;
   /** Compact label suitable for chips/badges (e.g. in HUD headers). */
   shortLabel: string;
   /**
@@ -74,7 +79,10 @@ const CHOICE_VIEW_MODEL_MAP: Record<PlayerChoiceType, ChoiceViewModelConfig> = {
     kind: 'line_order',
     copy: {
       title: 'Multiple Lines Formed!',
-      description: 'You created more than one scoring line. Pick which one to score first.',
+      description:
+        'You created more than one scoring line. Pick which one to process first. Each line will collapse its markers into permanent territory.',
+      strategicTip:
+        'Processing order matters! If lines share markers, choosing one may alter or dissolve the other. Consider which territory placement benefits your position most.',
       shortLabel: 'Line order',
       spectatorLabel: ({ actingPlayerName }) =>
         `${actingPlayerName} is choosing which line to score first`,
@@ -84,9 +92,11 @@ const CHOICE_VIEW_MODEL_MAP: Record<PlayerChoiceType, ChoiceViewModelConfig> = {
   line_reward_option: {
     kind: 'line_reward',
     copy: {
-      title: 'Line Scored! Choose Your Reward',
+      title: 'Overlength Line! Choose Your Reward',
       description:
-        'Your markers formed a line of 5 or more. Pick your reward: take the full bonus and remove one of your rings (gets you closer to winning!), or take a smaller reward and keep all your rings.',
+        'Your markers formed a line longer than required. You have a choice: collapse ALL markers into territory (costs 1 ring), or collapse only the minimum required (costs nothing, but less territory).',
+      strategicTip:
+        "More territory helps win via Territory Control, but eliminating your rings helps win via Ring Elimination. Consider which victory path you're pursuing and how many rings you can afford to lose.",
       shortLabel: 'Line reward',
       spectatorLabel: ({ actingPlayerName }) => `${actingPlayerName} is choosing their line reward`,
     },
@@ -97,7 +107,9 @@ const CHOICE_VIEW_MODEL_MAP: Record<PlayerChoiceType, ChoiceViewModelConfig> = {
     copy: {
       title: 'Remove a Ring',
       description:
-        'Choose which of your stacks to remove a ring from. Removing rings gets you closer to winning by Ring Elimination!',
+        'Choose which of your stacks to remove the top ring from. This ring is eliminated from play, bringing you closer to the Ring Elimination victory threshold.',
+      strategicTip:
+        'Pick a stack where losing control hurts least. Losing your top ring from a tall stack keeps you in control of it; losing from a 1-ring stack gives it to your opponent (or makes it neutral).',
       shortLabel: 'Ring elimination',
       spectatorLabel: ({ actingPlayerName }) =>
         `${actingPlayerName} is choosing which ring to remove`,
@@ -109,7 +121,9 @@ const CHOICE_VIEW_MODEL_MAP: Record<PlayerChoiceType, ChoiceViewModelConfig> = {
     copy: {
       title: 'Territory Captured!',
       description:
-        'You isolated one or more regions. Choose which region to claim first—the spaces become your territory, bringing you closer to a Territory victory!',
+        'You isolated one or more regions with your markers. Choose which region to claim first. All spaces inside become your territory, and any enemy pieces trapped inside are eliminated.',
+      strategicTip:
+        'Each region you claim costs your ENTIRE CAP (all your rings) from one stack OUTSIDE the region. Make sure you have a stack to pay with! Larger regions may be worth the cost; smaller ones might not be.',
       shortLabel: 'Territory region',
       spectatorLabel: ({ actingPlayerName }) =>
         `${actingPlayerName} is choosing which territory to claim`,
@@ -121,7 +135,9 @@ const CHOICE_VIEW_MODEL_MAP: Record<PlayerChoiceType, ChoiceViewModelConfig> = {
     copy: {
       title: 'Chain Capture! Keep Jumping',
       description:
-        'You started a capture chain. Choose your next jump—you must keep capturing while jumps are available.',
+        'You started a capture chain. Choose your next jump direction—captures are mandatory and must continue until no more jumps are possible.',
+      strategicTip:
+        "Each capture takes the TOP RING from the enemy stack you jump over. Plan your chain to maximize rings captured, but watch out—you might be forced into a bad position if you don't think ahead!",
       shortLabel: 'Capture direction',
       spectatorLabel: ({ actingPlayerName }) =>
         `${actingPlayerName} is choosing their next capture`,

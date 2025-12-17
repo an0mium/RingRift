@@ -531,7 +531,7 @@ export interface Move {
    * For `eliminate_rings_from_stack` moves: the context that triggered
    * the elimination. Determines how many rings to eliminate:
    * - 'line': Eliminate exactly ONE ring (any controlled stack eligible)
-   * - 'territory': Eliminate entire cap (only eligible stacks: multicolor or height > 1)
+   * - 'territory': Eliminate entire cap (any controlled stack eligible, including height-1)
    * - 'forced': Eliminate entire cap (any controlled stack eligible)
    * - 'recovery': Extract exactly ONE buried ring from an eligible stack
    * Per RR-CANON-R022 and R122, line processing only requires single-ring
