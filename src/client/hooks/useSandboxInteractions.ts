@@ -67,6 +67,22 @@ export function useSandboxInteractions({
     setRecoveryChoicePromptOpen(false);
   };
 
+  // Territory region disambiguation prompt: shown when clicking a cell that
+  // belongs to multiple disconnected territory regions.
+  const [territoryRegionPrompt, setTerritoryRegionPrompt] = useState<{
+    options: Array<{
+      regionId: string;
+      size: number;
+      representativePosition: Position;
+      moveId: string;
+    }>;
+    clickedPosition: Position;
+  } | null>(null);
+
+  const closeTerritoryRegionPrompt = () => {
+    setTerritoryRegionPrompt(null);
+  };
+
   const runSandboxAiTurnLoop = async () => {
     const engine = sandboxEngine;
     if (!engine) return;
@@ -125,7 +141,7 @@ export function useSandboxInteractions({
   // available (Stage 2 harness), otherwise fall back to the legacy
   // LocalSandboxState controller.
   const handleCellClick = (pos: Position) => {
-    if (ringPlacementCountPrompt || recoveryChoicePromptOpen) {
+    if (ringPlacementCountPrompt || recoveryChoicePromptOpen || territoryRegionPrompt) {
       return;
     }
 
@@ -164,13 +180,21 @@ export function useSandboxInteractions({
         }
       });
 
-      let selectedOption: (typeof options)[number] | undefined;
+      // Find all options whose regions contain the clicked cell.
+      const matchingOptions = options.filter((opt) => clickedRegionIds.includes(opt.regionId));
 
-      if (clickedRegionIds.length > 0) {
-        // Prefer the first option whose regionId owns the clicked cell,
-        // preserving the option ordering from the underlying choice.
-        selectedOption = options.find((opt) => clickedRegionIds.includes(opt.regionId));
+      // If multiple regions overlap at this cell, show a disambiguation prompt
+      // instead of arbitrarily picking the first one.
+      if (matchingOptions.length > 1) {
+        setTerritoryRegionPrompt({
+          options: matchingOptions,
+          clickedPosition: pos,
+        });
+        return;
       }
+
+      let selectedOption: (typeof options)[number] | undefined =
+        matchingOptions.length === 1 ? matchingOptions[0] : undefined;
 
       // Fallback: if regionId-based mapping fails (for example, in older
       // fixtures), fall back to the representative-position heuristic so
@@ -810,6 +834,40 @@ export function useSandboxInteractions({
     })();
   };
 
+  /**
+   * Confirm a territory region selection from the disambiguation prompt.
+   * This resolves the pending region_order choice with the selected option.
+   */
+  const confirmTerritoryRegionPrompt = (selectedOption: {
+    regionId: string;
+    size: number;
+    representativePosition: Position;
+    moveId: string;
+  }) => {
+    if (!sandboxPendingChoice || sandboxPendingChoice.type !== 'region_order') {
+      setTerritoryRegionPrompt(null);
+      return;
+    }
+
+    const currentChoice = sandboxPendingChoice;
+    const resolver = choiceResolverRef.current;
+    if (resolver) {
+      resolver({
+        choiceId: currentChoice.id,
+        playerNumber: currentChoice.playerNumber,
+        choiceType: currentChoice.type,
+        selectedOption,
+      } as PlayerChoiceResponseFor<PlayerChoice>);
+    }
+    choiceResolverRef.current = null;
+    setTerritoryRegionPrompt(null);
+    window.setTimeout(() => {
+      setSandboxPendingChoice(null);
+      setSandboxStateVersion((v) => v + 1);
+      maybeRunSandboxAiIfNeeded();
+    }, 0);
+  };
+
   return {
     shakingCellKey,
     handleCellClick,
@@ -822,5 +880,8 @@ export function useSandboxInteractions({
     confirmRingPlacementCountPrompt,
     recoveryChoicePromptOpen,
     resolveRecoveryChoice,
+    territoryRegionPrompt,
+    closeTerritoryRegionPrompt,
+    confirmTerritoryRegionPrompt,
   };
 }

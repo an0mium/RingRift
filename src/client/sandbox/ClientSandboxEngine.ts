@@ -546,6 +546,35 @@ export class ClientSandboxEngine {
 
     const decisionHandler: SandboxDecisionHandler = {
       requestDecision: async (decision) => {
+        // For region_order decisions, populate board.territories with the region
+        // geometry so that:
+        // 1. gameViewModels.ts can highlight all cells in each region
+        // 2. useSandboxInteractions.ts click handler can match clicks to regions
+        // The regionId keys must match those used in mapPendingDecisionToPlayerChoice
+        // which uses `region-${idx}` for non-skip options.
+        if (decision.type === 'region_order') {
+          const state = this.gameState;
+          const newTerritories = new Map(state.board.territories);
+          decision.options.forEach((opt, idx) => {
+            if (opt.type === 'skip_territory_processing') {
+              // Skip options don't have geometry to display
+              return;
+            }
+            const region = opt.disconnectedRegions?.[0];
+            if (region) {
+              // Use `region-${idx}` to match the regionId format in sandboxDecisionMapping.ts
+              newTerritories.set(`region-${idx}`, region);
+            }
+          });
+          this.gameState = {
+            ...state,
+            board: {
+              ...state.board,
+              territories: newTerritories,
+            },
+          };
+        }
+
         // Map PendingDecision to sandbox interaction handler format
         // The sandbox interaction handler uses PlayerChoice format
         const playerChoice = this.mapPendingDecisionToPlayerChoice(decision);
@@ -2842,9 +2871,10 @@ export class ClientSandboxEngine {
         // 1. gameViewModels.ts can highlight all cells in each region
         // 2. useSandboxInteractions.ts click handler can match clicks to regions
         // Keys must match the regionId values used in the choice options.
+        // Use `region-${index}` format for consistency with sandboxDecisionMapping.ts
         const newTerritories = new Map(state.board.territories);
         eligible.forEach((region, index) => {
-          newTerritories.set(String(index), region);
+          newTerritories.set(`region-${index}`, region);
         });
         state = {
           ...state,
@@ -2869,7 +2899,7 @@ export class ClientSandboxEngine {
               : `region-${index}`;
 
             return {
-              regionId: String(index),
+              regionId: `region-${index}`,
               size: r.spaces.length,
               representativePosition: representative,
               moveId: `process-region-${index}-${regionKey}`,
@@ -2879,7 +2909,9 @@ export class ClientSandboxEngine {
 
         const response = await this.interactionHandler.requestChoice(choice);
         const selected = response.selectedOption;
-        const index = parseInt(selected.regionId, 10);
+        // Extract the index from the `region-${index}` format
+        const indexMatch = selected.regionId.match(/^region-(\d+)$/);
+        const index = indexMatch ? parseInt(indexMatch[1], 10) : 0;
         const selectedRegion = eligible[index] ?? eligible[0];
         regionSpaces = selectedRegion.spaces;
       }

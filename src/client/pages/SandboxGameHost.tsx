@@ -15,6 +15,7 @@ import { EvaluationPanel } from '../components/EvaluationPanel';
 import { SaveStateDialog } from '../components/SaveStateDialog';
 import { RingPlacementCountDialog } from '../components/RingPlacementCountDialog';
 import { RecoveryLineChoiceDialog } from '../components/RecoveryLineChoiceDialog';
+import { TerritoryRegionChoiceDialog } from '../components/TerritoryRegionChoiceDialog';
 import { InlineAlert } from '../components/ui/InlineAlert';
 import { StatusBanner } from '../components/ui/StatusBanner';
 import { Button } from '../components/ui/Button';
@@ -904,6 +905,9 @@ export const SandboxGameHost: React.FC = () => {
     confirmRingPlacementCountPrompt,
     recoveryChoicePromptOpen: sandboxRecoveryChoicePromptOpen,
     resolveRecoveryChoice: resolveSandboxRecoveryChoice,
+    territoryRegionPrompt: sandboxTerritoryRegionPrompt,
+    closeTerritoryRegionPrompt,
+    confirmTerritoryRegionPrompt,
   } = useSandboxInteractions({
     selected,
     setSelected,
@@ -3738,6 +3742,13 @@ export const SandboxGameHost: React.FC = () => {
           onChooseOption1={() => resolveSandboxRecoveryChoice('option1')}
           onChooseOption2={() => resolveSandboxRecoveryChoice('option2')}
           onClose={() => resolveSandboxRecoveryChoice(null)}
+        />
+
+        <TerritoryRegionChoiceDialog
+          isOpen={!!sandboxTerritoryRegionPrompt}
+          options={sandboxTerritoryRegionPrompt?.options ?? []}
+          onClose={closeTerritoryRegionPrompt}
+          onConfirm={confirmTerritoryRegionPrompt}
         />
 
         {showBoardControls && (
