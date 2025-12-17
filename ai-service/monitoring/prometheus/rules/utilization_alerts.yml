@@ -157,3 +157,101 @@ groups:
         annotations:
           summary: 'Critical cluster memory usage'
           description: 'Memory utilization is {{ $value | printf "%.1f" }}%. Risk of OOM kills.'
+
+  # Resource guard alerts - match the 80% thresholds in resource_guard.py
+  - name: resource_guard_alerts
+    rules:
+      # Disk at 70% limit (stricter threshold)
+      - alert: DiskApproachingLimit
+        expr: ringrift_resource_disk_used_percent > 65
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Disk approaching 70% limit'
+          description: 'Disk usage is {{ $value | printf "%.1f" }}% (limit: 70%). Graceful degradation will activate at 70%.'
+
+      - alert: DiskAtLimit
+        expr: ringrift_resource_disk_used_percent > 70
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Disk at/above 70% limit'
+          description: 'Disk usage is {{ $value | printf "%.1f" }}%. Graceful degradation is active. New selfplay jobs will be blocked.'
+
+      # Memory at 80% limit
+      - alert: MemoryApproachingLimit
+        expr: ringrift_resource_memory_used_percent > 75
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Memory approaching 80% limit'
+          description: 'Memory usage is {{ $value | printf "%.1f" }}% (limit: 80%). Graceful degradation will activate at 80%.'
+
+      - alert: MemoryAtLimit
+        expr: ringrift_resource_memory_used_percent > 80
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Memory at/above 80% limit'
+          description: 'Memory usage is {{ $value | printf "%.1f" }}%. Graceful degradation is active. Operations may be throttled.'
+
+      # CPU at 80% limit
+      - alert: CPUApproachingLimit
+        expr: ringrift_resource_cpu_used_percent > 75
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'CPU approaching 80% limit'
+          description: 'CPU usage is {{ $value | printf "%.1f" }}% (limit: 80%). Graceful degradation will activate at 80%.'
+
+      - alert: CPUAtLimit
+        expr: ringrift_resource_cpu_used_percent > 80
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'CPU at/above 80% limit'
+          description: 'CPU usage is {{ $value | printf "%.1f" }}%. Graceful degradation is active. Operations may be throttled.'
+
+      # GPU at 80% limit
+      - alert: GPUMemoryApproachingLimit
+        expr: ringrift_resource_gpu_used_percent > 75
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'GPU memory approaching 80% limit'
+          description: 'GPU memory usage is {{ $value | printf "%.1f" }}% (limit: 80%). Graceful degradation will activate at 80%.'
+
+      - alert: GPUMemoryAtLimit
+        expr: ringrift_resource_gpu_used_percent > 80
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'GPU memory at/above 80% limit'
+          description: 'GPU memory usage is {{ $value | printf "%.1f" }}%. Graceful degradation is active. Training may be impacted.'
+
+      # Graceful degradation level alerts
+      - alert: GracefulDegradationActive
+        expr: ringrift_resource_degradation_level >= 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Graceful degradation level {{ $value }}'
+          description: 'System is in degradation level {{ $value | printf "%.0f" }} (0=normal, 1=light, 2=moderate, 3=heavy, 4=critical). Workloads are being reduced.'
+
+      - alert: GracefulDegradationCritical
+        expr: ringrift_resource_degradation_level >= 4
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Graceful degradation at CRITICAL level'
+          description: 'System resources are at or above limits. All non-critical operations are blocked. Immediate intervention required.'

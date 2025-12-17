@@ -89,6 +89,27 @@ if HAS_PROMETHEUS:
         'Number of resource backoff events',
         ['resource_type']
     )
+    PROM_DEGRADATION_LEVEL = Gauge(
+        'ringrift_resource_degradation_level',
+        'Current graceful degradation level (0=normal, 1=light, 2=moderate, 3=heavy, 4=critical)'
+    )
+    # Additional metrics with _used_ naming for alert rules
+    PROM_DISK_USED = Gauge(
+        'ringrift_resource_disk_used_percent',
+        'Current disk usage percent (for alerting)'
+    )
+    PROM_MEMORY_USED = Gauge(
+        'ringrift_resource_memory_used_percent',
+        'Current memory usage percent (for alerting)'
+    )
+    PROM_CPU_USED = Gauge(
+        'ringrift_resource_cpu_used_percent',
+        'Current CPU usage percent (for alerting)'
+    )
+    PROM_GPU_USED = Gauge(
+        'ringrift_resource_gpu_used_percent',
+        'Current GPU usage percent (for alerting)'
+    )
 
 # ============================================
 # Resource Limits - 80% max utilization
@@ -513,6 +534,28 @@ def get_resource_status(export_prometheus: bool = True) -> dict:
         PROM_RESOURCE_OK.labels(resource_type='memory').set(1 if mem_ok else 0)
         PROM_RESOURCE_OK.labels(resource_type='disk').set(1 if disk_ok else 0)
         PROM_RESOURCE_OK.labels(resource_type='gpu').set(1 if gpu_ok else 0)
+        # Set _used_ metrics for alerting rules
+        PROM_DISK_USED.set(disk_pct)
+        PROM_MEMORY_USED.set(mem_pct)
+        PROM_CPU_USED.set(cpu_pct)
+        PROM_GPU_USED.set(gpu_pct)
+        # Set degradation level (need to calculate here to avoid circular import)
+        max_ratio = max(
+            disk_pct / LIMITS.DISK_MAX_PERCENT,
+            mem_pct / LIMITS.MEMORY_MAX_PERCENT,
+            cpu_pct / LIMITS.CPU_MAX_PERCENT if cpu_pct > 0 else 0,
+        )
+        if max_ratio < 0.7:
+            degradation = 0
+        elif max_ratio < 0.85:
+            degradation = 1
+        elif max_ratio < 0.95:
+            degradation = 2
+        elif max_ratio < 1.0:
+            degradation = 3
+        else:
+            degradation = 4
+        PROM_DEGRADATION_LEVEL.set(degradation)
 
     return {
         "disk": {
