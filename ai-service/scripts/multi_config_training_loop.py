@@ -987,6 +987,11 @@ def run_training(board_type: str, num_players: int, db_paths: List[str],
         "--stochastic-depth", "--stochastic-depth-prob", "0.1",  # Stochastic depth regularization
         "--adaptive-warmup",  # Adaptive warmup based on dataset size
         "--hard-example-mining", "--hard-example-top-k", "0.3",  # Focus on difficult examples
+        # 2024-12 Advanced Optimizer Enhancements
+        "--lookahead", "--lookahead-k", "5", "--lookahead-alpha", "0.5",  # Lookahead optimizer
+        "--adaptive-clip",  # Adaptive gradient clipping
+        "--board-nas",  # Board-specific neural architecture search
+        "--online-bootstrap", "--bootstrap-temperature", "1.5", "--bootstrap-start-epoch", "10",  # Online bootstrapping
     ]
 
     # Apply LR multiplier if non-default

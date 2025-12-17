@@ -1092,6 +1092,11 @@ def train_model(
         "--ema",  # Exponential Moving Average for better generalization
         "--adaptive-warmup",  # Adaptive warmup based on dataset size
         "--hard-example-mining",  # Focus on difficult examples
+        # 2024-12 Advanced Optimizer Enhancements
+        "--lookahead",  # Lookahead optimizer for better generalization
+        "--adaptive-clip",  # Adaptive gradient clipping
+        "--board-nas",  # Board-specific neural architecture search
+        "--online-bootstrap",  # Online bootstrapping with soft labels
     ]
 
     # Resume from best model if it exists (warm-start fine-tuning)

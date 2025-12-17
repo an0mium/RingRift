@@ -315,6 +315,18 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=0.3,
         help="Top K percent of hardest examples to upweight (default: 0.3).",
     )
+    # 2025-12 Training Improvements
+    parser.add_argument(
+        "--policy-label-smoothing",
+        type=float,
+        default=0.0,
+        help="Policy label smoothing factor (0=disabled, typical: 0.05-0.1).",
+    )
+    parser.add_argument(
+        "--augment-hex-symmetry",
+        action="store_true",
+        help="Enable D6 symmetry augmentation for hex boards (12x effective data).",
+    )
     return parser.parse_args(argv)
 
 
@@ -495,6 +507,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         'adaptive_warmup': getattr(args, 'adaptive_warmup', False),
         'hard_example_mining': getattr(args, 'hard_example_mining', False),
         'hard_example_top_k': getattr(args, 'hard_example_top_k', 0.3),
+        # 2025-12 Training Improvements
+        'policy_label_smoothing': getattr(args, 'policy_label_smoothing', 0.0),
+        'augment_hex_symmetry': getattr(args, 'augment_hex_symmetry', False),
     }
 
     # Log enabled improvements
