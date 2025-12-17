@@ -7,6 +7,13 @@ from app.db.recording import (
     record_completed_game_with_parity_check,
     get_or_create_db,
 )
+from app.db.unified_recording import (
+    UnifiedGameRecorder,
+    RecordingConfig,
+    RecordSource,
+    record_game_unified,
+    get_unified_db,
+)
 from app.db.parity_validator import (
     validate_game_parity,
     ParityValidationError,
@@ -29,6 +36,12 @@ __all__ = [
     "record_completed_game",
     "record_completed_game_with_parity_check",
     "get_or_create_db",
+    # Unified recording (RECOMMENDED)
+    "UnifiedGameRecorder",
+    "RecordingConfig",
+    "RecordSource",
+    "record_game_unified",
+    "get_unified_db",
     # Parity validation
     "validate_game_parity",
     "ParityValidationError",

@@ -107,6 +107,8 @@ jobs:
           pip install pytest pytest-cov pytest-asyncio
 
       - name: Run tests
+        env:
+          RINGRIFT_SKIP_SHADOW_CONTRACTS: 'false' # Enable validation in CI
         run: |
           pytest tests/ -v --tb=short \
             --ignore=tests/test_training_integration.py \

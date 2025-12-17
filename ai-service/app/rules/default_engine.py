@@ -78,18 +78,19 @@ class DefaultRulesEngine(RulesEngine):
         # against GameEngine results for correctness validation. This is useful
         # during development but adds ~60-80% overhead for training/self-play.
         #
-        # Set RINGRIFT_SKIP_SHADOW_CONTRACTS=true for training/benchmarking.
+        # Default: True (skip contracts for 2-3x speedup).
+        # Set RINGRIFT_SKIP_SHADOW_CONTRACTS=false to enable validation.
         skip_shadow_env = os.getenv(
-            "RINGRIFT_SKIP_SHADOW_CONTRACTS", ""
+            "RINGRIFT_SKIP_SHADOW_CONTRACTS", "true"
         ).lower()
         if skip_shadow_contracts is not None:
             self._skip_shadow_contracts = skip_shadow_contracts
         else:
-            self._skip_shadow_contracts = skip_shadow_env in {
-                "1",
-                "true",
-                "yes",
-                "on",
+            self._skip_shadow_contracts = skip_shadow_env not in {
+                "0",
+                "false",
+                "no",
+                "off",
             }
 
         # Configuration for the optional mutator-first orchestration path.

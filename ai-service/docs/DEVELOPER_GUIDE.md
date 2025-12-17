@@ -107,6 +107,93 @@ def _load_hosts():
 - Hardcode hostnames
 - Commit cluster-specific configuration
 
+### Board Type Naming
+
+**Canonical Source:** `app/utils/canonical_naming.py`
+
+All board types must use canonical naming throughout the codebase:
+
+| Canonical Value | Common Aliases         | Description                     |
+| --------------- | ---------------------- | ------------------------------- |
+| `square8`       | sq8, square_8, 8x8     | 8×8 square board (64 cells)     |
+| `square19`      | sq19, square_19, 19x19 | 19×19 square board (361 cells)  |
+| `hex8`          | hex_8, smallhex        | Radius-4 hexagonal (61 cells)   |
+| `hexagonal`     | hex, hex12, largehex   | Radius-12 hexagonal (469 cells) |
+
+```python
+from app.utils.canonical_naming import (
+    normalize_board_type,
+    make_config_key,
+    parse_config_key,
+    normalize_database_filename,
+)
+
+# Normalize any board type alias to canonical value
+board = normalize_board_type("sq8")  # Returns "square8"
+
+# Create config keys (board_type + num_players)
+key = make_config_key("sq8", 2)  # Returns "square8_2p"
+
+# Parse config keys
+board, players = parse_config_key("hexagonal_4p")  # Returns ("hexagonal", 4)
+
+# Generate database filenames
+filename = normalize_database_filename("hex", 4)  # Returns "selfplay_hexagonal_4p.db"
+```
+
+**Do NOT:**
+
+- Use non-canonical names like "sq8" in database records
+- Mix naming conventions (e.g., "hex" vs "hexagonal" in same file)
+- Hardcode board type strings without normalization
+
+### Game Recording
+
+**Canonical Source:** `app/db/unified_recording.py`
+
+All self-play scripts should use the unified recording interface:
+
+```python
+from app.db import UnifiedGameRecorder, RecordingConfig, RecordSource
+
+config = RecordingConfig(
+    board_type="sq8",  # Automatically normalized to "square8"
+    num_players=2,
+    source=RecordSource.SELF_PLAY,
+    difficulty=5,
+)
+
+with UnifiedGameRecorder(config, initial_state) as recorder:
+    for move in game_loop():
+        recorder.add_move(move, state_after)
+    recorder.finalize(final_state)
+```
+
+For one-shot recording of completed games:
+
+```python
+from app.db import record_game_unified, RecordingConfig, RecordSource
+
+config = RecordingConfig(
+    board_type="hexagonal",
+    num_players=4,
+    source=RecordSource.TOURNAMENT,
+)
+
+record_game_unified(config, initial_state, final_state, moves)
+```
+
+**Supported Sources:**
+
+| Source                    | Description                       |
+| ------------------------- | --------------------------------- |
+| `RecordSource.SELF_PLAY`  | General self-play data collection |
+| `RecordSource.SOAK_TEST`  | Long-running soak tests           |
+| `RecordSource.CMAES`      | CMA-ES optimization runs          |
+| `RecordSource.GAUNTLET`   | Gauntlet evaluation               |
+| `RecordSource.TOURNAMENT` | Tournament games                  |
+| `RecordSource.TRAINING`   | Training data generation          |
+
 ## Directory Structure
 
 ```

@@ -15,6 +15,16 @@ from .load_throttle import (
     wait_for_load_decrease_async,
     LoadThrottler,
 )
+from .canonical_naming import (
+    normalize_board_type,
+    get_board_type_enum,
+    make_config_key,
+    parse_config_key,
+    is_valid_board_type,
+    get_all_config_keys,
+    normalize_database_filename,
+    CANONICAL_CONFIG_KEYS,
+)
 
 __all__ = [
     "MemoryConfig",
@@ -29,4 +39,13 @@ __all__ = [
     "wait_for_load_decrease",
     "wait_for_load_decrease_async",
     "LoadThrottler",
+    # Canonical naming
+    "normalize_board_type",
+    "get_board_type_enum",
+    "make_config_key",
+    "parse_config_key",
+    "is_valid_board_type",
+    "get_all_config_keys",
+    "normalize_database_filename",
+    "CANONICAL_CONFIG_KEYS",
 ]
