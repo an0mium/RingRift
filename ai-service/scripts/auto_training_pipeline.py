@@ -39,19 +39,15 @@ RUNS_DIR = AI_SERVICE_ROOT / "runs"
 LOG_DIR = AI_SERVICE_ROOT / "logs"
 LOG_FILE = LOG_DIR / "auto_training.log"
 
-# Node configurations
+# Node configurations (updated 2024-12)
 LAMBDA_NODES = [
-    "lambda-gh200-a",
-    "lambda-gh200-b",
-    "lambda-gh200-c",
-    "lambda-gh200-d",
-    "lambda-gh200-e",
-    "lambda-gh200-f",
-    "lambda-gh200-g",
-    "lambda-gh200-h",
-    "lambda-gh200-i",
-    # "lambda-gh200-j",  # Often offline
+    "lambda-gh200-b-new",
+    "lambda-gh200-m",
+    "lambda-gh200-n",
+    "lambda-gh200-o",
     "lambda-gh200-k",
+    "lambda-gh200-l",
+    "lambda-2xh100",
     "lambda-a10",
 ]
 
@@ -595,9 +591,10 @@ def run_pipeline(
         lambda_count = collect_from_lambda(collect_dir, dry_run)
         hetzner_count = collect_from_hetzner(collect_dir, dry_run)
         vast_count = collect_from_vast(collect_dir, dry_run)
+        gauntlet_count = collect_gauntlet_games(collect_dir, dry_run)
 
-        total_collected = lambda_count + hetzner_count + vast_count
-        logger.info(f"Total collected: {total_collected} database files")
+        total_collected = lambda_count + hetzner_count + vast_count + gauntlet_count
+        logger.info(f"Total collected: {total_collected} database files (including {gauntlet_count} gauntlet DBs)")
 
         if total_collected == 0 and not dry_run:
             logger.warning("No data collected, skipping merge")
