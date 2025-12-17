@@ -375,6 +375,14 @@ from app.coordination.stage_events import (
     register_standard_callbacks,
 )
 
+# Distributed Locking (Redis + file-based fallback)
+from app.coordination.distributed_lock import (
+    DistributedLock,
+    acquire_training_lock,
+    release_training_lock,
+    training_lock,
+)
+
 __all__ = [
     # Task Coordinator (canonical)
     "TaskCoordinator",
@@ -648,4 +656,9 @@ __all__ = [
     "reset_stage_event_bus",
     "create_pipeline_callbacks",
     "register_standard_callbacks",
+    # Distributed Locking
+    "DistributedLock",
+    "acquire_training_lock",
+    "release_training_lock",
+    "training_lock",
 ]
