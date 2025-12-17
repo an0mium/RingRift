@@ -2,13 +2,13 @@
 
 ## Quick Reference
 
-| Use Case               | Script                       | When to Use                                    |
-| ---------------------- | ---------------------------- | ---------------------------------------------- |
-| **Full AI Loop**       | `unified_ai_loop.py`         | Production deployment, continuous improvement  |
-| **Cluster Management** | `cluster_orchestrator.py`    | Multi-node coordination, distributed selfplay  |
-| **P2P Matchmaking**    | `p2p_orchestrator.py`        | Development, human-vs-AI games, casual testing |
-| **CI/CD Pipeline**     | `pipeline_orchestrator.py`   | Automated testing, PR validation               |
-| **Model Promotion**    | `model_promotion_manager.py` | Manual promotion, Elo testing, rollback        |
+| Use Case               | Script                         | When to Use                                    |
+| ---------------------- | ------------------------------ | ---------------------------------------------- |
+| **Full AI Loop**       | `unified_ai_loop.py`           | Production deployment, continuous improvement  |
+| **Cluster Management** | `cluster_orchestrator.py`      | Multi-node coordination, distributed selfplay  |
+| **P2P Matchmaking**    | `p2p_orchestrator.py`          | Development, human-vs-AI games, casual testing |
+| **CI/CD Pipeline**     | ~~`pipeline_orchestrator.py`~~ | ⚠️ Deprecated - use `unified_ai_loop.py`       |
+| **Model Promotion**    | `model_promotion_manager.py`   | Manual promotion, Elo testing, rollback        |
 
 ---
 
@@ -105,28 +105,28 @@ python scripts/p2p_orchestrator.py --port 8080
 
 ---
 
-### pipeline_orchestrator.py
+### ~~pipeline_orchestrator.py~~ (DEPRECATED)
 
-**Purpose**: CI/CD pipeline for automated testing and validation
+> ⚠️ **Deprecated**: This script has been archived. Use `unified_ai_loop.py` instead.
+> **Archive location**: `scripts/archive/pipeline_orchestrator.py`
 
-**Features**:
+**Original Purpose**: CI/CD pipeline for automated testing and validation
 
-- PR validation gates
-- Regression testing
-- Model quality checks
-- Automated tournament validation
+The functionality has been integrated into `unified_ai_loop.py` with:
 
-**CLI**:
+- Regression testing via `--regression-gate` flag
+- Automated model quality validation
+- Shadow tournament validation every 5 minutes
+
+**Migration**: Replace `pipeline_orchestrator.py` calls with `unified_ai_loop.py`:
 
 ```bash
-python scripts/pipeline_orchestrator.py --pr 123 --validate
+# Old (deprecated)
+# python scripts/pipeline_orchestrator.py --pr 123 --validate
+
+# New (use unified loop with validation)
+python scripts/unified_ai_loop.py --foreground --verbose
 ```
-
-**When to use**:
-
-- GitHub Actions CI/CD
-- PR merge gates
-- Automated quality validation
 
 ---
 
@@ -185,7 +185,7 @@ Do you need continuous AI improvement?
 │  └─ model_promotion_manager.py
 │
 ├─ No, need CI/CD validation
-│  └─ pipeline_orchestrator.py
+│  └─ unified_ai_loop.py (with regression gate)
 │
 └─ No, need human vs AI games
    └─ p2p_orchestrator.py
@@ -195,10 +195,10 @@ Do you need continuous AI improvement?
 
 ## Configuration Files
 
-| Script                       | Config File                              |
-| ---------------------------- | ---------------------------------------- |
-| `unified_ai_loop.py`         | `config/unified_loop.yaml`               |
-| `cluster_orchestrator.py`    | `config/cluster.yaml`                    |
-| `p2p_orchestrator.py`        | `config/p2p.yaml`                        |
-| `pipeline_orchestrator.py`   | `config/pipeline.yaml`                   |
-| `model_promotion_manager.py` | Uses CLI args or `config/promotion.yaml` |
+| Script                         | Config File                              |
+| ------------------------------ | ---------------------------------------- |
+| `unified_ai_loop.py`           | `config/unified_loop.yaml`               |
+| `cluster_orchestrator.py`      | `config/cluster.yaml`                    |
+| `p2p_orchestrator.py`          | `config/p2p.yaml`                        |
+| ~~`pipeline_orchestrator.py`~~ | ~~`config/pipeline.yaml`~~ (deprecated)  |
+| `model_promotion_manager.py`   | Uses CLI args or `config/promotion.yaml` |

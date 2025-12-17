@@ -56,7 +56,7 @@ from app.training.elo_service import (
 **Timeline**:
 
 - Compatibility layer added to `elo_service.py`
-- Scripts updated: `pipeline_orchestrator.py`, `continuous_improvement_daemon.py`
+- Scripts updated: ~~`pipeline_orchestrator.py`~~ (now deprecated), `continuous_improvement_daemon.py`
 - Full deprecation: Next major version
 
 ### 2. Direct SQLite ELO Access in `unified_ai_loop.py`

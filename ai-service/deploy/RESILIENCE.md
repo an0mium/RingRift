@@ -43,4 +43,5 @@ Notes:
 ## Training Loop Automation
 
 - `scripts/p2p_orchestrator.py` exposes endpoints for training triggers (e.g. `POST /training/nnue/start`, `POST /training/cmaes/start`) and includes an improvement-loop scaffold.
-- `scripts/pipeline_orchestrator.py` is the SSH-driven end-to-end automation script (selfplay → sync → training → eval → promote). Run it from a coordinator/training node once the cluster is stable.
+- `scripts/unified_ai_loop.py` is the canonical end-to-end automation daemon (selfplay → sync → training → eval → promote). Run it from a coordinator/training node once the cluster is stable.
+  - _Note: `pipeline_orchestrator.py` has been deprecated and moved to `scripts/archive/`_

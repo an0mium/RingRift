@@ -269,9 +269,10 @@ Elo calibration tournaments can be triggered via:
    python scripts/run_model_elo_tournament.py --all-configs --games 50 --run
    ```
 
-2. **Pipeline integration** (`scripts/pipeline_orchestrator.py`):
-   - Phase 7 "elo-calibration" runs diverse tournaments across all board/player configs
-   - Triggered after evaluation, before tier-gating
+2. **Pipeline integration** (`scripts/unified_ai_loop.py`):
+   - Shadow tournaments run every 5 minutes across all board/player configs
+   - Full tournaments run hourly for comprehensive Elo calibration
+   - _Note: `pipeline_orchestrator.py` is deprecated; use unified_ai_loop.py_
 
 3. **Improvement loop integration** (`scripts/run_improvement_loop.py`):
    - `--tournament-every-n-iterations N`: Run tournaments every N iterations
