@@ -602,6 +602,124 @@ class HostState:
 
 
 @dataclass
+class FeedbackState:
+    """Consolidated feedback state for training decisions (2025-12).
+
+    Groups all feedback signals into a single structure:
+    - Curriculum: weights and staleness
+    - Quality: parity failures, data health
+    - Elo: current rating and trends
+    - Win rate: performance metrics
+    """
+    # Curriculum feedback (0.5-2.0, weight > 1 = needs more training)
+    curriculum_weight: float = 1.0
+    curriculum_last_update: float = 0.0
+
+    # Data quality feedback
+    parity_failure_rate: float = 0.0  # Rolling average of parity failures (0-1)
+    parity_checks_total: int = 0  # Total parity checks performed
+    data_quality_score: float = 1.0  # Composite quality metric (0-1)
+
+    # Elo feedback
+    elo_current: float = 1500.0
+    elo_trend: float = 0.0  # Positive = improving, negative = declining
+    elo_peak: float = 1500.0  # Historical peak Elo
+    elo_plateau_count: int = 0  # Consecutive evaluations without gain
+
+    # Win rate feedback
+    win_rate: float = 0.5  # Latest win rate (0-1)
+    win_rate_trend: float = 0.0  # Change over recent evals
+    consecutive_high_win_rate: int = 0  # Streak above 70%
+    consecutive_low_win_rate: int = 0  # Streak below 50%
+
+    # Training urgency metrics
+    urgency_score: float = 0.0  # Composite urgency (0-1, higher = more urgent)
+    last_urgency_update: float = 0.0
+
+    def update_parity(self, passed: bool, alpha: float = 0.1) -> None:
+        """Update rolling parity failure rate."""
+        result = 0.0 if passed else 1.0
+        self.parity_failure_rate = alpha * result + (1 - alpha) * self.parity_failure_rate
+        self.parity_checks_total += 1
+
+    def update_elo(self, new_elo: float, plateau_threshold: float = 15.0) -> None:
+        """Update Elo with trend and plateau detection."""
+        old_elo = self.elo_current
+        self.elo_trend = new_elo - old_elo
+        self.elo_current = new_elo
+        self.elo_peak = max(self.elo_peak, new_elo)
+
+        # Plateau detection
+        if abs(self.elo_trend) < plateau_threshold:
+            self.elo_plateau_count += 1
+        else:
+            self.elo_plateau_count = 0
+
+    def update_win_rate(self, new_win_rate: float) -> None:
+        """Update win rate with trend tracking."""
+        old_win_rate = self.win_rate
+        self.win_rate_trend = new_win_rate - old_win_rate
+        self.win_rate = new_win_rate
+
+        # Track consecutive high/low streaks
+        if new_win_rate > 0.7:
+            self.consecutive_high_win_rate += 1
+            self.consecutive_low_win_rate = 0
+        elif new_win_rate < 0.5:
+            self.consecutive_low_win_rate += 1
+            self.consecutive_high_win_rate = 0
+        else:
+            self.consecutive_high_win_rate = 0
+            self.consecutive_low_win_rate = 0
+
+    def compute_urgency(self) -> float:
+        """Compute composite urgency score for training prioritization.
+
+        Returns value 0-1 where higher = more urgent training need.
+        """
+        import time
+        urgency = 0.0
+
+        # Factor 1: Low win rate increases urgency
+        if self.win_rate < 0.5:
+            urgency += (0.5 - self.win_rate) * 0.4  # Up to 0.2 contribution
+
+        # Factor 2: Declining win rate increases urgency
+        if self.win_rate_trend < 0:
+            urgency += min(0.2, abs(self.win_rate_trend) * 2)
+
+        # Factor 3: Elo plateau increases urgency (stagnation)
+        plateau_factor = min(0.2, self.elo_plateau_count * 0.04)
+        urgency += plateau_factor
+
+        # Factor 4: High curriculum weight (needs training)
+        if self.curriculum_weight > 1.0:
+            urgency += min(0.2, (self.curriculum_weight - 1.0) * 0.2)
+
+        # Factor 5: Good data quality is a prerequisite (reduces urgency if bad)
+        if self.parity_failure_rate > 0.1:
+            urgency *= 0.5  # De-prioritize if data quality is poor
+
+        self.urgency_score = min(1.0, urgency)
+        self.last_urgency_update = time.time()
+        return self.urgency_score
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization/logging."""
+        return {
+            'curriculum_weight': self.curriculum_weight,
+            'parity_failure_rate': self.parity_failure_rate,
+            'data_quality_score': self.data_quality_score,
+            'elo_current': self.elo_current,
+            'elo_trend': self.elo_trend,
+            'elo_plateau_count': self.elo_plateau_count,
+            'win_rate': self.win_rate,
+            'win_rate_trend': self.win_rate_trend,
+            'urgency_score': self.urgency_score,
+        }
+
+
+@dataclass
 class ConfigState:
     """State for a board/player configuration."""
     board_type: str
@@ -618,3 +736,5 @@ class ConfigState:
     win_rate: float = 0.5  # Latest win rate from evaluations (0.5 = default/unknown)
     win_rate_trend: float = 0.0  # Change in win rate (positive = improving)
     consecutive_high_win_rate: int = 0  # Count of evals with win_rate > 0.7
+    # Consolidated feedback state (2025-12)
+    feedback: FeedbackState = field(default_factory=FeedbackState)

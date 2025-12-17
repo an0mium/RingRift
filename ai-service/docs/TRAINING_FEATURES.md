@@ -1,6 +1,6 @@
 # RingRift Training Features Reference
 
-> **Last Updated**: 2025-12-17 (Phase 6: Bottleneck fix integration - streaming pipeline, async validation, connection pooling)
+> **Last Updated**: 2025-12-17 (Phase 7: Consolidated feedback state, PFSP selfplay integration, parity-aware thresholds)
 > **Status**: Active
 
 This document provides a comprehensive reference for all training features, parameters, and techniques available in the RingRift AI training pipeline.
@@ -1745,6 +1745,157 @@ status = scheduler.get_bottleneck_fix_status()
 
 ---
 
+## Phase 7: Consolidated Feedback State & PFSP Integration (2025-12-17)
+
+### Overview
+
+This phase consolidates scattered feedback signals into a unified structure and integrates PFSP (Prioritized Fictitious Self-Play) with the selfplay generator for diverse training.
+
+### Consolidated FeedbackState
+
+All feedback signals are now consolidated into a single `FeedbackState` dataclass per config:
+
+```python
+from scripts.unified_loop.config import FeedbackState
+
+feedback = FeedbackState()
+# Curriculum feedback (0.5-2.0, weight > 1 = needs more training)
+feedback.curriculum_weight = 1.2
+# Data quality feedback
+feedback.parity_failure_rate = 0.02  # Rolling average (0-1)
+feedback.data_quality_score = 0.95
+# Elo feedback with plateau detection
+feedback.elo_current = 1650.0
+feedback.elo_trend = 25.0  # Positive = improving
+feedback.elo_plateau_count = 0
+# Win rate with streak tracking
+feedback.win_rate = 0.68
+feedback.consecutive_high_win_rate = 2
+# Urgency computation
+feedback.compute_urgency()  # Returns 0-1 score
+```
+
+### FeedbackState Methods
+
+| Method              | Description                                     |
+| ------------------- | ----------------------------------------------- |
+| `update_parity()`   | Update rolling parity failure rate              |
+| `update_elo()`      | Update Elo with trend and plateau detection     |
+| `update_win_rate()` | Update win rate with streak tracking            |
+| `compute_urgency()` | Compute composite urgency score (0-1)           |
+| `to_dict()`         | Convert to dictionary for serialization/logging |
+
+### Training Scheduler Integration
+
+The TrainingScheduler provides methods to interact with consolidated feedback:
+
+```python
+# Sync global state to per-config feedback
+scheduler.sync_feedback_state("hex8_2p")
+
+# Get feedback for a config
+feedback = scheduler.get_config_feedback("hex8_2p")
+
+# Update multiple feedback signals at once
+scheduler.update_config_feedback(
+    "hex8_2p",
+    elo=1675.0,
+    win_rate=0.72,
+    parity_passed=True,
+)
+
+# Get most urgent config for training
+urgent_config = scheduler.get_most_urgent_config()
+
+# Check if CMA-ES should trigger based on plateaus
+if scheduler.should_trigger_cmaes_for_config("hex8_2p"):
+    # Trigger hyperparameter optimization
+    pass
+
+# Get feedback summary across all configs
+summary = scheduler.get_feedback_summary()
+# Returns: avg_urgency, max_urgency, configs_in_plateau, etc.
+```
+
+### PFSP Integration in Selfplay
+
+The LocalSelfplayGenerator now integrates with PFSP for diverse opponent selection:
+
+```python
+from scripts.unified_loop.selfplay import LocalSelfplayGenerator
+
+generator = LocalSelfplayGenerator(
+    state=state,
+    event_bus=event_bus,
+    training_scheduler=scheduler,  # PFSP integration
+)
+
+# Generate games with PFSP opponent selection
+result = await generator.generate_games(
+    num_games=100,
+    config_key="hex8_2p",
+    engine="gumbel",
+    use_pfsp_opponent=True,  # Enable PFSP
+    current_elo=1650.0,  # For matchmaking
+)
+
+# Get priority-based config selection
+config = generator.get_prioritized_config()
+# Returns config closest to training threshold
+
+# Get priorities for all configs
+priorities = generator.get_config_priorities()
+# Returns: {"hex8_2p": 0.75, "square8_2p": 0.45, ...}
+```
+
+### Priority-Based Config Selection
+
+Config priority is computed from three factors:
+
+| Factor              | Weight | Description                                    |
+| ------------------- | ------ | ---------------------------------------------- |
+| Threshold proximity | 50%    | Closer to training threshold = higher priority |
+| Curriculum weight   | 30%    | Higher curriculum weight = higher priority     |
+| Staleness           | 20%    | Longer since training = higher priority        |
+
+### Parity Failure Feedback to Training Threshold
+
+High parity failure rates make training more conservative:
+
+```python
+# In _get_dynamic_threshold():
+if parity_failure_rate > 0.05:
+    # Scale up threshold: up to ~1.2x at 10% failure rate
+    parity_factor = 1.0 + (parity_failure_rate * 2.0)
+    final_threshold = min(max_threshold, int(threshold * parity_factor))
+    # PARITY_CAUTION: hex8_2p parity failure rate=8.5% - threshold 400 → 468
+```
+
+### Urgency Score Computation
+
+The urgency score (0-1) determines training prioritization:
+
+| Factor               | Max Contribution | Condition                      |
+| -------------------- | ---------------- | ------------------------------ |
+| Low win rate         | 0.20             | Win rate < 50%                 |
+| Declining win rate   | 0.20             | Negative trend                 |
+| Elo plateau          | 0.20             | Consecutive evals without gain |
+| High curriculum      | 0.20             | Curriculum weight > 1.0        |
+| Data quality penalty | -50%             | Parity failure rate > 10%      |
+
+### Configuration Reference
+
+| Parameter                   | Type  | Default | Description                            |
+| --------------------------- | ----- | ------- | -------------------------------------- |
+| `use_pfsp`                  | bool  | true    | Enable PFSP opponent selection         |
+| `pfsp_max_pool_size`        | int   | 20      | Maximum opponents in PFSP pool         |
+| `pfsp_hard_opponent_weight` | float | 0.7     | Weight for hard opponents (0-1)        |
+| `pfsp_diversity_weight`     | float | 0.2     | Weight for opponent diversity          |
+| `parity_failure_threshold`  | float | 0.10    | Block training above this failure rate |
+| `plateau_count_for_cmaes`   | int   | 2       | Plateaus before triggering CMA-ES      |
+
+---
+
 ## Implementation Locations
 
 | Component                 | File                                    | Purpose                                  |
@@ -1765,6 +1916,9 @@ status = scheduler.get_bottleneck_fix_status()
 | Connection Pooling        | `app/distributed/unified_wal.py`        | Thread-local SQLite connection pool      |
 | Batched Loss Extraction   | `app/models/multitask_heads.py`         | Batched .item() calls for GPU sync       |
 | Data Loader Optimizations | `app/training/data_loader.py`           | Vectorized policy conversion, pin memory |
+| FeedbackState             | `scripts/unified_loop/config.py`        | Consolidated feedback signals dataclass  |
+| Feedback Integration      | `scripts/unified_loop/training.py`      | Feedback state management methods        |
+| PFSP Selfplay             | `scripts/unified_loop/selfplay.py`      | PFSP opponent selection + priorities     |
 
 ---
 

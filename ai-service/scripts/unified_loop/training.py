@@ -21,6 +21,7 @@ from .config import (
     DataEvent,
     DataEventType,
     FeedbackConfig,
+    FeedbackState,
     TrainingConfig,
 )
 
@@ -506,6 +507,17 @@ class TrainingScheduler:
             final_threshold = max(min_threshold, min(max_threshold, final_threshold))
             if final_threshold != old_threshold:
                 print(f"[Training] CURRICULUM_WEIGHT: {config_key} weight={curriculum_weight:.2f} "
+                      f"- threshold {old_threshold} → {final_threshold}")
+
+        # Parity failure rate adjustment (2025-12)
+        # High parity failures indicate data quality issues - be more conservative
+        if self._parity_failure_rate > 0.05:
+            old_threshold = final_threshold
+            # Scale up threshold based on failure rate: up to ~1.2x at 10% failure rate
+            parity_factor = 1.0 + (self._parity_failure_rate * 2.0)
+            final_threshold = min(max_threshold, int(final_threshold * parity_factor))
+            if final_threshold > old_threshold:
+                print(f"[Training] PARITY_CAUTION: {config_key} parity failure rate={self._parity_failure_rate:.1%} "
                       f"- threshold {old_threshold} → {final_threshold}")
 
         if final_threshold != base_threshold:
@@ -2028,4 +2040,204 @@ class TrainingScheduler:
                 'stats': self.get_connection_pool_stats(),
             },
             'parity_failure_rate': self._parity_failure_rate,
+        }
+
+    # =========================================================================
+    # Consolidated Feedback State Management (2025-12)
+    # =========================================================================
+
+    def sync_feedback_state(self, config_key: str) -> None:
+        """Sync global signals to per-config FeedbackState.
+
+        Propagates global parity failure rate and curriculum weights
+        to the consolidated FeedbackState for the given config.
+
+        Args:
+            config_key: Config identifier (e.g., "square8_2p")
+        """
+        config_state = self.state.configs.get(config_key)
+        if config_state is None:
+            return
+
+        # Ensure feedback state exists
+        if not hasattr(config_state, 'feedback') or config_state.feedback is None:
+            config_state.feedback = FeedbackState()
+
+        feedback = config_state.feedback
+
+        # Sync global parity failure rate
+        feedback.parity_failure_rate = self._parity_failure_rate
+
+        # Sync curriculum weight from scheduler's tracking
+        feedback.curriculum_weight = self.get_curriculum_weight(config_key)
+        feedback.curriculum_last_update = time.time()
+
+        # Sync elo from config state (keep in sync)
+        feedback.elo_current = config_state.current_elo
+        feedback.elo_trend = config_state.elo_trend
+
+        # Sync win rate from config state
+        feedback.win_rate = config_state.win_rate
+        feedback.win_rate_trend = config_state.win_rate_trend
+        feedback.consecutive_high_win_rate = config_state.consecutive_high_win_rate
+
+        # Recompute urgency
+        feedback.compute_urgency()
+
+    def get_config_feedback(self, config_key: str) -> Optional[FeedbackState]:
+        """Get consolidated FeedbackState for a config.
+
+        Args:
+            config_key: Config identifier
+
+        Returns:
+            FeedbackState or None if config doesn't exist
+        """
+        config_state = self.state.configs.get(config_key)
+        if config_state is None:
+            return None
+
+        # Sync before returning to ensure latest data
+        self.sync_feedback_state(config_key)
+        return config_state.feedback
+
+    def update_config_feedback(
+        self,
+        config_key: str,
+        elo: Optional[float] = None,
+        win_rate: Optional[float] = None,
+        parity_passed: Optional[bool] = None,
+        curriculum_weight: Optional[float] = None,
+    ) -> None:
+        """Update feedback signals for a config.
+
+        Args:
+            config_key: Config identifier
+            elo: New Elo rating (triggers plateau detection)
+            win_rate: New win rate (triggers streak tracking)
+            parity_passed: Parity check result (updates failure rate)
+            curriculum_weight: New curriculum weight
+        """
+        config_state = self.state.configs.get(config_key)
+        if config_state is None:
+            return
+
+        # Ensure feedback state exists
+        if not hasattr(config_state, 'feedback') or config_state.feedback is None:
+            config_state.feedback = FeedbackState()
+
+        feedback = config_state.feedback
+
+        # Update Elo with plateau detection
+        if elo is not None:
+            feedback.update_elo(elo)
+            # Sync back to config state
+            config_state.current_elo = elo
+            config_state.elo_trend = feedback.elo_trend
+
+        # Update win rate with streak tracking
+        if win_rate is not None:
+            feedback.update_win_rate(win_rate)
+            # Sync back to config state
+            config_state.win_rate = win_rate
+            config_state.win_rate_trend = feedback.win_rate_trend
+            config_state.consecutive_high_win_rate = feedback.consecutive_high_win_rate
+
+        # Update parity failure rate
+        if parity_passed is not None:
+            feedback.update_parity(parity_passed)
+            # Also update global parity rate
+            self.record_parity_failure(config_key, parity_passed)
+
+        # Update curriculum weight
+        if curriculum_weight is not None:
+            feedback.curriculum_weight = curriculum_weight
+            feedback.curriculum_last_update = time.time()
+            self._curriculum_weights[config_key] = curriculum_weight
+
+        # Recompute urgency after updates
+        feedback.compute_urgency()
+
+    def get_all_feedback_states(self) -> Dict[str, Dict[str, Any]]:
+        """Get consolidated feedback states for all configs.
+
+        Returns:
+            Dict mapping config_key to FeedbackState as dict
+        """
+        result = {}
+        for config_key in self.state.configs:
+            feedback = self.get_config_feedback(config_key)
+            if feedback is not None:
+                result[config_key] = feedback.to_dict()
+        return result
+
+    def get_most_urgent_config(self) -> Optional[str]:
+        """Get the config with highest training urgency.
+
+        Uses the consolidated FeedbackState urgency score to
+        determine which config most needs training.
+
+        Returns:
+            Config key with highest urgency, or None if no configs
+        """
+        if not self.state.configs:
+            return None
+
+        best_config = None
+        best_urgency = -1.0
+
+        for config_key in self.state.configs:
+            feedback = self.get_config_feedback(config_key)
+            if feedback is not None:
+                if feedback.urgency_score > best_urgency:
+                    best_urgency = feedback.urgency_score
+                    best_config = config_key
+
+        if best_config and best_urgency > 0.3:
+            print(f"[Training] Most urgent config: {best_config} (urgency={best_urgency:.2f})")
+
+        return best_config
+
+    def should_trigger_cmaes_for_config(self, config_key: str) -> bool:
+        """Check if CMA-ES auto-tuning should trigger for a config.
+
+        Based on consecutive Elo plateaus tracked in FeedbackState.
+
+        Args:
+            config_key: Config identifier
+
+        Returns:
+            True if CMA-ES should trigger
+        """
+        feedback = self.get_config_feedback(config_key)
+        if feedback is None:
+            return False
+
+        plateau_threshold = getattr(self.feedback_config, 'plateau_count_for_cmaes', 2)
+        return feedback.elo_plateau_count >= plateau_threshold
+
+    def get_feedback_summary(self) -> Dict[str, Any]:
+        """Get summary of all feedback signals across configs.
+
+        Returns:
+            Summary dict with averages and per-config details
+        """
+        all_feedback = self.get_all_feedback_states()
+
+        if not all_feedback:
+            return {'configs': 0, 'avg_urgency': 0.0, 'avg_parity_failure': 0.0}
+
+        urgencies = [f['urgency_score'] for f in all_feedback.values()]
+        parity_rates = [f['parity_failure_rate'] for f in all_feedback.values()]
+        plateau_counts = [f['elo_plateau_count'] for f in all_feedback.values()]
+
+        return {
+            'configs': len(all_feedback),
+            'avg_urgency': sum(urgencies) / len(urgencies),
+            'max_urgency': max(urgencies),
+            'avg_parity_failure': sum(parity_rates) / len(parity_rates),
+            'global_parity_failure': self._parity_failure_rate,
+            'total_plateau_count': sum(plateau_counts),
+            'configs_in_plateau': sum(1 for p in plateau_counts if p >= 2),
+            'per_config': all_feedback,
         }
