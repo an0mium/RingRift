@@ -3317,3 +3317,292 @@ def create_temperature_scheduler(
         move_temp_initial=1.5,
     )
     return TemperatureScheduler(schedule)
+
+
+# =============================================================================
+# Uncertainty-Based Sample Weighting
+# =============================================================================
+
+
+@dataclass
+class UncertaintyConfig:
+    """Configuration for uncertainty-based sample weighting."""
+    method: str = "mc_dropout"  # "mc_dropout", "ensemble", "gradient_norm"
+    mc_samples: int = 10  # Number of MC dropout forward passes
+    temperature: float = 1.0  # Temperature for softmax
+    weight_min: float = 0.1  # Minimum sample weight
+    weight_max: float = 3.0  # Maximum sample weight
+    uncertainty_scale: str = "linear"  # "linear", "sqrt", "log"
+    cache_size: int = 100000  # Max cached uncertainty scores
+
+
+class UncertaintySampler:
+    """Computes uncertainty scores for training samples.
+
+    Uncertain samples (where the model disagrees with itself) are more
+    informative and should be weighted higher during training.
+
+    Methods:
+    - MC Dropout: Run multiple forward passes with dropout enabled
+    - Ensemble: Use variance across ensemble predictions
+    - Gradient Norm: Use gradient magnitude as uncertainty proxy
+    """
+
+    def __init__(self, model: nn.Module, config: UncertaintyConfig):
+        """Initialize the uncertainty sampler.
+
+        Args:
+            model: The neural network model
+            config: Uncertainty configuration
+        """
+        self.model = model
+        self.config = config
+        self._cache: Dict[int, float] = {}  # sample_id -> uncertainty
+
+    def compute_uncertainty_mc_dropout(
+        self,
+        inputs: torch.Tensor,
+        sample_ids: Optional[List[int]] = None,
+    ) -> torch.Tensor:
+        """Compute uncertainty using MC Dropout.
+
+        Runs multiple forward passes with dropout enabled and measures
+        variance across predictions.
+
+        Args:
+            inputs: Input tensor (batch_size, ...)
+            sample_ids: Optional IDs for caching
+
+        Returns:
+            Uncertainty scores (batch_size,)
+        """
+        self.model.train()  # Enable dropout
+        batch_size = inputs.size(0)
+
+        value_preds = []
+        policy_preds = []
+
+        with torch.no_grad():
+            for _ in range(self.config.mc_samples):
+                output = self.model(inputs)
+
+                # Handle both (value, policy) and single output
+                if isinstance(output, tuple):
+                    value, policy = output[:2]
+                else:
+                    value = output
+                    policy = None
+
+                value_preds.append(value)
+                if policy is not None:
+                    policy_preds.append(policy)
+
+        # Stack predictions
+        value_stack = torch.stack(value_preds, dim=0)  # (mc_samples, batch, ...)
+        value_var = value_stack.var(dim=0).mean(dim=-1) if value_stack.dim() > 2 else value_stack.var(dim=0)
+
+        # Policy uncertainty (entropy of mean policy)
+        if policy_preds:
+            policy_stack = torch.stack(policy_preds, dim=0)
+            policy_mean = policy_stack.mean(dim=0)
+            # Policy entropy as uncertainty
+            policy_entropy = -(policy_mean * (policy_mean + 1e-8).log()).sum(dim=-1)
+            uncertainty = value_var.squeeze() + 0.5 * policy_entropy
+        else:
+            uncertainty = value_var.squeeze()
+
+        # Ensure 1D
+        if uncertainty.dim() == 0:
+            uncertainty = uncertainty.unsqueeze(0)
+
+        # Cache if sample_ids provided
+        if sample_ids is not None:
+            for i, sid in enumerate(sample_ids):
+                if len(self._cache) < self.config.cache_size:
+                    self._cache[sid] = uncertainty[i].item()
+
+        return uncertainty
+
+    def compute_uncertainty_gradient_norm(
+        self,
+        inputs: torch.Tensor,
+        targets: torch.Tensor,
+        loss_fn: Callable,
+    ) -> torch.Tensor:
+        """Compute uncertainty using gradient norm.
+
+        Samples with larger gradients are more informative.
+
+        Args:
+            inputs: Input tensor
+            targets: Target tensor
+            loss_fn: Loss function
+
+        Returns:
+            Uncertainty scores (batch_size,)
+        """
+        self.model.train()
+        batch_size = inputs.size(0)
+        uncertainties = []
+
+        for i in range(batch_size):
+            self.model.zero_grad()
+            output = self.model(inputs[i:i+1])
+
+            if isinstance(output, tuple):
+                value = output[0]
+            else:
+                value = output
+
+            loss = loss_fn(value, targets[i:i+1])
+            loss.backward()
+
+            # Sum gradient norms across all parameters
+            grad_norm = 0.0
+            for param in self.model.parameters():
+                if param.grad is not None:
+                    grad_norm += param.grad.norm().item() ** 2
+            uncertainties.append(math.sqrt(grad_norm))
+
+        return torch.tensor(uncertainties, device=inputs.device)
+
+    def get_cached_uncertainty(self, sample_id: int) -> Optional[float]:
+        """Get cached uncertainty for a sample."""
+        return self._cache.get(sample_id)
+
+    def compute_sample_weights(self, uncertainties: torch.Tensor) -> torch.Tensor:
+        """Convert uncertainties to sample weights.
+
+        Args:
+            uncertainties: Raw uncertainty scores
+
+        Returns:
+            Sample weights (normalized to mean=1)
+        """
+        config = self.config
+
+        # Scale uncertainties
+        if config.uncertainty_scale == "sqrt":
+            scaled = torch.sqrt(uncertainties + 1e-8)
+        elif config.uncertainty_scale == "log":
+            scaled = torch.log1p(uncertainties)
+        else:
+            scaled = uncertainties
+
+        # Normalize to [0, 1] range
+        min_u, max_u = scaled.min(), scaled.max()
+        if max_u > min_u:
+            normalized = (scaled - min_u) / (max_u - min_u)
+        else:
+            normalized = torch.ones_like(scaled) * 0.5
+
+        # Map to weight range
+        weights = config.weight_min + normalized * (config.weight_max - config.weight_min)
+
+        # Normalize so mean weight = 1
+        weights = weights / weights.mean()
+
+        return weights
+
+    def clear_cache(self):
+        """Clear the uncertainty cache."""
+        self._cache.clear()
+
+
+class UncertaintyWeightedSampler:
+    """Weighted sampler that prioritizes uncertain samples.
+
+    Uses uncertainty scores to create a sampling distribution that
+    oversamples difficult/uncertain examples.
+    """
+
+    def __init__(
+        self,
+        dataset_size: int,
+        uncertainty_scores: Optional[np.ndarray] = None,
+        config: Optional[UncertaintyConfig] = None,
+    ):
+        """Initialize the weighted sampler.
+
+        Args:
+            dataset_size: Total number of samples
+            uncertainty_scores: Pre-computed uncertainty scores
+            config: Uncertainty configuration
+        """
+        self.dataset_size = dataset_size
+        self.config = config or UncertaintyConfig()
+
+        if uncertainty_scores is not None:
+            self.update_weights(uncertainty_scores)
+        else:
+            # Uniform weights initially
+            self.weights = np.ones(dataset_size) / dataset_size
+
+    def update_weights(self, uncertainty_scores: np.ndarray):
+        """Update sampling weights from uncertainty scores.
+
+        Args:
+            uncertainty_scores: Array of uncertainty scores (dataset_size,)
+        """
+        assert len(uncertainty_scores) == self.dataset_size
+
+        # Scale uncertainties
+        if self.config.uncertainty_scale == "sqrt":
+            scaled = np.sqrt(uncertainty_scores + 1e-8)
+        elif self.config.uncertainty_scale == "log":
+            scaled = np.log1p(uncertainty_scores)
+        else:
+            scaled = uncertainty_scores
+
+        # Normalize to [0, 1]
+        min_u, max_u = scaled.min(), scaled.max()
+        if max_u > min_u:
+            normalized = (scaled - min_u) / (max_u - min_u)
+        else:
+            normalized = np.ones_like(scaled) * 0.5
+
+        # Map to weight range and normalize to sum=1
+        weights = self.config.weight_min + normalized * (self.config.weight_max - self.config.weight_min)
+        self.weights = weights / weights.sum()
+
+    def sample(self, n_samples: int) -> np.ndarray:
+        """Sample indices with replacement according to weights.
+
+        Args:
+            n_samples: Number of samples to draw
+
+        Returns:
+            Array of sampled indices
+        """
+        return np.random.choice(
+            self.dataset_size,
+            size=n_samples,
+            replace=True,
+            p=self.weights,
+        )
+
+    def get_weight(self, idx: int) -> float:
+        """Get weight for a specific sample."""
+        return self.weights[idx]
+
+
+def create_uncertainty_sampler(
+    model: nn.Module,
+    method: str = "mc_dropout",
+    mc_samples: int = 10,
+) -> UncertaintySampler:
+    """Factory function to create an uncertainty sampler.
+
+    Args:
+        model: Neural network model
+        method: Uncertainty estimation method
+        mc_samples: Number of MC dropout samples
+
+    Returns:
+        Configured UncertaintySampler
+    """
+    config = UncertaintyConfig(
+        method=method,
+        mc_samples=mc_samples,
+    )
+    return UncertaintySampler(model, config)
