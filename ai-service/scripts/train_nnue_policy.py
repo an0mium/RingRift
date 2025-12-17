@@ -101,6 +101,13 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=[],
         help="Path(s) to SQLite game database(s). Supports glob patterns.",
     )
+    parser.add_argument(
+        "--jsonl",
+        type=str,
+        nargs="+",
+        default=[],
+        help="Path(s) to JSONL game file(s) with MCTS policy data. Supports glob patterns.",
+    )
 
     # Board configuration
     parser.add_argument(
@@ -523,6 +530,7 @@ def train_nnue_policy(
     progressive_batch: bool = False,
     min_batch_size: int = 64,
     max_batch_size: int = 512,
+    jsonl_paths: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Train NNUE policy model and return training report."""
     seed_all(seed)
@@ -552,6 +560,7 @@ def train_nnue_policy(
         config=config,
         max_samples=max_samples,
         num_workers=num_workers,
+        jsonl_paths=jsonl_paths or [],
     )
 
     if len(dataset) == 0:
@@ -903,9 +912,23 @@ def main(argv: Optional[List[str]] = None) -> int:
         else:
             logger.warning(f"Database not found: {pattern}")
 
-    if not db_paths:
-        logger.error("No database paths provided. Use --db")
+    # Expand glob patterns in JSONL paths
+    jsonl_paths: List[str] = []
+    for pattern in args.jsonl:
+        expanded = glob.glob(pattern)
+        if expanded:
+            jsonl_paths.extend(expanded)
+        elif os.path.exists(pattern):
+            jsonl_paths.append(pattern)
+        else:
+            logger.warning(f"JSONL file not found: {pattern}")
+
+    if not db_paths and not jsonl_paths:
+        logger.error("No data sources provided. Use --db and/or --jsonl")
         return 1
+
+    if jsonl_paths:
+        logger.info(f"JSONL files: {len(jsonl_paths)}")
 
     # Set up device
     if args.device:
@@ -982,11 +1005,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         progressive_batch=args.progressive_batch,
         min_batch_size=args.min_batch_size,
         max_batch_size=args.max_batch_size,
+        jsonl_paths=jsonl_paths,
     )
 
     # Add metadata to report
     report["run_dir"] = run_dir
     report["db_paths"] = db_paths
+    report["jsonl_paths"] = jsonl_paths
     report["created_at"] = datetime.now(timezone.utc).isoformat()
 
     # Save report

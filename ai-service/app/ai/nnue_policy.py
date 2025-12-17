@@ -1288,10 +1288,11 @@ class NNUEPolicyDatasetConfig:
 class NNUEPolicyDataset(Dataset):
     """PyTorch Dataset for NNUE policy training.
 
-    Loads games from SQLite, replays them to get legal moves at each
-    position, and encodes the move that was played for policy supervision.
+    Loads games from SQLite and/or JSONL files, replays them to get legal moves
+    at each position, and encodes the move that was played for policy supervision.
 
     Supports parallel extraction via num_workers parameter for faster loading.
+    JSONL files are particularly useful for MCTS selfplay data with embedded policy distributions.
     """
 
     def __init__(
@@ -1300,8 +1301,10 @@ class NNUEPolicyDataset(Dataset):
         config: Optional[NNUEPolicyDatasetConfig] = None,
         max_samples: Optional[int] = None,
         num_workers: int = 0,
+        jsonl_paths: Optional[List[str]] = None,
     ):
         self.db_paths = db_paths
+        self.jsonl_paths = jsonl_paths or []
         self.config = config or NNUEPolicyDatasetConfig()
         self.max_samples = max_samples
         self.num_workers = num_workers if num_workers > 0 else max(1, cpu_count() - 2)
@@ -1312,12 +1315,31 @@ class NNUEPolicyDataset(Dataset):
         self._extract_samples()
 
     def _extract_samples(self) -> None:
-        """Extract training samples from SQLite databases.
+        """Extract training samples from SQLite databases and JSONL files.
 
         Uses parallel processing when num_workers > 1 for significantly faster
         extraction from large databases.
         """
-        logger.info(f"Extracting policy samples from {len(self.db_paths)} databases (workers={self.num_workers})")
+        total_sources = len(self.db_paths) + len(self.jsonl_paths)
+        logger.info(f"Extracting policy samples from {len(self.db_paths)} databases + {len(self.jsonl_paths)} JSONL files (workers={self.num_workers})")
+
+        # Process JSONL files first (they often have MCTS policy data)
+        for jsonl_path in self.jsonl_paths:
+            if not os.path.exists(jsonl_path):
+                logger.warning(f"JSONL file not found: {jsonl_path}")
+                continue
+
+            try:
+                samples = self._extract_from_jsonl(jsonl_path)
+                self.samples.extend(samples)
+                logger.info(f"Extracted {len(samples)} policy samples from JSONL {jsonl_path}")
+            except Exception as e:
+                logger.error(f"Failed to extract from JSONL {jsonl_path}: {e}")
+
+            if self.max_samples and len(self.samples) >= self.max_samples:
+                self.samples = self.samples[:self.max_samples]
+                logger.info(f"Total policy samples: {len(self.samples)}")
+                return
 
         for db_path in self.db_paths:
             if not os.path.exists(db_path):
@@ -1339,6 +1361,219 @@ class NNUEPolicyDataset(Dataset):
                 break
 
         logger.info(f"Total policy samples: {len(self.samples)}")
+
+    def _extract_from_jsonl(self, jsonl_path: str) -> List[NNUEPolicySample]:
+        """Extract samples from a JSONL file containing game records with moves.
+
+        JSONL files should contain one JSON game object per line with:
+        - board_type: string (e.g., "square8")
+        - num_players: int
+        - winner: int (player number who won)
+        - moves: list of move dicts, each potentially containing mcts_policy
+        - initial_state: optional initial GameState dict
+
+        This is particularly useful for MCTS selfplay data that includes
+        mcts_policy distributions in the move records.
+        """
+        import numpy as np
+        from ..models import GameState, Move, MoveType, Position
+        from ..rules.default_engine import DefaultRulesEngine
+        from ..training.generate_data import create_initial_state
+
+        samples: List[NNUEPolicySample] = []
+        engine = DefaultRulesEngine()
+        board_type_str = self.config.board_type.value.lower()
+
+        import time as _time
+        extraction_start = _time.time()
+        games_processed = 0
+        games_skipped = 0
+
+        with open(jsonl_path, 'r') as f:
+            for line_num, line in enumerate(f):
+                if not line.strip():
+                    continue
+
+                try:
+                    game = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                # Filter by board type
+                game_board = game.get("board_type", "").lower()
+                if board_type_str not in game_board:
+                    games_skipped += 1
+                    continue
+
+                # Filter by num_players
+                if game.get("num_players") != self.config.num_players:
+                    games_skipped += 1
+                    continue
+
+                # Skip incomplete games
+                if game.get("game_status") != "completed" or game.get("winner") is None:
+                    games_skipped += 1
+                    continue
+
+                winner = game.get("winner")
+                moves = game.get("moves", [])
+                game_id = game.get("game_id", f"jsonl_{line_num}")
+                game_length = len(moves)
+
+                if game_length < self.config.min_game_length:
+                    games_skipped += 1
+                    continue
+
+                # Get initial state
+                initial_state_dict = game.get("initial_state")
+                if initial_state_dict:
+                    try:
+                        state = GameState(**initial_state_dict)
+                    except Exception:
+                        state = create_initial_state(self.config.board_type, self.config.num_players)
+                else:
+                    state = create_initial_state(self.config.board_type, self.config.num_players)
+
+                # Replay game and extract samples
+                for move_idx, move_dict in enumerate(moves):
+                    move_number = move_idx + 1
+
+                    # Sample every Nth position
+                    if move_number % self.config.sample_every_n_moves == 0 and state.game_status == "active":
+                        current_player = state.current_player or 1
+
+                        # Calculate value from perspective of current player
+                        is_winner = winner == current_player
+                        if is_winner:
+                            value = 1.0
+                        elif winner is None or winner == 0:
+                            value = 0.0
+                        else:
+                            value = -1.0
+
+                        # Apply filters
+                        skip_sample = False
+                        if self.config.distill_from_winners and not is_winner:
+                            skip_sample = True
+                        elif value == 0.0 and not self.config.include_draws:
+                            skip_sample = True
+                        elif move_number < self.config.min_move_number or move_number > self.config.max_move_number:
+                            skip_sample = True
+
+                        if not skip_sample:
+                            try:
+                                # Get legal moves at this position
+                                legal_moves = engine.get_valid_moves(state, current_player)
+                                if legal_moves:
+                                    # Parse the move that was played
+                                    played_move = self._parse_jsonl_move(move_dict, move_number)
+                                    if played_move is not None:
+                                        # Find which legal move matches the played move
+                                        target_idx = self._find_move_index(played_move, legal_moves)
+
+                                        if target_idx >= 0 and target_idx < self.config.max_moves_per_position:
+                                            # Extract features
+                                            features = extract_features_from_gamestate(state, current_player)
+
+                                            # Encode legal moves
+                                            from_indices, to_indices, move_mask = self._encode_legal_moves(legal_moves)
+
+                                            # Calculate sample weight
+                                            sample_weight = 1.0
+                                            if self.config.weight_by_game_length and self.config.game_length_weight_cap > 0:
+                                                sample_weight *= min(1.0, game_length / self.config.game_length_weight_cap)
+                                            if is_winner and self.config.winner_weight_boost > 1.0:
+                                                sample_weight *= self.config.winner_weight_boost
+
+                                            # Extract MCTS policy distribution if available
+                                            mcts_visit_dist = None
+                                            mcts_policy_dict = move_dict.get('mcts_policy') or move_dict.get('mctsPolicy')
+                                            if mcts_policy_dict and isinstance(mcts_policy_dict, dict):
+                                                mcts_visit_dist = np.zeros(self.config.max_moves_per_position, dtype=np.float32)
+                                                for idx_str, prob in mcts_policy_dict.items():
+                                                    idx = int(idx_str)
+                                                    if 0 <= idx < self.config.max_moves_per_position:
+                                                        mcts_visit_dist[idx] = float(prob)
+                                                total = mcts_visit_dist.sum()
+                                                if total > 0:
+                                                    mcts_visit_dist /= total
+
+                                            sample = NNUEPolicySample(
+                                                features=features,
+                                                value=value,
+                                                from_indices=from_indices,
+                                                to_indices=to_indices,
+                                                move_mask=move_mask,
+                                                target_move_idx=target_idx,
+                                                player_number=current_player,
+                                                game_id=game_id,
+                                                move_number=move_number,
+                                                sample_weight=sample_weight,
+                                                mcts_visit_distribution=mcts_visit_dist,
+                                            )
+                                            samples.append(sample)
+                            except Exception as e:
+                                logger.debug(f"Failed to process {game_id}:{move_number}: {e}")
+
+                    # Apply move to advance state
+                    try:
+                        move = self._parse_jsonl_move(move_dict, move_idx)
+                        if move is not None:
+                            state = engine.apply_move(state, move)
+                    except Exception:
+                        break  # Can't continue if move application fails
+
+                    if self.max_samples and len(samples) >= self.max_samples:
+                        return samples
+
+                games_processed += 1
+                if games_processed % 100 == 0:
+                    elapsed = _time.time() - extraction_start
+                    rate = games_processed / elapsed if elapsed > 0 else 0
+                    logger.info(f"  JSONL progress: {games_processed} games ({rate:.1f}/s), {len(samples)} samples")
+
+        total_time = _time.time() - extraction_start
+        logger.info(f"  JSONL extraction: {games_processed} games, {games_skipped} skipped in {total_time:.1f}s, {len(samples)} samples")
+        return samples
+
+    def _parse_jsonl_move(self, move_dict: dict, move_number: int) -> Optional["Move"]:
+        """Parse a move dict from JSONL into a Move object."""
+        from ..models import Move, MoveType, Position
+        from datetime import datetime
+
+        move_type_str = str(move_dict.get("type") or "").strip()
+        if not move_type_str or move_type_str.startswith("unknown_"):
+            return None
+
+        try:
+            move_type = MoveType(move_type_str)
+        except ValueError:
+            return None
+
+        def parse_pos(pos_dict):
+            if not pos_dict or not isinstance(pos_dict, dict):
+                return None
+            return Position(
+                x=pos_dict.get("x", 0),
+                y=pos_dict.get("y", 0),
+                z=pos_dict.get("z"),
+            )
+
+        from_pos = parse_pos(move_dict.get("from") or move_dict.get("from_pos"))
+        to_pos = parse_pos(move_dict.get("to"))
+        capture_target = parse_pos(move_dict.get("capture_target") or move_dict.get("captureTarget"))
+
+        return Move(
+            id=move_dict.get("id", f"jsonl-{move_number}"),
+            type=move_type,
+            player=move_dict.get("player", 1),
+            from_pos=from_pos,
+            to=to_pos,
+            capture_target=capture_target,
+            timestamp=move_dict.get("timestamp", datetime.now()),
+            think_time=move_dict.get("think_time", move_dict.get("thinkTime", 0)),
+            move_number=move_dict.get("move_number", move_dict.get("moveNumber", move_number + 1)),
+        )
 
     def _extract_from_db_parallel(self, db_path: str) -> List[NNUEPolicySample]:
         """Extract samples using parallel processing across multiple workers."""
