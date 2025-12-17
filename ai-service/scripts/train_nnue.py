@@ -633,6 +633,39 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=5,
         help="Number of epochs to freeze transferred layers (default: 5)",
     )
+    parser.add_argument(
+        "--lookahead",
+        action="store_true",
+        help="Enable Lookahead optimizer wrapper for better generalization",
+    )
+    parser.add_argument(
+        "--lookahead-k",
+        type=int,
+        default=5,
+        help="Lookahead slow weight update interval (default: 5)",
+    )
+    parser.add_argument(
+        "--lookahead-alpha",
+        type=float,
+        default=0.5,
+        help="Lookahead interpolation factor (default: 0.5)",
+    )
+    parser.add_argument(
+        "--adaptive-clip",
+        action="store_true",
+        help="Enable adaptive gradient clipping based on gradient history",
+    )
+    parser.add_argument(
+        "--gradient-noise",
+        action="store_true",
+        help="Enable gradient noise injection for escaping sharp minima",
+    )
+    parser.add_argument(
+        "--gradient-noise-variance",
+        type=float,
+        default=0.01,
+        help="Initial gradient noise variance (default: 0.01)",
+    )
 
     parser.add_argument(
         "--mixed-precision",

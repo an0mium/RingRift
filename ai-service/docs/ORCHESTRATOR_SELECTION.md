@@ -54,54 +54,34 @@ python scripts/unified_ai_loop.py --resume
 
 ---
 
-### cluster_orchestrator.py
-
-**Purpose**: Coordinate distributed selfplay across multiple nodes
-
-**Features**:
-
-- SSH-based node coordination
-- Distributed locking for consistency
-- Work distribution across cluster
-- Model sync between nodes
-- Version skew healing
-
-**CLI**:
-
-```bash
-python scripts/cluster_orchestrator.py --config config/cluster.yaml
-```
-
-**When to use instead of unified_ai_loop.py**:
-
-- Managing 3+ remote nodes
-- Need fine-grained control over distributed work
-- unified_ai_loop.py handles single-node or simple multi-node via SSH sync
-
----
-
 ### p2p_orchestrator.py
 
-**Purpose**: P2P matchmaking server for human-AI and AI-AI games
+**Purpose**: Distributed P2P cluster coordination and selfplay orchestration
 
 **Features**:
 
-- WebSocket-based real-time matchmaking
-- Multiple AI difficulty levels
-- Human vs AI games
-- Rating tracking
+- Self-healing compute cluster with leader election
+- Peer discovery and resource monitoring
+- Auto-starts selfplay/training jobs across nodes
+- Vast.ai and Lambda Labs instance integration
+- Supports all board types: square8, hex8, square19, hexagonal
+- Keepalive and unretire management for cloud instances
 
 **CLI**:
 
 ```bash
-python scripts/p2p_orchestrator.py --port 8080
+# Start as node in P2P cluster
+python scripts/p2p_orchestrator.py --node-id lambda-gh200-f --peers 100.104.165.116:8770
+
+# View cluster status
+curl http://localhost:8770/status
 ```
 
 **When to use**:
 
-- Development testing
-- Human vs AI matches
-- Not for continuous training loops
+- Production distributed training across 3+ nodes
+- Vast.ai or Lambda Labs GPU instances
+- Self-healing cluster with automatic recovery
 
 ---
 
