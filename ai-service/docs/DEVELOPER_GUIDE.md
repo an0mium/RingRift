@@ -386,3 +386,64 @@ from scripts.unified_loop.config import (
 config = UnifiedLoopConfig.from_yaml(config_path)
 config = sync_with_unified_config(config)
 ```
+
+## Performance Optimization
+
+### Profiling Tools
+
+| Script                            | Purpose                                        |
+| --------------------------------- | ---------------------------------------------- |
+| `profile_selfplay_bottlenecks.py` | Detailed timing breakdown for self-play        |
+| `quick_benchmark.py`              | Quick benchmark with all optimizations enabled |
+| `benchmark_make_unmake.py`        | State mutation performance                     |
+| `benchmark_gpu_cpu.py`            | GPU vs CPU comparison                          |
+| `benchmark_ai_memory.py`          | Memory usage analysis                          |
+
+### Running Profilers
+
+```bash
+# Detailed self-play profiling
+python scripts/profile_selfplay_bottlenecks.py --board square8 --games 5
+
+# With cProfile function-level analysis
+python scripts/profile_selfplay_bottlenecks.py --board square8 --games 3 --cprofile
+
+# Quick benchmark with optimizations
+python scripts/quick_benchmark.py
+```
+
+### Performance Environment Variables
+
+| Variable                         | Effect                                     | Default |
+| -------------------------------- | ------------------------------------------ | ------- |
+| `RINGRIFT_SKIP_SHADOW_CONTRACTS` | Skip validation deep-copies (2-3x speedup) | `false` |
+| `RINGRIFT_USE_MAKE_UNMAKE`       | Use incremental state updates              | `false` |
+| `RINGRIFT_USE_BATCH_EVAL`        | Batch position evaluation                  | `false` |
+| `RINGRIFT_USE_FAST_TERRITORY`    | Fast territory calculation                 | `false` |
+| `RINGRIFT_USE_MOVE_CACHE`        | Cache legal moves                          | `false` |
+
+**Recommended for training/benchmarking:**
+
+```bash
+export RINGRIFT_SKIP_SHADOW_CONTRACTS=true
+```
+
+This provides 2-3x speedup with no accuracy impact.
+
+### Current Performance Baseline
+
+On Apple M2 Max (square8, 2 players, HeuristicAI difficulty 5):
+
+| Metric          | Without Skip | With Skip |
+| --------------- | ------------ | --------- |
+| select_move avg | ~510ms       | ~210ms    |
+| apply_move avg  | ~11ms        | ~8ms      |
+| Moves/second    | ~1.9         | ~4.5      |
+
+### Optimization Recommendations
+
+1. **Shadow Contract Skip** (Implemented) - 2-3x speedup
+2. **Batch Evaluation** - Vectorized NumPy operations
+3. **Numba JIT** - Compile hot loops to machine code
+4. **Move Caching** - LRU cache for legal moves
+5. **State Pooling** - Reuse GameState objects
