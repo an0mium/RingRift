@@ -1322,27 +1322,39 @@ def _process_game_batch(
             winner = game_row['winner']
             game_length = game_row['game_length'] or 0
 
-            # Get initial state
+            # Get initial state - try database first, fall back to creating from board_type
             cursor.execute(
                 "SELECT initial_state_json, compressed FROM game_initial_state WHERE game_id = ?",
                 (game_id,)
             )
             initial_row = cursor.fetchone()
-            if not initial_row:
-                continue
 
-            initial_json = initial_row['initial_state_json']
-            if initial_row['compressed']:
+            state = None
+            if initial_row:
+                initial_json = initial_row['initial_state_json']
+                if initial_row['compressed']:
+                    try:
+                        if isinstance(initial_json, (bytes, bytearray)):
+                            initial_json = gzip.decompress(bytes(initial_json)).decode("utf-8")
+                        else:
+                            initial_json = gzip.decompress(str(initial_json).encode("utf-8")).decode("utf-8")
+                    except Exception:
+                        initial_json = None
+
+                if initial_json:
+                    try:
+                        state_dict = json.loads(initial_json)
+                        state = GameState(**state_dict)
+                    except Exception:
+                        state = None
+
+            # Fall back to creating initial state from board_type
+            if state is None:
                 try:
-                    if isinstance(initial_json, (bytes, bytearray)):
-                        initial_json = gzip.decompress(bytes(initial_json)).decode("utf-8")
-                    else:
-                        initial_json = gzip.decompress(str(initial_json).encode("utf-8")).decode("utf-8")
+                    from ..training.generate_data import create_initial_state
+                    state = create_initial_state(board_type, config_dict.get('num_players', 2))
                 except Exception:
                     continue
-
-            state_dict = json.loads(initial_json)
-            state = GameState(**state_dict)
 
             # Get all moves
             cursor.execute(
@@ -1796,7 +1808,13 @@ class NNUEPolicyDataset(Dataset):
         return samples
 
     def _parse_jsonl_move(self, move_dict: dict, move_number: int) -> Optional["Move"]:
-        """Parse a move dict from JSONL into a Move object."""
+        """Parse a move dict from JSONL into a Move object.
+
+        For hexagonal boards, converts offset coordinates (used in JSONL selfplay data)
+        to cube coordinates (used by the rules engine). JSONL uses a square grid where
+        (0,0) is top-left and coordinates are positive. Cube coordinates use (0,0,0)
+        as center with the constraint x+y+z=0.
+        """
         from ..models import Move, MoveType, Position
         from datetime import datetime
 
@@ -1809,14 +1827,26 @@ class NNUEPolicyDataset(Dataset):
         except ValueError:
             return None
 
+        # Check if we need coordinate conversion for hex boards
+        is_hex_board = self.config.board_type in (BoardType.HEXAGONAL, BoardType.HEX8)
+        center_offset = self.board_size // 2 if is_hex_board else 0
+
         def parse_pos(pos_dict):
             if not pos_dict or not isinstance(pos_dict, dict):
                 return None
-            return Position(
-                x=pos_dict.get("x", 0),
-                y=pos_dict.get("y", 0),
-                z=pos_dict.get("z"),
-            )
+            x = pos_dict.get("x", 0)
+            y = pos_dict.get("y", 0)
+            z = pos_dict.get("z")
+
+            # Convert offset coords to cube coords for hex boards
+            if is_hex_board and z is None:
+                # JSONL uses offset coordinates: convert to cube
+                cube_x = x - center_offset
+                cube_y = y - center_offset
+                cube_z = -cube_x - cube_y  # Cube constraint: x+y+z=0
+                return Position(x=cube_x, y=cube_y, z=cube_z)
+
+            return Position(x=x, y=y, z=z)
 
         from_pos = parse_pos(move_dict.get("from") or move_dict.get("from_pos"))
         to_pos = parse_pos(move_dict.get("to"))
@@ -1886,6 +1916,7 @@ class NNUEPolicyDataset(Dataset):
         # Prepare config dict for pickling
         config_dict = {
             'board_type': self.config.board_type.value,
+            'num_players': self.config.num_players,
             'sample_every_n_moves': self.config.sample_every_n_moves,
             'min_game_length': self.config.min_game_length,
             'max_moves_per_position': self.config.max_moves_per_position,
