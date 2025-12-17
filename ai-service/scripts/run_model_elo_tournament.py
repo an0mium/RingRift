@@ -671,11 +671,8 @@ def run_model_matchup(
                 with open(jsonl_path, "a") as f:
                     f.write(json.dumps(game_record) + "\n")
                     f.flush()
-                logging.info(f"Saved game record to {jsonl_path} ({len(game_record.get('moves', []))} moves)")
             except Exception as e:
                 print(f"Warning: Failed to save game record: {e}")
-        else:
-            logging.warning(f"No game_record in result: {list(result.keys())}")
 
         # Map back to original model_a/model_b
         winner_id = None
