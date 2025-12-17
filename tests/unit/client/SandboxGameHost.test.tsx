@@ -335,6 +335,10 @@ function createMockSandboxContext(overrides: Partial<any> = {}): any {
           : jest.fn(() => null),
       getValidMoves:
         typeof engine.getValidMoves === 'function' ? engine.getValidMoves : jest.fn(() => []),
+      getChainCaptureContextForCurrentPlayer:
+        typeof engine.getChainCaptureContextForCurrentPlayer === 'function'
+          ? engine.getChainCaptureContextForCurrentPlayer
+          : jest.fn(() => null),
     };
   }
 

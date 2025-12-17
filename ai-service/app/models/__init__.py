@@ -58,11 +58,17 @@ from .multitask_heads import (
     create_default_multitask_config,
 )
 
-# Transformer model architectures
-from .transformer_model import (
-    TransformerConfig,
-    create_model as create_transformer_model,
-)
+# Transformer model architectures (only when PyTorch available)
+try:
+    from .transformer_model import (
+        TransformerConfig,
+        create_model as create_transformer_model,
+    )
+    TRANSFORMER_AVAILABLE = True
+except (ImportError, NameError):
+    TransformerConfig = None  # type: ignore
+    create_transformer_model = None  # type: ignore
+    TRANSFORMER_AVAILABLE = False
 
 __all__ = [
     # Core game models
