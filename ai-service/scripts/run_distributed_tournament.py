@@ -175,7 +175,9 @@ class TournamentState:
             MatchResult(**m) for m in data.get("matches", [])
         ]
         for tier, stats in data.get("tier_stats", {}).items():
-            state.tier_stats[tier] = TierStats(**stats)
+            # Filter out computed properties like 'win_rate' that aren't constructor args
+            filtered_stats = {k: v for k, v in stats.items() if k != 'win_rate'}
+            state.tier_stats[tier] = TierStats(**filtered_stats)
         return state
 
 
