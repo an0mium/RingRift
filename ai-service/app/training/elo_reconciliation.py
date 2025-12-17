@@ -235,7 +235,7 @@ class EloReconciler:
             if abs(diff) > 1:  # Only track meaningful diffs
                 rating_diffs[participant] = diff
 
-        return EloDrift(
+        drift = EloDrift(
             source=str(self.local_db_path),
             target=str(target_path),
             checked_at=datetime.now(timezone.utc).isoformat(),
@@ -244,6 +244,30 @@ class EloReconciler:
             participants_in_both=len(common),
             rating_diffs=rating_diffs,
         )
+
+        # Emit drift metrics
+        self._emit_drift_metrics(drift, board_type, num_players)
+
+        return drift
+
+    def _emit_drift_metrics(
+        self,
+        drift: EloDrift,
+        board_type: Optional[str],
+        num_players: Optional[int],
+    ) -> None:
+        """Emit Prometheus metrics for drift detection."""
+        try:
+            from app.metrics import record_elo_drift
+            record_elo_drift(
+                board_type=board_type or "all",
+                num_players=num_players or 0,
+                max_drift=drift.max_rating_diff,
+                avg_drift=drift.avg_rating_diff,
+                is_significant=drift.is_significant,
+            )
+        except ImportError:
+            pass
 
     def sync_from_remote(
         self,
@@ -346,10 +370,12 @@ else:
                 )
 
             # Import matches to local DB
-            return self._import_matches(remote_host, synced_at, matches)
+            result = self._import_matches(remote_host, synced_at, matches)
+            self._emit_sync_metrics(result)
+            return result
 
         except subprocess.TimeoutExpired:
-            return SyncResult(
+            result = SyncResult(
                 remote_host=remote_host,
                 synced_at=synced_at,
                 matches_added=0,
@@ -358,8 +384,10 @@ else:
                 participants_added=0,
                 error="SSH timeout",
             )
+            self._emit_sync_metrics(result)
+            return result
         except Exception as e:
-            return SyncResult(
+            result = SyncResult(
                 remote_host=remote_host,
                 synced_at=synced_at,
                 matches_added=0,
@@ -368,12 +396,27 @@ else:
                 participants_added=0,
                 error=str(e),
             )
+            self._emit_sync_metrics(result)
+            return result
         finally:
             # Cleanup temp file
             try:
                 os.unlink(temp_export)
             except FileNotFoundError:
                 pass
+
+    def _emit_sync_metrics(self, result: SyncResult) -> None:
+        """Emit Prometheus metrics for a sync result."""
+        try:
+            from app.metrics import record_elo_sync
+            record_elo_sync(
+                remote_host=result.remote_host,
+                success=result.error is None,
+                matches_added=result.matches_added,
+                conflicts=result.matches_conflict,
+            )
+        except ImportError:
+            pass
 
     def _import_matches(
         self,
@@ -574,7 +617,12 @@ else:
         board_type: Optional[str] = None,
         num_players: Optional[int] = None,
     ) -> Dict[str, float]:
-        """Get ratings from a database."""
+        """Get ratings from a database.
+
+        Handles multiple schema variations:
+        1. elo_ratings table (production schema): participant_id, board_type, num_players, rating
+        2. participants table with rating column (test schema): participant_id, rating, board_type, num_players
+        """
         if not db_path.exists():
             return {}
 
@@ -582,12 +630,13 @@ else:
         try:
             cur = conn.cursor()
 
-            # Check which table exists
+            # Check which table exists and its schema
             cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
             tables = {row[0] for row in cur.fetchall()}
 
-            if "participants" in tables:
-                query = "SELECT participant_id, rating FROM participants WHERE 1=1"
+            # Prefer elo_ratings table (production schema)
+            if "elo_ratings" in tables:
+                query = "SELECT participant_id, rating FROM elo_ratings WHERE 1=1"
                 params = []
                 if board_type:
                     query += " AND board_type = ?"
@@ -597,21 +646,25 @@ else:
                     params.append(num_players)
 
                 cur.execute(query, params)
-                return {row[0]: row[1] for row in cur.fetchall()}
+                return {row[0]: row[1] for row in cur.fetchall() if row[1] is not None}
 
-            elif "elo_ratings" in tables:
-                # Alternate schema
-                query = "SELECT model_id, elo_rating FROM elo_ratings WHERE 1=1"
-                params = []
-                if board_type:
-                    query += " AND board_type = ?"
-                    params.append(board_type)
-                if num_players:
-                    query += " AND num_players = ?"
-                    params.append(num_players)
+            elif "participants" in tables:
+                # Check if participants table has a rating column
+                cur.execute("PRAGMA table_info(participants)")
+                columns = {row[1] for row in cur.fetchall()}
 
-                cur.execute(query, params)
-                return {row[0]: row[1] for row in cur.fetchall()}
+                if "rating" in columns:
+                    query = "SELECT participant_id, rating FROM participants WHERE rating IS NOT NULL"
+                    params = []
+                    if board_type and "board_type" in columns:
+                        query += " AND board_type = ?"
+                        params.append(board_type)
+                    if num_players and "num_players" in columns:
+                        query += " AND num_players = ?"
+                        params.append(num_players)
+
+                    cur.execute(query, params)
+                    return {row[0]: row[1] for row in cur.fetchall()}
 
             return {}
 

@@ -1,0 +1,460 @@
+"""Tests for EloReconciler.
+
+Tests drift detection, sync result handling, and reconciliation
+reports without requiring network access.
+"""
+
+import sqlite3
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
+
+from app.training.elo_reconciliation import (
+    EloDrift,
+    EloReconciler,
+    ReconciliationReport,
+    SyncResult,
+    check_elo_drift,
+)
+
+
+class TestEloDrift:
+    """Test EloDrift dataclass."""
+
+    def test_basic_creation(self):
+        """Test basic drift creation."""
+        drift = EloDrift(
+            source="/path/to/local.db",
+            target="/path/to/remote.db",
+            checked_at="2024-01-01T12:00:00",
+            participants_in_source=100,
+            participants_in_target=95,
+            participants_in_both=90,
+        )
+        assert drift.participants_in_source == 100
+        assert drift.participants_in_target == 95
+        assert drift.participants_in_both == 90
+
+    def test_max_rating_diff_empty(self):
+        """Test max_rating_diff with no diffs."""
+        drift = EloDrift(
+            source="a", target="b", checked_at="now",
+            participants_in_source=0, participants_in_target=0, participants_in_both=0,
+        )
+        assert drift.max_rating_diff == 0.0
+
+    def test_max_rating_diff_with_diffs(self):
+        """Test max_rating_diff calculation."""
+        drift = EloDrift(
+            source="a", target="b", checked_at="now",
+            participants_in_source=10, participants_in_target=10, participants_in_both=10,
+            rating_diffs={"player1": 30.0, "player2": -45.0, "player3": 20.0},
+        )
+        assert drift.max_rating_diff == 45.0
+
+    def test_avg_rating_diff(self):
+        """Test avg_rating_diff calculation."""
+        drift = EloDrift(
+            source="a", target="b", checked_at="now",
+            participants_in_source=10, participants_in_target=10, participants_in_both=10,
+            rating_diffs={"player1": 30.0, "player2": -30.0, "player3": 60.0},
+        )
+        # Average of absolute values: (30 + 30 + 60) / 3 = 40
+        assert drift.avg_rating_diff == 40.0
+
+    def test_is_significant_false(self):
+        """Test insignificant drift."""
+        drift = EloDrift(
+            source="a", target="b", checked_at="now",
+            participants_in_source=10, participants_in_target=10, participants_in_both=10,
+            rating_diffs={"player1": 10.0, "player2": -5.0},
+        )
+        assert not drift.is_significant
+
+    def test_is_significant_max_threshold(self):
+        """Test significant drift based on max threshold."""
+        drift = EloDrift(
+            source="a", target="b", checked_at="now",
+            participants_in_source=10, participants_in_target=10, participants_in_both=10,
+            rating_diffs={"player1": 55.0},  # > 50 threshold
+        )
+        assert drift.is_significant
+
+    def test_is_significant_avg_threshold(self):
+        """Test significant drift based on avg threshold."""
+        drift = EloDrift(
+            source="a", target="b", checked_at="now",
+            participants_in_source=10, participants_in_target=10, participants_in_both=10,
+            rating_diffs={"player1": 30.0, "player2": 30.0, "player3": 30.0},  # avg=30 > 25
+        )
+        assert drift.is_significant
+
+    def test_to_dict(self):
+        """Test serialization to dict."""
+        drift = EloDrift(
+            source="local.db", target="remote.db",
+            checked_at="2024-01-01T12:00:00",
+            participants_in_source=100,
+            participants_in_target=95,
+            participants_in_both=90,
+            rating_diffs={"player1": 25.0},
+        )
+        d = drift.to_dict()
+
+        assert d["source"] == "local.db"
+        assert d["target"] == "remote.db"
+        assert d["participants_in_both"] == 90
+        assert d["max_rating_diff"] == 25.0
+        assert d["is_significant"] is False
+
+
+class TestSyncResult:
+    """Test SyncResult dataclass."""
+
+    def test_basic_creation(self):
+        """Test basic sync result."""
+        result = SyncResult(
+            remote_host="192.168.1.100",
+            synced_at="2024-01-01T12:00:00",
+            matches_added=50,
+            matches_skipped=10,
+            matches_conflict=2,
+            participants_added=5,
+        )
+        assert result.matches_added == 50
+        assert result.matches_skipped == 10
+        assert result.matches_conflict == 2
+        assert result.error is None
+
+    def test_with_error(self):
+        """Test sync result with error."""
+        result = SyncResult(
+            remote_host="192.168.1.100",
+            synced_at="2024-01-01T12:00:00",
+            matches_added=0,
+            matches_skipped=0,
+            matches_conflict=0,
+            participants_added=0,
+            error="Connection refused",
+        )
+        assert result.error == "Connection refused"
+
+    def test_to_dict(self):
+        """Test serialization to dict."""
+        result = SyncResult(
+            remote_host="host1",
+            synced_at="now",
+            matches_added=10,
+            matches_skipped=5,
+            matches_conflict=1,
+            participants_added=3,
+        )
+        d = result.to_dict()
+
+        assert d["remote_host"] == "host1"
+        assert d["matches_added"] == 10
+        assert d["error"] is None
+
+
+class TestReconciliationReport:
+    """Test ReconciliationReport dataclass."""
+
+    def test_basic_creation(self):
+        """Test basic report creation."""
+        report = ReconciliationReport(
+            started_at="2024-01-01T12:00:00",
+            completed_at="2024-01-01T12:05:00",
+            nodes_synced=["node1", "node2"],
+            nodes_failed=["node3"],
+            total_matches_added=100,
+            total_matches_skipped=20,
+            total_conflicts=5,
+            drift_detected=False,
+            max_drift=15.0,
+        )
+        assert len(report.nodes_synced) == 2
+        assert len(report.nodes_failed) == 1
+        assert report.total_matches_added == 100
+
+    def test_summary(self):
+        """Test human-readable summary."""
+        report = ReconciliationReport(
+            started_at="2024-01-01T12:00:00",
+            completed_at="2024-01-01T12:05:00",
+            nodes_synced=["node1"],
+            nodes_failed=[],
+            total_matches_added=50,
+            total_matches_skipped=10,
+            total_conflicts=0,
+            drift_detected=False,
+            max_drift=10.0,
+        )
+        summary = report.summary()
+
+        assert "Reconciliation Report" in summary
+        assert "Nodes synced: 1" in summary
+        assert "Matches added: 50" in summary
+
+    def test_summary_with_drift(self):
+        """Test summary shows drift warning."""
+        report = ReconciliationReport(
+            started_at="now",
+            completed_at="now",
+            nodes_synced=[],
+            nodes_failed=[],
+            total_matches_added=0,
+            total_matches_skipped=0,
+            total_conflicts=0,
+            drift_detected=True,
+            max_drift=60.0,
+        )
+        summary = report.summary()
+
+        assert "DRIFT DETECTED" in summary
+
+    def test_summary_with_failures(self):
+        """Test summary shows failed nodes."""
+        report = ReconciliationReport(
+            started_at="now",
+            completed_at="now",
+            nodes_synced=["node1"],
+            nodes_failed=["node2", "node3"],
+            total_matches_added=10,
+            total_matches_skipped=0,
+            total_conflicts=0,
+            drift_detected=False,
+            max_drift=0.0,
+        )
+        summary = report.summary()
+
+        assert "Failed nodes:" in summary
+        assert "node2" in summary
+
+
+class TestEloReconciler:
+    """Test EloReconciler functionality."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.temp_dir = tempfile.mkdtemp()
+        self.local_db = Path(self.temp_dir) / "local_elo.db"
+        self.remote_db = Path(self.temp_dir) / "remote_elo.db"
+
+    def teardown_method(self):
+        """Clean up."""
+        import shutil
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _create_elo_db(self, path: Path, participants: dict):
+        """Create a test Elo database."""
+        conn = sqlite3.connect(str(path))
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            CREATE TABLE participants (
+                participant_id TEXT PRIMARY KEY,
+                rating REAL DEFAULT 1500.0,
+                games_played INTEGER DEFAULT 0,
+                wins INTEGER DEFAULT 0,
+                losses INTEGER DEFAULT 0,
+                draws INTEGER DEFAULT 0,
+                last_update TEXT,
+                board_type TEXT,
+                num_players INTEGER
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE match_history (
+                match_id TEXT PRIMARY KEY,
+                player1_id TEXT NOT NULL,
+                player2_id TEXT NOT NULL,
+                winner_id TEXT,
+                player1_rating_before REAL,
+                player2_rating_before REAL,
+                player1_rating_after REAL,
+                player2_rating_after REAL,
+                board_type TEXT,
+                num_players INTEGER,
+                game_length INTEGER,
+                timestamp TEXT,
+                source TEXT
+            )
+        """)
+
+        for participant_id, rating in participants.items():
+            cursor.execute(
+                "INSERT INTO participants (participant_id, rating) VALUES (?, ?)",
+                (participant_id, rating)
+            )
+
+        conn.commit()
+        conn.close()
+
+    def test_initialization(self):
+        """Test reconciler initialization."""
+        reconciler = EloReconciler(local_db_path=self.local_db)
+        assert reconciler.local_db_path == self.local_db
+        assert reconciler.ssh_timeout == 30
+
+    def test_check_drift_no_local_db(self):
+        """Test drift check when local DB doesn't exist."""
+        reconciler = EloReconciler(local_db_path=self.local_db)
+        drift = reconciler.check_drift()
+
+        assert drift.participants_in_source == 0
+
+    def test_check_drift_no_remote_db(self):
+        """Test drift check when remote DB doesn't exist."""
+        self._create_elo_db(self.local_db, {"player1": 1500, "player2": 1600})
+
+        reconciler = EloReconciler(local_db_path=self.local_db)
+        drift = reconciler.check_drift(remote_db_path=self.remote_db)
+
+        assert drift.participants_in_source == 2
+        assert drift.participants_in_target == 0
+
+    def test_check_drift_identical_dbs(self):
+        """Test drift check with identical databases."""
+        participants = {"player1": 1500, "player2": 1600}
+        self._create_elo_db(self.local_db, participants)
+        self._create_elo_db(self.remote_db, participants)
+
+        reconciler = EloReconciler(local_db_path=self.local_db)
+        drift = reconciler.check_drift(remote_db_path=self.remote_db)
+
+        assert drift.participants_in_both == 2
+        assert drift.max_rating_diff == 0.0
+        assert not drift.is_significant
+
+    def test_check_drift_with_differences(self):
+        """Test drift check detects rating differences."""
+        self._create_elo_db(self.local_db, {"player1": 1500, "player2": 1600})
+        self._create_elo_db(self.remote_db, {"player1": 1550, "player2": 1550})
+
+        reconciler = EloReconciler(local_db_path=self.local_db)
+        drift = reconciler.check_drift(remote_db_path=self.remote_db)
+
+        assert drift.participants_in_both == 2
+        assert len(drift.rating_diffs) == 2
+        assert drift.max_rating_diff == 50.0  # player1: -50, player2: +50
+
+    def test_import_matches_empty(self):
+        """Test importing empty match list."""
+        self._create_elo_db(self.local_db, {})
+
+        reconciler = EloReconciler(local_db_path=self.local_db)
+        result = reconciler._import_matches("host", "now", [])
+
+        assert result.matches_added == 0
+        assert result.matches_skipped == 0
+
+    def test_import_matches_new(self):
+        """Test importing new matches."""
+        self._create_elo_db(self.local_db, {})
+
+        matches = [
+            {
+                "match_id": "match1",
+                "player1_id": "p1",
+                "player2_id": "p2",
+                "winner_id": "p1",
+                "timestamp": "2024-01-01T12:00:00",
+            },
+            {
+                "match_id": "match2",
+                "player1_id": "p1",
+                "player2_id": "p3",
+                "winner_id": "p3",
+                "timestamp": "2024-01-01T12:01:00",
+            },
+        ]
+
+        reconciler = EloReconciler(local_db_path=self.local_db)
+        result = reconciler._import_matches("host", "now", matches)
+
+        assert result.matches_added == 2
+        assert result.matches_skipped == 0
+        assert result.participants_added == 3  # p1, p2, p3
+
+    def test_import_matches_duplicates(self):
+        """Test importing duplicate matches."""
+        self._create_elo_db(self.local_db, {})
+
+        # First import
+        matches = [{"match_id": "match1", "player1_id": "p1", "player2_id": "p2", "winner_id": "p1"}]
+        reconciler = EloReconciler(local_db_path=self.local_db)
+        result1 = reconciler._import_matches("host", "now", matches)
+        assert result1.matches_added == 1
+
+        # Second import (duplicate)
+        result2 = reconciler._import_matches("host", "now", matches)
+        assert result2.matches_added == 0
+        assert result2.matches_skipped == 1
+
+    def test_import_matches_conflict(self):
+        """Test importing conflicting matches."""
+        self._create_elo_db(self.local_db, {})
+
+        # First import
+        match1 = [{"match_id": "match1", "player1_id": "p1", "player2_id": "p2", "winner_id": "p1"}]
+        reconciler = EloReconciler(local_db_path=self.local_db)
+        reconciler._import_matches("host", "now", match1)
+
+        # Conflicting import (same ID, different winner)
+        match2 = [{"match_id": "match1", "player1_id": "p1", "player2_id": "p2", "winner_id": "p2"}]
+        result = reconciler._import_matches("host", "now", match2)
+
+        assert result.matches_conflict == 1
+        assert result.matches_added == 0
+
+    def test_reconcile_all_no_hosts(self):
+        """Test reconciliation with no hosts."""
+        reconciler = EloReconciler(local_db_path=self.local_db)
+        report = reconciler.reconcile_all(hosts=[])
+
+        assert len(report.nodes_synced) == 0
+        assert len(report.nodes_failed) == 0
+        assert report.total_matches_added == 0
+
+
+class TestConvenienceFunctions:
+    """Test module-level convenience functions."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.temp_dir = tempfile.mkdtemp()
+        self.db_path = Path(self.temp_dir) / "elo.db"
+
+    def teardown_method(self):
+        """Clean up."""
+        import shutil
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_check_elo_drift_returns_drift_object(self):
+        """Test check_elo_drift returns EloDrift object."""
+        # Create a test DB with correct schema
+        conn = sqlite3.connect(str(self.db_path))
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE participants (
+                participant_id TEXT PRIMARY KEY,
+                rating REAL DEFAULT 1500.0
+            )
+        """)
+        cursor.execute("INSERT INTO participants VALUES ('player1', 1500)")
+        conn.commit()
+        conn.close()
+
+        # Use custom reconciler with test DB
+        reconciler = EloReconciler(local_db_path=self.db_path)
+        drift = reconciler.check_drift()
+
+        assert isinstance(drift, EloDrift)
+        assert drift.participants_in_source == 1
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
