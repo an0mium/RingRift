@@ -272,7 +272,7 @@ if __name__ == "__main__":
 
 def evaluate_population_distributed(
     population: List[Dict[str, float]],
-    workers: List[str],  # ["192.168.1.11:8765", "192.168.1.12:8765", ...]
+    workers: List[str],  # ["10.0.0.2:8765", "10.0.0.3:8765", ...]
     config: CMAESConfig,
     timeout: float = 300
 ) -> List[float]:
@@ -478,10 +478,10 @@ ln -s /Volumes/Shared/eval_pools data/eval_pools
 cd RingRift/ai-service
 source .venv/bin/activate
 
-# Start CMA-ES in distributed mode
+# Start CMA-ES in distributed mode (replace with your worker IPs)
 python scripts/run_cmaes_optimization.py \
     --distributed \
-    --workers "192.168.1.11:8765,192.168.1.12:8765" \
+    --workers "10.0.0.2:8765,10.0.0.3:8765" \
     --generations 20 \
     --population-size 16 \
     --games-per-eval 24 \
@@ -502,9 +502,9 @@ python scripts/cluster_worker.py --port 8765
 **3. Monitor Progress:**
 
 ```bash
-# Check worker health
-curl http://192.168.1.11:8765/health
-curl http://192.168.1.12:8765/health
+# Check worker health (replace with your worker IPs)
+curl http://10.0.0.2:8765/health
+curl http://10.0.0.3:8765/health
 
 # Watch coordinator logs
 tail -f logs/cmaes/distributed_run_001/run.log

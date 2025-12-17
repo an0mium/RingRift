@@ -14,18 +14,36 @@ import sys
 import urllib.request
 import urllib.error
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional
 
-NODES = {
-    "lambda-h100": "100.78.101.123:8765",
-    "lambda-gh200-e": "100.88.176.74:8770",
-    "lambda-2xh100": "100.97.104.89:8770",
-    "lambda-a10": "100.91.25.13:8770",
-    "vast-2060s": "100.75.98.13:8765",
-    "vast-2080ti": "100.111.228.116:8765",
-    "vast-3070-24cpu": "100.74.154.36:8765",
-    "vast-5070-4x-new": "100.74.40.31:8765",
-}
+def _load_nodes_from_config() -> Dict[str, str]:
+    """Load cluster nodes from config/distributed_hosts.yaml."""
+    config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
+
+    if not config_path.exists():
+        print(f"[ClusterHealth] Warning: {config_path} not found")
+        print("[ClusterHealth] Copy distributed_hosts.yaml.example to distributed_hosts.yaml")
+        return {}
+
+    try:
+        import yaml
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+
+        nodes = {}
+        for name, info in config.get("hosts", {}).items():
+            host = info.get("tailscale_ip") or info.get("ssh_host")
+            port = info.get("p2p_port", 8770)
+            if host:
+                nodes[name] = f"{host}:{port}"
+
+        return nodes
+    except Exception as e:
+        print(f"[ClusterHealth] Error loading config: {e}")
+        return {}
+
+NODES = _load_nodes_from_config()
 
 
 def check_node(name: str, addr: str) -> Dict:

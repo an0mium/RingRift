@@ -66,21 +66,53 @@ class SyncConfig:
     max_concurrent_syncs: int = 5        # Max parallel node syncs
 
 
-# Model sources (nodes that can serve models)
-MODEL_SOURCES = [
-    {"name": "mac-studio", "host": "100.107.168.125", "port": 8766},
-    {"name": "lambda-h100", "host": "100.78.101.123", "port": 8766},
-    {"name": "lambda-gh200-e", "host": "100.88.176.74", "port": 8766},
-]
+# Model sources and sync targets are loaded from config/distributed_hosts.yaml
+# See config/distributed_hosts.yaml.example for format
+def _load_hosts_from_config():
+    """Load hosts from config file."""
+    config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
+    example_path = config_path.with_suffix(".yaml.example")
 
-# Nodes to sync models to
-SYNC_TARGETS = [
-    {"name": "lambda-h100", "host": "100.78.101.123", "ssh_user": "ubuntu"},
-    {"name": "lambda-gh200-e", "host": "100.88.176.74", "ssh_user": "ubuntu"},
-    {"name": "lambda-gh200-c", "host": "100.88.35.19", "ssh_user": "ubuntu"},
-    {"name": "lambda-gh200-d", "host": "100.75.84.47", "ssh_user": "ubuntu"},
-    {"name": "lambda-gh200-f", "host": "100.104.165.116", "ssh_user": "ubuntu"},
-]
+    if not config_path.exists():
+        print(f"[ModelSync] Warning: {config_path} not found")
+        print(f"[ModelSync] Copy {example_path} to {config_path} and configure your hosts")
+        return [], []
+
+    try:
+        import yaml
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+
+        sources = []
+        targets = []
+        hosts = config.get("hosts", {})
+
+        for name, info in hosts.items():
+            host = info.get("tailscale_ip") or info.get("ssh_host")
+            if not host:
+                continue
+
+            # Add as source if it can serve models
+            if info.get("status") == "ready":
+                sources.append({
+                    "name": name,
+                    "host": host,
+                    "port": info.get("model_server_port", 8766),
+                })
+
+            # Add as sync target
+            targets.append({
+                "name": name,
+                "host": host,
+                "ssh_user": info.get("ssh_user", "ubuntu"),
+            })
+
+        return sources, targets
+    except Exception as e:
+        print(f"[ModelSync] Error loading config: {e}")
+        return [], []
+
+MODEL_SOURCES, SYNC_TARGETS = _load_hosts_from_config()
 
 
 # =============================================================================

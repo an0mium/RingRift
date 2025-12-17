@@ -46,11 +46,34 @@ SOCKS_PORT = 1055
 ARIA2_RPC_PORT = 6800
 ARIA2_DATA_PORT = 8766
 
-# Known peers for mesh bootstrap
-KNOWN_PEERS = [
-    "100.107.168.125:8770",  # mac-studio
-    "100.91.25.13:8770",     # lambda-a10
-]
+def _load_known_peers() -> List[str]:
+    """Load bootstrap peers from config/distributed_hosts.yaml."""
+    config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
+
+    if not config_path.exists():
+        print("[VastP2P] Warning: No config found, using empty peer list")
+        return []
+
+    try:
+        import yaml
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+
+        peers = []
+        for name, info in config.get("hosts", {}).items():
+            # Use Tailscale IP for P2P mesh
+            ip = info.get("tailscale_ip")
+            if ip and info.get("status") == "ready":
+                port = info.get("p2p_port", 8770)
+                peers.append(f"{ip}:{port}")
+
+        return peers[:5]  # Limit to 5 bootstrap peers
+    except Exception as e:
+        print(f"[VastP2P] Error loading config: {e}")
+        return []
+
+# Known peers for mesh bootstrap (loaded from config)
+KNOWN_PEERS = _load_known_peers()
 
 
 def run_local_command(cmd: str, timeout: int = 60) -> Tuple[bool, str]:
@@ -426,10 +449,11 @@ def check_instance_status(host: str, port: int, name: str) -> Dict:
         return status
     status["reachable"] = True
 
-    # Check Tailscale SOCKS
+    # Check Tailscale SOCKS (test against first known peer if available)
+    test_peer = KNOWN_PEERS[0] if KNOWN_PEERS else "localhost:8770"
     success, output = run_ssh_command(
         host, port,
-        f"curl -s --connect-timeout 3 --socks5 localhost:{SOCKS_PORT} http://100.107.168.125:8770/health 2>/dev/null && echo ok",
+        f"curl -s --connect-timeout 3 --socks5 localhost:{SOCKS_PORT} http://{test_peer}/health 2>/dev/null && echo ok",
         timeout=15,
     )
     status["tailscale_socks"] = success and "ok" in output
