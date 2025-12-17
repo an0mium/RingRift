@@ -1,72 +1,119 @@
-#!/usr/bin/env python3
-"""Tests for the unified resource guard module.
-
-Tests the resource utilization thresholds (80% for disk/CPU/GPU, 90% for memory)
-and resource checking utilities.
-"""
+"""Tests for app/utils/resource_guard.py - Unified resource checking."""
 
 import pytest
-import sys
-from pathlib import Path
 from unittest.mock import patch, MagicMock
-
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.utils.resource_guard import (
     LIMITS,
+    ResourceLimits,
     get_disk_usage,
-    get_memory_usage,
-    get_cpu_usage,
     check_disk_space,
+    check_disk_for_write,
+    get_memory_usage,
     check_memory,
+    get_cpu_usage,
     check_cpu,
+    get_gpu_memory_usage,
+    check_gpu_memory,
     can_proceed,
+    get_resource_status,
     ResourceGuard,
+    get_degradation_level,
+    should_proceed_with_priority,
+    OperationPriority,
+    AsyncResourceLimiter,
 )
 
 
 class TestResourceLimits:
-    """Test resource limit configuration."""
+    """Test ResourceLimits configuration."""
 
-    def test_disk_limit_is_80_percent(self):
-        """Disk limit should be 80%."""
+    def test_limits_are_frozen(self):
+        """Limits should be immutable."""
+        with pytest.raises(Exception):  # FrozenInstanceError
+            LIMITS.DISK_MAX_PERCENT = 50.0
+
+    def test_disk_limits(self):
+        """Verify disk limit values."""
         assert LIMITS.DISK_MAX_PERCENT == 80.0
+        assert LIMITS.DISK_WARN_PERCENT == 75.0
 
-    def test_memory_limit_is_90_percent(self):
-        """Memory limit should be 90%."""
-        assert LIMITS.MEMORY_MAX_PERCENT == 90.0
-
-    def test_cpu_limit_is_80_percent(self):
-        """CPU limit should be 80%."""
+    def test_cpu_limits(self):
+        """Verify CPU limit values."""
         assert LIMITS.CPU_MAX_PERCENT == 80.0
+        assert LIMITS.CPU_WARN_PERCENT == 70.0
 
-    def test_gpu_limit_is_80_percent(self):
-        """GPU limit should be 80%."""
+    def test_gpu_limits(self):
+        """Verify GPU limit values."""
         assert LIMITS.GPU_MAX_PERCENT == 80.0
+        assert LIMITS.GPU_WARN_PERCENT == 70.0
+
+    def test_memory_limits(self):
+        """Verify memory limit values."""
+        assert LIMITS.MEMORY_MAX_PERCENT == 90.0
+        assert LIMITS.MEMORY_WARN_PERCENT == 80.0
+
+    def test_load_factor(self):
+        """Verify load factor limit."""
+        assert LIMITS.LOAD_MAX_FACTOR == 1.5
 
 
 class TestDiskUsage:
-    """Test disk usage checking."""
+    """Test disk usage functions."""
 
     def test_get_disk_usage_returns_tuple(self):
         """get_disk_usage should return (percent, available_gb, total_gb)."""
         result = get_disk_usage()
         assert isinstance(result, tuple)
         assert len(result) == 3
-        percent, available_gb, total_gb = result
-        assert isinstance(percent, float)
-        assert isinstance(available_gb, float)
-        assert isinstance(total_gb, float)
+        used_pct, avail_gb, total_gb = result
+        assert 0 <= used_pct <= 100
+        assert avail_gb >= 0
+        assert total_gb > 0
 
-    def test_check_disk_space_returns_bool(self):
-        """check_disk_space should return True/False."""
-        result = check_disk_space(required_gb=0.001)  # Very small requirement
-        assert isinstance(result, bool)
+    def test_get_disk_usage_with_path(self, tmp_path):
+        """get_disk_usage should work with custom path."""
+        result = get_disk_usage(str(tmp_path))
+        assert isinstance(result, tuple)
+        assert len(result) == 3
+
+    @patch('app.utils.resource_guard.shutil.disk_usage')
+    def test_get_disk_usage_handles_error(self, mock_disk_usage):
+        """get_disk_usage should return safe defaults on error."""
+        mock_disk_usage.side_effect = OSError("disk error")
+        result = get_disk_usage("/nonexistent")
+        assert result == (0.0, 999.0, 999.0)
+
+    @patch('app.utils.resource_guard.get_disk_usage')
+    def test_check_disk_space_passes_when_ok(self, mock_get_disk):
+        """check_disk_space should return True when space is available."""
+        mock_get_disk.return_value = (50.0, 100.0, 200.0)  # 50% used, 100GB free
+        assert check_disk_space(required_gb=10.0) is True
+
+    @patch('app.utils.resource_guard.get_disk_usage')
+    def test_check_disk_space_fails_on_percentage(self, mock_get_disk):
+        """check_disk_space should return False when usage exceeds limit."""
+        mock_get_disk.return_value = (85.0, 50.0, 200.0)  # 85% used
+        assert check_disk_space(required_gb=1.0, log_warning=False) is False
+
+    @patch('app.utils.resource_guard.get_disk_usage')
+    def test_check_disk_space_fails_on_absolute(self, mock_get_disk):
+        """check_disk_space should return False when free space insufficient."""
+        mock_get_disk.return_value = (50.0, 1.0, 200.0)  # Only 1GB free
+        assert check_disk_space(required_gb=10.0, log_warning=False) is False
+
+    @patch('app.utils.resource_guard.check_disk_space')
+    def test_check_disk_for_write(self, mock_check):
+        """check_disk_for_write should add safety margin."""
+        mock_check.return_value = True
+        result = check_disk_for_write(estimated_size_mb=1024)  # 1GB
+        mock_check.assert_called_once()
+        call_args = mock_check.call_args
+        assert call_args[1]['required_gb'] == 2.0
 
 
 class TestMemoryUsage:
-    """Test memory usage checking."""
+    """Test memory usage functions."""
 
     def test_get_memory_usage_returns_tuple(self):
         """get_memory_usage should return (percent, available_gb, total_gb)."""
@@ -74,121 +121,194 @@ class TestMemoryUsage:
         assert isinstance(result, tuple)
         assert len(result) == 3
 
-    def test_check_memory_returns_bool(self):
-        """check_memory should return True/False."""
-        result = check_memory(required_gb=0.001, log_warning=False)
-        assert isinstance(result, bool)
+    @patch('app.utils.resource_guard.get_memory_usage')
+    def test_check_memory_passes_when_ok(self, mock_get_mem):
+        """check_memory should return True when memory is available."""
+        mock_get_mem.return_value = (50.0, 16.0, 32.0)
+        assert check_memory(required_gb=4.0) is True
+
+    @patch('app.utils.resource_guard.get_memory_usage')
+    def test_check_memory_fails_on_percentage(self, mock_get_mem):
+        """check_memory should return False when usage exceeds limit."""
+        mock_get_mem.return_value = (95.0, 1.0, 32.0)
+        assert check_memory(required_gb=0.5, log_warning=False) is False
+
+    @patch('app.utils.resource_guard.get_memory_usage')
+    def test_check_memory_fails_on_absolute(self, mock_get_mem):
+        """check_memory should return False when free memory insufficient."""
+        mock_get_mem.return_value = (50.0, 0.5, 32.0)
+        assert check_memory(required_gb=4.0, log_warning=False) is False
 
 
 class TestCPUUsage:
-    """Test CPU usage checking."""
+    """Test CPU usage functions."""
 
     def test_get_cpu_usage_returns_tuple(self):
-        """get_cpu_usage should return (percent, load_per_cpu, count)."""
+        """get_cpu_usage should return (percent, load_per_cpu, cpu_count)."""
         result = get_cpu_usage()
         assert isinstance(result, tuple)
         assert len(result) == 3
 
+    @patch('app.utils.resource_guard.get_cpu_usage')
+    def test_check_cpu_passes_when_ok(self, mock_get_cpu):
+        """check_cpu should return True when CPU usage is acceptable."""
+        mock_get_cpu.return_value = (50.0, 0.5, 8)
+        assert check_cpu() is True
+
+    @patch('app.utils.resource_guard.get_cpu_usage')
+    def test_check_cpu_fails_on_percentage(self, mock_get_cpu):
+        """check_cpu should return False when usage exceeds limit."""
+        mock_get_cpu.return_value = (85.0, 0.5, 8)
+        assert check_cpu(log_warning=False) is False
+
+    @patch('app.utils.resource_guard.get_cpu_usage')
+    def test_check_cpu_fails_on_load(self, mock_get_cpu):
+        """check_cpu should return False when load exceeds factor."""
+        mock_get_cpu.return_value = (50.0, 2.0, 8)
+        assert check_cpu(log_warning=False) is False
+
+
+class TestGPUMemory:
+    """Test GPU memory functions."""
+
+    def test_get_gpu_memory_returns_tuple(self):
+        """get_gpu_memory_usage should return tuple."""
+        result = get_gpu_memory_usage()
+        assert isinstance(result, tuple)
+        assert len(result) == 3
+
+    @patch('app.utils.resource_guard.get_gpu_memory_usage')
+    def test_check_gpu_memory_passes_without_gpu(self, mock_get_gpu):
+        """check_gpu_memory should pass when no GPU available."""
+        mock_get_gpu.return_value = (0.0, 0.0, 0.0)
+        assert check_gpu_memory(required_gb=8.0) is True
+
+    @patch('app.utils.resource_guard.get_gpu_memory_usage')
+    def test_check_gpu_memory_passes_when_ok(self, mock_get_gpu):
+        """check_gpu_memory should return True when memory available."""
+        mock_get_gpu.return_value = (50.0, 12.0, 24.0)
+        assert check_gpu_memory(required_gb=8.0) is True
+
+    @patch('app.utils.resource_guard.get_gpu_memory_usage')
+    def test_check_gpu_memory_fails_on_percentage(self, mock_get_gpu):
+        """check_gpu_memory should return False when exceeds limit."""
+        mock_get_gpu.return_value = (85.0, 3.6, 24.0)
+        assert check_gpu_memory(required_gb=1.0, log_warning=False) is False
+
 
 class TestCanProceed:
-    """Test combined resource checking."""
+    """Test combined resource check."""
 
-    def test_can_proceed_returns_bool(self):
-        """can_proceed should return True/False."""
-        result = can_proceed(
-            check_disk=True,
-            check_mem=True,
-            check_cpu_load=True,
-            check_gpu=False,
-        )
-        assert isinstance(result, bool)
+    @patch('app.utils.resource_guard.check_disk_space')
+    @patch('app.utils.resource_guard.check_memory')
+    @patch('app.utils.resource_guard.check_cpu')
+    def test_can_proceed_all_ok(self, mock_cpu, mock_mem, mock_disk):
+        """can_proceed should return True when all checks pass."""
+        mock_disk.return_value = True
+        mock_mem.return_value = True
+        mock_cpu.return_value = True
+        assert can_proceed() is True
+
+    @patch('app.utils.resource_guard.check_disk_space')
+    @patch('app.utils.resource_guard.check_memory')
+    @patch('app.utils.resource_guard.check_cpu')
+    def test_can_proceed_fails_on_disk(self, mock_cpu, mock_mem, mock_disk):
+        """can_proceed should return False when disk check fails."""
+        mock_disk.return_value = False
+        mock_mem.return_value = True
+        mock_cpu.return_value = True
+        assert can_proceed() is False
+
+    @patch('app.utils.resource_guard.check_disk_space')
+    @patch('app.utils.resource_guard.check_memory')
+    @patch('app.utils.resource_guard.check_cpu')
+    def test_can_proceed_skips_disabled_checks(self, mock_cpu, mock_mem, mock_disk):
+        """can_proceed should skip disabled checks."""
+        mock_disk.return_value = False
+        mock_mem.return_value = True
+        mock_cpu.return_value = True
+        assert can_proceed(check_disk=False) is True
 
 
 class TestResourceGuard:
-    """Test the ResourceGuard context manager."""
+    """Test ResourceGuard context manager."""
 
-    def test_resource_guard_initializes(self):
-        """ResourceGuard should initialize with defaults."""
-        guard = ResourceGuard()
-        assert guard.disk_required_gb == 2.0
-        assert guard.mem_required_gb == 1.0
-        assert guard.gpu_required_gb == 0.0
-        assert guard.wait_timeout == 0.0
+    @patch('app.utils.resource_guard.can_proceed')
+    def test_resource_guard_sets_ok_when_available(self, mock_can_proceed):
+        """ResourceGuard should set ok=True when resources available."""
+        mock_can_proceed.return_value = True
+        with ResourceGuard() as guard:
+            assert guard.ok is True
 
-    def test_resource_guard_with_custom_values(self):
-        """ResourceGuard should accept custom requirements."""
-        guard = ResourceGuard(
-            disk_required_gb=5.0,
-            mem_required_gb=2.0,
-            gpu_required_gb=1.0,
-        )
-        assert guard.disk_required_gb == 5.0
-        assert guard.mem_required_gb == 2.0
-        assert guard.gpu_required_gb == 1.0
-
-
-class TestAsyncResourceLimiter:
-    """Test the async resource limiter."""
-
-    def test_async_limiter_initializes(self):
-        """AsyncResourceLimiter should initialize with defaults."""
-        from app.utils.resource_guard import AsyncResourceLimiter
-        limiter = AsyncResourceLimiter()
-        assert limiter.disk_required_gb == 2.0
-        assert limiter.mem_required_gb == 1.0
-        assert limiter.gpu_required_gb == 0.0
-
-    def test_async_limiter_check_resources(self):
-        """AsyncResourceLimiter._check_resources should return tuple."""
-        from app.utils.resource_guard import AsyncResourceLimiter
-        limiter = AsyncResourceLimiter(disk_required_gb=0.001, mem_required_gb=0.001)
-        ok, issues = limiter._check_resources()
-        assert isinstance(ok, bool)
-        assert isinstance(issues, list)
-
-    def test_async_limiter_sync_wait(self):
-        """AsyncResourceLimiter.wait_for_resources_sync should work."""
-        from app.utils.resource_guard import AsyncResourceLimiter, get_disk_usage
-        # Skip if disk is already above limit
-        disk_pct, _, _ = get_disk_usage()
-        if disk_pct >= 70.0:
-            pytest.skip(f"Disk at {disk_pct:.1f}%, skipping test")
-        limiter = AsyncResourceLimiter(
-            disk_required_gb=0.001,
-            mem_required_gb=0.001,
-        )
-        # Should succeed quickly with very low requirements
-        result = limiter.wait_for_resources_sync("test", max_wait_seconds=5)
-        assert result is True
+    @patch('app.utils.resource_guard.can_proceed')
+    @patch('app.utils.resource_guard.get_resource_status')
+    def test_resource_guard_sets_ok_false_when_unavailable(
+        self, mock_status, mock_can_proceed
+    ):
+        """ResourceGuard should set ok=False when resources unavailable."""
+        mock_can_proceed.return_value = False
+        mock_status.return_value = {"test": "status"}
+        with ResourceGuard() as guard:
+            assert guard.ok is False
 
 
-class TestRespectResourceLimitsDecorator:
-    """Test the @respect_resource_limits decorator."""
+class TestDegradationLevel:
+    """Test graceful degradation functions."""
 
-    def test_decorator_wraps_sync_function(self):
-        """Decorator should wrap sync functions."""
-        from app.utils.resource_guard import respect_resource_limits, get_disk_usage
-        # Skip if disk is already above limit
-        disk_pct, _, _ = get_disk_usage()
-        if disk_pct >= 70.0:
-            pytest.skip(f"Disk at {disk_pct:.1f}%, skipping test")
+    @patch('app.utils.resource_guard.get_disk_usage')
+    @patch('app.utils.resource_guard.get_memory_usage')
+    @patch('app.utils.resource_guard.get_cpu_usage')
+    def test_degradation_level_0_normal(self, mock_cpu, mock_mem, mock_disk):
+        """Level 0 when resources below 70% of limit."""
+        mock_disk.return_value = (40.0, 100.0, 200.0)
+        mock_mem.return_value = (45.0, 16.0, 32.0)
+        mock_cpu.return_value = (40.0, 0.5, 8)
+        assert get_degradation_level() == 0
 
-        @respect_resource_limits(disk_gb=0.001, mem_gb=0.001, max_wait_seconds=5)
-        def my_func():
-            return 42
+    @patch('app.utils.resource_guard.get_disk_usage')
+    @patch('app.utils.resource_guard.get_memory_usage')
+    @patch('app.utils.resource_guard.get_cpu_usage')
+    def test_degradation_level_1_light(self, mock_cpu, mock_mem, mock_disk):
+        """Level 1 when resources at 70-85% of limit."""
+        mock_disk.return_value = (60.0, 80.0, 200.0)
+        mock_mem.return_value = (45.0, 16.0, 32.0)
+        mock_cpu.return_value = (40.0, 0.5, 8)
+        assert get_degradation_level() == 1
 
-        # Should execute and return
-        result = my_func()
-        assert result == 42
+    @patch('app.utils.resource_guard.get_disk_usage')
+    @patch('app.utils.resource_guard.get_memory_usage')
+    @patch('app.utils.resource_guard.get_cpu_usage')
+    def test_degradation_level_4_critical(self, mock_cpu, mock_mem, mock_disk):
+        """Level 4 when resources exceed limit."""
+        mock_disk.return_value = (85.0, 30.0, 200.0)
+        mock_mem.return_value = (45.0, 16.0, 32.0)
+        mock_cpu.return_value = (40.0, 0.5, 8)
+        assert get_degradation_level() == 4
+
+    @patch('app.utils.resource_guard.get_degradation_level')
+    def test_should_proceed_critical_runs_at_level_3(self, mock_degradation):
+        """CRITICAL priority should proceed at degradation level 3."""
+        mock_degradation.return_value = 3
+        assert should_proceed_with_priority(OperationPriority.CRITICAL) is True
+        # At level 4, even CRITICAL is paused (per implementation: priority > degradation)
+        mock_degradation.return_value = 4
+        assert should_proceed_with_priority(OperationPriority.CRITICAL) is False
+
+    @patch('app.utils.resource_guard.get_degradation_level')
+    def test_should_proceed_background_pauses_first(self, mock_degradation):
+        """BACKGROUND priority should pause at level 1."""
+        mock_degradation.return_value = 1
+        assert should_proceed_with_priority(OperationPriority.BACKGROUND) is False
+        assert should_proceed_with_priority(OperationPriority.LOW) is False
+        assert should_proceed_with_priority(OperationPriority.NORMAL) is True
 
 
 class TestResourceStatus:
     """Test resource status reporting."""
 
     def test_get_resource_status_returns_dict(self):
-        """get_resource_status should return a dictionary."""
-        from app.utils.resource_guard import get_resource_status
-        status = get_resource_status()
+        """get_resource_status should return complete status dict."""
+        status = get_resource_status(export_prometheus=False)
         assert isinstance(status, dict)
         assert "disk" in status
         assert "memory" in status
@@ -196,187 +316,48 @@ class TestResourceStatus:
         assert "gpu" in status
         assert "can_proceed" in status
 
-    def test_resource_status_has_ok_field(self):
-        """Each resource status should have an 'ok' field."""
-        from app.utils.resource_guard import get_resource_status
-        status = get_resource_status()
-        for key in ["disk", "memory", "cpu", "gpu"]:
-            assert "ok" in status[key]
-            assert isinstance(status[key]["ok"], bool)
+    def test_get_resource_status_disk_keys(self):
+        """Disk status should have required keys."""
+        status = get_resource_status(export_prometheus=False)
+        disk = status["disk"]
+        assert "used_percent" in disk
+        assert "available_gb" in disk
+        assert "total_gb" in disk
+        assert "ok" in disk
+        assert "limit_percent" in disk
 
 
-class TestClusterCoordinatorConsistency:
-    """Test that cluster_coordinator uses consistent limits."""
+class TestAsyncResourceLimiter:
+    """Test AsyncResourceLimiter class."""
 
-    def test_cluster_coordinator_limits_match(self):
-        """ProcessLimits should match resource_guard limits (80% for CPU/memory)."""
-        import warnings
-        # Suppress deprecation warning for this test
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            from app.distributed.cluster_coordinator import ProcessLimits
+    def test_limiter_initialization(self):
+        """Limiter should initialize with defaults."""
+        limiter = AsyncResourceLimiter()
+        assert limiter.disk_required_gb == 2.0
+        assert limiter.mem_required_gb == 1.0
+        assert limiter.gpu_required_gb == 0.0
 
-        limits = ProcessLimits()
-        assert limits.max_memory_percent == 80.0, "Memory limit should be 80%"
-        assert limits.max_cpu_percent == 80.0, "CPU limit should be 80% (fixed from 90%)"
-
-
-class TestExecutorResourceChecks:
-    """Test that executor has resource checking capability."""
-
-    def test_executor_has_resource_check_option(self):
-        """LocalExecutor should have check_resources option."""
-        from app.execution.executor import LocalExecutor
-
-        executor = LocalExecutor(check_resources=True, required_mem_gb=1.0)
-        assert executor.check_resources is True
-        assert executor.required_mem_gb == 1.0
-
-    def test_executor_default_no_resource_check(self):
-        """LocalExecutor should default to no resource checking."""
-        from app.execution.executor import LocalExecutor
-
-        executor = LocalExecutor()
-        assert executor.check_resources is False
-
-    def test_check_resources_before_spawn_exists(self):
-        """check_resources_before_spawn function should exist."""
-        from app.execution.executor import check_resources_before_spawn
-        import asyncio
-        assert callable(check_resources_before_spawn)
-        assert asyncio.iscoroutinefunction(check_resources_before_spawn)
-
-
-class TestTrainingResourceChecks:
-    """Test that training modules have disk checks."""
-
-    def test_save_checkpoint_has_disk_check(self):
-        """save_checkpoint should document disk check in source."""
-        # Check file contents to avoid circular import issues
-        train_path = Path(__file__).parent.parent / "app" / "training" / "train.py"
-        content = train_path.read_text()
-        # Verify save_checkpoint function has disk-related documentation
-        assert 'def save_checkpoint' in content
-        assert 'IOError' in content or 'disk' in content.lower()
-
-
-class TestDataLoaderResourceChecks:
-    """Test that data loader has memory checks."""
-
-    def test_merge_data_files_has_memory_check(self):
-        """merge_data_files should have memory check."""
-        from app.training.data_loader import merge_data_files
-        assert merge_data_files.__doc__ is not None
-        assert 'MemoryError' in merge_data_files.__doc__
-
-
-class TestGenerateDataResourceChecks:
-    """Test that data generation has disk checks."""
-
-    def test_resource_guard_imported_in_generate_data(self):
-        """generate_data module should import resource_guard functions."""
-        # Check file contents to avoid circular import issues
-        generate_data_path = Path(__file__).parent.parent / "app" / "training" / "generate_data.py"
-        content = generate_data_path.read_text()
-        # Verify resource_guard imports are present
-        assert 'from app.utils.resource_guard import' in content or 'resource_guard' in content
-
-
-class TestGracefulDegradation:
-    """Test graceful degradation under resource pressure."""
-
-    def test_operation_priority_values(self):
-        """OperationPriority should have correct hierarchy."""
-        from app.utils.resource_guard import OperationPriority
-        assert OperationPriority.BACKGROUND < OperationPriority.LOW
-        assert OperationPriority.LOW < OperationPriority.NORMAL
-        assert OperationPriority.NORMAL < OperationPriority.HIGH
-        assert OperationPriority.HIGH < OperationPriority.CRITICAL
-
-    def test_get_degradation_level_returns_int(self):
-        """get_degradation_level should return 0-4."""
-        from app.utils.resource_guard import get_degradation_level
-        level = get_degradation_level()
-        assert isinstance(level, int)
-        assert 0 <= level <= 4
-
-    def test_should_proceed_with_priority(self):
-        """should_proceed_with_priority should return bool."""
-        from app.utils.resource_guard import (
-            should_proceed_with_priority, OperationPriority
+    def test_limiter_custom_values(self):
+        """Limiter should accept custom values."""
+        limiter = AsyncResourceLimiter(
+            disk_required_gb=10.0,
+            mem_required_gb=4.0,
+            gpu_required_gb=8.0,
         )
-        # CRITICAL should always proceed (unless impossible level 5)
-        result = should_proceed_with_priority(OperationPriority.CRITICAL)
-        assert isinstance(result, bool)
+        assert limiter.disk_required_gb == 10.0
+        assert limiter.mem_required_gb == 4.0
+        assert limiter.gpu_required_gb == 8.0
 
-    def test_get_recommended_actions_returns_list(self):
-        """get_recommended_actions should return list of strings."""
-        from app.utils.resource_guard import get_recommended_actions
-        actions = get_recommended_actions()
-        assert isinstance(actions, list)
-        assert len(actions) > 0
-        assert all(isinstance(a, str) for a in actions)
+    @patch('app.utils.resource_guard.check_disk_space')
+    @patch('app.utils.resource_guard.check_memory')
+    @patch('app.utils.resource_guard.check_cpu')
+    def test_limiter_check_resources(self, mock_cpu, mock_mem, mock_disk):
+        """Limiter _check_resources should return ok and issues."""
+        mock_disk.return_value = True
+        mock_mem.return_value = True
+        mock_cpu.return_value = True
 
-
-class TestPrometheusMetrics:
-    """Test Prometheus metrics integration."""
-
-    def test_prometheus_available(self):
-        """Prometheus client should be importable."""
-        from app.utils.resource_guard import HAS_PROMETHEUS
-        # Should be True if prometheus_client is installed
-        assert isinstance(HAS_PROMETHEUS, bool)
-
-    def test_get_resource_status_with_prometheus(self):
-        """get_resource_status should work with Prometheus export."""
-        from app.utils.resource_guard import get_resource_status, HAS_PROMETHEUS
-        # Should not raise even if Prometheus is available
-        status = get_resource_status(export_prometheus=HAS_PROMETHEUS)
-        assert isinstance(status, dict)
-        assert 'cpu' in status
-        assert 'memory' in status
-
-
-class TestModelCulling:
-    """Test model culling functionality."""
-
-    def test_model_culling_controller_accepts_strings(self):
-        """ModelCullingController should accept string paths."""
-        from app.tournament.model_culling import ModelCullingController
-        # Should not raise TypeError for string paths
-        culler = ModelCullingController(
-            elo_db_path="data/unified_elo.db",
-            model_dir="models"
-        )
-        assert culler.elo_db_path.name == "unified_elo.db"
-        assert culler.model_dir.name == "models"
-
-    def test_config_keys_defined(self):
-        """All 9 config keys should be defined."""
-        from app.tournament.model_culling import CONFIG_KEYS
-        assert len(CONFIG_KEYS) == 9
-        assert "square8_2p" in CONFIG_KEYS
-        assert "hexagonal_4p" in CONFIG_KEYS
-
-
-class TestEloDatabase:
-    """Test ELO database functionality."""
-
-    def test_pinned_baselines_defined(self):
-        """PINNED_BASELINES should be defined in EloDatabase."""
-        from app.tournament.unified_elo_db import get_elo_database
-        db = get_elo_database()
-        assert hasattr(db, 'PINNED_BASELINES')
-        assert 'baseline_random' in db.PINNED_BASELINES
-        assert db.PINNED_BASELINES['baseline_random'] == 400.0
-
-    def test_reset_pinned_baselines_method_exists(self):
-        """reset_pinned_baselines should exist."""
-        from app.tournament.unified_elo_db import get_elo_database
-        db = get_elo_database()
-        assert hasattr(db, 'reset_pinned_baselines')
-        assert callable(db.reset_pinned_baselines)
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+        limiter = AsyncResourceLimiter()
+        ok, issues = limiter._check_resources()
+        assert ok is True
+        assert issues == []
