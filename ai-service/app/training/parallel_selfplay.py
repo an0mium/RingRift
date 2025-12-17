@@ -40,12 +40,17 @@ class SelfplayConfig:
     board_type: BoardType = BoardType.SQUARE8
     num_players: int = 2
     max_moves: int = 10000
-    engine: str = "descent"
+    engine: str = "descent"  # "descent", "mcts", or "gumbel"
     nn_model_id: Optional[str] = None
     multi_player_values: bool = False
     max_players: int = 4
     graded_outcomes: bool = False
     history_length: int = 3
+    # Gumbel-MCTS specific settings
+    gumbel_simulations: int = 64
+    gumbel_top_k: int = 16
+    gumbel_c_visit: float = 50.0
+    gumbel_c_scale: float = 1.0
 
 
 @dataclass
@@ -94,6 +99,11 @@ def _generate_single_game(args: Tuple[int, int]) -> Optional[GameResult]:
         from app.ai.mcts_ai import MCTSAI
         from app.training.generate_data import state_to_feature_planes
 
+        # Conditionally import GumbelMCTSAI (heavy dependencies)
+        GumbelMCTSAI = None
+        if config.engine == "gumbel":
+            from app.ai.gumbel_mcts_ai import GumbelMCTSAI
+
         # Create environment
         env = RingRiftEnv(
             board_type=config.board_type,
@@ -107,6 +117,15 @@ def _generate_single_game(args: Tuple[int, int]) -> Optional[GameResult]:
                 ai_players[pn] = MCTSAI(
                     player_num=pn,
                     simulations=400,
+                    nn_model_id=config.nn_model_id,
+                )
+            elif config.engine == "gumbel":
+                ai_players[pn] = GumbelMCTSAI(
+                    player_num=pn,
+                    simulations=config.gumbel_simulations,
+                    top_k=config.gumbel_top_k,
+                    c_visit=config.gumbel_c_visit,
+                    c_scale=config.gumbel_c_scale,
                     nn_model_id=config.nn_model_id,
                 )
             else:
@@ -144,10 +163,18 @@ def _generate_single_game(args: Tuple[int, int]) -> Optional[GameResult]:
             if hasattr(ai, 'last_root_value'):
                 root_value = ai.last_root_value
 
-            # Get policy distribution
+            # Get policy distribution (soft targets for training)
             policy_indices = []
             policy_values = []
-            if hasattr(ai, 'last_root_policy') and ai.last_root_policy:
+            if config.engine == "gumbel" and hasattr(ai, 'get_search_policy'):
+                # Gumbel-MCTS: use visit-count-based soft policy targets
+                moves, probs = ai.get_search_policy()
+                for mv, prob in zip(moves, probs):
+                    if hasattr(mv, 'id'):
+                        policy_indices.append(mv.id)
+                        policy_values.append(prob)
+            elif hasattr(ai, 'last_root_policy') and ai.last_root_policy:
+                # Standard MCTS/Descent: use last_root_policy
                 for mv, prob in ai.last_root_policy.items():
                     if hasattr(mv, 'id'):
                         policy_indices.append(mv.id)
@@ -258,6 +285,11 @@ def generate_dataset_parallel(
     max_players: int = 4,
     graded_outcomes: bool = False,
     progress_callback: Optional[callable] = None,
+    # Gumbel-MCTS specific parameters
+    gumbel_simulations: int = 64,
+    gumbel_top_k: int = 16,
+    gumbel_c_visit: float = 50.0,
+    gumbel_c_scale: float = 1.0,
 ) -> int:
     """
     Generate selfplay data using parallel workers.
@@ -273,12 +305,16 @@ def generate_dataset_parallel(
         seed: Random seed for reproducibility
         max_moves: Max moves per game
         num_players: Number of players
-        engine: AI engine type ("descent" or "mcts")
+        engine: AI engine type ("descent", "mcts", or "gumbel")
         nn_model_id: Neural network model ID for AI
         multi_player_values: Include multi-player value vectors
         max_players: Max players for multi-player values
         graded_outcomes: Use graded outcomes
         progress_callback: Optional callback(completed, total) for progress
+        gumbel_simulations: Simulations per move for Gumbel-MCTS
+        gumbel_top_k: Top-k actions to consider in sequential halving
+        gumbel_c_visit: Visit count exploration constant
+        gumbel_c_scale: UCB scale factor
 
     Returns:
         Total number of samples generated
@@ -300,6 +336,10 @@ def generate_dataset_parallel(
         multi_player_values=multi_player_values,
         max_players=max_players,
         graded_outcomes=graded_outcomes,
+        gumbel_simulations=gumbel_simulations,
+        gumbel_top_k=gumbel_top_k,
+        gumbel_c_visit=gumbel_c_visit,
+        gumbel_c_scale=gumbel_c_scale,
     )
     config_dict = {
         'board_type': config.board_type,
@@ -311,6 +351,10 @@ def generate_dataset_parallel(
         'max_players': config.max_players,
         'graded_outcomes': config.graded_outcomes,
         'history_length': config.history_length,
+        'gumbel_simulations': config.gumbel_simulations,
+        'gumbel_top_k': config.gumbel_top_k,
+        'gumbel_c_visit': config.gumbel_c_visit,
+        'gumbel_c_scale': config.gumbel_c_scale,
     }
 
     # Generate game arguments

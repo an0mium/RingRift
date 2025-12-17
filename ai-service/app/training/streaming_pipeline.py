@@ -33,6 +33,7 @@ import sqlite3
 import threading
 import time
 from collections import deque, OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -305,7 +306,13 @@ def extract_samples_from_game(game: Dict[str, Any]) -> List[GameSample]:
 
 
 class StreamingDataPipeline:
-    """Main streaming data pipeline for continuous training."""
+    """Main streaming data pipeline for continuous training.
+
+    Features async DB polling with dual buffers:
+    - ThreadPoolExecutor runs DB queries without blocking async event loop
+    - Dual buffer prefetching: next query starts before current results processed
+    - Near-zero GPU idle time during database operations
+    """
 
     def __init__(
         self,
@@ -313,6 +320,7 @@ class StreamingDataPipeline:
         board_type: Optional[str] = None,
         num_players: Optional[int] = None,
         config: Optional[StreamingConfig] = None,
+        db_pool_size: int = 2,
     ):
         """
         Initialize streaming pipeline.
@@ -322,6 +330,7 @@ class StreamingDataPipeline:
             board_type: Optional filter by board type
             num_players: Optional filter by player count
             config: Pipeline configuration
+            db_pool_size: Number of threads for async DB operations
         """
         self.db_path = Path(db_path)
         self.board_type = board_type
@@ -332,6 +341,11 @@ class StreamingDataPipeline:
         self.buffer = CircularBuffer(self.config.buffer_size)
         self.poller = DatabasePoller(db_path, board_type, num_players)
 
+        # Async DB polling with ThreadPoolExecutor
+        self._db_executor = ThreadPoolExecutor(max_workers=db_pool_size, thread_name_prefix="db_poll")
+        self._prefetch_task: Optional[asyncio.Task] = None
+        self._prefetch_buffer: List[Dict[str, Any]] = []
+
         # Tracking
         self._running = False
         self._poll_task: Optional[asyncio.Task] = None
@@ -339,6 +353,7 @@ class StreamingDataPipeline:
         self._seen_hashes: OrderedDict[str, float] = OrderedDict()
         self._total_samples_ingested: int = 0
         self._total_batches_yielded: int = 0
+        self._db_queries_async: int = 0
 
     async def start(self):
         """Start the streaming pipeline."""
@@ -358,15 +373,59 @@ class StreamingDataPipeline:
                 await self._poll_task
             except asyncio.CancelledError:
                 pass
+        # Cancel any pending prefetch
+        if self._prefetch_task and not self._prefetch_task.done():
+            self._prefetch_task.cancel()
+            try:
+                await self._prefetch_task
+            except asyncio.CancelledError:
+                pass
+        # Shutdown executor
+        self._db_executor.shutdown(wait=False)
         logger.info("Stopped streaming pipeline")
 
+    async def _async_get_new_games(self, limit: int) -> List[Dict[str, Any]]:
+        """Run DB query in thread pool (non-blocking).
+
+        This allows the async event loop to continue while waiting for
+        the synchronous sqlite3 query to complete.
+        """
+        loop = asyncio.get_event_loop()
+        games = await loop.run_in_executor(
+            self._db_executor,
+            self.poller.get_new_games,
+            limit
+        )
+        self._db_queries_async += 1
+        return games
+
     async def _poll_loop(self):
-        """Background loop to poll database for new games."""
+        """Background loop to poll database for new games.
+
+        Uses dual-buffer prefetching:
+        1. Start prefetch of next batch before processing current batch
+        2. While processing current data, DB query runs in background thread
+        3. Near-zero blocking on DB operations
+        """
+        # Start initial prefetch
+        self._prefetch_task = asyncio.create_task(
+            self._async_get_new_games(self.config.max_poll_batch)
+        )
+
         while self._running:
             try:
-                # Get new games
-                new_games = self.poller.get_new_games(self.config.max_poll_batch)
+                # Wait for prefetched data
+                if self._prefetch_task:
+                    new_games = await self._prefetch_task
+                else:
+                    new_games = await self._async_get_new_games(self.config.max_poll_batch)
 
+                # Immediately start next prefetch (dual buffer)
+                self._prefetch_task = asyncio.create_task(
+                    self._async_get_new_games(self.config.max_poll_batch)
+                )
+
+                # Process current batch while next query runs in background
                 if new_games:
                     # Extract samples
                     new_samples = []
@@ -395,10 +454,12 @@ class StreamingDataPipeline:
                         self._total_samples_ingested += len(new_samples)
                         logger.debug(f"Ingested {len(new_samples)} samples, buffer size: {len(self.buffer)}")
 
+            except asyncio.CancelledError:
+                break
             except Exception as e:
                 logger.error(f"Error in poll loop: {e}")
 
-            # Wait before next poll
+            # Wait before next poll (prefetch continues in background)
             await asyncio.sleep(self.config.poll_interval_seconds)
 
     def _compute_sample_weights(self, samples: List[GameSample]) -> np.ndarray:
@@ -493,6 +554,8 @@ class StreamingDataPipeline:
             "total_batches_yielded": self._total_batches_yielded,
             "unique_hashes_tracked": len(self._seen_hashes),
             "running": self._running,
+            "db_queries_async": self._db_queries_async,
+            "prefetch_active": self._prefetch_task is not None and not self._prefetch_task.done(),
         }
 
     def update_priorities(self, updates: Dict[str, float]):

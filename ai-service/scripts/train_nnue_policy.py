@@ -259,8 +259,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--max-moves-per-position",
         type=int,
-        default=128,
-        help="Maximum legal moves to encode per position (default: 128)",
+        default=None,
+        help="Maximum legal moves to encode per position (default: auto based on board type)",
     )
 
     # Output
@@ -1145,6 +1145,20 @@ def main(argv: Optional[List[str]] = None) -> int:
         device = torch.device("cpu")
     logger.info(f"Using device: {device}")
 
+    # Auto-select max_moves_per_position based on board type
+    # Hex boards have more cells and thus more potential legal moves
+    max_moves_per_position = args.max_moves_per_position
+    if max_moves_per_position is None:
+        if board_type in (BoardType.HEXAGONAL,):
+            max_moves_per_position = 512  # ~969 cells, many moves possible
+        elif board_type in (BoardType.HEX8,):
+            max_moves_per_position = 256  # Smaller hex board
+        elif board_type in (BoardType.SQUARE19,):
+            max_moves_per_position = 384  # 361 cells
+        else:  # SQUARE8 and default
+            max_moves_per_position = 128  # 64 cells
+        logger.info(f"Auto-selected max_moves_per_position={max_moves_per_position} for {board_type.value}")
+
     # Set up output paths
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     run_dir = args.run_dir or os.path.join(PROJECT_ROOT, "runs", f"nnue_policy_{timestamp}")
@@ -1174,7 +1188,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         sample_every_n=args.sample_every_n,
         min_game_length=args.min_game_length,
         max_samples=args.max_samples,
-        max_moves_per_position=args.max_moves_per_position,
+        max_moves_per_position=max_moves_per_position,
         save_path=save_path,
         device=device,
         seed=args.seed,

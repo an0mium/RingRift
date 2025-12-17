@@ -592,6 +592,394 @@ class ShadowValidator:
 
 
 # =============================================================================
+# Async Shadow Validator (Non-blocking background validation)
+# =============================================================================
+
+
+@dataclass
+class ValidationJob:
+    """A validation job to be processed by background worker."""
+    job_type: str  # 'placement', 'movement', 'capture', 'recovery'
+    gpu_data: Any  # GPU-generated data to validate
+    game_state_snapshot: Dict[str, Any]  # Serialized game state
+    player: int
+    game_index: int
+
+
+class AsyncShadowValidator:
+    """Non-blocking shadow validator that runs validations in a background thread.
+
+    This wraps ShadowValidator to prevent GPU batch processing from being blocked
+    by CPU validation overhead. Validation jobs are queued and processed
+    asynchronously, with results aggregated for periodic reporting.
+
+    Usage:
+        async_validator = AsyncShadowValidator(sample_rate=0.05)
+        async_validator.start()
+
+        # During selfplay (non-blocking)
+        async_validator.submit_placement_validation(gpu_positions, game_state, player, game_idx)
+
+        # Get stats
+        report = async_validator.get_report()
+
+        # Cleanup
+        async_validator.stop()
+
+    Thread-safety: Safe for multiple producer threads, single consumer worker.
+    """
+
+    def __init__(
+        self,
+        sample_rate: float = DEFAULT_SAMPLE_RATE,
+        threshold: float = DEFAULT_DIVERGENCE_THRESHOLD,
+        max_queue_size: int = 1000,
+        halt_on_threshold: bool = True,
+    ):
+        """Initialize async shadow validator.
+
+        Args:
+            sample_rate: Fraction of moves to validate (0.0-1.0)
+            threshold: Maximum divergence rate before halting
+            max_queue_size: Maximum pending validation jobs
+            halt_on_threshold: If True, set error flag when threshold exceeded
+        """
+        self.sample_rate = sample_rate
+        self.threshold = threshold
+        self.max_queue_size = max_queue_size
+        self.halt_on_threshold = halt_on_threshold
+
+        # Synchronous validator for actual validation work
+        self._validator = ShadowValidator(
+            sample_rate=1.0,  # We handle sampling in submit methods
+            threshold=threshold,
+            halt_on_threshold=False,  # We handle halt differently in async mode
+        )
+
+        # Queue and worker
+        self._queue: Queue = Queue(maxsize=max_queue_size)
+        self._worker: Optional[threading.Thread] = None
+        self._running = False
+        self._lock = threading.RLock()
+
+        # Error state (set if threshold exceeded in background)
+        self._error_flag = threading.Event()
+        self._error_message: Optional[str] = None
+
+        # Stats
+        self._jobs_submitted = 0
+        self._jobs_dropped = 0  # Dropped due to full queue
+
+        self._rng = random.Random()
+
+        logger.info(
+            f"AsyncShadowValidator initialized: sample_rate={sample_rate:.1%}, "
+            f"threshold={threshold:.4%}, max_queue={max_queue_size}"
+        )
+
+    def set_seed(self, seed: int) -> None:
+        """Set random seed for reproducible sampling."""
+        self._rng.seed(seed)
+        self._validator.set_seed(seed)
+
+    def start(self) -> None:
+        """Start the background validation worker."""
+        if self._running:
+            return
+
+        self._running = True
+        self._worker = threading.Thread(target=self._validation_loop, daemon=True)
+        self._worker.start()
+        logger.info("AsyncShadowValidator worker started")
+
+    def stop(self, timeout: float = 5.0) -> None:
+        """Stop the background worker and drain queue.
+
+        Args:
+            timeout: Maximum seconds to wait for worker to finish
+        """
+        if not self._running:
+            return
+
+        self._running = False
+
+        # Signal worker to exit by putting sentinel
+        try:
+            self._queue.put_nowait(None)
+        except Full:
+            pass
+
+        if self._worker:
+            self._worker.join(timeout=timeout)
+            if self._worker.is_alive():
+                logger.warning("AsyncShadowValidator worker did not exit cleanly")
+
+        logger.info(
+            f"AsyncShadowValidator stopped. Jobs: submitted={self._jobs_submitted}, "
+            f"dropped={self._jobs_dropped}, queue_remaining={self._queue.qsize()}"
+        )
+
+    def _should_sample(self) -> bool:
+        """Determine if this move should be sampled for validation."""
+        return self._rng.random() < self.sample_rate
+
+    def _serialize_game_state(self, game_state: "GameState") -> Dict[str, Any]:
+        """Serialize game state for queue transfer (minimal data needed)."""
+        # We need to pass enough info to reconstruct validation context
+        return {
+            "move_history_len": len(game_state.move_history) if game_state.move_history else 0,
+            "current_player": game_state.current_player,
+            # Store reference - validation happens quickly enough that state is still valid
+            "_ref": game_state,
+        }
+
+    def submit_placement_validation(
+        self,
+        gpu_positions: List[Tuple[int, int]],
+        game_state: "GameState",
+        player: int,
+        game_index: int = 0,
+    ) -> bool:
+        """Submit placement move validation (non-blocking).
+
+        Args:
+            gpu_positions: List of (row, col) positions from GPU
+            game_state: CPU GameState for validation
+            player: Player whose moves to validate
+            game_index: Index in batch for logging
+
+        Returns:
+            True if job was queued, False if dropped (queue full or not sampled)
+        """
+        if not self._should_sample():
+            return False
+
+        job = ValidationJob(
+            job_type='placement',
+            gpu_data=list(gpu_positions),  # Copy to avoid mutation
+            game_state_snapshot=self._serialize_game_state(game_state),
+            player=player,
+            game_index=game_index,
+        )
+
+        return self._submit_job(job)
+
+    def submit_movement_validation(
+        self,
+        gpu_moves: List[Tuple[Tuple[int, int], Tuple[int, int]]],
+        game_state: "GameState",
+        player: int,
+        game_index: int = 0,
+    ) -> bool:
+        """Submit movement move validation (non-blocking)."""
+        if not self._should_sample():
+            return False
+
+        job = ValidationJob(
+            job_type='movement',
+            gpu_data=list(gpu_moves),
+            game_state_snapshot=self._serialize_game_state(game_state),
+            player=player,
+            game_index=game_index,
+        )
+
+        return self._submit_job(job)
+
+    def submit_capture_validation(
+        self,
+        gpu_moves: List[Tuple[Tuple[int, int], Tuple[int, int]]],
+        game_state: "GameState",
+        player: int,
+        game_index: int = 0,
+    ) -> bool:
+        """Submit capture move validation (non-blocking)."""
+        if not self._should_sample():
+            return False
+
+        job = ValidationJob(
+            job_type='capture',
+            gpu_data=list(gpu_moves),
+            game_state_snapshot=self._serialize_game_state(game_state),
+            player=player,
+            game_index=game_index,
+        )
+
+        return self._submit_job(job)
+
+    def submit_recovery_validation(
+        self,
+        gpu_moves: List[Tuple[Tuple[int, int], Tuple[int, int]]],
+        game_state: "GameState",
+        player: int,
+        game_index: int = 0,
+    ) -> bool:
+        """Submit recovery move validation (non-blocking)."""
+        if not self._should_sample():
+            return False
+
+        job = ValidationJob(
+            job_type='recovery',
+            gpu_data=list(gpu_moves),
+            game_state_snapshot=self._serialize_game_state(game_state),
+            player=player,
+            game_index=game_index,
+        )
+
+        return self._submit_job(job)
+
+    def _submit_job(self, job: ValidationJob) -> bool:
+        """Submit job to queue (non-blocking)."""
+        try:
+            self._queue.put_nowait(job)
+            with self._lock:
+                self._jobs_submitted += 1
+            return True
+        except Full:
+            with self._lock:
+                self._jobs_dropped += 1
+            return False
+
+    def _validation_loop(self) -> None:
+        """Background worker loop that processes validation jobs."""
+        while self._running:
+            try:
+                job = self._queue.get(timeout=0.1)
+
+                if job is None:
+                    # Sentinel value - exit
+                    break
+
+                self._process_job(job)
+
+            except Empty:
+                continue
+            except Exception as e:
+                logger.error(f"Error in async validation worker: {e}")
+
+        # Drain remaining jobs on shutdown
+        while not self._queue.empty():
+            try:
+                job = self._queue.get_nowait()
+                if job is not None:
+                    self._process_job(job)
+            except Empty:
+                break
+
+    def _process_job(self, job: ValidationJob) -> None:
+        """Process a single validation job."""
+        try:
+            game_state = job.game_state_snapshot.get('_ref')
+            if game_state is None:
+                return
+
+            if job.job_type == 'placement':
+                self._validator.validate_placement_moves(
+                    job.gpu_data, game_state, job.player
+                )
+            elif job.job_type == 'movement':
+                self._validator.validate_movement_moves(
+                    job.gpu_data, game_state, job.player
+                )
+            elif job.job_type == 'capture':
+                self._validator.validate_capture_moves(
+                    job.gpu_data, game_state, job.player
+                )
+            elif job.job_type == 'recovery':
+                self._validator.validate_recovery_moves(
+                    job.gpu_data, game_state, job.player
+                )
+
+            # Check threshold
+            if self.halt_on_threshold and self._validator.stats.divergence_rate > self.threshold:
+                self._error_flag.set()
+                self._error_message = (
+                    f"GPU divergence rate {self._validator.stats.divergence_rate:.4%} exceeds "
+                    f"threshold {self.threshold:.4%}"
+                )
+
+        except Exception as e:
+            logger.error(f"Error processing validation job: {e}")
+
+    def check_error(self) -> bool:
+        """Check if threshold error has been triggered.
+
+        Returns:
+            True if error occurred (threshold exceeded)
+        """
+        return self._error_flag.is_set()
+
+    def get_error_message(self) -> Optional[str]:
+        """Get error message if threshold exceeded."""
+        return self._error_message
+
+    def raise_if_error(self) -> None:
+        """Raise exception if threshold has been exceeded.
+
+        Use this at safe checkpoints (e.g., between batches) to halt training.
+        """
+        if self._error_flag.is_set() and self._error_message:
+            raise RuntimeError(self._error_message)
+
+    @property
+    def stats(self) -> ValidationStats:
+        """Get underlying validation statistics."""
+        return self._validator.stats
+
+    def get_report(self) -> Dict[str, Any]:
+        """Get a detailed validation report including async stats."""
+        report = self._validator.get_report()
+        report.update({
+            "async_stats": {
+                "jobs_submitted": self._jobs_submitted,
+                "jobs_dropped": self._jobs_dropped,
+                "queue_size": self._queue.qsize(),
+                "worker_running": self._running,
+                "error_flag": self._error_flag.is_set(),
+            }
+        })
+        return report
+
+    def reset_stats(self) -> None:
+        """Reset all validation statistics."""
+        self._validator.reset_stats()
+        self._error_flag.clear()
+        self._error_message = None
+        with self._lock:
+            self._jobs_submitted = 0
+            self._jobs_dropped = 0
+        logger.info("AsyncShadowValidator stats reset")
+
+
+def create_async_shadow_validator(
+    sample_rate: Optional[float] = None,
+    threshold: Optional[float] = None,
+    enabled: bool = True,
+    max_queue_size: int = 1000,
+) -> Optional[AsyncShadowValidator]:
+    """Create an async shadow validator for non-blocking validation.
+
+    Args:
+        sample_rate: Override default sample rate
+        threshold: Override default threshold
+        enabled: If False, returns None (disabled validation)
+        max_queue_size: Maximum pending validation jobs
+
+    Returns:
+        AsyncShadowValidator if enabled, None otherwise
+    """
+    if not enabled:
+        return None
+
+    validator = AsyncShadowValidator(
+        sample_rate=sample_rate or DEFAULT_SAMPLE_RATE,
+        threshold=threshold or DEFAULT_DIVERGENCE_THRESHOLD,
+        max_queue_size=max_queue_size,
+    )
+    validator.start()
+    return validator
+
+
+# =============================================================================
 # Convenience Functions
 # =============================================================================
 
