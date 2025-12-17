@@ -61,30 +61,22 @@ from app.training.elo_service import (
 
 ### 2. Direct SQLite ELO Access in `unified_ai_loop.py`
 
-**Status**: Technical debt (should use EloService)
+**Status**: ✅ COMPLETE (Dec 2025)
 
-**Current Code** (lines 1531, 1673, 2235):
-
-```python
-# Direct SQLite access - needs refactoring
-conn = sqlite3.connect(elo_db_path)
-cursor.execute("SELECT ... FROM elo_ratings ...")
-```
-
-**Migration Path**:
+All Elo database access in `unified_ai_loop.py` now uses the centralized `EloService`:
 
 ```python
-# Use EloService instead
-if HAS_ELO_SERVICE:
-    elo = get_elo_service()
-    leaderboard = elo.get_leaderboard(board_type, num_players)
+# Current implementation uses EloService throughout
+if get_elo_service is not None:
+    elo_svc = get_elo_service()
+    rows = elo_svc.execute_query("SELECT ... FROM elo_ratings ...")
 ```
 
-**Affected Locations**:
+**Migrated Locations**:
 
-- `ModelPromoter` class (line ~1515)
-- `AdaptiveCurriculum` class (line ~1653)
-- `UnifiedAILoop._export_prometheus_metrics()` (line ~2234)
+- Priority scheduler model count query (line ~1555)
+- Prometheus metrics export (line ~2996)
+- All other Elo operations delegate to external components that use EloService
 
 ### 3. Multiple Tournament Scripts
 
@@ -99,32 +91,60 @@ if HAS_ELO_SERVICE:
 
 ## Pending Refactoring Tasks
 
-### Priority 1: Complete EloService Migration
+### Priority 1: Complete EloService Migration ✅ COMPLETE
 
-1. Update `unified_ai_loop.py` to use `get_elo_service()` instead of direct SQLite
-2. Update `ModelPromoter._check_promotion_candidates()` to use `EloService.get_leaderboard()`
-3. Update `AdaptiveCurriculum._recompute_weights()` to use EloService
+All EloService migration tasks have been completed:
 
-### Priority 2: Consolidate Tournament Scripts
+1. ✅ `unified_ai_loop.py` uses `get_elo_service()` for all Elo database access
+2. ✅ Model promotion and curriculum components use EloService or delegate to services that do
+3. ✅ `elo_service.py` updated to use new `app.coordination` module (Dec 2025)
 
-1. Analyze overlap between `distributed_tournament.py` and `run_diverse_tournaments.py`
-2. Create unified tournament interface if significant overlap exists
-3. Update orchestrators to use consolidated interface
+### Priority 2: Consolidate Tournament Scripts ✅ ANALYZED - NO CONSOLIDATION NEEDED
 
-### Priority 3: Data Event Integration
+**Analysis Result (Dec 2025):** These scripts should remain separate as they serve orthogonal purposes:
 
-The `app/distributed/data_events.py` module provides event emission for:
+| Script                          | Purpose                                                 | Execution Model                      |
+| ------------------------------- | ------------------------------------------------------- | ------------------------------------ |
+| `run_distributed_tournament.py` | Tier-based AI strength evaluation (D1-D10), Elo ratings | ThreadPoolExecutor, in-process games |
+| `run_diverse_tournaments.py`    | Board/player config sampling for training data          | AsyncIO + subprocess orchestration   |
 
-- `emit_game_generated()` - Game data available
-- `emit_training_started()` / `emit_training_completed()` - Training lifecycle
-- `emit_elo_updated()` - ELO changes
-- `emit_model_promoted()` - Model deployment
+**Key Differences:**
 
-Currently only partially integrated. Full integration would enable:
+- Different data models (MatchResult/TierStats vs ClusterHost/TournamentConfig)
+- Different outputs (Elo ratings vs training samples)
+- Different scheduling needs (discrete tiers vs exhaustive configs)
 
-- Real-time dashboard updates
-- Cross-node event propagation
-- Automated alerting
+**Recommendations:**
+
+1. Keep scripts separate
+2. Consider extracting shared utilities (cluster host management, SSH) to common library
+3. `run_diverse_tournaments.py` is already integrated into `unified_ai_loop.py`
+
+### Priority 3: Data Event Integration ✅ CORE COMPLETE
+
+**Current Status (Dec 2025):** Core event infrastructure is fully integrated.
+
+**Implemented:**
+
+- `app/distributed/data_events.py` - Full event type definitions (DataEventType enum with 25+ event types)
+- `app/distributed/event_helpers.py` - Safe wrappers (`emit_*_safe()` functions)
+- `unified_ai_loop.py` - Has its own EventBus + StageEventBus integration
+- 12+ scripts import and use the event system
+
+**Event Types Available:**
+
+- Data: `NEW_GAMES_AVAILABLE`, `DATA_SYNC_*`
+- Training: `TRAINING_STARTED`, `TRAINING_COMPLETED`, `TRAINING_FAILED`
+- Evaluation: `EVALUATION_*`, `ELO_UPDATED`
+- Promotion: `MODEL_PROMOTED`, `PROMOTION_*`
+- Curriculum: `CURRICULUM_REBALANCED`, `WEIGHT_UPDATED`
+- System: `DAEMON_*`, `HOST_ONLINE/OFFLINE`, `ERROR`
+
+**Future Enhancements (not blocking):**
+
+- Real-time dashboard updates (requires WebSocket/SSE infrastructure)
+- Cross-node event propagation (requires distributed pub/sub)
+- Automated alerting (requires integration with Prometheus/PagerDuty)
 
 ## Architecture After Migration
 

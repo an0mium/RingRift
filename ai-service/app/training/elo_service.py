@@ -48,14 +48,22 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ELO_DB_PATH = AI_SERVICE_ROOT / "data" / "unified_elo.db"
 
-# Import cluster coordination for single-writer enforcement
+# Import coordination for single-writer enforcement
+# Using the new coordination module (cluster_coordinator is deprecated)
 try:
-    from app.distributed.cluster_coordinator import ClusterCoordinator, TaskRole
-    HAS_COORDINATION = True
+    from app.coordination.helpers import (
+        has_coordination as _has_coordination,
+        has_role,
+        get_role_holder,
+        get_orchestrator_roles,
+    )
+    HAS_COORDINATION = _has_coordination()
+    OrchestratorRole = get_orchestrator_roles()
 except ImportError:
     HAS_COORDINATION = False
-    ClusterCoordinator = None
-    TaskRole = None
+    OrchestratorRole = None
+    has_role = None
+    get_role_holder = None
 
 # Singleton instance
 _elo_service_instance: Optional["EloService"] = None
@@ -155,9 +163,6 @@ class EloService:
         self._local = threading.local()
         self._feedback_callbacks: List[Callable[[TrainingFeedback], None]] = []
         self._enforce_single_writer = enforce_single_writer and HAS_COORDINATION
-        self._coordinator: Optional[ClusterCoordinator] = None
-        if self._enforce_single_writer:
-            self._coordinator = ClusterCoordinator()
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -179,13 +184,13 @@ class EloService:
             is_write: If True, check single-writer enforcement before proceeding
         """
         # Check single-writer enforcement for write operations
-        if is_write and self._enforce_single_writer and self._coordinator:
+        if is_write and self._enforce_single_writer and OrchestratorRole is not None:
             # Check if tournament role is held (tournaments write to Elo DB)
-            if self._coordinator.is_role_held(TaskRole.TOURNAMENT):
-                holder_pid = self._coordinator.get_role_holder_pid(TaskRole.TOURNAMENT)
-                if holder_pid != os.getpid():
+            if has_role is not None and has_role(OrchestratorRole.TOURNAMENT_RUNNER):
+                holder_info = get_role_holder(OrchestratorRole.TOURNAMENT_RUNNER) if get_role_holder else None
+                if holder_info and hasattr(holder_info, 'pid') and holder_info.pid != os.getpid():
                     raise RuntimeError(
-                        f"Elo write blocked: TOURNAMENT role held by PID {holder_pid}. "
+                        f"Elo write blocked: TOURNAMENT_RUNNER role held by PID {holder_info.pid}. "
                         "Only one process should write to Elo DB at a time."
                     )
 
@@ -206,14 +211,15 @@ class EloService:
         if not self._enforce_single_writer:
             return True, "Single-writer enforcement disabled"
 
-        if not self._coordinator:
+        if OrchestratorRole is None or has_role is None:
             return True, "No coordinator available"
 
-        if self._coordinator.is_role_held(TaskRole.TOURNAMENT):
-            holder_pid = self._coordinator.get_role_holder_pid(TaskRole.TOURNAMENT)
-            if holder_pid == os.getpid():
-                return True, "This process holds TOURNAMENT role"
-            return False, f"TOURNAMENT role held by PID {holder_pid}"
+        if has_role(OrchestratorRole.TOURNAMENT_RUNNER):
+            holder_info = get_role_holder(OrchestratorRole.TOURNAMENT_RUNNER) if get_role_holder else None
+            if holder_info and hasattr(holder_info, 'pid'):
+                if holder_info.pid == os.getpid():
+                    return True, "This process holds TOURNAMENT_RUNNER role"
+                return False, f"TOURNAMENT_RUNNER role held by PID {holder_info.pid}"
 
         return True, "No conflicting role held"
 

@@ -436,7 +436,10 @@ def test_get_valid_moves_territory_processing_pre_elimination(
         assert m.to in region.spaces
 
 
-@pytest.mark.skip(reason="Territory processing elimination surface changed - needs parity verification")
+@pytest.mark.skip(
+    reason="TERRITORY_PROCESSING behavior changed: no moves surfaced when no regions exist. "
+    "Needs clarification: should self-elimination be available without disconnected regions?"
+)
 def test_get_valid_moves_territory_processing_self_elimination_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -445,6 +448,10 @@ def test_get_valid_moves_territory_processing_self_elimination_only(
     When no disconnected regions are eligible but the player controls stacks,
     TERRITORY_PROCESSING get_valid_moves must surface only
     ELIMINATE_RINGS_FROM_STACK decisions, one per candidate stack.
+
+    Note: Current behavior returns empty moves list when no regions exist.
+    This may be intentional if the rules specify that self-elimination
+    only occurs as part of territory region processing.
     """
     state = create_base_state(BoardType.SQUARE8)
     board = state.board

@@ -67,13 +67,16 @@ from .game_collector import (
     deserialize_game_data,
     write_games_to_db,
 )
-from .cluster_coordinator import (
-    ClusterCoordinator,
-    TaskRole,
-    ProcessLimits,
-    TaskInfo,
-    check_and_abort_if_role_held,
-)
+# Deprecated: cluster_coordinator imports are now lazy to avoid warnings on every import
+# Use app.coordination.task_coordinator and app.coordination.orchestrator_registry instead
+# These symbols are still available for backward compatibility via __getattr__
+_CLUSTER_COORDINATOR_SYMBOLS = {
+    "ClusterCoordinator",
+    "TaskRole",
+    "ProcessLimits",
+    "TaskInfo",
+    "check_and_abort_if_role_held",
+}
 from .db_utils import (
     atomic_write,
     safe_transaction,
@@ -276,4 +279,35 @@ __all__ = [
     "rsync_file",
     "rsync_directory",
     "rsync_push_file",
+    # Deprecated cluster coordination (lazy loaded)
+    "ClusterCoordinator",
+    "TaskRole",
+    "ProcessLimits",
+    "TaskInfo",
+    "check_and_abort_if_role_held",
 ]
+
+
+def __getattr__(name: str):
+    """Lazy loading for deprecated cluster_coordinator symbols.
+
+    This avoids triggering deprecation warnings on every import of app.distributed.
+    The warning only fires when someone actually accesses these deprecated symbols.
+    """
+    if name in _CLUSTER_COORDINATOR_SYMBOLS:
+        from .cluster_coordinator import (
+            ClusterCoordinator,
+            TaskRole,
+            ProcessLimits,
+            TaskInfo,
+            check_and_abort_if_role_held,
+        )
+        symbols = {
+            "ClusterCoordinator": ClusterCoordinator,
+            "TaskRole": TaskRole,
+            "ProcessLimits": ProcessLimits,
+            "TaskInfo": TaskInfo,
+            "check_and_abort_if_role_held": check_and_abort_if_role_held,
+        }
+        return symbols[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
