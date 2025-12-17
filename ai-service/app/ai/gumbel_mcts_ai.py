@@ -142,6 +142,9 @@ class GumbelMCTSAI(BaseAI):
         self.simulation_budget = config.gumbel_simulation_budget or 150
         self.c_puct = 1.5  # Exploration constant for tree policy
 
+        # Store search results for training data extraction
+        self._last_search_actions: Optional[List[GumbelAction]] = None
+
         # Load neural network (required for Gumbel MCTS)
         self.neural_net: Optional[NeuralNetAI] = None
         try:
@@ -210,10 +213,16 @@ class GumbelMCTSAI(BaseAI):
         actions = self._gumbel_top_k_sample(valid_moves, policy_logits)
 
         if len(actions) == 1:
+            # Single action - store it with full visit count
+            actions[0].visit_count = 1
+            self._last_search_actions = actions
             return actions[0].move
 
         # Step 2: Sequential Halving
         best_action = self._sequential_halving(game_state, actions)
+
+        # Store all actions with their visit counts for training data extraction
+        self._last_search_actions = actions
 
         return best_action.move
 
@@ -578,6 +587,39 @@ class GumbelMCTSAI(BaseAI):
         """
         super().reset_for_new_game(rng_seed=rng_seed)
         # No persistent tree to reset in Gumbel MCTS (tree is built fresh each move)
+
+    def get_visit_distribution(self) -> Tuple[List[Move], List[float]]:
+        """Extract normalized visit count distribution from the last search.
+
+        Returns a tuple of (moves, visit_probabilities) representing the
+        Gumbel MCTS policy based on visit counts from Sequential Halving.
+        This can be used as soft policy targets during training.
+
+        Returns:
+            Tuple of (list of moves, list of visit probabilities) where
+            probabilities sum to 1.0. Returns ([], []) if no search has
+            been performed.
+        """
+        if self._last_search_actions is None or not self._last_search_actions:
+            return [], []
+
+        # Filter actions with non-zero visits
+        visited_actions = [a for a in self._last_search_actions if a.visit_count > 0]
+        if not visited_actions:
+            return [], []
+
+        total_visits = sum(a.visit_count for a in visited_actions)
+        if total_visits == 0:
+            return [], []
+
+        moves: List[Move] = []
+        probs: List[float] = []
+
+        for action in visited_actions:
+            moves.append(action.move)
+            probs.append(action.visit_count / total_visits)
+
+        return moves, probs
 
     def __repr__(self) -> str:
         """String representation."""

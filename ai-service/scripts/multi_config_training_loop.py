@@ -1028,13 +1028,22 @@ def run_policy_training(board_type: str, num_players: int, db_paths: List[str],
     for db_path in db_paths:
         train_cmd.extend(["--db", db_path])
 
+    # Add JSONL sources (for MCTS policy data)
+    for jsonl_path in jsonl_paths:
+        train_cmd.extend(["--jsonl", jsonl_path])
+
     # Add auto KL loss flags
     if POLICY_AUTO_KL_LOSS:
         train_cmd.append("--auto-kl-loss")
         train_cmd.extend(["--kl-min-coverage", str(POLICY_KL_MIN_COVERAGE)])
         train_cmd.extend(["--kl-min-samples", str(POLICY_KL_MIN_SAMPLES)])
 
-    print(f"[{ts}] Policy training {short} with auto-KL (coverage>={POLICY_KL_MIN_COVERAGE:.0%})...", flush=True)
+    sources = []
+    if db_paths:
+        sources.append(f"{len(db_paths)} DB(s)")
+    if jsonl_paths:
+        sources.append(f"{len(jsonl_paths)} JSONL(s)")
+    print(f"[{ts}] Policy training {short} from {' + '.join(sources)} with auto-KL (coverage>={POLICY_KL_MIN_COVERAGE:.0%})...", flush=True)
 
     try:
         r = subprocess.run(train_cmd, capture_output=True, text=True, timeout=1200, env=env)
@@ -1168,7 +1177,7 @@ def main():
                 run_training(board_type, num_players, db_paths, jsonl_paths, total_count, iteration)
 
                 # Run policy training with auto KL loss if enabled
-                if ENABLE_POLICY_TRAINING and db_paths:
+                if ENABLE_POLICY_TRAINING and (db_paths or jsonl_paths):
                     run_policy_training(board_type, num_players, db_paths, jsonl_paths, total_count, iteration)
 
             time.sleep(60)

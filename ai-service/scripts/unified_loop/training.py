@@ -854,7 +854,8 @@ class TrainingScheduler:
             nnue_policy_process = None
             if hasattr(self.config, 'nnue_policy_script'):
                 nnue_policy_process = await self._start_nnue_policy_training(
-                    board_type, num_players, largest_db, epochs, run_dir
+                    board_type, num_players, largest_db, epochs, run_dir,
+                    jsonl_path=jsonl_path if has_jsonl_data else None
                 )
             self._training_process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -878,11 +879,12 @@ class TrainingScheduler:
         db_path: Path,
         epochs: int,
         run_dir: Path,
+        jsonl_path: Optional[Path] = None,
     ) -> Optional[asyncio.subprocess.Process]:
         """Start NNUE policy training with advanced optimizations.
 
         Uses the new training features: SWA, EMA, progressive batching,
-        focal loss, and D6 hex augmentation.
+        focal loss, auto-KL loss detection, and D6 hex augmentation.
         """
         try:
             nnue_run_dir = run_dir / "nnue_policy"
@@ -900,6 +902,17 @@ class TrainingScheduler:
                 "--lr-scheduler", "cosine_warmup",
                 "--grad-clip", "1.0",
             ]
+
+            # Add JSONL source for MCTS policy data
+            if jsonl_path and jsonl_path.exists():
+                cmd.extend(["--jsonl", str(jsonl_path)])
+
+            # Auto-KL loss detection (uses MCTS visit distributions when available)
+            cmd.extend([
+                "--auto-kl-loss",
+                "--kl-min-coverage", "0.3",
+                "--kl-min-samples", "50",
+            ])
 
             # Mixed precision (AMP)
             if self.config.use_mixed_precision:
@@ -935,10 +948,12 @@ class TrainingScheduler:
             # Save learning curves
             cmd.append("--save-curves")
 
+            jsonl_status = f"JSONL: {jsonl_path.name}" if jsonl_path and jsonl_path.exists() else "JSONL: None"
             print(f"[Training] Starting NNUE policy training with advanced optimizations...")
             print(f"[Training]   SWA: {getattr(self.config, 'use_swa', True)}, "
                   f"EMA: {getattr(self.config, 'use_ema', True)}, "
                   f"Progressive batch: {getattr(self.config, 'use_progressive_batch', True)}")
+            print(f"[Training]   Auto-KL: True (min_coverage=30%, min_samples=50), {jsonl_status}")
 
             env = os.environ.copy()
             env["PYTHONPATH"] = str(AI_SERVICE_ROOT)

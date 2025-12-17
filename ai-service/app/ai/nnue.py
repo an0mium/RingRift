@@ -117,6 +117,98 @@ class ClippedReLU(nn.Module):
         return torch.clamp(x, 0.0, 1.0)
 
 
+class StochasticDepthLayer(nn.Module):
+    """Stochastic Depth: randomly skip layers during training.
+
+    Implements 'Deep Networks with Stochastic Depth' (Huang et al., 2016).
+    During training, the layer is skipped with probability p, and during
+    inference it's always applied with scaled output.
+
+    Args:
+        p: Drop probability (0=never skip, 1=always skip)
+        mode: "row" for per-sample dropping, "batch" for entire batch
+    """
+
+    def __init__(self, p: float = 0.1, mode: str = "batch"):
+        super().__init__()
+        self.p = p
+        self.mode = mode
+
+    def forward(self, x: torch.Tensor, residual: torch.Tensor) -> torch.Tensor:
+        """Apply stochastic depth to residual connection.
+
+        Args:
+            x: Input tensor (skip connection)
+            residual: Output from the dropped layer
+
+        Returns:
+            x + scaled_residual (or just x if dropped)
+        """
+        if not self.training or self.p == 0.0:
+            # During inference, apply with survival probability scaling
+            return x + residual
+
+        survival_prob = 1.0 - self.p
+
+        if self.mode == "row":
+            # Per-sample dropping: different samples may be dropped
+            mask = torch.empty(x.shape[0], 1, device=x.device).bernoulli_(survival_prob)
+            return x + residual * mask / survival_prob
+        else:
+            # Batch dropping: entire batch is dropped or not
+            if torch.rand(1, device=x.device).item() < self.p:
+                return x
+            return x + residual / survival_prob
+
+
+class ResidualBlock(nn.Module):
+    """Residual block with optional stochastic depth.
+
+    A basic residual block with skip connection and optional stochastic depth
+    for regularization during training.
+    """
+
+    def __init__(
+        self,
+        in_dim: int,
+        out_dim: int,
+        use_spectral_norm: bool = False,
+        stochastic_depth_prob: float = 0.0,
+    ):
+        super().__init__()
+
+        def maybe_spectral_norm(layer: nn.Linear) -> nn.Linear:
+            if use_spectral_norm:
+                return nn.utils.spectral_norm(layer)
+            return layer
+
+        self.fc = maybe_spectral_norm(nn.Linear(in_dim, out_dim))
+        self.activation = ClippedReLU()
+
+        # Optional stochastic depth
+        self.stochastic_depth = None
+        if stochastic_depth_prob > 0:
+            self.stochastic_depth = StochasticDepthLayer(p=stochastic_depth_prob)
+
+        # Projection for dimension mismatch
+        self.projection = None
+        if in_dim != out_dim:
+            self.projection = maybe_spectral_norm(nn.Linear(in_dim, out_dim))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        residual = self.activation(self.fc(x))
+
+        # Project input if dimensions don't match
+        if self.projection is not None:
+            x = self.projection(x)
+
+        # Apply stochastic depth if enabled
+        if self.stochastic_depth is not None:
+            return self.stochastic_depth(x, residual)
+
+        return x + residual
+
+
 class RingRiftNNUE(nn.Module):
     """NNUE-style evaluation network for RingRift Minimax search.
 
@@ -130,7 +222,7 @@ class RingRiftNNUE(nn.Module):
     to enable fast inference without GPU.
     """
 
-    ARCHITECTURE_VERSION = "v1.2.0"
+    ARCHITECTURE_VERSION = "v1.3.0"  # Added stochastic depth support
 
     def __init__(
         self,
@@ -140,12 +232,14 @@ class RingRiftNNUE(nn.Module):
         use_spectral_norm: bool = False,
         use_batch_norm: bool = False,
         num_heads: int = 1,
+        stochastic_depth_prob: float = 0.0,
     ):
         super().__init__()
         self.board_type = board_type
         self.use_spectral_norm = use_spectral_norm
         self.use_batch_norm = use_batch_norm
         self.num_heads = num_heads
+        self.stochastic_depth_prob = stochastic_depth_prob
         input_dim = get_feature_dim(board_type)
 
         # Helper to optionally apply spectral normalization
@@ -174,16 +268,27 @@ class RingRiftNNUE(nn.Module):
         # Optional batch normalization after accumulator
         self.acc_batch_norm = nn.BatchNorm1d(acc_output_dim) if use_batch_norm else None
 
-        # Hidden layers with ClippedReLU
-        layers = []
+        # Hidden layers with ClippedReLU and optional stochastic depth
+        # Use progressive drop rate: earlier layers have lower drop rate
+        self.hidden_blocks = nn.ModuleList()
         current_dim = acc_output_dim * 2  # Concatenate player perspectives
+
         for i in range(num_hidden_layers):
-            out_dim = 32 if i < num_hidden_layers - 1 else 32
-            layers.append(maybe_spectral_norm(nn.Linear(current_dim, out_dim)))
-            layers.append(ClippedReLU())
+            out_dim = 32
+            # Progressive drop rate: increases for deeper layers
+            layer_drop_prob = stochastic_depth_prob * (i + 1) / num_hidden_layers if stochastic_depth_prob > 0 else 0.0
+
+            block = ResidualBlock(
+                in_dim=current_dim,
+                out_dim=out_dim,
+                use_spectral_norm=use_spectral_norm,
+                stochastic_depth_prob=layer_drop_prob,
+            )
+            self.hidden_blocks.append(block)
             current_dim = out_dim
 
-        self.hidden = nn.Sequential(*layers)
+        # Legacy hidden attribute for backwards compatibility
+        self.hidden = None  # Now using hidden_blocks
 
         # Output layer: single scalar value
         self.output = maybe_spectral_norm(nn.Linear(32, 1))
@@ -221,8 +326,13 @@ class RingRiftNNUE(nn.Module):
         # In full NNUE, we'd have separate accumulators for each player view
         x = torch.cat([acc, acc], dim=-1)
 
-        # Hidden layers
-        x = self.hidden(x)
+        # Hidden layers with residual blocks (optional stochastic depth)
+        if self.hidden_blocks:
+            for block in self.hidden_blocks:
+                x = block(x)
+        elif self.hidden is not None:
+            # Legacy path for backwards compatibility
+            x = self.hidden(x)
 
         # Output with tanh for [-1, 1] range
         return torch.tanh(self.output(x))

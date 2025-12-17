@@ -27,22 +27,66 @@ The 12 D6 transformations are:
 import numpy as np
 from typing import List, Tuple, Optional
 
-# Hex board constants (match neural_net.py)
-HEX_BOARD_SIZE = 25
-HEX_RADIUS = 12
-
-# Number of hex directions for movement encoding
+# Number of hex directions for movement encoding (constant across all hex sizes)
 NUM_HEX_DIRS = 6
-HEX_MAX_DIST = 24
 
-# Policy layout constants (from neural_net.py)
-HEX_PLACEMENT_SPAN = HEX_BOARD_SIZE * HEX_BOARD_SIZE * 3  # 1875
-HEX_MOVEMENT_BASE = HEX_PLACEMENT_SPAN
-HEX_MOVEMENT_SPAN = (
-    HEX_BOARD_SIZE * HEX_BOARD_SIZE * NUM_HEX_DIRS * HEX_MAX_DIST
-)  # 90000
-HEX_SPECIAL_BASE = HEX_MOVEMENT_BASE + HEX_MOVEMENT_SPAN  # 91875
-P_HEX = HEX_SPECIAL_BASE + 1  # 91876
+# Default hex board constants for 25x25 (radius-12) boards
+DEFAULT_HEX_BOARD_SIZE = 25
+DEFAULT_HEX_RADIUS = 12
+DEFAULT_HEX_MAX_DIST = 24
+
+# Hex8 constants (9x9, radius-4 boards)
+HEX8_BOARD_SIZE = 9
+HEX8_RADIUS = 4
+HEX8_MAX_DIST = 8
+
+
+def get_hex_policy_layout(board_size: int) -> dict:
+    """
+    Compute policy layout constants for a given hex board size.
+
+    Args:
+        board_size: The bounding box size (e.g., 25 for hex25, 9 for hex8)
+
+    Returns:
+        Dictionary with layout constants:
+        - placement_span: Size of placement action space
+        - movement_base: Start index of movement actions
+        - movement_span: Size of movement action space
+        - special_base: Start index of special actions
+        - policy_size: Total policy vector size
+        - max_dist: Maximum movement distance
+    """
+    radius = (board_size - 1) // 2
+    max_dist = 2 * radius  # Maximum distance = diameter
+
+    placement_span = board_size * board_size * 3
+    movement_base = placement_span
+    movement_span = board_size * board_size * NUM_HEX_DIRS * max_dist
+    special_base = movement_base + movement_span
+    policy_size = special_base + 1
+
+    return {
+        "placement_span": placement_span,
+        "movement_base": movement_base,
+        "movement_span": movement_span,
+        "special_base": special_base,
+        "policy_size": policy_size,
+        "max_dist": max_dist,
+        "radius": radius,
+    }
+
+
+# Legacy module-level constants for backwards compatibility (hex25)
+HEX_BOARD_SIZE = DEFAULT_HEX_BOARD_SIZE
+HEX_RADIUS = DEFAULT_HEX_RADIUS
+HEX_MAX_DIST = DEFAULT_HEX_MAX_DIST
+_HEX25_LAYOUT = get_hex_policy_layout(DEFAULT_HEX_BOARD_SIZE)
+HEX_PLACEMENT_SPAN = _HEX25_LAYOUT["placement_span"]  # 1875
+HEX_MOVEMENT_BASE = _HEX25_LAYOUT["movement_base"]
+HEX_MOVEMENT_SPAN = _HEX25_LAYOUT["movement_span"]  # 90000
+HEX_SPECIAL_BASE = _HEX25_LAYOUT["special_base"]  # 91875
+P_HEX = _HEX25_LAYOUT["policy_size"]  # 91876
 
 # Hex directions in canonical (dq, dr) form (matching neural_net.HEX_DIRS)
 HEX_DIRS = [
@@ -67,9 +111,18 @@ class HexSymmetryTransform:
     For rotations, the inverse of R^k is R^(6-k).
     """
 
-    def __init__(self, board_size: int = HEX_BOARD_SIZE):
+    def __init__(self, board_size: int = DEFAULT_HEX_BOARD_SIZE):
         self.board_size = board_size
         self.radius = (board_size - 1) // 2  # For 25x25, radius = 12
+
+        # Compute policy layout for this board size
+        layout = get_hex_policy_layout(board_size)
+        self.placement_span = layout["placement_span"]
+        self.movement_base = layout["movement_base"]
+        self.movement_span = layout["movement_span"]
+        self.special_base = layout["special_base"]
+        self.policy_size = layout["policy_size"]
+        self.max_dist = layout["max_dist"]
 
         # Precompute transformation index mappings for efficiency
         self._build_index_maps()
@@ -248,7 +301,7 @@ class HexSymmetryTransform:
         Transform a policy probability/logit vector.
 
         Args:
-            policy: Policy vector of length P_HEX (91876)
+            policy: Policy vector of length policy_size
             transform_id: Transformation index 0-11
 
         Returns:
@@ -259,21 +312,21 @@ class HexSymmetryTransform:
 
         output = np.zeros_like(policy)
 
-        # Transform placement indices (0 to HEX_PLACEMENT_SPAN-1)
-        for idx in range(HEX_PLACEMENT_SPAN):
+        # Transform placement indices (0 to placement_span-1)
+        for idx in range(self.placement_span):
             new_idx = self._transform_placement_index(idx, transform_id)
-            if 0 <= new_idx < HEX_PLACEMENT_SPAN:
+            if 0 <= new_idx < self.placement_span:
                 output[new_idx] = policy[idx]
 
-        # Transform movement indices (HEX_MOVEMENT_BASE to HEX_SPECIAL_BASE-1)
-        for idx in range(HEX_MOVEMENT_BASE, HEX_SPECIAL_BASE):
+        # Transform movement indices (movement_base to special_base-1)
+        for idx in range(self.movement_base, self.special_base):
             new_idx = self._transform_movement_index(idx, transform_id)
-            if HEX_MOVEMENT_BASE <= new_idx < HEX_SPECIAL_BASE:
+            if self.movement_base <= new_idx < self.special_base:
                 output[new_idx] = policy[idx]
 
         # Special index (skip) is unchanged
-        if len(policy) > HEX_SPECIAL_BASE:
-            output[HEX_SPECIAL_BASE] = policy[HEX_SPECIAL_BASE]
+        if len(policy) > self.special_base:
+            output[self.special_base] = policy[self.special_base]
 
         return output
 
@@ -300,11 +353,11 @@ class HexSymmetryTransform:
 
     def _transform_movement_index(self, idx: int, transform_id: int) -> int:
         """Transform a movement policy index."""
-        # Decode: HEX_MOVEMENT_BASE + from * (6*20) + dir * 20 + (dist-1)
-        offset = idx - HEX_MOVEMENT_BASE
+        # Decode: movement_base + from * (6*max_dist) + dir * max_dist + (dist-1)
+        offset = idx - self.movement_base
 
-        dist_idx = offset % HEX_MAX_DIST
-        offset //= HEX_MAX_DIST
+        dist_idx = offset % self.max_dist
+        offset //= self.max_dist
 
         dir_idx = offset % NUM_HEX_DIRS
         offset //= NUM_HEX_DIRS
@@ -329,9 +382,9 @@ class HexSymmetryTransform:
         # Encode new index
         new_from_idx = from_cy_t * self.board_size + from_cx_t
         return (
-            HEX_MOVEMENT_BASE
-            + new_from_idx * (NUM_HEX_DIRS * HEX_MAX_DIST)
-            + dir_idx_t * HEX_MAX_DIST
+            self.movement_base
+            + new_from_idx * (NUM_HEX_DIRS * self.max_dist)
+            + dir_idx_t * self.max_dist
             + dist_idx
         )
 
@@ -358,11 +411,11 @@ class HexSymmetryTransform:
         if move_idx < 0:
             return -1
 
-        if move_idx < HEX_PLACEMENT_SPAN:
+        if move_idx < self.placement_span:
             return self._transform_placement_index(move_idx, transform_id)
-        elif move_idx < HEX_SPECIAL_BASE:
+        elif move_idx < self.special_base:
             return self._transform_movement_index(move_idx, transform_id)
-        elif move_idx == HEX_SPECIAL_BASE:
+        elif move_idx == self.special_base:
             return move_idx  # Skip is unchanged
         else:
             return -1
@@ -447,6 +500,7 @@ def augment_hex_sample(
     policy_indices: np.ndarray,
     policy_values: np.ndarray,
     transform: Optional[HexSymmetryTransform] = None,
+    board_size: Optional[int] = None,
 ) -> List[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
     """
     Apply all 12 D6 transformations to a single training sample.
@@ -457,13 +511,18 @@ def augment_hex_sample(
         policy_indices: Sparse policy move indices
         policy_values: Sparse policy values
         transform: HexSymmetryTransform instance (created if not provided)
+        board_size: Board size (e.g., 25 for hex25, 9 for hex8). Used only if
+                   transform is not provided. Defaults to DEFAULT_HEX_BOARD_SIZE.
 
     Returns:
         List of 12 tuples, each containing
         (features, globals, policy_indices, policy_values)
     """
     if transform is None:
-        transform = HexSymmetryTransform()
+        # Infer board size from features if not provided
+        if board_size is None:
+            board_size = features.shape[-1]  # Assume (C, H, W) with H = W = board_size
+        transform = HexSymmetryTransform(board_size=board_size)
 
     augmented = []
     for t in transform.get_all_transforms():

@@ -86,6 +86,11 @@ class TrainConfig:
     lr_min: float = 1e-6  # Minimum LR for cosine annealing
     early_stopping_patience: int = 5  # Epochs without improvement before stopping (0=disabled)
 
+    # Policy label smoothing: mix targets with uniform distribution for regularization
+    # smoothed = (1 - eps) * target + eps * uniform
+    # Helps prevent overconfident predictions and improves generalization
+    policy_label_smoothing: float = 0.0  # 0 = disabled, typical values: 0.05-0.1
+
     # Model identity used to derive checkpoint filenames. This is kept in sync
     # with NeuralNetAI, which expects checkpoints under
     # "<repo_root>/ai-service/models/<nn_model_id>.pth".

@@ -233,6 +233,7 @@ def run_hybrid_selfplay(
     parity_mode: Optional[str] = None,
     mcts_sims: int = 100,
     nnue_blend: float = 0.5,
+    nn_model_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run hybrid GPU-accelerated self-play.
 
@@ -572,9 +573,10 @@ def run_hybrid_selfplay(
                 gumbel_num_sampled_actions=16,
                 gumbel_simulation_budget=100,
                 use_neural_net=True,
+                nn_model_id=nn_model_id,
             )
             gumbel_mcts_ai = GumbelMCTSAI(player_number=1, config=gumbel_config, board_type=board_type)
-            logger.info("Gumbel MCTS AI initialized (m=16, budget=100)")
+            logger.info(f"Gumbel MCTS AI initialized (m=16, budget=100, model={nn_model_id or 'default'})")
         except ImportError as e:
             logger.warning(f"Gumbel MCTS AI not available: {e}. Falling back to heuristic.")
             gumbel_mcts_ai = None
@@ -843,6 +845,16 @@ def run_hybrid_selfplay(
                             if best_move is None or best_move not in valid_moves:
                                 # Fallback to random if gumbel fails
                                 best_move = valid_moves[np.random.randint(len(valid_moves))]
+                            else:
+                                # Capture visit distribution for soft policy targets
+                                dist_moves, dist_probs = gumbel_mcts_ai.get_visit_distribution()
+                                if dist_moves and dist_probs:
+                                    # Map moves to indices in valid_moves
+                                    move_to_idx = {m: i for i, m in enumerate(valid_moves)}
+                                    mcts_policy_dist = {}
+                                    for m, p in zip(dist_moves, dist_probs):
+                                        if m in move_to_idx and p > 1e-6:
+                                            mcts_policy_dist[move_to_idx[m]] = p
                         except Exception as e:
                             logger.debug(f"Gumbel MCTS error: {e}, falling back to random")
                             best_move = valid_moves[np.random.randint(len(valid_moves))]
@@ -1287,6 +1299,12 @@ def main():
         help="Number of MCTS simulations per move (for mcts mode). Default: 100",
     )
     parser.add_argument(
+        "--nn-model-id",
+        type=str,
+        default=None,
+        help="Neural network model ID for gumbel-mcts/policy-only/mcts modes (e.g., 'ringrift_hex8_2p_v3_retrained')",
+    )
+    parser.add_argument(
         "--nnue-blend",
         type=float,
         default=0.5,
@@ -1457,6 +1475,7 @@ def main():
                 parity_mode=args.parity_mode,
                 mcts_sims=args.mcts_sims,
                 nnue_blend=args.nnue_blend,
+                nn_model_id=args.nn_model_id,
             )
         finally:
             # Stop ramdrive syncer and perform final sync

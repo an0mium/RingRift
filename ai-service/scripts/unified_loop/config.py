@@ -95,6 +95,18 @@ class TrainingConfig:
     focal_gamma: float = 2.0  # Focal loss gamma for hard sample mining
     label_smoothing_warmup: int = 5  # Warmup epochs for label smoothing
     use_hex_augmentation: bool = True  # D6 symmetry augmentation for hex boards
+    # 2024-12 Advanced Training Improvements
+    use_value_whitening: bool = True  # Value head whitening for stable training
+    value_whitening_momentum: float = 0.99  # Momentum for running stats
+    use_stochastic_depth: bool = True  # Stochastic depth regularization
+    stochastic_depth_prob: float = 0.1  # Drop probability
+    use_adaptive_warmup: bool = True  # Adaptive warmup based on dataset size
+    use_hard_example_mining: bool = True  # Focus on difficult examples
+    hard_example_top_k: float = 0.3  # Top 30% hardest examples
+    use_dynamic_batch: bool = False  # Dynamic batch scheduling (optional)
+    dynamic_batch_schedule: str = "linear"  # linear, exponential, or step
+    transfer_from_model: Optional[str] = None  # Cross-board transfer learning
+    transfer_freeze_epochs: int = 5  # Freeze transferred layers for N epochs
     # NNUE policy training script
     nnue_policy_script: str = "scripts/train_nnue_policy.py"
     nnue_curriculum_script: str = "scripts/train_nnue_policy_curriculum.py"

@@ -808,8 +808,10 @@ class RingRiftDataset(Dataset):
 
         # Initialize hex transform if augmentation enabled
         if self.augment_hex:
-            self.hex_transform = HexSymmetryTransform(board_size=25)
-            logger.info("Hex symmetry augmentation enabled (D6 group)")
+            # Set board_size based on board_type: hex8 uses 9x9, hexagonal uses 25x25
+            hex_board_size = 9 if board_type == BoardType.HEX8 else 25
+            self.hex_transform = HexSymmetryTransform(board_size=hex_board_size)
+            logger.info(f"Hex symmetry augmentation enabled (D6 group, board_size={hex_board_size})")
 
         self.length = 0
         # Memory-mapped file object (np.lib.npyio.NpzFile) or in-memory dict
@@ -2268,6 +2270,14 @@ def train_model(
                     policy_targets = torch.nn.functional.pad(
                         policy_targets, (0, pad_size), value=0.0
                     )
+
+                # Apply label smoothing to policy targets if configured
+                # smoothed = (1 - eps) * target + eps * uniform
+                if config.policy_label_smoothing > 0:
+                    eps = config.policy_label_smoothing
+                    policy_size = policy_targets.size(1)
+                    uniform = 1.0 / policy_size
+                    policy_targets = (1 - eps) * policy_targets + eps * uniform
 
                 optimizer.zero_grad()
 
