@@ -45,7 +45,7 @@ Typical usage:
 import hashlib
 import logging
 import os
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, fields
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
@@ -191,8 +191,11 @@ class ModelMetadata:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ModelMetadata":
-        """Create from dictionary."""
-        return cls(**data)
+        """Create from dictionary, ignoring unknown fields for forward compatibility."""
+        # Filter to only known fields to handle future metadata additions gracefully
+        known_fields = {f.name for f in fields(cls)}
+        filtered_data = {k: v for k, v in data.items() if k in known_fields}
+        return cls(**filtered_data)
 
     def is_compatible_with(self, other: "ModelMetadata") -> bool:
         """
