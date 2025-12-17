@@ -36,7 +36,17 @@ This service provides AI capabilities for the RingRift game through a RESTful AP
   - Difficulties 4+ use neural network evaluation (NNUE or full CNN)
   - ResNet-style architecture with policy/value heads
   - MPS-compatible variant for Apple Silicon (`RingRiftCNN_MPS`)
-  - Board-specific policy sizes (7K for 8×8, 67K for 19×19, 54K for hex)
+  - Board-specific policy sizes:
+    - `square8`: ~7K (64 cells, 8×8 grid)
+    - `hex8`: ~4.5K (61 cells, radius-4 hexagonal)
+    - `square19`: ~67K (361 cells, 19×19 grid)
+    - `hexagonal`: ~92K (469 cells, radius-12 hexagonal)
+
+- **Supported Board Types**:
+  - `square8`: 8×8 square grid (64 cells) - quick games, ideal for learning
+  - `hex8`: Radius-4 hexagonal (61 cells) - hex mechanics with fast iteration, parallel to square8
+  - `square19`: 19×19 square grid (361 cells) - strategic depth, Go-like complexity
+  - `hexagonal`: Radius-12 hexagonal (469 cells) - largest board, maximum strategic depth
 
 - **Difficulty Levels**: 1–10, mapped consistently to AI profiles in both the backend and service via:
   - Python: `_CANONICAL_DIFFICULTY_PROFILES` in [`app/main.py`](ai-service/app/main.py)
@@ -973,20 +983,22 @@ The TypeScript side uses the [`SeededRNG`](../src/shared/utils/rng.ts:1) class (
 
 The codebase enforces **80% max utilization** across CPU, GPU, and memory to prevent system overload and maintain stability. Disk has a tighter **70% limit** because cleanup operations take time.
 
-| Resource | Warning | Critical | Rationale                          |
-| -------- | ------- | -------- | ---------------------------------- |
-| CPU      | 70%     | 80%      | Leave headroom for spikes          |
-| GPU      | 70%     | 80%      | CUDA memory safety                 |
-| Memory   | 70%     | 80%      | Prevent OOM kills                  |
-| Disk     | 65%     | 70%      | Allow time for cleanup operations  |
+| Resource | Warning | Critical | Rationale                         |
+| -------- | ------- | -------- | --------------------------------- |
+| CPU      | 70%     | 80%      | Leave headroom for spikes         |
+| GPU      | 70%     | 80%      | CUDA memory safety                |
+| Memory   | 70%     | 80%      | Prevent OOM kills                 |
+| Disk     | 65%     | 70%      | Allow time for cleanup operations |
 
 **Key modules:**
+
 - [`app/utils/resource_guard.py`](app/utils/resource_guard.py) - Sync-focused utilities with psutil/PyTorch
 - [`app/utils/resource_limiter.py`](app/utils/resource_limiter.py) - Async-focused with decorators and backoff
 - [`app/coordination/resource_targets.py`](app/coordination/resource_targets.py) - PID-controlled target utilization
 - [`app/coordination/safeguards.py`](app/coordination/safeguards.py) - Emergency halt and spawn limits
 
 **Usage:**
+
 ```python
 from app.utils.resource_guard import check_disk_space, check_memory, can_proceed
 

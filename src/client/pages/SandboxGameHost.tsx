@@ -3154,11 +3154,15 @@ export const SandboxGameHost: React.FC = () => {
                           ? historyViewIndex - 1
                           : sandboxGameState.moveHistory.length - 1
                       }
-                      onMoveClick={(index) => {
-                        // Jump to the state after this move (index+1)
-                        setIsViewingHistory(true);
-                        setHistoryViewIndex(index + 1);
-                      }}
+                      onMoveClick={
+                        hasHistorySnapshots
+                          ? (index) => {
+                              // Jump to the state after this move (index+1)
+                              setIsViewingHistory(true);
+                              setHistoryViewIndex(index + 1);
+                            }
+                          : undefined
+                      }
                       notationOptions={((): MoveNotationOptions | undefined => {
                         if (
                           sandboxGameState.boardType === 'square8' ||

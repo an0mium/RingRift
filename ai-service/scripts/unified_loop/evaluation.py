@@ -68,6 +68,11 @@ class ModelPruningService:
         if self._pruning_in_progress:
             return None
 
+        # Use fast ELO-based culling if configured
+        if getattr(self.config, 'use_elo_based_culling', False):
+            result = await self.run_elo_based_culling()
+            return str(result) if result else None
+
         self._pruning_in_progress = True
         try:
             counts = self._count_models()
@@ -134,6 +139,59 @@ class ModelPruningService:
         finally:
             self._pruning_in_progress = False
             self._prune_process = None
+
+    async def run_elo_based_culling(self) -> Optional[Dict[str, Any]]:
+        """Run fast ELO-based culling using existing ratings.
+
+        This is faster than game-based evaluation as it uses existing ELO
+        ratings from the unified_elo.db instead of running new games.
+        """
+        if self._pruning_in_progress:
+            return None
+
+        self._pruning_in_progress = True
+        try:
+            # Import the ELO-based culler
+            sys.path.insert(0, str(AI_SERVICE_ROOT))
+            from app.tournament.model_culling import ModelCullingController
+
+            culler = ModelCullingController(
+                elo_db_path=str(AI_SERVICE_ROOT / "data" / "unified_elo.db"),
+                model_dir=str(AI_SERVICE_ROOT / "models"),
+            )
+
+            results = {"configs_processed": [], "total_archived": 0}
+
+            # Cull all configs that need it
+            for config_key in ["square8_2p", "square8_3p", "square8_4p",
+                               "square19_2p", "square19_3p", "square19_4p",
+                               "hexagonal_2p", "hexagonal_3p", "hexagonal_4p"]:
+                if culler.needs_culling(config_key):
+                    count_before = culler.count_models(config_key)
+                    culler.cull_all_configs()  # Will only cull configs that need it
+                    count_after = culler.count_models(config_key)
+                    archived = count_before - count_after
+                    if archived > 0:
+                        results["configs_processed"].append(config_key)
+                        results["total_archived"] += archived
+                        print(f"[ModelPruning] ELO-based cull {config_key}: "
+                              f"{count_before} -> {count_after} ({archived} archived)")
+
+            if results["total_archived"] > 0:
+                self._last_prune = time.time()
+                await self.event_bus.publish(DataEvent(
+                    event_type=DataEventType.MODEL_PROMOTED,
+                    source="elo_based_culling",
+                    payload=results,
+                ))
+
+            return results
+
+        except Exception as e:
+            print(f"[ModelPruning] ELO-based culling error: {e}")
+            return None
+        finally:
+            self._pruning_in_progress = False
 
     def get_status(self) -> dict:
         """Get current pruning service status."""

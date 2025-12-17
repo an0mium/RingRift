@@ -198,6 +198,7 @@ class ModelPruningConfig:
     prefer_high_cpu_hosts: bool = True  # Schedule on high-CPU hosts
     evaluation_timeout_seconds: int = 7200  # 2 hour timeout
     dry_run: bool = False  # If true, log but don't prune
+    use_elo_based_culling: bool = True  # Use fast ELO-based culling instead of games
 
 
 @dataclass

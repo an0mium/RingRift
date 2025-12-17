@@ -309,3 +309,65 @@ for action in actions:
 # - Disk at 72%: Archive old games or delete unused data
 # - Memory OK at 65%
 ```
+
+## Sync Tool Consolidation
+
+The codebase has several data synchronization tools. To avoid confusion and reduce maintenance burden, some have been deprecated in favor of the canonical implementations.
+
+### Active Sync Tools (Use These)
+
+| Tool                                    | Purpose                       | When to Use                     |
+| --------------------------------------- | ----------------------------- | ------------------------------- |
+| `scripts/unified_data_sync.py`          | Primary data sync service     | General game/training data sync |
+| `scripts/sync_models.py`                | Model checkpoint distribution | Deploying models to cluster     |
+| `scripts/cluster_sync_coordinator.py`   | Cluster-wide coordination     | Orchestrating multi-node sync   |
+| `scripts/aria2_data_sync.py`            | High-speed parallel downloads | Large file transfers, resumable |
+| `scripts/external_drive_sync_daemon.py` | External storage sync + QA    | Archiving to external drives    |
+| `scripts/elo_db_sync.py`                | Elo database sync CLI         | Manual/daemon Elo sync          |
+| `app/tournament/elo_sync_manager.py`    | Elo sync library              | Programmatic Elo sync in Python |
+| `app/p2p/gossip_sync.py`                | Decentralized P2P protocol    | NAT-traversing peer discovery   |
+
+### Deprecated Sync Tools (Do Not Use)
+
+| Tool                                  | Replacement                   | Reason                      |
+| ------------------------------------- | ----------------------------- | --------------------------- |
+| `scripts/cluster_sync_integration.py` | `cluster_sync_coordinator.py` | 85% functionality overlap   |
+| `scripts/p2p_model_sync.py`           | `aria2_data_sync.py`          | Consolidate aria2 usage     |
+| `scripts/streaming_data_collector.py` | `unified_data_sync.py`        | Merged into unified service |
+| `scripts/collector_watchdog.py`       | `unified_data_sync.py`        | Merged into unified service |
+| `scripts/sync_all_data.py`            | `unified_data_sync.py`        | Merged into unified service |
+
+### Migration Guide
+
+If you're using deprecated tools:
+
+1. **cluster_sync_integration.py** → Use `cluster_sync_coordinator.py` with the same arguments
+2. **p2p_model_sync.py** → Use `aria2_data_sync.py --mode models`
+3. **streaming_data_collector.py** → Use `unified_data_sync.py --mode stream`
+
+### Sync Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Sync Tool Hierarchy                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  unified_data_sync.py ─────────────┐                           │
+│         ↓                          │                           │
+│  cluster_sync_coordinator.py ──────┤                           │
+│         ↓                          ├── Game/Training Data      │
+│  aria2_data_sync.py ───────────────┘                           │
+│                                                                 │
+│  sync_models.py ─────────────────────── Model Checkpoints      │
+│                                                                 │
+│  elo_db_sync.py ─────────────────────── Elo Database           │
+│  elo_sync_manager.py (library)                                  │
+│                                                                 │
+│  external_drive_sync_daemon.py ──────── Archive Storage        │
+│                                                                 │
+│  gossip_sync.py ─────────────────────── P2P Discovery          │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+Consolidation enforced starting 2025-12-16.
