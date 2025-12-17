@@ -28,9 +28,14 @@ sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 DEFAULT_DB_PATH = AI_SERVICE_ROOT / "data" / "unified_elo.db"
 
-# ELO calculation constants
-INITIAL_RATING = 1500.0
-K_FACTOR = 32.0
+# ELO calculation constants (centralized)
+try:
+    from app.config.thresholds import INITIAL_ELO_RATING, ELO_K_FACTOR
+    INITIAL_RATING = INITIAL_ELO_RATING
+    K_FACTOR = float(ELO_K_FACTOR)
+except ImportError:
+    INITIAL_RATING = 1500.0
+    K_FACTOR = 32.0
 
 # Pinned baselines (anchors)
 PINNED_BASELINES = {

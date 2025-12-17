@@ -57,6 +57,7 @@ from app.ai.minimax_ai import MinimaxAI
 from app.ai.mcts_ai import MCTSAI
 from app.ai.descent_ai import DescentAI
 from app.config.ladder_config import get_ladder_tier_config
+from app.config.thresholds import INITIAL_ELO_RATING
 from app.training.significance import wilson_score_interval
 from app.training.generate_data import create_initial_state
 
@@ -113,7 +114,7 @@ class TierStats:
     losses: int = 0
     draws: int = 0
     games_played: int = 0
-    elo: float = 1500.0
+    elo: float = INITIAL_ELO_RATING
 
     @property
     def win_rate(self) -> float:

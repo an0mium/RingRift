@@ -25,6 +25,9 @@ if TYPE_CHECKING:
 # Path constants
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[2]
 
+# Import centralized Elo constants
+from .config import INITIAL_ELO_RATING
+
 # Coordinator-only mode - skip local CPU-intensive work
 DISABLE_LOCAL_TASKS = os.environ.get("RINGRIFT_DISABLE_LOCAL_TASKS", "").lower() in ("1", "true", "yes", "on")
 
@@ -122,7 +125,7 @@ class LocalSelfplayGenerator:
         """Set reference to training scheduler for PFSP integration."""
         self._training_scheduler = scheduler
 
-    def get_pfsp_opponent(self, config_key: str, current_elo: float = 1500.0) -> Optional[str]:
+    def get_pfsp_opponent(self, config_key: str, current_elo: float = INITIAL_ELO_RATING) -> Optional[str]:
         """Get PFSP-selected opponent for selfplay.
 
         Args:
@@ -260,7 +263,7 @@ class LocalSelfplayGenerator:
         gumbel_top_k: int = 16,
         progress_callback: Optional[callable] = None,
         use_pfsp_opponent: bool = False,
-        current_elo: float = 1500.0,
+        current_elo: float = INITIAL_ELO_RATING,
         temperature: float = 1.0,
         use_temperature_decay: bool = True,
         opening_temperature: float = 1.5,

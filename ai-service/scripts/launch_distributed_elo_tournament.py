@@ -35,6 +35,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# Add ai-service to path for imports
+AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(AI_SERVICE_ROOT))
+
+# Centralized Elo constants
+try:
+    from app.config.thresholds import INITIAL_ELO_RATING, ELO_K_FACTOR
+except ImportError:
+    INITIAL_ELO_RATING = 1500.0
+    ELO_K_FACTOR = 32
+
 # AI type configurations for calibration
 # Split into lightweight (no NN) and heavyweight (requires NN) types
 #
@@ -697,16 +708,16 @@ def calculate_elo(results: List[MatchResult]) -> Dict[str, float]:
     Random is pinned at 400 Elo as the anchor point.
     All other ratings are calculated relative to random.
     """
-    K_FACTOR = 32
-    INITIAL_RATING = 1500.0
-    RANDOM_ANCHOR = 400.0  # Random is pinned at 400 Elo
+    k_factor = ELO_K_FACTOR
+    initial_rating = INITIAL_ELO_RATING
+    random_anchor = 400.0  # Random is pinned at 400 Elo
 
     agents = set()
     for r in results:
         agents.add(r.agent_a)
         agents.add(r.agent_b)
 
-    ratings = {agent: INITIAL_RATING for agent in agents}
+    ratings = {agent: initial_rating for agent in agents}
 
     for r in sorted(results, key=lambda x: x.match_id):
         ra = ratings[r.agent_a]
@@ -722,12 +733,12 @@ def calculate_elo(results: List[MatchResult]) -> Dict[str, float]:
         else:
             sa, sb = 0.5, 0.5
 
-        ratings[r.agent_a] = ra + K_FACTOR * (sa - ea)
-        ratings[r.agent_b] = rb + K_FACTOR * (sb - eb)
+        ratings[r.agent_a] = ra + k_factor * (sa - ea)
+        ratings[r.agent_b] = rb + k_factor * (sb - eb)
 
     # Normalize ratings so random is pinned at 400
     if "random" in ratings:
-        offset = RANDOM_ANCHOR - ratings["random"]
+        offset = random_anchor - ratings["random"]
         ratings = {agent: rating + offset for agent, rating in ratings.items()}
 
     return ratings

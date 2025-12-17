@@ -23,6 +23,7 @@ from .config import (
     DataEventType,
     FeedbackConfig,
     FeedbackState,
+    INITIAL_ELO_RATING,
     TrainingConfig,
 )
 
@@ -598,7 +599,7 @@ class TrainingScheduler:
         self,
         config_key: str,
         winner: int,
-        model_elo: float = 1500.0,
+        model_elo: float = INITIAL_ELO_RATING,
     ) -> None:
         """Record a selfplay game result for curriculum feedback.
 
@@ -1557,7 +1558,7 @@ class TrainingScheduler:
                         self._pfsp_pool.add_opponent(
                             model_id=model_path.stem,
                             model_path=str(model_path),
-                            elo=1500.0,  # Initial Elo, updated after evaluation
+                            elo=INITIAL_ELO_RATING,  # Updated after evaluation
                             win_rate=0.5,
                         )
                         print(f"[PFSP] Added {model_path.stem} to opponent pool")
@@ -1570,7 +1571,7 @@ class TrainingScheduler:
                     auto_tuner = self._cmaes_auto_tuners[config_key]
                     config_state = self.state.configs.get(config_key)
                     if config_state:
-                        elo = config_state.current_elo or 1500.0
+                        elo = config_state.current_elo or INITIAL_ELO_RATING
                         should_tune = auto_tuner.check_plateau(elo)
                         if should_tune:
                             print(f"[CMA-ES] Auto-tuning triggered for {config_key} (Elo plateau detected)")
@@ -1745,7 +1746,7 @@ class TrainingScheduler:
     # Advanced Training Utilities (2025-12)
     # =========================================================================
 
-    def get_pfsp_opponent(self, config_key: str, current_elo: float = 1500.0) -> Optional[str]:
+    def get_pfsp_opponent(self, config_key: str, current_elo: float = INITIAL_ELO_RATING) -> Optional[str]:
         """Get an opponent from PFSP pool for self-play.
 
         Args:
@@ -1767,7 +1768,7 @@ class TrainingScheduler:
     def add_pfsp_opponent(
         self,
         model_path: str,
-        elo: float = 1500.0,
+        elo: float = INITIAL_ELO_RATING,
         generation: int = 0,
         name: Optional[str] = None,
     ) -> None:

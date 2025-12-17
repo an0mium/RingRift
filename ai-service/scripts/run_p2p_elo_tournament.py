@@ -48,6 +48,7 @@ sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 from app.tournament.elo import EloCalculator, EloRating
 from app.models import AIType, BoardType
+from app.config.thresholds import INITIAL_ELO_RATING, ELO_K_FACTOR
 
 
 # ============================================
@@ -355,8 +356,8 @@ class P2PEloTournament:
 
     def calculate_elo_ratings(self, results: List[MatchResult]) -> Dict[str, float]:
         """Calculate Elo ratings from match results."""
-        K_FACTOR = 32
-        INITIAL_RATING = 1500.0
+        k_factor = ELO_K_FACTOR
+        initial_rating = INITIAL_ELO_RATING
 
         # Collect all unique agents
         agents: Set[str] = set()
@@ -364,7 +365,7 @@ class P2PEloTournament:
             agents.add(r.agent_a)
             agents.add(r.agent_b)
 
-        ratings = {agent: INITIAL_RATING for agent in agents}
+        ratings = {agent: initial_rating for agent in agents}
 
         # Process each result in order
         for r in sorted(results, key=lambda x: x.timestamp):
@@ -384,8 +385,8 @@ class P2PEloTournament:
                 sa, sb = 0.5, 0.5
 
             # Update ratings
-            ratings[r.agent_a] = ra + K_FACTOR * (sa - ea)
-            ratings[r.agent_b] = rb + K_FACTOR * (sb - eb)
+            ratings[r.agent_a] = ra + k_factor * (sa - ea)
+            ratings[r.agent_b] = rb + k_factor * (sb - eb)
 
         return ratings
 
