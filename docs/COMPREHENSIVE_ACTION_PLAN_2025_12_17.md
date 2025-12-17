@@ -19,7 +19,37 @@ This document provides detailed, step-by-step action plans for all identified im
 - **AI**: 10-level difficulty ladder (Random → Heuristic → Minimax → MCTS → AlphaZero-style Descent)
 - **Testing**: 10,177 TypeScript tests, 1,824 Python tests, 81 contract vectors (100% parity)
 
-**Current Status**: Stable Beta — production validation in progress, focus on scaling tests, security hardening, UX polish. No public releases yet, 0 stars/forks.
+**Current Status**: Stable Beta — production validation in progress, focus on scaling tests, security hardening, UX polish. Hosted demo live at ringrift.ai, v0.1.0-beta released.
+
+---
+
+## Recent Updates (2025-12-17)
+
+### Training Pipeline Optimizations ✅ ALREADY IMPLEMENTED
+
+Investigation revealed that all planned bottleneck fixes are already in place:
+
+| Optimization                     | Location                              | Status                                     |
+| -------------------------------- | ------------------------------------- | ------------------------------------------ |
+| **Batch JSON Writes**            | `scripts/run_gpu_selfplay.py:711-808` | ✅ `WRITE_BUFFER_SIZE=100`, buffered flush |
+| **Vectorized Policy Conversion** | `app/training/data_loader.py:600-639` | ✅ `_batch_sparse_to_dense_policies()`     |
+| **Memory Pinning**               | `app/training/data_loader.py:754-758` | ✅ `pin_memory()` for GPU transfer         |
+| **Unified Training Signals**     | `app/training/unified_signals.py`     | ✅ All 5 systems integrated                |
+| **Canonical Config Imports**     | `app/config/thresholds.py`            | ✅ 18 modules using canonical source       |
+
+### UX Strategic Tips ✅ ALREADY IMPLEMENTED
+
+All choice dialogs include strategic guidance:
+
+| Choice Type       | Strategic Tip Summary                                                                 |
+| ----------------- | ------------------------------------------------------------------------------------- |
+| Line Order        | "Processing order matters! If lines share markers..."                                 |
+| Line Reward       | "More territory helps Territory Control, eliminating rings helps Ring Elimination..." |
+| Ring Elimination  | "Pick a stack where losing control hurts least..."                                    |
+| Territory Region  | "Each region costs your ENTIRE CAP from one stack..."                                 |
+| Capture Direction | "Each capture takes the TOP RING... Plan your chain..."                               |
+
+**Implementation:** `src/client/adapters/choiceViewModels.ts` + `ChoiceDialog.tsx:428-437`
 
 ---
 
