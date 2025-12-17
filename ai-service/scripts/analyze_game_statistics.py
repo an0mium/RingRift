@@ -327,7 +327,8 @@ def is_completed_game(game: dict[str, Any], *, include_winner_only: bool) -> boo
     if game.get("game_status") == "active":
         return False
 
-    has_moves = "moves" in game and len(game.get("moves", [])) > 0
+    moves = game.get("moves", [])
+    has_moves = isinstance(moves, list) and len(moves) > 0
     has_victory = "victory_type" in game or "termination_reason" in game
     has_winner = game.get("winner") is not None
 
@@ -674,15 +675,34 @@ def iter_jsonl_games(
                 break
 
     try:
-        # Handle gzip-compressed files
-        if str(path).endswith('.gz'):
+        # Handle gzip-compressed files (by extension or magic bytes)
+        is_gzip = str(path).endswith('.gz')
+        if not is_gzip:
+            # Check for gzip magic bytes (0x1f 0x8b)
+            try:
+                with open(path, 'rb') as check_f:
+                    magic = check_f.read(2)
+                    is_gzip = magic == b'\x1f\x8b'
+            except Exception:
+                pass
+
+        if is_gzip:
             opener = gzip.open(path, "rt", encoding="utf-8")
         else:
             opener = open(path, "r", encoding="utf-8")
 
         with opener as f:
-            for line_num, line in enumerate(f, 1):
-                line = line.strip()
+            line_num = 0
+            while True:
+                try:
+                    line = f.readline()
+                    if not line:
+                        break
+                    line_num += 1
+                    line = line.strip()
+                except (EOFError, gzip.BadGzipFile, OSError):
+                    # Corrupted or truncated gzip file - stop reading
+                    break
                 if not line:
                     continue
                 try:
