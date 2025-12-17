@@ -51,8 +51,17 @@ Features:
 - `multi_config_training_loop.py` - **Multi-board training coordinator**
   - Adaptive curriculum based on Elo ratings
   - Balance mode for underrepresented configs
-  - Supports hex8, square8, square19 configurations
+  - Supports hex8, square8, square19, hexagonal configurations
   - Start: `python scripts/multi_config_training_loop.py --configs all`
+- `run_nn_training_baseline.py` - **Primary NN training script** (21KB)
+  - Board-specific hyperparameters from `config/hyperparameters.json`
+  - Optimized settings: batch_size=256, warmup_epochs=5, cosine scheduler
+  - Victory-type balanced sampling (`--sampling-weights victory_type`)
+  - Start: `python scripts/run_nn_training_baseline.py --board square8 --num-players 2`
+- `run_optimized_training.py` - **Optimized training wrapper**
+  - Auto-selects best hyperparameters per board/player config
+  - Optional Elo calibration after training (`--run-elo`)
+  - Start: `python scripts/run_optimized_training.py --board hexagonal --players 4 --victory-balanced`
 - `train_nnue_policy.py` - **NNUE policy head training** (41KB)
   - AMP (mixed precision) training
   - KL divergence loss for MCTS distillation (`--auto-kl-loss`, `--use-kl-loss`)
@@ -62,12 +71,24 @@ Features:
 - `train_nnue.py` - **Standard NNUE training** (112KB)
   - Value and policy head training from SQLite databases
   - Start: `python scripts/train_nnue.py --db data/games/training.db --board-type square8`
+- `run_improvement_loop.py` - **Alternative improvement loop** (95KB)
+  - Complete self-improvement cycle with selfplay, training, and evaluation
+  - Start: `python scripts/run_improvement_loop.py --board square8 --iterations 10`
+- `training_completion_watcher.py` - **Auto-Elo trigger daemon**
+  - Monitors training logs and triggers Elo tournaments on completion
+  - Start: `python scripts/training_completion_watcher.py --daemon`
+- `auto_training_pipeline.py` - **Automated pipeline with optimized settings**
+  - Victory-type balanced sampling, higher batch sizes
+  - Auto-triggers Elo calibration
+  - Start: `python scripts/auto_training_pipeline.py --board square8 --num-players 2`
 - `reanalyze_mcts_policy.py` - **MCTS policy reanalysis**
   - Adds MCTS visit distributions to existing games for KL loss training
   - Start: `python scripts/reanalyze_mcts_policy.py --input games.jsonl --output mcts_games.jsonl`
 - `curriculum_training.py` - Generation-based curriculum training
-- `run_self_play_soak.py` - Self-play data generation
-- `run_hybrid_selfplay.py` - Hybrid self-play modes
+- `run_self_play_soak.py` - Self-play data generation (158KB)
+- `run_hybrid_selfplay.py` - Hybrid self-play modes (67KB)
+- `hex8_training_pipeline.py` - **Hex8-specific pipeline** (19KB)
+  - Optimized for hex8 board training
 
 ### Selfplay Data Generation
 
@@ -108,18 +129,54 @@ Features:
 - `build_canonical_training_pool_db.py` - Training data pooling
 - `aggregate_jsonl_to_db.py` - JSONL to SQLite conversion
 - `elo_db_sync.py` - ELO database synchronization across cluster
+- `auto_export_training_data.py` - **Automated training data export**
+  - Exports data for underrepresented board/player configs
+  - Start: `python scripts/auto_export_training_data.py --dry-run`
+- `export_replay_dataset.py` - Export games to NPZ format for training
+- `jsonl_to_npz.py` - Convert JSONL selfplay data to NPZ training format
+- `filter_training_data.py` - Filter and clean training data
 
 ### Model Management
 
 - `sync_models.py` - Model synchronization across cluster
 - `prune_models.py` - Old model cleanup
 - `model_promotion_manager.py` - Automated model promotion
+- `validate_models.py` - Validate model files for corruption
+
+### Cluster Management
+
+- `update_cluster_code.py` - **Cluster code synchronization**
+  - Push code updates to all cluster nodes
+  - Auto-stash local changes: `python scripts/update_cluster_code.py --auto-stash`
+  - Force reset: `python scripts/update_cluster_code.py --force-reset`
+  - Status: `python scripts/update_cluster_code.py --status`
+- `update_distributed_hosts.py` - Update distributed hosts configuration
+- `vast_autoscaler.py` - Vast.ai instance autoscaling
+- `vast_lifecycle.py` - Vast.ai instance lifecycle management
+- `vast_p2p_manager.py` - Vast.ai P2P network management
+- `cluster_auto_recovery.py` - Auto-recover failed cluster nodes
+- `cluster_automation.py` - Cluster automation utilities
+- `cluster_control.py` - Cluster control commands
 
 ### Analysis
 
-- `analyze_game_statistics.py` - Game statistics analysis
-- `check_ts_python_replay_parity.py` - TS/Python parity validation
+- `analyze_game_statistics.py` - **Comprehensive game statistics** (107KB)
+  - Win rates, move distributions, game lengths
+  - Start: `python scripts/analyze_game_statistics.py --db data/games/all.db`
+- `check_ts_python_replay_parity.py` - TS/Python parity validation (77KB)
 - `track_elo_improvement.py` - Elo trend tracking
+- `aggregate_elo_results.py` - Aggregate Elo results from multiple sources
+- `baseline_gauntlet.py` - **Run baseline model gauntlet** (20KB)
+  - Evaluate models against baseline opponents
+  - Start: `python scripts/baseline_gauntlet.py --model models/best.pth`
+- `two_stage_gauntlet.py` - Two-stage gauntlet evaluation
+
+### Benchmarking
+
+- `benchmark_engine.py` - Engine performance benchmarking
+- `benchmark_gpu_cpu.py` - GPU vs CPU performance comparison
+- `benchmark_policy.py` - Policy head performance benchmarking
+- `benchmark_ai_memory.py` - AI memory usage benchmarking
 
 ## Module Dependencies
 

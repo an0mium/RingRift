@@ -159,7 +159,7 @@ python scripts/model_promotion_manager.py --rollback
 ```
 Do you need continuous AI improvement?
 ├─ Yes → unified_ai_loop.py
-│        └─ Need distributed across 3+ nodes? → Also use cluster_orchestrator.py
+│        └─ Need distributed across 3+ nodes? → Also use p2p_orchestrator.py
 │
 ├─ No, just need model promotion
 │  └─ model_promotion_manager.py
@@ -167,7 +167,10 @@ Do you need continuous AI improvement?
 ├─ No, need CI/CD validation
 │  └─ unified_ai_loop.py (with regression gate)
 │
-└─ No, need human vs AI games
+├─ No, need multi-board/multi-player training
+│  └─ multi_config_training_loop.py
+│
+└─ No, need distributed P2P selfplay
    └─ p2p_orchestrator.py
 ```
 
@@ -175,10 +178,10 @@ Do you need continuous AI improvement?
 
 ## Configuration Files
 
-| Script                         | Config File                              |
-| ------------------------------ | ---------------------------------------- |
-| `unified_ai_loop.py`           | `config/unified_loop.yaml`               |
-| `cluster_orchestrator.py`      | `config/cluster.yaml`                    |
-| `p2p_orchestrator.py`          | `config/p2p.yaml`                        |
-| ~~`pipeline_orchestrator.py`~~ | ~~`config/pipeline.yaml`~~ (deprecated)  |
-| `model_promotion_manager.py`   | Uses CLI args or `config/promotion.yaml` |
+| Script                          | Config File                              |
+| ------------------------------- | ---------------------------------------- |
+| `unified_ai_loop.py`            | `config/unified_loop.yaml`               |
+| `p2p_orchestrator.py`           | `config/unified_loop.yaml` (p2p section) |
+| `multi_config_training_loop.py` | `config/unified_loop.yaml`               |
+| `model_promotion_manager.py`    | Uses CLI args or `config/promotion.yaml` |
+| `auto_elo_tournament.py`        | `config/unified_loop.yaml`               |

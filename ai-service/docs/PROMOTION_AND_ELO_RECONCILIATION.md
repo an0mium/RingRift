@@ -777,3 +777,133 @@ Additional alerts in `config/monitoring/alerting-rules.yaml`:
 | `ModelAtRiskOfRollback`  | Warning  | Model at risk for 15+ minutes      |
 | `SevereEloRegression`    | High     | Elo regression >50 for 10+ minutes |
 | `MultipleRollbacksInDay` | Warning  | 3+ rollbacks in 24 hours           |
+
+---
+
+## Elo Calculation Methods
+
+### Glicko-Style Rating Deviation
+
+The Elo system uses Glicko-style rating deviation (RD) to track uncertainty in ratings (`app/tournament/elo.py`):
+
+```python
+from app.tournament.elo import EloRating
+
+# Ratings include deviation (uncertainty)
+rating = EloRating(rating=1500.0, rating_deviation=350.0)
+
+# Get 95% confidence interval
+lower, upper = rating.confidence_interval(0.95)
+print(f"Rating: {rating.rating} ± {rating.ci_95}")  # e.g., "1500 ± 94"
+
+# Rating deviation decays over games
+# New model: RD = 350 (high uncertainty)
+# After 100 games: RD → 50 (minimum, baseline uncertainty)
+```
+
+| Parameter  | Value     | Description               |
+| ---------- | --------- | ------------------------- |
+| Initial RD | 350.0     | New model uncertainty     |
+| Minimum RD | 50.0      | Baseline after many games |
+| Decay rate | 100 games | Games to reach minimum RD |
+
+### Adaptive K-Factors
+
+K-factor scales with player experience and rating level:
+
+| Condition      | K-Factor | Description                      |
+| -------------- | -------- | -------------------------------- |
+| First 30 games | 40.0     | Fast adjustment for new models   |
+| Established    | 32.0     | Normal adjustment rate           |
+| Above 2400 Elo | 16.0     | Slower for stable top performers |
+
+### Wilson Score Confidence Intervals
+
+Promotion gates use Wilson score intervals for statistical significance (`app/training/significance.py`):
+
+```python
+from app.training.significance import wilson_score_interval, wilson_lower_bound
+
+# Calculate confidence interval for win rate
+wins, total = 35, 50
+lower, upper = wilson_score_interval(wins, total, confidence=0.95)
+print(f"Win rate: {wins/total:.1%}, 95% CI: [{lower:.1%}, {upper:.1%}]")
+
+# For promotion: use lower bound as conservative estimate
+threshold = 0.55
+if wilson_lower_bound(wins, total) > threshold:
+    print("Statistically significant - promote!")
+```
+
+**Promotion only proceeds when the lower bound of the confidence interval exceeds the threshold**, preventing promotions based on lucky streaks.
+
+### Pinned Baseline Anchoring
+
+Random baselines are pinned at 400 Elo to prevent rating inflation (`app/tournament/unified_elo_db.py`):
+
+```python
+# baseline_random models are immutable anchors
+# This calibrates the entire rating scale
+
+# Reset if drift occurs
+db.reset_pinned_baselines()  # Resets to 400 Elo
+```
+
+### Multiplayer Elo Decomposition
+
+For 3-4 player games, results are decomposed into virtual pairwise matchups:
+
+```python
+# 4-player game with final rankings: [P1, P3, P2, P4]
+# Decomposed into: P1>P3, P1>P2, P1>P4, P3>P2, P3>P4, P2>P4
+# K-factor scaled by 1/(n_players-1) for stability
+```
+
+## O(n) Gauntlet Evaluation
+
+For tournaments with 100+ models, gauntlet evaluation provides O(n) scaling instead of O(n²) round-robin (`app/tournament/distributed_gauntlet.py`):
+
+```python
+from app.tournament.distributed_gauntlet import DistributedGauntlet
+
+# Each model plays fixed baselines instead of all other models
+gauntlet = DistributedGauntlet(
+    baselines=["baseline_random", "baseline_heuristic", "champion_v1"],
+    games_per_baseline=20,
+)
+
+# Results tracked in gauntlet_runs and gauntlet_results tables
+results = gauntlet.evaluate_model("model_v42", board_type="hex8", num_players=2)
+```
+
+**When to use gauntlet vs round-robin:**
+
+| Models | Method      | Games | Time     |
+| ------ | ----------- | ----- | -------- |
+| <50    | Round-robin | O(n²) | Fast     |
+| 50-100 | Hybrid      | Mixed | Medium   |
+| >100   | Gauntlet    | O(n)  | Scalable |
+
+## Game Deduplication
+
+The database prevents double-counting games from retries/crashes (`app/tournament/unified_elo_db.py`):
+
+```sql
+-- Unique index on game_id prevents duplicates
+CREATE UNIQUE INDEX idx_match_game_id ON match_history(game_id);
+
+-- Transaction uses BEGIN IMMEDIATE to prevent TOCTOU races
+```
+
+## Board Type Support
+
+All Elo features support the following board types:
+
+| Board Type | Description                     | Features |
+| ---------- | ------------------------------- | -------- |
+| square8    | 8×8 square grid                 | 768      |
+| hex8       | Radius-4 hexagonal (61 cells)   | 972      |
+| square19   | 19×19 square grid               | 4332     |
+| hexagonal  | Radius-12 hexagonal (469 cells) | 7500     |
+
+Elo is tracked separately per `(board_type, num_players)` configuration.

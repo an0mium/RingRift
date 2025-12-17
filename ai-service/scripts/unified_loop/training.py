@@ -1051,6 +1051,35 @@ class TrainingScheduler:
                     "--transfer-from", self.config.transfer_from_model,
                     "--transfer-freeze-epochs", str(getattr(self.config, 'transfer_freeze_epochs', 5)),
                 ])
+            # Advanced optimizer enhancements (2024-12)
+            if getattr(self.config, 'use_lookahead', True):
+                cmd.extend([
+                    "--lookahead",
+                    "--lookahead-k", str(getattr(self.config, 'lookahead_k', 5)),
+                    "--lookahead-alpha", str(getattr(self.config, 'lookahead_alpha', 0.5)),
+                ])
+            if getattr(self.config, 'use_adaptive_clip', True):
+                cmd.append("--adaptive-clip")
+            if getattr(self.config, 'use_gradient_noise', False):
+                cmd.extend([
+                    "--gradient-noise",
+                    "--gradient-noise-variance", str(getattr(self.config, 'gradient_noise_variance', 0.01)),
+                ])
+            if getattr(self.config, 'use_board_nas', True):
+                cmd.append("--board-nas")
+            if getattr(self.config, 'use_self_supervised', False):
+                cmd.extend([
+                    "--self-supervised",
+                    "--ss-epochs", str(getattr(self.config, 'ss_epochs', 10)),
+                    "--ss-projection-dim", str(getattr(self.config, 'ss_projection_dim', 128)),
+                    "--ss-temperature", str(getattr(self.config, 'ss_temperature', 0.07)),
+                ])
+            if getattr(self.config, 'use_online_bootstrap', True):
+                cmd.extend([
+                    "--online-bootstrap",
+                    "--bootstrap-temperature", str(getattr(self.config, 'bootstrap_temperature', 1.5)),
+                    "--bootstrap-start-epoch", str(getattr(self.config, 'bootstrap_start_epoch', 10)),
+                ])
 
             print(f"[Training] Starting training for {model_id}...")
 
@@ -1152,7 +1181,24 @@ class TrainingScheduler:
             # D6 hex symmetry augmentation for hex boards (12x effective data)
             if getattr(self.config, 'use_hex_augmentation', True) and board_type in ('hex8', 'hexagonal'):
                 cmd.append("--hex-augment")
-                cmd.extend(["--hex-augment-count", "6"])  # 6 random transforms per sample
+                hex_augment_count = getattr(self.config, 'hex_augment_count', 6)
+                cmd.extend(["--hex-augment-count", str(hex_augment_count)])
+
+            # Policy head dropout for regularization
+            policy_dropout = getattr(self.config, 'policy_dropout', 0.1)
+            if policy_dropout > 0:
+                cmd.extend(["--policy-dropout", str(policy_dropout)])
+
+            # Gradient accumulation for larger effective batch sizes
+            gradient_accumulation = getattr(self.config, 'gradient_accumulation', 1)
+            if gradient_accumulation > 1:
+                cmd.extend(["--gradient-accumulation-steps", str(gradient_accumulation)])
+
+            # Learning rate finder (runs before training to find optimal LR)
+            if getattr(self.config, 'use_lr_finder', False):
+                cmd.append("--find-lr")
+                lr_finder_iterations = getattr(self.config, 'lr_finder_iterations', 100)
+                cmd.extend(["--lr-finder-iterations", str(lr_finder_iterations)])
 
             # Save learning curves
             cmd.append("--save-curves")
@@ -1162,6 +1208,8 @@ class TrainingScheduler:
             print(f"[Training]   SWA: {getattr(self.config, 'use_swa', True)}, "
                   f"EMA: {getattr(self.config, 'use_ema', True)}, "
                   f"Progressive batch: {getattr(self.config, 'use_progressive_batch', True)}")
+            print(f"[Training]   Focal gamma: {focal_gamma}, Policy dropout: {policy_dropout}, "
+                  f"Hex augment: {getattr(self.config, 'use_hex_augmentation', True) and board_type in ('hex8', 'hexagonal')}")
             print(f"[Training]   Auto-KL: True (min_coverage=30%, min_samples=50), {jsonl_status}")
 
             env = os.environ.copy()

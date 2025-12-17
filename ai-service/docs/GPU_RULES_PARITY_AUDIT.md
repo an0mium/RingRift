@@ -78,6 +78,8 @@ Ring counts updated for better victory type balance:
 
 | Board Type | Old Value | New Value | Notes                                       |
 | ---------- | --------- | --------- | ------------------------------------------- |
+| square8    | 18        | **18**    | Unchanged (baseline board)                  |
+| hex8       | 18        | **18**    | Same as square8 (radius-4, 61 cells)        |
 | square19   | 60        | **72**    | +20% for better elimination/territory rates |
 | hexagonal  | 72        | **96**    | +33% for better victory balance             |
 

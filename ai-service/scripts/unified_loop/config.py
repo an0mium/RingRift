@@ -101,6 +101,11 @@ class TrainingConfig:
     label_smoothing_warmup: int = 5  # Warmup epochs for label smoothing
     policy_label_smoothing: float = 0.05  # Policy label smoothing factor (0.05-0.1 recommended)
     use_hex_augmentation: bool = True  # D6 symmetry augmentation for hex boards
+    hex_augment_count: int = 6  # Number of D6 symmetry augmentations (1-12)
+    policy_dropout: float = 0.1  # Dropout rate for policy head regularization
+    # Learning rate finder (auto-discovers optimal LR before training)
+    use_lr_finder: bool = False  # Run LR finder before training
+    lr_finder_iterations: int = 100  # Number of iterations for LR sweep
     # 2024-12 Advanced Training Improvements
     use_value_whitening: bool = True  # Value head whitening for stable training
     value_whitening_momentum: float = 0.99  # Momentum for running stats
@@ -113,6 +118,22 @@ class TrainingConfig:
     dynamic_batch_schedule: str = "linear"  # linear, exponential, or step
     transfer_from_model: Optional[str] = None  # Cross-board transfer learning
     transfer_freeze_epochs: int = 5  # Freeze transferred layers for N epochs
+    # Advanced optimizer enhancements
+    use_lookahead: bool = True  # Lookahead optimizer wrapper
+    lookahead_k: int = 5  # Slow weight update interval
+    lookahead_alpha: float = 0.5  # Interpolation factor
+    use_adaptive_clip: bool = True  # Adaptive gradient clipping
+    use_gradient_noise: bool = False  # Gradient noise injection (optional)
+    gradient_noise_variance: float = 0.01  # Initial noise variance
+    # Architecture search and pretraining
+    use_board_nas: bool = True  # Board-specific neural architecture search
+    use_self_supervised: bool = False  # Self-supervised pre-training (optional)
+    ss_epochs: int = 10  # Self-supervised pre-training epochs
+    ss_projection_dim: int = 128  # Projection dimension for contrastive learning
+    ss_temperature: float = 0.07  # Contrastive loss temperature
+    use_online_bootstrap: bool = True  # Online bootstrapping with soft labels
+    bootstrap_temperature: float = 1.5  # Soft label temperature
+    bootstrap_start_epoch: int = 10  # Epoch to start bootstrapping
     # NNUE policy training script
     nnue_policy_script: str = "scripts/train_nnue_policy.py"
     nnue_curriculum_script: str = "scripts/train_nnue_policy_curriculum.py"
