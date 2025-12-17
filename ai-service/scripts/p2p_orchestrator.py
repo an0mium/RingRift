@@ -8415,9 +8415,26 @@ print(wins / total)
                 print(f"[P2P] Creating tournament semaphore...")
                 self._tournament_match_semaphore = asyncio.Semaphore(1)
 
-            print(f"[P2P] Acquiring semaphore...")
-            async with self._tournament_match_semaphore:
-                print(f"[P2P] Semaphore acquired, running match...")
+            # Try to acquire semaphore with timeout to avoid deadlocks
+            # If we can't get the semaphore within 30 seconds, fail fast
+            print(f"[P2P] Acquiring semaphore (current holder: {getattr(self, '_current_match_holder', 'none')})...")
+            try:
+                acquired = await asyncio.wait_for(
+                    self._tournament_match_semaphore.acquire(),
+                    timeout=30.0
+                )
+            except asyncio.TimeoutError:
+                print(f"[P2P] Semaphore acquisition timed out after 30s (holder: {getattr(self, '_current_match_holder', 'unknown')})")
+                return web.json_response({
+                    "success": False,
+                    "error": f"Server busy - another match in progress (holder: {getattr(self, '_current_match_holder', 'unknown')})",
+                    "match_id": match_id,
+                }, status=503)
+
+            # Track who holds the semaphore for debugging
+            self._current_match_holder = f"{match_id} ({agent_a} vs {agent_b})"
+            try:
+                print(f"[P2P] Semaphore acquired, running match {match_id}...")
                 # Run the match in a thread pool to avoid blocking
                 # Add 5-minute timeout to prevent hung matches
                 loop = asyncio.get_event_loop()
@@ -8440,6 +8457,11 @@ print(wins / total)
                         "error": "Match timed out after 5 minutes",
                         "match_id": match_id,
                     }, status=504)
+            finally:
+                # Always release semaphore and clear holder
+                self._current_match_holder = None
+                self._tournament_match_semaphore.release()
+                print(f"[P2P] Semaphore released for match {match_id}")
 
             duration = time.time() - start_time
 
