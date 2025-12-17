@@ -127,24 +127,29 @@ class LocalFileStorage(StorageBackend):
         self,
         path: str,
         compress: bool = False,
-        buffer_size: int = 1000,
+        buffer_size: int = 100,
+        auto_flush_interval: int = 50,
     ):
         """Initialize local file storage.
 
         Args:
             path: Output file path
             compress: Whether to gzip compress the output
-            buffer_size: Number of samples to buffer before flushing
+            buffer_size: Number of samples to buffer before flushing (reduced from 1000 to 100)
+            auto_flush_interval: Force flush every N samples regardless of buffer (safety net)
         """
         self._path = Path(path)
         self._compress = compress
         self._buffer_size = buffer_size
+        self._auto_flush_interval = auto_flush_interval
         self._buffer: List[str] = []
         self._samples_written = 0
         self._bytes_written = 0
+        self._samples_since_flush = 0
 
         # Ensure parent directory exists
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        logger.info(f"LocalFileStorage: Writing to {self._path} (compress={compress}, buffer_size={buffer_size})")
 
         # Open file (gzip if requested)
         if compress:
@@ -155,7 +160,10 @@ class LocalFileStorage(StorageBackend):
     def write_line(self, data: str) -> None:
         """Write a single line."""
         self._buffer.append(data)
-        if len(self._buffer) >= self._buffer_size:
+        self._samples_since_flush += 1
+
+        # Flush on buffer full OR auto-flush interval (whichever comes first)
+        if len(self._buffer) >= self._buffer_size or self._samples_since_flush >= self._auto_flush_interval:
             self.flush()
 
     def write_training_sample(self, sample: TrainingSample) -> None:
@@ -163,7 +171,7 @@ class LocalFileStorage(StorageBackend):
         self.write_line(sample.to_json())
 
     def flush(self) -> None:
-        """Flush buffered data to file."""
+        """Flush buffered data to file with fsync for durability."""
         if not self._buffer:
             return
 
@@ -174,12 +182,24 @@ class LocalFileStorage(StorageBackend):
             self._samples_written += 1
 
         self._buffer.clear()
+        self._samples_since_flush = 0
         self._file.flush()
+
+        # Force OS to write to disk (critical for data persistence)
+        try:
+            if hasattr(self._file, 'fileno'):
+                os.fsync(self._file.fileno())
+        except (OSError, AttributeError):
+            pass  # gzip files may not support fsync directly
+
+        if self._samples_written % 500 == 0:
+            logger.info(f"LocalFileStorage: Flushed {self._samples_written} samples to {self._path}")
 
     def close(self) -> None:
         """Close the file."""
         self.flush()
         self._file.close()
+        logger.info(f"LocalFileStorage: Closed {self._path} with {self._samples_written} samples ({self._bytes_written} bytes)")
 
     def get_stats(self) -> Dict[str, Any]:
         """Get write statistics."""
@@ -478,10 +498,13 @@ def get_storage(
             # file://$HOME/path -> netloc='$HOME', path='/path'
             path = parsed.netloc + path
         path = os.path.expanduser(os.path.expandvars(path))
+        # Use smaller buffer for local files (100 vs cloud's 10000) to avoid data loss
+        local_buffer = min(buffer_size, 100)
         return LocalFileStorage(
             path=path,
             compress=compress,
-            buffer_size=buffer_size,
+            buffer_size=local_buffer,
+            auto_flush_interval=50,
         )
 
     elif scheme == "s3":

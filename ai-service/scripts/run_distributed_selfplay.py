@@ -96,6 +96,7 @@ from app.training.env import (  # noqa: E402
     TrainingEnvConfig,
     make_env,
     TRAINING_HEURISTIC_EVAL_MODE_BY_BOARD,
+    get_theoretical_max_moves,
 )
 from app.training.cloud_storage import (  # noqa: E402
     TrainingSample,
@@ -942,8 +943,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-moves",
         type=int,
-        default=200,
-        help="Maximum moves per game (default: 200)",
+        default=None,
+        help="Maximum moves per game (auto-calculated from board/players if not set)",
     )
     parser.add_argument(
         "--seed",
@@ -1031,12 +1032,19 @@ def main():
     if not worker_id:
         worker_id = f"worker_{uuid.uuid4().hex[:8]}"
 
+    # Auto-calculate max_moves from board type and player count if not specified
+    board_type = parse_board_type(args.board_type)
+    max_moves = args.max_moves
+    if max_moves is None:
+        max_moves = get_theoretical_max_moves(board_type, args.num_players)
+        logger.info(f"Auto-calculated max_moves={max_moves} for {args.board_type} {args.num_players}p")
+
     config = WorkerConfig(
         worker_id=worker_id,
         num_games=args.num_games,
-        board_type=parse_board_type(args.board_type),
+        board_type=board_type,
         num_players=args.num_players,
-        max_moves=args.max_moves,
+        max_moves=max_moves,
         seed=args.seed,
         engine_mode=args.engine_mode,
         difficulty_band=args.difficulty_band,
