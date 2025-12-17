@@ -9054,10 +9054,11 @@ print(json.dumps(result))
         """Calculate final Elo ratings from tournament results.
 
         Uses standard Elo rating system with K-factor of 32.
-        Starting rating is 1500 for all agents.
+        Random is pinned at 400 Elo as the anchor point.
         """
         K_FACTOR = 32
         INITIAL_RATING = 1500
+        RANDOM_ANCHOR = 400  # Random is pinned at 400 Elo
 
         # Initialize ratings
         ratings = {agent: float(INITIAL_RATING) for agent in state.agent_ids}
@@ -9109,6 +9110,11 @@ print(json.dumps(result))
             # Update ratings
             ratings[agent1] = update_elo(ratings[agent1], expected1, score1)
             ratings[agent2] = update_elo(ratings[agent2], expected2, score2)
+
+        # Normalize ratings so random is pinned at 400
+        if "random" in ratings:
+            offset = RANDOM_ANCHOR - ratings["random"]
+            ratings = {agent: rating + offset for agent, rating in ratings.items()}
 
         # Store final ratings and stats
         state.final_ratings = {

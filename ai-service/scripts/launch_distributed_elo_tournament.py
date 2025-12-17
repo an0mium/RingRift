@@ -650,9 +650,14 @@ print(json.dumps({{"winner": winner, "moves": moves, "dur": round(time.time() - 
 
 
 def calculate_elo(results: List[MatchResult]) -> Dict[str, float]:
-    """Calculate Elo ratings from match results."""
+    """Calculate Elo ratings from match results.
+
+    Random is pinned at 400 Elo as the anchor point.
+    All other ratings are calculated relative to random.
+    """
     K_FACTOR = 32
     INITIAL_RATING = 1500.0
+    RANDOM_ANCHOR = 400.0  # Random is pinned at 400 Elo
 
     agents = set()
     for r in results:
@@ -677,6 +682,11 @@ def calculate_elo(results: List[MatchResult]) -> Dict[str, float]:
 
         ratings[r.agent_a] = ra + K_FACTOR * (sa - ea)
         ratings[r.agent_b] = rb + K_FACTOR * (sb - eb)
+
+    # Normalize ratings so random is pinned at 400
+    if "random" in ratings:
+        offset = RANDOM_ANCHOR - ratings["random"]
+        ratings = {agent: rating + offset for agent, rating in ratings.items()}
 
     return ratings
 
