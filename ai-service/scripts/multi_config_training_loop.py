@@ -992,7 +992,13 @@ def run_training(board_type: str, num_players: int, db_paths: List[str],
         "--adaptive-clip",  # Adaptive gradient clipping
         "--board-nas",  # Board-specific neural architecture search
         "--online-bootstrap", "--bootstrap-temperature", "1.5", "--bootstrap-start-epoch", "10",  # Online bootstrapping
+        # 2025-12 Training Improvements
+        "--policy-label-smoothing", "0.05",  # Prevent overconfident predictions
     ]
+
+    # D6 hex symmetry augmentation for hex boards (12x effective data)
+    if board_type in ('hex8', 'hexagonal', 'hex'):
+        train_cmd.append("--augment-hex-symmetry")
 
     # Apply LR multiplier if non-default
     if lr_multiplier != 1.0 and HAS_HYPERPARAMETERS:
