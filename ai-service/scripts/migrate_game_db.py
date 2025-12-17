@@ -30,11 +30,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.db.game_replay import SCHEMA_VERSION, GameReplayDB
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
+# Unified logging setup
+try:
+    from app.core.logging_config import setup_logging
+    logger = setup_logging("migrate_game_db", log_dir="logs")
+except ImportError:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+    )
+    logger = logging.getLogger(__name__)
 
 
 def get_db_schema_version(db_path: str) -> int:

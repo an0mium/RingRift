@@ -42,11 +42,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.models import BoardType
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
-)
-logger = logging.getLogger("HotDataPath")
+# Unified logging setup
+try:
+    from app.core.logging_config import setup_logging
+    logger = setup_logging("hot_data_path", log_dir="logs")
+except ImportError:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+    )
+    logger = logging.getLogger("HotDataPath")
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
