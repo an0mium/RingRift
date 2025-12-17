@@ -130,11 +130,61 @@ python scripts/run_distributed_selfplay.py --help | grep max-moves
 tail -f logs/*.log | grep "LocalFileStorage"
 ```
 
+## Quick Reference Commands
+
+### Start Services
+
+```bash
+# Unified data sync (background)
+PYTHONPATH=. nohup python scripts/unified_data_sync.py --watchdog > logs/unified_data_sync.log 2>&1 &
+
+# Check unified AI loop status
+PYTHONPATH=. python scripts/unified_ai_loop.py --status
+
+# Start GPU selfplay on Lambda node
+ssh lambda-gh200-h "cd ~/ringrift/ai-service && source venv/bin/activate && \
+  PYTHONPATH=. nohup python scripts/run_gpu_selfplay.py --board hex8 --num-games 1000 --num-players 2 \
+  --output-dir data/selfplay/gpu_hex8_2p > logs/gpu_hex8_2p.log 2>&1 &"
+
+# Start distributed selfplay with neural batching
+python scripts/run_distributed_selfplay.py \
+  --board-type hex8 --num-players 2 --num-games 1000 \
+  --enable-nn-batching --nn-batch-timeout-ms 50 \
+  --output file://data/selfplay/hex8_2p/games.jsonl
+```
+
+### Monitor Progress
+
+```bash
+# Check recently modified data files
+find data/selfplay -name "*.jsonl" -mmin -60 | head -10
+
+# Count total games
+wc -l data/tournaments/iter*/*.jsonl | tail -1
+
+# Process status
+ps aux | grep -E "(selfplay|training|unified)" | grep -v grep | head -10
+```
+
+### Cluster Management
+
+```bash
+# Update cluster code
+python scripts/update_cluster_code.py --auto-stash
+
+# Cluster status
+python scripts/cluster_control.py status
+
+# Start cluster selfplay
+python scripts/cluster_control.py selfplay start --board hex8 --games 500
+```
+
 ## Related Documentation
 
 - [UNIFIED_AI_LOOP.md](UNIFIED_AI_LOOP.md) - Training loop configuration
 - [TRAINING_FEATURES.md](TRAINING_FEATURES.md) - Training system overview
 - [DISTRIBUTED_SELFPLAY.md](DISTRIBUTED_SELFPLAY.md) - Distributed generation setup
+- [TRAINING_PIPELINE.md](TRAINING_PIPELINE.md) - Full pipeline architecture
 
 ---
 
