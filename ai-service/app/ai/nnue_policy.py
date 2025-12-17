@@ -596,7 +596,7 @@ class NNUEPolicyTrainer:
             to_scores = torch.gather(to_logits, 1, to_indices)
             move_scores = (from_scores + to_scores) / self.temperature
             # Use large negative instead of -inf to avoid numerical issues with label smoothing
-            move_scores = move_scores.masked_fill(~move_mask, -1e9)
+            move_scores = move_scores.masked_fill(~move_mask, -1e4)  # Use -1e4 for AMP compatibility
 
             # Use KL divergence if enabled and MCTS probs available
             if self.use_kl_loss and mcts_probs is not None:
@@ -671,7 +671,7 @@ class NNUEPolicyTrainer:
             to_scores = torch.gather(to_logits, 1, to_indices)
             move_scores = from_scores + to_scores
             # Use large negative instead of -inf to avoid numerical issues
-            move_scores = move_scores.masked_fill(~move_mask, -1e9)
+            move_scores = move_scores.masked_fill(~move_mask, -1e4)  # Use -1e4 for AMP compatibility
 
             # Use KL divergence if enabled and MCTS probs available
             if self.use_kl_loss and mcts_probs is not None:

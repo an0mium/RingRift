@@ -849,6 +849,13 @@ class TrainingScheduler:
                 ])
 
             print(f"[Training] Starting training for {model_id}...")
+
+            # Also start NNUE policy training in parallel if configured
+            nnue_policy_process = None
+            if hasattr(self.config, 'nnue_policy_script'):
+                nnue_policy_process = await self._start_nnue_policy_training(
+                    board_type, num_players, largest_db, epochs, run_dir
+                )
             self._training_process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -863,6 +870,92 @@ class TrainingScheduler:
             self.state.training_in_progress = False
             self._release_training_lock()
             return False
+
+    async def _start_nnue_policy_training(
+        self,
+        board_type: str,
+        num_players: int,
+        db_path: Path,
+        epochs: int,
+        run_dir: Path,
+    ) -> Optional[asyncio.subprocess.Process]:
+        """Start NNUE policy training with advanced optimizations.
+
+        Uses the new training features: SWA, EMA, progressive batching,
+        focal loss, and D6 hex augmentation.
+        """
+        try:
+            nnue_run_dir = run_dir / "nnue_policy"
+            nnue_run_dir.mkdir(parents=True, exist_ok=True)
+
+            cmd = [
+                sys.executable,
+                str(AI_SERVICE_ROOT / self.config.nnue_policy_script),
+                "--db", str(db_path),
+                "--board-type", board_type,
+                "--num-players", str(num_players),
+                "--epochs", str(epochs),
+                "--run-dir", str(nnue_run_dir),
+                "--batch-size", str(self.config.batch_size or 256),
+                "--lr-scheduler", "cosine_warmup",
+                "--grad-clip", "1.0",
+            ]
+
+            # Mixed precision (AMP)
+            if self.config.use_mixed_precision:
+                cmd.append("--use-amp")
+
+            # Stochastic Weight Averaging
+            if getattr(self.config, 'use_swa', True):
+                cmd.append("--use-swa")
+                swa_start = int(epochs * getattr(self.config, 'swa_start_fraction', 0.75))
+                cmd.extend(["--swa-start-epoch", str(swa_start)])
+
+            # Exponential Moving Average
+            if getattr(self.config, 'use_ema', True):
+                cmd.append("--use-ema")
+                cmd.extend(["--ema-decay", str(getattr(self.config, 'ema_decay', 0.999))])
+
+            # Progressive batch sizing
+            if getattr(self.config, 'use_progressive_batch', True):
+                cmd.append("--progressive-batch")
+                cmd.extend(["--min-batch-size", str(getattr(self.config, 'min_batch_size', 64))])
+                cmd.extend(["--max-batch-size", str(getattr(self.config, 'max_batch_size', 512))])
+
+            # Focal loss for hard sample mining
+            focal_gamma = getattr(self.config, 'focal_gamma', 2.0)
+            if focal_gamma > 0:
+                cmd.extend(["--focal-gamma", str(focal_gamma)])
+
+            # Label smoothing warmup
+            warmup = getattr(self.config, 'label_smoothing_warmup', 5)
+            if warmup > 0:
+                cmd.extend(["--label-smoothing-warmup", str(warmup)])
+
+            # Save learning curves
+            cmd.append("--save-curves")
+
+            print(f"[Training] Starting NNUE policy training with advanced optimizations...")
+            print(f"[Training]   SWA: {getattr(self.config, 'use_swa', True)}, "
+                  f"EMA: {getattr(self.config, 'use_ema', True)}, "
+                  f"Progressive batch: {getattr(self.config, 'use_progressive_batch', True)}")
+
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(AI_SERVICE_ROOT)
+
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=AI_SERVICE_ROOT,
+                env=env,
+            )
+
+            return process
+
+        except Exception as e:
+            print(f"[Training] Error starting NNUE policy training: {e}")
+            return None
 
     async def check_training_status(self) -> Optional[Dict[str, Any]]:
         """Check if current training has completed."""

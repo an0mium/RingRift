@@ -84,6 +84,20 @@ class TrainingConfig:
     teacher_model_path: Optional[str] = None  # Path to teacher model
     distill_alpha: float = 0.5  # Blend weight (0=pure label, 1=pure teacher)
     distill_temperature: float = 2.0  # Softening temperature
+    # Advanced NNUE policy training options (2024-12)
+    use_swa: bool = True  # Stochastic Weight Averaging for better generalization
+    swa_start_fraction: float = 0.75  # Start SWA at 75% of epochs
+    use_ema: bool = True  # Exponential Moving Average for smoother weights
+    ema_decay: float = 0.999  # EMA decay rate
+    use_progressive_batch: bool = True  # Progressive batch sizing
+    min_batch_size: int = 64  # Starting batch size
+    max_batch_size: int = 512  # Maximum batch size
+    focal_gamma: float = 2.0  # Focal loss gamma for hard sample mining
+    label_smoothing_warmup: int = 5  # Warmup epochs for label smoothing
+    use_hex_augmentation: bool = True  # D6 symmetry augmentation for hex boards
+    # NNUE policy training script
+    nnue_policy_script: str = "scripts/train_nnue_policy.py"
+    nnue_curriculum_script: str = "scripts/train_nnue_policy_curriculum.py"
 
 
 @dataclass
