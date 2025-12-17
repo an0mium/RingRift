@@ -126,18 +126,47 @@ class ScalingState:
 # P2P Workload Monitoring
 # =============================================================================
 
-P2P_LEADERS = [
-    "http://100.88.176.74:8770",   # lambda-gh200-e
-    "http://100.107.168.125:8770", # mac-studio
-    "http://100.78.101.123:8770",  # lambda-h100
-]
+def _load_p2p_leaders_from_config() -> List[str]:
+    """Load P2P leader endpoints from config or environment."""
+    config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
+    leaders = []
+
+    if not config_path.exists():
+        logger.warning("[Autoscaler] Warning: No config found at %s", config_path)
+        return []
+
+    try:
+        import yaml
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+
+        hosts = config.get("hosts", {})
+        # Get hosts with p2p_voter role or primary training nodes
+        for host_id, host_info in hosts.items():
+            if host_info.get("status") != "ready":
+                continue
+            tailscale_ip = host_info.get("tailscale_ip")
+            if tailscale_ip and tailscale_ip.startswith("100."):
+                # Prefer p2p_voter nodes or primary training nodes
+                if host_info.get("p2p_voter") or "primary" in host_info.get("role", ""):
+                    leaders.append(f"http://{tailscale_ip}:8770")
+
+        return leaders[:5]  # Limit to top 5
+    except Exception as e:
+        logger.warning("[Autoscaler] Error loading config: %s", e)
+        return []
 
 
 def get_p2p_status() -> Optional[Dict]:
     """Get P2P network status from leader."""
     import urllib.request
 
-    for leader in P2P_LEADERS:
+    leaders = _load_p2p_leaders_from_config()
+    if not leaders:
+        logger.warning("No P2P leaders configured, cannot get P2P status")
+        return None
+
+    for leader in leaders:
         try:
             with urllib.request.urlopen(f"{leader}/status", timeout=10) as resp:
                 return json.loads(resp.read().decode())

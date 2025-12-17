@@ -57,6 +57,42 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Host Configuration
+# =============================================================================
+
+def _load_p2p_leaders_from_config():
+    """Load P2P leader hosts from config file or environment."""
+    from pathlib import Path
+
+    config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
+    if not config_path.exists():
+        print("[HealthAlert] Warning: No distributed_hosts.yaml found, using empty P2P leaders list")
+        return []
+
+    try:
+        import yaml
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+
+        # Extract hosts that are P2P voters or primary training nodes
+        leaders = []
+        hosts = config.get("hosts", {})
+        for name, info in hosts.items():
+            if info.get("status") != "ready":
+                continue
+            # Include P2P voters and primary training nodes as potential leaders
+            if info.get("p2p_voter") or "primary" in info.get("role", ""):
+                tailscale_ip = info.get("tailscale_ip")
+                if tailscale_ip:
+                    leaders.append(f"http://{tailscale_ip}:8770")
+
+        return leaders[:3]  # Return top 3 leaders
+    except Exception as e:
+        print(f"[HealthAlert] Error loading P2P leaders from config: {e}")
+        return []
+
+
+# =============================================================================
 # Configuration
 # =============================================================================
 
@@ -121,16 +157,20 @@ class HealthCheck:
 # Health Checks
 # =============================================================================
 
-P2P_LEADERS = [
-    "http://100.88.176.74:8770",
-    "http://100.107.168.125:8770",
-    "http://100.78.101.123:8770",
-]
+# Load P2P leaders at module level (cached)
+P2P_LEADERS = _load_p2p_leaders_from_config()
 
 
 def check_p2p_network(config: AlertConfig) -> HealthCheck:
     """Check P2P network health."""
     import urllib.request
+
+    if not P2P_LEADERS:
+        return HealthCheck(
+            name="p2p_network",
+            status="warning",
+            message="No P2P leaders configured",
+        )
 
     for leader in P2P_LEADERS:
         try:
@@ -216,6 +256,13 @@ def check_vast_instances(config: AlertConfig) -> HealthCheck:
 def check_selfplay_jobs(config: AlertConfig) -> HealthCheck:
     """Check selfplay job counts."""
     import urllib.request
+
+    if not P2P_LEADERS:
+        return HealthCheck(
+            name="selfplay_jobs",
+            status="warning",
+            message="No P2P leaders configured",
+        )
 
     for leader in P2P_LEADERS:
         try:

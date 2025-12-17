@@ -47,9 +47,40 @@ VAST_NODES = [
     ("vast-a40-gauntlet", "root"),
 ]
 
-H100_NODE = ("100.78.101.123", "ubuntu")
 
-ALL_NODES = [H100_NODE] + LAMBDA_NODES + VAST_NODES
+def _load_hosts_from_config():
+    """Load hosts from config/distributed_hosts.yaml."""
+    config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
+    if not config_path.exists():
+        print("[Script] Warning: No config found at", config_path)
+        return []
+    try:
+        import yaml
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+
+        # Extract hosts with tailscale_ip or ssh_host
+        hosts = []
+        for name, host_config in config.get('hosts', {}).items():
+            if host_config.get('status') == 'terminated':
+                continue
+
+            # Prefer Tailscale IP, fallback to ssh_host
+            ip = host_config.get('tailscale_ip') or host_config.get('ssh_host')
+            user = host_config.get('ssh_user', 'ubuntu')
+
+            if ip:
+                hosts.append((ip, user))
+
+        return hosts
+    except Exception as e:
+        print(f"[Script] Error loading config: {e}")
+        return []
+
+
+# Load hosts from config, fallback to hardcoded Lambda nodes if config fails
+CONFIG_NODES = _load_hosts_from_config()
+ALL_NODES = CONFIG_NODES if CONFIG_NODES else (LAMBDA_NODES + VAST_NODES)
 
 
 @dataclass

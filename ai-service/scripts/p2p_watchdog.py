@@ -27,12 +27,40 @@ import sys
 import time
 import urllib.request
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, List
 
 
 def log(msg: str):
     """Print timestamped log message."""
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
+
+
+def _load_peers_from_config() -> List[str]:
+    """Load P2P peer endpoints from config file."""
+    config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
+    if not config_path.exists():
+        log("[Watchdog] Warning: No config found at " + str(config_path))
+        return []
+
+    try:
+        import yaml
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+
+        hosts = config.get("hosts", {})
+        peers = []
+        # Get p2p_voter nodes as default peers
+        for host_id, host_info in hosts.items():
+            if host_info.get("status") == "ready" and host_info.get("p2p_voter"):
+                tailscale_ip = host_info.get("tailscale_ip")
+                if tailscale_ip and tailscale_ip.startswith("100."):
+                    peers.append(f"http://{tailscale_ip}:8770")
+
+        return peers[:5]  # Limit to top 5
+    except Exception as e:
+        log(f"[Watchdog] Error loading config: {e}")
+        return []
 
 
 def check_p2p_health(port: int = 8770, timeout: int = 30) -> Optional[dict]:
@@ -226,7 +254,14 @@ def main():
 
     args = parser.parse_args()
 
-    peers = args.peers.split(",") if args.peers else []
+    # Load peers from config if not provided
+    if args.peers:
+        peers = args.peers.split(",")
+    else:
+        peers = _load_peers_from_config()
+        if not peers:
+            log("[Watchdog] Warning: No peers configured")
+
     ringrift_path = args.ringrift_path or find_ringrift_path()
 
     log(f"Watchdog check for {args.node_id}")

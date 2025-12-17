@@ -49,8 +49,44 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# P2P leader endpoint
-P2P_LEADER = os.environ.get("P2P_LEADER", "http://100.88.176.74:8770")
+
+def _load_p2p_leader_from_config() -> str:
+    """Load P2P leader endpoint from config or environment."""
+    # Check environment first
+    if os.environ.get("P2P_LEADER"):
+        return os.environ["P2P_LEADER"]
+
+    config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
+    if not config_path.exists():
+        logger.warning("[P2PSync] Warning: No config found at %s", config_path)
+        return ""
+
+    try:
+        import yaml
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+
+        # Get coordinator from elo_sync config
+        coordinator = config.get("elo_sync", {}).get("coordinator", "mac-studio")
+        hosts = config.get("hosts", {})
+
+        if coordinator in hosts:
+            coord_info = hosts[coordinator]
+            tailscale_ip = coord_info.get("tailscale_ip") or coord_info.get("ssh_host")
+            if tailscale_ip and tailscale_ip.startswith("100."):
+                return f"http://{tailscale_ip}:8770"
+
+        # Fallback: find first ready p2p_voter node
+        for host_id, host_info in hosts.items():
+            if host_info.get("status") == "ready" and host_info.get("p2p_voter"):
+                tailscale_ip = host_info.get("tailscale_ip")
+                if tailscale_ip and tailscale_ip.startswith("100."):
+                    return f"http://{tailscale_ip}:8770"
+
+        return ""
+    except Exception as e:
+        logger.warning("[P2PSync] Error loading config: %s", e)
+        return ""
 
 # GPU role mapping for config
 GPU_ROLES = {
@@ -153,9 +189,14 @@ def get_vast_instances() -> List[VastInstance]:
 
 def get_p2p_nodes() -> List[P2PNode]:
     """Get nodes from P2P network."""
+    p2p_leader = _load_p2p_leader_from_config()
+    if not p2p_leader:
+        logger.error("No P2P leader configured, cannot get P2P nodes")
+        return []
+
     try:
         import urllib.request
-        with urllib.request.urlopen(f"{P2P_LEADER}/status", timeout=10) as response:
+        with urllib.request.urlopen(f"{p2p_leader}/status", timeout=10) as response:
             data = json.loads(response.read().decode())
 
         nodes = []
@@ -243,11 +284,16 @@ def match_vast_to_p2p(vast_instances: List[VastInstance], p2p_nodes: List[P2PNod
 
 def unretire_node_via_api(node_id: str) -> bool:
     """Unretire a node by calling P2P API."""
+    p2p_leader = _load_p2p_leader_from_config()
+    if not p2p_leader:
+        logger.error("No P2P leader configured, cannot unretire node")
+        return False
+
     try:
         import urllib.request
         import urllib.parse
 
-        url = f"{P2P_LEADER}/admin/unretire?node_id={urllib.parse.quote(node_id)}"
+        url = f"{p2p_leader}/admin/unretire?node_id={urllib.parse.quote(node_id)}"
         req = urllib.request.Request(url, method='POST')
         with urllib.request.urlopen(req, timeout=10) as response:
             return response.status == 200

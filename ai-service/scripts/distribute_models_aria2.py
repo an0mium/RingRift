@@ -28,18 +28,50 @@ from typing import Dict, List, Optional, Tuple
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
-# Source nodes for models (Lambda training nodes)
-SOURCE_NODES = [
-    ("lambda-a10", "ubuntu", "150.136.65.197", "100.91.25.13"),
-    ("lambda-h100", "ubuntu", "209.20.157.81", "100.78.101.123"),
-    ("lambda-2xh100", "ubuntu", "192.222.53.22", "100.97.104.89"),
-    ("lambda-gh200-a", "ubuntu", "192.222.51.29", "100.123.183.70"),
-]
-
 # aria2 settings
 ARIA2_DATA_PORT = 8766
 ARIA2_CONNECTIONS = 16
 ARIA2_SPLIT = 16
+
+
+def _load_hosts_from_config():
+    """Load source nodes from config/distributed_hosts.yaml."""
+    config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
+    if not config_path.exists():
+        print("[Script] Warning: No config found")
+        return []
+    try:
+        import yaml
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+
+        # Extract training nodes (prefer Tailscale IPs)
+        sources = []
+        for name, host_config in config.get('hosts', {}).items():
+            if host_config.get('status') == 'terminated':
+                continue
+
+            # Only include training nodes
+            role = host_config.get('role', '')
+            if 'training' not in role:
+                continue
+
+            # Get IPs
+            ts_ip = host_config.get('tailscale_ip')
+            ssh_host = host_config.get('ssh_host')
+            user = host_config.get('ssh_user', 'ubuntu')
+
+            if ts_ip or ssh_host:
+                sources.append((name, user, ssh_host or '', ts_ip or ''))
+
+        return sources
+    except Exception as e:
+        print(f"[Script] Error loading config: {e}")
+        return []
+
+
+# Source nodes for models (Lambda training nodes)
+SOURCE_NODES = _load_hosts_from_config() or []
 
 
 def get_vast_instances() -> List[Dict]:

@@ -41,28 +41,74 @@ except ImportError:
 LOCAL_ELO_DB = AI_SERVICE_ROOT / "data" / "unified_elo.db"
 
 
+def _load_hosts_from_config() -> List[Tuple[str, str]]:
+    """Load cluster nodes from config file."""
+    config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
+    if not config_path.exists():
+        print("[Validation] Warning: No config found at", config_path)
+        return []
+
+    try:
+        import yaml
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+
+        hosts = config.get("hosts", {})
+        nodes = []
+        for host_id, host_info in hosts.items():
+            if host_info.get("status") != "ready":
+                continue
+            tailscale_ip = host_info.get("tailscale_ip") or host_info.get("ssh_host")
+            if tailscale_ip and tailscale_ip.startswith("100."):
+                nodes.append((host_id, tailscale_ip))
+
+        return nodes
+    except Exception as e:
+        print(f"[Validation] Error loading config: {e}")
+        return []
+
+
 def get_cluster_nodes_for_validation() -> List[Tuple[str, str]]:
-    """Get cluster nodes from shared config or fallback to hardcoded."""
+    """Get cluster nodes from shared config or fallback to config file."""
     if USE_SHARED_CONFIG:
         nodes = get_active_nodes()
         return [(n.name, n.best_ip) for n in nodes if n.best_ip]
 
-    # Fallback to hardcoded nodes
-    return [
-        ("mac-studio", "100.107.168.125"),
-        ("lambda-h100", "100.78.101.123"),
-        ("lambda-2xh100", "100.97.104.89"),
-        ("lambda-gh200-a", "100.123.183.70"),
-    ]
+    # Load from config file
+    return _load_hosts_from_config()
 
 
 def get_coordinator_ip() -> str:
-    """Get coordinator IP from shared config or fallback."""
+    """Get coordinator IP from shared config or config file."""
     if USE_SHARED_CONFIG:
         coord = get_coordinator_node()
         if coord and coord.best_ip:
             return coord.best_ip
-    return "100.107.168.125"
+
+    # Load from config file
+    config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
+    if not config_path.exists():
+        print("[Validation] Warning: No config found, using empty coordinator IP")
+        return ""
+
+    try:
+        import yaml
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+
+        coordinator = config.get("elo_sync", {}).get("coordinator", "mac-studio")
+        hosts = config.get("hosts", {})
+
+        if coordinator in hosts:
+            coord_info = hosts[coordinator]
+            tailscale_ip = coord_info.get("tailscale_ip") or coord_info.get("ssh_host")
+            if tailscale_ip and tailscale_ip.startswith("100."):
+                return tailscale_ip
+
+        return ""
+    except Exception as e:
+        print(f"[Validation] Error loading coordinator from config: {e}")
+        return ""
 
 
 def get_divergence_threshold() -> float:

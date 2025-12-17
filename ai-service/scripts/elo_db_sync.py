@@ -65,8 +65,7 @@ DEFAULT_DB_PATH = ROOT / "data" / "unified_elo.db"
 SYNC_STATE_FILE = ROOT / "data" / "elo_sync_state.json"
 HOSTS_CONFIG = ROOT / "config" / "distributed_hosts.yaml"
 
-# Default coordinator (MacBook Pro via Tailscale - current active coordinator)
-DEFAULT_COORDINATOR_IP = "100.77.77.122"
+# Default coordinator fallback (if config unavailable)
 DEFAULT_COORDINATOR_HOST = "macbook-pro"
 DEFAULT_PORT = 8766
 
@@ -115,14 +114,58 @@ def load_hosts_config() -> Dict[str, Any]:
 
 
 def get_coordinator_address() -> Tuple[str, int]:
-    """Get coordinator address from config or use default.
+    """Get coordinator address from config or use environment variable.
 
-    Returns the DEFAULT_COORDINATOR_IP which should be set to whichever
-    machine is currently running the coordinator.
+    Priority:
+    1. Environment variable ELO_COORDINATOR_IP
+    2. Config file (elo_sync.coordinator)
+    3. Error if neither is set
     """
-    # Use the hardcoded default which points to the active coordinator
-    # This avoids issues with config files pointing to the wrong machine
-    return DEFAULT_COORDINATOR_IP, DEFAULT_PORT
+    # Check environment variable first
+    env_ip = os.environ.get('ELO_COORDINATOR_IP')
+    if env_ip:
+        return env_ip, DEFAULT_PORT
+
+    # Try loading from config
+    hosts = load_hosts_config()
+    if not hosts:
+        print("[Script] Warning: No config found and ELO_COORDINATOR_IP not set")
+        return None, DEFAULT_PORT
+
+    # Get coordinator from config
+    if not HOSTS_CONFIG.exists():
+        print("[Script] Warning: Config file missing and ELO_COORDINATOR_IP not set")
+        return None, DEFAULT_PORT
+
+    try:
+        import yaml
+        with open(HOSTS_CONFIG) as f:
+            config = yaml.safe_load(f) or {}
+
+        coordinator_name = config.get('elo_sync', {}).get('coordinator')
+        if not coordinator_name:
+            print("[Script] Warning: No coordinator specified in config and ELO_COORDINATOR_IP not set")
+            return None, DEFAULT_PORT
+
+        # Get coordinator host info
+        coord_host = hosts.get(coordinator_name)
+        if not coord_host:
+            print(f"[Script] Warning: Coordinator '{coordinator_name}' not found in hosts")
+            return None, DEFAULT_PORT
+
+        # Prefer Tailscale IP
+        ip = coord_host.get('tailscale_ip') or coord_host.get('ssh_host')
+        if not ip:
+            print(f"[Script] Warning: No IP found for coordinator '{coordinator_name}'")
+            return None, DEFAULT_PORT
+
+        port = config.get('elo_sync', {}).get('sync_port', DEFAULT_PORT)
+        return ip, port
+
+    except Exception as e:
+        print(f"[Script] Error loading coordinator from config: {e}")
+        print("[Script] Set ELO_COORDINATOR_IP environment variable to override")
+        return None, DEFAULT_PORT
 
 
 def get_all_sync_targets() -> List[Dict[str, Any]]:
@@ -873,10 +916,18 @@ Examples:
     coordinator = args.coordinator
     if not coordinator and args.mode in ('worker', 'push', 'pull'):
         coord_ip, coord_port = get_coordinator_address()
-        coordinator = coord_ip
-        if args.port == DEFAULT_PORT:
-            args.port = coord_port
-        print(f"Auto-discovered coordinator: {coordinator}:{args.port}")
+        if coord_ip:
+            coordinator = coord_ip
+            if args.port == DEFAULT_PORT:
+                args.port = coord_port
+            print(f"Auto-discovered coordinator: {coordinator}:{args.port}")
+        else:
+            print("[Script] Error: Could not determine coordinator address")
+            print("[Script] Either:")
+            print("[Script]   1. Set ELO_COORDINATOR_IP environment variable")
+            print("[Script]   2. Configure elo_sync.coordinator in config/distributed_hosts.yaml")
+            print("[Script]   3. Specify --coordinator argument")
+            sys.exit(1)
 
     if args.mode == 'coordinator':
         run_coordinator(args.port, args.db)

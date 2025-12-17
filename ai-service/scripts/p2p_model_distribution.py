@@ -10,11 +10,11 @@ Usage:
     python p2p_model_distribution.py serve --models-dir /path/to/models --port 8765
 
     # On destination machine (needs models):
-    python p2p_model_distribution.py download --source-ip 100.77.77.122 --port 8765 \
+    python p2p_model_distribution.py download --source-ip <SOURCE_IP> --port 8765 \
         --dest-dir /dev/shm/ringrift/ai-service/models --connections 16
 
     # Generate URL list for manual aria2 use:
-    python p2p_model_distribution.py generate-urls --source-ip 100.77.77.122 --port 8765 \
+    python p2p_model_distribution.py generate-urls --source-ip <SOURCE_IP> --port 8765 \
         --models-dir /path/to/models --output urls.txt
 """
 

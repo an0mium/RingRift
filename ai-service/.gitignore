@@ -82,3 +82,7 @@ docs/AI_TRAINING_PIPELINE_PLAN.md
 docs/SELFPLAY_MACHINE_ANALYSIS_*.md
 docs/DISTRIBUTED_SELFPLAY.md
 docs/CLUSTER_MIGRATION_PLAN.md
+
+# Cluster-specific result data (contains node IPs from actual cluster runs)
+data/aggregated_gauntlet_results.json
+data/cluster_elo_results/

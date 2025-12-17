@@ -79,12 +79,39 @@ ARIA2_CONNECTIONS = 16
 ARIA2_SPLIT = 4
 ARIA2_TIMEOUT = 120
 
+
+def _load_hosts_from_config():
+    """Load cluster data sources from config/distributed_hosts.yaml."""
+    config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
+    if not config_path.exists():
+        print("[Script] Warning: No config found")
+        return []
+    try:
+        import yaml
+        with open(config_path) as f:
+            config = yaml.safe_load(f) or {}
+
+        # Extract hosts with data servers (prefer Tailscale IPs)
+        sources = []
+        for name, host_config in config.get('hosts', {}).items():
+            if host_config.get('status') == 'terminated':
+                continue
+
+            # Prefer Tailscale IP, fallback to ssh_host
+            ip = host_config.get('tailscale_ip') or host_config.get('ssh_host')
+            port = host_config.get('worker_port', DEFAULT_DATA_PORT)
+
+            if ip:
+                sources.append(f"http://{ip}:{port}")
+
+        return sources
+    except Exception as e:
+        print(f"[Script] Error loading config: {e}")
+        return []
+
+
 # Cluster hosts with data servers
-CLUSTER_DATA_SOURCES = [
-    "http://100.78.101.123:8766",   # Lambda-H100
-    "http://100.123.183.70:8766",   # Lambda-2xH100
-    "http://100.77.77.122:8766",    # Dev machine
-]
+CLUSTER_DATA_SOURCES = _load_hosts_from_config() or []
 
 
 # ============================================
