@@ -249,6 +249,20 @@ class TrainingConfig:
     # A/B Testing - Model comparison
     use_ab_testing: bool = False  # Enable A/B model testing
     ab_min_games: int = 100  # Minimum games for significance
+    # =========================================================================
+    # Bottleneck Fix Integration (2025-12)
+    # =========================================================================
+    # Streaming Pipeline - Real-time data ingestion with async DB polling
+    use_streaming_pipeline: bool = True  # Enable streaming data pipelines
+    streaming_poll_interval: float = 5.0  # Seconds between DB polls
+    streaming_buffer_size: int = 10000  # Samples in streaming buffer
+    selfplay_db_path: Path = field(default_factory=lambda: Path("data/games"))
+    # Async Shadow Validation - Non-blocking GPU/CPU parity checking
+    use_async_validation: bool = True  # Enable async validation
+    validation_sample_rate: float = 0.05  # Fraction of moves to validate (5%)
+    parity_failure_threshold: float = 0.10  # Block training above 10% failures
+    # Connection Pooling - Thread-local DB connection reuse
+    use_connection_pool: bool = True  # Enable connection pooling for WAL
 
 
 @dataclass

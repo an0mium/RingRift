@@ -190,6 +190,40 @@ except ImportError:
     SmartCheckpointManager = None
     create_phase4_training_suite = None
 
+# Streaming pipeline integration (2025-12 bottleneck fixes)
+try:
+    from app.training.streaming_pipeline import (
+        StreamingDataPipeline,
+        StreamingConfig,
+        GameSample,
+    )
+    HAS_STREAMING_PIPELINE = True
+except ImportError:
+    HAS_STREAMING_PIPELINE = False
+    StreamingDataPipeline = None
+    StreamingConfig = None
+    GameSample = None
+
+# Async shadow validation (2025-12 bottleneck fixes)
+try:
+    from app.ai.shadow_validation import (
+        AsyncShadowValidator,
+        create_async_shadow_validator,
+    )
+    HAS_ASYNC_VALIDATION = True
+except ImportError:
+    HAS_ASYNC_VALIDATION = False
+    AsyncShadowValidator = None
+    create_async_shadow_validator = None
+
+# Connection pool for unified WAL (2025-12 bottleneck fixes)
+try:
+    from app.distributed.unified_wal import ConnectionPool
+    HAS_CONNECTION_POOL = True
+except ImportError:
+    HAS_CONNECTION_POOL = False
+    ConnectionPool = None
+
 
 class TrainingScheduler:
     """Schedules and manages training runs with cluster-wide coordination."""
@@ -284,6 +318,51 @@ class TrainingScheduler:
                         max_auto_tunes=getattr(config, 'cmaes_max_auto_tunes', 3),
                     )
                 print(f"[Training] CMA-ES auto-tuners initialized for {len(self._cmaes_auto_tuners)} configs")
+
+        # Bottleneck fix integrations (2025-12)
+        self._streaming_pipelines: Dict[str, Any] = {}
+        self._async_validator: Optional[Any] = None
+        self._connection_pool: Optional[Any] = None
+        self._parity_failure_rate: float = 0.0  # Track parity failures for training decisions
+
+        # Initialize streaming pipelines for each config
+        if HAS_STREAMING_PIPELINE and getattr(config, 'use_streaming_pipeline', True):
+            for config_key in state.configs:
+                parts = config_key.rsplit("_", 1)
+                board_type = parts[0]
+                num_players = int(parts[1].replace("p", "")) if len(parts) > 1 else 2
+                db_path = config.selfplay_db_path / f"{config_key}.db"
+                if db_path.exists():
+                    streaming_cfg = StreamingConfig(
+                        poll_interval_seconds=getattr(config, 'streaming_poll_interval', 5.0),
+                        buffer_size=getattr(config, 'streaming_buffer_size', 10000),
+                        dedupe_enabled=True,
+                        priority_sampling=True,
+                    )
+                    self._streaming_pipelines[config_key] = StreamingDataPipeline(
+                        db_path=db_path,
+                        board_type=board_type,
+                        num_players=num_players,
+                        config=streaming_cfg,
+                    )
+            if self._streaming_pipelines:
+                print(f"[Training] Streaming pipelines initialized for {len(self._streaming_pipelines)} configs")
+
+        # Initialize async shadow validator
+        if HAS_ASYNC_VALIDATION and getattr(config, 'use_async_validation', True):
+            self._async_validator = create_async_shadow_validator(
+                sample_rate=getattr(config, 'validation_sample_rate', 0.05),
+                enabled=True,
+            )
+            if self._async_validator:
+                print("[Training] Async shadow validation enabled (non-blocking)")
+
+        # Initialize connection pool for database operations
+        if HAS_CONNECTION_POOL and getattr(config, 'use_connection_pool', True):
+            wal_db_path = AI_SERVICE_ROOT / "data" / "unified_wal.db"
+            if wal_db_path.parent.exists():
+                self._connection_pool = ConnectionPool(wal_db_path)
+                print("[Training] Connection pool enabled for database operations")
 
     def _get_dynamic_threshold(self, config_key: str) -> int:
         """Calculate dynamic training threshold based on promotion velocity."""
@@ -1810,3 +1889,143 @@ class TrainingScheduler:
             self._gradient_checkpointing.disable()
             self._gradient_checkpointing = None
             print("[Training] Gradient checkpointing disabled")
+
+    # =========================================================================
+    # Bottleneck Fix Integration Methods (2025-12)
+    # =========================================================================
+
+    async def start_streaming_pipelines(self) -> None:
+        """Start streaming data pipelines for all configs.
+
+        This enables real-time data ingestion with async DB polling,
+        eliminating blocking consolidation waits.
+        """
+        for config_key, pipeline in self._streaming_pipelines.items():
+            try:
+                await pipeline.start()
+                print(f"[Training] Streaming pipeline started for {config_key}")
+            except Exception as e:
+                print(f"[Training] Failed to start streaming for {config_key}: {e}")
+
+    async def stop_streaming_pipelines(self) -> None:
+        """Stop all streaming data pipelines."""
+        for config_key, pipeline in self._streaming_pipelines.items():
+            try:
+                await pipeline.stop()
+            except Exception:
+                pass
+
+    def get_streaming_stats(self, config_key: Optional[str] = None) -> Dict[str, Any]:
+        """Get streaming pipeline statistics.
+
+        Args:
+            config_key: Optional config to get stats for (None for all)
+
+        Returns:
+            Dict with streaming stats including buffer sizes and ingestion counts
+        """
+        if config_key and config_key in self._streaming_pipelines:
+            return self._streaming_pipelines[config_key].get_stats()
+
+        return {
+            key: pipeline.get_stats()
+            for key, pipeline in self._streaming_pipelines.items()
+        }
+
+    def record_parity_failure(self, config_key: str, passed: bool) -> None:
+        """Record a parity validation result for training decision feedback.
+
+        High parity failure rates indicate GPU/CPU divergence and should
+        trigger more conservative training thresholds.
+
+        Args:
+            config_key: Config identifier
+            passed: True if validation passed
+        """
+        # Update rolling parity failure rate (exponential moving average)
+        alpha = 0.1  # Smoothing factor
+        result = 0.0 if passed else 1.0
+        self._parity_failure_rate = alpha * result + (1 - alpha) * self._parity_failure_rate
+
+        # Also record to async validator if available
+        if self._async_validator and not passed:
+            # Log divergence for debugging
+            print(f"[Training] Parity failure recorded for {config_key}, "
+                  f"rolling rate: {self._parity_failure_rate:.2%}")
+
+    def get_parity_failure_rate(self) -> float:
+        """Get current parity failure rate.
+
+        Returns:
+            Rolling average parity failure rate (0.0-1.0)
+        """
+        return self._parity_failure_rate
+
+    def should_block_training_for_parity(self, threshold: float = 0.10) -> bool:
+        """Check if training should be blocked due to high parity failures.
+
+        Args:
+            threshold: Maximum acceptable failure rate (default 10%)
+
+        Returns:
+            True if training should be blocked
+        """
+        if self._parity_failure_rate > threshold:
+            print(f"[Training] BLOCKING: Parity failure rate {self._parity_failure_rate:.2%} > {threshold:.0%}")
+            if HAS_PROMETHEUS and DATA_QUALITY_BLOCKED_TRAINING:
+                DATA_QUALITY_BLOCKED_TRAINING.labels(reason='parity_failure').inc()
+            return True
+        return False
+
+    def get_async_validator_report(self) -> Dict[str, Any]:
+        """Get async shadow validation report.
+
+        Returns:
+            Validation stats including divergence rates and job counts
+        """
+        if self._async_validator is not None:
+            return self._async_validator.get_report()
+        return {'enabled': False}
+
+    def check_validation_error(self) -> bool:
+        """Check if async validator has triggered an error threshold.
+
+        Returns:
+            True if validation error threshold was exceeded
+        """
+        if self._async_validator is not None:
+            return self._async_validator.check_error()
+        return False
+
+    def get_connection_pool_stats(self) -> Dict[str, Any]:
+        """Get connection pool statistics.
+
+        Returns:
+            Stats including connections created, reused, and reuse ratio
+        """
+        if self._connection_pool is not None:
+            return self._connection_pool.get_stats()
+        return {'enabled': False}
+
+    def get_bottleneck_fix_status(self) -> Dict[str, Any]:
+        """Get comprehensive status of all bottleneck fix integrations.
+
+        Returns:
+            Dict with status of streaming, validation, and connection pooling
+        """
+        return {
+            'streaming_pipelines': {
+                'enabled': len(self._streaming_pipelines) > 0,
+                'count': len(self._streaming_pipelines),
+                'stats': self.get_streaming_stats(),
+            },
+            'async_validation': {
+                'enabled': self._async_validator is not None,
+                'report': self.get_async_validator_report(),
+            },
+            'connection_pool': {
+                'enabled': self._connection_pool is not None,
+                'stats': self.get_connection_pool_stats(),
+            },
+            'parity_failure_rate': self._parity_failure_rate,
+        }
