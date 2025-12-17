@@ -234,8 +234,8 @@ from datetime import datetime
 total = 0
 min_age = 999
 # Check multiple possible DB locations
-paths = glob.glob('/root/RingRift/ai-service/data/games/*.db')
-paths += glob.glob('/root/RingRift/ai-service/data/selfplay/canonical/*.db')
+paths = glob.glob('/root/ringrift/ai-service/data/games/*.db')
+paths += glob.glob('/root/ringrift/ai-service/data/selfplay/canonical/*.db')
 for path in paths:
     try:
         conn = sqlite3.connect(path)
@@ -380,9 +380,9 @@ def restart_workers(instance: Dict, sync_code: bool = True) -> bool:
             --engine {engine} {model_arg} \\
             --record-db data/games/selfplay_{board_type}_{name}.db \\
             > logs/selfplay_{board_type}.log 2>&1 &
-        sleep 1 && pgrep -f generate_data | head -1
+        sleep 2 && pgrep -f generate_data | head -1
         """,
-        timeout=30,
+        timeout=90,  # Longer timeout for venv activation + process start
     )
 
     if success and output.strip():
@@ -407,7 +407,7 @@ def sync_data_from_instance(instance: Dict) -> int:
     # Find and download all DBs
     success, output = run_ssh_command(
         host, port,
-        "find /root/RingRift/ai-service/data -name '*.db' -type f 2>/dev/null",
+        "find /root/ringrift/ai-service/data -name '*.db' -type f 2>/dev/null",
         timeout=15,
     )
     if not success:
