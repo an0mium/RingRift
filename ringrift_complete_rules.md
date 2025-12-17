@@ -1,5 +1,7 @@
 # RingRift Complete Rules
 
+> **Version:** 1.0 | **Last Updated:** 2025-12-17 | **Spec Alignment:** RR-CANON v1.0
+
 ### What is RingRift?
 
 > _🌑 A cosmos to cleft._

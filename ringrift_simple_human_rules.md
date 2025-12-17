@@ -1,5 +1,7 @@
 # RingRift – Simple Human Rules (Canonical Summary)
 
+> **Version:** 1.1 | **Last Updated:** 2025-12-17 | **Spec Alignment:** RR-CANON v1.0
+>
 > This document is a human-oriented summary of the current RingRift rules.
 > When there is any doubt, the **single sources of truth** are:
 >
@@ -86,7 +88,7 @@ RR‑CANON‑R001 and are the base for all variants.
   - Example: Blue, Blue, Blue, Red → cap height for Blue is 3.
   - **Elimination costs vary by context:**
     - **Line processing:** Eliminate **one ring** from the top of any stack you control (including standalone rings).
-    - **Territory processing:** Eliminate your **entire cap** from an eligible stack. Eligible targets must be either: (1) multicolour stacks you control, or (2) single-colour stacks of height > 1. **Standalone rings (height 1) are NOT eligible for territory processing.**
+    - **Territory processing:** Eliminate your **entire cap** from any stack you control—**including standalone rings (height 1)**. All controlled stacks are eligible per RR-CANON-R022/R145.
     - **Forced elimination:** Eliminate your **entire cap** from **any** stack you control—**including standalone rings**.
 
 - **Marker**
@@ -295,7 +297,11 @@ When you process a disconnected region:
 
 3. **Mandatory self‑elimination**:
    - You must still have at least one stack cap **outside** the processed region under your control, and you must eliminate the **entire cap** (all consecutive top rings of your colour) from one of your controlled stacks outside the processed region.
-   - The stack used for cap elimination must either: (a) be a mixed-colour stack with rings of other colours buried beneath your cap, or (b) be a single-colour stack of height greater than one consisting entirely of your rings. Single-ring stacks cannot be used for cap elimination.
+   - **All controlled stacks outside the region are eligible** for cap elimination, including:
+     - **(a) Mixed-colour stacks** with rings of other colours buried beneath your cap,
+     - **(b) Single-colour stacks of height > 1** consisting entirely of your rings, AND
+     - **(c) Height-1 standalone rings** (your single ring is the entire cap and is eliminated).
+   - This is consistent with RR-CANON-R022/R145: any controlled stack is an eligible target.
    - **Exception for recovery actions:** When territory processing is triggered by a recovery action, the self-elimination cost is one buried ring extraction per region, not an entire cap.
    - These rings are also credited to you as eliminated rings counting toward victory.
 

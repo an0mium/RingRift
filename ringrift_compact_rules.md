@@ -1,5 +1,7 @@
 # RingRift Compact Rules (Engine / AI Implementation Spec)
 
+> **Version:** 1.0 | **Last Updated:** 2025-12-17 | **Spec Alignment:** RR-CANON v1.0
+
 **Purpose:** This document is a compact, implementation‑oriented specification of the RingRift rules. It is designed for engine/AI authors, not for teaching humans. It encodes the _minimum complete_ rule set needed to implement a correct engine for all supported versions.
 
 - Full, narrative rules: `ringrift_complete_rules.md`

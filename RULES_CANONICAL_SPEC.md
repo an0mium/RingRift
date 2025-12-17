@@ -1,6 +1,6 @@
 # RingRift Canonical Rules Specification
 
-> **Doc Status (2025-12-06): Active**
+> **Version:** 1.0 | **Last Updated:** 2025-12-17 | **Status:** Active
 >
 > - This document is the **rules-level canonical spec** for RingRift semantics and the single source of truth for rules behaviour. It normalizes the narrative sources into precise, implementation-ready constraints.
 > - It defines **RR-CANON-RXXX** rule IDs for core invariants, resources, turn/phase structure, line/territory semantics, and victory conditions.
