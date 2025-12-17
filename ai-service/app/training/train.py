@@ -486,15 +486,22 @@ def save_checkpoint(
             and early_stopping.best_state is not None
         ):
             # Save early stopping state separately so it survives reloading
-            es_path = path.replace('.pth', '_early_stopping.pth')
-            torch.save(
-                {
-                    'best_loss': early_stopping.best_loss,
-                    'counter': early_stopping.counter,
-                    'best_state': early_stopping.best_state,
-                },
-                es_path,
-            )
+            # Use atomic save pattern to prevent corruption
+            es_path = Path(path.replace('.pth', '_early_stopping.pth'))
+            es_temp_path = es_path.with_suffix('.pth.tmp')
+            try:
+                torch.save(
+                    {
+                        'best_loss': early_stopping.best_loss,
+                        'counter': early_stopping.counter,
+                        'best_state': early_stopping.best_state,
+                    },
+                    es_temp_path,
+                )
+                es_temp_path.rename(es_path)
+            except Exception as e:
+                es_temp_path.unlink(missing_ok=True)
+                logger.warning(f"Failed to save early stopping state: {e}")
 
         logger.info(
             f"Saved versioned checkpoint to {path} "
@@ -518,7 +525,16 @@ def save_checkpoint(
                 'best_state': early_stopping.best_state,
             }
 
-        torch.save(checkpoint, path)
+        # Use atomic save pattern to prevent corruption
+        path_obj = Path(path)
+        temp_path = path_obj.with_suffix('.pth.tmp')
+        try:
+            torch.save(checkpoint, temp_path)
+            temp_path.rename(path_obj)
+        except Exception as e:
+            temp_path.unlink(missing_ok=True)
+            raise RuntimeError(f"Failed to save checkpoint: {e}")
+
         logger.info(
             "Saved legacy checkpoint to %s (epoch %d, loss %.4f)",
             path,

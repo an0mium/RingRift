@@ -500,7 +500,36 @@ class ModelVersionManager:
         )
         checkpoint[self.METADATA_KEY] = metadata.to_dict()
 
-        torch.save(checkpoint, path)
+        # Use atomic save pattern to prevent corruption
+        # 1. Save to temp file
+        # 2. Validate the temp file loads correctly
+        # 3. Atomically rename to final path
+        path_obj = Path(path)
+        temp_path = path_obj.with_suffix('.pth.tmp')
+
+        try:
+            torch.save(checkpoint, temp_path)
+
+            # Flush to disk (important for NFS and network filesystems)
+            import os
+            os.sync()
+
+            # Validate the saved file before finalizing
+            try:
+                test_load = torch.load(temp_path, map_location='cpu', weights_only=False)
+                if test_load is None or self.STATE_DICT_KEY not in test_load:
+                    raise ValueError("Saved checkpoint is invalid or missing state_dict")
+            except Exception as e:
+                temp_path.unlink(missing_ok=True)
+                raise RuntimeError(f"Post-save validation failed: {e}")
+
+            # Atomic rename to final path
+            temp_path.rename(path_obj)
+
+        except Exception as e:
+            # Clean up temp file on failure
+            temp_path.unlink(missing_ok=True)
+            raise RuntimeError(f"Failed to save checkpoint: {e}")
 
         logger.info(
             f"Saved versioned checkpoint to {path}\n"
@@ -828,12 +857,27 @@ class ModelVersionManager:
             if key in checkpoint:
                 versioned_checkpoint[key] = checkpoint[key]
 
-        # Save
+        # Save with atomic pattern
         dir_path = os.path.dirname(output_path)
         if dir_path:
             os.makedirs(dir_path, exist_ok=True)
 
-        torch.save(versioned_checkpoint, output_path)
+        output_path_obj = Path(output_path)
+        temp_path = output_path_obj.with_suffix('.pth.tmp')
+
+        try:
+            torch.save(versioned_checkpoint, temp_path)
+            os.sync()
+
+            # Validate before finalizing
+            test_load = torch.load(temp_path, map_location='cpu', weights_only=False)
+            if test_load is None:
+                raise ValueError("Migrated checkpoint is invalid")
+
+            temp_path.rename(output_path_obj)
+        except Exception as e:
+            temp_path.unlink(missing_ok=True)
+            raise RuntimeError(f"Failed to migrate checkpoint: {e}")
 
         logger.info(
             f"Migrated legacy checkpoint to versioned format:\n"

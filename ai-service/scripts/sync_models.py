@@ -577,7 +577,11 @@ def sync_model_to_host(
             logger.warning(f"{host.name}: Bandwidth request error: {e}")
 
     try:
-        # Build rsync command
+        # Build rsync command with corruption-prevention options:
+        # --partial: Keep partial transfers for resume
+        # --partial-dir: Store partials separately to avoid corrupt files
+        # --delay-updates: Atomic update - put files in place only after full transfer
+        # --checksum: Verify file integrity after transfer
         ssh_opts = ["-o", "ConnectTimeout=10", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
         if host.ssh_key:
             ssh_opts.extend(["-i", host.ssh_key_path if hasattr(host, 'ssh_key_path') else os.path.expanduser(host.ssh_key)])
@@ -586,6 +590,10 @@ def sync_model_to_host(
 
         rsync_cmd = [
             "rsync", "-avz", "--progress",
+            "--partial",                    # Keep partial transfers
+            "--partial-dir=.rsync-partial", # Store partials in hidden dir
+            "--delay-updates",              # Atomic: put files in place at end
+            "--checksum",                   # Verify integrity after transfer
             "-e", f"ssh {' '.join(ssh_opts)}",
             str(local_path),
             f"{host.ssh_target}:{remote_dir}",
@@ -654,14 +662,32 @@ def collect_model_from_host(
             logger.warning(f"{host.name}: Bandwidth request error: {e}")
 
     try:
-        # Use SCP via SSHExecutor
+        # Use SCP via SSHExecutor with temp file + validation pattern
+        temp_path = local_path.with_suffix('.pth.tmp')
         try:
             executor = SSHExecutor(host)
-            result = executor.scp_from(remote_path, str(local_path), timeout=RSYNC_TIMEOUT)
-            if result.returncode == 0:
-                return True, f"Collected {model_name} from {host.name}"
-            return False, (result.stderr or "Unknown error")[:200]
+            result = executor.scp_from(remote_path, str(temp_path), timeout=RSYNC_TIMEOUT)
+            if result.returncode != 0:
+                temp_path.unlink(missing_ok=True)
+                return False, (result.stderr or "Unknown error")[:200]
+
+            # Validate downloaded file before finalizing
+            try:
+                import torch
+                test_load = torch.load(temp_path, map_location='cpu', weights_only=False)
+                if test_load is None:
+                    temp_path.unlink(missing_ok=True)
+                    return False, "Downloaded model is corrupt (loads as None)"
+            except Exception as e:
+                temp_path.unlink(missing_ok=True)
+                return False, f"Downloaded model is corrupt: {str(e)[:100]}"
+
+            # Atomic rename to final path
+            temp_path.rename(local_path)
+            return True, f"Collected and validated {model_name} from {host.name}"
+
         except Exception as e:
+            temp_path.unlink(missing_ok=True)
             return False, str(e)[:200]
     finally:
         # Release bandwidth and sync_lock
