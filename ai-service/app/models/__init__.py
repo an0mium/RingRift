@@ -51,24 +51,54 @@ from .core import (
 )
 
 # Multi-task learning heads for auxiliary predictions
-from .multitask_heads import (
-    AuxiliaryTask,
-    TaskConfig,
-    MultiTaskConfig,
-    create_default_multitask_config,
-)
+# These are imported lazily to avoid loading torch when not needed
+# Import directly from .multitask_heads when needed for training
+_multitask_heads = None
 
-# Transformer model architectures (only when PyTorch available)
-try:
-    from .transformer_model import (
-        TransformerConfig,
-        create_model as create_transformer_model,
-    )
-    TRANSFORMER_AVAILABLE = True
-except (ImportError, NameError):
-    TransformerConfig = None  # type: ignore
-    create_transformer_model = None  # type: ignore
-    TRANSFORMER_AVAILABLE = False
+
+def _get_multitask_heads():
+    """Lazy import of multitask_heads module."""
+    global _multitask_heads
+    if _multitask_heads is None:
+        from . import multitask_heads as mth
+        _multitask_heads = mth
+    return _multitask_heads
+
+
+# Provide lazy accessors for torch-dependent types
+def __getattr__(name):
+    """Lazy attribute access for multitask_heads and transformer types."""
+    # Multitask heads
+    if name in ('AuxiliaryTask', 'TaskConfig', 'MultiTaskConfig', 'create_default_multitask_config'):
+        return getattr(_get_multitask_heads(), name)
+
+    # Transformer types
+    if name == 'TransformerConfig':
+        mod = _get_transformer()
+        return mod.TransformerConfig if mod else None
+    if name == 'create_transformer_model':
+        mod = _get_transformer()
+        return mod.create_model if mod else None
+    if name == 'TRANSFORMER_AVAILABLE':
+        return _get_transformer() is not False
+
+    raise AttributeError(f"module 'app.models' has no attribute '{name}'")
+
+# Transformer model architectures (loaded lazily to avoid importing torch)
+# Use __getattr__ to access TransformerConfig, create_transformer_model, TRANSFORMER_AVAILABLE
+_transformer_module = None
+
+
+def _get_transformer():
+    """Lazy import of transformer_model module."""
+    global _transformer_module
+    if _transformer_module is None:
+        try:
+            from . import transformer_model
+            _transformer_module = transformer_model
+        except (ImportError, NameError):
+            _transformer_module = False  # Mark as unavailable
+    return _transformer_module
 
 __all__ = [
     # Core game models

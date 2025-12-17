@@ -8514,7 +8514,7 @@ print(wins / total)
             import time as time_mod
             from app.models import AIConfig, AIType, BoardType, GameStatus
             from app.rules.default_engine import DefaultRulesEngine
-            from app.training.generate_data import create_initial_state
+            from app.training.initial_state import create_initial_state
 
             board_type = BoardType(board_type_str)
             start_time = time_mod.time()
