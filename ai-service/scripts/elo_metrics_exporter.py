@@ -37,6 +37,18 @@ except ImportError:
     HAS_PROMETHEUS = False
     print("Warning: prometheus_client not installed. Run: pip install prometheus_client")
 
+# Resource guard for system metrics (80% utilization limits)
+try:
+    from app.utils.resource_guard import (
+        get_resource_status,
+        update_prometheus_metrics as update_resource_metrics,
+    )
+    HAS_RESOURCE_GUARD = True
+except ImportError:
+    HAS_RESOURCE_GUARD = False
+    get_resource_status = None
+    update_resource_metrics = None
+
 # Paths
 SCRIPT_DIR = Path(__file__).parent
 AI_SERVICE_ROOT = SCRIPT_DIR.parent
@@ -381,6 +393,13 @@ def update_metrics():
                 rank=str(rank),
                 model=leader['model']
             ).set(winrate)
+
+    # Update resource metrics (CPU, memory, disk, GPU - 80% limits)
+    if HAS_RESOURCE_GUARD and update_resource_metrics is not None:
+        try:
+            update_resource_metrics()
+        except Exception as e:
+            pass  # Silently ignore resource metric failures
 
 
 class MetricsHandler(BaseHTTPRequestHandler):
