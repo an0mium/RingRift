@@ -2008,6 +2008,14 @@ def train_model(
     # Ensure checkpoint directory exists
     os.makedirs(checkpoint_dir, exist_ok=True)
 
+    # Initialize async checkpointer for non-blocking checkpoint I/O (5-10% speedup)
+    use_async_checkpoint = getattr(config, 'use_async_checkpoint', True)
+    async_checkpointer: Optional[AsyncCheckpointer] = None
+    if use_async_checkpoint:
+        async_checkpointer = AsyncCheckpointer(max_pending=2)
+        if not distributed or is_main_process():
+            logger.info("Async checkpointing enabled (non-blocking I/O)")
+
     # Mixed precision scaler
     # Note: GradScaler is primarily for CUDA.
     # For MPS, mixed precision support is evolving.
@@ -2749,15 +2757,26 @@ def train_model(
                             checkpoint_dir,
                             f"checkpoint_early_stop_epoch_{epoch+1}.pth",
                         )
-                        save_checkpoint(
-                            model_to_save,
-                            optimizer,
-                            epoch,
-                            early_stopper.best_loss,
-                            final_checkpoint_path,
-                            scheduler=epoch_scheduler,
-                            early_stopping=early_stopper,
-                        )
+                        if async_checkpointer is not None:
+                            async_checkpointer.save_async(
+                                model_to_save,
+                                optimizer,
+                                epoch,
+                                early_stopper.best_loss,
+                                final_checkpoint_path,
+                                scheduler=epoch_scheduler,
+                                early_stopping=early_stopper,
+                            )
+                        else:
+                            save_checkpoint(
+                                model_to_save,
+                                optimizer,
+                                epoch,
+                                early_stopper.best_loss,
+                                final_checkpoint_path,
+                                scheduler=epoch_scheduler,
+                                early_stopping=early_stopper,
+                            )
                         # Save best model with versioning
                         save_model_checkpoint(
                             model_to_save,
@@ -2781,15 +2800,26 @@ def train_model(
                         checkpoint_dir,
                         f"checkpoint_epoch_{epoch+1}.pth",
                     )
-                    save_checkpoint(
-                        model_to_save,
-                        optimizer,
-                        epoch,
-                        avg_val_loss,
-                        checkpoint_path,
-                        scheduler=epoch_scheduler,
-                        early_stopping=early_stopper,
-                    )
+                    if async_checkpointer is not None:
+                        async_checkpointer.save_async(
+                            model_to_save,
+                            optimizer,
+                            epoch,
+                            avg_val_loss,
+                            checkpoint_path,
+                            scheduler=epoch_scheduler,
+                            early_stopping=early_stopper,
+                        )
+                    else:
+                        save_checkpoint(
+                            model_to_save,
+                            optimizer,
+                            epoch,
+                            avg_val_loss,
+                            checkpoint_path,
+                            scheduler=epoch_scheduler,
+                            early_stopping=early_stopper,
+                        )
 
             # Save best model (only on main process)
             if avg_val_loss < best_val_loss:
@@ -2850,17 +2880,33 @@ def train_model(
                     checkpoint_dir,
                     f"checkpoint_final_epoch_{config.epochs_per_iter}.pth",
                 )
-                save_checkpoint(
-                    model_to_save_final,
-                    optimizer,
-                    config.epochs_per_iter - 1,
-                    avg_val_loss,
-                    final_checkpoint_path,
-                    scheduler=epoch_scheduler,
-                    early_stopping=early_stopper,
-                )
+                if async_checkpointer is not None:
+                    async_checkpointer.save_async(
+                        model_to_save_final,
+                        optimizer,
+                        config.epochs_per_iter - 1,
+                        avg_val_loss,
+                        final_checkpoint_path,
+                        scheduler=epoch_scheduler,
+                        early_stopping=early_stopper,
+                    )
+                else:
+                    save_checkpoint(
+                        model_to_save_final,
+                        optimizer,
+                        config.epochs_per_iter - 1,
+                        avg_val_loss,
+                        final_checkpoint_path,
+                        scheduler=epoch_scheduler,
+                        early_stopping=early_stopper,
+                    )
                 logger.info("Training completed. Final checkpoint saved.")
     finally:
+        # Shutdown async checkpointer and wait for pending saves
+        if async_checkpointer is not None:
+            async_checkpointer.shutdown()
+            logger.info("Async checkpointer shutdown complete")
+
         # Stop heartbeat monitor
         if heartbeat_monitor is not None:
             heartbeat_monitor.stop()
