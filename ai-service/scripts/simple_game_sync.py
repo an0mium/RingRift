@@ -1,12 +1,36 @@
 #!/usr/bin/env python3
 """Simple game database sync using rsync.
 
+DEPRECATED: Use unified_data_sync.py instead, which provides:
+- Better error handling and health checks
+- Watchdog monitoring for production use
+- Content deduplication
+- P2P fallback transport
+- Prometheus metrics integration
+
+Migration:
+    # One-shot sync (equivalent to this script's default):
+    python scripts/unified_data_sync.py --once
+
+    # Daemon mode with interval:
+    python scripts/unified_data_sync.py --daemon --poll-interval 300
+
+This script will be removed in a future release.
+
+---
+Original description:
 Periodically pulls game databases from remote hosts and merges them
 into the central selfplay.db database.
 
 Usage:
     python scripts/simple_game_sync.py --daemon --interval 300
 """
+import warnings
+warnings.warn(
+    "simple_game_sync.py is deprecated. Use unified_data_sync.py instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 import argparse
 import logging

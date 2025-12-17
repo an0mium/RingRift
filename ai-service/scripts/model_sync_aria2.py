@@ -1,6 +1,28 @@
 #!/usr/bin/env python3
 """Model Sync via aria2 - Fast parallel model distribution across cluster.
 
+DEPRECATED: Use sync_models.py instead, which provides:
+- All aria2 functionality via coordination helpers
+- Hash-based deduplication
+- Bandwidth management and resource guards
+- Lock management to prevent conflicts
+- Both collect and distribute modes
+- Cull manifest tracking for model lifecycle
+
+Migration:
+    # Sync all models (equivalent to --sync-to-all):
+    python scripts/sync_models.py --sync
+
+    # Check status:
+    python scripts/sync_models.py --dry-run
+
+    # Continuous daemon:
+    python scripts/sync_models.py --daemon
+
+This script will be removed in a future release.
+
+---
+Original description:
 Uses aria2 for high-speed parallel downloads from multiple sources:
 - 16 connections per server
 - Multi-source downloads (metalink-style)
@@ -15,6 +37,12 @@ Usage:
 
 Designed for distributing trained models across P2P cluster.
 """
+import warnings
+warnings.warn(
+    "model_sync_aria2.py is deprecated. Use sync_models.py instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 from __future__ import annotations
 
