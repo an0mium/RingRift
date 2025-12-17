@@ -8541,7 +8541,7 @@ print(wins / total)
                         max_depth=max_depth,
                         rng_seed=rng_seed,
                     )
-                    return MinimaxAI(player_num, config, board_type)
+                    return MinimaxAI(player_num, config)
 
                 elif ai_type in ("mcts", "mcts_heuristic", "aitype.mcts"):
                     from app.ai.mcts_ai import MCTSAI
@@ -8555,7 +8555,7 @@ print(wins / total)
                         mcts_iterations=iters,
                         rng_seed=rng_seed,
                     )
-                    return MCTSAI(player_num, config, board_type)
+                    return MCTSAI(player_num, config)
 
                 elif ai_type in ("descent", "aitype.descent"):
                     # Descent AI is CPU-based but can be slow at high difficulty
@@ -8571,7 +8571,7 @@ print(wins / total)
                         difficulty=capped_diff,
                         rng_seed=rng_seed,
                     )
-                    return DescentAI(player_num, config, board_type)
+                    return DescentAI(player_num, config)
 
                 else:
                     # For neural-net based types (policy_only, gumbel_mcts, mcts_neural),
@@ -8586,7 +8586,7 @@ print(wins / total)
                         # Fall back to descent AI (CPU-based, no NN)
                         from app.ai.descent_ai import DescentAI
                         config = AIConfig(ai_type=AIType.DESCENT, board_type=board_type, difficulty=7, rng_seed=rng_seed)
-                        return DescentAI(player_num, config, board_type)
+                        return DescentAI(player_num, config)
 
                     # Safe to load neural network AI
                     try:
