@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import gzip
 import json
 import os
 import sys
@@ -673,7 +674,13 @@ def iter_jsonl_games(
                 break
 
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        # Handle gzip-compressed files
+        if str(path).endswith('.gz'):
+            opener = gzip.open(path, "rt", encoding="utf-8")
+        else:
+            opener = open(path, "r", encoding="utf-8")
+
+        with opener as f:
             for line_num, line in enumerate(f, 1):
                 line = line.strip()
                 if not line:
@@ -2276,8 +2283,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.jsonl_dir and args.jsonl_dir.exists():
         if args.recursive:
             jsonl_files.extend(args.jsonl_dir.rglob("*.jsonl"))
+            jsonl_files.extend(args.jsonl_dir.rglob("*.jsonl.gz"))
         else:
             jsonl_files.extend(args.jsonl_dir.glob("*.jsonl"))
+            jsonl_files.extend(args.jsonl_dir.glob("*.jsonl.gz"))
     if args.jsonl_filelist:
         jsonl_files.extend(_read_jsonl_filelist(args.jsonl_filelist))
 

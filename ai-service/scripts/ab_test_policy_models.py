@@ -227,6 +227,7 @@ def create_mcts_ai(
     player_number: int,
     policy_model_path: Optional[str],
     think_time_ms: int = 500,
+    board_type: BoardType = BoardType.SQUARE8,
 ) -> MCTSAI:
     """Create MCTS AI with optional policy model."""
     config = AIConfig(
@@ -275,7 +276,7 @@ def create_mcts_ai(
                     pass
 
             ai.nnue_policy_model = RingRiftNNUEWithPolicy(
-                board_type=BoardType.SQUARE8,  # Will be updated based on game
+                board_type=board_type,
                 hidden_dim=hidden_dim,
                 num_hidden_layers=num_hidden_layers,
             )
@@ -297,9 +298,11 @@ def play_match(
     ai_b: MCTSAI,
     model_a_player: int,
     max_moves: int = 10000,
+    board_type: BoardType = BoardType.SQUARE8,
+    num_players: int = 2,
 ) -> MatchResult:
     """Play a single match between two AIs."""
-    game_state = create_game_state()
+    game_state = create_game_state(board_type, num_players)
     game_id = game_state.id
 
     model_a_think_time = 0.0
@@ -388,12 +391,13 @@ def run_ab_test(
         model_a_player = 1 if i % 2 == 0 else 2
 
         # Create fresh AIs for each game
-        ai_a = create_mcts_ai(model_a_player, model_a_path, think_time_ms)
-        ai_b = create_mcts_ai(3 - model_a_player, model_b_path, think_time_ms)
+        ai_a = create_mcts_ai(model_a_player, model_a_path, think_time_ms, board_type)
+        ai_b = create_mcts_ai(3 - model_a_player, model_b_path, think_time_ms, board_type)
 
         # Play match
         match_result = play_match(
-            engine, ai_a, ai_b, model_a_player, max_moves
+            engine, ai_a, ai_b, model_a_player, max_moves,
+            board_type, num_players
         )
 
         # Record result
