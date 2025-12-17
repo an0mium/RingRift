@@ -74,7 +74,8 @@ def find_game_databases(
 def get_db_stats(db_path: Path) -> Dict[str, Any]:
     """Get statistics from a game database."""
     try:
-        conn = sqlite3.connect(db_path)
+        # Open in read-only mode to avoid locking issues
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         cursor = conn.cursor()
 
         # Check tables exist
@@ -119,7 +120,8 @@ def export_positions_from_db(
     Returns number of positions exported.
     """
     try:
-        conn = sqlite3.connect(db_path)
+        # Open in read-only mode
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         cursor = conn.cursor()
 
         # Check if this is a GameReplayDB format
