@@ -36,18 +36,30 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 # AI type configurations for calibration
-AI_TYPE_CONFIGS = {
+# Split into lightweight (no NN) and heavyweight (requires NN) types
+AI_TYPE_CONFIGS_LIGHTWEIGHT = {
     "random": {"ai_type": "random", "difficulty": 1},
     "heuristic": {"ai_type": "heuristic", "difficulty": 2},
-    "minimax_heuristic": {"ai_type": "minimax", "difficulty": 3, "use_neural_net": False},
+    "minimax_d2": {"ai_type": "minimax", "difficulty": 2, "use_neural_net": False, "max_depth": 2},
+    "minimax_d3": {"ai_type": "minimax", "difficulty": 3, "use_neural_net": False, "max_depth": 3},
+    "minimax_d4": {"ai_type": "minimax", "difficulty": 4, "use_neural_net": False, "max_depth": 4},
+    "mcts_100": {"ai_type": "mcts", "difficulty": 5, "use_neural_net": False, "mcts_iterations": 100},
+    "mcts_200": {"ai_type": "mcts", "difficulty": 6, "use_neural_net": False, "mcts_iterations": 200},
+    "mcts_400": {"ai_type": "mcts", "difficulty": 7, "use_neural_net": False, "mcts_iterations": 400},
+}
+
+# Heavyweight types that require neural networks - run on high-memory nodes only
+AI_TYPE_CONFIGS_HEAVYWEIGHT = {
     "minimax_nnue": {"ai_type": "minimax", "difficulty": 4, "use_neural_net": True},
-    "mcts_heuristic": {"ai_type": "mcts", "difficulty": 5, "use_neural_net": False, "mcts_iterations": 200},
     "mcts_neural": {"ai_type": "mcts", "difficulty": 6, "use_neural_net": True, "mcts_iterations": 400},
     "mcts_neural_high": {"ai_type": "mcts", "difficulty": 7, "use_neural_net": True, "mcts_iterations": 800},
     "policy_only": {"ai_type": "policy_only", "difficulty": 3, "policy_temperature": 0.5},
     "gumbel_mcts": {"ai_type": "gumbel_mcts", "difficulty": 7, "gumbel_num_sampled_actions": 16, "gumbel_simulation_budget": 100},
     "descent": {"ai_type": "descent", "difficulty": 9},
 }
+
+# Combined for reference
+AI_TYPE_CONFIGS = {**AI_TYPE_CONFIGS_LIGHTWEIGHT, **AI_TYPE_CONFIGS_HEAVYWEIGHT}
 
 # Cluster configuration
 LEADER_TAILSCALE_IP = "100.78.101.123"  # lambda-h100
@@ -751,7 +763,8 @@ def main():
     parser.add_argument("--ramdrive", action="store_true", help="Use ramdrive for faster execution")
     parser.add_argument("--status", action="store_true", help="Check cluster status only")
     parser.add_argument("--max-parallel", type=int, default=2, help="Max parallel matches per node")
-    parser.add_argument("--agents", type=str, help="Comma-separated list of agents (default: all)")
+    parser.add_argument("--agents", type=str, help="Comma-separated list of agents (default: lightweight)")
+    parser.add_argument("--heavyweight", action="store_true", help="Include heavyweight NN-based agents")
 
     args = parser.parse_args()
 
@@ -760,11 +773,13 @@ def main():
         print(f"\nCluster ready with {len(nodes)} healthy nodes out of {len(all_hosts)} total")
         return
 
-    # Select agents
+    # Select agents - use lightweight by default to avoid OOM on nodes
     if args.agents:
         agents = [a.strip() for a in args.agents.split(",")]
-    else:
+    elif args.heavyweight:
         agents = list(AI_TYPE_CONFIGS.keys())
+    else:
+        agents = list(AI_TYPE_CONFIGS_LIGHTWEIGHT.keys())
 
     print(f"\n[Tournament] AI Type Calibration Tournament")
     print(f"[Tournament] Agents: {agents}")

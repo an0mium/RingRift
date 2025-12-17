@@ -8455,22 +8455,107 @@ print(wins / total)
         board_type_str: str,
         num_players: int,
     ) -> Optional[dict]:
-        """Synchronous wrapper for playing an Elo match."""
+        """Synchronous wrapper for playing an Elo match.
+
+        Uses a lightweight implementation for simple AI types (random, heuristic, minimax)
+        to avoid loading heavy neural network dependencies that cause OOM.
+        """
         try:
-            from scripts.run_model_elo_tournament import play_model_vs_model_game
-            from app.models import BoardType
+            import time as time_mod
+            from app.models import AIConfig, AIType, BoardType, GameStatus
+            from app.rules.default_engine import DefaultRulesEngine
+            from app.training.generate_data import create_initial_state
 
             board_type = BoardType(board_type_str)
+            start_time = time_mod.time()
 
-            result = play_model_vs_model_game(
-                model_a=agent_a_config,
-                model_b=agent_b_config,
-                board_type=board_type,
-                num_players=num_players,
-                save_game_history=False,  # Don't save for calibration matches
-            )
+            # Create initial state
+            state = create_initial_state(board_type, num_players)
+            engine = DefaultRulesEngine()
 
-            return result
+            # Map agent names to AI types
+            def get_ai_type(agent_config: dict) -> str:
+                ai_type = agent_config.get("ai_type", "random")
+                if isinstance(ai_type, str):
+                    return ai_type.lower()
+                return str(ai_type).lower()
+
+            def create_lightweight_ai(agent_config: dict, player_num: int):
+                """Create AI without loading heavy dependencies."""
+                ai_type = get_ai_type(agent_config)
+
+                if ai_type in ("random", "aitype.random"):
+                    from app.ai.random_ai import RandomAI
+                    config = AIConfig(ai_type=AIType.RANDOM, board_type=board_type, difficulty=1)
+                    return RandomAI(player_num, config)
+
+                elif ai_type in ("heuristic", "aitype.heuristic"):
+                    from app.ai.heuristic_ai import HeuristicAI
+                    config = AIConfig(ai_type=AIType.HEURISTIC, board_type=board_type, difficulty=3)
+                    return HeuristicAI(player_num, config)
+
+                elif ai_type in ("minimax", "minimax_heuristic", "aitype.minimax"):
+                    from app.ai.minimax_ai import MinimaxAI
+                    use_nn = agent_config.get("use_neural_net", False)
+                    max_depth = agent_config.get("max_depth", 3)
+                    config = AIConfig(
+                        ai_type=AIType.MINIMAX,
+                        board_type=board_type,
+                        difficulty=agent_config.get("difficulty", 3),
+                        use_neural_net=use_nn,
+                        max_depth=max_depth,
+                    )
+                    return MinimaxAI(player_num, config, board_type)
+
+                elif ai_type in ("mcts", "mcts_heuristic", "aitype.mcts"):
+                    from app.ai.mcts_ai import MCTSAI
+                    use_nn = agent_config.get("use_neural_net", False)
+                    iters = agent_config.get("mcts_iterations", 100)
+                    config = AIConfig(
+                        ai_type=AIType.MCTS,
+                        board_type=board_type,
+                        difficulty=agent_config.get("difficulty", 5),
+                        use_neural_net=use_nn,
+                        mcts_iterations=iters,
+                    )
+                    return MCTSAI(player_num, config, board_type)
+
+                else:
+                    # For neural-net based types, use the full tournament function
+                    # but only if absolutely needed
+                    from scripts.run_model_elo_tournament import create_ai_from_model
+                    return create_ai_from_model(agent_config, player_num, board_type)
+
+            # Create AIs
+            ai_a = create_lightweight_ai(agent_a_config, 1)
+            ai_b = create_lightweight_ai(agent_b_config, 2)
+
+            # Play game
+            move_count = 0
+            max_moves = 500
+
+            while state.game_status == GameStatus.ACTIVE and move_count < max_moves:
+                current_ai = ai_a if state.current_player == 1 else ai_b
+                move = current_ai.select_move(state)
+                if move is None:
+                    break
+                state = engine.apply_move(state, move)
+                move_count += 1
+
+            duration = time_mod.time() - start_time
+
+            # Determine winner
+            winner = "draw"
+            if state.winner == 1:
+                winner = "model_a"
+            elif state.winner == 2:
+                winner = "model_b"
+
+            return {
+                "winner": winner,
+                "game_length": move_count,
+                "duration_sec": duration,
+            }
 
         except Exception as e:
             import traceback
