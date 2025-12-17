@@ -517,6 +517,7 @@ def run_hybrid_selfplay(
 
             while game_state.game_status == "active" and move_count < max_moves:
                 current_player = game_state.current_player
+                mcts_policy_dist = None  # Reset for each move; populated if MCTS mode is used
 
                 # Get valid moves (CPU - full rules)
                 valid_moves = GameEngine.get_valid_moves(
@@ -569,6 +570,7 @@ def run_hybrid_selfplay(
                             best_move = valid_moves[np.random.randint(len(valid_moves))]
                     elif current_engine == "mcts" and mcts_ai is not None:
                         # MCTS mode: Use Monte Carlo Tree Search for move selection
+                        mcts_policy_dist = None  # Will be populated if MCTS succeeds
                         try:
                             best_move = mcts_ai.search(game_state)
                             if best_move is None or best_move not in valid_moves:
@@ -582,6 +584,17 @@ def run_hybrid_selfplay(
                                     best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
                                 else:
                                     best_move = valid_moves[0]
+                            else:
+                                # Capture MCTS visit distribution for KL training
+                                try:
+                                    policy_list = mcts_ai.get_policy(temperature=1.0)
+                                    # Convert to sparse dict (only non-zero probs)
+                                    mcts_policy_dist = {
+                                        idx: prob for idx, prob in enumerate(policy_list)
+                                        if prob > 1e-6
+                                    }
+                                except Exception as policy_err:
+                                    logger.debug(f"Failed to get MCTS policy: {policy_err}")
                         except Exception as e:
                             logger.debug(f"MCTS error: {e}, falling back to heuristic")
                             best_move = valid_moves[np.random.randint(len(valid_moves))]
@@ -737,6 +750,10 @@ def run_hybrid_selfplay(
                     move_record["formed_lines"] = len(stamped_move.formed_lines)
                 if hasattr(stamped_move, 'claimed_territory') and stamped_move.claimed_territory:
                     move_record["claimed_territory"] = len(stamped_move.claimed_territory)
+
+                # Add MCTS policy distribution for KL-divergence training
+                if mcts_policy_dist is not None:
+                    move_record["mcts_policy"] = mcts_policy_dist
 
                 moves_played.append(move_record)
                 move_count += 1

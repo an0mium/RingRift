@@ -320,6 +320,12 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=None,
         help="Device to train on (default: auto-detect)",
     )
+    parser.add_argument(
+        "--use-kl-loss",
+        action="store_true",
+        help="Use KL divergence loss with MCTS visit distributions instead of cross-entropy. "
+             "Requires training data with mcts_policy field (from MCTS selfplay).",
+    )
 
     return parser.parse_args(argv)
 
@@ -333,7 +339,8 @@ def collate_policy_batch(batch):
     move_mask = torch.stack([b[4] for b in batch])
     target_idx = torch.stack([b[5] for b in batch])
     sample_weights = torch.stack([b[6] for b in batch])
-    return features, values, from_indices, to_indices, move_mask, target_idx, sample_weights
+    mcts_probs = torch.stack([b[7] for b in batch])
+    return features, values, from_indices, to_indices, move_mask, target_idx, sample_weights, mcts_probs
 
 
 def train_nnue_policy(
@@ -368,6 +375,7 @@ def train_nnue_policy(
     num_workers: int = 0,
     min_move_number: int = 0,
     max_move_number: int = 999999,
+    use_kl_loss: bool = False,
 ) -> Dict[str, Any]:
     """Train NNUE policy model and return training report."""
     seed_all(seed)
@@ -519,10 +527,13 @@ def train_nnue_policy(
         policy_weight=policy_weight,
         temperature=temperature_start,
         label_smoothing=label_smoothing,
+        use_kl_loss=use_kl_loss,
     )
 
     logger.info(f"Temperature annealing: {temperature_start} -> {temperature_end} ({temperature_schedule})")
     logger.info(f"Label smoothing: {label_smoothing}")
+    if use_kl_loss:
+        logger.info("KL divergence loss ENABLED (using MCTS visit distributions)")
 
     # Training loop
     best_val_loss = float("inf")
@@ -557,16 +568,17 @@ def train_nnue_policy(
         train_policy_losses = []
 
         for batch in train_loader:
-            features, values, from_idx, to_idx, mask, target, _sample_weights = batch
+            features, values, from_idx, to_idx, mask, target, _sample_weights, mcts_probs = batch
             features = features.to(device)
             values = values.to(device)
             from_idx = from_idx.to(device)
             to_idx = to_idx.to(device)
             mask = mask.to(device)
             target = target.to(device)
+            mcts_probs = mcts_probs.to(device) if use_kl_loss else None
 
             total_loss, value_loss, policy_loss = trainer.train_step(
-                features, values, from_idx, to_idx, mask, target
+                features, values, from_idx, to_idx, mask, target, mcts_probs
             )
             train_losses.append(total_loss)
             train_value_losses.append(value_loss)
@@ -583,16 +595,17 @@ def train_nnue_policy(
         val_accuracies = []
 
         for batch in val_loader:
-            features, values, from_idx, to_idx, mask, target, _sample_weights = batch
+            features, values, from_idx, to_idx, mask, target, _sample_weights, mcts_probs = batch
             features = features.to(device)
             values = values.to(device)
             from_idx = from_idx.to(device)
             to_idx = to_idx.to(device)
             mask = mask.to(device)
             target = target.to(device)
+            mcts_probs = mcts_probs.to(device) if use_kl_loss else None
 
             total_loss, value_loss, policy_loss, accuracy = trainer.validate(
-                features, values, from_idx, to_idx, mask, target
+                features, values, from_idx, to_idx, mask, target, mcts_probs
             )
             val_losses.append(total_loss)
             val_value_losses.append(value_loss)
@@ -752,6 +765,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         num_workers=args.num_workers,
         min_move_number=args.min_move_number,
         max_move_number=args.max_move_number,
+        use_kl_loss=args.use_kl_loss,
     )
 
     # Add metadata to report

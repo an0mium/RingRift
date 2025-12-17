@@ -78,10 +78,24 @@
       "reason": "culled_below_top_25pct"
     },
     {
+      "model_id": "sq8_2p_nn_baseline_20251214_154430_20251214_094431",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1765989106.527918,
+      "reason": "culled_below_top_25pct"
+    },
+    {
       "model_id": "ringrift_v1_20251212_204417",
       "board_type": "square8",
       "num_players": 2,
       "archived_at": 1765931512.764229,
+      "reason": "culled_below_top_25pct"
+    },
+    {
+      "model_id": "ringrift_v1_20251208_192542",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1765989106.531214,
       "reason": "culled_below_top_25pct"
     },
     {
@@ -330,10 +344,24 @@
       "reason": "culled_below_top_25pct"
     },
     {
+      "model_id": "ringrift_v5_sq8_2p_20251213_175454",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1765989106.529717,
+      "reason": "culled_below_top_25pct"
+    },
+    {
       "model_id": "sq8_2p_v4_large_test",
       "board_type": "square8",
       "num_players": 2,
       "archived_at": 1765931512.776782,
+      "reason": "culled_below_top_25pct"
+    },
+    {
+      "model_id": "ringrift_v5_sq8_2p_2xh100_20251212_185946",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1765989106.530686,
       "reason": "culled_below_top_25pct"
     },
     {
@@ -358,6 +386,13 @@
       "reason": "culled_below_top_25pct"
     },
     {
+      "model_id": "ringrift_v3_sq8_2p_20251212_005103_20251212_012024",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1765989106.5299242,
+      "reason": "culled_below_top_25pct"
+    },
+    {
       "model_id": "sq8_2p_nn_baseline_20251215_024030_20251215_030353",
       "board_type": "square8",
       "num_players": 2,
@@ -372,10 +407,45 @@
       "reason": "culled_below_top_25pct"
     },
     {
+      "model_id": "sq8_2p_nn_baseline_20251211_165444",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1765989106.529084,
+      "reason": "culled_below_top_25pct"
+    },
+    {
+      "model_id": "sq8_2p_nn_baseline_20251211_165047",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1765989106.528857,
+      "reason": "culled_below_top_25pct"
+    },
+    {
+      "model_id": "sq8_2p_nn_baseline_20251211_163524",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1765989106.52838,
+      "reason": "culled_below_top_25pct"
+    },
+    {
       "model_id": "sq8_2p_nn_baseline_20251210_184921",
       "board_type": "square8",
       "num_players": 2,
       "archived_at": 1765943709.132392,
+      "reason": "culled_below_top_25pct"
+    },
+    {
+      "model_id": "sq8_2p_nn_baseline_20251210_232350_20251210_172352",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1765989106.5295098,
+      "reason": "culled_below_top_25pct"
+    },
+    {
+      "model_id": "sq8_2p_nn_baseline_20251210_184921_20251210_162811",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1765989106.5293021,
       "reason": "culled_below_top_25pct"
     },
     {
@@ -390,6 +460,13 @@
       "board_type": "square8",
       "num_players": 2,
       "archived_at": 1765931512.784487,
+      "reason": "culled_below_top_25pct"
+    },
+    {
+      "model_id": "sq8_2p_nn_baseline_20251210_183915",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1765989106.530981,
       "reason": "culled_below_top_25pct"
     },
     {
@@ -517,7 +594,9 @@
     "ringrift_v5_sq8_2p_2xh100",
     "sq8_2p_nn_baseline_20251212_111725_20251212_051727",
     "sq8_2p_nn_baseline_20251214_160753_20251214_100754",
+    "sq8_2p_nn_baseline_20251214_154430_20251214_094431",
     "ringrift_v1_20251212_204417",
+    "ringrift_v1_20251208_192542",
     "v7_sq8_2p_large_20251213_030530",
     "sq8_2p_trained_20251214",
     "v8_sq8_2p",
@@ -553,15 +632,24 @@
     "ringrift_best_sq8_2p_v2",
     "baseline_mcts_500_square8_2p",
     "sq8_2p_v4_large_test_20251214_114155",
+    "ringrift_v5_sq8_2p_20251213_175454",
     "sq8_2p_v4_large_test",
+    "ringrift_v5_sq8_2p_2xh100_20251212_185946",
     "sq8_2p_nn_baseline_20251214_152415_20251214_092416",
     "sq8_2p_nn_baseline_20251214_152415",
     "sq8_2p_nn_baseline_20251212_110907_20251212_050908",
+    "ringrift_v3_sq8_2p_20251212_005103_20251212_012024",
     "sq8_2p_nn_baseline_20251215_024030_20251215_030353",
     "sq8_2p_nn_baseline_20251215_024030_20251215_030200",
+    "sq8_2p_nn_baseline_20251211_165444",
+    "sq8_2p_nn_baseline_20251211_165047",
+    "sq8_2p_nn_baseline_20251211_163524",
     "sq8_2p_nn_baseline_20251210_184921",
+    "sq8_2p_nn_baseline_20251210_232350_20251210_172352",
+    "sq8_2p_nn_baseline_20251210_184921_20251210_162811",
     "sq8_2p_nn_baseline_20251210_184921_20251210_131805",
     "sq8_2p_nn_baseline_20251215_024030_20251215_024523",
+    "sq8_2p_nn_baseline_20251210_183915",
     "ringrift_best_sq8_2p_new",
     "sq8_2p_nn_baseline_20251216_070958_20251216_071026",
     "sq8_2p_nn_baseline_20251216_025032_20251216_025036",
@@ -579,6 +667,6 @@
     "sq8_2p_nn_baseline_20251216_185302_20251216_185423",
     "sq8_2p_nn_baseline_20251216_210346_20251216_210403"
   ],
-  "updated_at": 1765943709.1328409,
-  "total_count": 72
+  "updated_at": 1765989106.532257,
+  "total_count": 83
 }

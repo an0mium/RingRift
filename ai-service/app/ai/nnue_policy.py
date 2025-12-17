@@ -1134,6 +1134,21 @@ class NNUEPolicyDataset(Dataset):
                                     if is_winner and self.config.winner_weight_boost > 1.0:
                                         sample_weight *= self.config.winner_weight_boost
 
+                                    # Extract MCTS policy distribution if available
+                                    mcts_visit_dist = None
+                                    mcts_policy_dict = move_dict.get('mcts_policy') or move_dict.get('mctsPolicy')
+                                    if mcts_policy_dict and isinstance(mcts_policy_dict, dict):
+                                        # Convert sparse dict to dense array
+                                        mcts_visit_dist = np.zeros(self.config.max_moves_per_position, dtype=np.float32)
+                                        for idx_str, prob in mcts_policy_dict.items():
+                                            idx = int(idx_str)
+                                            if 0 <= idx < self.config.max_moves_per_position:
+                                                mcts_visit_dist[idx] = float(prob)
+                                        # Renormalize to sum to 1 (in case of truncation)
+                                        total = mcts_visit_dist.sum()
+                                        if total > 0:
+                                            mcts_visit_dist /= total
+
                                     sample = NNUEPolicySample(
                                         features=features,
                                         value=value,
@@ -1145,6 +1160,7 @@ class NNUEPolicyDataset(Dataset):
                                         game_id=game_id,
                                         move_number=move_number,
                                         sample_weight=sample_weight,
+                                        mcts_visit_distribution=mcts_visit_dist,
                                     )
                                     samples.append(sample)
                         except Exception as e:
@@ -1248,9 +1264,15 @@ class NNUEPolicyDataset(Dataset):
         """Get a single sample as tensors.
 
         Returns:
-            Tuple of (features, value, from_indices, to_indices, move_mask, target_idx, sample_weight)
+            Tuple of (features, value, from_indices, to_indices, move_mask, target_idx, sample_weight, mcts_probs)
+            Note: mcts_probs is zeros if not available for this sample
         """
         sample = self.samples[idx]
+        # Return MCTS probs if available, otherwise zeros
+        if sample.mcts_visit_distribution is not None:
+            mcts_probs = torch.from_numpy(sample.mcts_visit_distribution).float()
+        else:
+            mcts_probs = torch.zeros(len(sample.move_mask), dtype=torch.float32)
         return (
             torch.from_numpy(sample.features).float(),
             torch.tensor([sample.value], dtype=torch.float32),
@@ -1259,4 +1281,5 @@ class NNUEPolicyDataset(Dataset):
             torch.from_numpy(sample.move_mask).bool(),
             torch.tensor(sample.target_move_idx, dtype=torch.long),
             torch.tensor(sample.sample_weight, dtype=torch.float32),
+            mcts_probs,
         )

@@ -93,6 +93,11 @@ class MoveRecord(BaseModel):
     # Optional RingRift Notation representation
     rrn: Optional[str] = None
 
+    # MCTS visit distribution for KL-divergence training
+    # Maps move indices to visit probabilities (normalized visit counts)
+    # Only populated when MCTS is used during self-play
+    mcts_policy: Optional[Dict[int, float]] = Field(None, alias="mctsPolicy")
+
     model_config = ConfigDict(populate_by_name=True, frozen=True)
 
     @classmethod

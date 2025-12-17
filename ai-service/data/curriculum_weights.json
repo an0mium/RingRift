@@ -1,14 +1,16 @@
 {
   "weights": {
-    "hexagonal_2p": 1.5,
-    "hexagonal_3p": 1.4,
-    "hexagonal_4p": 1.3,
-    "square19_2p": 1.3,
-    "square8_2p": 0.5,
-    "square8_3p": 1.1,
-    "square8_4p": 1.1
+    "hex8_2p": 0.8404827889509858,
+    "hexagonal_2p": 1.1190793642660737,
+    "hexagonal_3p": 1.0827531180885126,
+    "hexagonal_4p": 0.9172468819114874,
+    "square19_2p": 1.0827531180885126,
+    "square19_3p": 1.1590793642660735,
+    "square19_4p": 1.1590793642660735,
+    "square8_2p": 0.7,
+    "square8_3p": 0.8838911819244533,
+    "square8_4p": 0.8828980707570213
   },
-  "updated_at": 1765952100.0,
-  "updated_at_iso": "2025-12-17T06:15:00Z",
-  "rationale": "Reduced square8_2p (mature), increased underrepresented configs based on Elo model counts"
+  "updated_at": 1765989166.9425468,
+  "updated_at_iso": "2025-12-17T16:32:46Z"
 }

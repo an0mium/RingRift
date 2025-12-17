@@ -29,11 +29,178 @@ from torch.utils.data import Dataset, IterableDataset, Sampler
 from ..ai.nnue import (
     extract_features_from_gamestate,
     get_feature_dim,
+    get_board_size,
+    FEATURE_PLANES,
 )
 from ..models import BoardType, GameState, Move
 from ..rules.default_engine import DefaultRulesEngine
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# GPU-Accelerated Feature Extraction
+# =============================================================================
+
+def _parse_state_to_arrays(
+    state: GameState,
+    board_size: int,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Parse GameState into numpy arrays for batch GPU processing.
+
+    Returns:
+        Tuple of (stack_owner, stack_height, territory_owner) arrays,
+        each of shape (board_size, board_size)
+    """
+    stack_owner = np.zeros((board_size, board_size), dtype=np.int32)
+    stack_height = np.zeros((board_size, board_size), dtype=np.int32)
+    territory_owner = np.zeros((board_size, board_size), dtype=np.int32)
+
+    board = state.board
+
+    # Parse stacks
+    for pos_key, ring_stack in (board.stacks or {}).items():
+        try:
+            parts = pos_key.split(",")
+            if len(parts) >= 2:
+                x, y = int(parts[0]), int(parts[1])
+                if 0 <= x < board_size and 0 <= y < board_size:
+                    owner = getattr(ring_stack, 'controlling_player', 0)
+                    height = getattr(ring_stack, 'stack_height', 0)
+                    stack_owner[y, x] = owner
+                    stack_height[y, x] = height
+        except (ValueError, AttributeError):
+            continue
+
+    # Parse territories
+    for territory_key, territory in (board.territories or {}).items():
+        try:
+            pnum = getattr(territory, 'player', 0)
+            if pnum > 0:
+                for pos in (getattr(territory, 'spaces', None) or []):
+                    if 0 <= pos.x < board_size and 0 <= pos.y < board_size:
+                        territory_owner[pos.y, pos.x] = pnum
+        except (ValueError, AttributeError):
+            continue
+
+    return stack_owner, stack_height, territory_owner
+
+
+def extract_features_batch_gpu(
+    states: List[GameState],
+    player_numbers: List[int],
+    board_type: BoardType,
+    num_players: int = 2,
+    device: Optional[torch.device] = None,
+) -> np.ndarray:
+    """Extract NNUE features for a batch of states using GPU acceleration.
+
+    This function batches multiple game states and processes them on GPU
+    for significantly faster feature extraction during dataset generation.
+
+    Args:
+        states: List of GameState objects
+        player_numbers: List of player perspectives for each state
+        board_type: Board type
+        num_players: Number of players
+        device: GPU device (uses CUDA if available, falls back to CPU)
+
+    Returns:
+        (batch, feature_dim) numpy array of features
+    """
+    if not states:
+        return np.array([], dtype=np.float32)
+
+    batch_size = len(states)
+    board_size = get_board_size(board_type)
+    feature_dim = get_feature_dim(board_type)
+
+    # Determine device
+    if device is None:
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+        else:
+            device = torch.device("cpu")
+
+    # Parse all states to numpy arrays
+    stack_owners = np.zeros((batch_size, board_size, board_size), dtype=np.int32)
+    stack_heights = np.zeros((batch_size, board_size, board_size), dtype=np.int32)
+    territory_owners = np.zeros((batch_size, board_size, board_size), dtype=np.int32)
+    current_players = np.array(player_numbers, dtype=np.int64)
+
+    for i, state in enumerate(states):
+        so, sh, to = _parse_state_to_arrays(state, board_size)
+        stack_owners[i] = so
+        stack_heights[i] = sh
+        territory_owners[i] = to
+
+    # Move to device
+    stack_owner_t = torch.from_numpy(stack_owners).to(device)
+    stack_height_t = torch.from_numpy(stack_heights).to(device)
+    territory_owner_t = torch.from_numpy(territory_owners).to(device)
+    current_player_t = torch.from_numpy(current_players).to(device)
+
+    # Use vectorized GPU extraction
+    features_t = _extract_features_batch_vectorized(
+        stack_owner_t, stack_height_t, territory_owner_t,
+        current_player_t, num_players
+    )
+
+    # Move back to CPU and return numpy
+    return features_t.cpu().numpy()
+
+
+def _extract_features_batch_vectorized(
+    stack_owner: torch.Tensor,      # (batch, H, W)
+    stack_height: torch.Tensor,     # (batch, H, W)
+    territory_owner: torch.Tensor,  # (batch, H, W)
+    current_player: torch.Tensor,   # (batch,)
+    num_players: int = 2,
+) -> torch.Tensor:
+    """Fully vectorized batch feature extraction.
+
+    Feature planes (12 total) - PERSPECTIVE ROTATED:
+    - Planes 0-3: Ring/stack presence (plane 0 = current player)
+    - Planes 4-7: Stack height normalized (plane 4 = current player)
+    - Planes 8-11: Territory ownership (plane 8 = current player)
+    """
+    batch_size = stack_owner.shape[0]
+    H, W = stack_owner.shape[1], stack_owner.shape[2]
+    device = stack_owner.device
+
+    # Initialize features: (batch, 12, H, W)
+    features = torch.zeros(batch_size, FEATURE_PLANES, H, W, device=device, dtype=torch.float32)
+
+    # Current player expanded: (batch, 1, 1)
+    cp = current_player.view(batch_size, 1, 1)
+
+    # Process each player's features with perspective rotation
+    for p in range(1, num_players + 1):
+        # Masks for this player: (batch, H, W)
+        owner_mask = (stack_owner == p).float()
+        height_feature = torch.clamp((stack_height.float() * owner_mask) / 5.0, 0, 1)
+        territory_mask = (territory_owner == p).float()
+
+        # Compute rotation: (batch,) - 0 for current player, 1-3 for opponents
+        is_current = (torch.tensor(p, device=device) == current_player)
+        rotation = torch.where(
+            is_current,
+            torch.zeros(batch_size, dtype=torch.long, device=device),
+            (torch.tensor(p, device=device) - current_player) % num_players
+        )
+
+        # Scatter to appropriate planes
+        batch_idx = torch.arange(batch_size, device=device)
+
+        # Use advanced indexing to place features in rotated planes
+        for b in range(batch_size):
+            rot = rotation[b].item()
+            features[b, rot] = owner_mask[b]
+            features[b, 4 + rot] = height_feature[b]
+            features[b, 8 + rot] = territory_mask[b]
+
+    # Flatten to (batch, feature_dim)
+    return features.view(batch_size, -1)
 
 
 @dataclass
@@ -76,6 +243,8 @@ class NNUESQLiteDataset(Dataset):
         config: Optional[NNUEDatasetConfig] = None,
         cache_path: Optional[str] = None,
         max_samples: Optional[int] = None,
+        use_gpu_extraction: bool = False,
+        gpu_batch_size: int = 256,
     ):
         """Initialize the NNUE dataset.
 
@@ -84,11 +253,15 @@ class NNUESQLiteDataset(Dataset):
             config: Dataset configuration
             cache_path: Optional path to cache extracted features as NPZ
             max_samples: Optional limit on number of samples
+            use_gpu_extraction: Use GPU-accelerated batch feature extraction
+            gpu_batch_size: Batch size for GPU extraction
         """
         self.db_paths = db_paths
         self.config = config or NNUEDatasetConfig()
         self.cache_path = cache_path
         self.max_samples = max_samples
+        self.use_gpu_extraction = use_gpu_extraction and torch.cuda.is_available()
+        self.gpu_batch_size = gpu_batch_size
 
         self.feature_dim = get_feature_dim(self.config.board_type)
         self.samples: List[NNUESample] = []
@@ -97,6 +270,8 @@ class NNUESQLiteDataset(Dataset):
         if cache_path and os.path.exists(cache_path):
             self._load_from_cache(cache_path)
         else:
+            if self.use_gpu_extraction:
+                logger.info("Using GPU-accelerated feature extraction")
             self._extract_samples()
             if cache_path:
                 self._save_to_cache(cache_path)
@@ -149,6 +324,12 @@ class NNUESQLiteDataset(Dataset):
             self.config.min_game_length,
         ))
         games = cursor.fetchall()
+
+        # For GPU extraction, batch collect states first
+        if self.use_gpu_extraction:
+            samples = self._extract_from_db_gpu_batch(conn, cursor, games)
+            conn.close()
+            return samples
 
         for game_row in games:
             game_id = game_row['game_id']
@@ -237,6 +418,163 @@ class NNUESQLiteDataset(Dataset):
 
         conn.close()
         return samples
+
+    def _extract_from_db_gpu_batch(
+        self,
+        conn: sqlite3.Connection,
+        cursor: sqlite3.Cursor,
+        games: List[Any],
+    ) -> List[NNUESample]:
+        """GPU-accelerated batch extraction from database.
+
+        Collects states in batches, then processes them on GPU for faster
+        feature extraction.
+        """
+        samples: List[NNUESample] = []
+
+        # Collect batch data: (state, player_number, value, game_id, move_number)
+        batch_states: List[GameState] = []
+        batch_players: List[int] = []
+        batch_values: List[float] = []
+        batch_game_ids: List[str] = []
+        batch_move_nums: List[int] = []
+
+        for game_row in games:
+            game_id = game_row['game_id']
+            winner = game_row['winner']
+
+            # Get state snapshots for this game
+            snapshot_query = """
+                SELECT move_number, state_json, compressed
+                FROM game_state_snapshots
+                WHERE game_id = ?
+                ORDER BY move_number
+            """
+            cursor.execute(snapshot_query, (game_id,))
+            snapshots = cursor.fetchall()
+
+            if not snapshots:
+                # Fall back to replay for games without snapshots
+                replay_samples = self._extract_via_replay(
+                    conn, game_id, winner, game_row['total_moves']
+                )
+                samples.extend(replay_samples)
+                continue
+
+            for snapshot in snapshots:
+                move_num = snapshot['move_number']
+
+                # Sample every Nth position
+                if move_num % self.config.sample_every_n_moves != 0:
+                    continue
+
+                # Parse state JSON
+                state_json = snapshot['state_json']
+                if snapshot['compressed']:
+                    state_json = gzip.decompress(state_json.encode()).decode()
+
+                try:
+                    state_dict = json.loads(state_json)
+                    game_state = GameState(**state_dict)
+                except Exception:
+                    continue
+
+                # Get current player from game state
+                current_player = game_state.current_player
+                if current_player is None or current_player < 1:
+                    current_player = 1
+
+                # Calculate value
+                if winner == current_player:
+                    value = 1.0
+                elif winner is None or winner == 0:
+                    if not self.config.include_draws:
+                        continue
+                    value = 0.0
+                else:
+                    value = -1.0
+
+                # Add to batch
+                batch_states.append(game_state)
+                batch_players.append(current_player)
+                batch_values.append(value)
+                batch_game_ids.append(game_id)
+                batch_move_nums.append(move_num)
+
+                # Process batch when full
+                if len(batch_states) >= self.gpu_batch_size:
+                    batch_samples = self._process_gpu_batch(
+                        batch_states, batch_players, batch_values,
+                        batch_game_ids, batch_move_nums
+                    )
+                    samples.extend(batch_samples)
+
+                    # Clear batch
+                    batch_states = []
+                    batch_players = []
+                    batch_values = []
+                    batch_game_ids = []
+                    batch_move_nums = []
+
+                    if self.max_samples and len(samples) >= self.max_samples:
+                        return samples[:self.max_samples]
+
+        # Process remaining batch
+        if batch_states:
+            batch_samples = self._process_gpu_batch(
+                batch_states, batch_players, batch_values,
+                batch_game_ids, batch_move_nums
+            )
+            samples.extend(batch_samples)
+
+        return samples
+
+    def _process_gpu_batch(
+        self,
+        states: List[GameState],
+        players: List[int],
+        values: List[float],
+        game_ids: List[str],
+        move_nums: List[int],
+    ) -> List[NNUESample]:
+        """Process a batch of states using GPU feature extraction."""
+        try:
+            features = extract_features_batch_gpu(
+                states, players,
+                self.config.board_type,
+                self.config.num_players,
+            )
+
+            samples = []
+            for i in range(len(states)):
+                sample = NNUESample(
+                    features=features[i],
+                    value=values[i],
+                    player_number=players[i],
+                    game_id=game_ids[i],
+                    move_number=move_nums[i],
+                )
+                samples.append(sample)
+            return samples
+
+        except Exception as e:
+            # Fall back to CPU extraction on error
+            logger.warning(f"GPU batch extraction failed, falling back to CPU: {e}")
+            samples = []
+            for i, state in enumerate(states):
+                try:
+                    features = extract_features_from_gamestate(state, players[i])
+                    sample = NNUESample(
+                        features=features,
+                        value=values[i],
+                        player_number=players[i],
+                        game_id=game_ids[i],
+                        move_number=move_nums[i],
+                    )
+                    samples.append(sample)
+                except Exception:
+                    continue
+            return samples
 
     def _extract_via_replay(
         self,
@@ -349,9 +687,17 @@ class NNUESQLiteDataset(Dataset):
         return samples
 
     def _load_from_cache(self, cache_path: str) -> None:
-        """Load samples from NPZ cache file."""
+        """Load samples from NPZ cache file with memory-mapped loading for large files."""
         logger.info(f"Loading NNUE dataset from cache: {cache_path}")
-        data = np.load(cache_path, allow_pickle=True)
+
+        # Use memory-mapped mode for large files (>100MB)
+        file_size_mb = os.path.getsize(cache_path) / (1024 * 1024)
+        mmap_mode = 'r' if file_size_mb > 100 else None
+
+        if mmap_mode:
+            logger.info(f"Using memory-mapped loading for {file_size_mb:.1f}MB cache file")
+
+        data = np.load(cache_path, allow_pickle=True, mmap_mode=mmap_mode)
 
         features = data['features']
         values = data['values']
@@ -359,15 +705,37 @@ class NNUESQLiteDataset(Dataset):
         game_ids = data['game_ids']
         move_numbers = data['move_numbers']
 
-        for i in range(len(values)):
-            sample = NNUESample(
-                features=features[i],
-                value=float(values[i]),
-                player_number=int(player_numbers[i]),
-                game_id=str(game_ids[i]),
-                move_number=int(move_numbers[i]),
-            )
-            self.samples.append(sample)
+        # For large datasets, store as contiguous arrays for faster access
+        if len(values) > 100000:
+            logger.info("Converting to tensor-backed storage for fast access")
+            self._features_array = np.array(features, dtype=np.float32)
+            self._values_array = np.array(values, dtype=np.float32)
+            self._player_numbers_array = np.array(player_numbers, dtype=np.int32)
+            self._game_ids_array = np.array(game_ids, dtype=object)
+            self._move_numbers_array = np.array(move_numbers, dtype=np.int32)
+            self._use_tensor_cache = True
+
+            # Still create sample objects for metadata access
+            for i in range(len(values)):
+                sample = NNUESample(
+                    features=self._features_array[i],
+                    value=float(self._values_array[i]),
+                    player_number=int(self._player_numbers_array[i]),
+                    game_id=str(self._game_ids_array[i]),
+                    move_number=int(self._move_numbers_array[i]),
+                )
+                self.samples.append(sample)
+        else:
+            self._use_tensor_cache = False
+            for i in range(len(values)):
+                sample = NNUESample(
+                    features=features[i],
+                    value=float(values[i]),
+                    player_number=int(player_numbers[i]),
+                    game_id=str(game_ids[i]),
+                    move_number=int(move_numbers[i]),
+                )
+                self.samples.append(sample)
 
         if self.max_samples and len(self.samples) > self.max_samples:
             self.samples = self.samples[:self.max_samples]
@@ -403,6 +771,13 @@ class NNUESQLiteDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """Get a single sample as (features, value) tensors."""
+        # Fast path: use cached arrays directly
+        if getattr(self, '_use_tensor_cache', False):
+            features = torch.from_numpy(self._features_array[idx]).float()
+            value = torch.tensor([self._values_array[idx]], dtype=torch.float32)
+            return features, value
+
+        # Standard path
         sample = self.samples[idx]
         features = torch.from_numpy(sample.features).float()
         value = torch.tensor([sample.value], dtype=torch.float32)

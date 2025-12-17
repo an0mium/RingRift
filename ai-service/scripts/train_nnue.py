@@ -70,6 +70,20 @@ from app.training.nnue_dataset import (
     PrioritizedExperienceSampler,
     count_available_samples,
 )
+from app.training.distributed import (
+    setup_distributed,
+    cleanup_distributed,
+    is_distributed,
+    is_main_process,
+    get_rank,
+    get_world_size,
+    get_device_for_rank,
+    wrap_model_ddp,
+    get_distributed_sampler,
+    scale_learning_rate,
+    reduce_tensor,
+    synchronize,
+)
 from app.training.seed_utils import seed_all
 
 # Unified resource guard - 80% utilization limits (enforced 2025-12-16)
@@ -381,6 +395,28 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Number of DataLoader workers (default: 0, use main process)",
     )
     parser.add_argument(
+        "--prefetch-factor",
+        type=int,
+        default=2,
+        help="Number of batches to prefetch per worker (default: 2)",
+    )
+    parser.add_argument(
+        "--async-pipeline",
+        action="store_true",
+        help="Enable async overlapped pipeline for data loading and GPU transfer",
+    )
+    parser.add_argument(
+        "--qat",
+        action="store_true",
+        help="Enable Quantization-Aware Training for better int8 inference accuracy",
+    )
+    parser.add_argument(
+        "--qat-start-epoch",
+        type=int,
+        default=10,
+        help="Epoch to start QAT (default: 10, allows model to converge first)",
+    )
+    parser.add_argument(
         "--mixed-precision",
         action="store_true",
         help="Enable mixed precision training (FP16/BF16) for faster training on GPU",
@@ -410,9 +446,44 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="PER importance sampling correction (0=no, 1=full) (default: 0.4)",
     )
     parser.add_argument(
+        "--per-update-freq",
+        type=int,
+        default=1,
+        help="PER priority update frequency in epochs (default: 1 = every epoch)",
+    )
+    parser.add_argument(
         "--use-board-config",
         action="store_true",
         help="Use board-specific hyperparameters from config/training_hyperparams.yaml",
+    )
+    parser.add_argument(
+        "--gpu-extraction",
+        action="store_true",
+        help="Use GPU-accelerated feature extraction for faster dataset generation",
+    )
+    parser.add_argument(
+        "--gpu-extraction-batch",
+        type=int,
+        default=256,
+        help="Batch size for GPU feature extraction (default: 256)",
+    )
+    parser.add_argument(
+        "--distributed",
+        action="store_true",
+        help="Enable distributed training with DDP (launch with torchrun)",
+    )
+    parser.add_argument(
+        "--lr-scale",
+        type=str,
+        choices=["linear", "sqrt", "none"],
+        default="sqrt",
+        help="LR scaling for distributed training: linear, sqrt (default), or none",
+    )
+    parser.add_argument(
+        "--gradient-accumulation",
+        type=int,
+        default=1,
+        help="Number of gradient accumulation steps (default: 1, no accumulation)",
     )
     parser.add_argument(
         "--early-end",
@@ -604,6 +675,37 @@ def create_demo_dataset(
     return features, values
 
 
+def prepare_model_for_qat(model: nn.Module) -> nn.Module:
+    """Prepare model for Quantization-Aware Training.
+
+    Inserts fake quantization observers into the model for simulating
+    quantization during training.
+    """
+    model.cpu()
+    model.train()
+
+    # Configure quantization for CPU inference
+    model.qconfig = torch.quantization.get_default_qat_qconfig('fbgemm')
+
+    # Prepare for QAT (inserts fake quantization modules)
+    torch.quantization.prepare_qat(model, inplace=True)
+
+    logger.info("Model prepared for Quantization-Aware Training")
+    return model
+
+
+def convert_qat_model(model: nn.Module) -> nn.Module:
+    """Convert QAT model to actual quantized model for inference."""
+    model.cpu()
+    model.eval()
+
+    # Convert to quantized model
+    quantized_model = torch.quantization.convert(model, inplace=False)
+
+    logger.info("QAT model converted to quantized model")
+    return quantized_model
+
+
 class NNUETrainer:
     """Trainer for NNUE evaluation network."""
 
@@ -618,6 +720,9 @@ class NNUETrainer:
         total_epochs: int = 50,
         use_amp: bool = False,
         amp_dtype: str = "float16",
+        gradient_accumulation: int = 1,
+        use_gradient_checkpointing: bool = False,
+        async_pipeline: bool = False,
     ):
         self.model = model.to(device)
         self.device = device
@@ -641,6 +746,25 @@ class NNUETrainer:
             logger.info("Mixed precision training enabled with FP16 + GradScaler")
         elif self.use_amp:
             logger.info(f"Mixed precision training enabled with {amp_dtype}")
+
+        # Gradient accumulation
+        self.gradient_accumulation = gradient_accumulation
+        if gradient_accumulation > 1:
+            logger.info(f"Gradient accumulation enabled: {gradient_accumulation} steps")
+
+        # Gradient checkpointing for memory efficiency
+        self.use_gradient_checkpointing = use_gradient_checkpointing
+        if use_gradient_checkpointing:
+            if hasattr(model, 'gradient_checkpointing_enable'):
+                model.gradient_checkpointing_enable()
+                logger.info("Gradient checkpointing enabled")
+            else:
+                logger.warning("Model does not support gradient checkpointing")
+
+        # Async pipeline: use non-blocking data transfers
+        self.async_pipeline = async_pipeline
+        if async_pipeline:
+            logger.info("Async pipeline: using non-blocking GPU transfers")
 
         self.optimizer = optim.AdamW(
             model.parameters(),
@@ -677,40 +801,55 @@ class NNUETrainer:
         self.criterion = nn.MSELoss()
 
     def train_epoch(self, dataloader: DataLoader) -> float:
-        """Train for one epoch. Returns average loss."""
+        """Train for one epoch with gradient accumulation support. Returns average loss."""
         self.model.train()
         total_loss = 0.0
         num_batches = 0
+        accum_steps = self.gradient_accumulation
 
-        for features, values in dataloader:
-            features = features.to(self.device)
-            values = values.to(self.device)
+        # Use non-blocking transfers for async pipeline
+        non_blocking = self.async_pipeline and self.device.type == "cuda"
 
-            self.optimizer.zero_grad()
+        self.optimizer.zero_grad()
 
+        for batch_idx, (features, values) in enumerate(dataloader):
+            features = features.to(self.device, non_blocking=non_blocking)
+            values = values.to(self.device, non_blocking=non_blocking)
+
+            # Scale loss by accumulation steps for proper averaging
             if self.use_amp:
                 # Mixed precision forward pass
                 with torch.amp.autocast(device_type="cuda", dtype=self.amp_dtype):
                     predictions = self.model(features)
                     loss = self.criterion(predictions, values)
+                    if accum_steps > 1:
+                        loss = loss / accum_steps
 
                 if self.scaler is not None:
                     # FP16: use scaler for gradient scaling
                     self.scaler.scale(loss).backward()
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
                 else:
                     # BF16: no scaler needed
                     loss.backward()
-                    self.optimizer.step()
             else:
                 # Standard precision
                 predictions = self.model(features)
                 loss = self.criterion(predictions, values)
+                if accum_steps > 1:
+                    loss = loss / accum_steps
                 loss.backward()
-                self.optimizer.step()
 
-            total_loss += loss.item()
+            # Step optimizer every accum_steps batches or at end
+            if (batch_idx + 1) % accum_steps == 0 or (batch_idx + 1) == len(dataloader):
+                if self.scaler is not None:
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    self.optimizer.step()
+                self.optimizer.zero_grad()
+
+            # Track unscaled loss for reporting
+            total_loss += loss.item() * (accum_steps if accum_steps > 1 else 1)
             num_batches += 1
 
         return total_loss / max(num_batches, 1)
@@ -809,6 +948,16 @@ def train_nnue(
     per: bool = False,
     per_alpha: float = 0.6,
     per_beta: float = 0.4,
+    per_update_freq: int = 1,
+    distributed: bool = False,
+    lr_scale: str = "sqrt",
+    gradient_accumulation: int = 1,
+    gpu_extraction: bool = False,
+    gpu_extraction_batch: int = 256,
+    prefetch_factor: int = 2,
+    async_pipeline: bool = False,
+    qat: bool = False,
+    qat_start_epoch: int = 10,
 ) -> Dict[str, Any]:
     """Train NNUE model and return training report."""
     seed_all(seed)
@@ -861,6 +1010,8 @@ def train_nnue(
             db_paths=val_dbs,
             config=config,
             max_samples=max_samples // 10 if max_samples else 10000,
+            use_gpu_extraction=gpu_extraction,
+            gpu_batch_size=gpu_extraction_batch,
         )
         dataset_size = -1  # Unknown for streaming
         logger.info(f"Streaming from {len(train_dbs)} DBs, validation from {len(val_dbs)} DBs")
@@ -871,6 +1022,8 @@ def train_nnue(
             config=config,
             cache_path=cache_path,
             max_samples=max_samples,
+            use_gpu_extraction=gpu_extraction,
+            gpu_batch_size=gpu_extraction_batch,
         )
         dataset_size = len(dataset)
 
@@ -932,31 +1085,53 @@ def train_nnue(
         )
         logger.info(f"Created balanced sampler for {len(train_dataset)} training samples")
 
+    # Configure DataLoader for async pipeline
+    use_pin_memory = device.type != "cpu"
+    # prefetch_factor is only valid with num_workers > 0
+    effective_prefetch = prefetch_factor if num_workers > 0 else None
+
+    # For async pipeline, enable non-blocking transfers and persistent workers
+    persistent_workers = async_pipeline and num_workers > 0
+
     # Create train loader
     if streaming:
-        train_loader = DataLoader(
-            streaming_dataset,
-            batch_size=batch_size,
-            num_workers=num_workers,
-            pin_memory=True if device.type != "cpu" else False,
-        )
+        loader_kwargs = {
+            "batch_size": batch_size,
+            "num_workers": num_workers,
+            "pin_memory": use_pin_memory,
+        }
+        if effective_prefetch is not None:
+            loader_kwargs["prefetch_factor"] = effective_prefetch
+        if persistent_workers:
+            loader_kwargs["persistent_workers"] = True
+
+        train_loader = DataLoader(streaming_dataset, **loader_kwargs)
     else:
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=batch_size,
-            shuffle=(train_sampler is None),
-            sampler=train_sampler,
-            num_workers=num_workers,
-            pin_memory=True if device.type != "cpu" else False,
-        )
+        loader_kwargs = {
+            "batch_size": batch_size,
+            "shuffle": (train_sampler is None),
+            "sampler": train_sampler,
+            "num_workers": num_workers,
+            "pin_memory": use_pin_memory,
+        }
+        if effective_prefetch is not None:
+            loader_kwargs["prefetch_factor"] = effective_prefetch
+        if persistent_workers:
+            loader_kwargs["persistent_workers"] = True
+
+        train_loader = DataLoader(train_dataset, **loader_kwargs)
 
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
         shuffle=False,
         num_workers=0,
-        pin_memory=True if device.type != "cpu" else False,
+        pin_memory=use_pin_memory,
     )
+
+    if async_pipeline:
+        logger.info(f"Async pipeline enabled: prefetch={effective_prefetch}, "
+                   f"pin_memory={use_pin_memory}, persistent_workers={persistent_workers}")
 
     # Create model
     model = RingRiftNNUE(
@@ -1006,6 +1181,45 @@ def train_nnue(
                 pin_memory=True if device.type != "cpu" else False,
             )
 
+    # Distributed training setup
+    if distributed:
+        if not torch.cuda.is_available():
+            logger.error("Distributed training requires CUDA")
+            return {"error": "Distributed training requires CUDA"}
+
+        # Initialize distributed process group
+        setup_distributed()
+        rank = get_rank()
+        world_size = get_world_size()
+        device = get_device_for_rank()
+
+        logger.info(f"Distributed training: rank {rank}/{world_size}, device {device}")
+
+        # Scale learning rate for distributed training
+        original_lr = learning_rate
+        learning_rate = scale_learning_rate(learning_rate, world_size, lr_scale)
+        if is_main_process():
+            logger.info(f"LR scaled for {world_size} GPUs: {original_lr:.2e} -> {learning_rate:.2e} ({lr_scale})")
+
+        # Move model to device and wrap with DDP
+        model = model.to(device)
+        model = wrap_model_ddp(model, device_ids=[device.index] if device.index is not None else None)
+
+        # Replace sampler with DistributedSampler if not streaming
+        if not streaming and train_sampler is None:
+            train_sampler = get_distributed_sampler(train_dataset, shuffle=True)
+            # Recreate train loader with distributed sampler
+            train_loader = DataLoader(
+                train_dataset,
+                batch_size=actual_batch_size,
+                shuffle=False,  # Sampler handles shuffling
+                sampler=train_sampler,
+                num_workers=num_workers,
+                pin_memory=True,
+            )
+            if is_main_process():
+                logger.info(f"Using DistributedSampler for {len(train_dataset)} samples across {world_size} GPUs")
+
     # Create trainer
     trainer = NNUETrainer(
         model=model,
@@ -1017,12 +1231,15 @@ def train_nnue(
         total_epochs=epochs,
         use_amp=mixed_precision,
         amp_dtype=amp_dtype,
+        gradient_accumulation=gradient_accumulation,
+        async_pipeline=async_pipeline,
     )
 
     # Training loop
     best_val_loss = float("inf")
     best_epoch = 0
     epochs_without_improvement = 0
+    qat_enabled = False
     history: Dict[str, List[float]] = {
         "train_loss": [],
         "val_loss": [],
@@ -1030,22 +1247,48 @@ def train_nnue(
         "learning_rate": [],
     }
 
+    if qat:
+        logger.info(f"QAT will start at epoch {qat_start_epoch}")
+
     for epoch in range(epochs):
+        # Enable QAT at the specified epoch
+        if qat and not qat_enabled and epoch >= qat_start_epoch:
+            logger.info(f"Enabling Quantization-Aware Training at epoch {epoch + 1}")
+            # Unwrap DDP if needed
+            if distributed and hasattr(model, 'module'):
+                model.module = prepare_model_for_qat(model.module)
+                model.module = model.module.to(device)
+            else:
+                model = prepare_model_for_qat(model)
+                model = model.to(device)
+                trainer.model = model
+            qat_enabled = True
+            logger.info("QAT enabled - continuing training with fake quantization")
+
         # Update streaming dataset epoch for proper shuffling
         if streaming and streaming_dataset is not None:
             streaming_dataset.set_epoch(epoch)
+
+        # Update distributed sampler epoch for proper shuffling
+        if distributed and hasattr(train_sampler, 'set_epoch'):
+            train_sampler.set_epoch(epoch)
 
         # Update PER sampler epoch for beta annealing
         if per_sampler is not None:
             per_sampler.set_epoch(epoch, epochs)
 
         train_loss = trainer.train_epoch(train_loader)
+
+        # Reduce train loss across all processes for distributed training
+        if distributed:
+            train_loss_tensor = torch.tensor(train_loss, device=device)
+            train_loss = reduce_tensor(train_loss_tensor).item()
         val_loss, val_accuracy = trainer.validate(val_loader)
         trainer.update_scheduler(val_loss)
 
-        # Update PER priorities based on prediction errors (every 5 epochs)
-        if per_sampler is not None and (epoch + 1) % 5 == 0:
-            logger.info("Updating PER priorities...")
+        # Update PER priorities based on prediction errors
+        if per_sampler is not None and (epoch + 1) % per_update_freq == 0:
+            logger.info(f"Updating PER priorities (every {per_update_freq} epochs)...")
             with torch.no_grad():
                 model.eval()
                 all_errors = []
@@ -1099,24 +1342,43 @@ def train_nnue(
             best_epoch = epoch + 1
             epochs_without_improvement = 0
 
-            # Save best model
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            checkpoint = {
-                "model_state_dict": model.state_dict(),
-                "board_type": board_type.value,
-                "hidden_dim": hidden_dim,
-                "num_hidden_layers": num_hidden_layers,
-                "epoch": epoch + 1,
-                "val_loss": val_loss,
-                "architecture_version": model.ARCHITECTURE_VERSION,
-            }
-            torch.save(checkpoint, save_path)
-            logger.info(f"Saved best model to {save_path}")
+            # Save best model (only on main process for distributed training)
+            if not distributed or is_main_process():
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                # Get model state dict (unwrap DDP if needed)
+                if distributed and hasattr(model, 'module'):
+                    model_state = model.module.state_dict()
+                    arch_version = model.module.ARCHITECTURE_VERSION
+                else:
+                    model_state = model.state_dict()
+                    arch_version = model.ARCHITECTURE_VERSION
+
+                checkpoint = {
+                    "model_state_dict": model_state,
+                    "board_type": board_type.value,
+                    "hidden_dim": hidden_dim,
+                    "num_hidden_layers": num_hidden_layers,
+                    "epoch": epoch + 1,
+                    "val_loss": val_loss,
+                    "architecture_version": arch_version,
+                }
+                torch.save(checkpoint, save_path)
+                logger.info(f"Saved best model to {save_path}")
         else:
             epochs_without_improvement += 1
             if epochs_without_improvement >= early_stopping_patience:
                 logger.info(f"Early stopping at epoch {epoch+1}")
                 break
+
+    # Synchronize all processes before cleanup
+    if distributed:
+        synchronize()
+
+    # Get model param count (unwrap DDP if needed)
+    if distributed and hasattr(model, 'module'):
+        model_params = sum(p.numel() for p in model.module.parameters())
+    else:
+        model_params = sum(p.numel() for p in model.parameters())
 
     # Training report
     report = {
@@ -1125,7 +1387,7 @@ def train_nnue(
         "dataset_size": dataset_size if dataset_size > 0 else "streaming",
         "train_size": "streaming" if streaming else len(train_dataset),
         "val_size": len(val_dataset),
-        "model_params": sum(p.numel() for p in model.parameters()),
+        "model_params": model_params,
         "hidden_dim": hidden_dim,
         "num_hidden_layers": num_hidden_layers,
         "epochs_trained": epoch + 1,
@@ -1148,8 +1410,16 @@ def train_nnue(
         "per": per,
         "per_alpha": per_alpha if per else None,
         "per_beta": per_beta if per else None,
+        "distributed": distributed,
+        "world_size": get_world_size() if distributed else 1,
+        "lr_scale": lr_scale if distributed else None,
+        "gradient_accumulation": gradient_accumulation,
         "history": history,
     }
+
+    # Cleanup distributed training
+    if distributed:
+        cleanup_distributed()
 
     return report
 
@@ -1293,6 +1563,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Train
     logger.info(f"Starting NNUE training with {args.lr_schedule} LR schedule...")
+    if args.distributed:
+        logger.info(f"Distributed training enabled (launch with: torchrun --nproc_per_node=N train_nnue.py ...)")
+    if args.gradient_accumulation > 1:
+        logger.info(f"Gradient accumulation: {args.gradient_accumulation} steps")
+
     report = train_nnue(
         db_paths=db_paths,
         board_type=board_type,
@@ -1329,6 +1604,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         per=args.per,
         per_alpha=args.per_alpha,
         per_beta=args.per_beta,
+        per_update_freq=args.per_update_freq,
+        distributed=args.distributed,
+        lr_scale=args.lr_scale,
+        gradient_accumulation=args.gradient_accumulation,
+        gpu_extraction=args.gpu_extraction,
+        gpu_extraction_batch=args.gpu_extraction_batch,
+        prefetch_factor=args.prefetch_factor,
+        async_pipeline=args.async_pipeline,
     )
 
     # Add metadata to report
