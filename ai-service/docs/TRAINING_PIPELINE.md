@@ -574,6 +574,62 @@ sqlite3 data/unified_elo.db \
   "SELECT board_type, num_players, COUNT(*), MAX(rating) FROM elo_ratings WHERE archived_at IS NULL GROUP BY 1,2"
 ```
 
+### Curriculum Training
+
+Progressive training from simple to complex game phases:
+
+```bash
+# Auto-progress through all stages
+python scripts/curriculum_training.py --auto-progress \
+  --board hexagonal --num-players 3 \
+  --db data/games/jsonl_aggregated.db
+
+# Train specific stage only
+python scripts/curriculum_training.py --stage 1 \
+  --board square8 --num-players 2
+```
+
+**Stages**:
+
+1. Placement phase (moves 1-36)
+2. Early-mid game (moves 37-100)
+3. Mid-late game (moves 100-200)
+4. Endgame (moves 200+)
+5. Full game
+
+### Transfer Learning
+
+Bootstrap weak configs from strong models:
+
+```bash
+python scripts/train_nnue_policy.py \
+  --board hexagonal --num-players 3 \
+  --db data/games/jsonl_aggregated.db \
+  --pretrained models/nnue/nnue_policy_square8_2p.pt \
+  --freeze-value \
+  --epochs 30 --use-swa
+```
+
+**Options**:
+
+- `--pretrained`: Path to pre-trained model
+- `--freeze-value`: Freeze value head, train policy only
+- `--use-swa`: Stochastic weight averaging for stability
+
+### Tailscale Network
+
+Cluster nodes accessible via Tailscale IPs:
+
+| Node          | Tailscale IP    | Direct IP      |
+| ------------- | --------------- | -------------- |
+| GH200-a       | 100.123.183.70  | 192.222.51.29  |
+| GH200-e       | 100.88.176.74   | 192.222.57.162 |
+| GH200-f       | 100.104.165.116 | -              |
+| GH200-g       | 100.104.126.58  | 192.222.57.79  |
+| lambda-2xh100 | 100.97.104.89   | -              |
+
+The sync script (`scripts/sync_training_data_cron.sh`) tries Tailscale first, then falls back to direct IP.
+
 ## Contact
 
 For issues with the training pipeline, check:

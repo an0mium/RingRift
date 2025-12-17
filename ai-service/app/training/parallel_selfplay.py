@@ -71,12 +71,11 @@ class GameResult:
 def _worker_init(config_dict: dict) -> None:
     """Initialize worker process with config and PYTHONPATH."""
     import sys
-    from pathlib import Path
 
-    # Add ai-service root to path for worker processes
-    ai_service_root = Path(__file__).resolve().parents[2]
-    if str(ai_service_root) not in sys.path:
-        sys.path.insert(0, str(ai_service_root))
+    # Add ai-service root to path for worker processes (passed from main process)
+    ai_service_root = config_dict.get('_ai_service_root')
+    if ai_service_root and ai_service_root not in sys.path:
+        sys.path.insert(0, ai_service_root)
 
     global _worker_config
     _worker_config = config_dict
@@ -101,10 +100,9 @@ def _generate_single_game(args: Tuple[int, int]) -> Optional[GameResult]:
     try:
         start_time = time.time()
 
-        # Ensure ai-service is in path for worker subprocess
+        # Ensure ai-service is in path for worker subprocess (use path from config)
         import sys
-        import os
-        ai_service_root = os.environ.get('RINGRIFT_AI_SERVICE_ROOT')
+        ai_service_root = _worker_config.get('_ai_service_root')
         if ai_service_root and ai_service_root not in sys.path:
             sys.path.insert(0, ai_service_root)
 
@@ -356,6 +354,10 @@ def generate_dataset_parallel(
         gumbel_c_visit=gumbel_c_visit,
         gumbel_c_scale=gumbel_c_scale,
     )
+    # Get ai-service root path to pass to workers
+    from pathlib import Path
+    ai_service_root = str(Path(__file__).resolve().parents[2])
+
     config_dict = {
         'board_type': config.board_type,
         'num_players': config.num_players,
@@ -370,6 +372,7 @@ def generate_dataset_parallel(
         'gumbel_top_k': config.gumbel_top_k,
         'gumbel_c_visit': config.gumbel_c_visit,
         'gumbel_c_scale': config.gumbel_c_scale,
+        '_ai_service_root': ai_service_root,  # Path for worker processes
     }
 
     # Generate game arguments

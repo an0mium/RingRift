@@ -88,6 +88,11 @@ class LocalSelfplayGenerator:
     - descent: Fast descent-based AI (default)
     - mcts: Standard MCTS tree search
     - gumbel: Gumbel-MCTS with soft policy targets (best for training)
+
+    Enhanced features (2025-12):
+    - PFSP opponent selection for diverse training
+    - Priority-based config selection based on training proximity
+    - Curriculum weight integration for adaptive generation
     """
 
     def __init__(
@@ -96,6 +101,7 @@ class LocalSelfplayGenerator:
         event_bus: "EventBus",
         output_dir: Optional[Path] = None,
         num_workers: Optional[int] = None,
+        training_scheduler: Optional[Any] = None,
     ):
         self.state = state
         self.event_bus = event_bus
@@ -103,12 +109,110 @@ class LocalSelfplayGenerator:
         self.num_workers = num_workers
         self._running = False
         self._generation_task: Optional[asyncio.Task] = None
+        # Reference to training scheduler for PFSP and priority access
+        self._training_scheduler = training_scheduler
 
         # Ensure output directory exists
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         if not HAS_PARALLEL_SELFPLAY:
             logger.warning("Parallel selfplay module not available")
+
+    def set_training_scheduler(self, scheduler: Any) -> None:
+        """Set reference to training scheduler for PFSP integration."""
+        self._training_scheduler = scheduler
+
+    def get_pfsp_opponent(self, config_key: str, current_elo: float = 1500.0) -> Optional[str]:
+        """Get PFSP-selected opponent for selfplay.
+
+        Args:
+            config_key: Config identifier
+            current_elo: Current model Elo for matchmaking
+
+        Returns:
+            Opponent model path or None if PFSP not available
+        """
+        if self._training_scheduler is not None:
+            return self._training_scheduler.get_pfsp_opponent(config_key, current_elo)
+        return None
+
+    def get_prioritized_config(self) -> Optional[str]:
+        """Get the config that should have highest selfplay priority.
+
+        Priority is based on:
+        1. Proximity to training threshold (closer = higher priority)
+        2. Curriculum weights (higher weight = higher priority)
+        3. Time since last training (longer = higher priority)
+
+        Returns:
+            Config key with highest priority, or None if no configs
+        """
+        if not self.state.configs:
+            return None
+
+        best_config = None
+        best_priority = -1.0
+
+        for config_key, config_state in self.state.configs.items():
+            priority = 0.0
+
+            # Factor 1: Proximity to training threshold (0-1)
+            # Closer to threshold = higher priority
+            if self._training_scheduler:
+                threshold = self._training_scheduler._get_dynamic_threshold(config_key)
+                if threshold > 0:
+                    proximity = min(1.0, config_state.games_since_training / threshold)
+                    priority += proximity * 0.5
+
+            # Factor 2: Curriculum weight (0.5-2.0 normalized to 0-1)
+            curriculum_weight = getattr(config_state, 'curriculum_weight', 1.0)
+            normalized_curriculum = (curriculum_weight - 0.5) / 1.5
+            priority += normalized_curriculum * 0.3
+
+            # Factor 3: Time since last training (0-1)
+            time_since_training = time.time() - config_state.last_training_time
+            hours_since = time_since_training / 3600
+            staleness_factor = min(1.0, hours_since / 6.0)  # Cap at 6 hours
+            priority += staleness_factor * 0.2
+
+            if priority > best_priority:
+                best_priority = priority
+                best_config = config_key
+
+        return best_config
+
+    def get_config_priorities(self) -> Dict[str, float]:
+        """Get priority scores for all configs.
+
+        Returns:
+            Dict mapping config_key to priority score (0-1)
+        """
+        priorities = {}
+
+        for config_key, config_state in self.state.configs.items():
+            priority = 0.0
+
+            # Proximity to threshold
+            if self._training_scheduler:
+                threshold = self._training_scheduler._get_dynamic_threshold(config_key)
+                if threshold > 0:
+                    proximity = min(1.0, config_state.games_since_training / threshold)
+                    priority += proximity * 0.5
+
+            # Curriculum weight
+            curriculum_weight = getattr(config_state, 'curriculum_weight', 1.0)
+            normalized_curriculum = (curriculum_weight - 0.5) / 1.5
+            priority += max(0, normalized_curriculum * 0.3)
+
+            # Staleness
+            time_since_training = time.time() - config_state.last_training_time
+            hours_since = time_since_training / 3600
+            staleness_factor = min(1.0, hours_since / 6.0)
+            priority += staleness_factor * 0.2
+
+            priorities[config_key] = priority
+
+        return priorities
 
     async def generate_games(
         self,
@@ -119,6 +223,8 @@ class LocalSelfplayGenerator:
         gumbel_simulations: int = 64,
         gumbel_top_k: int = 16,
         progress_callback: Optional[callable] = None,
+        use_pfsp_opponent: bool = False,
+        current_elo: float = 1500.0,
     ) -> Dict[str, Any]:
         """Generate selfplay games locally.
 
@@ -130,6 +236,8 @@ class LocalSelfplayGenerator:
             gumbel_simulations: Simulations per move for Gumbel-MCTS
             gumbel_top_k: Top-k for sequential halving
             progress_callback: Optional callback(completed, total)
+            use_pfsp_opponent: Whether to use PFSP for opponent selection
+            current_elo: Current model Elo for PFSP matchmaking
 
         Returns:
             Dict with generation results
@@ -161,6 +269,15 @@ class LocalSelfplayGenerator:
         from app.models import BoardType
         board_type_enum = BoardType(board_type)
 
+        # PFSP opponent selection (2025-12 enhancement)
+        opponent_model = None
+        if use_pfsp_opponent:
+            opponent_model = self.get_pfsp_opponent(config_key, current_elo)
+            if opponent_model:
+                logger.info(f"[PFSP] Selected opponent: {opponent_model} for {config_key}")
+            else:
+                logger.debug(f"[PFSP] No opponent available, using self-play")
+
         # Generate output filename
         timestamp = int(time.time())
         output_file = self.output_dir / config_key / f"selfplay_{engine}_{timestamp}.npz"
@@ -169,7 +286,8 @@ class LocalSelfplayGenerator:
         start_time = time.time()
 
         try:
-            logger.info(f"Starting local selfplay: {num_games} games, config={config_key}, engine={engine}")
+            opponent_info = f", opponent={opponent_model}" if opponent_model else ""
+            logger.info(f"Starting local selfplay: {num_games} games, config={config_key}, engine={engine}{opponent_info}")
 
             # Run parallel selfplay in executor to avoid blocking event loop
             loop = asyncio.get_event_loop()
@@ -214,6 +332,7 @@ class LocalSelfplayGenerator:
                 "games_per_second": games_per_sec,
                 "engine": engine,
                 "config": config_key,
+                "pfsp_opponent": opponent_model,
             }
 
         except Exception as e:
