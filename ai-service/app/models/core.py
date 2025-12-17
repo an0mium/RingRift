@@ -408,7 +408,7 @@ class Move(BaseModel):
     )
     # Elimination context for eliminate_rings_from_stack moves (RR-CANON-R022, R122):
     # - 'line': Eliminate exactly ONE ring (any controlled stack eligible)
-    # - 'territory': Eliminate entire cap (only eligible stacks: multicolor or height > 1)
+    # - 'territory': Eliminate entire cap (any controlled stack eligible, including height-1)
     # - 'forced': Eliminate entire cap (any controlled stack eligible)
     # - 'recovery': Extract exactly ONE buried ring from any stack that contains a buried ring
     #   of the eliminating player (stack need not be controlled by that player)
