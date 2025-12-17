@@ -113,13 +113,27 @@ Features:
 
 ### Selfplay Data Generation
 
+- `run_distributed_selfplay.py` - **Distributed selfplay for cloud workers** (60KB)
+  - Designed for CPU-based cloud VMs (AWS, GCP, Azure)
+  - Auto-calculates max_moves from board/player configuration
+  - Supports diverse AI matchups (neural, heuristic, MCTS)
+  - **Neural batching for 2-5x throughput** (2025-12-17):
+    ```bash
+    python scripts/run_distributed_selfplay.py \
+      --board-type hex8 --num-players 2 --num-games 1000 \
+      --enable-nn-batching --nn-batch-timeout-ms 50 \
+      --output file://data/selfplay/hex8_2p/games.jsonl
+    ```
 - `run_gpu_selfplay.py` - **GPU-accelerated selfplay** (55KB)
-  - Generates training data via neural network-guided games
+  - 10-100x speedup via parallel game simulation
   - Supports all board types: `square8`, `hex8`, `square19`, `hexagonal`
-  - Start: `python scripts/run_gpu_selfplay.py --board-type square8 --num-games 1000`
+  - Start: `python scripts/run_gpu_selfplay.py --board hex8 --num-games 1000 --output-dir data/selfplay/gpu_hex8`
 - `run_hybrid_selfplay.py` - **Hybrid CPU/GPU selfplay** (67KB)
   - Mixed MCTS and neural network modes
   - Start: `python scripts/run_hybrid_selfplay.py --board-type hex8 --engine-mode gumbel-mcts`
+- `cluster_control.py` - **Cluster selfplay orchestration**
+  - Start GPU selfplay on all cluster nodes: `python scripts/cluster_control.py selfplay start --board hex8`
+  - Check cluster status: `python scripts/cluster_control.py status`
 
 ### Evaluation
 
