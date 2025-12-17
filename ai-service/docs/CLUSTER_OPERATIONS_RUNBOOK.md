@@ -4,11 +4,15 @@ Quick reference for daily cluster operations and troubleshooting.
 
 ## Cluster Overview
 
-| Host               | Role               | GPU     | Notes                |
-| ------------------ | ------------------ | ------- | -------------------- |
-| lambda-gh200-a     | Primary, Training  | GH200   | Main coordinator     |
-| lambda-gh200-{b-l} | Workers            | GH200   | Selfplay workers     |
-| lambda-2xh100      | Training + Workers | 2x H100 | High-throughput node |
+| Host               | Role               | GPU     | Notes                        |
+| ------------------ | ------------------ | ------- | ---------------------------- |
+| lambda-gh200-a     | Primary, Training  | GH200   | Main coordinator             |
+| lambda-gh200-{b-l} | Workers            | GH200   | Selfplay workers (j=offline) |
+| lambda-2xh100      | Training + Workers | 2x H100 | High-throughput node         |
+| lambda-h100        | Workers            | H100    | Single H100 node             |
+| lambda-a10         | Workers            | A10     | Budget node                  |
+
+**Note:** lambda-gh200-j is terminated. lambda-gh200-f is active.
 
 ## Quick Status Check
 
@@ -18,8 +22,8 @@ Quick reference for daily cluster operations and troubleshooting.
 # From local machine
 ./ai-service/scripts/cluster_status.sh
 
-# Or manually
-for host in lambda-gh200-{a,b,c,d,e,g,h,i,k,l} lambda-2xh100; do
+# Or manually (includes f, excludes terminated j)
+for host in lambda-gh200-{a,b,c,d,e,f,g,h,i,k,l} lambda-2xh100 lambda-h100; do
     echo -n "$host: "
     ssh -o ConnectTimeout=3 $host 'nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader' 2>/dev/null || echo "offline"
 done
@@ -41,12 +45,20 @@ ssh lambda-gh200-a 'ps aux | grep -E "(selfplay|train)" | grep -v grep | wc -l'
 
 ### Start/Stop GPU Selfplay Workers
 
+Supported board types: `square8`, `hex8`, `square19`, `hexagonal`
+
 ```bash
-# Start on a node
+# Start on a node (square8)
 ssh lambda-gh200-b 'cd ~/ringrift/ai-service && \
-  nohup venv/bin/python -m scripts.run_gpu_selfplay \
-    --board square8 --num-players 2 --num-games 1000 \
-    --output-dir /tmp/gpu_selfplay > /tmp/gpu_selfplay.log 2>&1 &'
+  nohup venv/bin/python scripts/run_gpu_selfplay.py \
+    --board-type square8 --num-players 2 --num-games 1000 \
+    --output-dir data/selfplay/gpu_square8_2p > /tmp/gpu_selfplay.log 2>&1 &'
+
+# Start hex8 selfplay (radius-4 hexagonal, 61 cells)
+ssh lambda-gh200-b 'cd ~/ringrift/ai-service && \
+  nohup venv/bin/python scripts/run_gpu_selfplay.py \
+    --board-type hex8 --num-players 2 --num-games 1000 \
+    --output-dir data/selfplay/gpu_hex8_2p > /tmp/gpu_selfplay_hex8.log 2>&1 &'
 
 # Stop workers on a node
 ssh lambda-gh200-b 'pkill -f run_gpu_selfplay'
@@ -55,12 +67,19 @@ ssh lambda-gh200-b 'pkill -f run_gpu_selfplay'
 ### Trigger Training
 
 ```bash
+# Standard NNUE training
 ssh lambda-gh200-a 'cd ~/ringrift/ai-service && \
-  venv/bin/python -m scripts.train_nnue \
+  venv/bin/python scripts/train_nnue.py \
     --db data/games/jsonl_aggregated.db \
     --board-type square8 --num-players 2 \
     --epochs 50 --batch-size 2048 \
     --save-path models/nnue/square8_2p_new.pt'
+
+# NNUE policy training with KL loss (when MCTS data available)
+ssh lambda-gh200-a 'cd ~/ringrift/ai-service && \
+  venv/bin/python scripts/train_nnue_policy.py \
+    --jsonl data/selfplay/mcts_square8_2p/games.jsonl \
+    --auto-kl-loss --epochs 50'
 ```
 
 ### Run Model Tournament
@@ -161,7 +180,9 @@ ssh lambda-gh200-a 'cd ~/ringrift/ai-service && \
 
 ```bash
 ssh lambda-gh200-a 'cd ~/ringrift/ai-service && \
-  venv/bin/python scripts/aggregate_jsonl_to_db.py --run'
+  venv/bin/python scripts/aggregate_jsonl_to_db.py \
+    --input-dir data/selfplay \
+    --output-db data/games/all_jsonl_training.db'
 ```
 
 ### Check Holdout Validation Set
@@ -239,9 +260,18 @@ done
    ssh lambda-gh200-a 'sudo systemctl restart ringrift-*'
    ```
 
-3. Start workers on all nodes:
+3. Start P2P orchestrator and workers:
+
    ```bash
-   ssh lambda-gh200-a 'cd ~/ringrift/ai-service && venv/bin/python scripts/p2p_orchestrator.py --start'
+   # Start P2P orchestrator on primary node
+   ssh lambda-gh200-a 'cd ~/ringrift/ai-service && \
+     nohup venv/bin/python scripts/p2p_orchestrator.py \
+       --node-id lambda-gh200-a --port 8770 \
+       --ringrift-path ~/ringrift/ai-service > /tmp/p2p_orchestrator.log 2>&1 &'
+
+   # Or use vast_lifecycle for automated worker management
+   ssh lambda-gh200-a 'cd ~/ringrift/ai-service && \
+     venv/bin/python scripts/vast_lifecycle.py --start-jobs'
    ```
 
 ## Key Thresholds

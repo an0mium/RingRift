@@ -283,6 +283,76 @@ python scripts/unified_ai_loop.py --resume
 | `models/ringrift_best_*.pth` | Production models         |
 | `logs/unified_loop/`         | Loop logs and state       |
 
+## NNUE Policy Training with MCTS Data
+
+The pipeline supports training NNUE models with policy heads using MCTS visit distributions via KL divergence loss.
+
+### Direct JSONL Training
+
+Train directly from JSONL files without SQLite conversion:
+
+```bash
+python scripts/train_nnue_policy.py \
+    --jsonl data/selfplay/mcts_square8_2p/games.jsonl \
+    --auto-kl-loss \
+    --epochs 50
+```
+
+### KL Divergence Loss
+
+When MCTS data is available, KL loss trains the policy head to match search distributions:
+
+```bash
+# Auto-enable when sufficient MCTS coverage
+python scripts/train_nnue_policy.py \
+    --jsonl data/selfplay/mcts_*.jsonl \
+    --auto-kl-loss \
+    --kl-min-coverage 0.3 \
+    --kl-min-samples 50
+
+# Force KL loss
+python scripts/train_nnue_policy.py \
+    --jsonl data/selfplay/mcts_*.jsonl \
+    --use-kl-loss
+```
+
+**Benefits of KL Loss:**
+
+- Learns from full MCTS visit distribution, not just final move
+- Better policy calibration for uncertain positions
+- Improved move ranking across all candidates
+
+### Multi-Config Training Loop
+
+The `scripts/multi_config_training_loop.py` orchestrates training across board/player configurations:
+
+```bash
+python scripts/multi_config_training_loop.py \
+    --configs square8_2p square8_3p hex8_2p \
+    --iterations 10
+```
+
+**Features:**
+
+- **BALANCE MODE**: Prioritizes under-represented configurations
+- **ADAPTIVE CURRICULUM**: Prioritizes configs with lower Elo ratings
+- **JSONL Passthrough**: Automatically passes JSONL data to policy training
+- **Auto-KL Loss**: Enables KL loss when MCTS data available
+
+### Environment Variables
+
+| Variable                          | Description                       | Default |
+| --------------------------------- | --------------------------------- | ------- |
+| `RINGRIFT_ENABLE_POLICY_TRAINING` | Enable NNUE policy training       | `1`     |
+| `RINGRIFT_POLICY_AUTO_KL_LOSS`    | Auto-detect and enable KL loss    | `1`     |
+| `RINGRIFT_POLICY_KL_MIN_COVERAGE` | Min MCTS coverage for auto-KL     | `0.3`   |
+| `RINGRIFT_POLICY_KL_MIN_SAMPLES`  | Min samples for auto-KL           | `50`    |
+| `RINGRIFT_ENABLE_AUTO_HP_TUNING`  | Enable hyperparameter auto-tuning | `0`     |
+
+See [NNUE_POLICY_TRAINING.md](NNUE_POLICY_TRAINING.md) for complete policy training documentation.
+
+---
+
 ## Advanced Training Features (2025-12)
 
 The training pipeline includes several advanced features for improved model quality.

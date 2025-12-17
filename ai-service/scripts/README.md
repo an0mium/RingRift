@@ -31,25 +31,63 @@ Features:
 
 ## Key Categories
 
-### Cluster Management
+### P2P Cluster Orchestration
 
-- `cluster_orchestrator.py` - Distributed cluster coordination
+- `p2p_orchestrator.py` - **Primary cluster orchestrator** (1.1MB, self-healing P2P coordination)
+  - Leader election and peer discovery
+  - Auto-starts selfplay/training jobs
+  - Vast.ai and Lambda Labs integration
+  - Supports all board types: square8, hex8, square19, hexagonal
+  - Start: `python scripts/p2p_orchestrator.py --node-id <name> --peers <ip>:8770`
+- `vast_p2p_sync.py` - Vast.ai instance synchronization with P2P network
+- `vast_keepalive.py` - Keepalive manager for Vast.ai instances
+- `cluster_monitoring.sh` - Comprehensive cluster health monitoring
 - `cluster_manager.py` - Cluster node management
 - `cluster_worker.py` - Worker node implementation
-- `cluster_control.py` - Cluster control commands
 - `cluster_health_check.py` - Health monitoring
 
 ### Training
 
+- `multi_config_training_loop.py` - **Multi-board training coordinator**
+  - Adaptive curriculum based on Elo ratings
+  - Balance mode for underrepresented configs
+  - Supports hex8, square8, square19 configurations
+  - Start: `python scripts/multi_config_training_loop.py --configs all`
+- `train_nnue_policy.py` - **NNUE policy head training** (41KB)
+  - AMP (mixed precision) training
+  - KL divergence loss for MCTS distillation (`--auto-kl-loss`, `--use-kl-loss`)
+  - Direct JSONL loading (`--jsonl data/selfplay/*.jsonl`)
+  - Temperature annealing, label smoothing
+  - Start: `python scripts/train_nnue_policy.py --jsonl data/selfplay/mcts_*.jsonl --auto-kl-loss`
+- `train_nnue.py` - **Standard NNUE training** (112KB)
+  - Value and policy head training from SQLite databases
+  - Start: `python scripts/train_nnue.py --db data/games/training.db --board-type square8`
+- `reanalyze_mcts_policy.py` - **MCTS policy reanalysis**
+  - Adds MCTS visit distributions to existing games for KL loss training
+  - Start: `python scripts/reanalyze_mcts_policy.py --input games.jsonl --output mcts_games.jsonl`
 - `curriculum_training.py` - Generation-based curriculum training
 - `run_self_play_soak.py` - Self-play data generation
 - `run_hybrid_selfplay.py` - Hybrid self-play modes
 
+### Selfplay Data Generation
+
+- `run_gpu_selfplay.py` - **GPU-accelerated selfplay** (55KB)
+  - Generates training data via neural network-guided games
+  - Supports all board types: `square8`, `hex8`, `square19`, `hexagonal`
+  - Start: `python scripts/run_gpu_selfplay.py --board-type square8 --num-games 1000`
+- `run_hybrid_selfplay.py` - **Hybrid CPU/GPU selfplay** (67KB)
+  - Mixed MCTS and neural network modes
+  - Start: `python scripts/run_hybrid_selfplay.py --board-type hex8 --engine-mode gumbel-mcts`
+
 ### Evaluation
 
+- `auto_elo_tournament.py` - **Automated Elo tournament daemon**
+  - Periodic tournaments with Slack alerts
+  - Regression detection
+  - Start daemon: `python scripts/auto_elo_tournament.py --daemon --interval 14400`
 - `run_model_elo_tournament.py` - Model Elo tournaments
 - `run_diverse_tournaments.py` - Multi-configuration tournaments
-- `elo_promotion_gate.py` - Elo-based model promotion
+- `elo_promotion_gate.py` - Elo-based model promotion with Wilson confidence intervals
 
 ### Data Management
 
@@ -120,15 +158,17 @@ The `archive/` subdirectory contains deprecated scripts that have been supersede
 All scripts enforce **80% maximum resource utilization** to prevent overloading:
 
 ### Resource Limits (enforced 2025-12-16)
-| Resource | Warning | Critical | Notes |
-| -------- | ------- | -------- | ----- |
-| Disk | 65% | 70% | Tighter limit - cleanup takes time |
-| Memory | 70% | 80% | Hard stop when exceeded |
-| CPU | 70% | 80% | Hard stop when exceeded |
-| GPU | 70% | 80% | CUDA memory safety |
-| Load Avg | - | 1.5x CPUs | System overload detection |
+
+| Resource | Warning | Critical  | Notes                              |
+| -------- | ------- | --------- | ---------------------------------- |
+| Disk     | 65%     | 70%       | Tighter limit - cleanup takes time |
+| Memory   | 70%     | 80%       | Hard stop when exceeded            |
+| CPU      | 70%     | 80%       | Hard stop when exceeded            |
+| GPU      | 70%     | 80%       | CUDA memory safety                 |
+| Load Avg | -       | 1.5x CPUs | System overload detection          |
 
 ### Using Resource Guard
+
 ```python
 from app.utils.resource_guard import (
     check_disk_space, check_memory, check_gpu_memory,
@@ -154,6 +194,7 @@ for i in range(num_games):
 ```
 
 ### Key Files
+
 - `app/utils/resource_guard.py` - Unified resource checking utilities
 - `app/coordination/safeguards.py` - Circuit breakers and backpressure
 - `app/coordination/resource_targets.py` - Utilization targets for scaling
@@ -162,11 +203,18 @@ for i in range(num_games):
 
 ## Environment Variables
 
-| Variable                         | Description                                 |
-| -------------------------------- | ------------------------------------------- |
-| `RINGRIFT_DISABLE_LOCAL_TASKS`   | Skip local training/eval (coordinator mode) |
-| `RINGRIFT_TRACE_DEBUG`           | Enable detailed tracing                     |
-| `RINGRIFT_SKIP_SHADOW_CONTRACTS` | Skip shadow contract validation             |
+| Variable                          | Description                                 | Default |
+| --------------------------------- | ------------------------------------------- | ------- |
+| `RINGRIFT_DISABLE_LOCAL_TASKS`    | Skip local training/eval (coordinator mode) | `false` |
+| `RINGRIFT_TRACE_DEBUG`            | Enable detailed tracing                     | `false` |
+| `RINGRIFT_SKIP_SHADOW_CONTRACTS`  | Skip shadow contract validation             | `false` |
+| `RINGRIFT_ENABLE_POLICY_TRAINING` | Enable NNUE policy training                 | `1`     |
+| `RINGRIFT_POLICY_AUTO_KL_LOSS`    | Auto-detect and enable KL loss              | `1`     |
+| `RINGRIFT_POLICY_KL_MIN_COVERAGE` | Min MCTS coverage for auto-KL               | `0.3`   |
+| `RINGRIFT_POLICY_KL_MIN_SAMPLES`  | Min samples for auto-KL                     | `50`    |
+| `RINGRIFT_ENABLE_AUTO_HP_TUNING`  | Enable hyperparameter auto-tuning           | `0`     |
+| `RINGRIFT_SOCKS_PROXY`            | SOCKS5 proxy URL for P2P                    | (none)  |
+| `RINGRIFT_P2P_VERBOSE`            | Enable verbose P2P logging                  | `false` |
 
 ## Configuration
 

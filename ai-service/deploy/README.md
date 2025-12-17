@@ -159,6 +159,89 @@ Services read configuration from:
 - `config/unified_loop.yaml` - Unified loop configuration
 - `config/distributed_hosts.yaml` - Remote host definitions
 
+## Model Rollback System
+
+The rollback manager provides automated and manual rollback capabilities for production models.
+
+**Module:** `app/training/rollback_manager.py`
+
+### Usage
+
+```python
+from app.training.rollback_manager import RollbackManager, RollbackThresholds
+from app.training.model_registry import ModelRegistry
+
+registry = ModelRegistry()
+manager = RollbackManager(registry)
+
+# Set baseline after promoting a model
+manager.set_baseline("square8_2p", {"elo": 1850, "win_rate": 0.62})
+
+# Check if rollback is needed
+should_rollback, reason = manager.should_rollback("square8_2p")
+if should_rollback:
+    result = manager.rollback_model("square8_2p", reason=reason)
+
+# Manual rollback to specific version
+result = manager.rollback_model("square8_2p", to_version=3, reason="Manual override")
+
+# Get rollback history
+history = manager.get_rollback_history(model_id="square8_2p", limit=10)
+```
+
+### Configurable Thresholds
+
+```python
+thresholds = RollbackThresholds(
+    elo_drop_threshold=50.0,        # Elo points drop to trigger rollback
+    elo_drop_window_hours=24.0,     # Time window to measure drop
+    win_rate_drop_threshold=0.10,   # 10% win rate drop
+    error_rate_threshold=0.05,      # 5% error rate
+    min_games_for_evaluation=50,    # Minimum games before evaluating
+)
+manager = RollbackManager(registry, thresholds=thresholds)
+```
+
+### Prometheus Metrics
+
+The rollback manager emits metrics for monitoring:
+
+- `ringrift_model_rollbacks_total{model_id, trigger}` - Rollback counter by model and trigger type
+
+Trigger types: `manual`, `auto_elo`, `auto_error`
+
+### Alert Rules
+
+Generate Prometheus alerting rules:
+
+```python
+from app.training.rollback_manager import create_rollback_alert_rules
+
+alert_yaml = create_rollback_alert_rules()
+with open("/etc/prometheus/rules/rollback.yml", "w") as f:
+    f.write(alert_yaml)
+```
+
+**Alerts generated:**
+
+- `ModelRollbackTriggered` - Warning when any rollback occurs
+- `MultipleRollbacksDetected` - Critical when >2 rollbacks in 24h
+- `EloDegradation` - Warning when Elo drops >50 from baseline
+
+### Rollback History
+
+Rollback events are persisted to `data/rollback_history.json` and include:
+
+- Model ID and version transition
+- Reason and trigger type
+- Metrics before and after
+- Timestamp and success status
+
+```bash
+# View recent rollbacks
+cat data/rollback_history.json | jq '.[0:5]'
+```
+
 ## Related Documentation
 
 - [Orchestrator Selection](../docs/ORCHESTRATOR_SELECTION.md) - **Which script to use** (start here)
@@ -170,4 +253,4 @@ Services read configuration from:
 
 ---
 
-_Last updated: 2025-12-14_
+_Last updated: 2025-12-17_

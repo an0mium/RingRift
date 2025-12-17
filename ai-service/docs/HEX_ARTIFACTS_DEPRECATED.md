@@ -1,6 +1,6 @@
 # Hex Artifacts Deprecation Notice
 
-> **Updated:** 2025-12-14
+> **Updated:** 2025-12-17
 
 This file documents **hexagonal** artifacts that were produced under the **old** board geometry (radius-10) which have been **deprecated and removed**.
 
@@ -44,4 +44,4 @@ See `TRAINING_DATA_REGISTRY.md` for canonical status of all databases.
 - **Do not use** any hex artifacts from the old radius-10 geometry
 - All new hex training, evaluation, and models must use **radius-12 / 469-cell / 96-ring / 25×25** geometry
 - Neural network models trained on old geometry cannot be used; retrain from scratch
-- Policy size for hex is now `54,244` (was different under old geometry)
+- Policy size for hexagonal board is now `91,876` (was different under old geometry)

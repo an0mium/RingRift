@@ -247,14 +247,15 @@ ls -la app/training/rollback_manager.py
 
 ---
 
-## Next Steps
+## Next Steps (Completed 2025-12-17)
 
-1. [ ] Create NNUE_POLICY_TRAINING.md
-2. [ ] Update VAST_P2P_ORCHESTRATION.md with keepalive/sync sections
-3. [ ] Add rollback documentation to deploy/README.md
-4. [ ] Fix CLUSTER_OPERATIONS_RUNBOOK.md script references
-5. [ ] Create environment variables reference
-6. [ ] Update scripts/README.md with new scripts inventory
+1. [x] Create NNUE_POLICY_TRAINING.md
+2. [x] Update VAST_P2P_ORCHESTRATION.md with keepalive/sync sections
+3. [x] Add rollback documentation to deploy/README.md
+4. [x] Fix CLUSTER_OPERATIONS_RUNBOOK.md script references
+5. [x] Create environment variables reference (added to scripts/README.md)
+6. [x] Update scripts/README.md with new scripts inventory
+7. [x] Update TRAINING_PIPELINE.md with NNUE policy training section
 
 ---
 
