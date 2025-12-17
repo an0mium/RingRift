@@ -711,13 +711,16 @@ class NNUEPolicyTrainer:
             # Use large negative instead of -inf to avoid numerical issues
             move_scores = move_scores.masked_fill(~move_mask, -1e4)  # Use -1e4 for AMP compatibility
 
-            # Use KL divergence if enabled and MCTS probs available
+            # Use same loss function as training for comparable metrics
             if self.use_kl_loss and mcts_probs is not None:
                 log_policy = torch.log_softmax(move_scores, dim=-1)
                 mcts_probs_safe = mcts_probs.clamp(min=1e-8)
                 policy_loss = torch.nn.functional.kl_div(
                     log_policy, mcts_probs_safe, reduction='batchmean'
                 )
+            elif self.focal_gamma > 0:
+                # Use focal loss for consistency with training
+                policy_loss = self._focal_loss(move_scores, target_move_idx, reduction='mean')
             else:
                 policy_loss = self.policy_criterion(move_scores, target_move_idx)
 
