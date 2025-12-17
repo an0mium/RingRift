@@ -430,7 +430,7 @@ python scripts/run_hybrid_selfplay.py \
 
 - [TRAINING_FEATURES.md](TRAINING_FEATURES.md) - Comprehensive training features reference
 - [HEX_AUGMENTATION.md](HEX_AUGMENTATION.md) - D6 symmetry augmentation details
-- [GUMBEL_MCTS.md](GUMBEL_MCTS.md) - Gumbel MCTS implementation
+- [MCTS_INTEGRATION.md](MCTS_INTEGRATION.md) - MCTS implementation and training data generation
 
 ## Contact
 
