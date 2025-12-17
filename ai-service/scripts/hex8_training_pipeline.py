@@ -51,20 +51,30 @@ except ImportError:
     wait_for_resources = lambda *args, **kwargs: True  # type: ignore
     RESOURCE_LIMITS = None  # type: ignore
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("logs/hex8_training_pipeline.log"),
-    ],
-)
-logger = logging.getLogger(__name__)
+# Unified logging setup (use app.core.logging_config instead of basicConfig)
+try:
+    from app.core.logging_config import setup_logging
+    logger = setup_logging(
+        "hex8_training_pipeline",
+        log_dir="logs",
+        format_style="default",
+    )
+except ImportError:
+    # Fallback if app.core not available
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+    )
+    logger = logging.getLogger(__name__)
 
-# Configuration
-MIN_GAMES_FOR_TRAINING = 1000  # Minimum games before training
-TARGET_GAMES = 2000  # Target for robust training
+# Configuration - use unified config as single source of truth
+try:
+    from app.config.unified_config import get_training_threshold
+    MIN_GAMES_FOR_TRAINING = get_training_threshold()
+except ImportError:
+    MIN_GAMES_FOR_TRAINING = 500  # Default from unified_config.py
+
+TARGET_GAMES = MIN_GAMES_FOR_TRAINING * 2  # Target for robust training
 POLL_INTERVAL_SECONDS = 300  # Check every 5 minutes
 
 # Remote database locations - loaded from config

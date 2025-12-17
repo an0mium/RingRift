@@ -1,5 +1,9 @@
 """Unified Resource Guard - Pre-operation resource checks.
 
+THIS IS THE CANONICAL SOURCE for resource checking across the codebase.
+Do NOT use shutil.disk_usage(), psutil.virtual_memory(), or psutil.cpu_percent()
+directly in scripts. Use this module instead for consistent limits and metrics.
+
 Provides simple functions for scripts to check resource availability
 before performing operations. Enforces consistent 80% utilization limits.
 
@@ -11,6 +15,7 @@ Usage:
         check_gpu_memory,
         can_proceed,
         wait_for_resources,
+        LIMITS,  # Access limit constants
     )
 
     # Before writing files
@@ -28,6 +33,16 @@ Usage:
             logger.warning("Memory pressure, stopping early")
             break
         play_game()
+
+    # Access limits
+    from app.utils.resource_guard import LIMITS
+    print(f"Max disk usage: {LIMITS.DISK_MAX_PERCENT}%")
+
+Why use this module:
+    - Consistent 80% utilization limits across all scripts
+    - Prometheus metrics integration for monitoring
+    - Graceful degradation support
+    - Single source of truth for resource thresholds
 """
 
 from __future__ import annotations
