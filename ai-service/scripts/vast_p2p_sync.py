@@ -26,17 +26,59 @@ import logging
 import os
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
+LOG_DIR = AI_SERVICE_ROOT / "logs"
+LOG_FILE = LOG_DIR / "vast_p2p_sync.log"
+CONFIG_FILE = AI_SERVICE_ROOT / "config" / "distributed_hosts.yaml"
+
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
+    format="%(asctime)s [VastP2PSync] %(levelname)s: %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler(),
+    ],
 )
 logger = logging.getLogger(__name__)
 
 # P2P leader endpoint
 P2P_LEADER = os.environ.get("P2P_LEADER", "http://100.88.176.74:8770")
+
+# GPU role mapping for config
+GPU_ROLES = {
+    "RTX 3070": "gpu_selfplay",
+    "RTX 3060": "gpu_selfplay",
+    "RTX 3060 Ti": "cpu_selfplay",
+    "RTX 2060S": "gpu_selfplay",
+    "RTX 2060 SUPER": "gpu_selfplay",
+    "RTX 2080 Ti": "gpu_selfplay",
+    "RTX 4060 Ti": "gpu_selfplay",
+    "RTX 4080S": "nn_training_primary",
+    "RTX 4080 SUPER": "nn_training_primary",
+    "RTX 5070": "nn_training_primary",
+    "RTX 5080": "nn_training_primary",
+    "RTX 5090": "nn_training_primary",
+    "A10": "nn_training_primary",
+    "A40": "nn_training_primary",
+    "A100": "nn_training_primary",
+    "H100": "nn_training_primary",
+}
+
+# Preferred GPU types for auto-provisioning (ordered by preference)
+PREFERRED_GPUS = [
+    {"name": "RTX 3070", "max_price": 0.08, "role": "gpu_selfplay"},
+    {"name": "RTX 3060", "max_price": 0.06, "role": "gpu_selfplay"},
+    {"name": "RTX 4060 Ti", "max_price": 0.12, "role": "gpu_selfplay"},
+    {"name": "RTX 2080 Ti", "max_price": 0.10, "role": "gpu_selfplay"},
+]
 
 # Vast instance ID to Tailscale IP mapping (discovered dynamically)
 VAST_TAILSCALE_IPS: Dict[int, str] = {}
@@ -279,6 +321,201 @@ def check_p2p_running(instance: VastInstance) -> Tuple[bool, int]:
     except Exception:
         pass
     return False, 0
+
+
+def update_distributed_hosts_yaml(instances: List[VastInstance]) -> int:
+    """Update distributed_hosts.yaml with current Vast instance info."""
+    try:
+        import yaml
+    except ImportError:
+        logger.warning("PyYAML not available, skipping config update")
+        return 0
+
+    if not CONFIG_FILE.exists():
+        logger.warning(f"Config file not found: {CONFIG_FILE}")
+        return 0
+
+    with open(CONFIG_FILE) as f:
+        config = yaml.safe_load(f)
+
+    hosts = config.get("hosts", {})
+    updated = 0
+
+    for inst in instances:
+        if inst.status != "running":
+            continue
+
+        # Try to get Tailscale IP
+        ts_ip = get_vast_tailscale_ip(inst)
+
+        node_id = f"vast-{inst.id}"
+        gpu_desc = f"{inst.num_gpus}x {inst.gpu_name}" if inst.num_gpus > 1 else inst.gpu_name
+        role = GPU_ROLES.get(inst.gpu_name, "gpu_selfplay")
+
+        # Check if update needed
+        existing = hosts.get(node_id, {})
+        needs_update = (
+            existing.get("ssh_host") != inst.ssh_host
+            or existing.get("ssh_port") != inst.ssh_port
+            or (ts_ip and existing.get("tailscale_ip") != ts_ip)
+        )
+
+        if needs_update or node_id not in hosts:
+            hosts[node_id] = {
+                "ssh_host": inst.ssh_host,
+                "ssh_port": inst.ssh_port,
+                "ssh_user": "root",
+                "ssh_key": "~/.ssh/id_cluster",
+                "ringrift_path": "~/ringrift/ai-service",
+                "venv_activate": "source ~/ringrift/ai-service/venv/bin/activate",
+                "memory_gb": int(inst.ram_gb),
+                "cpus": int(inst.vcpus),
+                "gpu": gpu_desc,
+                "role": role,
+                "status": "ready",
+                "vast_instance_id": str(inst.id),
+            }
+            if ts_ip:
+                hosts[node_id]["tailscale_ip"] = ts_ip
+            updated += 1
+            logger.info(f"Updated config for {node_id}: {inst.ssh_host}:{inst.ssh_port}")
+
+    if updated:
+        config["hosts"] = hosts
+        # Backup
+        backup_path = CONFIG_FILE.with_suffix(".yaml.bak")
+        with open(backup_path, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        # Write
+        with open(CONFIG_FILE, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        logger.info(f"Updated {updated} hosts in {CONFIG_FILE}")
+
+    return updated
+
+
+def search_gpu_offers(
+    gpu_name: str = "RTX 3070",
+    max_price: float = 0.10,
+    min_reliability: float = 0.95,
+    limit: int = 5,
+) -> List[Dict[str, Any]]:
+    """Search for available GPU offers using vastai CLI."""
+    try:
+        # Build query - vastai uses a query language
+        query = f"gpu_name={gpu_name} reliability>{min_reliability} dph<{max_price}"
+
+        result = subprocess.run(
+            ['vastai', 'search', 'offers', query, '-o', 'dph', '--raw'],
+            capture_output=True, text=True, timeout=30
+        )
+
+        if result.returncode != 0:
+            logger.warning(f"vastai search failed: {result.stderr}")
+            return []
+
+        offers = json.loads(result.stdout)
+        return offers[:limit]
+    except Exception as e:
+        logger.error(f"Failed to search offers: {e}")
+        return []
+
+
+def create_vast_instance(
+    offer_id: int,
+    disk_gb: int = 50,
+    use_bid: bool = False,
+    bid_price: Optional[float] = None,
+) -> Optional[str]:
+    """Create a new Vast instance from an offer."""
+    try:
+        args = [
+            'vastai', 'create', 'instance', str(offer_id),
+            '--image', 'pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime',
+            '--disk', str(disk_gb),
+            '--ssh',
+            '--onstart-cmd', 'apt-get update && apt-get install -y git curl',
+        ]
+
+        if use_bid and bid_price:
+            args.extend(['--price', str(bid_price)])
+
+        result = subprocess.run(args, capture_output=True, text=True, timeout=60)
+
+        if result.returncode == 0:
+            output = result.stdout + result.stderr
+            # Parse instance ID from output (format: "new instance created: 12345678")
+            for word in output.split():
+                if word.isdigit() and len(word) > 6:
+                    logger.info(f"Created instance {word}")
+                    return word
+            logger.info(f"Instance creation output: {output}")
+            return output
+        else:
+            logger.error(f"Failed to create instance: {result.stderr}")
+            return None
+    except Exception as e:
+        logger.error(f"Failed to create instance: {e}")
+        return None
+
+
+def provision_instances(count: int = 1, max_total_hourly: float = 0.50) -> int:
+    """Provision new Vast instances based on preferred GPU list."""
+    logger.info(f"Provisioning up to {count} new instances (max ${max_total_hourly}/hr total)...")
+
+    created = 0
+    total_cost = 0.0
+
+    for gpu_pref in PREFERRED_GPUS:
+        if created >= count:
+            break
+
+        offers = search_gpu_offers(
+            gpu_name=gpu_pref["name"],
+            max_price=gpu_pref["max_price"],
+            limit=count - created,
+        )
+
+        for offer in offers:
+            if created >= count:
+                break
+
+            offer_id = offer.get("id")
+            price = offer.get("dph_total", 0)
+
+            if total_cost + price > max_total_hourly:
+                logger.info(f"Skipping offer {offer_id} - would exceed hourly budget")
+                continue
+
+            logger.info(f"Creating instance from offer {offer_id} ({gpu_pref['name']}, ${price:.3f}/hr)...")
+            instance_id = create_vast_instance(offer_id, disk_gb=50)
+
+            if instance_id:
+                created += 1
+                total_cost += price
+
+    logger.info(f"Provisioned {created} instances (${total_cost:.2f}/hr)")
+    return created
+
+
+def sync_code_to_instance(instance: VastInstance) -> bool:
+    """Sync git code to an instance."""
+    if instance.status != "running" or not instance.ssh_host:
+        return False
+
+    try:
+        result = subprocess.run(
+            ['ssh', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=no',
+             '-p', str(instance.ssh_port), f'root@{instance.ssh_host}',
+             'cd /root/ringrift && git fetch origin && git reset --hard origin/main 2>&1 | tail -1'],
+            capture_output=True, text=True, timeout=60
+        )
+        if result.returncode == 0:
+            logger.debug(f"Synced code on instance {instance.id}: {result.stdout.strip()}")
+            return True
+    except Exception as e:
+        logger.debug(f"Failed to sync code on {instance.id}: {e}")
+    return False
 
 
 def main():
