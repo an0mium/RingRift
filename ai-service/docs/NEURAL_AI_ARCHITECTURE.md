@@ -584,5 +584,128 @@ python scripts/train_nnue.py \
 
 ---
 
+## 9. Implemented Architectures (2025-12)
+
+### 9.1 HexNeuralNet Variants
+
+Specialized architectures for hexagonal boards are implemented in `app/ai/neural_net.py`.
+
+#### HexNeuralNet_v2
+
+```python
+# Location: neural_net.py:5519
+class HexNeuralNet_v2:
+    """Original hex architecture with 10 channels per player."""
+
+    def __init__(self, board_size=25, policy_size=91876, in_channels=40):
+        # 40 channels = 10 channels × 4 players
+        # Uses HexStateEncoderV2
+```
+
+#### HexNeuralNet_v3 (Recommended)
+
+```python
+# Location: neural_net.py:5816
+class HexNeuralNet_v3:
+    """Improved hex architecture with 16 channels per player."""
+
+    def __init__(self, board_size=25, policy_size=91876, in_channels=64):
+        # 64 channels = 16 channels × 4 players
+        # Uses HexStateEncoderV3 (recommended)
+```
+
+**Configuration** (`unified_loop.yaml`):
+
+```yaml
+training:
+  hex_encoder_version: 'v3' # Select encoder version
+```
+
+#### Supported Board Sizes
+
+| Board Type | Bounding Box | Policy Size | Encoder           |
+| ---------- | ------------ | ----------- | ----------------- |
+| hex8       | 9×9          | ~4,500      | HexStateEncoderV3 |
+| hexagonal  | 25×25        | ~92,000     | HexStateEncoderV3 |
+
+### 9.2 Gumbel MCTS
+
+Efficient search algorithm using Gumbel-Top-K sampling with Sequential Halving.
+
+**Location**: `app/ai/gumbel_mcts_ai.py`
+
+```python
+class GumbelMCTSAI:
+    """
+    Gumbel MCTS with Sequential Halving.
+
+    Key features:
+    - Gumbel noise for diverse action sampling
+    - Sequential Halving for efficient simulation allocation
+    - Completed Q-values for visit asymmetry
+    - Visit distribution extraction for soft policy targets
+    """
+
+    def select_move(self, game_state) -> Move:
+        """Select best move using Gumbel MCTS."""
+
+    def get_visit_distribution(self) -> Tuple[List[Move], List[float]]:
+        """Extract normalized visit counts for training."""
+```
+
+**Configuration**:
+
+```python
+config = AIConfig(
+    ai_type=AIType.GUMBEL_MCTS,
+    gumbel_num_sampled_actions=16,  # Actions to sample
+    gumbel_simulation_budget=100,   # Total simulations
+    use_neural_net=True,
+)
+```
+
+**Usage in Selfplay**:
+
+```bash
+python scripts/run_hybrid_selfplay.py \
+  --board-type hex8 \
+  --engine-mode gumbel-mcts \
+  --nn-model-id ringrift_hex8_2p_v3_retrained
+```
+
+### 9.3 HexStateEncoderV3
+
+State encoder producing 16 channels per player for hex boards.
+
+**Location**: `app/training/encoding.py`
+
+```python
+class HexStateEncoderV3:
+    """
+    Hex state encoder with 16 channels per frame.
+
+    Channels per player:
+    - 4 channels: Stack ownership
+    - 4 channels: Stack height buckets
+    - 4 channels: Ring placement
+    - 4 channels: Territory control
+    """
+
+    def __init__(self, board_size=25, policy_size=91876):
+        self.channels_per_frame = 16
+        # With 4-frame history: 64 total channels
+```
+
+---
+
+## 10. Related Documentation
+
+- [TRAINING_FEATURES.md](TRAINING_FEATURES.md) - Training configuration reference
+- [GUMBEL_MCTS.md](GUMBEL_MCTS.md) - Gumbel MCTS implementation details
+- [HEX_AUGMENTATION.md](HEX_AUGMENTATION.md) - D6 symmetry augmentation
+
+---
+
 _Document created: December 2025_
+_Last updated: 2025-12-17_
 _Based on analysis of AlphaZero, AlphaStar, KataGo, and Stockfish NNUE architectures_

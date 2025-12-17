@@ -63,11 +63,11 @@ This document describes the self-improvement training loop architecture and oper
 **Cron Job**: Every 15 minutes
 
 ```bash
-# Sync from vast hosts to H100
-~/sync_vast_jsonl.sh
+# Sync from vast hosts via P2P or unified sync
+python scripts/unified_data_sync.py --source vast --dest local
 ```
 
-**Script**: `sync_vast_jsonl.sh`
+**Script**: `unified_data_sync.py` (supersedes deprecated `sync_vast_jsonl.sh`)
 
 ### 3. JSONL to SQLite Aggregation
 
@@ -282,6 +282,85 @@ python scripts/unified_ai_loop.py --resume
 | `models/`                    | Trained model checkpoints |
 | `models/ringrift_best_*.pth` | Production models         |
 | `logs/unified_loop/`         | Loop logs and state       |
+
+## Advanced Training Features (2025-12)
+
+The training pipeline includes several advanced features for improved model quality.
+
+### Policy Label Smoothing
+
+Prevents overconfident predictions by mixing targets with uniform distribution:
+
+```bash
+python -m app.training.train \
+  --data-path data/training/dataset.npz \
+  --board-type hex8 \
+  --policy-label-smoothing 0.05
+```
+
+**Configuration** (`unified_loop.yaml`):
+
+```yaml
+training:
+  label_smoothing_warmup: 5 # Epochs before full smoothing
+```
+
+### Hex Board Augmentation
+
+D6 symmetry augmentation provides 12x effective dataset size for hex boards:
+
+```bash
+python -m app.training.train \
+  --data-path data/training/hex8_games.npz \
+  --board-type hex8 \
+  --augment-hex-symmetry
+```
+
+**Configuration**:
+
+```yaml
+training:
+  use_hex_augmentation: true
+```
+
+### Soft Policy Targets (Gumbel MCTS)
+
+Generate training data with soft policy targets from visit distributions:
+
+```bash
+python scripts/run_hybrid_selfplay.py \
+  --board-type hex8 \
+  --engine-mode gumbel-mcts \
+  --nn-model-id ringrift_hex8_2p_v3_retrained \
+  --num-games 200
+```
+
+### Training CLI Arguments
+
+| Argument                    | Type  | Default | Description                              |
+| --------------------------- | ----- | ------- | ---------------------------------------- |
+| `--policy-label-smoothing`  | float | 0.0     | Label smoothing factor                   |
+| `--augment-hex-symmetry`    | flag  | False   | Enable D6 hex augmentation               |
+| `--warmup-epochs`           | int   | 0       | LR warmup epochs                         |
+| `--lr-scheduler`            | str   | none    | none, step, cosine, cosine-warm-restarts |
+| `--early-stopping-patience` | int   | 10      | Early stopping patience                  |
+| `--sampling-weights`        | str   | uniform | uniform, late_game, phase_emphasis       |
+
+### Advanced Regularization
+
+| Feature          | Config Key             | Default | Description                 |
+| ---------------- | ---------------------- | ------- | --------------------------- |
+| SWA              | `use_swa`              | true    | Stochastic Weight Averaging |
+| EMA              | `use_ema`              | true    | Exponential Moving Average  |
+| Spectral Norm    | `use_spectral_norm`    | true    | Gradient stability          |
+| Stochastic Depth | `use_stochastic_depth` | true    | Dropout regularization      |
+| Focal Loss       | `focal_gamma`          | 2.0     | Hard sample mining          |
+
+### See Also
+
+- [TRAINING_FEATURES.md](TRAINING_FEATURES.md) - Comprehensive training features reference
+- [HEX_AUGMENTATION.md](HEX_AUGMENTATION.md) - D6 symmetry augmentation details
+- [GUMBEL_MCTS.md](GUMBEL_MCTS.md) - Gumbel MCTS implementation
 
 ## Contact
 
