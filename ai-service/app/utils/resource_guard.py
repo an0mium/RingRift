@@ -415,7 +415,7 @@ def check_gpu_memory(
     return True
 
 
-def clear_gpu_memory():
+def clear_gpu_memory() -> None:
     """Clear GPU memory cache."""
     try:
         import torch
@@ -605,7 +605,7 @@ def get_resource_status(export_prometheus: bool = True) -> dict:
     }
 
 
-def print_resource_status():
+def print_resource_status() -> None:
     """Print formatted resource status."""
     status = get_resource_status()
 
