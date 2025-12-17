@@ -102,7 +102,11 @@ def load_hosts_from_config() -> Dict[str, dict]:
 
 
 def discover_vast_instances() -> Dict[str, dict]:
-    """Discover Vast.ai instances via vastai CLI."""
+    """Discover Vast.ai instances via vastai CLI.
+
+    Attempts to get Tailscale IPs for direct P2P access.
+    Falls back to SSH proxy if Tailscale IP not available.
+    """
     hosts = {}
     try:
         result = subprocess.run(
@@ -121,16 +125,42 @@ def discover_vast_instances() -> Dict[str, dict]:
 
             inst_id = inst.get("id")
             name = f"vast-{inst_id}"
+            ssh_host = inst.get("ssh_host")
+            ssh_port = inst.get("ssh_port", 22)
 
-            # Use SSH proxy connection for Vast instances
-            hosts[name] = {
-                "ip": inst.get("ssh_host"),
-                "user": "root",
-                "path": "~/ringrift/ai-service",
-                "gpu": (inst.get("gpu_name", "GPU") or "GPU")[:25],
-                "ssh_port": inst.get("ssh_port", 22),
-                "via_ssh_proxy": True,
-            }
+            # Try to get Tailscale IP via SSH for direct P2P access
+            tailscale_ip = None
+            try:
+                ts_result = subprocess.run(
+                    ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
+                     "-o", "ConnectTimeout=10", "-p", str(ssh_port),
+                     f"root@{ssh_host}", "tailscale ip -4 2>/dev/null"],
+                    capture_output=True, text=True, timeout=15
+                )
+                if ts_result.returncode == 0 and ts_result.stdout.strip():
+                    tailscale_ip = ts_result.stdout.strip().split('\n')[0]
+            except Exception:
+                pass
+
+            # Use Tailscale IP if available, otherwise fall back to SSH proxy
+            if tailscale_ip:
+                hosts[name] = {
+                    "ip": tailscale_ip,
+                    "user": "root",
+                    "path": "~/ringrift/ai-service",
+                    "gpu": (inst.get("gpu_name", "GPU") or "GPU")[:25],
+                    "ssh_port": 22,  # Standard SSH port via Tailscale
+                    "via_ssh_proxy": False,
+                }
+            else:
+                hosts[name] = {
+                    "ip": ssh_host,
+                    "user": "root",
+                    "path": "~/ringrift/ai-service",
+                    "gpu": (inst.get("gpu_name", "GPU") or "GPU")[:25],
+                    "ssh_port": ssh_port,
+                    "via_ssh_proxy": True,
+                }
 
     except Exception as e:
         print(f"[Tournament] Vast discovery error: {e}")
