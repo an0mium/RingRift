@@ -306,6 +306,14 @@ def main():
     parser.add_argument("--kl-min-coverage", type=float, default=0.3, help="Min MCTS coverage for KL loss")
     parser.add_argument("--kl-min-samples", type=int, default=50, help="Min MCTS samples for KL loss")
 
+    # 2024-12 Advanced training options
+    parser.add_argument("--policy-dropout", type=float, default=0.1, help="Dropout rate for policy head")
+    parser.add_argument("--hex-augment", action="store_true", help="Enable D6 hex augmentation")
+    parser.add_argument("--hex-augment-count", type=int, default=6, help="Number of D6 augmentations (1-12)")
+    parser.add_argument("--gradient-accumulation-steps", type=int, default=1, help="Gradient accumulation steps")
+    parser.add_argument("--find-lr", action="store_true", help="Run LR finder before training")
+    parser.add_argument("--lr-finder-iterations", type=int, default=100, help="LR finder sweep iterations")
+
     args = parser.parse_args()
 
     # Expand db paths
@@ -385,6 +393,18 @@ def main():
         extra_args.append("--auto-kl-loss")
         extra_args.extend(["--kl-min-coverage", str(args.kl_min_coverage)])
         extra_args.extend(["--kl-min-samples", str(args.kl_min_samples)])
+
+    # 2024-12 Advanced training options
+    if args.policy_dropout > 0:
+        extra_args.extend(["--policy-dropout", str(args.policy_dropout)])
+    if args.hex_augment or args.board_type in ("hexagonal", "hex8"):
+        extra_args.append("--hex-augment")
+        extra_args.extend(["--hex-augment-count", str(args.hex_augment_count)])
+    if args.gradient_accumulation_steps > 1:
+        extra_args.extend(["--gradient-accumulation-steps", str(args.gradient_accumulation_steps)])
+    if args.find_lr:
+        extra_args.append("--find-lr")
+        extra_args.extend(["--lr-finder-iterations", str(args.lr_finder_iterations)])
 
     # Run curriculum
     run_curriculum_training(

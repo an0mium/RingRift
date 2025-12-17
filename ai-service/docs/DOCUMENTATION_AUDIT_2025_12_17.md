@@ -259,5 +259,92 @@ ls -la app/training/rollback_manager.py
 
 ---
 
-**Audit completed by Claude Code**
-**Commit hex fixes and this report**
+## Phase 2 Audit (2025-12-17 Evening)
+
+### Additional Issues Fixed
+
+#### 1. TRAINING_FEATURES.md - Incorrect Defaults
+
+| Parameter                 | Was                      | Corrected To                     |
+| ------------------------- | ------------------------ | -------------------------------- |
+| `batch_size`              | 64                       | 256                              |
+| `warmup_epochs`           | 1                        | 5                                |
+| `policy_label_smoothing`  | 0.0                      | 0.05                             |
+| `early_stopping_patience` | 5                        | 15                               |
+| Config file reference     | `app/training/config.py` | `scripts/unified_loop/config.py` |
+
+Added missing parameters:
+
+- `sampling_weights` (default: "victory_type")
+- `use_optimized_hyperparams` (default: true)
+
+#### 2. ORCHESTRATOR_SELECTION.md - Outdated References
+
+**Fixed:**
+
+- Removed deprecated `cluster_orchestrator.py` reference
+- Updated decision tree to include `multi_config_training_loop.py`
+- Fixed config file mappings (all now use `unified_loop.yaml`)
+
+#### 3. scripts/README.md - Missing Scripts
+
+**Added documentation for 25+ scripts:**
+
+**Training:**
+
+- `run_nn_training_baseline.py` - Primary NN training with optimized settings
+- `run_optimized_training.py` - Wrapper with auto-hyperparameters
+- `run_improvement_loop.py` - Alternative improvement loop (95KB)
+- `training_completion_watcher.py` - Auto-Elo trigger daemon
+- `auto_training_pipeline.py` - Automated pipeline
+- `hex8_training_pipeline.py` - Hex8-specific pipeline
+
+**Data Management:**
+
+- `auto_export_training_data.py` - Automated training data export
+- `export_replay_dataset.py` - Export games to NPZ
+- `jsonl_to_npz.py` - JSONL to NPZ conversion
+- `filter_training_data.py` - Filter training data
+
+**Cluster Management:**
+
+- `update_cluster_code.py` - Cluster code synchronization
+- `update_distributed_hosts.py` - Distributed hosts config
+- `vast_autoscaler.py` - Vast.ai autoscaling
+- `vast_lifecycle.py` - Instance lifecycle
+- `vast_p2p_manager.py` - P2P network management
+- `cluster_auto_recovery.py` - Auto-recovery
+
+**Analysis & Benchmarking:**
+
+- `aggregate_elo_results.py` - Aggregate Elo results
+- `baseline_gauntlet.py` - Baseline gauntlet
+- `two_stage_gauntlet.py` - Two-stage gauntlet
+- `benchmark_engine.py` - Engine benchmarking
+- `benchmark_gpu_cpu.py` - GPU/CPU comparison
+- `benchmark_policy.py` - Policy benchmarking
+- `benchmark_ai_memory.py` - Memory benchmarking
+
+### Updated Documentation Coverage
+
+| Category                   | Before | After |
+| -------------------------- | ------ | ----- |
+| Training scripts           | 7      | 18    |
+| Data management scripts    | 8      | 12    |
+| Cluster management scripts | 6      | 14    |
+| Analysis scripts           | 3      | 9     |
+| **Total documented**       | ~42    | ~70   |
+
+### Remaining Gaps
+
+**Still undocumented (lower priority):**
+
+- `run_cmaes_optimization.py` (109KB) - CMA-ES weight optimization
+- `distributed_nas.py` (59KB) - Neural architecture search
+- `node_resilience.py` (53KB) - Node failure handling
+- ~200 smaller utility scripts in archive/
+
+---
+
+**Phase 2 audit completed by Claude Code**
+**Date:** 2025-12-17
