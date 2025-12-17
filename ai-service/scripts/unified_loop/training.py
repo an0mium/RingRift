@@ -148,9 +148,10 @@ class TrainingScheduler:
         # Dynamic threshold tracking (for promotion velocity calculation)
         self._promotion_history: List[float] = []  # Timestamps of recent promotions
         self._training_history: List[float] = []   # Timestamps of recent training runs
-        # Cluster-wide training coordination
-        self._training_lock_fd: Optional[int] = None
-        self._training_lock_path: Optional[Path] = None
+        # Per-config training coordination (allows parallel training of different configs)
+        self._training_locks: Dict[str, int] = {}  # config_key -> fd
+        self._training_lock_paths: Dict[str, Path] = {}
+        self._max_concurrent_training = 3  # Allow up to 3 parallel training runs
         # Calibration tracking (per config)
         self._calibration_trackers: Dict[str, Any] = {}
         if HAS_VALUE_CALIBRATION:
@@ -278,51 +279,68 @@ class TrainingScheduler:
         """Set the feedback controller (called after initialization)."""
         self.feedback = feedback
 
-    def _acquire_training_lock(self) -> bool:
-        """Acquire cluster-wide training lock using file locking."""
+    def _acquire_training_lock(self, config_key: str = None) -> bool:
+        """Acquire per-config training lock using file locking.
+
+        Allows up to _max_concurrent_training parallel training runs.
+        Different configs can train simultaneously (e.g., square8 + hexagonal).
+        """
         import fcntl
         import socket
+
+        # Check if we've hit the concurrent training limit
+        active_locks = len(self._training_locks)
+        if active_locks >= self._max_concurrent_training:
+            print(f"[Training] Max concurrent training ({self._max_concurrent_training}) reached")
+            return False
 
         lock_dir = AI_SERVICE_ROOT / "data" / "coordination"
         lock_dir.mkdir(parents=True, exist_ok=True)
 
         hostname = socket.gethostname()
-        self._training_lock_path = lock_dir / f"training.{hostname}.lock"
+        lock_name = f"training.{config_key or 'global'}.{hostname}.lock"
+        lock_path = lock_dir / lock_name
 
         try:
-            self._training_lock_fd = os.open(
-                str(self._training_lock_path),
-                os.O_RDWR | os.O_CREAT
-            )
-            fcntl.flock(self._training_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            os.ftruncate(self._training_lock_fd, 0)
-            os.lseek(self._training_lock_fd, 0, os.SEEK_SET)
-            os.write(self._training_lock_fd, f"{os.getpid()}\n".encode())
-            print(f"[Training] Acquired cluster-wide training lock on {hostname}")
+            fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT)
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            os.ftruncate(fd, 0)
+            os.lseek(fd, 0, os.SEEK_SET)
+            os.write(fd, f"{os.getpid()}\n".encode())
+
+            self._training_locks[config_key or 'global'] = fd
+            self._training_lock_paths[config_key or 'global'] = lock_path
+            print(f"[Training] Acquired lock for {config_key or 'global'} on {hostname} ({active_locks + 1}/{self._max_concurrent_training} slots used)")
             return True
         except (OSError, BlockingIOError) as e:
-            if self._training_lock_fd is not None:
-                os.close(self._training_lock_fd)
-                self._training_lock_fd = None
-            print(f"[Training] Lock acquisition failed: {e}")
+            try:
+                os.close(fd)
+            except:
+                pass
+            print(f"[Training] Lock acquisition failed for {config_key}: {e}")
             return False
 
-    def _release_training_lock(self):
-        """Release the cluster-wide training lock."""
+    def _release_training_lock(self, config_key: str = None):
+        """Release the per-config training lock."""
         import fcntl
 
-        if self._training_lock_fd is not None:
+        key = config_key or 'global'
+        fd = self._training_locks.get(key)
+        lock_path = self._training_lock_paths.get(key)
+
+        if fd is not None:
             try:
-                fcntl.flock(self._training_lock_fd, fcntl.LOCK_UN)
-                os.close(self._training_lock_fd)
-                print("[Training] Released cluster-wide training lock")
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                os.close(fd)
+                print(f"[Training] Released lock for {key}")
             except Exception as e:
-                print(f"[Training] Error releasing lock: {e}")
+                print(f"[Training] Error releasing lock for {key}: {e}")
             finally:
-                self._training_lock_fd = None
-            if self._training_lock_path and self._training_lock_path.exists():
+                self._training_locks.pop(key, None)
+                self._training_lock_paths.pop(key, None)
+            if lock_path and lock_path.exists():
                 try:
-                    self._training_lock_path.unlink()
+                    lock_path.unlink()
                 except Exception:
                     pass
 
