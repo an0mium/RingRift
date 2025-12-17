@@ -542,11 +542,11 @@
           "currentPlayer": 1,
           "currentPhase": "territory_processing",
           "gameStatus": "active",
-          "stackCount": 4,
+          "stackCount": 1,
           "markerCount": 0,
-          "collapsedCount": 0,
-          "player1EliminatedRings": 0,
-          "player1TerritorySpaces": 0,
+          "collapsedCount": 3,
+          "player1EliminatedRings": 3,
+          "player1TerritorySpaces": 3,
           "player2EliminatedRings": 0
         }
       }
@@ -2226,11 +2226,11 @@
           "currentPlayer": 1,
           "currentPhase": "territory_processing",
           "gameStatus": "active",
-          "stackCount": 8,
+          "stackCount": 5,
           "markerCount": 0,
-          "collapsedCount": 0,
-          "player1EliminatedRings": 0,
-          "player1TerritorySpaces": 0,
+          "collapsedCount": 3,
+          "player1EliminatedRings": 3,
+          "player1TerritorySpaces": 3,
           "player2EliminatedRings": 0
         }
       }
