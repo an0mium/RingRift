@@ -46,6 +46,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+# Import canonical Elo constants
+try:
+    from app.config.thresholds import INITIAL_ELO_RATING
+except ImportError:
+    INITIAL_ELO_RATING = 1500.0
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -100,9 +106,12 @@ class EloSnapshot:
 
 @dataclass
 class ConfigMomentum:
-    """Momentum tracking for a single config (board_type + num_players)."""
+    """Momentum tracking for a single config (board_type + num_players).
+
+    Note: Uses INITIAL_ELO_RATING from app.config.thresholds as default.
+    """
     config_key: str
-    current_elo: float = 1500.0
+    current_elo: float = INITIAL_ELO_RATING
     elo_history: List[EloSnapshot] = field(default_factory=list)
     momentum_state: MomentumState = MomentumState.STABLE
     intensity: TrainingIntensity = TrainingIntensity.NORMAL
@@ -110,7 +119,7 @@ class ConfigMomentum:
     last_training_time: float = 0.0
     consecutive_improvements: int = 0
     consecutive_plateaus: int = 0
-    last_promotion_elo: float = 1500.0
+    last_promotion_elo: float = INITIAL_ELO_RATING
     total_promotions: int = 0
 
     def add_snapshot(self, elo: float, games: int, model_id: Optional[str] = None) -> None:

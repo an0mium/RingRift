@@ -349,7 +349,9 @@ class BackgroundEvalWrapper:
         """Get current Elo estimate."""
         if self._evaluator is not None:
             return self._evaluator.get_current_elo()
-        return 1500.0
+        # Use canonical INITIAL_ELO_RATING from app.config.thresholds
+        from app.config.thresholds import INITIAL_ELO_RATING
+        return INITIAL_ELO_RATING
 
     def should_early_stop(self) -> bool:
         """Check if training should early stop."""
