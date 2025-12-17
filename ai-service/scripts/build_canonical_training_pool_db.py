@@ -779,7 +779,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument(
         "--board-type",
         default=None,
-        choices=["square8", "square19", "hexagonal"],
+        choices=["square8", "square19", "hexagonal", "hex8"],
         help="Optional board_type filter applied before merging.",
     )
     parser.add_argument(

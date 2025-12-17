@@ -43,7 +43,7 @@ def main():
 
     # Core settings
     parser.add_argument(
-        "--board-type", choices=["square8", "square19", "hexagonal"], default="square8", help="Board type to train on"
+        "--board-type", choices=["square8", "square19", "hexagonal", "hex8"], default="square8", help="Board type to train on"
     )
     parser.add_argument("--generations", type=int, default=10, help="Number of curriculum generations")
     parser.add_argument("--games-per-gen", type=int, default=500, help="Self-play games per generation")

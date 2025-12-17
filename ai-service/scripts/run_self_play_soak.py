@@ -1105,6 +1105,7 @@ def _build_mixed_ai_pool(
 
         use_gpu = engine_mode == "diverse"
         weights = GPU_OPTIMIZED_WEIGHTS if use_gpu else CPU_OPTIMIZED_WEIGHTS
+        num_players = len(player_numbers)
         diverse_config = DiverseAIConfig(
             board_type=board_type.name.lower(),
             num_players=num_players,
@@ -1139,7 +1140,7 @@ def _build_mixed_ai_pool(
                 ai_type=ai_type,
             )
 
-            ai = _create_ai_instance(pnum, cfg)
+            ai = _create_ai_instance(ai_type, pnum, cfg)
             ai_by_player[pnum] = ai
             ai_metadata[f"player_{pnum}_difficulty"] = difficulty
 
@@ -1168,7 +1169,7 @@ def _build_mixed_ai_pool(
                 think_time=500,
                 ai_type=ai_type,
             )
-            ai = _create_ai_instance(pnum, cfg)
+            ai = _create_ai_instance(ai_type, pnum, cfg)
             ai_by_player[pnum] = ai
             ai_metadata[f"player_{pnum}_ai_type"] = ai_type.value
             ai_metadata[f"player_{pnum}_difficulty"] = difficulty

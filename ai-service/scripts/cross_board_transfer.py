@@ -113,6 +113,7 @@ def transfer_and_finetune(
         "square8": BoardType.SQUARE8,
         "square19": BoardType.SQUARE19,
         "hexagonal": BoardType.HEXAGONAL,
+        "hex8": BoardType.HEX8,
     }
 
     config = TrainConfig(

@@ -671,7 +671,7 @@ def main():
         "--board",
         type=str,
         default="square8",
-        choices=["square8", "square19", "hexagonal"],
+        choices=["square8", "square19", "hexagonal", "hex8"],
         help="Board type",
     )
     parser.add_argument(

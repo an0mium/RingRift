@@ -689,7 +689,7 @@ def main():
     parser.add_argument(
         "--board-type",
         type=str,
-        choices=["square8", "square19", "hexagonal"],
+        choices=["square8", "square19", "hexagonal", "hex8"],
         help="Filter to specific board type",
     )
     parser.add_argument(

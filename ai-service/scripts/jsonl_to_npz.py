@@ -1210,7 +1210,7 @@ def main():
         "--board-type",
         type=str,
         required=True,
-        choices=["square8", "square19", "hexagonal"],
+        choices=["square8", "square19", "hexagonal", "hex8"],
         help="Board type (required for proper feature encoding)",
     )
     parser.add_argument(

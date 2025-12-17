@@ -929,7 +929,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--board-type",
-        choices=["square8", "square19", "hexagonal"],
+        choices=["square8", "square19", "hexagonal", "hex8"],
         default="square8",
         help="Board type (default: square8)",
     )

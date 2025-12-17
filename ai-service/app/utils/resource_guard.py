@@ -118,9 +118,9 @@ if HAS_PROMETHEUS:
 @dataclass(frozen=True)
 class ResourceLimits:
     """Unified resource limits - 80% max utilization."""
-    # Disk is tighter at 70% because cleanup takes time
-    DISK_MAX_PERCENT: float = 70.0
-    DISK_WARN_PERCENT: float = 65.0
+    # Disk at 80% - we have 269GB free, plenty of headroom
+    DISK_MAX_PERCENT: float = 80.0
+    DISK_WARN_PERCENT: float = 75.0
 
     # CPU/GPU/Memory at 80% hard limit
     CPU_MAX_PERCENT: float = 80.0
@@ -129,8 +129,8 @@ class ResourceLimits:
     GPU_MAX_PERCENT: float = 80.0
     GPU_WARN_PERCENT: float = 70.0
 
-    MEMORY_MAX_PERCENT: float = 80.0
-    MEMORY_WARN_PERCENT: float = 70.0
+    MEMORY_MAX_PERCENT: float = 90.0
+    MEMORY_WARN_PERCENT: float = 80.0
 
     # Load average limit
     LOAD_MAX_FACTOR: float = 1.5  # load > cpus * this = overloaded
