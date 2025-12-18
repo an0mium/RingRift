@@ -126,6 +126,13 @@ def create_ai_from_model(
     model_path = model_def.get("model_path", "")
     ai_type = model_def.get("ai_type", "neural_net")
 
+    # Check if model file exists (skip for baseline players)
+    if model_path and not model_path.startswith("__BASELINE_") and not Path(model_path).exists():
+        raise FileNotFoundError(
+            f"Model file not found: {model_path}. "
+            "Run cleanup to remove stale DB entries."
+        )
+
     if model_path == "__BASELINE_RANDOM__" or ai_type == "random":
         config = AIConfig(ai_type=AIType.RANDOM, board_type=board_type, difficulty=1)
         return RandomAI(player_number, config)
@@ -691,28 +698,32 @@ def run_model_matchup(
         else:
             ai_type_a = ai_type_b = nn_ai_type
 
-        if is_baseline_match:
-            # Use generic model-vs-model for baseline players
-            result = play_model_vs_model_game(
-                model_a=play_a,
-                model_b=play_b,
-                board_type=board_type_enum,
-                num_players=num_players,
-                max_moves=10000,
-            )
-        else:
-            # Use NN-specific game play for neural networks
-            result = play_nn_vs_nn_game(
-                model_a_path=play_a["model_path"],
-                model_b_path=play_b["model_path"],
-                board_type=board_type_enum,
-                num_players=num_players,
-                max_moves=10000,
-                mcts_simulations=50,  # Faster games
-                save_game_history=True,  # Record for training
-                ai_type_a=ai_type_a,
-                ai_type_b=ai_type_b,
-            )
+        try:
+            if is_baseline_match:
+                # Use generic model-vs-model for baseline players
+                result = play_model_vs_model_game(
+                    model_a=play_a,
+                    model_b=play_b,
+                    board_type=board_type_enum,
+                    num_players=num_players,
+                    max_moves=10000,
+                )
+            else:
+                # Use NN-specific game play for neural networks
+                result = play_nn_vs_nn_game(
+                    model_a_path=play_a["model_path"],
+                    model_b_path=play_b["model_path"],
+                    board_type=board_type_enum,
+                    num_players=num_players,
+                    max_moves=10000,
+                    mcts_simulations=50,  # Faster games
+                    save_game_history=True,  # Record for training
+                    ai_type_a=ai_type_a,
+                    ai_type_b=ai_type_b,
+                )
+        except FileNotFoundError as e:
+            print(f"Skipping game: {e}")
+            continue
 
         # Save game record to JSONL for training data
         game_record = result.get("game_record")

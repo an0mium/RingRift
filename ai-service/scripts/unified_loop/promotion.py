@@ -30,6 +30,14 @@ if TYPE_CHECKING:
 # Path constants
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[2]
 
+# Board name abbreviations for champion model IDs (must match model_promotion_manager.py)
+BOARD_ALIAS_TOKENS = {
+    "square8": "sq8",
+    "square19": "sq19",
+    "hexagonal": "hex",
+    "hex8": "hex8",  # Already short
+}
+
 # Optional ELO service import
 try:
     from app.training.elo_service import get_elo_service
@@ -173,15 +181,35 @@ class ModelPromoter:
                 if len(models) < 2:
                     continue
 
-                best = models[0]
-                current_best_id = f"ringrift_best_{config_key.replace('_', '_')}"
+                # Generate champion ID using board abbreviation (e.g., sq8 instead of square8)
+                # to match the actual IDs in the database
+                parts = config_key.rsplit("_", 1)
+                board_type = parts[0] if len(parts) == 2 else config_key
+                num_players_str = parts[1] if len(parts) == 2 else "2p"
+                board_abbrev = BOARD_ALIAS_TOKENS.get(board_type, board_type)
+                current_best_id = f"ringrift_best_{board_abbrev}_{num_players_str}"
 
-                # Check if top model beats current best by threshold
+                # Find the champion model's rating (ringrift_best_*) for comparison
+                # Bug fix: previously compared against models[0] (top-rated) which meant
+                # elo_gain was always <= 0. Now we correctly compare against the champion.
+                champion_rating = None
+                for m in models:
+                    if m[0] == current_best_id:
+                        champion_rating = m[3]
+                        break
+
+                # If champion not in ratings (e.g., never played), use top model as baseline
+                # This allows initial promotion when no champion is established
+                if champion_rating is None:
+                    champion_rating = models[0][3]
+                    print(f"[ModelPromoter] No champion found for {config_key}, using top model rating {champion_rating:.1f}")
+
+                # Check if any model beats champion by threshold
                 for model in models:
                     if model[0] == current_best_id:
                         continue
 
-                    elo_gain = model[3] - best[3]
+                    elo_gain = model[3] - champion_rating
                     if elo_gain >= self.config.elo_threshold:
                         candidate = {
                             "model_id": model[0],
@@ -288,10 +316,14 @@ class ModelPromoter:
                         HOLDOUT_EVALUATIONS.labels(config=config_key, result='skipped').inc()
 
             # Run promotion script
+            # Bug fix: auto_promote_best_models.py doesn't exist; use model_promotion_manager.py
+            # which has proper --auto-promote support for Elo-based promotion
             cmd = [
                 sys.executable,
-                str(AI_SERVICE_ROOT / "scripts" / "auto_promote_best_models.py"),
-                "--config", candidate["config"],
+                str(AI_SERVICE_ROOT / "scripts" / "model_promotion_manager.py"),
+                "--auto-promote",
+                "--elo-threshold", str(self.config.elo_threshold),
+                "--min-games", str(self.config.min_games),
             ]
 
             process = await asyncio.create_subprocess_exec(

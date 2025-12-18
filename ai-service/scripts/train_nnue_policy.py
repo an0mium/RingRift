@@ -382,6 +382,14 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=100,
         help="Minimum samples with MCTS policy for auto KL loss (default: 100)",
     )
+    parser.add_argument(
+        "--kl-loss-weight",
+        type=float,
+        default=1.0,
+        help="Mix ratio for KL vs cross-entropy loss when using KL loss. "
+             "1.0 = pure KL divergence, 0.5 = 50%% KL + 50%% CE, 0.0 = pure CE. "
+             "Mixing can improve stability. (default: 1.0)",
+    )
 
     # Advanced training options
     parser.add_argument(
@@ -670,6 +678,7 @@ def train_nnue_policy(
     auto_kl_loss: bool = False,
     kl_min_coverage: float = 0.5,
     kl_min_samples: int = 100,
+    kl_loss_weight: float = 1.0,
     grad_clip: float = 1.0,
     lr_scheduler: str = "plateau",
     use_amp: bool = True,
@@ -883,6 +892,7 @@ def train_nnue_policy(
         temperature=temperature_start,
         label_smoothing=label_smoothing,
         use_kl_loss=effective_use_kl_loss,
+        kl_loss_weight=kl_loss_weight,
         grad_clip=grad_clip,
         lr_scheduler=lr_scheduler,
         total_epochs=epochs,
@@ -927,7 +937,10 @@ def train_nnue_policy(
     if focal_gamma > 0:
         logger.info(f"Focal loss enabled with gamma={focal_gamma}")
     if effective_use_kl_loss:
-        logger.info("KL divergence loss ENABLED (using MCTS visit distributions)")
+        if kl_loss_weight < 1.0:
+            logger.info(f"KL divergence loss ENABLED with mixed loss: {kl_loss_weight:.0%} KL + {1-kl_loss_weight:.0%} CE")
+        else:
+            logger.info("KL divergence loss ENABLED (pure KL, using MCTS visit distributions)")
     if use_ddp:
         logger.info(f"DDP enabled (rank={ddp_rank})")
     if use_swa:
@@ -1212,6 +1225,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         auto_kl_loss=args.auto_kl_loss,
         kl_min_coverage=args.kl_min_coverage,
         kl_min_samples=args.kl_min_samples,
+        kl_loss_weight=args.kl_loss_weight,
         grad_clip=args.grad_clip,
         lr_scheduler=args.lr_scheduler,
         use_amp=args.use_amp and not args.no_amp,

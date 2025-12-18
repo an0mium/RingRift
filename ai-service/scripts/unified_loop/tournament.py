@@ -128,8 +128,10 @@ class ShadowTournamentService:
 
             proc = await asyncio.create_subprocess_exec(
                 "ssh", "-i", os.path.expanduser("~/.ssh/id_cluster"),
-                "-o", "ConnectTimeout=10", "-o", "BatchMode=yes",
-                "-o", "StrictHostKeyChecking=no", ssh_target, remote_cmd,
+                "-o", "ConnectTimeout=15", "-o", "BatchMode=yes",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
+                ssh_target, remote_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -213,8 +215,10 @@ class ShadowTournamentService:
 
             proc = await asyncio.create_subprocess_exec(
                 "ssh", "-i", os.path.expanduser("~/.ssh/id_cluster"),
-                "-o", "ConnectTimeout=10", "-o", "BatchMode=yes",
-                "-o", "StrictHostKeyChecking=no", ssh_target, remote_cmd,
+                "-o", "ConnectTimeout=15", "-o", "BatchMode=yes",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
+                ssh_target, remote_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -373,8 +377,10 @@ class ShadowTournamentService:
                 try:
                     proc = await asyncio.create_subprocess_exec(
                         "ssh", "-i", os.path.expanduser("~/.ssh/id_cluster"),
-                        "-o", "ConnectTimeout=10", "-o", "BatchMode=yes",
-                        "-o", "StrictHostKeyChecking=no", ssh_target, remote_cmd,
+                        "-o", "ConnectTimeout=15", "-o", "BatchMode=yes",
+                        "-o", "StrictHostKeyChecking=no",
+                        "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
+                        ssh_target, remote_cmd,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE
                     )

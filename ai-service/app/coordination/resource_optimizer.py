@@ -809,6 +809,15 @@ class ResourceOptimizer:
                     orchestrator TEXT DEFAULT '',
                     updated_at REAL DEFAULT 0
                 );
+            """)
+
+            # Migration: Add gpu_count column if it doesn't exist (for older databases)
+            try:
+                conn.execute("SELECT gpu_count FROM node_resources LIMIT 1")
+            except Exception:
+                conn.execute("ALTER TABLE node_resources ADD COLUMN gpu_count INTEGER DEFAULT 0")
+
+            conn.executescript("""
 
                 CREATE TABLE IF NOT EXISTS optimization_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,

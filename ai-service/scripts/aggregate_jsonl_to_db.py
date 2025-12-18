@@ -40,6 +40,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import logging
@@ -50,6 +51,27 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
+
+
+def is_gzip_file(filepath: Path) -> bool:
+    """Check if a file is gzip-compressed by reading magic bytes."""
+    try:
+        with open(filepath, "rb") as f:
+            magic = f.read(2)
+            return magic == b'\x1f\x8b'  # Gzip magic number
+    except (IOError, OSError):
+        return False
+
+
+def open_jsonl_file(filepath: Path):
+    """Open a JSONL file, automatically detecting gzip compression.
+
+    Returns a context manager that yields lines as strings.
+    """
+    if is_gzip_file(filepath):
+        return gzip.open(filepath, "rt", encoding="utf-8", errors="replace")
+    else:
+        return open(filepath, "r", encoding="utf-8", errors="replace")
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -548,9 +570,10 @@ def main():
     records_by_source: Dict[str, int] = {}
 
     for filepath, source in jsonl_files:
-        logger.info(f"  Reading {filepath}...")
+        is_compressed = is_gzip_file(filepath)
+        logger.info(f"  Reading {filepath}{'  (gzip)' if is_compressed else ''}...")
         try:
-            with open(filepath, "r") as f:
+            with open_jsonl_file(filepath) as f:
                 for line_num, line in enumerate(f, 1):
                     line = line.strip()
                     if not line:

@@ -32,6 +32,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import logging
 import os
@@ -44,6 +45,24 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from queue import Queue
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
+
+
+def is_gzip_file(filepath: Path) -> bool:
+    """Check if a file is gzip-compressed by reading magic bytes."""
+    try:
+        with open(filepath, "rb") as f:
+            magic = f.read(2)
+            return magic == b'\x1f\x8b'  # Gzip magic number
+    except (IOError, OSError):
+        return False
+
+
+def open_jsonl_file(filepath: Path):
+    """Open a JSONL file, automatically detecting gzip compression."""
+    if is_gzip_file(filepath):
+        return gzip.open(filepath, "rt", encoding="utf-8", errors="replace")
+    else:
+        return open(filepath, "r", encoding="utf-8", errors="replace")
 
 # Unified logging setup
 try:
@@ -114,11 +133,12 @@ def read_jsonl_chunked(
     """Read JSONL file in chunks to avoid memory issues.
 
     Yields lists of parsed records, each list up to chunk_size items.
+    Automatically detects and handles gzip-compressed files.
     """
     chunk: List[Dict[str, Any]] = []
 
     try:
-        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+        with open_jsonl_file(filepath) as f:
             for line_num, line in enumerate(f, 1):
                 line = line.strip()
                 if not line:

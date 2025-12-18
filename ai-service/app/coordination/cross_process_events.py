@@ -109,12 +109,18 @@ class CrossProcessEventQueue:
     def _get_connection(self) -> sqlite3.Connection:
         """Get thread-local database connection."""
         if not hasattr(self._local, "conn") or self._local.conn is None:
-            self._local.conn = sqlite3.connect(str(self.db_path), timeout=30.0)
+            self._local.conn = sqlite3.connect(
+                str(self.db_path),
+                timeout=60.0,  # Increased from 30s
+                isolation_level=None,  # Autocommit for better concurrency
+            )
             self._local.conn.row_factory = sqlite3.Row
             # WAL mode for concurrent access
             self._local.conn.execute('PRAGMA journal_mode=WAL')
-            self._local.conn.execute('PRAGMA busy_timeout=10000')
+            self._local.conn.execute('PRAGMA busy_timeout=30000')  # Increased from 10s
             self._local.conn.execute('PRAGMA synchronous=NORMAL')
+            self._local.conn.execute('PRAGMA wal_autocheckpoint=100')  # Checkpoint every 100 pages
+            self._local.conn.execute('PRAGMA cache_size=-2000')  # 2MB cache
         return self._local.conn
 
     def _init_db(self) -> None:
