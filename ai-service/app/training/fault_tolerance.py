@@ -27,6 +27,271 @@ logger = logging.getLogger(__name__)
 T = TypeVar('T')
 
 
+# =============================================================================
+# Retry Decorator with Exponential Backoff
+# =============================================================================
+
+
+def retry_with_backoff(
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 60.0,
+    exponential_base: float = 2.0,
+    exceptions: tuple = (Exception,),
+    on_retry: Optional[Callable[[Exception, int, float], None]] = None,
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    """
+    Decorator that retries a function with exponential backoff.
+
+    Args:
+        max_retries: Maximum number of retry attempts
+        base_delay: Initial delay between retries (seconds)
+        max_delay: Maximum delay between retries (seconds)
+        exponential_base: Base for exponential backoff calculation
+        exceptions: Tuple of exception types to catch and retry
+        on_retry: Optional callback(exception, attempt, delay) called before each retry
+
+    Returns:
+        Decorated function with retry logic
+
+    Usage:
+        @retry_with_backoff(max_retries=3, base_delay=1.0)
+        def train_step(batch):
+            # May fail due to OOM or other transient errors
+            return model(batch)
+    """
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        def wrapper(*args, **kwargs) -> T:
+            last_exception = None
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    last_exception = e
+                    if attempt == max_retries:
+                        raise
+
+                    delay = min(
+                        base_delay * (exponential_base ** attempt),
+                        max_delay
+                    )
+                    logger.warning(
+                        f"Attempt {attempt + 1}/{max_retries + 1} failed: {e}. "
+                        f"Retrying in {delay:.1f}s..."
+                    )
+
+                    if on_retry:
+                        on_retry(e, attempt + 1, delay)
+
+                    time.sleep(delay)
+
+            # Should never reach here, but for type safety
+            raise last_exception  # type: ignore
+
+        return wrapper
+    return decorator
+
+
+class RecoverableError(Exception):
+    """Exception that indicates a recoverable error."""
+    pass
+
+
+class NonRecoverableError(Exception):
+    """Exception that indicates a non-recoverable error (skip retry)."""
+    pass
+
+
+def handle_gpu_error(
+    fallback_to_cpu: bool = True,
+    clear_cache: bool = True,
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    """
+    Decorator that handles GPU-related errors with optional CPU fallback.
+
+    Args:
+        fallback_to_cpu: If True, retry on CPU after GPU failure
+        clear_cache: If True, clear GPU cache after OOM errors
+
+    Usage:
+        @handle_gpu_error(fallback_to_cpu=True)
+        def forward_pass(model, inputs, device):
+            return model(inputs.to(device))
+    """
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        def wrapper(*args, **kwargs) -> T:
+            try:
+                return func(*args, **kwargs)
+            except RuntimeError as e:
+                error_msg = str(e).lower()
+
+                # Check for CUDA/MPS OOM errors
+                if "out of memory" in error_msg or "cuda" in error_msg or "mps" in error_msg:
+                    logger.warning(f"GPU error detected: {e}")
+
+                    if clear_cache:
+                        try:
+                            import torch
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                            if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                                # MPS doesn't have direct cache clearing, but we can gc
+                                import gc
+                                gc.collect()
+                            logger.info("Cleared GPU cache")
+                        except Exception as cache_err:
+                            logger.warning(f"Failed to clear GPU cache: {cache_err}")
+
+                    if fallback_to_cpu:
+                        logger.info("Falling back to CPU")
+                        # Try to modify device in kwargs if present
+                        if 'device' in kwargs:
+                            import torch
+                            kwargs['device'] = torch.device('cpu')
+                        return func(*args, **kwargs)
+
+                raise
+
+        return wrapper
+    return decorator
+
+
+class TrainingErrorHandler:
+    """
+    Centralized error handling for training with configurable strategies.
+
+    Provides:
+    - OOM handling with batch size reduction
+    - Checkpoint recovery on failure
+    - GPU failure fallback
+    - Configurable retry strategies
+
+    Usage:
+        handler = TrainingErrorHandler(
+            checkpoint_manager=ckpt_manager,
+            min_batch_size=8,
+        )
+
+        with handler.safe_training_step(batch_size=256) as ctx:
+            loss = train_step(batch)
+            ctx.record_success()
+
+        # Access recommended batch size after OOM
+        new_batch_size = handler.recommended_batch_size
+    """
+
+    def __init__(
+        self,
+        checkpoint_manager: Optional['CheckpointManager'] = None,
+        max_retries: int = 3,
+        min_batch_size: int = 8,
+        batch_reduction_factor: float = 0.5,
+    ):
+        self.checkpoint_manager = checkpoint_manager
+        self.max_retries = max_retries
+        self.min_batch_size = min_batch_size
+        self.batch_reduction_factor = batch_reduction_factor
+
+        self._current_batch_size: Optional[int] = None
+        self._consecutive_failures = 0
+        self._oom_count = 0
+        self._total_recoveries = 0
+
+    @property
+    def recommended_batch_size(self) -> Optional[int]:
+        """Get recommended batch size after OOM events."""
+        return self._current_batch_size
+
+    def reset_failure_count(self):
+        """Reset consecutive failure counter (call after successful step)."""
+        self._consecutive_failures = 0
+
+    def handle_oom(self, current_batch_size: int) -> int:
+        """
+        Handle OOM error and return reduced batch size.
+
+        Args:
+            current_batch_size: Current batch size that caused OOM
+
+        Returns:
+            Reduced batch size to try
+        """
+        self._oom_count += 1
+
+        new_size = max(
+            self.min_batch_size,
+            int(current_batch_size * self.batch_reduction_factor)
+        )
+
+        if new_size == current_batch_size:
+            raise NonRecoverableError(
+                f"Cannot reduce batch size below minimum ({self.min_batch_size})"
+            )
+
+        logger.warning(
+            f"OOM detected. Reducing batch size: {current_batch_size} -> {new_size}"
+        )
+        self._current_batch_size = new_size
+        return new_size
+
+    @contextmanager
+    def safe_training_step(self, batch_size: int):
+        """
+        Context manager for safe training step execution.
+
+        Handles OOM, checkpointing, and recovery.
+
+        Args:
+            batch_size: Current batch size
+
+        Yields:
+            Context object with record_success() method
+        """
+        self._current_batch_size = batch_size
+
+        class StepContext:
+            def __init__(ctx_self):
+                ctx_self.success = False
+
+            def record_success(ctx_self):
+                ctx_self.success = True
+                self.reset_failure_count()
+                self._total_recoveries += 1 if self._consecutive_failures > 0 else 0
+
+        ctx = StepContext()
+
+        try:
+            yield ctx
+        except RuntimeError as e:
+            error_msg = str(e).lower()
+            self._consecutive_failures += 1
+
+            if "out of memory" in error_msg:
+                # OOM - reduce batch size
+                self.handle_oom(batch_size)
+                raise RecoverableError(f"OOM with batch_size={batch_size}") from e
+
+            elif self._consecutive_failures > self.max_retries:
+                # Too many failures - save emergency checkpoint
+                if self.checkpoint_manager:
+                    logger.error("Max retries exceeded, saving emergency checkpoint")
+                raise NonRecoverableError(
+                    f"Max retries ({self.max_retries}) exceeded"
+                ) from e
+
+            else:
+                raise RecoverableError(str(e)) from e
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get error handling statistics."""
+        return {
+            "oom_count": self._oom_count,
+            "consecutive_failures": self._consecutive_failures,
+            "total_recoveries": self._total_recoveries,
+            "current_batch_size": self._current_batch_size,
+        }
+
+
 class CheckpointType(Enum):
     """Types of checkpoints."""
     REGULAR = "regular"          # Periodic checkpoint

@@ -108,6 +108,20 @@ from app.training.seed_utils import seed_all
 from app.training.fault_tolerance import HeartbeatMonitor  # noqa: E402
 from app.training.value_calibration import CalibrationTracker  # noqa: E402
 
+# Data validation (2025-12)
+try:
+    from app.training.data_validation import (
+        DataValidator,
+        DataValidatorConfig,
+        validate_npz_file,
+    )
+    HAS_DATA_VALIDATION = True
+except ImportError:
+    HAS_DATA_VALIDATION = False
+    DataValidator = None
+    DataValidatorConfig = None
+    validate_npz_file = None
+
 # Hot data buffer for priority experience replay (2024-12)
 try:
     from app.training.hot_data_buffer import HotDataBuffer
@@ -1482,6 +1496,9 @@ def train_model(
     enable_curriculum: bool = False,
     enable_augmentation: bool = False,
     enable_elo_weighting: bool = False,
+    # Data validation (2025-12)
+    validate_data: bool = True,
+    fail_on_invalid_data: bool = False,
 ):
     """
     Train the RingRift neural network model.
@@ -1536,6 +1553,55 @@ def train_model(
                 )
     else:
         seed_all(config.seed)
+
+    # ==========================================================================
+    # Data Validation (2025-12)
+    # ==========================================================================
+    # Validate training data before loading to catch corruption early
+    if validate_data and HAS_DATA_VALIDATION and not use_streaming:
+        data_paths_to_validate = []
+        if isinstance(data_path, list):
+            data_paths_to_validate = [p for p in data_path if p and os.path.exists(p)]
+        elif data_path and os.path.exists(data_path):
+            data_paths_to_validate = [data_path]
+
+        if data_paths_to_validate:
+            if not distributed or is_main_process():
+                logger.info(f"Validating {len(data_paths_to_validate)} training data file(s)...")
+
+            validation_failed = False
+            for path in data_paths_to_validate:
+                result = validate_npz_file(path)
+                if not distributed or is_main_process():
+                    if result.valid:
+                        logger.info(f"  ✓ {path}: {result.total_samples} samples OK")
+                    else:
+                        logger.warning(
+                            f"  ✗ {path}: {len(result.issues)} issues in "
+                            f"{result.samples_with_issues}/{result.total_samples} samples"
+                        )
+                        # Log first few issues
+                        for issue in result.issues[:5]:
+                            logger.warning(f"    - {issue}")
+                        if len(result.issues) > 5:
+                            logger.warning(f"    ... and {len(result.issues) - 5} more issues")
+                        validation_failed = True
+
+            if validation_failed:
+                if fail_on_invalid_data:
+                    raise ValueError(
+                        "Training data validation failed. Set fail_on_invalid_data=False "
+                        "to proceed despite validation issues (not recommended)."
+                    )
+                else:
+                    if not distributed or is_main_process():
+                        logger.warning(
+                            "Proceeding with training despite validation issues. "
+                            "Set fail_on_invalid_data=True to enforce data quality."
+                        )
+    elif validate_data and not HAS_DATA_VALIDATION:
+        if not distributed or is_main_process():
+            logger.warning("Data validation requested but module not available")
 
     # Device configuration
     if distributed:

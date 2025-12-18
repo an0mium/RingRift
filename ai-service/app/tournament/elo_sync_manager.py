@@ -279,9 +279,16 @@ class EloSyncManager:
                 ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
-                        peers = data.get('peers', [])
-                        for peer in peers:
-                            name = peer.get('name', peer.get('id', 'unknown'))
+                        peers = data.get('peers', {})
+                        # peers is a dict {node_id: info}, iterate over values
+                        peer_list = peers.values() if isinstance(peers, dict) else peers
+                        for peer in peer_list:
+                            if isinstance(peer, str):
+                                # Handle case where peer is just a node ID string
+                                name = peer
+                                peer = {}
+                            else:
+                                name = peer.get('name', peer.get('node_id', 'unknown'))
                             self.nodes[name] = NodeInfo(
                                 name=name,
                                 tailscale_ip=peer.get('tailscale_ip'),

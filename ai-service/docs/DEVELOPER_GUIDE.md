@@ -196,6 +196,42 @@ record_game_unified(config, initial_state, final_state, moves)
 | `RecordSource.TOURNAMENT` | Tournament games                  |
 | `RecordSource.TRAINING`   | Training data generation          |
 
+### Migrating Existing Scripts
+
+To migrate a script from direct database recording to unified recording:
+
+**Before (deprecated):**
+
+```python
+from app.db.game_replay import GameReplayDB
+from app.db.recording import record_completed_game
+
+db = GameReplayDB("data/games/selfplay_sq8_2p.db")  # Inconsistent naming
+record_completed_game(db, initial, final, moves, metadata={"board_type": "sq8"})
+```
+
+**After (recommended):**
+
+```python
+from app.db import record_game_unified, RecordingConfig, RecordSource
+
+config = RecordingConfig(
+    board_type="sq8",  # Auto-normalized to "square8"
+    num_players=2,
+    source=RecordSource.SELF_PLAY,
+)
+
+record_game_unified(config, initial, final, moves)
+```
+
+**Migration checklist:**
+
+1. Replace `GameReplayDB` imports with `from app.db import record_game_unified, RecordingConfig, RecordSource`
+2. Create a `RecordingConfig` with board_type (will be auto-normalized)
+3. Replace `record_completed_game()` calls with `record_game_unified()`
+4. Remove manual database path construction (auto-generated from config)
+5. Remove manual board type normalization (handled by RecordingConfig)
+
 ## Directory Structure
 
 ```

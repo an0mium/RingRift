@@ -32,6 +32,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Set, Any
 
+import numpy as np
+
 # Try to import advanced training features
 try:
     from app.training.feedback_accelerator import (
@@ -144,6 +146,116 @@ ENABLE_INCREMENTAL_EXPORT = os.environ.get("RINGRIFT_ENABLE_INCREMENTAL_EXPORT",
 # Track HP tuning recommendations
 _hp_tuning_recommendations: Dict[Tuple[str, int], bool] = {}
 DATA_DIR = os.path.join(BASE_DIR, "data")
+
+
+def merge_npz_files(npz_files: List[str], output_path: str) -> int:
+    """Merge multiple NPZ training data files into one.
+
+    Args:
+        npz_files: List of NPZ file paths to merge
+        output_path: Output file path for merged data
+
+    Returns:
+        Total number of samples in merged file
+    """
+    if not npz_files:
+        return 0
+
+    if len(npz_files) == 1:
+        # Single file - just rename/copy
+        if npz_files[0] != output_path:
+            os.rename(npz_files[0], output_path)
+        return -1  # Unknown count, caller should check
+
+    # Collect all data from files
+    all_features = []
+    all_globals = []
+    all_values = []
+    all_values_mp = []
+    all_num_players = []
+    all_policy_indices = []
+    all_policy_values = []
+    all_move_numbers = []
+    all_total_game_moves = []
+    all_phases = []
+
+    total_samples = 0
+    for npz_path in npz_files:
+        if not os.path.exists(npz_path):
+            continue
+
+        try:
+            with np.load(npz_path, allow_pickle=True) as data:
+                n_samples = len(data["features"])
+                if n_samples == 0:
+                    continue
+
+                all_features.append(data["features"])
+                all_globals.append(data["globals"])
+                all_values.append(data["values"])
+
+                # Optional fields - may not exist in all files
+                if "values_mp" in data:
+                    all_values_mp.append(data["values_mp"])
+                if "num_players" in data:
+                    all_num_players.append(data["num_players"])
+                if "policy_indices" in data:
+                    all_policy_indices.extend(data["policy_indices"])
+                if "policy_values" in data:
+                    all_policy_values.extend(data["policy_values"])
+                if "move_numbers" in data:
+                    all_move_numbers.append(data["move_numbers"])
+                if "total_game_moves" in data:
+                    all_total_game_moves.append(data["total_game_moves"])
+                if "phases" in data:
+                    all_phases.extend(data["phases"])
+
+                total_samples += n_samples
+        except Exception as e:
+            print(f"  Warning: Failed to load {npz_path}: {e}", flush=True)
+            continue
+
+    if total_samples == 0:
+        return 0
+
+    # Concatenate arrays
+    features_arr = np.concatenate(all_features, axis=0)
+    globals_arr = np.concatenate(all_globals, axis=0)
+    values_arr = np.concatenate(all_values, axis=0)
+
+    # Build save dict with required fields
+    save_dict = {
+        "features": features_arr,
+        "globals": globals_arr,
+        "values": values_arr,
+    }
+
+    # Add optional fields if present
+    if all_values_mp:
+        save_dict["values_mp"] = np.concatenate(all_values_mp, axis=0)
+    if all_num_players:
+        save_dict["num_players"] = np.concatenate(all_num_players, axis=0)
+    if all_policy_indices:
+        save_dict["policy_indices"] = np.array(all_policy_indices, dtype=object)
+    if all_policy_values:
+        save_dict["policy_values"] = np.array(all_policy_values, dtype=object)
+    if all_move_numbers:
+        save_dict["move_numbers"] = np.concatenate(all_move_numbers, axis=0)
+    if all_total_game_moves:
+        save_dict["total_game_moves"] = np.concatenate(all_total_game_moves, axis=0)
+    if all_phases:
+        save_dict["phases"] = np.array(all_phases, dtype=object)
+
+    # Save merged file
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    np.savez_compressed(output_path, **save_dict)
+
+    # Clean up source files
+    for npz_path in npz_files:
+        if npz_path != output_path and os.path.exists(npz_path):
+            os.remove(npz_path)
+
+    return total_samples
 
 # Database sources for each config - databases that have games WITH moves
 # Format: (board_type, num_players) -> list of database paths
@@ -1201,20 +1313,21 @@ def run_training(board_type: str, num_players: int, db_paths: List[str],
         last_trained_counts[key] = current_count
         return False
 
-    # If multiple NPZ files, use the first one (TODO: merge them)
-    # For now, prefer JSONL (first in list) as it's canonical format
-    final_npz = npz_files[0]
+    # Merge multiple NPZ files if we have more than one
     if len(npz_files) > 1:
-        print(f"  Using {os.path.basename(final_npz)} (TODO: merge {len(npz_files)} sources)", flush=True)
-
-    # Rename to final output path
-    if final_npz != npz:
-        os.rename(final_npz, npz)
-
-    # Clean up other NPZ files
-    for f in npz_files[1:]:
-        if os.path.exists(f):
-            os.remove(f)
+        print(f"  Merging {len(npz_files)} NPZ sources into training data...", flush=True)
+        merged_samples = merge_npz_files(npz_files, npz)
+        if merged_samples > 0:
+            print(f"  Merged {merged_samples} total samples from {len(npz_files)} sources", flush=True)
+        elif merged_samples == 0:
+            print(f"  Warning: Merge produced no samples", flush=True)
+            last_trained_counts[key] = current_count
+            return False
+    else:
+        # Single file - just rename to final output path
+        final_npz = npz_files[0]
+        if final_npz != npz:
+            os.rename(final_npz, npz)
 
     # Run training with optimized hyperparameters
     run_dir = os.path.join(BASE_DIR, f"data/training/runs/auto_{short}_{ts}")

@@ -1080,12 +1080,15 @@ def generate_dataset(
                             v = data[1]
                             moves_data.append((m, v))
 
-                        # Sort by "goodness" for current player
-                        is_maximizing = (current_player == ai.player_number)
-                        if is_maximizing:
-                            moves_data.sort(key=lambda x: x[1], reverse=True)
-                        else:
-                            moves_data.sort(key=lambda x: x[1])
+                        # Sort by value descending - high value moves should always
+                        # get high probability regardless of whose turn it is.
+                        # The values are already from the current player's perspective,
+                        # so best moves (highest value) should be rank 0.
+                        #
+                        # BUG FIX: Previously used is_maximizing check that inverted
+                        # sorting for opponent moves, causing P2 good moves to get
+                        # LOW probability in training data.
+                        moves_data.sort(key=lambda x: x[1], reverse=True)
 
                         # Rank-based distribution (Cohen-Solal style)
                         k_rank = 1.0

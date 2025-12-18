@@ -115,10 +115,8 @@ def load_teacher_model(
 ) -> nn.Module:
     """Load a trained NN model to use as the teacher for distillation.
 
-    Supports loading from various checkpoint formats:
-    - Direct state_dict
-    - Dict with 'model_state_dict' key
-    - Full checkpoint with architecture info
+    Uses NeuralNetAI for robust model loading that handles all architecture
+    versions and configurations automatically.
 
     Args:
         model_path: Path to the NN checkpoint
@@ -128,58 +126,45 @@ def load_teacher_model(
     Returns:
         Loaded and eval-mode NN model
     """
-    # Import here to avoid circular dependencies
-    from app.ai.neural_net import (
-        RingRiftCNN_v2,
-        RingRiftCNN_v2_Lite,
-        RingRiftCNN_v3,
-        RingRiftCNN_v3_12f,
-        BOARD_SPATIAL_SIZES,
-    )
+    from app.ai.neural_net import NeuralNetAI
+    from app.models.core import AIConfig
 
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Teacher model not found: {model_path}")
 
-    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+    # Extract model ID from path (e.g., "ringrift_best_sq8_2p" from path)
+    model_name = Path(model_path).stem
 
-    board_size = BOARD_SPATIAL_SIZES.get(board_type, 8)
+    # Create config for loading the model
+    config = AIConfig(
+        difficulty=5,  # Required field, doesn't affect model loading
+        nn_model_id=model_name,
+        use_neural_net=True,
+        allow_fresh_weights=False,
+    )
 
-    # Try to detect architecture from checkpoint
-    arch_version = None
-    if isinstance(checkpoint, dict):
-        arch_version = checkpoint.get("architecture_version")
-        state_dict = checkpoint.get("model_state_dict", checkpoint)
-    else:
-        state_dict = checkpoint
+    # Use NeuralNetAI to properly load the model with correct architecture
+    logger.info(f"Loading teacher model via NeuralNetAI: {model_path}")
+    neural_ai = NeuralNetAI(
+        player_number=1,
+        config=config,
+        board_type=board_type,
+    )
 
-    # Infer architecture from state_dict keys or explicit version
-    model: nn.Module
+    # The model is loaded lazily, force initialization
+    if neural_ai.model is None:
+        # Create a dummy game state to trigger model initialization
+        from app.models import GameState
+        dummy_state = GameState.new_game(board_type=board_type, num_players=2)
+        _ = neural_ai._ensure_model_initialized(dummy_state)
 
-    if arch_version == "v3.0.0" or "spatial_policy" in str(state_dict.keys()):
-        logger.info(f"Loading RingRiftCNN_v3 architecture (board_size={board_size})")
-        model = RingRiftCNN_v3(board_size=board_size)
-    elif arch_version == "v3.0.0-12f":
-        logger.info(f"Loading RingRiftCNN_v3_12f architecture (board_size={board_size})")
-        model = RingRiftCNN_v3_12f(board_size=board_size)
-    elif arch_version == "v2.0.0-lite" or "num_filters: 96" in str(checkpoint):
-        logger.info(f"Loading RingRiftCNN_v2_Lite architecture (board_size={board_size})")
-        model = RingRiftCNN_v2_Lite(board_size=board_size)
-    else:
-        # Default to v2 architecture
-        logger.info(f"Loading RingRiftCNN_v2 architecture (board_size={board_size})")
-        model = RingRiftCNN_v2(board_size=board_size)
+    if neural_ai.model is None:
+        raise RuntimeError(f"Failed to load model from {model_path}")
 
-    # Load weights
-    try:
-        model.load_state_dict(state_dict, strict=False)
-        logger.info(f"Loaded teacher model from {model_path}")
-    except Exception as e:
-        logger.warning(f"Partial state_dict load: {e}")
-        # Try loading with strict=False to handle architecture mismatches
-        model.load_state_dict(state_dict, strict=False)
-
-    model = model.to(device)
+    model = neural_ai.model
     model.eval()
+
+    logger.info(f"Loaded teacher model: {type(model).__name__}")
     return model
 
 
