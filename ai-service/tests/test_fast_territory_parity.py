@@ -200,7 +200,6 @@ class TestFastTerritoryParity:
         board = create_board(BoardType.HEXAGONAL, 7, stacks, {})
         self.run_parity_test(board)
 
-    @pytest.mark.skip(reason="Fast territory detection bug: markers on hex board not handled correctly")
     def test_marker_border_hex(self):
         """Markers on hex board."""
         stacks = {

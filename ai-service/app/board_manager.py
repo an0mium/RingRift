@@ -38,6 +38,41 @@ from .models import (
 USE_FAST_TERRITORY = os.getenv('RINGRIFT_USE_FAST_TERRITORY', 'false').lower() == 'true'
 
 
+def _get_position_keys_for_lookup(position: Position, board_type: BoardType) -> List[str]:
+    """
+    Get position keys to try when looking up stacks/markers.
+
+    For hexagonal boards, data may be stored with either "x,y" or "x,y,z" keys.
+    This helper returns both formats to ensure lookups succeed regardless of
+    how the data was stored.
+
+    Args:
+        position: The position to look up
+        board_type: The board type (affects key format for hex boards)
+
+    Returns:
+        List of keys to try, in order of preference
+    """
+    primary_key = position.to_key()
+    keys = [primary_key]
+
+    # For hex boards, also try the abbreviated "x,y" format if the primary
+    # key includes z. Data may be stored in either format.
+    if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
+        parts = primary_key.split(",")
+        if len(parts) == 3:
+            # Primary is "x,y,z", also try "x,y"
+            short_key = f"{parts[0]},{parts[1]}"
+            keys.append(short_key)
+        elif len(parts) == 2 and position.z is None:
+            # Primary is "x,y" without z, also compute and try "x,y,z"
+            z = -position.x - position.y
+            full_key = f"{position.x},{position.y},{z}"
+            keys.append(full_key)
+
+    return keys
+
+
 class BoardManager:
     """Helper for board‑level operations in the AI service.
 
@@ -62,8 +97,12 @@ class BoardManager:
         position: Position, board: BoardState
     ) -> Optional[RingStack]:
         """Return the stack at ``position`` or ``None`` if empty."""
-        pos_key = position.to_key()
-        return board.stacks.get(pos_key)
+        # Try multiple key formats for hex boards (data may use "x,y" or "x,y,z")
+        for pos_key in _get_position_keys_for_lookup(position, board.type):
+            stack = board.stacks.get(pos_key)
+            if stack is not None:
+                return stack
+        return None
 
     @staticmethod
     def is_valid_position(
@@ -86,8 +125,22 @@ class BoardManager:
 
     @staticmethod
     def is_collapsed_space(position: Position, board: BoardState) -> bool:
-        pos_key = position.to_key()
-        return pos_key in board.collapsed_spaces
+        # Try multiple key formats for hex boards
+        for pos_key in _get_position_keys_for_lookup(position, board.type):
+            if pos_key in board.collapsed_spaces:
+                return True
+        return False
+
+    @staticmethod
+    def get_marker(position: Position, board: BoardState):
+        """Return the marker at ``position`` or ``None`` if no marker."""
+        from .models import MarkerInfo
+        # Try multiple key formats for hex boards (data may use "x,y" or "x,y,z")
+        for pos_key in _get_position_keys_for_lookup(position, board.type):
+            marker = board.markers.get(pos_key)
+            if marker is not None:
+                return marker
+        return None
 
     @staticmethod
     def get_player_stacks(
@@ -311,7 +364,7 @@ class BoardManager:
                 visited.add(pos_key)
                 continue
 
-            marker = board.markers.get(pos_key)
+            marker = BoardManager.get_marker(pos, board)
             if marker is not None and marker.player == border_color:
                 visited.add(pos_key)
                 continue
@@ -440,7 +493,7 @@ class BoardManager:
             if BoardManager.is_collapsed_space(current, board):
                 continue
 
-            marker = board.markers.get(current_key)
+            marker = BoardManager.get_marker(current, board)
             if marker is not None and marker.player == border_color:
                 continue
 
@@ -553,7 +606,7 @@ class BoardManager:
 
                 # If neighbor has a marker, region is NOT bordered by
                 # collapsed-only.
-                if n_key in board.markers:
+                if BoardManager.get_marker(neighbor, board) is not None:
                     return False
 
                 # Empty or stacked neighbor on the perimeter invalidates
@@ -604,7 +657,7 @@ class BoardManager:
                 n_key = neighbor.to_key()
                 if n_key in region_keys:
                     continue
-                marker = board.markers.get(n_key)
+                marker = BoardManager.get_marker(neighbor, board)
                 if marker is not None and n_key not in seed_map:
                     seed_map[n_key] = neighbor
 
@@ -650,7 +703,7 @@ class BoardManager:
                 ):
                     continue
 
-                marker = board.markers.get(n_key)
+                marker = BoardManager.get_marker(neighbor, board)
                 if marker is not None:
                     visited.add(n_key)
                     border_markers[n_key] = neighbor
@@ -752,7 +805,7 @@ class BoardManager:
             if BoardManager.get_stack(next_pos, board):
                 break
 
-            marker = board.markers.get(next_pos.to_key())
+            marker = BoardManager.get_marker(next_pos, board)
             if marker is None or marker.player != player:
                 break
 
@@ -770,7 +823,7 @@ class BoardManager:
             if BoardManager.get_stack(prev_pos, board):
                 break
 
-            marker = board.markers.get(prev_pos.to_key())
+            marker = BoardManager.get_marker(prev_pos, board)
             if marker is None or marker.player != player:
                 break
 
@@ -818,15 +871,19 @@ class BoardManager:
     ):
         pos_key = position.to_key()
         board.collapsed_spaces[pos_key] = player_number
-        # Remove any marker at this position
-        if pos_key in board.markers:
-            del board.markers[pos_key]
+        # Remove any marker at this position (try multiple key formats for hex)
+        for key in _get_position_keys_for_lookup(position, board.type):
+            if key in board.markers:
+                del board.markers[key]
+                break
 
     @staticmethod
     def remove_stack(position: Position, board: BoardState):
-        pos_key = position.to_key()
-        if pos_key in board.stacks:
-            del board.stacks[pos_key]
+        # Try multiple key formats for hex boards
+        for pos_key in _get_position_keys_for_lookup(position, board.type):
+            if pos_key in board.stacks:
+                del board.stacks[pos_key]
+                break
 
     @staticmethod
     def set_stack(position: Position, stack: RingStack, board: BoardState):

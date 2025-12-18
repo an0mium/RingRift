@@ -175,6 +175,26 @@ class RegionCache:
         self.active_players = active_players.copy()
 
 
+def _normalize_key_for_hex(key: str, board_type: str) -> str:
+    """
+    Normalize a position key to match geometry cache format.
+
+    For hexagonal boards, board.markers/stacks may use "x,y" keys (when Position.z is None)
+    but the geometry cache uses "x,y,z" keys. This function converts "x,y" -> "x,y,z"
+    where z = -x - y for cube coordinates.
+    """
+    if board_type != "hexagonal":
+        return key
+
+    parts = key.split(",")
+    if len(parts) == 2:
+        # Convert "x,y" to "x,y,z" for hex boards
+        x, y = int(parts[0]), int(parts[1])
+        z = -x - y
+        return f"{x},{y},{z}"
+    return key
+
+
 def find_disconnected_regions_fast(
     board: 'BoardState',
     player_number: int,
@@ -221,22 +241,26 @@ def find_disconnected_regions_fast(
         marker_colors.add(marker.player)
 
     # Build position -> marker color mapping
+    # Normalize keys for hex boards (convert "x,y" to "x,y,z")
     marker_at = {}
     for key, marker in board.markers.items():
-        if key in geo.position_to_idx:
-            marker_at[geo.position_to_idx[key]] = marker.player
+        normalized_key = _normalize_key_for_hex(key, board_type_str)
+        if normalized_key in geo.position_to_idx:
+            marker_at[geo.position_to_idx[normalized_key]] = marker.player
 
     # Build collapsed position set
     collapsed = set()
     for key in board.collapsed_spaces:
-        if key in geo.position_to_idx:
-            collapsed.add(geo.position_to_idx[key])
+        normalized_key = _normalize_key_for_hex(key, board_type_str)
+        if normalized_key in geo.position_to_idx:
+            collapsed.add(geo.position_to_idx[normalized_key])
 
     # Build stack position -> controlling player mapping
     stack_at = {}
     for key, stack in board.stacks.items():
-        if key in geo.position_to_idx:
-            stack_at[geo.position_to_idx[key]] = stack.controlling_player
+        normalized_key = _normalize_key_for_hex(key, board_type_str)
+        if normalized_key in geo.position_to_idx:
+            stack_at[geo.position_to_idx[normalized_key]] = stack.controlling_player
 
     # Find regions for each border color
     for border_color in marker_colors:

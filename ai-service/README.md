@@ -156,6 +156,21 @@ python -m app.training.train \
   --output models/my_model.pth
 ```
 
+### Training Optimizations
+
+**Large Datasets (>5GB):** The training pipeline automatically enables streaming mode for datasets exceeding 5GB to prevent out-of-memory issues. Configure the threshold via `RINGRIFT_AUTO_STREAMING_THRESHOLD_GB`.
+
+**HDF5 Format (15-25% faster):** Convert NPZ training data to HDF5 for faster batch loading:
+
+```bash
+python scripts/convert_npz_to_hdf5.py \
+  --input-dir data/selfplay \
+  --output-dir data/selfplay_hdf5 \
+  --verify
+```
+
+HDF5 files support native fancy indexing, eliminating the per-sample loading overhead of memory-mapped NPZ files.
+
 ### Distributed Training
 
 For multi-GPU training across a cluster:
@@ -207,6 +222,26 @@ python scripts/p2p_orchestrator.py --node-id my-node
 # 4. Check cluster status
 curl http://localhost:8770/health
 ```
+
+### Model Distribution
+
+Models can be distributed across the cluster using HTTP or BitTorrent:
+
+```bash
+# HTTP distribution (simple, works with aria2c)
+python scripts/p2p_model_distribution.py serve --models-dir models/
+
+# BitTorrent distribution (faster for large clusters)
+python scripts/p2p_model_distribution.py create-torrent \
+  --models-dir models/ \
+  --output models.torrent
+
+python scripts/p2p_model_distribution.py swarm-sync \
+  --torrent models.torrent \
+  --peers 192.168.1.10,192.168.1.11
+```
+
+BitTorrent mode enables peer-to-peer model sharing, reducing bandwidth on the model server and speeding up cluster-wide updates.
 
 ### Configuration Files
 
