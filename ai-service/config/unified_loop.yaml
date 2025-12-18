@@ -48,7 +48,11 @@ training:
   # V3 training scripts (unified pipeline)
   nn_training_script: 'scripts/run_nn_training_baseline.py'
   export_script: 'scripts/export_replay_dataset.py'
-  hex_encoder_version: 'v3' # Use HexStateEncoderV3 (16 channels x 4 = 64)
+  hex_encoder_version: 'v4' # Use HexStateEncoderV4 (larger architecture for stronger models)
+  # Enhanced training features
+  use_knowledge_distill: true # Enable ensemble distillation
+  enable_elo_weighting: true # Weight samples by opponent strength
+  enable_transfer_learning: true # Enable cross-board transfer
   # Additional options
   warm_start: true # Continue from previous checkpoint if available
   validation_split: 0.1 # Hold out 10% for validation

@@ -145,6 +145,15 @@ CANONICAL_DIFFICULTY_PROFILES: Dict[int, DifficultyProfile] = {
         "profile_id": "v1-descent-10",
         "use_neural_net": True,
     },
+    11: {
+        # Ultimate: super-hard mode with extended think time
+        # This level is intended to be nearly unbeatable by humans
+        "ai_type": AIType.DESCENT,
+        "randomness": 0.0,
+        "think_time_ms": 60000,  # 60 seconds per move
+        "profile_id": "v1-descent-11-ultimate",
+        "use_neural_net": True,
+    },
 }
 
 # Difficulty level descriptions for UI/documentation
@@ -159,6 +168,7 @@ DIFFICULTY_DESCRIPTIONS: Dict[int, str] = {
     8: "Strong Expert - MCTS with large search budget",
     9: "Master - Descent/UBFM search with neural guidance",
     10: "Grandmaster - Maximum strength Descent search",
+    11: "Ultimate - Super-hard mode with 60s think time (nearly unbeatable)",
 }
 
 
@@ -170,16 +180,16 @@ DIFFICULTY_DESCRIPTIONS: Dict[int, str] = {
 def get_difficulty_profile(difficulty: int) -> DifficultyProfile:
     """Return the canonical difficulty profile for the given ladder level.
 
-    Difficulty is clamped into [1, 10] so that out-of-range values still map
+    Difficulty is clamped into [1, 11] so that out-of-range values still map
     to a well-defined profile instead of silently diverging between callers.
 
     Args:
-        difficulty: Difficulty level (1-10, clamped if out of range)
+        difficulty: Difficulty level (1-11, clamped if out of range)
 
     Returns:
         DifficultyProfile with ai_type, randomness, think_time_ms, etc.
     """
-    effective = max(1, min(10, difficulty))
+    effective = max(1, min(11, difficulty))
     return CANONICAL_DIFFICULTY_PROFILES[effective]
 
 
@@ -438,7 +448,7 @@ class AIFactory:
         profile = get_difficulty_profile(difficulty)
 
         config = AIConfig(
-            difficulty=max(1, min(10, difficulty)),
+            difficulty=max(1, min(11, difficulty)),
             think_time=think_time_override or profile["think_time_ms"],
             randomness=randomness_override if randomness_override is not None else profile["randomness"],
             rng_seed=rng_seed,
@@ -660,10 +670,10 @@ def get_difficulty_description(difficulty: int) -> str:
     """Get human-readable description for a difficulty level.
 
     Args:
-        difficulty: Difficulty level (1-10)
+        difficulty: Difficulty level (1-11)
 
     Returns:
         Human-readable description
     """
-    effective = max(1, min(10, difficulty))
+    effective = max(1, min(11, difficulty))
     return DIFFICULTY_DESCRIPTIONS.get(effective, f"Difficulty {effective}")
