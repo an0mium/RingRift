@@ -2680,11 +2680,17 @@ def test_training_produces_consistent_loss():
 
 **3.3.3 GPU Training Regression:**
 
-- [ ] Fixed training dataset for regression tests - Not yet created
-- [ ] test_training_regression.py with @pytest.mark.gpu - Not yet created
+- [x] Fixed training dataset for regression tests ✅ Created synthetic_training_data fixture
+- [x] test_training_regression.py with @pytest.mark.gpu ✅ 16 tests covering:
+  - Data consistency (3 tests)
+  - GPU training basics (3 tests)
+  - Core regression tests: loss decrease, gradient norms, determinism, checkpoints (4 tests)
+  - GPU vs CPU parity (2 tests)
+  - Memory behavior (2 tests)
+  - Real component integration (2 tests)
 - [ ] Nightly CI job for GPU tests - CI exists but needs specific job
 
-**Note:** Substantial test coverage exists (2025-12-17). Additional fixtures/edge cases are enhancement items.
+**Note:** Substantial test coverage exists (2025-12-17). GPU regression tests added (2025-12-17).
 
 ---
 
