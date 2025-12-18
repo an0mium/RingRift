@@ -28,10 +28,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import gzip
 import hashlib
 import ipaddress
 import json
+import logging
 import os
 import secrets
 import shutil
@@ -48,8 +50,81 @@ from dataclasses import dataclass, field, asdict, fields as dataclass_fields
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Generator
 import yaml
+
+# Configure logging for the orchestrator
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger('p2p_orchestrator')
+
+
+@contextlib.contextmanager
+def db_connection(db_path: str | Path, timeout: float = 30.0) -> Generator[sqlite3.Connection, None, None]:
+    """Context manager for SQLite connections to prevent leaks.
+
+    Usage:
+        with db_connection(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(...)
+    """
+    conn = None
+    try:
+        conn = sqlite3.connect(str(db_path), timeout=timeout)
+        yield conn
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def retry_operation(
+    func,
+    max_retries: int = 3,
+    initial_delay: float = 1.0,
+    backoff_factor: float = 2.0,
+    exceptions: tuple = (Exception,),
+):
+    """Retry a function with exponential backoff.
+
+    Args:
+        func: Function to retry (should be a callable with no args)
+        max_retries: Maximum number of retry attempts
+        initial_delay: Initial delay between retries in seconds
+        backoff_factor: Multiplier for delay after each retry
+        exceptions: Tuple of exception types to catch and retry
+
+    Returns:
+        The result of the function call
+
+    Raises:
+        The last exception if all retries fail
+    """
+    delay = initial_delay
+    last_exception = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            return func()
+        except exceptions as e:
+            last_exception = e
+            if attempt < max_retries:
+                logger.warning(
+                    f"Operation failed (attempt {attempt + 1}/{max_retries + 1}): {e}. "
+                    f"Retrying in {delay:.1f}s..."
+                )
+                time.sleep(delay)
+                delay *= backoff_factor
+            else:
+                logger.error(f"Operation failed after {max_retries + 1} attempts: {e}")
+
+    raise last_exception
+
 
 # Centralized ramdrive utilities for auto-detection
 from app.utils.ramdrive import (
@@ -2256,6 +2331,7 @@ class P2POrchestrator:
 
     def _load_state(self):
         """Load persisted state from database."""
+        conn = None
         try:
             conn = sqlite3.connect(str(self.db_path))
             cursor = conn.cursor()
@@ -2357,13 +2433,16 @@ class P2POrchestrator:
                 self.leader_lease_expires = 0.0
                 self.last_lease_renewal = 0.0
 
-            conn.close()
             print(f"[P2P] Loaded state: {len(self.peers)} peers, {len(self.local_jobs)} jobs")
         except Exception as e:
             print(f"[P2P] Failed to load state: {e}")
+        finally:
+            if conn:
+                conn.close()
 
     def _save_state(self):
         """Save current state to database."""
+        conn = None
         try:
             conn = sqlite3.connect(str(self.db_path))
             cursor = conn.cursor()
@@ -2411,9 +2490,11 @@ class P2POrchestrator:
                 )
 
             conn.commit()
-            conn.close()
         except Exception as e:
             print(f"[P2P] Failed to save state: {e}")
+        finally:
+            if conn:
+                conn.close()
 
     # Class-level metrics buffer for batched writes (5% speedup)
     _metrics_buffer: List[Tuple] = []
@@ -2470,6 +2551,7 @@ class P2POrchestrator:
             self._metrics_buffer.clear()
             self._metrics_last_flush = time.time()
 
+        conn = None
         try:
             conn = sqlite3.connect(str(self.db_path))
             cursor = conn.cursor()
@@ -2479,9 +2561,11 @@ class P2POrchestrator:
                 VALUES (?, ?, ?, ?, ?, ?)
             """, entries)
             conn.commit()
-            conn.close()
         except Exception as e:
             print(f"[P2P] Failed to flush metrics buffer ({len(entries)} entries): {e}")
+        finally:
+            if conn:
+                conn.close()
 
     def get_metrics_history(
         self,
@@ -2492,6 +2576,7 @@ class P2POrchestrator:
         limit: int = 1000,
     ) -> List[Dict[str, Any]]:
         """Get metrics history for a specific metric type."""
+        conn = None
         try:
             conn = sqlite3.connect(str(self.db_path))
             cursor = conn.cursor()
@@ -2524,14 +2609,17 @@ class P2POrchestrator:
                     "num_players": row[3],
                     "metadata": json.loads(row[4]) if row[4] else None,
                 })
-            conn.close()
             return results
         except Exception as e:
             print(f"[P2P] Failed to get metrics history: {e}")
             return []
+        finally:
+            if conn:
+                conn.close()
 
     def get_metrics_summary(self, hours: float = 24) -> Dict[str, Any]:
         """Get summary of all metrics over the specified time period."""
+        conn = None
         try:
             conn = sqlite3.connect(str(self.db_path))
             cursor = conn.cursor()
@@ -2567,11 +2655,13 @@ class P2POrchestrator:
                     summary[row[0]]["latest"] = row[1]
                     summary[row[0]]["latest_time"] = row[2]
 
-            conn.close()
             return {"period_hours": hours, "since": since, "metrics": summary}
         except Exception as e:
             print(f"[P2P] Failed to get metrics summary: {e}")
             return {}
+        finally:
+            if conn:
+                conn.close()
 
     def _create_self_info(self) -> NodeInfo:
         """Create NodeInfo for this node."""
@@ -3202,16 +3292,18 @@ class P2POrchestrator:
                                     pass
                             # Count games in SQLite databases
                             elif rel_path.endswith(".db"):
+                                db_conn = None
                                 try:
-                                    import sqlite3
-                                    conn = sqlite3.connect(str(file_path), timeout=5)
-                                    cursor = conn.execute("SELECT COUNT(*) FROM games")
+                                    db_conn = sqlite3.connect(str(file_path), timeout=5)
+                                    cursor = db_conn.execute("SELECT COUNT(*) FROM games")
                                     game_count = cursor.fetchone()[0]
-                                    conn.close()
                                     file_info.game_count = game_count
                                     manifest.selfplay_games += game_count
                                 except Exception:
                                     pass
+                                finally:
+                                    if db_conn:
+                                        db_conn.close()
                         elif file_type == "model":
                             manifest.model_count += 1
                         elif file_type == "training":
@@ -4529,6 +4621,7 @@ class P2POrchestrator:
                 continue
 
             db_path = games_dir / f"jsonl_converted_{board_key}.db"
+            conn = None
             try:
                 conn = sqlite3.connect(str(db_path), timeout=30.0)
                 conn.execute("PRAGMA journal_mode=WAL")
@@ -4605,7 +4698,6 @@ class P2POrchestrator:
                         continue
 
                 conn.commit()
-                conn.close()
                 total_converted += games_added
 
                 if games_added > 0:
@@ -4613,6 +4705,9 @@ class P2POrchestrator:
 
             except Exception as e:
                 print(f"[P2P] Error creating DB for {board_key}: {e}")
+            finally:
+                if conn:
+                    conn.close()
 
         # Update converted files marker
         if newly_converted:
