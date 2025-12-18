@@ -2076,6 +2076,9 @@ class UnifiedLoopState:
 
         if "configs" in data:
             for key, config_data in data["configs"].items():
+                # Convert nested feedback dict to FeedbackState object
+                if 'feedback' in config_data and isinstance(config_data['feedback'], dict):
+                    config_data['feedback'] = FeedbackState(**config_data['feedback'])
                 state.configs[key] = ConfigState(**config_data)
 
         if "curriculum_weights" in data:
@@ -2508,12 +2511,12 @@ class UnifiedAILoop:
         self.model_registry: Optional[ModelRegistry] = None
         if HAS_MODEL_REGISTRY:
             try:
-                registry_path = AI_SERVICE_ROOT / "data" / "model_registry.db"
-                self.model_registry = ModelRegistry(db_path=registry_path)
+                registry_dir = AI_SERVICE_ROOT / "data" / "model_registry"
+                self.model_registry = ModelRegistry(registry_dir=registry_dir)
                 # Subscribe to events for model lifecycle tracking
                 self.event_bus.subscribe(DataEventType.TRAINING_COMPLETED, self._on_training_for_model_registry)
                 self.event_bus.subscribe(DataEventType.MODEL_PROMOTED, self._on_promotion_for_model_registry)
-                print(f"[UnifiedLoop] Model registry initialized with event handlers: {registry_path}")
+                print(f"[UnifiedLoop] Model registry initialized with event handlers: {registry_dir}")
             except Exception as e:
                 print(f"[UnifiedLoop] Warning: Failed to initialize model registry: {e}")
 

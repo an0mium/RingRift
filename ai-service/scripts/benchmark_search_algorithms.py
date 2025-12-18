@@ -34,6 +34,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# Disable torch dynamo to avoid triton compilation issues on some systems
+os.environ.setdefault("TORCH_COMPILE_DISABLE", "1")
+os.environ.setdefault("TORCHDYNAMO_DISABLE", "1")
+
 # Add ai-service to path
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(AI_SERVICE_ROOT))
@@ -83,13 +87,13 @@ def get_best_model_id(board_type: BoardType, num_players: int = 2) -> Optional[s
     Returns:
         Model ID string or None if no model available
     """
-    # Map board types to model naming conventions
+    # Map board types to model naming conventions (use short names that match actual files)
     board_prefix_map = {
-        BoardType.SQUARE8: "square8",
-        BoardType.SQUARE19: "square19",
-        BoardType.HEXAGONAL: "hexagonal",
+        BoardType.SQUARE8: "sq8",
+        BoardType.SQUARE19: "sq19",
+        BoardType.HEXAGONAL: "hex",
     }
-    prefix = board_prefix_map.get(board_type, "square8")
+    prefix = board_prefix_map.get(board_type, "sq8")
 
     # Standard model ID format used by the training pipeline
     model_id = f"ringrift_best_{prefix}_{num_players}p"
@@ -289,17 +293,17 @@ def run_benchmark(
 
     # Log which model we're using
     model_id = get_best_model_id(board_type, num_players)
-    print(f"\nUsing model: {model_id}")
+    print(f"\nUsing model: {model_id}", flush=True)
 
     # Generate all matchups (each pair plays in both color assignments)
     for think_time in think_times:
-        print(f"\n{'='*60}")
-        print(f"Testing at think_time = {think_time}ms")
-        print(f"{'='*60}")
+        print(f"\n{'='*60}", flush=True)
+        print(f"Testing at think_time = {think_time}ms", flush=True)
+        print(f"{'='*60}", flush=True)
 
         for i, algo1 in enumerate(algorithms):
             for algo2 in algorithms[i+1:]:
-                print(f"\n  {algo1} vs {algo2} ({games_per_matchup} games each way)")
+                print(f"\n  {algo1} vs {algo2} ({games_per_matchup} games each way)", flush=True)
 
                 algo1_wins = 0
                 algo2_wins = 0
@@ -370,8 +374,8 @@ def run_benchmark(
                 results.append(bench_result)
 
                 # Print summary
-                print(f"    Results: {algo1}={algo1_wins}, {algo2}={algo2_wins}, draws={draws}")
-                print(f"    {algo1} win rate: {bench_result.algo1_win_rate:.1%}")
+                print(f"    Results: {algo1}={algo1_wins}, {algo2}={algo2_wins}, draws={draws}", flush=True)
+                print(f"    {algo1} win rate: {bench_result.algo1_win_rate:.1%}", flush=True)
 
     return results
 
@@ -517,15 +521,15 @@ def main():
     }
     board_type = board_type_map[args.board]
 
-    print("="*70)
-    print("SEARCH ALGORITHM BENCHMARK")
-    print("="*70)
-    print(f"Algorithms:  {', '.join(algorithms)}")
-    print(f"Think times: {', '.join(str(t) + 'ms' for t in think_times)}")
-    print(f"Games/matchup: {args.games}")
-    print(f"Board type:  {args.board}")
-    print(f"Players:     {args.players}")
-    print("="*70)
+    print("="*70, flush=True)
+    print("SEARCH ALGORITHM BENCHMARK", flush=True)
+    print("="*70, flush=True)
+    print(f"Algorithms:  {', '.join(algorithms)}", flush=True)
+    print(f"Think times: {', '.join(str(t) + 'ms' for t in think_times)}", flush=True)
+    print(f"Games/matchup: {args.games}", flush=True)
+    print(f"Board type:  {args.board}", flush=True)
+    print(f"Players:     {args.players}", flush=True)
+    print("="*70, flush=True)
 
     # Run benchmark
     results = run_benchmark(
