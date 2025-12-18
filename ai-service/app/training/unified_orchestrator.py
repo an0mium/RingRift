@@ -105,8 +105,8 @@ class OrchestratorConfig:
     enable_curriculum: bool = True
     enable_augmentation: bool = True
 
-    # Background evaluation
-    enable_background_eval: bool = False
+    # Background evaluation (enabled by default for continuous Elo tracking)
+    enable_background_eval: bool = True
     eval_interval_steps: int = 1000
     eval_games_per_check: int = 20
 

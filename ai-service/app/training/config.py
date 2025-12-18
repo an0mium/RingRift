@@ -673,8 +673,8 @@ class EvaluationConfig:
     games_per_eval: int = 20
     eval_opponents: str = "previous"  # 'previous', 'baseline', 'both'
 
-    # Background evaluation (run in separate process)
-    enable_background_eval: bool = False
+    # Background evaluation (run in separate process for continuous Elo tracking)
+    enable_background_eval: bool = True
 
     # Elo tracking
     track_elo: bool = True

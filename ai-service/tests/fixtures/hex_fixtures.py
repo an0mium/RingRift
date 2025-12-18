@@ -398,11 +398,20 @@ def create_hex_board_with_stacks(
     for coord, stack_list in stacks.items():
         x, y = coord.to_offset(size)
         key = f"{x},{y}"
-        owner = stack_list[-1] if stack_list else 0
+        controller = stack_list[0] if stack_list else 0  # Bottom ring controls
+        # Calculate cap height (consecutive rings at top from same player)
+        cap_height = 0
+        for ring in stack_list:
+            if ring == controller:
+                cap_height += 1
+            else:
+                break
         board_stacks[key] = RingStack(
-            owner=owner,
-            height=len(stack_list),
+            position=Position(x=x, y=y),
             rings=stack_list,
+            stackHeight=len(stack_list),
+            capHeight=cap_height,
+            controllingPlayer=controller,
         )
         for player in stack_list:
             rings_used[player] += 1
