@@ -1,6 +1,91 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import os
 from typing import Dict, Optional
 from app.models import BoardType
+
+
+# =============================================================================
+# GPU Scaling Configuration
+# =============================================================================
+
+@dataclass
+class GpuScalingConfig:
+    """Configuration for GPU-based batch size scaling.
+
+    Extracts magic numbers from _scale_batch_size_for_gpu for configurability.
+    Can be overridden via environment variables with RINGRIFT_GPU_ prefix.
+    """
+    # Memory per sample estimates (MB)
+    mem_per_sample_large_policy_mb: float = 0.5   # Policies > 50k (Hex, Square19)
+    mem_per_sample_medium_policy_mb: float = 0.2  # Policies 10k-50k
+    mem_per_sample_small_policy_mb: float = 0.1   # Policies < 10k
+
+    # Policy size thresholds
+    large_policy_threshold: int = 50000
+    medium_policy_threshold: int = 10000
+
+    # Memory reserved for model and overhead (GB)
+    reserved_memory_gb: float = 8.0
+
+    # GPU memory tiers and their batch multipliers
+    gh200_memory_threshold_gb: float = 90.0   # GH200 class (96GB)
+    gh200_batch_multiplier: int = 32
+
+    h100_memory_threshold_gb: float = 70.0    # H100 class (80GB)
+    h100_batch_multiplier: int = 16
+
+    a100_memory_threshold_gb: float = 30.0    # A100 class (40-80GB)
+    a100_batch_multiplier: int = 8
+
+    rtx_memory_threshold_gb: float = 16.0     # RTX 3090/4090 class
+    rtx_batch_multiplier: int = 4
+
+    consumer_batch_multiplier: int = 2        # Consumer GPUs (<16GB)
+
+    # Maximum batch size cap
+    max_batch_size: int = 8192
+
+    @classmethod
+    def from_env(cls) -> "GpuScalingConfig":
+        """Create config from environment variables."""
+        config = cls()
+        env_prefix = "RINGRIFT_GPU_"
+
+        # Override from environment if set
+        for field_name in [
+            "reserved_memory_gb", "max_batch_size",
+            "gh200_batch_multiplier", "h100_batch_multiplier",
+            "a100_batch_multiplier", "rtx_batch_multiplier",
+        ]:
+            env_var = f"{env_prefix}{field_name.upper()}"
+            if env_var in os.environ:
+                try:
+                    value = os.environ[env_var]
+                    if "." in value:
+                        setattr(config, field_name, float(value))
+                    else:
+                        setattr(config, field_name, int(value))
+                except ValueError:
+                    pass
+        return config
+
+
+# Default GPU scaling configuration (can be overridden via from_env())
+_gpu_scaling_config: Optional[GpuScalingConfig] = None
+
+
+def get_gpu_scaling_config() -> GpuScalingConfig:
+    """Get the GPU scaling configuration, loading from env if not set."""
+    global _gpu_scaling_config
+    if _gpu_scaling_config is None:
+        _gpu_scaling_config = GpuScalingConfig.from_env()
+    return _gpu_scaling_config
+
+
+def set_gpu_scaling_config(config: GpuScalingConfig) -> None:
+    """Set a custom GPU scaling configuration."""
+    global _gpu_scaling_config
+    _gpu_scaling_config = config
 
 
 def _get_gpu_memory_gb() -> float:
@@ -15,46 +100,55 @@ def _get_gpu_memory_gb() -> float:
     return 0.0
 
 
-def _scale_batch_size_for_gpu(base_batch: int, policy_size: int = 7000) -> int:
+def _scale_batch_size_for_gpu(
+    base_batch: int,
+    policy_size: int = 7000,
+    config: Optional[GpuScalingConfig] = None,
+) -> int:
     """Scale batch size based on available GPU memory.
 
-    H100 (80GB): 16x multiplier for small policies, 8x for large
-    A100 (40-80GB): 8x multiplier for small, 4x for large
-    Consumer GPUs (8-24GB): 2-4x multiplier
+    Uses GpuScalingConfig for all thresholds and multipliers, making the
+    scaling behavior configurable via environment variables or explicit config.
+
+    Args:
+        base_batch: Base batch size to scale from
+        policy_size: Size of policy output (affects memory per sample)
+        config: Optional custom config; uses get_gpu_scaling_config() if None
     """
+    cfg = config or get_gpu_scaling_config()
     gpu_mem = _get_gpu_memory_gb()
+
     if gpu_mem <= 0:
         return base_batch  # No GPU, use default
 
-    # Estimate memory multiplier based on policy size
-    # Larger policies need more memory per sample
-    if policy_size > 50000:  # Hex, Square19
-        mem_per_sample_mb = 0.5  # ~0.5MB per sample for large policies
-    elif policy_size > 10000:
-        mem_per_sample_mb = 0.2  # ~0.2MB for medium policies
+    # Estimate memory per sample based on policy size
+    if policy_size > cfg.large_policy_threshold:
+        mem_per_sample_mb = cfg.mem_per_sample_large_policy_mb
+    elif policy_size > cfg.medium_policy_threshold:
+        mem_per_sample_mb = cfg.mem_per_sample_medium_policy_mb
     else:
-        mem_per_sample_mb = 0.1  # ~0.1MB for small policies
+        mem_per_sample_mb = cfg.mem_per_sample_small_policy_mb
 
-    # Reserve 8GB for model + overhead, use rest for batches
-    available_gb = max(0, gpu_mem - 8)
+    # Reserve memory for model + overhead
+    available_gb = max(0, gpu_mem - cfg.reserved_memory_gb)
     available_mb = available_gb * 1024
 
     # Calculate max batch size that fits in memory
     max_batch = int(available_mb / mem_per_sample_mb)
 
-    # Scale up from base but cap at max
-    if gpu_mem >= 90:  # GH200 class (96GB)
-        scaled = base_batch * 32
-    elif gpu_mem >= 70:  # H100 class (80GB)
-        scaled = base_batch * 16
-    elif gpu_mem >= 30:  # A100 class
-        scaled = base_batch * 8
-    elif gpu_mem >= 16:  # RTX 3090/4090 class
-        scaled = base_batch * 4
-    else:  # Consumer GPUs
-        scaled = base_batch * 2
+    # Scale up from base based on GPU tier
+    if gpu_mem >= cfg.gh200_memory_threshold_gb:
+        scaled = base_batch * cfg.gh200_batch_multiplier
+    elif gpu_mem >= cfg.h100_memory_threshold_gb:
+        scaled = base_batch * cfg.h100_batch_multiplier
+    elif gpu_mem >= cfg.a100_memory_threshold_gb:
+        scaled = base_batch * cfg.a100_batch_multiplier
+    elif gpu_mem >= cfg.rtx_memory_threshold_gb:
+        scaled = base_batch * cfg.rtx_batch_multiplier
+    else:
+        scaled = base_batch * cfg.consumer_batch_multiplier
 
-    return min(scaled, max_batch, 8192)  # Cap at 8192
+    return min(scaled, max_batch, cfg.max_batch_size)
 
 
 class BatchSizeAutoTuner:
@@ -488,3 +582,380 @@ BOARD_TRAINING_CONFIGS: Dict[BoardType, Dict[str, any]] = {
         "description": "Full-capacity hex baseline (v2-family)",
     },
 }
+
+
+# =============================================================================
+# Unified Training Pipeline Configuration
+# =============================================================================
+
+
+@dataclass
+class SelfPlayConfig:
+    """Configuration for self-play data generation.
+
+    Controls how training games are generated during the self-play phase
+    of the training pipeline.
+    """
+    # Number of games to generate per iteration
+    games_per_iteration: int = 500
+
+    # Parallel game settings
+    batch_size: int = 64  # Games per GPU batch
+    num_workers: int = 4  # CPU worker processes for game setup
+
+    # Game rules
+    max_moves: int = 500  # Maximum moves before draw
+    repetition_threshold: int = 3  # Draw on N-fold repetition (0 = disabled)
+    swap_enabled: bool = False  # Pie rule for 2-player games
+
+    # Move selection
+    temperature: float = 1.0  # MCTS/policy temperature
+    noise_scale: float = 0.25  # Dirichlet noise scale
+    random_opening_moves: int = 0  # Random moves at start for diversity
+
+    # Quality tracking
+    min_unique_positions: int = 50  # Reject games with fewer unique positions
+
+
+@dataclass
+class DataConfig:
+    """Configuration for training data handling."""
+    # Data paths
+    data_dir: str = "data/training"
+    cache_dir: str = "data/cache"
+
+    # Train/validation split
+    val_split: float = 0.1
+
+    # Data augmentation
+    enable_augmentation: bool = True
+    augmentation_factor: int = 8  # D4 symmetry gives 8x for square boards
+
+    # Prefetch settings
+    enable_prefetch: bool = True
+    prefetch_count: int = 2
+    pin_memory: bool = True
+
+    # Streaming settings
+    use_streaming: bool = False  # Stream from disk vs load all to memory
+    shuffle_buffer_size: int = 10000
+
+
+@dataclass
+class CheckpointConfig:
+    """Configuration for model checkpointing."""
+    # Checkpoint directory
+    checkpoint_dir: str = "data/checkpoints"
+
+    # Save frequency
+    save_interval_steps: int = 1000
+    save_interval_epochs: int = 1
+
+    # Retention
+    keep_top_k: int = 3  # Keep top K checkpoints by validation loss
+    keep_last_k: int = 2  # Also keep last K regardless of performance
+
+    # Auto-resume
+    auto_resume: bool = True
+
+    # Async checkpointing (non-blocking I/O)
+    async_save: bool = True
+
+
+@dataclass
+class EvaluationConfig:
+    """Configuration for model evaluation during training."""
+    # Evaluation frequency
+    eval_interval_steps: int = 1000
+    eval_interval_epochs: int = 1
+
+    # Evaluation games
+    games_per_eval: int = 20
+    eval_opponents: str = "previous"  # 'previous', 'baseline', 'both'
+
+    # Background evaluation (run in separate process)
+    enable_background_eval: bool = False
+
+    # Elo tracking
+    track_elo: bool = True
+    initial_elo: float = 1500.0
+
+
+@dataclass
+class TrainingPipelineConfig:
+    """Unified configuration for the entire training pipeline.
+
+    This config brings together all aspects of the training pipeline:
+    - Model architecture (via TrainConfig)
+    - GPU memory management (via GpuScalingConfig)
+    - Self-play data generation
+    - Data handling
+    - Checkpointing
+    - Evaluation
+
+    Example usage:
+        # Create default config for hex8
+        config = TrainingPipelineConfig.for_board_type(BoardType.HEX8)
+
+        # Override specific settings
+        config.train.learning_rate = 1e-4
+        config.selfplay.games_per_iteration = 1000
+
+        # Save config for reproducibility
+        config.save("experiments/hex8_run1/config.yaml")
+
+        # Load config
+        config = TrainingPipelineConfig.load("experiments/hex8_run1/config.yaml")
+    """
+    # Core training config (model architecture, hyperparameters)
+    train: TrainConfig = field(default_factory=TrainConfig)
+
+    # GPU scaling config
+    gpu: GpuScalingConfig = field(default_factory=GpuScalingConfig)
+
+    # Self-play config
+    selfplay: SelfPlayConfig = field(default_factory=SelfPlayConfig)
+
+    # Data handling config
+    data: DataConfig = field(default_factory=DataConfig)
+
+    # Checkpoint config
+    checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
+
+    # Evaluation config
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
+
+    # Experiment metadata
+    experiment_name: str = ""
+    description: str = ""
+    tags: Dict[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def for_board_type(
+        cls,
+        board_type: BoardType,
+        num_players: int = 2,
+    ) -> "TrainingPipelineConfig":
+        """Create a config optimized for a specific board type.
+
+        Args:
+            board_type: Board type to configure for
+            num_players: Number of players (affects model architecture)
+
+        Returns:
+            TrainingPipelineConfig with board-appropriate defaults
+        """
+        config = cls()
+        config.train = get_training_config_for_board(board_type)
+
+        # Adjust selfplay settings based on board complexity
+        if board_type in (BoardType.SQUARE19, BoardType.HEXAGONAL):
+            # Larger boards need more diverse games
+            config.selfplay.games_per_iteration = 1000
+            config.selfplay.batch_size = 32  # Smaller batches for memory
+            config.selfplay.max_moves = 1000
+        elif board_type == BoardType.HEX8:
+            config.selfplay.games_per_iteration = 500
+            config.selfplay.batch_size = 64
+            config.selfplay.max_moves = 500
+        else:  # SQUARE8
+            config.selfplay.games_per_iteration = 500
+            config.selfplay.batch_size = 64
+            config.selfplay.max_moves = 500
+
+        # Set experiment metadata
+        config.experiment_name = f"{board_type.value}_{num_players}p"
+        config.tags = {
+            "board_type": board_type.value,
+            "num_players": str(num_players),
+        }
+
+        return config
+
+    @classmethod
+    def from_env(cls) -> "TrainingPipelineConfig":
+        """Create config from environment variables.
+
+        Environment variables (all optional, with RINGRIFT_ prefix):
+            RINGRIFT_BOARD_TYPE: Board type (square8, square19, hex8, hexagonal)
+            RINGRIFT_NUM_PLAYERS: Number of players
+            RINGRIFT_LEARNING_RATE: Learning rate
+            RINGRIFT_BATCH_SIZE: Batch size
+            RINGRIFT_EPOCHS: Number of epochs
+            RINGRIFT_DATA_DIR: Training data directory
+            RINGRIFT_CHECKPOINT_DIR: Checkpoint directory
+        """
+        config = cls()
+
+        # Board type
+        board_type_str = os.environ.get("RINGRIFT_BOARD_TYPE", "square8").lower()
+        board_type_map = {
+            "square8": BoardType.SQUARE8,
+            "square19": BoardType.SQUARE19,
+            "hex8": BoardType.HEX8,
+            "hexagonal": BoardType.HEXAGONAL,
+        }
+        if board_type_str in board_type_map:
+            config = cls.for_board_type(board_type_map[board_type_str])
+
+        # Override from env
+        if "RINGRIFT_LEARNING_RATE" in os.environ:
+            config.train.learning_rate = float(os.environ["RINGRIFT_LEARNING_RATE"])
+        if "RINGRIFT_BATCH_SIZE" in os.environ:
+            config.train.batch_size = int(os.environ["RINGRIFT_BATCH_SIZE"])
+        if "RINGRIFT_EPOCHS" in os.environ:
+            config.train.epochs_per_iter = int(os.environ["RINGRIFT_EPOCHS"])
+        if "RINGRIFT_DATA_DIR" in os.environ:
+            config.data.data_dir = os.environ["RINGRIFT_DATA_DIR"]
+        if "RINGRIFT_CHECKPOINT_DIR" in os.environ:
+            config.checkpoint.checkpoint_dir = os.environ["RINGRIFT_CHECKPOINT_DIR"]
+
+        # GPU config from env
+        config.gpu = GpuScalingConfig.from_env()
+
+        return config
+
+    def save(self, path: str) -> None:
+        """Save config to YAML file.
+
+        Args:
+            path: Path to save config (creates directories if needed)
+        """
+        import json
+        from pathlib import Path as PathLib
+
+        # Ensure directory exists
+        PathLib(path).parent.mkdir(parents=True, exist_ok=True)
+
+        # Convert to dict for serialization
+        config_dict = self._to_dict()
+
+        # Save as YAML if available, else JSON
+        try:
+            import yaml
+            with open(path, "w") as f:
+                yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
+        except ImportError:
+            with open(path, "w") as f:
+                json.dump(config_dict, f, indent=2)
+
+    @classmethod
+    def load(cls, path: str) -> "TrainingPipelineConfig":
+        """Load config from YAML or JSON file.
+
+        Args:
+            path: Path to config file
+
+        Returns:
+            TrainingPipelineConfig loaded from file
+        """
+        import json
+
+        with open(path) as f:
+            content = f.read()
+
+        # Try YAML first, fall back to JSON
+        try:
+            import yaml
+            config_dict = yaml.safe_load(content)
+        except ImportError:
+            config_dict = json.loads(content)
+
+        return cls._from_dict(config_dict)
+
+    def _to_dict(self) -> Dict:
+        """Convert config to dictionary for serialization."""
+        from dataclasses import asdict
+
+        def convert(obj):
+            if hasattr(obj, "value"):  # Enum
+                return obj.value
+            return obj
+
+        result = {
+            "train": {
+                k: convert(v) for k, v in asdict(self.train).items()
+            },
+            "gpu": asdict(self.gpu),
+            "selfplay": asdict(self.selfplay),
+            "data": asdict(self.data),
+            "checkpoint": asdict(self.checkpoint),
+            "evaluation": asdict(self.evaluation),
+            "experiment_name": self.experiment_name,
+            "description": self.description,
+            "tags": self.tags,
+        }
+        return result
+
+    @classmethod
+    def _from_dict(cls, d: Dict) -> "TrainingPipelineConfig":
+        """Create config from dictionary."""
+        config = cls()
+
+        # Load train config
+        if "train" in d:
+            train_dict = d["train"]
+            if "board_type" in train_dict:
+                board_type_map = {
+                    "square8": BoardType.SQUARE8,
+                    "square19": BoardType.SQUARE19,
+                    "hex8": BoardType.HEX8,
+                    "hexagonal": BoardType.HEXAGONAL,
+                }
+                train_dict["board_type"] = board_type_map.get(
+                    train_dict["board_type"].lower(),
+                    BoardType.SQUARE8
+                )
+            config.train = TrainConfig(**{
+                k: v for k, v in train_dict.items()
+                if k in TrainConfig.__dataclass_fields__
+            })
+
+        # Load other configs
+        if "gpu" in d:
+            config.gpu = GpuScalingConfig(**d["gpu"])
+        if "selfplay" in d:
+            config.selfplay = SelfPlayConfig(**d["selfplay"])
+        if "data" in d:
+            config.data = DataConfig(**d["data"])
+        if "checkpoint" in d:
+            config.checkpoint = CheckpointConfig(**d["checkpoint"])
+        if "evaluation" in d:
+            config.evaluation = EvaluationConfig(**d["evaluation"])
+
+        # Load metadata
+        config.experiment_name = d.get("experiment_name", "")
+        config.description = d.get("description", "")
+        config.tags = d.get("tags", {})
+
+        return config
+
+    def validate(self) -> list:
+        """Validate config and return list of warnings/errors.
+
+        Returns:
+            List of validation messages (empty if valid)
+        """
+        issues = []
+
+        # Check batch size vs GPU memory
+        if self.train.batch_size > self.gpu.max_batch_size:
+            issues.append(
+                f"batch_size ({self.train.batch_size}) exceeds "
+                f"gpu.max_batch_size ({self.gpu.max_batch_size})"
+            )
+
+        # Check learning rate
+        if self.train.learning_rate > 0.01:
+            issues.append(
+                f"learning_rate ({self.train.learning_rate}) is unusually high"
+            )
+
+        # Check selfplay settings
+        if self.selfplay.repetition_threshold > 0 and self.selfplay.repetition_threshold < 3:
+            issues.append(
+                f"repetition_threshold ({self.selfplay.repetition_threshold}) "
+                "should be >= 3 to avoid false positives"
+            )
+
+        return issues

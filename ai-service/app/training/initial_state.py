@@ -93,20 +93,17 @@ def create_initial_state(
         for idx in range(1, num_players + 1)
     ]
 
-    # Training-time pie rule configuration. By default, 2-player training
-    # games start with rulesOptions.swapRuleEnabled=True so Python AIs can
-    # exercise the swap_sides meta-move during self-play. Multi-player games
-    # ignore this and never expose swap_sides.
+    # Training-time pie rule configuration. The pie rule (swap sides) is
+    # opt-in for 2-player games - data shows P2 wins >55% when enabled by default.
+    # Multi-player games ignore this and never expose swap_sides.
     #
-    # For backwards compatibility, the historical
-    # RINGRIFT_TRAINING_ENABLE_SWAP_RULE flag is no longer required: the
-    # swap rule is enabled by default for 2-player games. Callers that need
-    # to explicitly disable the pie rule for experiments may set
-    # RINGRIFT_TRAINING_DISABLE_SWAP_RULE=1 (or "true"/"yes"/"on").
+    # Callers that want to enable the pie rule for experiments may set
+    # RINGRIFT_TRAINING_ENABLE_SWAP_RULE=1 (or "true"/"yes"/"on").
     rules_options = None
-    disable_flag = os.getenv("RINGRIFT_TRAINING_DISABLE_SWAP_RULE", "").lower()
-    if num_players == 2 and disable_flag not in {"1", "true", "yes", "on"}:
-        rules_options = {"swapRuleEnabled": True}
+    enable_flag = os.getenv("RINGRIFT_TRAINING_ENABLE_SWAP_RULE", "").lower()
+    if num_players == 2:
+        swap_enabled = enable_flag in {"1", "true", "yes", "on"}
+        rules_options = {"swapRuleEnabled": swap_enabled}
 
     return GameState(
         id="self-play",

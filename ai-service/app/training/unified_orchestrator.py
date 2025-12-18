@@ -522,11 +522,16 @@ class UnifiedTrainingOrchestrator:
         logger.info(f"[Orchestrator] Created for {self.config.board_type}_{self.config.num_players}p")
 
     def initialize(self):
-        """Initialize all enabled components."""
+        """Initialize all enabled components with health tracking."""
         if self._initialized:
             return
 
+        import time as _time
         torch = _get_torch()
+
+        # Track component health and initialization times
+        component_health: Dict[str, Dict[str, Any]] = {}
+        total_start = _time.perf_counter()
 
         # Create optimizer if not provided
         if self._optimizer is None:
@@ -539,12 +544,35 @@ class UnifiedTrainingOrchestrator:
         if self.config.auto_tune_batch_size and torch.cuda.is_available():
             self._auto_tune_batch_size(torch)
 
-        # Initialize components in order
-        self._checkpoint.initialize()
-        self._hot_buffer.initialize()
-        self._enhancements.initialize(self._model)
-        self._distributed.initialize(self._model, self._optimizer)
-        self._background_eval.initialize(lambda: self._model)
+        # Initialize components in order with timing and error tracking
+        def _init_component(name: str, init_fn, *args) -> bool:
+            """Initialize a component with health tracking."""
+            start = _time.perf_counter()
+            try:
+                init_fn(*args)
+                elapsed_ms = (_time.perf_counter() - start) * 1000
+                component_health[name] = {
+                    "status": "ok",
+                    "init_time_ms": round(elapsed_ms, 2),
+                    "error": None,
+                }
+                logger.debug(f"[Orchestrator] {name} initialized in {elapsed_ms:.1f}ms")
+                return True
+            except Exception as e:
+                elapsed_ms = (_time.perf_counter() - start) * 1000
+                component_health[name] = {
+                    "status": "failed",
+                    "init_time_ms": round(elapsed_ms, 2),
+                    "error": str(e),
+                }
+                logger.warning(f"[Orchestrator] {name} initialization failed: {e}")
+                return False
+
+        _init_component("Checkpoint", self._checkpoint.initialize)
+        _init_component("HotBuffer", self._hot_buffer.initialize)
+        _init_component("Enhancements", self._enhancements.initialize, self._model)
+        _init_component("Distributed", self._distributed.initialize, self._model, self._optimizer)
+        _init_component("BackgroundEval", self._background_eval.initialize, lambda: self._model)
 
         # Wrap model if distributed
         if self._distributed.available:
@@ -555,21 +583,61 @@ class UnifiedTrainingOrchestrator:
             self._try_resume()
 
         self._initialized = True
+        total_elapsed = (_time.perf_counter() - total_start) * 1000
 
-        # Log active components
+        # Build component status summary
         active = []
-        if self._hot_buffer.available:
-            active.append("HotBuffer")
-        if self._enhancements.available:
-            active.append("Enhancements")
-        if self._distributed.available:
-            active.append("Distributed")
-        if self._background_eval.available:
-            active.append("BackgroundEval")
-        if self._checkpoint.available:
-            active.append("Checkpoint")
+        failed = []
+        for name, health in component_health.items():
+            wrapper = getattr(self, f"_{name.lower()}", None)
+            if wrapper and getattr(wrapper, 'available', False):
+                active.append(name)
+            elif health["status"] == "failed":
+                failed.append(name)
 
-        logger.info(f"[Orchestrator] Initialized with components: {', '.join(active) or 'basic'}")
+        # Store health status for monitoring
+        self._component_health = component_health
+        self._init_time_ms = round(total_elapsed, 2)
+
+        # Log summary
+        if failed:
+            logger.warning(
+                f"[Orchestrator] Initialized in {total_elapsed:.0f}ms. "
+                f"Active: [{', '.join(active) or 'none'}], "
+                f"Failed: [{', '.join(failed)}]"
+            )
+        else:
+            logger.info(
+                f"[Orchestrator] Initialized in {total_elapsed:.0f}ms. "
+                f"Active: [{', '.join(active) or 'basic'}]"
+            )
+
+        # Log detailed timing in debug mode
+        if logger.isEnabledFor(logging.DEBUG):
+            for name, health in component_health.items():
+                logger.debug(
+                    f"[Orchestrator] Component {name}: "
+                    f"status={health['status']}, time={health['init_time_ms']}ms"
+                )
+
+    def get_health_status(self) -> Dict[str, Any]:
+        """Get component health status for monitoring.
+
+        Returns:
+            Dict with component health info including:
+            - initialized: Whether orchestrator is initialized
+            - init_time_ms: Total initialization time
+            - components: Per-component health details
+        """
+        return {
+            "initialized": self._initialized,
+            "init_time_ms": getattr(self, '_init_time_ms', 0),
+            "components": getattr(self, '_component_health', {}),
+            "active_components": [
+                name for name, health in getattr(self, '_component_health', {}).items()
+                if health.get("status") == "ok"
+            ],
+        }
 
     def _try_resume(self):
         """Try to resume from checkpoint."""

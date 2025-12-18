@@ -1513,7 +1513,6 @@ class TestRealModelIntegration:
     These tests verify the integration works with production model classes.
     """
 
-    @pytest.mark.skip(reason="RingRiftCNN_v2 architecture changed - action space size mismatch")
     def test_ringrift_cnn_with_streaming_data(
         self,
         temp_dir,
@@ -1523,14 +1522,21 @@ class TestRealModelIntegration:
         """
         Test RingRiftCNN_v2 works end-to-end with streaming data.
         """
-        # Create small RingRiftCNN_v2 for testing
+        # Create small RingRiftCNN_v2 for testing with correct architecture params
+        # Note: in_channels=14 is the base, total channels = in_channels * (history_length + 1)
+        # For history_length=3, total_in_channels = 14 * 4 = 56
+        # Test data has feature_shape=(40, 8, 8), so we use in_channels=10 with history_length=3
+        # which gives total_in_channels = 10 * 4 = 40
+        num_players = 4  # Multi-player value head
         model = RingRiftCNN_v2(
             board_size=8,
-            in_channels=10,
-            global_features=10,
+            in_channels=10,  # Base channels; total = 10 * (3+1) = 40 to match test data
+            global_features=10,  # Match test data globals
             num_res_blocks=2,  # Small for testing
             num_filters=32,
             history_length=3,
+            policy_size=POLICY_SIZE_8x8,  # Explicit policy size for 8x8 board
+            num_players=num_players,
         )
 
         loader = StreamingDataLoader(
@@ -1547,8 +1553,8 @@ class TestRealModelIntegration:
             value_pred, policy_pred = model(features, globals_tensor)
 
             # Verify output shapes
-            # 8x8 board now correctly uses POLICY_SIZE_8x8 (7000)
-            assert value_pred.shape == (features.shape[0], 1)
+            # v2 models use multi-player value head: [batch, num_players]
+            assert value_pred.shape == (features.shape[0], num_players)
             assert policy_pred.shape == (features.shape[0], POLICY_SIZE_8x8)
 
             loss = value_pred.sum()
@@ -1570,7 +1576,6 @@ class TestRealModelIntegration:
 
         loader.close()
 
-    @pytest.mark.skip(reason="HexNeuralNet_v2 architecture changed - needs update")
     def test_hex_neural_net_with_streaming_data(
         self,
         temp_dir,
@@ -1581,13 +1586,18 @@ class TestRealModelIntegration:
         Test HexNeuralNet_v2 works end-to-end with streaming hex data.
         """
         # Create small HexNeuralNet_v2 for testing
+        # Test data uses feature_shape=(40, 21, 21), global_features=10
+        # HexNeuralNet_v2 takes in_channels as TOTAL channels (no history_length param)
+        num_players = 4  # Multi-player value head
         model = HexNeuralNet_v2(
-            in_channels=40,  # 10 * (3+1) for history_length=3
-            global_features=10,
+            in_channels=40,  # Total channels to match test data (40, 21, 21)
+            global_features=10,  # Match test data
             num_res_blocks=2,  # Small for testing
             num_filters=32,
-            board_size=HEX_BOARD_SIZE,
+            board_size=21,  # Match test data (not HEX_BOARD_SIZE=25)
             policy_size=P_HEX,
+            num_players=num_players,
+            hex_radius=10,  # Smaller radius to match smaller board
         )
 
         loader = StreamingDataLoader(
@@ -1605,7 +1615,8 @@ class TestRealModelIntegration:
             value_pred, policy_pred = model(features, globals_tensor)
 
             # Verify output shapes
-            assert value_pred.shape == (features.shape[0], 1)
+            # v2 models use multi-player value head: [batch, num_players]
+            assert value_pred.shape == (features.shape[0], num_players)
             assert policy_pred.shape == (features.shape[0], P_HEX)
 
             loss = value_pred.sum()
@@ -1624,7 +1635,7 @@ class TestRealModelIntegration:
         assert loaded_meta.model_class == "HexNeuralNet_v2"
         expected_ver = HexNeuralNet_v2.ARCHITECTURE_VERSION
         assert loaded_meta.architecture_version == expected_ver
-        assert loaded_meta.config.get("board_size") == HEX_BOARD_SIZE
+        assert loaded_meta.config.get("board_size") == 21  # Test uses 21, not HEX_BOARD_SIZE
         assert loaded_meta.config.get("policy_size") == P_HEX
 
         loader.close()

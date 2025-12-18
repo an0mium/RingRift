@@ -46,7 +46,7 @@ def get_hidden_dim_for_board(board_type: BoardType, board_size: int = 0) -> int:
 
     Sizes:
         - Square8 (64 cells): 128 hidden
-        - Hex8 (size <= 8): 256 hidden
+        - Hex8 (size <= 8): 128 hidden
         - Full hexagonal (size > 8): 1024 hidden
         - Square19 (361 cells): 512 hidden
     """
@@ -55,11 +55,11 @@ def get_hidden_dim_for_board(board_type: BoardType, board_size: int = 0) -> int:
     elif board_type == BoardType.SQUARE19:
         return 512  # 361 cells - larger model
     elif board_type == BoardType.HEX8:
-        return 256  # hex8 (61 cells) - medium model
+        return 128  # hex8 (61 cells) - smaller model matching square8
     elif board_type == BoardType.HEXAGONAL:
         # Distinguish hex8 vs full hex by board_size
         if board_size <= 8:
-            return 256  # hex8 - medium model
+            return 128  # hex8 - smaller model matching square8
         else:
             return 1024  # full hexagonal (size 19+) - large model
     return 256  # default fallback
