@@ -111,7 +111,7 @@ def generate_territory_dataset(
     num_games: int,
     output_path: str,
     board_type: BoardType = BoardType.SQUARE8,
-    max_moves: int = 200,
+    max_moves: int = 2000,  # Minimum 2000 for all boards
     seed: Optional[int] = None,
     engine_mode: str = "descent-only",
     num_players: int = 2,

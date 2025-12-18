@@ -604,7 +604,7 @@ class SelfPlayConfig:
     num_workers: int = 4  # CPU worker processes for game setup
 
     # Game rules
-    max_moves: int = 500  # Maximum moves before draw
+    max_moves: int = 2000  # Maximum moves before draw (minimum 2000 for all boards)
     repetition_threshold: int = 3  # Draw on N-fold repetition (0 = disabled)
     swap_enabled: bool = False  # Pie rule for 2-player games
 

@@ -378,7 +378,7 @@ class RingRiftEnv:
     def __init__(
         self,
         board_type: BoardType = BoardType.SQUARE8,
-        max_moves: int = 400,  # Increased for canonical recording (~4-5 moves/turn)
+        max_moves: int = 2000,  # Minimum 2000 to allow games to complete naturally
         reward_on: str = "terminal",  # "terminal" or "shaped"
         num_players: int = 2,
         *,

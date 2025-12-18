@@ -121,7 +121,7 @@ class BackgroundSelfplayManager:
         board = str(config.get("board", "square8"))
         players = int(config.get("players", 2))
         games = int(config.get("games_per_iter", 100))
-        max_moves = int(config.get("max_moves", 200))
+        max_moves = int(config.get("max_moves", 2000))  # Minimum 2000 for all boards
 
         # Check coordination before spawning (advisory)
         if HAS_COORDINATION:
