@@ -6,8 +6,13 @@ and configuration key formatting throughout the codebase.
 CANONICAL BOARD TYPE VALUES:
     - square8    (8x8 board, 64 cells)
     - square19   (19x19 board, 361 cells)
-    - hex8       (radius-4 hex, 61 cells)
-    - hexagonal  (radius-12 hex, 469 cells)
+    - hex8       (radius-4 hex, diameter 8, 61 cells) - comparable to square8
+    - hexagonal  (radius-12 hex, diameter 24, 469 cells) - larger than square19
+
+NAMING CONVENTION FOR HEX BOARDS:
+    The number in hex board names refers to the "diameter" (2 * radius):
+    - hex8 = radius 4, diameter 8, 61 cells
+    - hex24 (alias for hexagonal) = radius 12, diameter 24, 469 cells
 
 CANONICAL CONFIG KEY FORMAT:
     {board_type}_{num_players}p
@@ -42,11 +47,11 @@ _BOARD_TYPE_ALIASES: dict[str, str] = {
     "hex-8": "hex8",
     "smallhex": "hex8",
     "small_hex": "hex8",
-    # Hexagonal (large hex) variants
+    # Hexagonal (large hex) variants - radius 12, diameter 24, 469 cells
     "hexagonal": "hexagonal",
     "hex": "hexagonal",
-    "hex12": "hexagonal",
-    "hex_12": "hexagonal",
+    "hex24": "hexagonal",  # Diameter convention (2 * radius 12 = 24)
+    "hex_24": "hexagonal",
     "largehex": "hexagonal",
     "large_hex": "hexagonal",
     "bighex": "hexagonal",

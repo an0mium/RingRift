@@ -113,12 +113,14 @@ def _load_hosts():
 
 All board types must use canonical naming throughout the codebase:
 
-| Canonical Value | Common Aliases         | Description                     |
-| --------------- | ---------------------- | ------------------------------- |
-| `square8`       | sq8, square_8, 8x8     | 8×8 square board (64 cells)     |
-| `square19`      | sq19, square_19, 19x19 | 19×19 square board (361 cells)  |
-| `hex8`          | hex_8, smallhex        | Radius-4 hexagonal (61 cells)   |
-| `hexagonal`     | hex, hex12, largehex   | Radius-12 hexagonal (469 cells) |
+| Canonical Value | Common Aliases         | Description                            |
+| --------------- | ---------------------- | -------------------------------------- |
+| `square8`       | sq8, square_8, 8x8     | 8×8 square board (64 cells)            |
+| `square19`      | sq19, square_19, 19x19 | 19×19 square board (361 cells)         |
+| `hex8`          | hex_8, smallhex        | Radius-4, diameter-8 hex (61 cells)    |
+| `hexagonal`     | hex, hex24, largehex   | Radius-12, diameter-24 hex (469 cells) |
+
+Note: Hex board numeric aliases use "diameter" (2×radius), so `hex8` = radius 4, `hex24` = radius 12.
 
 ```python
 from app.utils.canonical_naming import (

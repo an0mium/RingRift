@@ -47,7 +47,8 @@ class TestNormalizeBoardType:
     def test_hexagonal_aliases(self):
         """Various hexagonal aliases should normalize correctly."""
         assert normalize_board_type("hex") == "hexagonal"
-        assert normalize_board_type("hex12") == "hexagonal"
+        assert normalize_board_type("hex24") == "hexagonal"  # Diameter convention (2 * radius 12)
+        assert normalize_board_type("hex_24") == "hexagonal"
         assert normalize_board_type("largehex") == "hexagonal"
         assert normalize_board_type("bighex") == "hexagonal"
 
