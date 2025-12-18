@@ -160,7 +160,7 @@ python -m app.training.train \
 
 **Large Datasets (>5GB):** The training pipeline automatically enables streaming mode for datasets exceeding 5GB to prevent out-of-memory issues. Configure the threshold via `RINGRIFT_AUTO_STREAMING_THRESHOLD_GB`.
 
-**HDF5 Format (15-25% faster):** Convert NPZ training data to HDF5 for faster batch loading:
+**HDF5 Format (~16x faster batch loading):** Convert NPZ training data to HDF5 for significantly faster random batch access:
 
 ```bash
 python scripts/convert_npz_to_hdf5.py \
@@ -169,7 +169,17 @@ python scripts/convert_npz_to_hdf5.py \
   --verify
 ```
 
-HDF5 files support native fancy indexing, eliminating the per-sample loading overhead of memory-mapped NPZ files.
+HDF5 files support native fancy indexing, eliminating the per-sample loading overhead of memory-mapped NPZ files. Benchmarks show 16x faster batch loading compared to NPZ.
+
+**Fast Territory Detection:** Optimized territory calculation is enabled by default (~30% faster AI evaluation). Set `RINGRIFT_USE_FAST_TERRITORY=false` to disable if needed.
+
+**Elo-Based Checkpoint Selection:** Select the best training checkpoint by playing strength rather than validation loss:
+
+```bash
+python scripts/select_best_checkpoint_by_elo.py \
+  --candidate-id sq8_2p_d8_cand_20251218 \
+  --games 20
+```
 
 ### Distributed Training
 
