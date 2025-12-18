@@ -396,6 +396,11 @@ class TrainConfig:
     prefetch_count: int = 2  # Number of batches to prefetch
     pin_memory: bool = True  # Pin memory for faster CPU->GPU transfers (CUDA only)
 
+    # Gradient accumulation: simulate larger batch sizes on memory-constrained GPUs
+    # Effective batch size = batch_size * gradient_accumulation_steps
+    # Loss is scaled by 1/gradient_accumulation_steps to maintain gradient magnitude
+    gradient_accumulation_steps: int = 1  # 1 = disabled (default), 2-8 = typical values
+
     # Paths (initialised to repository-root-relative defaults in __post_init__)
     # When instantiated, these will be rewritten as absolute paths anchored at
     # the ai-service repo root so that training artefacts do not depend on the

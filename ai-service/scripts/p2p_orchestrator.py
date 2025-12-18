@@ -13166,8 +13166,6 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 stderr=asyncio.subprocess.PIPE,
             )
 
-            # Timeout based on expected game duration (30s per game as estimate)
-            timeout_seconds = max(300, games * 30)
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(),
                 timeout=timeout_seconds

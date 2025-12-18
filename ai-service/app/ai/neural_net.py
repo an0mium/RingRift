@@ -20,6 +20,7 @@ to release GPU/MPS memory between games or soak batches.
 from __future__ import annotations
 
 import gc
+from dataclasses import dataclass
 import logging
 import os
 
@@ -55,8 +56,70 @@ logger = logging.getLogger(__name__)
 #
 # Singleton cache to share model instances across NeuralNetAI instances.
 # Key: (architecture_type, device_str, model_path, board_type)
-# Value: loaded model instance
-_MODEL_CACHE: Dict[Tuple[str, str, str, str], nn.Module] = {}
+# Value: (loaded model instance, creation_timestamp, last_access_timestamp)
+_MODEL_CACHE: Dict[Tuple[str, str, str, str], Tuple[nn.Module, float, float]] = {}
+
+# Cache configuration
+_MODEL_CACHE_TTL_SECONDS = 3600  # 1 hour TTL for cached models
+_MODEL_CACHE_MAX_SIZE = 10  # Maximum number of models to keep in cache
+
+
+def _evict_stale_models() -> int:
+    """Evict models older than TTL or when cache exceeds max size.
+
+    Returns the number of models evicted.
+    """
+    global _MODEL_CACHE
+    import time
+
+    now = time.time()
+    evicted = 0
+    keys_to_remove = []
+
+    # First pass: remove models older than TTL
+    for key, (model, created_at, last_access) in _MODEL_CACHE.items():
+        if now - last_access > _MODEL_CACHE_TTL_SECONDS:
+            keys_to_remove.append(key)
+
+    for key in keys_to_remove:
+        model, _, _ = _MODEL_CACHE.pop(key)
+        try:
+            model.cpu()
+        except Exception:
+            pass
+        evicted += 1
+
+    # Second pass: if still over limit, remove least recently used
+    if len(_MODEL_CACHE) > _MODEL_CACHE_MAX_SIZE:
+        # Sort by last_access timestamp (oldest first)
+        sorted_items = sorted(
+            _MODEL_CACHE.items(),
+            key=lambda x: x[1][2]  # last_access timestamp
+        )
+        # Remove oldest until under limit
+        while len(_MODEL_CACHE) > _MODEL_CACHE_MAX_SIZE and sorted_items:
+            key, (model, _, _) = sorted_items.pop(0)
+            if key in _MODEL_CACHE:
+                del _MODEL_CACHE[key]
+                try:
+                    model.cpu()
+                except Exception:
+                    pass
+                evicted += 1
+
+    if evicted > 0:
+        # Clear GPU caches after eviction
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        if hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
+            try:
+                torch.mps.empty_cache()
+            except Exception:
+                pass
+        gc.collect()
+        logger.debug(f"Evicted {evicted} stale models from cache")
+
+    return evicted
 
 
 def clear_model_cache() -> None:
@@ -70,7 +133,7 @@ def clear_model_cache() -> None:
     cache_size = len(_MODEL_CACHE)
 
     # Move models to CPU before clearing to release GPU memory
-    for model in _MODEL_CACHE.values():
+    for model, _, _ in _MODEL_CACHE.values():
         try:
             model.cpu()
         except Exception:
@@ -595,6 +658,367 @@ def _encode_move_square19(move: "Move", board: "BoardState") -> int:
         )
 
     return INVALID_MOVE_INDEX
+
+
+# ---------------------------------------------------------------------------
+# decode_move_for_board: Inverse of encode_move_for_board for data augmentation
+# ---------------------------------------------------------------------------
+
+@dataclass
+class DecodedPolicyIndex:
+    """Decoded policy index components for transformation.
+
+    This structure contains enough information to apply symmetry transformations
+    (rotations, reflections) and re-encode the policy index.
+    """
+    action_type: str  # "placement", "movement", "line_formation", etc.
+    board_size: int   # 8 for square8, 19 for square19
+    x: int = 0        # Primary position x
+    y: int = 0        # Primary position y
+    count_idx: int = 0     # For placement: (placement_count - 1)
+    dir_idx: int = 0       # For movement: direction index 0-7
+    dist: int = 0          # For movement: distance 1..MAX_DIST
+    option: int = 0        # For line/territory choice
+    size_bucket: int = 0   # For territory choice
+    player_idx: int = 0    # For territory choice
+    is_special: bool = False  # Special actions don't transform
+
+
+# Direction vectors for square boards (8 directions)
+SQUARE_DIRS = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
+
+
+def decode_move_for_board(
+    policy_idx: int,
+    board_type: BoardType,
+) -> Optional[DecodedPolicyIndex]:
+    """
+    Decode a policy index back to its components for transformation.
+
+    This is the inverse of encode_move_for_board, used for data augmentation
+    on square boards where we need to transform policy indices under
+    rotations and reflections.
+
+    Parameters
+    ----------
+    policy_idx : int
+        The policy index to decode
+    board_type : BoardType
+        The board type (SQUARE8 or SQUARE19)
+
+    Returns
+    -------
+    DecodedPolicyIndex or None
+        Decoded components, or None if index is invalid
+    """
+    if board_type == BoardType.SQUARE8:
+        return _decode_move_square8(policy_idx)
+    elif board_type == BoardType.SQUARE19:
+        return _decode_move_square19(policy_idx)
+    else:
+        # Hex boards use different augmentation system
+        return None
+
+
+def _decode_move_square8(idx: int) -> Optional[DecodedPolicyIndex]:
+    """Decode square8 policy index."""
+    N = 8
+    MAX_DIST = MAX_DIST_SQUARE8
+
+    # Placement: [0, 191]
+    if idx < SQUARE8_MOVEMENT_BASE:
+        pos_idx = idx // 3
+        count_idx = idx % 3
+        x = pos_idx % N
+        y = pos_idx // N
+        return DecodedPolicyIndex(
+            action_type="placement", board_size=N,
+            x=x, y=y, count_idx=count_idx
+        )
+
+    # Movement: [192, 3775]
+    if idx < SQUARE8_LINE_FORM_BASE:
+        rel_idx = idx - SQUARE8_MOVEMENT_BASE
+        from_idx = rel_idx // (8 * MAX_DIST)
+        remainder = rel_idx % (8 * MAX_DIST)
+        dir_idx = remainder // MAX_DIST
+        dist = (remainder % MAX_DIST) + 1
+        x = from_idx % N
+        y = from_idx // N
+        return DecodedPolicyIndex(
+            action_type="movement", board_size=N,
+            x=x, y=y, dir_idx=dir_idx, dist=dist
+        )
+
+    # Line formation: [3776, 4031]
+    if idx < SQUARE8_TERRITORY_CLAIM_BASE:
+        rel_idx = idx - SQUARE8_LINE_FORM_BASE
+        pos_idx = rel_idx // 4
+        dir_idx = rel_idx % 4
+        x = pos_idx % N
+        y = pos_idx // N
+        return DecodedPolicyIndex(
+            action_type="line_formation", board_size=N,
+            x=x, y=y, dir_idx=dir_idx
+        )
+
+    # Territory claim: [4032, 4095]
+    if idx < SQUARE8_SPECIAL_BASE:
+        pos_idx = idx - SQUARE8_TERRITORY_CLAIM_BASE
+        x = pos_idx % N
+        y = pos_idx // N
+        return DecodedPolicyIndex(
+            action_type="territory_claim", board_size=N,
+            x=x, y=y
+        )
+
+    # Special actions: skip_placement, swap_sides, skip_recovery
+    if idx == SQUARE8_SKIP_PLACEMENT_IDX:
+        return DecodedPolicyIndex(action_type="skip_placement", board_size=N, is_special=True)
+    if idx == SQUARE8_SWAP_SIDES_IDX:
+        return DecodedPolicyIndex(action_type="swap_sides", board_size=N, is_special=True)
+    if idx == SQUARE8_SKIP_RECOVERY_IDX:
+        return DecodedPolicyIndex(action_type="skip_recovery", board_size=N, is_special=True)
+
+    # Line choice: [4099, 4102]
+    if SQUARE8_LINE_CHOICE_BASE <= idx < SQUARE8_TERRITORY_CHOICE_BASE:
+        option = idx - SQUARE8_LINE_CHOICE_BASE
+        return DecodedPolicyIndex(
+            action_type="line_choice", board_size=N,
+            option=option, is_special=True
+        )
+
+    # Territory choice: [4103, 6150]
+    if SQUARE8_TERRITORY_CHOICE_BASE <= idx < SQUARE8_TERRITORY_CHOICE_BASE + SQUARE8_TERRITORY_CHOICE_SPAN:
+        rel_idx = idx - SQUARE8_TERRITORY_CHOICE_BASE
+        pos_idx = rel_idx // (TERRITORY_SIZE_BUCKETS * TERRITORY_MAX_PLAYERS)
+        remainder = rel_idx % (TERRITORY_SIZE_BUCKETS * TERRITORY_MAX_PLAYERS)
+        size_bucket = remainder // TERRITORY_MAX_PLAYERS
+        player_idx = remainder % TERRITORY_MAX_PLAYERS
+        x = pos_idx % N
+        y = pos_idx // N
+        return DecodedPolicyIndex(
+            action_type="territory_choice", board_size=N,
+            x=x, y=y, size_bucket=size_bucket, player_idx=player_idx
+        )
+
+    return None
+
+
+def _decode_move_square19(idx: int) -> Optional[DecodedPolicyIndex]:
+    """Decode square19 policy index."""
+    N = 19
+    MAX_DIST = MAX_DIST_SQUARE19
+
+    # Placement: [0, 1082]
+    if idx < SQUARE19_MOVEMENT_BASE:
+        pos_idx = idx // 3
+        count_idx = idx % 3
+        x = pos_idx % N
+        y = pos_idx // N
+        return DecodedPolicyIndex(
+            action_type="placement", board_size=N,
+            x=x, y=y, count_idx=count_idx
+        )
+
+    # Movement: [1083, 53066]
+    if idx < SQUARE19_LINE_FORM_BASE:
+        rel_idx = idx - SQUARE19_MOVEMENT_BASE
+        from_idx = rel_idx // (8 * MAX_DIST)
+        remainder = rel_idx % (8 * MAX_DIST)
+        dir_idx = remainder // MAX_DIST
+        dist = (remainder % MAX_DIST) + 1
+        x = from_idx % N
+        y = from_idx // N
+        return DecodedPolicyIndex(
+            action_type="movement", board_size=N,
+            x=x, y=y, dir_idx=dir_idx, dist=dist
+        )
+
+    # Line formation: [53067, 54510]
+    if idx < SQUARE19_TERRITORY_CLAIM_BASE:
+        rel_idx = idx - SQUARE19_LINE_FORM_BASE
+        pos_idx = rel_idx // 4
+        dir_idx = rel_idx % 4
+        x = pos_idx % N
+        y = pos_idx // N
+        return DecodedPolicyIndex(
+            action_type="line_formation", board_size=N,
+            x=x, y=y, dir_idx=dir_idx
+        )
+
+    # Territory claim: [54511, 54871]
+    if idx < SQUARE19_SPECIAL_BASE:
+        pos_idx = idx - SQUARE19_TERRITORY_CLAIM_BASE
+        x = pos_idx % N
+        y = pos_idx // N
+        return DecodedPolicyIndex(
+            action_type="territory_claim", board_size=N,
+            x=x, y=y
+        )
+
+    # Special actions
+    if idx == SQUARE19_SKIP_PLACEMENT_IDX:
+        return DecodedPolicyIndex(action_type="skip_placement", board_size=N, is_special=True)
+    if idx == SQUARE19_SWAP_SIDES_IDX:
+        return DecodedPolicyIndex(action_type="swap_sides", board_size=N, is_special=True)
+    if idx == SQUARE19_SKIP_RECOVERY_IDX:
+        return DecodedPolicyIndex(action_type="skip_recovery", board_size=N, is_special=True)
+
+    # Line choice: [54875, 54878]
+    if SQUARE19_LINE_CHOICE_BASE <= idx < SQUARE19_TERRITORY_CHOICE_BASE:
+        option = idx - SQUARE19_LINE_CHOICE_BASE
+        return DecodedPolicyIndex(
+            action_type="line_choice", board_size=N,
+            option=option, is_special=True
+        )
+
+    # Territory choice: [54879, 66430]
+    if SQUARE19_TERRITORY_CHOICE_BASE <= idx < SQUARE19_TERRITORY_CHOICE_BASE + SQUARE19_TERRITORY_CHOICE_SPAN:
+        rel_idx = idx - SQUARE19_TERRITORY_CHOICE_BASE
+        pos_idx = rel_idx // (TERRITORY_SIZE_BUCKETS * TERRITORY_MAX_PLAYERS)
+        remainder = rel_idx % (TERRITORY_SIZE_BUCKETS * TERRITORY_MAX_PLAYERS)
+        size_bucket = remainder // TERRITORY_MAX_PLAYERS
+        player_idx = remainder % TERRITORY_MAX_PLAYERS
+        x = pos_idx % N
+        y = pos_idx // N
+        return DecodedPolicyIndex(
+            action_type="territory_choice", board_size=N,
+            x=x, y=y, size_bucket=size_bucket, player_idx=player_idx
+        )
+
+    return None
+
+
+def transform_policy_index_square(
+    policy_idx: int,
+    board_type: BoardType,
+    rotation: int,
+    flip_horizontal: bool,
+) -> int:
+    """
+    Transform a policy index under rotation and reflection.
+
+    Used for data augmentation on square boards. Applies the same
+    transformation to the policy that would be applied to the board state.
+
+    Parameters
+    ----------
+    policy_idx : int
+        Original policy index
+    board_type : BoardType
+        SQUARE8 or SQUARE19
+    rotation : int
+        Number of 90-degree clockwise rotations (0-3)
+    flip_horizontal : bool
+        Whether to flip horizontally (before rotation)
+
+    Returns
+    -------
+    int
+        Transformed policy index, or original if transformation fails
+    """
+    decoded = decode_move_for_board(policy_idx, board_type)
+    if decoded is None:
+        return policy_idx
+
+    # Special actions don't transform
+    if decoded.is_special:
+        return policy_idx
+
+    N = decoded.board_size
+    x, y = decoded.x, decoded.y
+
+    # Apply flip first (horizontal = flip x)
+    if flip_horizontal:
+        x = N - 1 - x
+
+    # Apply rotation (clockwise)
+    for _ in range(rotation % 4):
+        x, y = N - 1 - y, x
+
+    # Re-encode based on action type
+    if decoded.action_type == "placement":
+        pos_idx = y * N + x
+        return pos_idx * 3 + decoded.count_idx
+
+    if decoded.action_type == "movement":
+        # Transform direction as well
+        dir_idx = decoded.dir_idx
+        dx, dy = SQUARE_DIRS[dir_idx]
+
+        # Apply flip to direction
+        if flip_horizontal:
+            dx = -dx
+
+        # Apply rotation to direction
+        for _ in range(rotation % 4):
+            dx, dy = -dy, dx
+
+        # Find new direction index
+        try:
+            new_dir_idx = SQUARE_DIRS.index((dx, dy))
+        except ValueError:
+            return policy_idx  # Shouldn't happen
+
+        from_idx = y * N + x
+        MAX_DIST = MAX_DIST_SQUARE8 if N == 8 else MAX_DIST_SQUARE19
+        BASE = SQUARE8_MOVEMENT_BASE if N == 8 else SQUARE19_MOVEMENT_BASE
+        return BASE + from_idx * (8 * MAX_DIST) + new_dir_idx * MAX_DIST + (decoded.dist - 1)
+
+    if decoded.action_type == "line_formation":
+        # Transform direction for line formation
+        # Line directions are: horizontal(0), vertical(1), diagonal1(2), diagonal2(3)
+        # Need to map these under transformation
+        line_dir = decoded.dir_idx
+
+        # Line direction vectors: horizontal, vertical, diag down-right, diag down-left
+        line_dirs = [(1, 0), (0, 1), (1, 1), (1, -1)]
+        ldx, ldy = line_dirs[line_dir]
+
+        if flip_horizontal:
+            ldx = -ldx
+
+        for _ in range(rotation % 4):
+            ldx, ldy = -ldy, ldx
+
+        # Normalize direction (lines are symmetric)
+        if ldx < 0 or (ldx == 0 and ldy < 0):
+            ldx, ldy = -ldx, -ldy
+
+        try:
+            new_line_dir = line_dirs.index((ldx, ldy))
+        except ValueError:
+            # Try normalized forms
+            if (ldx, ldy) == (0, 1) or (ldx, ldy) == (0, -1):
+                new_line_dir = 1  # vertical
+            elif (ldx, ldy) == (1, 0) or (ldx, ldy) == (-1, 0):
+                new_line_dir = 0  # horizontal
+            elif ldx * ldy > 0:
+                new_line_dir = 2  # diag down-right
+            else:
+                new_line_dir = 3  # diag down-left
+
+        pos_idx = y * N + x
+        BASE = SQUARE8_LINE_FORM_BASE if N == 8 else SQUARE19_LINE_FORM_BASE
+        return BASE + pos_idx * 4 + new_line_dir
+
+    if decoded.action_type == "territory_claim":
+        pos_idx = y * N + x
+        BASE = SQUARE8_TERRITORY_CLAIM_BASE if N == 8 else SQUARE19_TERRITORY_CLAIM_BASE
+        return BASE + pos_idx
+
+    if decoded.action_type == "territory_choice":
+        pos_idx = y * N + x
+        BASE = SQUARE8_TERRITORY_CHOICE_BASE if N == 8 else SQUARE19_TERRITORY_CHOICE_BASE
+        return (
+            BASE
+            + pos_idx * (TERRITORY_SIZE_BUCKETS * TERRITORY_MAX_PLAYERS)
+            + decoded.size_bucket * TERRITORY_MAX_PLAYERS
+            + decoded.player_idx
+        )
+
+    return policy_idx
 
 
 def _infer_board_size(board: Union[BoardState, GameState]) -> int:
@@ -3332,7 +3756,11 @@ class NeuralNetAI(BaseAI):
         )
 
         if cache_key in _MODEL_CACHE:
-            self.model = _MODEL_CACHE[cache_key]
+            import time
+            model, created_at, _ = _MODEL_CACHE[cache_key]
+            # Update last access time
+            _MODEL_CACHE[cache_key] = (model, created_at, time.time())
+            self.model = model
             cached_history_length = getattr(self.model, "_ringrift_history_length", None)
             if cached_history_length is not None:
                 try:
@@ -3775,8 +4203,14 @@ class NeuralNetAI(BaseAI):
                     self._hex_encoder.board_size,
                 )
 
-        # Cache the model for reuse
-        _MODEL_CACHE[cache_key] = self.model
+        # Cache the model for reuse with LRU tracking
+        import time
+        now = time.time()
+        _MODEL_CACHE[cache_key] = (self.model, now, now)  # (model, created_at, last_access)
+
+        # Periodically evict stale models to prevent memory bloat
+        _evict_stale_models()
+
         self._initialized_board_type = board_type
         logger.info(
             f"Cached model: board={board_type}, arch={self.architecture_type}, "

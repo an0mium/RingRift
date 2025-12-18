@@ -141,6 +141,13 @@ except ImportError:
     IntegratedTrainingManager = None
     IntegratedEnhancementsConfig = None
     HAS_INTEGRATED_ENHANCEMENTS = False
+
+# Auto-streaming threshold: datasets larger than this will automatically use
+# StreamingDataLoader to avoid OOM. Default 5GB.
+AUTO_STREAMING_THRESHOLD_BYTES = int(os.environ.get(
+    "RINGRIFT_AUTO_STREAMING_THRESHOLD_GB", "5"
+)) * 1024 * 1024 * 1024
+
 from app.ai.heuristic_weights import (  # noqa: E402
     HEURISTIC_WEIGHT_KEYS,
     HEURISTIC_WEIGHT_PROFILES,
@@ -1496,6 +1503,8 @@ def train_model(
     enable_curriculum: bool = False,
     enable_augmentation: bool = False,
     enable_elo_weighting: bool = False,
+    # Policy label smoothing (2025-12)
+    policy_label_smoothing: float = 0.0,
     # Data validation (2025-12)
     validate_data: bool = True,
     fail_on_invalid_data: bool = False,
@@ -2182,6 +2191,36 @@ def train_model(
     train_sampler = None
     val_sampler = None
 
+    # Auto-detect large datasets and switch to streaming mode to prevent OOM
+    if not use_streaming:
+        # Calculate total data size
+        total_data_size = 0
+        paths_to_check: List[str] = []
+
+        if data_dir is not None:
+            npz_pattern = os.path.join(data_dir, "*.npz")
+            paths_to_check = glob.glob(npz_pattern)
+        elif isinstance(data_path, list):
+            paths_to_check = data_path
+        elif data_path:
+            paths_to_check = [data_path]
+
+        for p in paths_to_check:
+            if os.path.exists(p):
+                total_data_size += os.path.getsize(p)
+
+        if total_data_size > AUTO_STREAMING_THRESHOLD_BYTES:
+            size_gb = total_data_size / (1024 ** 3)
+            threshold_gb = AUTO_STREAMING_THRESHOLD_BYTES / (1024 ** 3)
+            if not distributed or is_main_process():
+                logger.warning(
+                    f"Auto-enabling streaming mode: dataset size {size_gb:.1f}GB "
+                    f"exceeds threshold {threshold_gb:.0f}GB. "
+                    f"Set RINGRIFT_AUTO_STREAMING_THRESHOLD_GB to adjust or "
+                    f"use --use-streaming explicitly."
+                )
+            use_streaming = True
+
     # Collect data paths for streaming mode
     data_paths: List[str] = []
     if use_streaming:
@@ -2615,8 +2654,8 @@ def train_model(
                         policy_targets,
                     ) = batch_data
 
-                # Data quality metrics (every 100 batches to minimize overhead)
-                if i % 100 == 0 and i > 0:
+                # Data quality metrics (every 500 batches to minimize GPU sync overhead)
+                if i % 500 == 0 and i > 0:
                     # Value target distribution: check for P1/P2 balance
                     # Positive values typically indicate P1 advantage, negative P2
                     if value_targets.dim() == 1:
@@ -2661,7 +2700,10 @@ def train_model(
                     uniform = 1.0 / policy_size
                     policy_targets = (1 - eps) * policy_targets + eps * uniform
 
-                optimizer.zero_grad()
+                # Gradient accumulation: only zero grad at start of accumulation window
+                accumulation_steps = getattr(config, 'gradient_accumulation_steps', 1)
+                if i % accumulation_steps == 0:
+                    optimizer.zero_grad()
 
                 # Autocast for mixed precision (CUDA only usually).
                 # For MPS, we might need to check torch.amp.autocast with
@@ -2710,17 +2752,23 @@ def train_model(
                     )
                     loss = value_loss + (config.policy_weight * policy_loss)
 
+                    # Scale loss for gradient accumulation to maintain gradient magnitude
+                    if accumulation_steps > 1:
+                        loss = loss / accumulation_steps
+
                 scaler.scale(loss).backward()
 
-                # Gradient clipping
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(
-                    model.parameters(),
-                    max_norm=1.0,
-                )
+                # Only step optimizer after accumulating gradients
+                if (i + 1) % accumulation_steps == 0 or (i + 1) == len(train_data_iter):
+                    # Gradient clipping
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(),
+                        max_norm=1.0,
+                    )
 
-                scaler.step(optimizer)
-                scaler.update()
+                    scaler.step(optimizer)
+                    scaler.update()
 
                 # Accumulate loss without .item() to avoid GPU sync per batch
                 # Detach to prevent gradient accumulation, but keep on GPU
@@ -2735,8 +2783,8 @@ def train_model(
                         features.size(0),
                     )
 
-                # Logging every 10 batches - sync is acceptable here for monitoring
-                if i % 10 == 0 and (not distributed or is_main_process()):
+                # Logging every 50 batches - reduced from 10 to minimize GPU sync overhead
+                if i % 50 == 0 and (not distributed or is_main_process()):
                     # Only call .item() for logging, not accumulation
                     logger.info(
                         f"Epoch {epoch+1}, Batch {i}: "

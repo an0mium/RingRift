@@ -205,6 +205,74 @@ def _build_default_configs() -> Dict[str, TierEvaluationConfig]:
                 "difficulty-6 profile."
             ),
         ),
+        "D9": TierEvaluationConfig(
+            tier_name="D9",
+            display_name="D9 – master Gumbel MCTS (square8, 2p)",
+            board_type=BoardType.SQUARE8,
+            num_players=2,
+            num_games=400,
+            candidate_difficulty=9,
+            time_budget_ms=None,
+            opponents=[
+                TierOpponentConfig(
+                    id="random_d1",
+                    description="Random baseline (canonical difficulty 1)",
+                    difficulty=1,
+                    ai_type=AIType.RANDOM,
+                    role="baseline",
+                ),
+                TierOpponentConfig(
+                    id="tier_d8",
+                    description=(
+                        "Previous tier reference using canonical "
+                        "difficulty 8 profile"
+                    ),
+                    difficulty=8,
+                    ai_type=None,
+                    role="previous_tier",
+                ),
+            ],
+            min_win_rate_vs_baseline=0.85,
+            max_regression_vs_previous_tier=0.05,
+            description=(
+                "Master tier using Gumbel MCTS with extended search budget. "
+                "Should dominate random play and match or exceed the D8 tier."
+            ),
+        ),
+        "D10": TierEvaluationConfig(
+            tier_name="D10",
+            display_name="D10 – grandmaster Gumbel MCTS (square8, 2p)",
+            board_type=BoardType.SQUARE8,
+            num_players=2,
+            num_games=400,
+            candidate_difficulty=10,
+            time_budget_ms=None,
+            opponents=[
+                TierOpponentConfig(
+                    id="random_d1",
+                    description="Random baseline (canonical difficulty 1)",
+                    difficulty=1,
+                    ai_type=AIType.RANDOM,
+                    role="baseline",
+                ),
+                TierOpponentConfig(
+                    id="tier_d9",
+                    description=(
+                        "Previous tier reference using canonical "
+                        "difficulty 9 profile"
+                    ),
+                    difficulty=9,
+                    ai_type=None,
+                    role="previous_tier",
+                ),
+            ],
+            min_win_rate_vs_baseline=0.9,
+            max_regression_vs_previous_tier=0.05,
+            description=(
+                "Grandmaster tier using maximum strength Gumbel MCTS. "
+                "Should near-perfectly beat random and match or exceed D9."
+            ),
+        ),
     }
 
     # Experimental multi-board and multi-player tiers used for smoke tests and

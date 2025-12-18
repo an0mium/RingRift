@@ -110,8 +110,8 @@ def create_ai_for_algorithm(
     """Create an AI instance for the specified algorithm.
 
     Args:
-        algorithm: One of "descent", "mcts", "gumbel_mcts"
-        player_number: Player number (1 or 2)
+        algorithm: One of "descent", "mcts", "gumbel_mcts", "maxn", "brs"
+        player_number: Player number (1, 2, 3, or 4)
         think_time_ms: Think time budget in milliseconds
         board_type: Board type for the game
         num_players: Number of players in the game
@@ -123,13 +123,36 @@ def create_ai_for_algorithm(
     from app.ai.descent_ai import DescentAI
     from app.ai.mcts_ai import MCTSAI
     from app.ai.gumbel_mcts_ai import GumbelMCTSAI
+    from app.ai.maxn_ai import MaxNAI, BRSAI
 
     algorithm = algorithm.lower()
 
     # Get best model for this configuration
     model_id = get_best_model_id(board_type, num_players)
 
-    if algorithm == "descent":
+    if algorithm == "maxn":
+        config = AIConfig(
+            ai_type=AIType.MAXN,
+            board_type=board_type,
+            difficulty=10,
+            think_time=think_time_ms,
+            use_neural_net=False,  # MaxN uses heuristic evaluation
+            randomness=0.0,
+        )
+        return MaxNAI(player_number, config)
+
+    elif algorithm == "brs":
+        config = AIConfig(
+            ai_type=AIType.BRS,
+            board_type=board_type,
+            difficulty=10,
+            think_time=think_time_ms,
+            use_neural_net=False,  # BRS uses heuristic evaluation
+            randomness=0.0,
+        )
+        return BRSAI(player_number, config)
+
+    elif algorithm == "descent":
         config = AIConfig(
             ai_type=AIType.DESCENT,
             board_type=board_type,
@@ -474,7 +497,7 @@ def main():
         "--algorithms",
         type=str,
         default="descent,mcts,gumbel_mcts",
-        help="Comma-separated list of algorithms to compare"
+        help="Comma-separated list of algorithms to compare (descent,mcts,gumbel_mcts,maxn,brs)"
     )
     parser.add_argument(
         "--think-times",

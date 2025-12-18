@@ -361,6 +361,7 @@ def extract_games_from_db(
             "num_players": num_players,
             "winner": winner,
             "move_count": move_count,
+            "game_status": "completed",  # We only extract completed games
             "moves": moves,
             "initial_state": initial_state,
         }

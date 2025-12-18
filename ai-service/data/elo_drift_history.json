@@ -1,5 +1,5 @@
 {
-  "saved_at": "2025-12-18T15:54:35.971490+00:00",
+  "saved_at": "2025-12-18T17:28:18.019042+00:00",
   "histories": {
     "square8_2": {
       "config_key": "square8_2",
@@ -221,6 +221,34 @@
           "avg_rating_diff": 0.0,
           "is_significant": false,
           "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T15:59:15.809555+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:15:38.161405+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:23:02.322708+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:28:18.006966+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
         }
       ]
     },
@@ -272,6 +300,34 @@
         },
         {
           "checked_at": "2025-12-18T15:54:35.963785+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T15:59:15.815533+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:15:38.199111+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:23:02.326411+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:28:18.010303+00:00",
           "max_rating_diff": 0.0,
           "avg_rating_diff": 0.0,
           "is_significant": false,
@@ -331,6 +387,34 @@
           "avg_rating_diff": 0.0,
           "is_significant": false,
           "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T15:59:15.816743+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:15:38.206677+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:23:02.327993+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:28:18.011539+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
         }
       ]
     },
@@ -382,6 +466,34 @@
         },
         {
           "checked_at": "2025-12-18T15:54:35.966272+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T15:59:15.818167+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:15:38.207893+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:23:02.329464+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:28:18.012745+00:00",
           "max_rating_diff": 0.0,
           "avg_rating_diff": 0.0,
           "is_significant": false,
@@ -441,6 +553,34 @@
           "avg_rating_diff": 0.0,
           "is_significant": false,
           "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T15:59:15.819722+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:15:38.208953+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:23:02.330547+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:28:18.014081+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
         }
       ]
     },
@@ -492,6 +632,34 @@
         },
         {
           "checked_at": "2025-12-18T15:54:35.968119+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T15:59:15.820853+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:15:38.210004+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:23:02.331824+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:28:18.015410+00:00",
           "max_rating_diff": 0.0,
           "avg_rating_diff": 0.0,
           "is_significant": false,
@@ -551,6 +719,34 @@
           "avg_rating_diff": 0.0,
           "is_significant": false,
           "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T15:59:15.822079+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:15:38.211097+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:23:02.333191+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:28:18.016577+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
         }
       ]
     },
@@ -606,6 +802,34 @@
           "avg_rating_diff": 0.0,
           "is_significant": false,
           "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T15:59:15.825665+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:15:38.212097+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:23:02.334547+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:28:18.017809+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
         }
       ]
     },
@@ -657,6 +881,34 @@
         },
         {
           "checked_at": "2025-12-18T15:54:35.971479+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T15:59:15.827912+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:15:38.213124+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:23:02.335923+00:00",
+          "max_rating_diff": 0.0,
+          "avg_rating_diff": 0.0,
+          "is_significant": false,
+          "participants": 0
+        },
+        {
+          "checked_at": "2025-12-18T17:28:18.019031+00:00",
           "max_rating_diff": 0.0,
           "avg_rating_diff": 0.0,
           "is_significant": false,

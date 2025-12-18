@@ -642,10 +642,20 @@ class SSHBackend(OrchestratorBackend):
         board_type = kwargs.get("board_type", "square8")
         num_players = kwargs.get("num_players", 2)
 
+        # Convert local paths to remote-relative paths
+        # Data should be synced to remote's data/games directory
+        data_filename = Path(data_path).name
+        remote_data_path = f"data/games/{data_filename}"
+
+        # Use a timestamped run directory on the remote
+        import time as time_mod
+        run_id = f"{board_type}_{num_players}p_{int(time_mod.time())}"
+        remote_run_dir = f"runs/{run_id}"
+
         cmd += (
             f"python scripts/run_nn_training_baseline.py "
-            f"--run-dir {model_output_path} "
-            f"--data-path {data_path} "
+            f"--run-dir {remote_run_dir} "
+            f"--data-path {remote_data_path} "
             f"--board {board_type} "
             f"--num-players {num_players} "
             f"--epochs {epochs}"
@@ -655,6 +665,18 @@ class SSHBackend(OrchestratorBackend):
             worker.name, cmd, timeout=kwargs.get("timeout", 14400)
         )
 
+        # If training succeeded, sync the model back to local
+        if result.success:
+            try:
+                await self._sync_model_back(
+                    worker_name=worker.name,
+                    remote_run_dir=remote_run_dir,
+                    board_type=board_type,
+                    num_players=num_players,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to sync model back from {worker.name}: {e}")
+
         return JobResult(
             job_id=job_id,
             success=result.success,
@@ -663,6 +685,112 @@ class SSHBackend(OrchestratorBackend):
             duration_seconds=time.time() - start,
             error=result.stderr if not result.success else None,
         )
+
+    async def _sync_model_back(
+        self,
+        worker_name: str,
+        remote_run_dir: str,
+        board_type: str,
+        num_players: int,
+    ) -> None:
+        """Sync trained model back from remote worker to local.
+
+        The training script saves models to:
+        - models/<model_id>.pth (best model)
+        - models/checkpoints/<model_id>/ (checkpoints)
+        - runs/<run_dir>/nn_training_report.json (report)
+
+        Args:
+            worker_name: Name of the worker that trained the model
+            remote_run_dir: Remote directory where the report was saved
+            board_type: Board type used for training
+            num_players: Number of players
+        """
+        host_data = self._hosts.get(worker_name, {})
+        ssh_host = host_data.get("ssh_host") or host_data.get("tailscale_ip")
+        ssh_user = host_data.get("ssh_user", "ubuntu")
+        ssh_key = host_data.get("ssh_key")
+        ssh_port = host_data.get("ssh_port", 22)
+        ringrift_path = host_data.get("ringrift_path", "~/ringrift/ai-service")
+
+        if not ssh_host:
+            logger.warning(f"No SSH host for {worker_name}, cannot sync model back")
+            return
+
+        # Build SSH options
+        ssh_opts = ["-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes"]
+        if ssh_key:
+            key_path = Path(ssh_key).expanduser()
+            ssh_opts.extend(["-i", str(key_path)])
+        if ssh_port != 22:
+            ssh_opts.extend(["-p", str(ssh_port)])
+
+        ssh_opts_str = " ".join(ssh_opts)
+
+        # Local destination - models directory
+        local_models_dir = Path(__file__).parent.parent.parent / "models"
+        local_models_dir.mkdir(parents=True, exist_ok=True)
+
+        # Config key for naming
+        config_key = f"{board_type}_{num_players}p"
+        board_prefix = board_type[:3] if board_type.startswith("square") else board_type[:3]
+        if board_type == "square8":
+            board_prefix = "sq8"
+        elif board_type == "square19":
+            board_prefix = "sq19"
+        elif board_type == "hexagonal":
+            board_prefix = "hex"
+
+        # Find the most recent model file on remote
+        # Models are saved as: <board_prefix>_<players>p_nn_baseline_<timestamp>.pth
+        find_cmd = (
+            f"ssh {ssh_opts_str} {ssh_user}@{ssh_host} "
+            f"\"find {ringrift_path}/models -maxdepth 1 -name '{board_prefix}_{num_players}p_*.pth' "
+            f"-mmin -5 -type f -printf '%T@ %p\\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2\""
+        )
+
+        logger.info(f"[SyncBack] Finding recent model on {worker_name}")
+
+        proc = await asyncio.create_subprocess_shell(
+            find_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+
+        if proc.returncode != 0 or not stdout.strip():
+            logger.warning(f"[SyncBack] No recent model found on {worker_name}: {stderr.decode()}")
+            return
+
+        remote_model_path = stdout.decode().strip()
+        if not remote_model_path:
+            logger.warning(f"[SyncBack] Empty model path from {worker_name}")
+            return
+
+        # Rsync the model file back
+        dest_path = local_models_dir / f"ringrift_{config_key}.pth"
+
+        rsync_cmd = [
+            "rsync", "-avz", "--timeout=60",
+            "-e", f"ssh {ssh_opts_str}",
+            f"{ssh_user}@{ssh_host}:{remote_model_path}",
+            str(dest_path),
+        ]
+
+        logger.info(f"[SyncBack] Downloading {remote_model_path} -> {dest_path}")
+
+        proc = await asyncio.create_subprocess_exec(
+            *rsync_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+
+        if proc.returncode != 0:
+            logger.warning(f"[SyncBack] rsync failed: {stderr.decode()}")
+            return
+
+        logger.info(f"[SyncBack] Model synced: {dest_path}")
 
     async def sync_models(
         self,

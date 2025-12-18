@@ -449,13 +449,8 @@ def augment_data(
     ----------
     use_board_aware_encoding : bool
         If True, policy indices use board-aware encoding (compact indices).
-        When True, augmentation is skipped for square boards since policy
-        transformation requires decode_move_for_board (not yet implemented).
+        Uses transform_policy_index_square for efficient policy transformation.
     """
-    # Skip augmentation for square boards when using board-aware encoding
-    # Policy transformation requires decode_move_for_board which is not yet implemented
-    if use_board_aware_encoding and board_type not in (BoardType.HEXAGONAL, BoardType.HEX8):
-        return [(features, globals_vec, policy_indices, policy_values)]
     # Hex boards: use D6 symmetry augmentation (12 transformations)
     if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
         return augment_hex_data(
@@ -471,8 +466,30 @@ def augment_data(
     # Original sample
     augmented.append((features, globals_vec, policy_indices, policy_values))
 
-    # Helper to transform a sparse policy
-    def transform_policy(indices, values, k_rot, flip_h):
+    # Helper to transform a sparse policy using board-aware encoding
+    def transform_policy_board_aware(indices, values, k_rot, flip_h):
+        """Transform policy indices using transform_policy_index_square."""
+        if len(indices) == 0:
+            return indices, values
+
+        from app.ai.neural_net import transform_policy_index_square
+
+        new_indices = []
+        new_values = []
+        for idx, prob in zip(indices, values):
+            new_idx = transform_policy_index_square(
+                int(idx), board_type, k_rot, flip_h
+            )
+            new_indices.append(new_idx)
+            new_values.append(prob)
+
+        return (
+            np.array(new_indices, dtype=np.int32),
+            np.array(new_values, dtype=np.float32),
+        )
+
+    # Helper to transform a sparse policy using legacy Move decode/encode
+    def transform_policy_legacy(indices, values, k_rot, flip_h):
         if len(indices) == 0:
             return indices, values
 
@@ -580,6 +597,13 @@ def augment_data(
             np.array(new_indices, dtype=np.int32),
             np.array(new_values, dtype=np.float32),
         )
+
+    # Select the appropriate transform function
+    transform_policy = (
+        transform_policy_board_aware
+        if use_board_aware_encoding
+        else transform_policy_legacy
+    )
 
     for k in range(1, 4):
         # Rotate features (C, H, W)
@@ -958,10 +982,15 @@ def generate_dataset(
                     if eng == "mcts":
                         derived ^= 0xA5A5A5A5
                 ai.reset_for_new_game(rng_seed=derived)
-            except Exception:
-                # Best-effort: if an AI does not expose reset_for_new_game for
-                # some reason, keep going (self-play should still run).
-                pass
+            except AttributeError:
+                # AI does not have reset_for_new_game method - acceptable for some AI types
+                logger.debug(f"AI for player {pn} has no reset_for_new_game method")
+            except Exception as e:
+                # Other failures should be logged
+                logger.warning(
+                    f"Failed to reseed AI for player {pn} in game {game_idx+1}: "
+                    f"{type(e).__name__}: {e}. Continuing with potentially non-reproducible RNG."
+                )
 
         print(f"Game {game_idx+1} started (engine: {game_engine_type})")
         move_count = 0
@@ -1822,9 +1851,12 @@ def generate_dataset_gpu_parallel(
                         "player": current_player,
                     })
 
-                except Exception as e:
-                    # Skip samples we can't extract features for
-                    pass
+                except (ValueError, KeyError, AttributeError, TypeError) as e:
+                    # Log and skip samples we can't extract features for
+                    logger.debug(
+                        f"Skipping sample in GPU batch {batch_idx+1}, game {g+1}, "
+                        f"move {move_idx+1}: {type(e).__name__}: {e}"
+                    )
 
                 # Apply move to advance state
                 try:
@@ -1834,7 +1866,11 @@ def generate_dataset_gpu_parallel(
                         quality_tracker.record_position(state.zobrist_hash)
                     if done:
                         break
-                except Exception:
+                except (ValueError, RuntimeError) as e:
+                    logger.warning(
+                        f"State transition failed in GPU batch {batch_idx+1}, game {g+1}, "
+                        f"move {move_idx+1}: {type(e).__name__}: {e}. Ending game early."
+                    )
                     break
 
             # Finish data quality tracking for this game
