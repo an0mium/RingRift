@@ -3342,19 +3342,39 @@ class NeuralNetAI(BaseAI):
             self._initialized_board_type = board_type
 
             # Initialize hex encoder for hex boards (must also do this for cached models)
+            # Check model's conv1 weight shape to determine encoder version
             if board_type in (BoardType.HEXAGONAL, BoardType.HEX8) and self._hex_encoder is None:
-                from ..training.encoding import HexStateEncoderV3
+                # Infer encoder version from model's input channels
+                model_in_channels = None
+                if hasattr(self.model, 'conv1') and hasattr(self.model.conv1, 'weight'):
+                    model_in_channels = self.model.conv1.weight.shape[1]
 
-                if board_type == BoardType.HEX8:
-                    self._hex_encoder = HexStateEncoderV3(
-                        board_size=HEX8_BOARD_SIZE,
-                        policy_size=POLICY_SIZE_HEX8,
-                    )
+                use_v2_encoder = model_in_channels == 40
+
+                if use_v2_encoder:
+                    from ..training.encoding import HexStateEncoder
+                    if board_type == BoardType.HEX8:
+                        self._hex_encoder = HexStateEncoder(
+                            board_size=HEX8_BOARD_SIZE,
+                            policy_size=POLICY_SIZE_HEX8,
+                        )
+                    else:
+                        self._hex_encoder = HexStateEncoder(
+                            board_size=HEX_BOARD_SIZE,
+                            policy_size=P_HEX,
+                        )
                 else:
-                    self._hex_encoder = HexStateEncoderV3(
-                        board_size=HEX_BOARD_SIZE,
-                        policy_size=P_HEX,
-                    )
+                    from ..training.encoding import HexStateEncoderV3
+                    if board_type == BoardType.HEX8:
+                        self._hex_encoder = HexStateEncoderV3(
+                            board_size=HEX8_BOARD_SIZE,
+                            policy_size=POLICY_SIZE_HEX8,
+                        )
+                    else:
+                        self._hex_encoder = HexStateEncoderV3(
+                            board_size=HEX_BOARD_SIZE,
+                            policy_size=P_HEX,
+                        )
 
             logger.debug(
                 f"Reusing cached model: board={board_type}, "
@@ -3372,6 +3392,7 @@ class NeuralNetAI(BaseAI):
         num_filters = 192
         num_players_override = 4
         policy_size_override: Optional[int] = None
+        in_channels_override: Optional[int] = None  # Input channels from checkpoint metadata
         model_class_name: Optional[str] = None
         memory_tier_override: Optional[str] = None
         history_length_override = self.history_length
@@ -3407,6 +3428,9 @@ class NeuralNetAI(BaseAI):
                                 if cfg.get("policy_size") is not None
                                 else None
                             )
+                            # Extract in_channels from checkpoint metadata to match model architecture
+                            if cfg.get("in_channels") is not None:
+                                in_channels_override = int(cfg.get("in_channels"))
                         raw_class = meta.get("model_class")
                         if isinstance(raw_class, str):
                             model_class_name = raw_class
@@ -3594,14 +3618,17 @@ class NeuralNetAI(BaseAI):
             # - HexStateEncoderV3: 16 base channels (for HexNeuralNet_v3)
             # - HexStateEncoder (v2): 10 base channels (for HexNeuralNet_v2)
             # Square boards use 14 base channels.
-            if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
+            # Use in_channels from checkpoint metadata if available, otherwise use defaults
+            if in_channels_override is not None:
+                effective_in_channels = in_channels_override
+            elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
                 # Default to V3 encoder (16 channels) for hex boards
-                hex_base_channels = 16
+                effective_in_channels = 16
             else:
-                hex_base_channels = 14
+                effective_in_channels = 14
             self.model = create_model_for_board(
                 board_type=board_type,
-                in_channels=hex_base_channels,
+                in_channels=effective_in_channels,
                 global_features=20,
                 num_res_blocks=num_res_blocks,
                 num_filters=num_filters,
@@ -3682,26 +3709,56 @@ class NeuralNetAI(BaseAI):
         except Exception:
             pass
 
-        # Initialize hex encoder for hex boards (produces 16-channel features)
+        # Initialize hex encoder for hex boards
+        # Select encoder version based on model architecture:
+        # - HexNeuralNet_v2 models expect 40 channels (10 base × 4 frames), use HexStateEncoder
+        # - HexNeuralNet_v3 models expect 64 channels (16 base × 4 frames), use HexStateEncoderV3
         if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
-            # Lazy import to avoid circular dependency with encoding.py
-            from ..training.encoding import HexStateEncoderV3
+            # Check if we need V2 encoder (for 40-channel models)
+            use_v2_encoder = (
+                (model_class_name and "v2" in model_class_name.lower() and "v3" not in model_class_name.lower())
+                or (in_channels_override is not None and in_channels_override == 40)
+            )
 
-            if board_type == BoardType.HEX8:
-                self._hex_encoder = HexStateEncoderV3(
-                    board_size=HEX8_BOARD_SIZE,
-                    policy_size=POLICY_SIZE_HEX8,
+            if use_v2_encoder:
+                # Use V2 encoder (10 base channels) for older models
+                from ..training.encoding import HexStateEncoder
+
+                if board_type == BoardType.HEX8:
+                    self._hex_encoder = HexStateEncoder(
+                        board_size=HEX8_BOARD_SIZE,
+                        policy_size=POLICY_SIZE_HEX8,
+                    )
+                else:
+                    self._hex_encoder = HexStateEncoder(
+                        board_size=HEX_BOARD_SIZE,
+                        policy_size=P_HEX,
+                    )
+                logger.info(
+                    "Initialized HexStateEncoder (V2) for %s (board_size=%d, in_channels=%s)",
+                    board_type,
+                    self._hex_encoder.board_size,
+                    in_channels_override or 40,
                 )
             else:
-                self._hex_encoder = HexStateEncoderV3(
-                    board_size=HEX_BOARD_SIZE,
-                    policy_size=P_HEX,
+                # Use V3 encoder (16 base channels) for newer models
+                from ..training.encoding import HexStateEncoderV3
+
+                if board_type == BoardType.HEX8:
+                    self._hex_encoder = HexStateEncoderV3(
+                        board_size=HEX8_BOARD_SIZE,
+                        policy_size=POLICY_SIZE_HEX8,
+                    )
+                else:
+                    self._hex_encoder = HexStateEncoderV3(
+                        board_size=HEX_BOARD_SIZE,
+                        policy_size=P_HEX,
+                    )
+                logger.info(
+                    "Initialized HexStateEncoderV3 for %s (board_size=%d)",
+                    board_type,
+                    self._hex_encoder.board_size,
                 )
-            logger.info(
-                "Initialized HexStateEncoderV3 for %s (board_size=%d)",
-                board_type,
-                self._hex_encoder.board_size,
-            )
 
         # Cache the model for reuse
         _MODEL_CACHE[cache_key] = self.model
