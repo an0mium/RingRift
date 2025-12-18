@@ -744,3 +744,116 @@ Follow-up doc work (in Code/Docs-mode) should:
   - calibration is run on candidates that have already passed automated gates and perf budgets.
 
 This completes the architectural design for H-AI-9 – Tiered Model Training & Promotion Loop (Square-8 2-Player). Implementation work is limited to adding orchestration scripts, wiring model ids / heuristic profiles into the existing training code, and updating ladder configs in controlled, well-documented promotions.
+
+---
+
+## Appendix A: GPU Cluster Calibration Runbook (2025-12-17)
+
+This section provides concrete commands for running full AI ladder calibration on GPU infrastructure.
+
+### A.1 Prerequisites
+
+1. **GPU Access**: D6/D8 neural tiers require GPU. Available hosts in `config/distributed_hosts.yaml`:
+   - Lambda Cloud: GH200 (96GB), H100 (80GB), A10 (23GB)
+   - Vast.ai: Various RTX cards for selfplay
+
+2. **Environment Check**:
+
+```bash
+# On GPU host
+cd ~/ringrift/ai-service
+source venv/bin/activate
+python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}, Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else None}')"
+```
+
+3. **Canonical Dataset**: Verify training data exists:
+
+```bash
+ls -la data/canonical_square8_2p.npz  # Or generate with build_canonical_dataset.py
+```
+
+### A.2 Full Calibration Workflow
+
+**Step 1: Training (per tier)**
+
+```bash
+# D2 (Heuristic) - CPU OK
+python scripts/run_tier_training_pipeline.py --tier D2 \
+  --run-dir ./runs/calibration_d2_$(date +%Y%m%d) \
+  --candidate-id sq8_2p_d2_cand_$(date +%Y%m%d_%H%M%S)
+
+# D4 (Minimax/NNUE) - CPU OK for sq8
+python scripts/run_tier_training_pipeline.py --tier D4 \
+  --run-dir ./runs/calibration_d4_$(date +%Y%m%d) \
+  --candidate-id sq8_2p_d4_cand_$(date +%Y%m%d_%H%M%S)
+
+# D6 (Neural) - GPU REQUIRED
+python scripts/run_tier_training_pipeline.py --tier D6 \
+  --run-dir ./runs/calibration_d6_$(date +%Y%m%d) \
+  --candidate-id sq8_2p_d6_cand_$(date +%Y%m%d_%H%M%S)
+
+# D8 (Neural/MCTS) - GPU REQUIRED
+python scripts/run_tier_training_pipeline.py --tier D8 \
+  --run-dir ./runs/calibration_d8_$(date +%Y%m%d) \
+  --candidate-id sq8_2p_d8_cand_$(date +%Y%m%d_%H%M%S)
+```
+
+**Step 2: Gating (per tier)**
+
+```bash
+# Full gating includes evaluation + perf benchmark + promotion plan
+python scripts/run_full_tier_gating.py --tier D2 \
+  --candidate-id <from_training_report> \
+  --run-dir ./runs/calibration_d2_$(date +%Y%m%d)
+
+# Repeat for D4, D6, D8
+```
+
+**Step 3: Promotion (if gates pass)**
+
+```bash
+python scripts/apply_tier_promotion_plan.py \
+  --promotion-plan ./runs/calibration_d6_$(date +%Y%m%d)/promotion_plan.json \
+  --registry config/tier_candidate_registry.square8_2p.json
+```
+
+### A.3 Time Estimates
+
+| Tier | Training  | Evaluation (400 games) | Total |
+| ---- | --------- | ---------------------- | ----- |
+| D2   | 30-60 min | 10-20 min              | ~1h   |
+| D4   | 15-30 min | 20-40 min              | ~1h   |
+| D6   | 2-4 hours | 30-60 min              | ~4h   |
+| D8   | 3-6 hours | 40-80 min              | ~6h   |
+
+**Full calibration: 8-12 hours** (can parallelize D2/D4 on CPU while D6/D8 run on GPU)
+
+### A.4 Board-Specific Notes
+
+| Board     | D3/D4 AI | Notes                              |
+| --------- | -------- | ---------------------------------- |
+| square8   | MINIMAX  | Standard pipeline                  |
+| square19  | MCTS     | Minimax too slow (commit 44bf4400) |
+| hexagonal | MCTS     | Minimax too slow (commit 44bf4400) |
+
+### A.5 Monitoring
+
+```bash
+# Watch training progress
+tail -f ./runs/calibration_d6_*/training.log
+
+# Check GPU utilization
+nvidia-smi -l 5
+
+# Monitor P2P sync status (if distributed)
+python scripts/vast_p2p_sync.py --check
+```
+
+### A.6 Troubleshooting
+
+| Issue           | Solution                                           |
+| --------------- | -------------------------------------------------- |
+| OOM on training | Reduce batch size via `--batch-size 32`            |
+| Eval games slow | Check think_time_ms in ladder_config.py            |
+| Gate fails      | Check win rate vs threshold in tier_eval_config.py |
+| P2P sync errors | Use Tailscale IPs (100.x.x.x) for reliability      |
