@@ -3971,17 +3971,66 @@ class NeuralNetAI(BaseAI):
                                 )
                                 num_players_override = inferred_players
 
-                        # Infer policy_size when metadata is absent (common for legacy exports).
-                        if policy_size_override is None:
+                        # Infer model architecture from weight keys when metadata is absent.
+                        # V3 models have spatial policy heads; V2 models have FC policy heads.
+                        # V4 models have attention blocks (query/key/value) in residual layers.
+                        # This is the definitive way to distinguish them.
+                        v3_spatial_keys = (
+                            "placement_conv.weight",
+                            "movement_conv.weight",
+                            "line_form_conv.weight",
+                            "territory_claim_conv.weight",
+                            "territory_choice_conv.weight",
+                        )
+                        v3_rank_dist_keys = ("rank_dist_fc1.weight", "rank_dist_fc2.weight")
+                        v2_policy_keys = ("policy_fc1.weight", "policy_fc2.weight")
+                        # V4 uses AttentionResidualBlock with query/key/value convolutions
+                        v4_attention_patterns = ("res_blocks.0.query.weight", "res_blocks.0.key.weight")
+
+                        has_v3_spatial = any(k in state_dict for k in v3_spatial_keys)
+                        has_v3_rank_dist = any(k in state_dict for k in v3_rank_dist_keys)
+                        has_v2_policy = any(k in state_dict for k in v2_policy_keys)
+                        has_v4_attention = any(k in state_dict for k in v4_attention_patterns)
+
+                        if model_class_name is None:
+                            if has_v4_attention:
+                                # V4 model - NAS-optimized with attention blocks
+                                model_class_name = "RingRiftCNN_v4"
+                                memory_tier_override = "v3-high"  # V4 uses same tier as V3
+                                logger.info(
+                                    "Auto-detected RingRiftCNN_v4 from checkpoint weight keys "
+                                    "(attention blocks detected)"
+                                )
+                            elif has_v3_spatial or has_v3_rank_dist:
+                                # Definitely a V3 model - use spatial policy heads
+                                # Check for lite variant by looking at filter count
+                                is_lite = num_filters <= 96
+                                model_class_name = "RingRiftCNN_v3_Lite" if is_lite else "RingRiftCNN_v3"
+                                memory_tier_override = "v3-low" if is_lite else "v3-high"
+                                logger.info(
+                                    "Auto-detected %s from checkpoint weight keys "
+                                    "(spatial_heads=%s, rank_dist=%s)",
+                                    model_class_name,
+                                    has_v3_spatial,
+                                    has_v3_rank_dist,
+                                )
+                            elif has_v2_policy:
+                                # Definitely a V2 model - use FC policy heads
+                                is_lite = num_filters <= 96
+                                model_class_name = "RingRiftCNN_v2_Lite" if is_lite else "RingRiftCNN_v2"
+                                memory_tier_override = "low" if is_lite else "high"
+                                logger.info(
+                                    "Auto-detected %s from checkpoint weight keys (policy_fc heads)",
+                                    model_class_name,
+                                )
+
+                        # Infer policy_size when metadata is absent (only for V2 models).
+                        if policy_size_override is None and has_v2_policy:
                             policy_fc2_weight = state_dict.get("policy_fc2.weight")
                             if policy_fc2_weight is not None and hasattr(policy_fc2_weight, "shape"):
                                 inferred_policy_size = int(policy_fc2_weight.shape[0])
                                 if inferred_policy_size:
                                     policy_size_override = inferred_policy_size
-                                    # Ensure we take the direct instantiation path that respects
-                                    # policy_size overrides for square boards.
-                                    if model_class_name is None:
-                                        model_class_name = "RingRiftCNN_v2"
 
                         # Infer res-block count from state_dict keys when possible.
                         # We avoid importing regex at module level to keep import
