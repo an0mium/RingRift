@@ -3618,9 +3618,24 @@ class NeuralNetAI(BaseAI):
             # - HexStateEncoderV3: 16 base channels (for HexNeuralNet_v3)
             # - HexStateEncoder (v2): 10 base channels (for HexNeuralNet_v2)
             # Square boards use 14 base channels.
-            # Use in_channels from checkpoint metadata if available, otherwise use defaults
+            #
+            # Note: Checkpoint metadata stores TOTAL in_channels (base × (history_length + 1)),
+            # but create_model_for_board expects BASE channels.
+            # We need to convert total to base by dividing by (history_length + 1).
             if in_channels_override is not None:
-                effective_in_channels = in_channels_override
+                # Convert total channels to base channels
+                history_frames = history_length_override + 1  # e.g., 4 for history_length=3
+                if in_channels_override % history_frames == 0:
+                    effective_in_channels = in_channels_override // history_frames
+                    logger.info(
+                        "Converted total in_channels=%d to base in_channels=%d (history_frames=%d)",
+                        in_channels_override,
+                        effective_in_channels,
+                        history_frames,
+                    )
+                else:
+                    # If not evenly divisible, assume it's already base channels
+                    effective_in_channels = in_channels_override
             elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
                 # Default to V3 encoder (16 channels) for hex boards
                 effective_in_channels = 16
