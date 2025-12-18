@@ -553,7 +553,7 @@ class UnifiedConfig:
     model_pruning: ModelPruningConfig = field(default_factory=ModelPruningConfig)
 
     # Paths
-    hosts_config_path: str = "config/remote_hosts.yaml"
+    hosts_config_path: str = "config/distributed_hosts.yaml"
     elo_db: str = "data/unified_elo.db"
     data_manifest_db: str = "data/data_manifest.db"
     log_dir: str = "logs/unified_loop"

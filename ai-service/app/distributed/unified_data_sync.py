@@ -760,6 +760,89 @@ class UnifiedDataSyncService:
         except Exception as e:
             raise RuntimeError(f"Failed to get game count: {e}")
 
+    def _compute_file_checksum(self, file_path: Path) -> str:
+        """Compute SHA256 checksum of a file.
+
+        Args:
+            file_path: Path to the file
+
+        Returns:
+            Hex-encoded SHA256 hash
+        """
+        sha256 = hashlib.sha256()
+        with open(file_path, 'rb') as f:
+            for chunk in iter(lambda: f.read(8192), b''):
+                sha256.update(chunk)
+        return sha256.hexdigest()
+
+    async def _validate_synced_files(
+        self,
+        local_dir: Path,
+        host_name: str,
+    ) -> Dict[str, Any]:
+        """Validate checksums of synced database files.
+
+        This validates:
+        1. SQLite database integrity (PRAGMA integrity_check)
+        2. Computes and records file checksums for future validation
+
+        Args:
+            local_dir: Directory containing synced files
+            host_name: Name of source host
+
+        Returns:
+            Dict with validation results: {"valid": bool, "errors": list, "checksums": dict}
+        """
+        errors = []
+        checksums = {}
+        files_validated = 0
+
+        try:
+            for db_file in local_dir.glob("*.db"):
+                try:
+                    # Compute file checksum
+                    file_checksum = await asyncio.get_event_loop().run_in_executor(
+                        None, self._compute_file_checksum, db_file
+                    )
+                    checksums[db_file.name] = file_checksum
+
+                    # Verify SQLite integrity
+                    conn = sqlite3.connect(db_file)
+                    cursor = conn.cursor()
+                    cursor.execute("PRAGMA integrity_check")
+                    result = cursor.fetchone()
+                    conn.close()
+
+                    if result[0] != "ok":
+                        errors.append(f"{db_file.name}: SQLite integrity check failed: {result[0]}")
+                        continue
+
+                    files_validated += 1
+
+                except sqlite3.DatabaseError as e:
+                    errors.append(f"{db_file.name}: Database error: {e}")
+                except Exception as e:
+                    errors.append(f"{db_file.name}: Validation error: {e}")
+
+            # Store checksums in manifest for future validation
+            if checksums and hasattr(self.manifest, 'record_checksums'):
+                self.manifest.record_checksums(host_name, checksums)
+
+            return {
+                "valid": len(errors) == 0,
+                "files_validated": files_validated,
+                "errors": errors,
+                "checksums": checksums,
+            }
+
+        except Exception as e:
+            return {
+                "valid": False,
+                "files_validated": 0,
+                "errors": [f"Validation failed: {e}"],
+                "checksums": {},
+            }
+
     async def _sync_host_ssh(self, host: HostConfig, local_dir: Path) -> Tuple[int, str]:
         """Sync from host using SSH/rsync.
 
@@ -969,6 +1052,13 @@ class UnifiedDataSyncService:
             if self._ingestion_wal and games_synced > 0:
                 # WAL entry would be created here for each game
                 pass
+
+            # Validate checksums if enabled
+            if self.config.checksum_validation and games_synced > 0:
+                validation_result = await self._validate_synced_files(local_dir, host.name)
+                if not validation_result["valid"]:
+                    logger.warning(f"{host.name}: Checksum validation failed: {validation_result['errors']}")
+                    # Continue anyway but log the warning - don't fail the sync
 
             # Update statistics
             self._sync_stats[sync_method] += 1

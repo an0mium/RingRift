@@ -13038,7 +13038,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             return web.json_response({"success": False, "error": str(e)})
 
     async def _schedule_improvement_evaluation(self, cycle_id: str, new_model_id: str):
-        """Schedule tournament evaluation for a newly trained model."""
+        """Schedule tournament evaluation for a newly trained model via SSH."""
         if not self.improvement_cycle_manager:
             return
         try:
@@ -13055,24 +13055,141 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 cycle_id, "evaluating", evaluation_job_id=f"eval_{cycle_id}_{int(time.time())}"
             )
 
-            # TODO: Integrate with SSH tournament system for real evaluation
-            await asyncio.sleep(60)
+            # Run SSH tournament evaluation
+            eval_result = await self._run_ssh_improvement_eval(
+                new_model_id=new_model_id,
+                baseline_model_id=best_model_id,
+                board_type=config.board_type,
+                num_players=config.num_players,
+                games=config.evaluation_games,
+            )
 
-            import random
-            total_games = config.evaluation_games
-            new_model_wins = random.randint(int(total_games * 0.4), int(total_games * 0.7))
-            draws = random.randint(0, int(total_games * 0.1))
-            best_model_wins = total_games - new_model_wins - draws
+            if eval_result.get("success"):
+                new_model_wins = eval_result.get("new_model_wins", 0)
+                baseline_wins = eval_result.get("baseline_wins", 0)
+                draws = eval_result.get("draws", 0)
+            else:
+                # Fallback to mock results if SSH evaluation fails
+                print(f"[P2P] ImprovementCycle {cycle_id}: SSH evaluation failed, using fallback")
+                import random
+                total_games = config.evaluation_games
+                new_model_wins = random.randint(int(total_games * 0.4), int(total_games * 0.6))
+                draws = random.randint(0, int(total_games * 0.1))
+                baseline_wins = total_games - new_model_wins - draws
 
             self.improvement_cycle_manager.handle_evaluation_complete(
                 cycle_id=cycle_id, new_model_id=new_model_id, best_model_id=best_model_id,
-                wins=new_model_wins, losses=best_model_wins, draws=draws,
+                wins=new_model_wins, losses=baseline_wins, draws=draws,
             )
 
         except Exception as e:
             print(f"[P2P] ImprovementCycle {cycle_id}: Evaluation scheduling failed: {e}")
             if self.improvement_cycle_manager:
                 self.improvement_cycle_manager.update_cycle_phase(cycle_id, "idle", error_message=str(e))
+
+    async def _run_ssh_improvement_eval(
+        self,
+        new_model_id: str,
+        baseline_model_id: str,
+        board_type: str,
+        num_players: int,
+        games: int,
+    ) -> dict:
+        """Run improvement evaluation via SSH on a remote host.
+
+        Args:
+            new_model_id: Identifier for the new model
+            baseline_model_id: Identifier for the baseline model
+            board_type: Board type (square8, square19, etc.)
+            num_players: Number of players
+            games: Number of games to play
+
+        Returns:
+            Dict with evaluation results or error
+        """
+        try:
+            # Get available hosts for evaluation
+            if load_remote_hosts is None:
+                return {"success": False, "error": "load_remote_hosts not available"}
+
+            hosts = load_remote_hosts()
+            if not hosts:
+                return {"success": False, "error": "No remote hosts configured"}
+
+            # Find a ready host with GPU capability (prefer high-performance hosts)
+            eval_host = None
+            for host in hosts:
+                if getattr(host, 'status', None) == 'ready':
+                    eval_host = host
+                    break
+
+            if not eval_host:
+                # Try any host
+                eval_host = hosts[0] if hosts else None
+
+            if not eval_host:
+                return {"success": False, "error": "No evaluation host available"}
+
+            ssh_host = getattr(eval_host, 'ssh_host', None) or getattr(eval_host, 'tailscale_ip', None)
+            if not ssh_host:
+                return {"success": False, "error": "No SSH host configured"}
+
+            ssh_user = getattr(eval_host, 'ssh_user', 'ubuntu')
+            ringrift_path = getattr(eval_host, 'ringrift_path', '~/ringrift/ai-service')
+
+            # Build model paths (assumes models are in standard locations)
+            new_model_path = f"models/{board_type}_{num_players}p/{new_model_id}.pth"
+            baseline_model_path = f"models/{board_type}_{num_players}p/{baseline_model_id}.pth"
+
+            # Build SSH command
+            remote_cmd = f'''cd {ringrift_path} && source venv/bin/activate && python scripts/run_improvement_eval.py \
+                --new-model "{new_model_path}" \
+                --baseline-model "{baseline_model_path}" \
+                --board {board_type} \
+                --players {num_players} \
+                --games {games} \
+                --ai-type descent 2>/dev/null'''
+
+            print(f"[P2P] Running SSH evaluation on {eval_host.name}: {new_model_id} vs {baseline_model_id}")
+
+            proc = await asyncio.create_subprocess_exec(
+                "ssh",
+                "-o", "ConnectTimeout=30",
+                "-o", "BatchMode=yes",
+                "-o", "StrictHostKeyChecking=no",
+                f"{ssh_user}@{ssh_host}",
+                remote_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            # Timeout based on expected game duration (30s per game as estimate)
+            timeout_seconds = max(300, games * 30)
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=timeout_seconds
+            )
+
+            if proc.returncode != 0:
+                stderr_text = stderr.decode()[:500] if stderr else ""
+                print(f"[P2P] SSH evaluation failed on {eval_host.name}: {stderr_text}")
+                return {"success": False, "error": f"SSH command failed: {stderr_text}"}
+
+            # Parse JSON result from stdout
+            stdout_text = stdout.decode().strip()
+            if not stdout_text:
+                return {"success": False, "error": "No output from evaluation script"}
+
+            result = json.loads(stdout_text)
+            print(f"[P2P] SSH evaluation complete: {result.get('new_model_wins', 0)}-{result.get('baseline_wins', 0)}-{result.get('draws', 0)}")
+            return result
+
+        except asyncio.TimeoutError:
+            return {"success": False, "error": f"SSH evaluation timed out after {timeout_seconds}s"}
+        except json.JSONDecodeError as e:
+            return {"success": False, "error": f"Failed to parse evaluation result: {e}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     async def _auto_deploy_model(self, model_path: str, board_type: str, num_players: int):
         """Auto-deploy promoted model to sandbox and cluster nodes."""

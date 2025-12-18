@@ -131,7 +131,7 @@ curriculum:
   min_games_for_weight: 100 # Min games before adjusting weights
 
 # Host configuration file
-hosts_config_path: 'config/remote_hosts.yaml'
+hosts_config_path: 'config/distributed_hosts.yaml'
 
 # Database paths (relative to ai-service root)
 elo_db: 'data/unified_elo.db' # Canonical Elo database for trained models

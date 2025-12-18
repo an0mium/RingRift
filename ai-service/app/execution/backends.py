@@ -594,8 +594,18 @@ class SSHBackend(OrchestratorBackend):
         workers = await self.get_available_workers()
         gpu_workers = [
             w for w in workers
-            if w.available and w.metadata.get("gpu")
+            if w.available
+            and w.metadata.get("gpu")
+            and w.metadata.get("training_enabled", True)  # Respect training_enabled flag
+            and "NVIDIA" in str(w.metadata.get("gpu", ""))  # Prefer CUDA GPUs
         ]
+
+        # Fallback: include MPS GPUs if no CUDA available
+        if not gpu_workers:
+            gpu_workers = [
+                w for w in workers
+                if w.available and w.metadata.get("gpu") and w.metadata.get("training_enabled", True)
+            ]
 
         if not gpu_workers:
             logger.warning("No GPU workers available, running locally")

@@ -45,19 +45,20 @@ IDLE_THRESHOLD_HOURS = 2  # Mark as idle if no games for this long
 MAX_INSTANCE_AGE_HOURS = 48  # Consider termination after this time
 
 # GPU to board type mapping - assign appropriate workloads based on GPU capability
+# Updated 2025-12-18: Rebalanced to generate more square19/hexagonal data
 GPU_BOARD_MAPPING = {
-    # Small GPUs (<=8GB) - fast hex8 games
+    # Small GPUs (<=8GB) - fast hex8 games (training data)
     "RTX 3070": "hex8",
     "RTX 2060S": "hex8",
     "RTX 2060 SUPER": "hex8",
     "RTX 3060 Ti": "hex8",
     "RTX 2080 Ti": "hex8",
     "RTX 3060": "hex8",
-    # Mid-range GPUs (12-16GB) - standard square8
-    "RTX 4060 Ti": "square8",
-    "RTX 4080S": "square8",
-    "RTX 4080 SUPER": "square8",
-    "RTX 5080": "square8",
+    # Mid-range GPUs (12-16GB) - split between square8 and square19
+    "RTX 4060 Ti": "square8",  # Keep some on square8
+    "RTX 4080S": "square19",   # Redirect to square19 (need more data)
+    "RTX 4080 SUPER": "square19",
+    "RTX 5080": "square19",    # Redirect to square19 (need more data)
     # High-end GPUs (24GB+) - large hexagonal boards
     "A40": "hexagonal",
     "RTX 5090": "hexagonal",
