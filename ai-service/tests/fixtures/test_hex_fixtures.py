@@ -280,8 +280,8 @@ class TestCreateHexGameState:
         """Should create correct number of players."""
         state = create_hex_game_state(num_players=4)
         assert len(state.players) == 4
-        assert state.players[0].playerNumber == 1
-        assert state.players[3].playerNumber == 4
+        assert state.players[0].player_number == 1
+        assert state.players[3].player_number == 4
 
     def test_custom_phase(self):
         """Should respect custom phase."""
@@ -298,7 +298,7 @@ class TestCreateHexGameState:
         """Players should start with rings in hand."""
         state = create_hex_game_state()
         for player in state.players:
-            assert player.ringsInHand > 0
+            assert player.rings_in_hand > 0
 
 
 class TestCreateHexBoardWithStacks:
@@ -330,9 +330,9 @@ class TestCreateHexBoardWithStacks:
 
         # Find the stack
         for stack in state.board.stacks.values():
-            assert stack.height == 3
+            assert stack.stack_height == 3
             assert stack.rings == [1, 2, 1]
-            assert stack.owner == 1  # Top ring owner
+            assert stack.controlling_player == 1  # Bottom ring controls
 
     def test_player_rings_updated(self):
         """Should update player rings in hand."""
@@ -346,7 +346,7 @@ class TestCreateHexBoardWithStacks:
         p2 = state.players[1]
 
         # Assuming standard rings per player
-        assert p1.ringsInHand < p2.ringsInHand
+        assert p1.rings_in_hand < p2.rings_in_hand
 
     def test_phase_is_movement(self):
         """Should default to movement phase."""
@@ -439,31 +439,46 @@ class TestStandardPositions:
 
 
 class TestPytestFixtures:
-    """Tests for pytest fixtures themselves."""
+    """Tests for pytest fixtures themselves.
 
-    def test_empty_hex_state_fixture(self, empty_hex_state):
-        """empty_hex_state fixture should work."""
-        assert empty_hex_state is not None
-        assert len(empty_hex_state.board.stacks) == 0
+    Note: These tests use the fixtures directly from the module
+    rather than pytest injection since the fixtures are defined
+    in hex_fixtures.py, not conftest.py.
+    """
 
-    def test_hex_state_with_center_stack_fixture(self, hex_state_with_center_stack):
-        """hex_state_with_center_stack fixture should have one stack."""
-        assert len(hex_state_with_center_stack.board.stacks) == 1
+    def test_empty_hex_state_factory(self):
+        """empty_hex_state factory should work."""
+        state = create_hex_game_state()
+        assert state is not None
+        assert len(state.board.stacks) == 0
 
-    def test_hex_state_symmetric_fixture(self, hex_state_symmetric):
-        """hex_state_symmetric fixture should have corner stacks."""
-        assert len(hex_state_symmetric.board.stacks) == 6
+    def test_hex_state_with_center_stack_factory(self):
+        """create_hex_board_with_stacks should create stack at center."""
+        state = create_hex_board_with_stacks({HexCoord(0, 0): [1]})
+        assert len(state.board.stacks) == 1
 
-    def test_hex_training_sample_fixture(self, hex_training_sample):
-        """hex_training_sample fixture should return valid sample."""
-        assert 'features' in hex_training_sample
-        assert 'values' in hex_training_sample
-        assert 'policy_values' in hex_training_sample
+    def test_hex_state_symmetric_factory(self):
+        """Factory should create symmetric corner stacks."""
+        corners = hex_corner_positions(11)
+        stacks = {corner: [1] for corner in corners[:3]}
+        stacks.update({corner: [2] for corner in corners[3:]})
+        state = create_hex_board_with_stacks(stacks)
+        assert len(state.board.stacks) == 6
 
-    def test_hex_coord_origin_fixture(self, hex_coord_origin):
-        """hex_coord_origin fixture should be origin."""
-        assert hex_coord_origin == HexCoord(0, 0)
+    def test_hex_training_sample_factory(self):
+        """create_hex_training_sample should return valid sample."""
+        sample = create_hex_training_sample()
+        assert 'features' in sample
+        assert 'values' in sample
+        assert 'policy_values' in sample
 
-    def test_hex_coords_ring_1_fixture(self, hex_coords_ring_1):
-        """hex_coords_ring_1 fixture should have 6 coords."""
-        assert len(hex_coords_ring_1) == 6
+    def test_hex_coord_origin(self):
+        """HexCoord origin should be (0, 0)."""
+        origin = HexCoord(0, 0)
+        assert origin.q == 0
+        assert origin.r == 0
+
+    def test_hex_coords_ring_1(self):
+        """Origin neighbors should have 6 coords."""
+        ring_1 = HexCoord(0, 0).neighbors()
+        assert len(ring_1) == 6

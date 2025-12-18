@@ -363,6 +363,23 @@ def position_factory() -> Callable[..., Position]:
 # HEX BOARD FIXTURES
 # =============================================================================
 
+# Import hex-specific utilities from fixtures module
+from tests.fixtures.hex_fixtures import (
+    HexCoord,
+    D6_ROTATIONS,
+    D6_REFLECTIONS,
+    D6_SYMMETRIES,
+    verify_d6_symmetry,
+    apply_symmetry_to_board,
+    apply_symmetry_to_state,
+    create_hex_game_state,
+    create_hex_board_with_stacks,
+    create_hex_training_sample,
+    hex_center_position,
+    hex_corner_positions,
+    hex_edge_midpoints,
+)
+
 
 @pytest.fixture
 def hex_game_state(game_state_factory) -> GameState:
@@ -371,6 +388,47 @@ def hex_game_state(game_state_factory) -> GameState:
         board_type=BoardType.HEXAGONAL,
         total_rings_in_play=42,
     )
+
+
+@pytest.fixture
+def empty_hex_state() -> GameState:
+    """Empty hexagonal board game state using hex fixtures."""
+    return create_hex_game_state()
+
+
+@pytest.fixture
+def hex_state_with_center_stack() -> GameState:
+    """Hex board with a single stack at center."""
+    return create_hex_board_with_stacks({
+        HexCoord(0, 0): [1],
+    })
+
+
+@pytest.fixture
+def hex_state_symmetric() -> GameState:
+    """Hex board with D6-symmetric stack placement."""
+    corners = hex_corner_positions(11)
+    stacks = {corner: [1] for corner in corners[:3]}
+    stacks.update({corner: [2] for corner in corners[3:]})
+    return create_hex_board_with_stacks(stacks)
+
+
+@pytest.fixture
+def hex_training_sample():
+    """Synthetic hex training sample."""
+    return create_hex_training_sample()
+
+
+@pytest.fixture
+def hex_coord_origin() -> HexCoord:
+    """Origin hex coordinate."""
+    return HexCoord(0, 0)
+
+
+@pytest.fixture
+def hex_coords_ring_1():
+    """All hex coordinates at distance 1 from origin."""
+    return HexCoord(0, 0).neighbors()
 
 
 # =============================================================================

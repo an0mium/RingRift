@@ -421,7 +421,7 @@ def create_hex_board_with_stacks(
     rings_per_player = get_rings_per_player(board_type)
     for player in state.players:
         new_players.append(player.model_copy(update={
-            'ringsInHand': rings_per_player - rings_used.get(player.playerNumber, 0)
+            'rings_in_hand': rings_per_player - rings_used.get(player.player_number, 0)
         }))
 
     new_board = state.board.model_copy(update={'stacks': board_stacks})
@@ -480,16 +480,27 @@ def hex_corner_positions(size: int = 11) -> List[HexCoord]:
 
 
 def hex_edge_midpoints(size: int = 11) -> List[HexCoord]:
-    """Get the midpoint of each edge of the hex board."""
+    """Get the midpoint of each edge of the hex board.
+
+    For a hex board of radius r, returns 6 edge midpoints
+    (between consecutive corners).
+    """
     r = size - 1
     mid = r // 2
+    # Edge midpoints between consecutive corners, going clockwise from (r, 0)
+    # Edge 1: (r, 0) to (0, r) - midpoint at (r-mid, mid)
+    # Edge 2: (0, r) to (-r, r) - midpoint at (-mid, r)
+    # Edge 3: (-r, r) to (-r, 0) - midpoint at (-r, mid)
+    # Edge 4: (-r, 0) to (0, -r) - midpoint at (-mid, -mid)
+    # Edge 5: (0, -r) to (r, -r) - midpoint at (mid, -r)
+    # Edge 6: (r, -r) to (r, 0) - midpoint at (r, -mid)
     return [
-        HexCoord(mid, mid),
-        HexCoord(-mid, r - mid),
-        HexCoord(-r + mid, mid),
-        HexCoord(-mid, -mid),
-        HexCoord(mid, -r + mid),
-        HexCoord(r - mid, -mid),
+        HexCoord(r - mid, mid),     # Edge between (r,0) and (0,r)
+        HexCoord(-mid, r),          # Edge between (0,r) and (-r,r)
+        HexCoord(-r, mid),          # Edge between (-r,r) and (-r,0)
+        HexCoord(-r + mid, -mid),   # Edge between (-r,0) and (0,-r)
+        HexCoord(mid, -r),          # Edge between (0,-r) and (r,-r)
+        HexCoord(r, -mid),          # Edge between (r,-r) and (r,0)
     ]
 
 
