@@ -1,14 +1,6 @@
 #!/bin/bash
 # Production-grade cluster health check script
 
-# Lambda nodes: name ip
-NODES="l-2xh100:100.97.104.89
-l-a10:100.91.25.13
-l-gh200e:100.88.176.74
-l-gh200f:100.104.165.116
-l-gh200g:100.104.126.58
-l-gh200b:100.83.234.82"
-
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -36,20 +28,16 @@ check_node() {
         return 1
     fi
 
-    local status=$(ssh -o ConnectTimeout=5 ubuntu@$ip 'bash -s' 2>/dev/null << 'REMOTE'
-GPU_INFO=$(nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
-GPU_UTIL=$(echo "$GPU_INFO" | cut -d',' -f1 | tr -d ' ')
-GPU_MEM_USED=$(echo "$GPU_INFO" | cut -d',' -f2 | tr -d ' ')
-GPU_MEM_TOTAL=$(echo "$GPU_INFO" | cut -d',' -f3 | tr -d ' ')
-DISK_PCT=$(df -h /home | tail -1 | awk '{print $5}' | tr -d '%')
-TRAINING=$(ps aux | grep -E 'training_loop|selfplay|gauntlet' | grep -v grep | wc -l)
-PYTHON_PROCS=$(ps aux | grep python | grep -v grep | wc -l)
-echo "GPU:${GPU_UTIL}% MEM:${GPU_MEM_USED}/${GPU_MEM_TOTAL}MB DISK:${DISK_PCT}% Procs:$PYTHON_PROCS Train:$TRAINING"
-REMOTE
-    )
+    local status=$(ssh -o ConnectTimeout=5 ubuntu@$ip "nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null | head -1" 2>/dev/null)
+    local disk=$(ssh -o ConnectTimeout=5 ubuntu@$ip "df -h /home | tail -1 | awk '{print \$5}'" 2>/dev/null)
+    local procs=$(ssh -o ConnectTimeout=5 ubuntu@$ip "ps aux | grep python | grep -v grep | wc -l" 2>/dev/null)
+    local training=$(ssh -o ConnectTimeout=5 ubuntu@$ip "ps aux | grep -E 'training|selfplay|gauntlet' | grep -v grep | wc -l" 2>/dev/null)
 
-    [ -z "$status" ] && status="Status check failed"
-    print_status OK "$name: $status"
+    GPU_UTIL=$(echo "$status" | cut -d',' -f1 | tr -d ' ')
+    GPU_MEM=$(echo "$status" | cut -d',' -f2 | tr -d ' ')
+    GPU_TOTAL=$(echo "$status" | cut -d',' -f3 | tr -d ' ')
+
+    print_status OK "$name: GPU:${GPU_UTIL:-?}% MEM:${GPU_MEM:-?}/${GPU_TOTAL:-?}MB DISK:${disk:-?} Procs:${procs:-?} Train:${training:-?}"
 }
 
 main() {
@@ -69,18 +57,20 @@ main() {
 
     print_status INFO "Checking Lambda nodes..."
     local failed=0
-    local total=0
-    while IFS=: read -r name ip; do
-        total=$((total + 1))
-        check_node "$name" "$ip" || failed=$((failed + 1))
-    done <<< "$NODES"
+    
+    check_node "l-2xh100" "100.97.104.89" || failed=$((failed + 1))
+    check_node "l-a10" "100.91.25.13" || failed=$((failed + 1))
+    check_node "l-gh200e" "100.88.176.74" || failed=$((failed + 1))
+    check_node "l-gh200f" "100.104.165.116" || failed=$((failed + 1))
+    check_node "l-gh200g" "100.104.126.58" || failed=$((failed + 1))
+    check_node "l-gh200b" "100.83.234.82" || failed=$((failed + 1))
+    
     echo ""
-
-    local healthy=$((total - failed))
+    local healthy=$((6 - failed))
     if [ $failed -eq 0 ]; then
-        print_status OK "All $total nodes healthy"
+        print_status OK "All 6 nodes healthy"
     else
-        print_status WARN "$healthy/$total nodes healthy"
+        print_status WARN "$healthy/6 nodes healthy"
     fi
 
     echo ""
@@ -88,8 +78,6 @@ main() {
     if command -v vastai &>/dev/null; then
         VAST_COUNT=$(vastai show instances 2>/dev/null | grep -c running || echo 0)
         print_status OK "$VAST_COUNT instances running"
-    else
-        print_status WARN "Vast CLI not available"
     fi
     echo "=========================================="
 }

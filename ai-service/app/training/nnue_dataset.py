@@ -20,7 +20,7 @@ import logging
 import os
 import sqlite3
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -211,6 +211,216 @@ class NNUESample:
     player_number: int
     game_id: str
     move_number: int
+
+
+@dataclass
+class DataValidationResult:
+    """Result of data validation."""
+    is_valid: bool
+    total_samples: int = 0
+    valid_samples: int = 0
+    invalid_samples: int = 0
+    nan_count: int = 0
+    inf_count: int = 0
+    value_out_of_range: int = 0
+    zero_feature_count: int = 0
+    class_balance: Dict[str, int] = None  # wins/losses/draws
+    feature_stats: Dict[str, float] = None  # mean, std, min, max
+    errors: List[str] = None
+
+    def __post_init__(self):
+        if self.class_balance is None:
+            self.class_balance = {}
+        if self.feature_stats is None:
+            self.feature_stats = {}
+        if self.errors is None:
+            self.errors = []
+
+
+def validate_nnue_sample(sample: NNUESample, feature_dim: int) -> Tuple[bool, Optional[str]]:
+    """Validate a single NNUE training sample.
+
+    Args:
+        sample: The sample to validate
+        feature_dim: Expected feature dimension
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    # Check feature shape
+    if sample.features.shape[0] != feature_dim:
+        return False, f"Feature dim mismatch: expected {feature_dim}, got {sample.features.shape[0]}"
+
+    # Check for NaN
+    if np.isnan(sample.features).any():
+        return False, "Features contain NaN"
+
+    # Check for Inf
+    if np.isinf(sample.features).any():
+        return False, "Features contain Inf"
+
+    # Check value range
+    if not -1.0 <= sample.value <= 1.0:
+        return False, f"Value out of range: {sample.value}"
+
+    # Check player number
+    if sample.player_number < 1 or sample.player_number > 8:
+        return False, f"Invalid player number: {sample.player_number}"
+
+    # Check for all-zero features (likely extraction failure)
+    if np.allclose(sample.features, 0):
+        return False, "All-zero features"
+
+    return True, None
+
+
+def validate_nnue_dataset(
+    samples: List[NNUESample],
+    feature_dim: int,
+    log_errors: bool = True,
+) -> DataValidationResult:
+    """Validate an entire NNUE dataset.
+
+    Args:
+        samples: List of samples to validate
+        feature_dim: Expected feature dimension
+        log_errors: Whether to log validation errors
+
+    Returns:
+        DataValidationResult with validation statistics
+    """
+    result = DataValidationResult(is_valid=True, total_samples=len(samples))
+    class_counts = {"wins": 0, "losses": 0, "draws": 0}
+    all_features = []
+    errors = []
+
+    for i, sample in enumerate(samples):
+        is_valid, error = validate_nnue_sample(sample, feature_dim)
+
+        if is_valid:
+            result.valid_samples += 1
+            all_features.append(sample.features)
+
+            # Track class balance
+            if sample.value > 0.5:
+                class_counts["wins"] += 1
+            elif sample.value < -0.5:
+                class_counts["losses"] += 1
+            else:
+                class_counts["draws"] += 1
+        else:
+            result.invalid_samples += 1
+            errors.append(f"Sample {i} ({sample.game_id}:{sample.move_number}): {error}")
+
+            # Categorize error
+            if "NaN" in error:
+                result.nan_count += 1
+            elif "Inf" in error:
+                result.inf_count += 1
+            elif "out of range" in error:
+                result.value_out_of_range += 1
+            elif "zero" in error.lower():
+                result.zero_feature_count += 1
+
+    result.class_balance = class_counts
+    result.errors = errors[:100]  # Limit to first 100 errors
+
+    # Compute feature statistics if we have valid samples
+    if all_features:
+        features_array = np.stack(all_features)
+        result.feature_stats = {
+            "mean": float(np.mean(features_array)),
+            "std": float(np.std(features_array)),
+            "min": float(np.min(features_array)),
+            "max": float(np.max(features_array)),
+            "sparsity": float(np.mean(np.abs(features_array) < 1e-6)),
+        }
+
+    # Check class imbalance (warn if > 2:1 ratio)
+    if class_counts["wins"] > 0 and class_counts["losses"] > 0:
+        ratio = max(class_counts["wins"], class_counts["losses"]) / min(class_counts["wins"], class_counts["losses"])
+        if ratio > 2.0:
+            result.errors.append(f"Warning: Class imbalance detected (ratio: {ratio:.1f})")
+
+    # Mark as invalid if too many errors
+    if result.invalid_samples > result.total_samples * 0.1:
+        result.is_valid = False
+        result.errors.insert(0, f"Too many invalid samples: {result.invalid_samples}/{result.total_samples}")
+
+    if log_errors and result.errors:
+        for error in result.errors[:10]:
+            logger.warning(error)
+        if len(result.errors) > 10:
+            logger.warning(f"... and {len(result.errors) - 10} more validation errors")
+
+    return result
+
+
+def validate_database_integrity(db_path: str) -> Tuple[bool, Dict[str, Any]]:
+    """Validate SQLite database integrity for training.
+
+    Args:
+        db_path: Path to SQLite database
+
+    Returns:
+        Tuple of (is_valid, stats_dict)
+    """
+    stats = {
+        "path": db_path,
+        "exists": os.path.exists(db_path),
+        "total_games": 0,
+        "completed_games": 0,
+        "games_with_snapshots": 0,
+        "total_snapshots": 0,
+        "integrity_ok": False,
+        "errors": [],
+    }
+
+    if not stats["exists"]:
+        stats["errors"].append("Database file does not exist")
+        return False, stats
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Check SQLite integrity
+        cursor.execute("PRAGMA integrity_check")
+        integrity = cursor.fetchone()[0]
+        stats["integrity_ok"] = integrity == "ok"
+        if integrity != "ok":
+            stats["errors"].append(f"SQLite integrity check failed: {integrity}")
+
+        # Count games
+        cursor.execute("SELECT COUNT(*) FROM games")
+        stats["total_games"] = cursor.fetchone()[0]
+
+        # Count completed games
+        cursor.execute("SELECT COUNT(*) FROM games WHERE game_status = 'completed'")
+        stats["completed_games"] = cursor.fetchone()[0]
+
+        # Count games with snapshots (if table exists)
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='game_state_snapshots'"
+        )
+        if cursor.fetchone():
+            cursor.execute("SELECT COUNT(DISTINCT game_id) FROM game_state_snapshots")
+            stats["games_with_snapshots"] = cursor.fetchone()[0]
+
+            cursor.execute("SELECT COUNT(*) FROM game_state_snapshots")
+            stats["total_snapshots"] = cursor.fetchone()[0]
+
+        conn.close()
+
+        # Validate stats
+        if stats["completed_games"] == 0:
+            stats["errors"].append("No completed games in database")
+
+        return len(stats["errors"]) == 0, stats
+
+    except Exception as e:
+        stats["errors"].append(f"Database error: {str(e)}")
+        return False, stats
 
 
 @dataclass
