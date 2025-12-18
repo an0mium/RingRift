@@ -1456,6 +1456,7 @@ def train_model(
     early_stopping_patience: int = 10,
     checkpoint_dir: str = 'checkpoints',
     checkpoint_interval: int = 5,
+    save_all_epochs: bool = True,  # Save every epoch for Elo-based selection
     warmup_epochs: int = 0,
     lr_scheduler: str = 'none',
     lr_min: float = 1e-6,
@@ -1716,6 +1717,20 @@ def train_model(
 
     # Determine whether to use HexNeuralNet for hexagonal boards (including hex8)
     use_hex_model = config.board_type in (BoardType.HEXAGONAL, BoardType.HEX8)
+
+    # Validate model_id matches board_type to prevent architecture mismatch errors (P0)
+    # A hex model saved with "sq8" in the name causes runtime failures when loading
+    if use_hex_model and "sq8" in config.model_id.lower():
+        raise ValueError(
+            f"Model ID '{config.model_id}' contains 'sq8' but board_type is "
+            f"{config.board_type.name} which uses HexNeuralNet architecture. "
+            "Use a model ID that reflects the hex board type (e.g., 'ringrift_hex_2p')."
+        )
+    if not use_hex_model and ("hex" in config.model_id.lower() and "sq" not in config.model_id.lower()):
+        raise ValueError(
+            f"Model ID '{config.model_id}' appears to be for hex but board_type is "
+            f"{config.board_type.name}. Use a model ID that matches the board type."
+        )
 
     # Determine effective policy head size.
     policy_size: int
