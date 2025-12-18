@@ -1605,7 +1605,8 @@ class NNUEPolicyDataset(Dataset):
                 self.samples.extend(samples)
                 logger.info(f"Extracted {len(samples)} policy samples from JSONL {jsonl_path}")
             except Exception as e:
-                logger.error(f"Failed to extract from JSONL {jsonl_path}: {e}")
+                import traceback
+                logger.error(f"Failed to extract from JSONL {jsonl_path}: {e}\n{traceback.format_exc()}")
 
             if self.max_samples and len(self.samples) >= self.max_samples:
                 self.samples = self.samples[:self.max_samples]
@@ -1669,7 +1670,7 @@ class NNUEPolicyDataset(Dataset):
 
         samples: List[NNUEPolicySample] = []
         engine = DefaultRulesEngine()
-        board_type_str = self.config.board_type.value.lower()
+        board_type_str = self.config.board_type.value.lower() if hasattr(self.config.board_type, 'value') else str(self.config.board_type).lower()
 
         import time as _time
         extraction_start = _time.time()
@@ -1683,7 +1684,9 @@ class NNUEPolicyDataset(Dataset):
             This helper inserts the required bookkeeping moves to advance the state.
             """
             safety = 0
-            while state.game_status.value == "active" and safety < 100:
+            def _get_status(s):
+                return s.game_status.value if hasattr(s.game_status, 'value') else str(s.game_status)
+            while _get_status(state) == "active" and safety < 100:
                 safety += 1
                 phase = state.current_phase
                 player = state.current_player
@@ -1825,14 +1828,16 @@ class NNUEPolicyDataset(Dataset):
                     move_number = move_idx + 1
 
                     # Auto-advance through phase-handling moves for GPU selfplay
-                    if is_gpu_selfplay and state.game_status.value == "active":
+                    game_status_str = state.game_status.value if hasattr(state.game_status, 'value') else str(state.game_status)
+                    if is_gpu_selfplay and game_status_str == "active":
                         try:
                             state = _auto_advance_phase(state)
                         except Exception:
                             break  # Can't continue if phase advance fails
 
                     # Sample every Nth position
-                    if move_number % self.config.sample_every_n_moves == 0 and state.game_status.value == "active":
+                    game_status_str = state.game_status.value if hasattr(state.game_status, 'value') else str(state.game_status)
+                    if move_number % self.config.sample_every_n_moves == 0 and game_status_str == "active":
                         current_player = state.current_player or 1
 
                         # Calculate value from perspective of current player
@@ -1932,7 +1937,8 @@ class NNUEPolicyDataset(Dataset):
                             # Use GameEngine for consistent phase handling
                             state = GameEngine.apply_move(state, move)
                             # Auto-advance through any resulting phase transitions for GPU selfplay
-                            if is_gpu_selfplay and state.game_status.value == "active":
+                            game_status_str = state.game_status.value if hasattr(state.game_status, 'value') else str(state.game_status)
+                            if is_gpu_selfplay and game_status_str == "active":
                                 state = _auto_advance_phase(state)
                     except Exception:
                         break  # Can't continue if move application fails

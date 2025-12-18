@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""Generate selfplay games with Gumbel MCTS for KL divergence training.
+
+This script generates games using Gumbel MCTS which produces visit distribution
+soft targets suitable for KL divergence loss training.
+
+Usage:
+    python scripts/generate_gumbel_selfplay.py \
+        --num-games 500 \
+        --board-type square8 \
+        --output data/gumbel_selfplay/sq8_gumbel.jsonl
+"""
+
+import argparse
+import json
+import logging
+import os
+import sys
+import time
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, List, Optional, Any
+
+# Add project root to path
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from app.models import BoardType, AIConfig
+from app.training.env import RingRiftEnv
+from app.ai.gumbel_mcts_ai import GumbelMCTSAI
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+def parse_board_type(board_str: str) -> BoardType:
+    """Parse board type string to enum."""
+    board_str = board_str.lower()
+    if "square8" in board_str or "sq8" in board_str:
+        return BoardType.SQUARE8
+    elif "square19" in board_str or "sq19" in board_str:
+        return BoardType.SQUARE19
+    elif "hex" in board_str:
+        return BoardType.HEXAGONAL
+    return BoardType.SQUARE8
+
+
+def serialize_state(state) -> Dict[str, Any]:
+    """Serialize GameState to JSON-compatible dict."""
+    data = state.model_dump() if hasattr(state, 'model_dump') else state.dict()
+    # Convert datetime objects to ISO strings
+    for key, value in data.items():
+        if hasattr(value, 'isoformat'):
+            data[key] = value.isoformat()
+    return data
+
+
+def generate_game(
+    env: RingRiftEnv,
+    ai_players: Dict[int, GumbelMCTSAI],
+    game_idx: int,
+    max_moves: int = 500,
+) -> Optional[Dict[str, Any]]:
+    """Generate a single game with Gumbel MCTS visit distributions."""
+    state = env.reset()
+    # Save initial state for extraction
+    initial_state = serialize_state(state)
+    moves_data = []
+    done = False
+    move_count = 0
+
+    while not done and move_count < max_moves:
+        current_player = state.current_player
+        ai = ai_players.get(current_player)
+        if ai is None:
+            break
+
+        # Get move from Gumbel MCTS
+        move = ai.select_move(state)
+
+        # Get visit distribution (soft targets)
+        mcts_policy = {}
+        if hasattr(ai, 'get_visit_distribution'):
+            moves, probs = ai.get_visit_distribution()
+            for idx, (mv, prob) in enumerate(zip(moves, probs)):
+                if prob > 1e-6:
+                    mcts_policy[str(idx)] = float(prob)
+
+        # Record move with MCTS policy
+        move_data = {
+            "type": move.type.value,
+            "player": move.player,
+            "mcts_policy": mcts_policy if mcts_policy else None,
+        }
+        if move.from_pos:
+            move_data["from"] = {"x": move.from_pos.x, "y": move.from_pos.y}
+        if move.to:
+            move_data["to"] = {"x": move.to.x, "y": move.to.y}
+        if move.capture_target:
+            move_data["capture_target"] = {"x": move.capture_target.x, "y": move.capture_target.y}
+
+        moves_data.append(move_data)
+
+        # Apply move
+        state, _, done, _ = env.step(move)
+        move_count += 1
+
+    # Build game record
+    board_size = 8 if env.board_type == BoardType.SQUARE8 else (19 if env.board_type == BoardType.SQUARE19 else 11)
+    return {
+        "game_id": f"gumbel_{env.board_type.value}_{env.num_players}p_{game_idx}_{int(time.time())}",
+        "board_type": env.board_type.value,
+        "board_size": board_size,
+        "num_players": env.num_players,
+        "winner": state.winner,
+        "move_count": move_count,
+        "game_status": state.game_status.value if hasattr(state.game_status, 'value') else str(state.game_status),
+        "victory_type": getattr(state, 'victory_type', None),
+        "engine_mode": "gumbel_mcts",
+        "moves": moves_data,
+        "initial_state": initial_state,
+        "timestamp": datetime.now().isoformat(),
+        "source": "generate_gumbel_selfplay.py",
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate Gumbel MCTS selfplay games")
+    parser.add_argument("--num-games", type=int, default=100, help="Number of games to generate")
+    parser.add_argument("--board-type", type=str, default="square8", help="Board type (square8, square19, hexagonal)")
+    parser.add_argument("--num-players", type=int, default=2, help="Number of players")
+    parser.add_argument("--output", "-o", type=str, required=True, help="Output JSONL file")
+    parser.add_argument("--gumbel-sims", type=int, default=64, help="Gumbel MCTS simulations")
+    parser.add_argument("--max-moves", type=int, default=500, help="Max moves per game")
+    args = parser.parse_args()
+
+    # Setup
+    board_type = parse_board_type(args.board_type)
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"Generating {args.num_games} Gumbel MCTS games")
+    logger.info(f"Board: {board_type.value}, Players: {args.num_players}")
+    logger.info(f"Output: {output_path}")
+
+    # Create environment
+    env = RingRiftEnv(board_type=board_type, num_players=args.num_players)
+
+    # Create AI players
+    ai_players = {}
+    for pn in range(1, args.num_players + 1):
+        ai_config = AIConfig(
+            difficulty=5,
+            self_play=True,
+        )
+        ai_players[pn] = GumbelMCTSAI(
+            player_number=pn,
+            config=ai_config,
+            board_type=board_type,
+        )
+
+    # Generate games
+    start_time = time.time()
+    games_generated = 0
+    moves_with_policy = 0
+
+    with open(output_path, 'w') as f:
+        for game_idx in range(args.num_games):
+            try:
+                game = generate_game(env, ai_players, game_idx, args.max_moves)
+                if game:
+                    # Count moves with MCTS policy
+                    policy_count = sum(1 for m in game["moves"] if m.get("mcts_policy"))
+                    moves_with_policy += policy_count
+
+                    f.write(json.dumps(game) + "\n")
+                    games_generated += 1
+
+                    if (game_idx + 1) % 10 == 0:
+                        elapsed = time.time() - start_time
+                        rate = games_generated / elapsed
+                        eta = (args.num_games - games_generated) / rate if rate > 0 else 0
+                        logger.info(f"Game {game_idx + 1}/{args.num_games} ({rate:.2f} games/s, ETA: {eta:.0f}s)")
+            except Exception as e:
+                logger.warning(f"Failed game {game_idx}: {e}")
+
+    elapsed = time.time() - start_time
+    logger.info("=" * 60)
+    logger.info("GENERATION COMPLETE")
+    logger.info("=" * 60)
+    logger.info(f"Games generated: {games_generated}")
+    logger.info(f"Moves with MCTS policy: {moves_with_policy}")
+    logger.info(f"Time: {elapsed:.1f}s ({games_generated/elapsed:.2f} games/s)")
+    logger.info(f"Output: {output_path}")
+
+
+if __name__ == "__main__":
+    main()
