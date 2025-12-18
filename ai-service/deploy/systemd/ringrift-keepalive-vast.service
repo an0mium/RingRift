@@ -1,0 +1,29 @@
+[Unit]
+Description=RingRift Universal Keepalive Daemon (Vast.ai)
+Documentation=https://github.com/an0mium/RingRift
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/ringrift/ai-service
+Environment="PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+
+# Auto-detect node-id from hostname
+ExecStart=/bin/bash -c 'exec python3 scripts/universal_keepalive.py --node-id "$(hostname)" --daemon'
+
+# Restart policy - always restart on failure
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Logging to /tmp since Vast containers may not have /var/log/ringrift
+StandardOutput=append:/tmp/ringrift_keepalive.log
+StandardError=append:/tmp/ringrift_keepalive.log
+
+[Install]
+WantedBy=multi-user.target
