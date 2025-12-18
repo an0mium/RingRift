@@ -2688,7 +2688,11 @@ def test_training_produces_consistent_loss():
   - GPU vs CPU parity (2 tests)
   - Memory behavior (2 tests)
   - Real component integration (2 tests)
-- [ ] Nightly CI job for GPU tests - CI exists but needs specific job
+- [x] Nightly CI job for GPU tests ✅ `.github/workflows/gpu-regression-nightly.yml`
+  - Runs at 04:00 UTC daily
+  - CPU regression tests on ubuntu-latest
+  - GPU tests on self-hosted GPU runner (optional)
+  - Test result artifacts uploaded
 
 **Note:** Substantial test coverage exists (2025-12-17). GPU regression tests added (2025-12-17).
 
