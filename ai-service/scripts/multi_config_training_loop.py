@@ -157,12 +157,28 @@ def merge_npz_files(npz_files: List[str], output_path: str) -> int:
 
     Returns:
         Total number of samples in merged file
+
+    Note:
+        Automatically filters out files with mismatched feature dimensions.
+        Uses v3 encoder (64 features) as the target. Files with v2 encoder
+        (40 features) are skipped with a warning.
     """
     if not npz_files:
         return 0
 
+    # Target feature dimension for v3 encoder
+    TARGET_FEATURE_DIM = 64  # v3 encoder has 64 features, v2 has 40
+
     if len(npz_files) == 1:
-        # Single file - just rename/copy
+        # Single file - check dimensions first
+        if os.path.exists(npz_files[0]):
+            try:
+                with np.load(npz_files[0], allow_pickle=True) as data:
+                    if data["features"].shape[1] != TARGET_FEATURE_DIM:
+                        print(f"  Warning: Skipping {npz_files[0]} - wrong feature dim ({data['features'].shape[1]} != {TARGET_FEATURE_DIM})", flush=True)
+                        return 0
+            except Exception:
+                pass
         if npz_files[0] != output_path:
             os.rename(npz_files[0], output_path)
         return -1  # Unknown count, caller should check
@@ -179,6 +195,9 @@ def merge_npz_files(npz_files: List[str], output_path: str) -> int:
     all_total_game_moves = []
     all_phases = []
 
+    skipped_v2_count = 0
+    target_dim = None  # Will be set from first valid file
+
     total_samples = 0
     for npz_path in npz_files:
         if not os.path.exists(npz_path):
@@ -188,6 +207,18 @@ def merge_npz_files(npz_files: List[str], output_path: str) -> int:
             with np.load(npz_path, allow_pickle=True) as data:
                 n_samples = len(data["features"])
                 if n_samples == 0:
+                    continue
+
+                # Check feature dimensions - skip mismatched files
+                feature_dim = data["features"].shape[1]
+                if target_dim is None:
+                    # Use TARGET_FEATURE_DIM (v3) as the standard
+                    target_dim = TARGET_FEATURE_DIM
+
+                if feature_dim != target_dim:
+                    skipped_v2_count += 1
+                    if skipped_v2_count <= 3:  # Only log first few
+                        print(f"  Warning: Skipping {os.path.basename(npz_path)} - feature dim {feature_dim} != {target_dim} (v2/v3 mismatch)", flush=True)
                     continue
 
                 all_features.append(data["features"])
@@ -215,7 +246,13 @@ def merge_npz_files(npz_files: List[str], output_path: str) -> int:
             print(f"  Warning: Failed to load {npz_path}: {e}", flush=True)
             continue
 
+    # Log summary of skipped files
+    if skipped_v2_count > 0:
+        print(f"  Note: Skipped {skipped_v2_count} files with v2 encoder (40 features) - using v3 only (64 features)", flush=True)
+
     if total_samples == 0:
+        if skipped_v2_count > 0:
+            print(f"  Warning: All {skipped_v2_count} NPZ files had wrong feature dimensions - no v3 data available", flush=True)
         return 0
 
     # Concatenate arrays

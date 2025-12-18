@@ -209,6 +209,7 @@ def play_game(
     model_plays_first: bool = True,
     record_games: bool = True,
     db_path: Optional[str] = None,
+    mcts_difficulty: int = 3,
 ) -> Optional[int]:
     """Play a single game, optionally record to database, return winner or None for error.
 
@@ -221,6 +222,7 @@ def play_game(
         model_plays_first: Whether the model plays first
         record_games: Whether to record games to database (only model wins)
         db_path: Path to games database (optional)
+        mcts_difficulty: MCTS opponent difficulty level (1-10)
 
     Returns:
         Winner player number, or None if error
@@ -240,7 +242,7 @@ def play_game(
         OPPONENT_MAP = {
             "random": (AIType.RANDOM, 1),
             "heuristic": (AIType.HEURISTIC, 3),
-            "mcts": (AIType.MCTS, 5),
+            "mcts": (AIType.MCTS, mcts_difficulty),  # Use configurable difficulty
         }
         opp_type, difficulty = OPPONENT_MAP.get(opponent_type, (AIType.RANDOM, 1))
         opponent = _create_ai_instance(
@@ -391,6 +393,7 @@ def run_stage1_for_model(
     games_per_baseline: int = 10,
     early_exit_threshold: float = 0.3,
     db_path: Optional[str] = None,
+    mcts_difficulty: int = 3,
 ) -> ModelResult:
     """Run stage 1 screening for a model.
 
@@ -417,6 +420,7 @@ def run_stage1_for_model(
             num_players=num_players,
             model_plays_first=model_first,
             db_path=db_path,
+            mcts_difficulty=mcts_difficulty,
         )
 
         if winner is not None:
@@ -445,6 +449,7 @@ def run_stage1_for_model(
             num_players=num_players,
             model_plays_first=model_first,
             db_path=db_path,
+            mcts_difficulty=mcts_difficulty,
         )
 
         if winner is not None:
@@ -465,6 +470,7 @@ def run_stage2_for_model(
     board_type: BoardType,
     games_per_baseline: int = 50,
     db_path: Optional[str] = None,
+    mcts_difficulty: int = 3,
 ) -> ModelResult:
     """Run stage 2 deep evaluation for a model that passed stage 1."""
 
@@ -484,6 +490,7 @@ def run_stage2_for_model(
                 num_players=result.num_players,
                 model_plays_first=model_first,
                 db_path=db_path,
+                mcts_difficulty=mcts_difficulty,
             )
 
             if winner is not None:
@@ -510,6 +517,7 @@ def run_two_stage_gauntlet(
     shard: int = 0,
     num_shards: int = 1,
     record_games: bool = True,
+    mcts_difficulty: int = 3,
 ) -> List[ModelResult]:
     """Run two-stage gauntlet with parallelization.
 
@@ -523,6 +531,7 @@ def run_two_stage_gauntlet(
         shard: Shard index for distributed execution
         num_shards: Total number of shards
         record_games: Whether to record winning games to database
+        mcts_difficulty: MCTS opponent difficulty level (1-10)
     """
 
     # Shard models for distributed execution
@@ -550,6 +559,7 @@ def run_two_stage_gauntlet(
                 run_stage1_for_model, model, board_type, num_players, stage1_games,
                 0.3,  # early_exit_threshold
                 db_path,
+                mcts_difficulty,
             ): model
             for model in models
         }
@@ -582,7 +592,7 @@ def run_two_stage_gauntlet(
 
         with ProcessPoolExecutor(max_workers=parallel) as executor:
             futures = {
-                executor.submit(run_stage2_for_model, r, board_type, stage2_games, db_path): r
+                executor.submit(run_stage2_for_model, r, board_type, stage2_games, db_path, mcts_difficulty): r
                 for r in passed_stage1
             }
 
@@ -819,6 +829,8 @@ def main():
     parser.add_argument("--promote-top-n", type=int, default=3,
                         help="Maximum number of models to promote (default 3)")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be done without making changes")
+    parser.add_argument("--difficulty", type=int, default=3,
+                        help="MCTS opponent difficulty (1-10, default 3 for faster evaluation)")
 
     args = parser.parse_args()
 
@@ -878,6 +890,7 @@ def main():
         shard=args.shard,
         num_shards=args.num_shards,
         record_games=not args.no_record,
+        mcts_difficulty=args.difficulty,
     )
 
     # Print summary
