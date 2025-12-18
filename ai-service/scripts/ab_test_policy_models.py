@@ -233,6 +233,8 @@ def create_mcts_ai(
     policy_model_path: Optional[str],
     think_time_ms: int = 500,
     board_type: BoardType = BoardType.SQUARE8,
+    policy_temperature: float = 2.0,
+    prior_uniform_mix: float = 0.3,
 ) -> MCTSAI:
     """Create MCTS AI with optional policy model."""
     config = AIConfig(
@@ -242,6 +244,10 @@ def create_mcts_ai(
         use_nnue_policy_priors=(policy_model_path is not None),
     )
     ai = MCTSAI(player_number=player_number, config=config)
+
+    # Apply policy temperature/mixing settings
+    ai.policy_temperature = policy_temperature
+    ai.prior_uniform_mix = prior_uniform_mix
 
     # Manually load policy model if specified
     if policy_model_path and os.path.exists(policy_model_path):
@@ -371,6 +377,8 @@ def run_ab_test(
     num_players: int = 2,
     think_time_ms: int = 500,
     max_moves: int = 2000,
+    policy_temperature: float = 2.0,
+    prior_uniform_mix: float = 0.3,
 ) -> ABTestResults:
     """Run A/B test between two policy models."""
     logger.info(f"Starting A/B test:")
@@ -396,8 +404,14 @@ def run_ab_test(
         model_a_player = 1 if i % 2 == 0 else 2
 
         # Create fresh AIs for each game
-        ai_a = create_mcts_ai(model_a_player, model_a_path, think_time_ms, board_type)
-        ai_b = create_mcts_ai(3 - model_a_player, model_b_path, think_time_ms, board_type)
+        ai_a = create_mcts_ai(
+            model_a_player, model_a_path, think_time_ms, board_type,
+            policy_temperature, prior_uniform_mix
+        )
+        ai_b = create_mcts_ai(
+            3 - model_a_player, model_b_path, think_time_ms, board_type,
+            policy_temperature, prior_uniform_mix
+        )
 
         # Play match
         match_result = play_match(
@@ -445,6 +459,8 @@ def run_multi_time_test(
     think_times: List[int],
     max_moves: int = 300,
     output_path: Optional[str] = None,
+    policy_temperature: float = 2.0,
+    prior_uniform_mix: float = 0.3,
 ) -> int:
     """Run A/B tests at multiple think times.
 
@@ -476,6 +492,8 @@ def run_multi_time_test(
             board_type=board_type,
             think_time_ms=think_time,
             max_moves=max_moves,
+            policy_temperature=policy_temperature,
+            prior_uniform_mix=prior_uniform_mix,
         )
 
         all_results[think_time] = results
@@ -632,6 +650,18 @@ def main():
         default=[50, 100, 200, 500],
         help="Think times (ms) to test with --multi-time (default: 50 100 200 500)",
     )
+    parser.add_argument(
+        "--policy-temperature",
+        type=float,
+        default=2.0,
+        help="Temperature for policy softmax (higher = flatter distribution). Default: 2.0",
+    )
+    parser.add_argument(
+        "--prior-uniform-mix",
+        type=float,
+        default=0.3,
+        help="Mix ratio with uniform distribution (0=pure policy, 1=pure uniform). Default: 0.3",
+    )
 
     args = parser.parse_args()
 
@@ -661,6 +691,8 @@ def main():
             think_times=args.multi_time_values,
             max_moves=args.max_moves,
             output_path=args.output,
+            policy_temperature=args.policy_temperature,
+            prior_uniform_mix=args.prior_uniform_mix,
         )
 
     # Run single test
@@ -671,6 +703,8 @@ def main():
         board_type=board_type,
         think_time_ms=args.think_time,
         max_moves=args.max_moves,
+        policy_temperature=args.policy_temperature,
+        prior_uniform_mix=args.prior_uniform_mix,
     )
 
     # Output results - convert numpy types to Python natives for JSON serialization

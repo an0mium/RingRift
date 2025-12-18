@@ -17,6 +17,7 @@ import glob
 import math
 import contextlib
 import json
+import signal
 import sys
 from pathlib import Path
 from datetime import datetime, timezone
@@ -736,6 +737,71 @@ class AsyncCheckpointer:
         """Shutdown the executor and wait for pending saves."""
         self.wait_for_pending()
         self._executor.shutdown(wait=True)
+
+
+class GracefulShutdownHandler:
+    """
+    Handles graceful shutdown on SIGTERM/SIGINT signals.
+
+    Saves an emergency checkpoint when the process receives a shutdown signal,
+    preventing loss of training progress. (2025-12)
+    """
+
+    def __init__(self):
+        self._shutdown_requested = False
+        self._original_handlers: Dict[int, Any] = {}
+        self._checkpoint_callback: Optional[Callable[[], None]] = None
+
+    def setup(self, checkpoint_callback: Callable[[], None]) -> None:
+        """
+        Setup signal handlers for graceful shutdown.
+
+        Args:
+            checkpoint_callback: Function to call to save a checkpoint when shutdown is requested
+        """
+        self._checkpoint_callback = checkpoint_callback
+
+        # Install signal handlers (only on main thread)
+        try:
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                self._original_handlers[sig] = signal.signal(sig, self._handle_signal)
+            logger.info("Graceful shutdown handlers installed")
+        except ValueError:
+            # Signal handling can only be set in main thread
+            logger.debug("Signal handlers not installed (not main thread)")
+
+    def teardown(self) -> None:
+        """Restore original signal handlers."""
+        for sig, handler in self._original_handlers.items():
+            try:
+                signal.signal(sig, handler)
+            except (ValueError, OSError):
+                pass  # May fail if not in main thread
+        self._original_handlers.clear()
+
+    def _handle_signal(self, signum: int, frame) -> None:
+        """Handle shutdown signal."""
+        sig_name = signal.Signals(signum).name if hasattr(signal, 'Signals') else str(signum)
+        logger.warning(f"Received {sig_name}, initiating graceful shutdown...")
+        self._shutdown_requested = True
+
+        # Save emergency checkpoint
+        if self._checkpoint_callback:
+            try:
+                logger.info("Saving emergency checkpoint before shutdown...")
+                self._checkpoint_callback()
+                logger.info("Emergency checkpoint saved successfully")
+            except Exception as e:
+                logger.error(f"Failed to save emergency checkpoint: {e}")
+
+        # Re-raise the signal to allow normal termination after checkpoint
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+
+    @property
+    def shutdown_requested(self) -> bool:
+        """Check if shutdown has been requested."""
+        return self._shutdown_requested
 
 
 def load_checkpoint(

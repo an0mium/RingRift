@@ -144,10 +144,10 @@ def detect_external_work(host: str) -> Dict[str, bool]:
         if result.returncode == 0 and int(result.stdout.strip() or 0) > 0:
             work['tournament_running'] = True
 
-        # Check for gauntlet
+        # Check for gauntlet (both baseline and two-stage)
         result = subprocess.run(
             ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
-             f"ubuntu@{host}", "pgrep -c -f 'baseline_gauntlet' 2>/dev/null || echo 0"],
+             f"ubuntu@{host}", "pgrep -c -f 'baseline_gauntlet|two_stage_gauntlet' 2>/dev/null || echo 0"],
             capture_output=True, text=True, timeout=10
         )
         if result.returncode == 0 and int(result.stdout.strip() or 0) > 0:
@@ -360,6 +360,86 @@ def kill_cmaes_on_node(host: str) -> bool:
         return False
 
 
+def kill_cpu_work_on_node(host: str, work_types: List[str] = None) -> dict:
+    """Stop CPU-bound work on a node to free it for GPU work.
+
+    Args:
+        host: Node IP/hostname
+        work_types: List of work types to kill. Options: 'cmaes', 'gauntlet', 'tournament', 'all'
+                   Defaults to ['all']
+
+    Returns:
+        dict with 'success' and 'killed' counts per type
+    """
+    if work_types is None:
+        work_types = ['all']
+
+    # Build kill commands based on work types
+    kill_cmds = []
+    if 'all' in work_types or 'cmaes' in work_types:
+        kill_cmds.extend([
+            "pkill -9 -f 'HeuristicAI.*json'",
+            "pkill -9 -f 'cmaes_distributed'",
+            "pkill -9 -f 'run_cpu_cmaes'",
+        ])
+    if 'all' in work_types or 'gauntlet' in work_types:
+        kill_cmds.extend([
+            "pkill -9 -f 'two_stage_gauntlet'",
+            "pkill -9 -f 'baseline_gauntlet'",
+        ])
+    if 'all' in work_types or 'tournament' in work_types:
+        kill_cmds.extend([
+            "pkill -9 -f 'run_model_elo_tournament'",
+        ])
+
+    # Build compound command
+    cmd = "; ".join([f"{c} 2>/dev/null || true" for c in kill_cmds])
+    cmd += "; echo done"
+
+    try:
+        result = subprocess.run(
+            ["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes",
+             f"ubuntu@{host}", cmd],
+            capture_output=True, text=True, timeout=20
+        )
+        success = "done" in result.stdout
+        return {'success': success, 'host': host}
+    except subprocess.TimeoutExpired:
+        logger.warning(f"Timeout killing CPU work on {host}")
+        return {'success': False, 'host': host, 'error': 'timeout'}
+    except Exception as e:
+        logger.error(f"Failed to kill CPU work on {host}: {e}")
+        return {'success': False, 'host': host, 'error': str(e)}
+
+
+def kill_cpu_work_parallel(nodes: List[NodeCapabilities], work_types: List[str] = None) -> int:
+    """Kill CPU-bound work on multiple nodes in parallel.
+
+    Returns number of successful kills.
+    """
+    import concurrent.futures
+
+    hosts = [n.host for n in nodes if n.host and n.host not in ('localhost', '127.0.0.1')]
+    if not hosts:
+        return 0
+
+    logger.info(f"Killing CPU work on {len(hosts)} nodes in parallel...")
+
+    success_count = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(kill_cpu_work_on_node, host, work_types): host for host in hosts}
+        for future in concurrent.futures.as_completed(futures, timeout=30):
+            try:
+                result = future.result()
+                if result.get('success'):
+                    success_count += 1
+                    logger.debug(f"Killed CPU work on {result.get('host')}")
+            except Exception as e:
+                logger.debug(f"Kill failed: {e}")
+
+    return success_count
+
+
 def start_cpu_cmaes_on_node(host: str, board_type: str, num_players: int) -> bool:
     """Start CPU CMA-ES on a specific CPU-rich node."""
     try:
@@ -442,7 +522,9 @@ def rebalance_cluster(nodes: List[NodeCapabilities], dry_run: bool = False) -> i
     cpu_only = [n for n in nodes if n.gpu_tier == 'none']
 
     # Find misrouted nodes (GPU-heavy but running CPU-only work)
-    misrouted = [n for n in gpu_heavy if n.is_gpu_idle and n.is_cpu_busy and n.cmaes_running]
+    # Include nodes running any CPU-bound work: CMA-ES, gauntlets, or tournaments
+    misrouted = [n for n in gpu_heavy if n.is_gpu_idle and n.is_cpu_busy and
+                 (n.cmaes_running or n.gauntlet_running or n.tournament_running)]
 
     # Find GPU-heavy nodes with idle GPUs (not training)
     gpu_idle = [n for n in gpu_heavy if n.is_gpu_idle and n.training_jobs == 0]
@@ -480,16 +562,17 @@ def rebalance_cluster(nodes: List[NodeCapabilities], dry_run: bool = False) -> i
                 if start_cpu_cmaes_on_node(cpu_node.host, board, players):
                     changes += 1
 
-    # STEP 2: Stop CPU-only CMA-ES on GPU nodes and start GPU work
-    for node in misrouted[:4]:  # Max 4 per run
+    # STEP 2: Stop CPU-bound work on GPU nodes in parallel
+    if misrouted:
         if dry_run:
-            logger.info(f"[DRY RUN] Would stop CPU CMA-ES on {node.node_id} and start GPU work")
-            changes += 1
-            continue
-
-        if node.host:
-            logger.info(f"Stopping CPU CMA-ES on {node.node_id} (GPU should do GPU work)")
-            kill_cmaes_on_node(node.host)
+            for node in misrouted[:6]:
+                logger.info(f"[DRY RUN] Would stop CPU work on {node.node_id} and start GPU work")
+                changes += 1
+        else:
+            # Kill all CPU-bound work types (CMA-ES, gauntlets, tournaments) in parallel
+            logger.info(f"Stopping CPU work on {len(misrouted[:6])} misrouted GPU nodes...")
+            killed = kill_cpu_work_parallel(misrouted[:6], work_types=['all'])
+            changes += killed
             time.sleep(2)
 
     # STEP 3: Start GPU work on idle GPU-heavy nodes
@@ -547,6 +630,8 @@ def main():
     parser.add_argument("--daemon", action="store_true", help="Run continuously")
     parser.add_argument("--interval", type=int, default=300, help="Daemon check interval (seconds)")
     parser.add_argument("--quiet", action="store_true", help="Reduce log output (only show warnings)")
+    parser.add_argument("--kill-misrouted", action="store_true", help="Kill CPU work on GPU-heavy nodes")
+    parser.add_argument("--work-types", type=str, default="all", help="Work types to kill: all,cmaes,gauntlet,tournament")
     args = parser.parse_args()
 
     if args.quiet:
@@ -572,7 +657,36 @@ def main():
 
             time.sleep(args.interval)
 
-    elif args.report or (not args.rebalance):
+    elif args.kill_misrouted:
+        # Explicit kill of CPU work on GPU-heavy nodes
+        nodes = get_cluster_status()
+        if nodes:
+            # Detect external work first
+            logger.info("Detecting external work on GPU-heavy nodes...")
+            gpu_heavy = [n for n in nodes if n.gpu_tier == 'heavy']
+            for node in gpu_heavy:
+                if node.host and node.host not in ('localhost', '127.0.0.1'):
+                    external = detect_external_work(node.host)
+                    node.cmaes_running = external['cmaes_running']
+                    node.tournament_running = external['tournament_running']
+                    node.gauntlet_running = external['gauntlet_running']
+
+            # Find misrouted nodes
+            misrouted = [n for n in gpu_heavy if n.is_gpu_idle and n.is_cpu_busy]
+            if not misrouted:
+                logger.info("No misrouted nodes found")
+            else:
+                work_types = args.work_types.split(',')
+                logger.info(f"Found {len(misrouted)} misrouted nodes, killing work types: {work_types}")
+
+                if args.dry_run:
+                    for node in misrouted:
+                        logger.info(f"[DRY RUN] Would kill {work_types} on {node.node_id}")
+                else:
+                    killed = kill_cpu_work_parallel(misrouted, work_types=work_types)
+                    logger.info(f"Killed CPU work on {killed}/{len(misrouted)} nodes")
+
+    elif args.report or (not args.rebalance and not args.kill_misrouted):
         nodes = get_cluster_status()
         if nodes:
             report = generate_utilization_report(nodes, detect_external=args.detect_external)

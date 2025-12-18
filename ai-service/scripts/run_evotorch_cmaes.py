@@ -99,7 +99,11 @@ def weights_to_tensor(weights: Dict[str, float], device: torch.device) -> torch.
 
 def tensor_to_weights(tensor: torch.Tensor) -> Dict[str, float]:
     """Convert torch tensor to weight dict."""
-    values = tensor.cpu().numpy()
+    values = tensor.detach().cpu().numpy()
+    # Ensure values is 1D array
+    if values.ndim == 0:
+        values = np.array([values.item()])
+    values = values.flatten()
     return {name: float(values[i]) for i, name in enumerate(WEIGHT_NAMES)}
 
 
@@ -224,42 +228,28 @@ class HeuristicOptimizationProblem(Problem):
         diff = (candidate_sum - baseline_sum) / max(baseline_sum, 1.0)
         return max(0.0, min(1.0, 0.5 + diff * 0.1))
 
-    def _evaluate(self, solutions: torch.Tensor) -> torch.Tensor:
-        """Evaluate a batch of candidate solutions.
+    def _evaluate(self, solution) -> None:
+        """Evaluate a single solution.
 
-        This is called by EvoTorch during optimization. The entire batch
-        is processed efficiently on GPU.
+        This is called by EvoTorch for each solution in the population.
+        EvoTorch passes a Solution object, not a raw tensor.
 
         Args:
-            solutions: Tensor of shape (population_size, NUM_WEIGHTS)
-
-        Returns:
-            Tensor of fitness scores, shape (population_size,)
+            solution: EvoTorch Solution object containing the candidate values
         """
         start = time.time()
-        population_size = solutions.shape[0]
 
-        # Evaluate each solution
-        # Note: For true GPU parallelism, we could batch all games together
-        fitness_scores = torch.zeros(population_size, device=self.device)
+        # Get the values tensor from the Solution object
+        values_tensor = solution.values
 
-        for i in range(population_size):
-            fitness_scores[i] = self._evaluate_single(solutions[i])
+        # Evaluate fitness
+        fitness = self._evaluate_single(values_tensor)
+
+        # Set the fitness on the solution object
+        solution.set_evals(fitness)
 
         elapsed = time.time() - start
         self.total_time += elapsed
-
-        # Log progress
-        best_fitness = fitness_scores.max().item()
-        mean_fitness = fitness_scores.mean().item()
-        games_per_sec = (population_size * self.games_per_eval) / max(elapsed, 0.001)
-
-        logger.debug(
-            f"Batch eval: {population_size} candidates, best={best_fitness:.3f}, "
-            f"mean={mean_fitness:.3f}, {games_per_sec:.1f} g/s"
-        )
-
-        return fitness_scores
 
 
 # =============================================================================

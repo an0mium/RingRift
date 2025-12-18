@@ -67,6 +67,11 @@ class NodeInfo:
     # pollute scheduling, but they can be reactivated if they come back online.
     retired: bool = False
     retired_at: float = 0.0
+    # External work detection - work running outside P2P orchestrator tracking
+    cmaes_running: bool = False
+    gauntlet_running: bool = False
+    tournament_running: bool = False
+    data_merge_running: bool = False
 
     def is_alive(self) -> bool:
         """Check if node is considered alive based on last heartbeat."""
@@ -123,6 +128,29 @@ class NodeInfo:
     def is_cpu_only_node(self) -> bool:
         """Check if this node is CPU-only (no accelerator)."""
         return not self.has_gpu
+
+    def has_external_work(self) -> bool:
+        """Check if any external (untracked) work is running."""
+        return (self.cmaes_running or self.gauntlet_running or
+                self.tournament_running or self.data_merge_running)
+
+    def is_misrouted(self) -> bool:
+        """Check if this GPU node is running CPU-bound work with idle GPU.
+
+        A node is misrouted if:
+        - It has a GPU (is_gpu_node)
+        - GPU utilization is low (<30%)
+        - CPU utilization is high (>70%)
+        - Running CPU-bound external work (CMA-ES, gauntlet, tournament)
+        """
+        if not self.is_gpu_node():
+            return False
+        if self.gpu_percent >= 30:
+            return False
+        if self.cpu_percent < 70:
+            return False
+        # Check for CPU-bound external work
+        return self.cmaes_running or self.gauntlet_running or self.tournament_running
 
     def should_retry(self) -> bool:
         """Check if we should retry connecting to a failed node."""
@@ -222,6 +250,8 @@ class NodeInfo:
         d["cpu_power_score"] = self.cpu_power_score()
         d["is_cpu_only_node"] = self.is_cpu_only_node()
         d["is_cuda_gpu_node"] = self.is_gpu_node()
+        d["has_external_work"] = self.has_external_work()
+        d["is_misrouted"] = self.is_misrouted()
         return d
 
     @classmethod
@@ -245,6 +275,11 @@ class NodeInfo:
         d.setdefault('relay_via', '')
         d.setdefault('retired', False)
         d.setdefault('retired_at', 0.0)
+        # External work detection fields
+        d.setdefault('cmaes_running', False)
+        d.setdefault('gauntlet_running', False)
+        d.setdefault('tournament_running', False)
+        d.setdefault('data_merge_running', False)
         # Ignore unknown keys for rolling upgrades.
         allowed = {f.name for f in dataclass_fields(cls)}
         d = {k: v for k, v in d.items() if k in allowed}

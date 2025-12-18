@@ -3057,6 +3057,49 @@ class P2POrchestrator:
 
         return result
 
+    def _detect_local_external_work(self) -> Dict[str, bool]:
+        """Detect external work running on this node (not tracked by P2P orchestrator).
+
+        This detects:
+        - CMA-ES optimization (HeuristicAI weight tuning)
+        - Gauntlet runs (baseline or two-stage)
+        - ELO tournaments
+        - Data merge/aggregation jobs
+
+        Returns dict with boolean flags for each work type.
+        """
+        result = {
+            'cmaes_running': False,
+            'gauntlet_running': False,
+            'tournament_running': False,
+            'data_merge_running': False,
+        }
+
+        try:
+            # Use pgrep to check for running processes (efficient)
+            checks = [
+                ('cmaes_running', 'HeuristicAI.*json|cmaes_distributed|run_cpu_cmaes'),
+                ('gauntlet_running', 'baseline_gauntlet|two_stage_gauntlet'),
+                ('tournament_running', 'run_model_elo_tournament'),
+                ('data_merge_running', 'merge_game_dbs|aggregate_jsonl|export_training'),
+            ]
+
+            for key, pattern in checks:
+                try:
+                    proc = subprocess.run(
+                        ["pgrep", "-f", pattern],
+                        capture_output=True, text=True, timeout=2
+                    )
+                    # pgrep returns 0 if matches found
+                    result[key] = proc.returncode == 0 and proc.stdout.strip() != ""
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logger.debug(f"External work detection error: {e}")
+
+        return result
+
     def _get_diversity_metrics(self) -> Dict[str, Any]:
         """Get diversity tracking metrics for monitoring."""
         metrics = dict(self.diversity_metrics)
@@ -5972,6 +6015,83 @@ class P2POrchestrator:
             "sync_intervals": sync_intervals,
             "tournament_scheduling": tournament_scheduling,
             "data_dedup": data_dedup,
+        })
+
+    async def handle_external_work(self, request: web.Request) -> web.Response:
+        """Return external work status across the cluster.
+
+        This endpoint shows work running outside P2P orchestrator tracking:
+        - CMA-ES optimization jobs
+        - Gauntlet runs
+        - ELO tournaments
+        - Data merge/aggregation
+
+        Also identifies misrouted nodes (GPU nodes running CPU-bound work).
+        """
+        self._update_self_info()
+
+        async with AsyncLockWrapper(self.peers_lock):
+            peers_snapshot = list(self.peers.values())
+
+        # Collect external work info
+        nodes_with_external = []
+        misrouted_nodes = []
+
+        # Check self
+        self_dict = self.self_info.to_dict()
+        if self.self_info.has_external_work():
+            nodes_with_external.append({
+                'node_id': self.node_id,
+                'cmaes': self.self_info.cmaes_running,
+                'gauntlet': self.self_info.gauntlet_running,
+                'tournament': self.self_info.tournament_running,
+                'data_merge': self.self_info.data_merge_running,
+                'gpu_percent': self.self_info.gpu_percent,
+                'cpu_percent': self.self_info.cpu_percent,
+            })
+        if self.self_info.is_misrouted():
+            misrouted_nodes.append({
+                'node_id': self.node_id,
+                'gpu_name': self.self_info.gpu_name,
+                'gpu_percent': self.self_info.gpu_percent,
+                'cpu_percent': self.self_info.cpu_percent,
+                'external_work': {
+                    'cmaes': self.self_info.cmaes_running,
+                    'gauntlet': self.self_info.gauntlet_running,
+                    'tournament': self.self_info.tournament_running,
+                }
+            })
+
+        # Check peers
+        for peer in peers_snapshot:
+            if peer.has_external_work():
+                nodes_with_external.append({
+                    'node_id': peer.node_id,
+                    'cmaes': peer.cmaes_running,
+                    'gauntlet': peer.gauntlet_running,
+                    'tournament': peer.tournament_running,
+                    'data_merge': peer.data_merge_running,
+                    'gpu_percent': peer.gpu_percent,
+                    'cpu_percent': peer.cpu_percent,
+                })
+            if peer.is_misrouted():
+                misrouted_nodes.append({
+                    'node_id': peer.node_id,
+                    'gpu_name': peer.gpu_name,
+                    'gpu_percent': peer.gpu_percent,
+                    'cpu_percent': peer.cpu_percent,
+                    'external_work': {
+                        'cmaes': peer.cmaes_running,
+                        'gauntlet': peer.gauntlet_running,
+                        'tournament': peer.tournament_running,
+                    }
+                })
+
+        return web.json_response({
+            'nodes_with_external_work': nodes_with_external,
+            'misrouted_nodes': misrouted_nodes,
+            'total_external_work': len(nodes_with_external),
+            'total_misrouted': len(misrouted_nodes),
         })
 
     async def handle_election(self, request: web.Request) -> web.Response:
@@ -18245,6 +18365,13 @@ print(json.dumps({{
         self.self_info.role = self.role
         self.self_info.last_heartbeat = time.time()
 
+        # Detect external work (running outside P2P orchestrator tracking)
+        external = self._detect_local_external_work()
+        self.self_info.cmaes_running = external.get('cmaes_running', False)
+        self.self_info.gauntlet_running = external.get('gauntlet_running', False)
+        self.self_info.tournament_running = external.get('tournament_running', False)
+        self.self_info.data_merge_running = external.get('data_merge_running', False)
+
         # Report to unified resource optimizer for cluster-wide coordination
         if HAS_NEW_COORDINATION:
             try:
@@ -25215,6 +25342,7 @@ print(json.dumps({{
         app = web.Application(middlewares=[auth_middleware])
         app.router.add_post('/heartbeat', self.handle_heartbeat)
         app.router.add_get('/status', self.handle_status)
+        app.router.add_get('/external_work', self.handle_external_work)
         app.router.add_post('/election', self.handle_election)
         app.router.add_post('/election/lease', self.handle_lease_request)
         app.router.add_get('/election/grant', self.handle_voter_grant_status)

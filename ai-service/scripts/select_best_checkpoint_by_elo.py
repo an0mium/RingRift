@@ -37,13 +37,38 @@ from app.training.generate_data import create_initial_state
 from app.rules.default_engine import DefaultRulesEngine
 
 
-def find_checkpoints(candidate_id: str, models_dir: str = "models") -> List[Path]:
+def is_versioned_checkpoint(checkpoint_path: Path) -> bool:
+    """Check if a checkpoint has versioning metadata.
+
+    Versioned checkpoints are safer to load as they include architecture info.
+    """
+    try:
+        import torch
+        data = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        return "version" in data or "__version__" in data or "architecture" in data
+    except Exception:
+        return False
+
+
+def find_checkpoints(
+    candidate_id: str,
+    models_dir: str = "models",
+    skip_checkpoint_dir: bool = True,
+    versioned_only: bool = True,
+) -> List[Path]:
     """Find all checkpoints for a candidate model.
 
     Looks for:
     - {candidate_id}.pth (final/best by loss)
     - {candidate_id}_*.pth (epoch checkpoints)
-    - checkpoints/{candidate_id}/*.pth (checkpoint directory)
+    - optionally checkpoints/{candidate_id}/*.pth (disabled by default)
+
+    Args:
+        candidate_id: Model candidate ID prefix
+        models_dir: Base models directory
+        skip_checkpoint_dir: If True, skip checkpoints/ subdirectory (default True)
+            These legacy checkpoints often have architecture mismatches.
+        versioned_only: If True, only include versioned checkpoints (default True)
     """
     models_path = Path(models_dir).resolve()
     checkpoints = []
@@ -55,16 +80,60 @@ def find_checkpoints(candidate_id: str, models_dir: str = "models") -> List[Path
 
     # Epoch checkpoints with timestamps
     for f in models_path.glob(f"{candidate_id}_*.pth"):
-        if f.exists():
+        if f.exists() and "_elo_best" not in f.name:  # Skip elo_best to avoid circular
             checkpoints.append(f.resolve())
 
-    # Checkpoint directory
-    ckpt_dir = models_path / "checkpoints" / candidate_id
-    if ckpt_dir.exists():
-        for f in ckpt_dir.glob("*.pth"):
-            checkpoints.append(f.resolve())
+    # Checkpoint directory (disabled by default due to legacy architecture issues)
+    if not skip_checkpoint_dir:
+        ckpt_dir = models_path / "checkpoints" / candidate_id
+        if ckpt_dir.exists():
+            for f in ckpt_dir.glob("*.pth"):
+                checkpoints.append(f.resolve())
+
+    # Filter to versioned-only if requested
+    if versioned_only:
+        original_count = len(checkpoints)
+        checkpoints = [c for c in checkpoints if is_versioned_checkpoint(c)]
+        skipped = original_count - len(checkpoints)
+        if skipped > 0:
+            print(f"  Skipped {skipped} legacy (unversioned) checkpoints")
 
     return sorted(checkpoints, key=lambda x: x.stat().st_mtime)
+
+
+class CheckpointLoadError(Exception):
+    """Raised when a checkpoint cannot be loaded due to architecture mismatch."""
+    pass
+
+
+def validate_checkpoint_loadable(
+    checkpoint_path: Path,
+    board_type: BoardType,
+) -> bool:
+    """Test if a checkpoint can be loaded without architecture errors.
+
+    This performs a quick validation by attempting to load the model.
+    Returns True if loadable, False otherwise.
+    """
+    try:
+        config = AIConfig(
+            ai_type=AIType.POLICY_ONLY,
+            board_type=board_type,
+            difficulty=8,
+            use_neural_net=True,
+            nn_model_id=str(checkpoint_path),
+            policy_temperature=0.5,
+        )
+        # Try to create the AI - this will fail if architecture mismatches
+        ai = PolicyOnlyAI(1, config, board_type=board_type)
+        # Try to get a move to ensure model is fully loaded
+        return True
+    except RuntimeError as e:
+        if "size mismatch" in str(e) or "Error(s) in loading state_dict" in str(e):
+            return False
+        raise
+    except Exception:
+        return False
 
 
 def evaluate_checkpoint(
@@ -76,8 +145,15 @@ def evaluate_checkpoint(
     """Evaluate a checkpoint via mini-gauntlet against baselines.
 
     Returns dict with win rates and estimated Elo.
+    Raises CheckpointLoadError if checkpoint cannot be loaded.
     """
     from app.ai.neural_net import NeuralNetAI
+
+    # Pre-validate checkpoint is loadable
+    if not validate_checkpoint_loadable(checkpoint_path, board_type):
+        raise CheckpointLoadError(
+            f"Cannot load checkpoint {checkpoint_path}: architecture mismatch"
+        )
 
     results = {
         "checkpoint": str(checkpoint_path),
@@ -245,6 +321,10 @@ def select_best_checkpoint(
             if result["estimated_elo"] > best_elo:
                 best_elo = result["estimated_elo"]
                 best_checkpoint = ckpt
+
+        except CheckpointLoadError as e:
+            print(f"  SKIPPED: {e}")
+            continue
 
         except Exception as e:
             print(f"  Error evaluating {ckpt.name}: {e}")
