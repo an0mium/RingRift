@@ -110,45 +110,112 @@ def convert_npz_to_hdf5(
         for key in keys:
             arr = npz_data[key]
 
-            # Handle object arrays (sparse policies)
-            if arr.dtype == object:
-                # Store as variable-length dataset using special_dtype
-                dt = h5py.special_dtype(vlen=np.float32 if 'values' in key else np.int32)
+            # Handle string arrays (like board_type, policy_encoding)
+            if arr.dtype.kind in ('U', 'S'):  # Unicode or byte string
+                # Convert to variable-length UTF-8 strings
+                dt = h5py.special_dtype(vlen=str)
 
-                # Determine appropriate dtype for the variable-length arrays
-                if 'indices' in key:
-                    dt = h5py.special_dtype(vlen=np.int32)
-                elif 'values' in key:
-                    dt = h5py.special_dtype(vlen=np.float32)
+                # Scalar strings (0-dim arrays) need special handling
+                if arr.ndim == 0:
+                    ds = hf.create_dataset(key, data=str(arr.item()), dtype=dt)
+                    logger.info(f"  {key}: scalar string")
                 else:
-                    # Try to infer from first non-empty element
-                    for item in arr:
-                        if len(item) > 0:
-                            dt = h5py.special_dtype(vlen=item.dtype)
-                            break
-                    else:
-                        dt = h5py.special_dtype(vlen=np.float32)
-
-                ds = hf.create_dataset(
-                    key,
-                    shape=(num_samples,),
-                    dtype=dt,
-                )
-
-                # Copy data
-                for i, item in enumerate(arr):
-                    if len(item) > 0:
-                        ds[i] = np.asarray(item)
-                    else:
-                        # Empty array - store as empty
-                        ds[i] = np.array([], dtype=ds.dtype.metadata['vlen'])
-
-                logger.info(f"  {key}: variable-length array ({num_samples} items)")
+                    ds = hf.create_dataset(key, shape=arr.shape, dtype=dt)
+                    for i in range(len(arr)):
+                        ds[i] = str(arr[i])
+                    logger.info(f"  {key}: string array {arr.shape}")
 
                 if verify:
-                    # For object arrays, compute checksum of concatenated data
-                    concat = np.concatenate([np.asarray(x).flatten() for x in arr if len(x) > 0])
-                    checksums_npz[key] = compute_array_checksum(concat.astype(np.float32))
+                    # For string arrays, compute checksum of joined strings
+                    if arr.ndim == 0:
+                        joined = str(arr.item())
+                    else:
+                        joined = ''.join(str(x) for x in arr.flatten())
+                    checksums_npz[key] = compute_array_checksum(
+                        np.frombuffer(joined.encode('utf-8'), dtype=np.uint8)
+                    )
+
+            # Handle object arrays (sparse policies or string arrays)
+            elif arr.dtype == object:
+                # Flatten 2D object arrays with shape (n, 1) to 1D
+                arr_flat = arr.flatten() if arr.ndim > 1 else arr
+
+                # Check if this is a string object array (like phases, victory_types)
+                first_item = None
+                for item in arr_flat:
+                    if item is not None:
+                        first_item = item
+                        break
+
+                is_string_array = isinstance(first_item, str)
+
+                if is_string_array:
+                    # Store as variable-length string dataset
+                    dt = h5py.special_dtype(vlen=str)
+                    ds = hf.create_dataset(key, shape=(len(arr_flat),), dtype=dt)
+
+                    for i, item in enumerate(arr_flat):
+                        ds[i] = str(item) if item is not None else ""
+
+                    logger.info(f"  {key}: string object array ({len(arr_flat)} items)")
+
+                    if verify:
+                        joined = ''.join(str(x) for x in arr_flat if x is not None)
+                        checksums_npz[key] = compute_array_checksum(
+                            np.frombuffer(joined.encode('utf-8'), dtype=np.uint8)
+                        )
+                else:
+                    # Numeric variable-length arrays (sparse policies)
+                    # Determine appropriate dtype
+                    if 'indices' in key:
+                        dt = h5py.special_dtype(vlen=np.int32)
+                    elif 'values' in key:
+                        dt = h5py.special_dtype(vlen=np.float32)
+                    else:
+                        # Try to infer from first non-empty element
+                        dt = h5py.special_dtype(vlen=np.float32)
+                        for item in arr_flat:
+                            arr_item = np.asarray(item)
+                            if arr_item.size > 0:
+                                dt = h5py.special_dtype(vlen=arr_item.dtype)
+                                break
+
+                    ds = hf.create_dataset(
+                        key,
+                        shape=(len(arr_flat),),
+                        dtype=dt,
+                    )
+
+                    # Copy data - use np.asarray().size to handle both scalars and arrays
+                    for i, item in enumerate(arr_flat):
+                        arr_item = np.asarray(item)
+                        if arr_item.size > 0:
+                            # Ensure it's at least 1D for vlen storage
+                            ds[i] = arr_item.flatten()
+                        else:
+                            # Empty array - store as empty
+                            ds[i] = np.array([], dtype=ds.dtype.metadata['vlen'])
+
+                    logger.info(f"  {key}: variable-length array ({len(arr_flat)} items)")
+
+                    if verify:
+                        # For object arrays, compute checksum of concatenated data
+                        non_empty = [np.asarray(x).flatten() for x in arr_flat
+                                     if np.asarray(x).size > 0]
+                        if non_empty:
+                            concat = np.concatenate(non_empty)
+                            checksums_npz[key] = compute_array_checksum(concat.astype(np.float32))
+                        else:
+                            checksums_npz[key] = compute_array_checksum(np.array([], dtype=np.float32))
+
+            # Handle scalar numeric values (ndim == 0)
+            elif arr.ndim == 0:
+                # Scalar datasets cannot use chunking or compression
+                hf.create_dataset(key, data=arr[()])
+                logger.info(f"  {key}: scalar {arr.dtype}")
+
+                if verify:
+                    checksums_npz[key] = compute_array_checksum(np.asarray([arr[()]]))
 
             else:
                 # Regular dense array
@@ -199,10 +266,41 @@ def convert_npz_to_hdf5(
         with h5py.File(hdf5_path, 'r') as hf:
             for key in keys:
                 arr = hf[key]
-                if arr.dtype.metadata and 'vlen' in arr.dtype.metadata:
-                    # Variable-length array
-                    concat = np.concatenate([np.asarray(arr[i]).flatten() for i in range(len(arr)) if len(arr[i]) > 0])
-                    checksums_hdf5[key] = compute_array_checksum(concat.astype(np.float32))
+                # Check scalar first (before vlen check, as scalar strings have vlen metadata)
+                if arr.shape == ():
+                    # Scalar value (numeric or string)
+                    val = arr[()]
+                    if isinstance(val, (str, bytes)):
+                        s = val if isinstance(val, str) else val.decode('utf-8')
+                        checksums_hdf5[key] = compute_array_checksum(
+                            np.frombuffer(s.encode('utf-8'), dtype=np.uint8)
+                        )
+                    else:
+                        checksums_hdf5[key] = compute_array_checksum(np.asarray([val]))
+                elif arr.dtype.metadata and 'vlen' in arr.dtype.metadata:
+                    vlen_type = arr.dtype.metadata['vlen']
+                    if vlen_type == str:
+                        # Variable-length string array - decode bytes if needed
+                        strings = []
+                        for i in range(len(arr)):
+                            val = arr[i]
+                            if val:
+                                if isinstance(val, bytes):
+                                    val = val.decode('utf-8')
+                                strings.append(val)
+                        joined = ''.join(strings)
+                        checksums_hdf5[key] = compute_array_checksum(
+                            np.frombuffer(joined.encode('utf-8'), dtype=np.uint8)
+                        )
+                    else:
+                        # Variable-length numeric array
+                        non_empty = [np.asarray(arr[i]).flatten() for i in range(len(arr))
+                                     if arr[i] is not None and len(arr[i]) > 0]
+                        if non_empty:
+                            concat = np.concatenate(non_empty)
+                            checksums_hdf5[key] = compute_array_checksum(concat.astype(np.float32))
+                        else:
+                            checksums_hdf5[key] = compute_array_checksum(np.array([], dtype=np.float32))
                 else:
                     checksums_hdf5[key] = compute_array_checksum(np.asarray(arr[:]))
 

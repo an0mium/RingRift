@@ -56,12 +56,23 @@ def sample_npz_data() -> Dict[str, np.ndarray]:
             np.ones(num_moves)
         ).astype(np.float32)
 
+    # String object array (like phases, victory_types)
+    phases = np.array(['ring_placement', 'main_game', 'endgame'] * (num_samples // 3 + 1),
+                      dtype=object)[:num_samples]
+
+    # Scalar values (metadata)
+    board_type = np.array('square8')  # scalar string
+    board_size = np.array(8, dtype=np.int64)  # scalar int
+
     return {
         'features': features,
         'globals': globals_vec,
         'values': values,
         'policy_indices': policy_indices,
         'policy_values': policy_values,
+        'phases': phases,
+        'board_type': board_type,
+        'board_size': board_size,
     }
 
 
@@ -91,7 +102,7 @@ class TestConvertNpzToHdf5:
         assert result['success'] is True
         assert hdf5_path.exists()
         assert result['num_samples'] == 100
-        assert result['num_keys'] == 5
+        assert result['num_keys'] == 8  # features, globals, values, policy_*, phases, board_*
 
     def test_conversion_preserves_dense_data(
         self, sample_npz_file: Path, sample_npz_data: Dict[str, np.ndarray],
@@ -139,6 +150,48 @@ class TestConvertNpzToHdf5:
                     sample_npz_data['policy_values'][i],
                     decimal=5
                 )
+
+    def test_conversion_preserves_string_object_arrays(
+        self, sample_npz_file: Path, sample_npz_data: Dict[str, np.ndarray],
+        tmp_path: Path
+    ):
+        """Test that string object arrays are preserved."""
+        hdf5_path = tmp_path / "output.h5"
+
+        convert_npz_to_hdf5(
+            npz_path=sample_npz_file,
+            hdf5_path=hdf5_path,
+        )
+
+        with h5py.File(hdf5_path, 'r') as hf:
+            for i in range(10):  # Check first 10 samples
+                hdf5_val = hf['phases'][i]
+                # HDF5 returns bytes, decode to str
+                if isinstance(hdf5_val, bytes):
+                    hdf5_val = hdf5_val.decode('utf-8')
+                assert hdf5_val == sample_npz_data['phases'][i]
+
+    def test_conversion_preserves_scalar_values(
+        self, sample_npz_file: Path, sample_npz_data: Dict[str, np.ndarray],
+        tmp_path: Path
+    ):
+        """Test that scalar values (strings and numerics) are preserved."""
+        hdf5_path = tmp_path / "output.h5"
+
+        convert_npz_to_hdf5(
+            npz_path=sample_npz_file,
+            hdf5_path=hdf5_path,
+        )
+
+        with h5py.File(hdf5_path, 'r') as hf:
+            # Scalar string
+            board_type = hf['board_type'][()]
+            if isinstance(board_type, bytes):
+                board_type = board_type.decode('utf-8')
+            assert board_type == sample_npz_data['board_type'].item()
+
+            # Scalar numeric
+            assert hf['board_size'][()] == sample_npz_data['board_size'].item()
 
     def test_conversion_with_verification(
         self, sample_npz_file: Path, tmp_path: Path
