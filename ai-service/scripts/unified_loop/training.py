@@ -502,24 +502,19 @@ class TrainingScheduler:
                 print("[Training] Connection pool enabled for database operations")
 
         # Circuit breaker for training operations (2025-12)
-        self._circuit_breaker_registry: Optional[Any] = None
+        self._circuit_breaker: Optional[Any] = None
         if HAS_CIRCUIT_BREAKER:
-            self._circuit_breaker_registry = CircuitBreakerRegistry()
-            # Create circuit breaker for training spawn operations
-            self._circuit_breaker_registry.get_or_create(
-                "training_spawn",
-                failure_threshold=3,
-                reset_timeout=300.0,  # 5 min cooldown after 3 failures
-                half_open_max_calls=1,
-            )
+            # Use the singleton registry and get/create a breaker for training operations
+            self._circuit_breaker = CircuitBreakerRegistry.get_instance().get_breaker("training")
             print("[Training] Circuit breaker protection enabled for training spawn")
 
         # Retry policy configuration (2025-12)
-        self._retry_policy: Optional[Any] = None
+        # RetryPolicy provides dicts with: max_retries, base_delay, max_delay, exponential_base
+        self._retry_policy: Optional[Dict[str, Any]] = None
         if HAS_RETRY_POLICY:
             # Use CONSERVATIVE policy for training (important operations)
             self._retry_policy = RetryPolicy.CONSERVATIVE
-            print(f"[Training] Using {self._retry_policy.name} retry policy (max_retries={self._retry_policy.max_retries})")
+            print(f"[Training] Using CONSERVATIVE retry policy (max_retries={self._retry_policy['max_retries']})")
 
     def _get_dynamic_threshold(self, config_key: str) -> int:
         """Calculate dynamic training threshold based on promotion velocity."""
@@ -1138,9 +1133,8 @@ class TrainingScheduler:
             return False
 
         # Circuit breaker check - avoid spawning if too many recent failures (2025-12)
-        if self._circuit_breaker_registry:
-            cb = self._circuit_breaker_registry.get("training_spawn")
-            if cb and not cb.can_proceed():
+        if self._circuit_breaker:
+            if not self._circuit_breaker.can_proceed("training_spawn"):
                 print(f"[Training] BLOCKED by circuit breaker: training spawn circuit OPEN (too many recent failures)")
                 if HAS_PROMETHEUS:
                     DATA_QUALITY_BLOCKED_TRAINING.labels(reason="circuit_breaker_open").inc()
@@ -1674,6 +1668,18 @@ class TrainingScheduler:
                 if profile_dir:
                     cmd.extend(["--profile-dir", str(profile_dir)])
 
+            # Integrated Training Enhancements (2025-12)
+            # Master switch for unified enhancement system
+            if getattr(self.config, 'use_integrated_enhancements', False):
+                cmd.append("--use-integrated-enhancements")
+                # Sub-features controlled by integrated manager
+                if getattr(self.config, 'curriculum_enabled', True):
+                    cmd.append("--enable-curriculum")
+                if getattr(self.config, 'augmentation_enabled', True):
+                    cmd.append("--enable-augmentation")
+                if getattr(self.config, 'elo_weighting_enabled', True):
+                    cmd.append("--enable-elo-weighting")
+
             print(f"[Training] Starting training for {model_id}...")
 
             # Also start NNUE policy training in parallel if configured
@@ -1691,20 +1697,16 @@ class TrainingScheduler:
             )
 
             # Record success with circuit breaker
-            if self._circuit_breaker_registry:
-                cb = self._circuit_breaker_registry.get("training_spawn")
-                if cb:
-                    cb.record_success()
+            if self._circuit_breaker:
+                self._circuit_breaker.record_success("training_spawn")
 
             return True
 
         except Exception as e:
             print(f"[TrainingScheduler] Error starting training: {e}")
             # Record failure with circuit breaker
-            if self._circuit_breaker_registry:
-                cb = self._circuit_breaker_registry.get("training_spawn")
-                if cb:
-                    cb.record_failure()
+            if self._circuit_breaker:
+                self._circuit_breaker.record_failure("training_spawn")
             self.state.training_in_progress = False
             self._release_training_lock()
             return False
@@ -1919,6 +1921,39 @@ class TrainingScheduler:
                         )
                 except Exception as e:
                     print(f"[Elo Selection] Error triggering selection: {e}")
+
+            # ELO Service Integration: Register new model and get training feedback
+            if success and HAS_ELO_SERVICE:
+                try:
+                    elo_service = get_elo_service()
+                    model_path = self._get_latest_model_path(config_key)
+                    if model_path and elo_service:
+                        parts = config_key.rsplit("_", 1)
+                        board_type = parts[0]
+                        num_players = int(parts[1].replace("p", "")) if len(parts) > 1 else 2
+
+                        # Register newly trained model
+                        elo_service.register_model(
+                            model_id=model_path.stem,
+                            board_type=board_type,
+                            num_players=num_players,
+                            model_path=str(model_path),
+                        )
+                        print(f"[ELO] Registered new model: {model_path.stem}")
+
+                        # Get training feedback for next cycle
+                        feedback = elo_service.get_training_feedback(board_type, num_players)
+                        result["elo_feedback"] = {
+                            "elo_stagnating": feedback.elo_stagnating,
+                            "elo_regression": feedback.elo_regression,
+                            "avg_elo_delta": feedback.avg_elo_delta,
+                        }
+                        if feedback.elo_stagnating:
+                            print(f"[ELO] Warning: Elo stagnating for {config_key}")
+                        if feedback.elo_regression:
+                            print(f"[ELO] Warning: Elo regression detected for {config_key}")
+                except Exception as e:
+                    print(f"[ELO] Error registering model: {e}")
 
             await self.event_bus.publish(DataEvent(
                 event_type=DataEventType.TRAINING_COMPLETED,
@@ -2693,10 +2728,10 @@ class TrainingScheduler:
         """
         # Use RetryPolicy if available, otherwise fall back to config values
         if self._retry_policy and HAS_RETRY_POLICY:
-            max_retries = self._retry_policy.max_retries
-            base_delay = self._retry_policy.base_delay
-            multiplier = self._retry_policy.exponential_base
-            use_jitter = self._retry_policy.jitter
+            max_retries = self._retry_policy.get('max_retries', 3)
+            base_delay = self._retry_policy.get('base_delay', 60.0)
+            multiplier = self._retry_policy.get('exponential_base', 2.0)
+            use_jitter = self._retry_policy.get('jitter', True)
         else:
             max_retries = getattr(self.config, 'training_max_retries', 3)
             base_delay = getattr(self.config, 'training_retry_backoff_base', 60.0)

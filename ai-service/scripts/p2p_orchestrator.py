@@ -470,17 +470,15 @@ except ImportError:
     probe_vast_nodes_via_ssh = None
 
 # Improvement cycle manager for automated training
+# Note: ImprovementCycleManager is deprecated - unified_ai_loop.py is the new approach
+# Kept for backwards compatibility with older scripts
 try:
     from scripts.improvement_cycle_manager import ImprovementCycleManager
     HAS_IMPROVEMENT_MANAGER = True
 except ImportError:
-    try:
-        # Fallback to archive location
-        from scripts.archive.improvement_cycle_manager import ImprovementCycleManager
-        HAS_IMPROVEMENT_MANAGER = True
-    except ImportError:
-        HAS_IMPROVEMENT_MANAGER = False
-        ImprovementCycleManager = None
+    # Fallback - deprecated archive location removed in 2025-12
+    HAS_IMPROVEMENT_MANAGER = False
+    ImprovementCycleManager = None
 
 # Task coordination safeguards - prevents runaway spawning
 try:
