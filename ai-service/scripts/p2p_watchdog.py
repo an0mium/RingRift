@@ -17,8 +17,11 @@ Usage:
     # Or with explicit peers:
     python scripts/p2p_watchdog.py --node-id my-node --peers http://PEER_IP:8770
 
-    # Cron entry (every 5 minutes - recommended to allow service to stabilize):
-    */5 * * * * cd /home/ubuntu/ringrift/ai-service && python3 scripts/p2p_watchdog.py --node-id my-node >> /tmp/p2p_watchdog.log 2>&1
+    # Cron entry (every 2 minutes for faster failure detection):
+    */2 * * * * cd /home/ubuntu/ringrift/ai-service && python3 scripts/p2p_watchdog.py --node-id my-node >> /tmp/p2p_watchdog.log 2>&1
+
+    # Note: 2-minute interval provides faster recovery while MIN_UPTIME_BEFORE_RESTART (10 min)
+    # prevents restart loops. The process must be up for 10+ minutes before a restart is considered.
 """
 from __future__ import annotations
 

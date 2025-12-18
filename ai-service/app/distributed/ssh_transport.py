@@ -227,7 +227,11 @@ class SSHTransport:
             cmd.extend([
                 "-o", f"ControlPath={control_path}",
                 "-o", "ControlMaster=auto",
-                "-o", "ControlPersist=300",  # Keep connection for 5 minutes
+                "-o", "ControlPersist=60",  # Reduced from 300s for faster reconnection
+                # TCP keepalive settings to detect dead connections
+                "-o", "ServerAliveInterval=15",  # Send keepalive every 15 seconds
+                "-o", "ServerAliveCountMax=3",   # Fail after 3 missed keepalives (45s total)
+                "-o", "TCPKeepAlive=yes",        # Enable TCP-level keepalive
             ])
 
         # Add port

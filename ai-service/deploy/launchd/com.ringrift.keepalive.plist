@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ringrift.keepalive</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>cd ~/Development/RingRift/ai-service &amp;&amp; ./scripts/mac_keepalive.sh</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/ringrift_keepalive.out</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/ringrift_keepalive.err</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <!-- Prevent system sleep while running -->
+    <key>LegacyTimers</key>
+    <true/>
+
+    <!-- Restart if crashes -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>
