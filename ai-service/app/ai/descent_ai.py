@@ -33,6 +33,7 @@ from ..utils.memory_config import MemoryConfig
 if TYPE_CHECKING:
     from .async_nn_eval import AsyncNeuralBatcher
     from .neural_net import NeuralNetAI, ActionEncoderHex
+    from .evaluation_provider import HeuristicEvaluator
 
 # Optional GPU heuristic evaluation - try but don't fail if unavailable
 GPU_HEURISTIC_AVAILABLE = False
@@ -180,6 +181,33 @@ class DescentAI(BaseAI):
             except Exception:
                 logger.warning("Failed to initialize GPU heuristic evaluator", exc_info=True)
                 self.gpu_heuristic = None
+
+        # FastGeometry-backed heuristic evaluator for single-position fallback
+        # (when neural net is unavailable). Uses pre-computed geometry tables
+        # for ~3-5x faster evaluation than naive implementations.
+        self._heuristic_evaluator: Optional["HeuristicEvaluator"] = None
+        self._use_heuristic_fallback = os.environ.get(
+            "RINGRIFT_DESCENT_HEURISTIC_FALLBACK", "true"
+        ).lower() in {"1", "true", "yes", "on"}
+        if self._use_heuristic_fallback and not self.neural_net:
+            try:
+                from .evaluation_provider import HeuristicEvaluator, EvaluatorConfig
+                eval_config = EvaluatorConfig(
+                    eval_mode="light",  # Use light mode for fast Descent fallback
+                    difficulty=config.difficulty,
+                )
+                self._heuristic_evaluator = HeuristicEvaluator(
+                    player_number=player_number,
+                    config=eval_config,
+                )
+                logger.info("DescentAI initialized with FastGeometry heuristic evaluator")
+            except Exception:
+                logger.warning(
+                    "Failed to initialize heuristic evaluator; "
+                    "falling back to simple material difference",
+                    exc_info=True,
+                )
+                self._heuristic_evaluator = None
 
         # Transposition table to store values with bounded memory
         # Key: state_hash, Value: (value, children_values, status)
@@ -1340,44 +1368,56 @@ class DescentAI(BaseAI):
         """Evaluate MutableGameState using neural net or heuristic.
 
         Converts to immutable for neural net evaluation, or uses
-        a simple heuristic directly on the mutable state.
+        FastGeometry-backed heuristic when available.
         """
         val = 0.0
         num_players = len(state.players)
         if self.neural_net:
             immutable = state.to_immutable()
             val = self.evaluate_position(immutable)
+        elif self._heuristic_evaluator is not None:
+            # Use FastGeometry-backed heuristic evaluator (requires immutable state)
+            try:
+                immutable = state.to_immutable()
+                val = self._heuristic_fallback_eval(immutable)
+            except Exception:
+                # Fall through to simple heuristic
+                val = self._simple_mutable_eval(state, num_players)
         else:
-            # Heuristic fallback: simple material difference.
-            player_state = state.players.get(self.player_number)
-            my_elim = player_state.eliminated_rings if player_state else 0
-
-            opp_elims = [
-                ps.eliminated_rings
-                for pid, ps in state.players.items()
-                if pid != self.player_number
-            ]
-            if num_players <= 2:
-                opp_elim = sum(opp_elims)
-                val = (my_elim - opp_elim) * 0.05
-            else:
-                # Multi-player Paranoid reduction: compare victory progress
-                # (max of territory/elimination/LPS proximity) against the
-                # leading opponent.
-                my_prog = victory_progress_for_player(state, self.player_number)
-                opp_prog = max(
-                    (
-                        victory_progress_for_player(state, pid)
-                        for pid in state.players.keys()
-                        if pid != self.player_number
-                    ),
-                    default=0.0,
-                )
-                val = my_prog - opp_prog
+            # Simple material difference fallback for MutableGameState
+            val = self._simple_mutable_eval(state, num_players)
 
         # Clamp value to (-0.99, 0.99) to reserve 1.0/-1.0 for proven
         # terminal states.
         return max(-0.99, min(0.99, val))
+
+    def _simple_mutable_eval(self, state: MutableGameState, num_players: int) -> float:
+        """Simple material evaluation directly on MutableGameState."""
+        player_state = state.players.get(self.player_number)
+        my_elim = player_state.eliminated_rings if player_state else 0
+
+        opp_elims = [
+            ps.eliminated_rings
+            for pid, ps in state.players.items()
+            if pid != self.player_number
+        ]
+        if num_players <= 2:
+            opp_elim = sum(opp_elims)
+            return (my_elim - opp_elim) * 0.05
+        else:
+            # Multi-player Paranoid reduction: compare victory progress
+            # (max of territory/elimination/LPS proximity) against the
+            # leading opponent.
+            my_prog = victory_progress_for_player(state, self.player_number)
+            opp_prog = max(
+                (
+                    victory_progress_for_player(state, pid)
+                    for pid in state.players.keys()
+                    if pid != self.player_number
+                ),
+                default=0.0,
+            )
+            return my_prog - opp_prog
 
     def _batch_evaluate_positions(
         self, game_states: List[GameState]
@@ -1637,31 +1677,45 @@ class DescentAI(BaseAI):
                 self.hex_encoder = None
                 self.nn_batcher = None
                 # Fall through to the heuristic evaluation below.
-                my_elim = game_state.board.eliminated_rings.get(
-                    str(self.player_number),
-                    0,
-                )
-
-                opp_elim = 0
-                for pid, count in game_state.board.eliminated_rings.items():
-                    if int(pid) != self.player_number:
-                        opp_elim += count
-
-                val = (my_elim - opp_elim) * 0.05
+                val = self._heuristic_fallback_eval(game_state)
         else:
-            # Heuristic fallback: simple material difference.
-            my_elim = game_state.board.eliminated_rings.get(
-                str(self.player_number),
-                0,
-            )
-
-            opp_elim = 0
-            for pid, count in game_state.board.eliminated_rings.items():
-                if int(pid) != self.player_number:
-                    opp_elim += count
-
-            val = (my_elim - opp_elim) * 0.05
+            # Heuristic fallback using FastGeometry-backed evaluator when available
+            val = self._heuristic_fallback_eval(game_state)
 
         # Clamp value to (-0.99, 0.99) to reserve 1.0/-1.0 for proven
         # terminal states.
         return max(-0.99, min(0.99, val))
+
+    def _heuristic_fallback_eval(self, game_state: GameState) -> float:
+        """Evaluate position using FastGeometry-backed heuristic or simple material diff.
+
+        Uses HeuristicEvaluator when available (with FastGeometry for pre-computed
+        geometry tables), otherwise falls back to simple eliminated rings difference.
+
+        Returns:
+            Evaluation score in range (-1.0, 1.0), positive favoring this player.
+        """
+        # Use FastGeometry-backed evaluator when available
+        if self._heuristic_evaluator is not None:
+            try:
+                # HeuristicEvaluator.evaluate returns a score in heuristic units
+                # Normalize to (-1, 1) range for tree search compatibility
+                raw_score = self._heuristic_evaluator.evaluate(game_state)
+                # Clamp and normalize: typical heuristic scores range ~(-100, 100)
+                return max(-0.99, min(0.99, raw_score / 100.0))
+            except Exception:
+                # Fall through to simple heuristic on any failure
+                pass
+
+        # Simple material difference fallback
+        my_elim = game_state.board.eliminated_rings.get(
+            str(self.player_number),
+            0,
+        )
+
+        opp_elim = 0
+        for pid, count in game_state.board.eliminated_rings.items():
+            if int(pid) != self.player_number:
+                opp_elim += count
+
+        return (my_elim - opp_elim) * 0.05

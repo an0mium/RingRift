@@ -297,7 +297,53 @@ try:
     HAS_CONNECTION_POOL = True
 except ImportError:
     HAS_CONNECTION_POOL = False
+
+# Enhanced fault tolerance with retry policies and circuit breakers (2025-12)
+try:
+    from app.training.fault_tolerance import (
+        RetryPolicy,
+        async_retry_with_backoff,
+    )
+    HAS_RETRY_POLICY = True
+except ImportError:
+    HAS_RETRY_POLICY = False
+    RetryPolicy = None
+    async_retry_with_backoff = None
+
+# Circuit breaker for training operations (2025-12)
+try:
+    from app.distributed.circuit_breaker import (
+        CircuitBreakerRegistry,
+        CircuitState,
+    )
+    HAS_CIRCUIT_BREAKER = True
+except ImportError:
+    HAS_CIRCUIT_BREAKER = False
+    CircuitBreakerRegistry = None
+    CircuitState = None
+
+# NNUE dataset validation (2025-12)
+try:
+    from app.training.nnue_dataset import (
+        validate_nnue_dataset,
+        validate_database_integrity,
+        DataValidationResult,
+    )
+    HAS_NNUE_VALIDATION = True
+except ImportError:
+    HAS_NNUE_VALIDATION = False
+    validate_nnue_dataset = None
+    validate_database_integrity = None
+    DataValidationResult = None
     ConnectionPool = None
+
+# Elo-based checkpoint selection (2025-12)
+try:
+    from scripts.select_best_checkpoint_by_elo import select_best_checkpoint
+    HAS_ELO_CHECKPOINT_SELECTION = True
+except ImportError:
+    HAS_ELO_CHECKPOINT_SELECTION = False
+    select_best_checkpoint = None
 
 
 class TrainingScheduler:
@@ -394,6 +440,16 @@ class TrainingScheduler:
                     )
                 print(f"[Training] CMA-ES auto-tuners initialized for {len(self._cmaes_auto_tuners)} configs")
 
+        # Elo-based checkpoint selection configuration (2025-12)
+        self._use_elo_checkpoint_selection = (
+            HAS_ELO_CHECKPOINT_SELECTION and
+            getattr(config, 'use_elo_checkpoint_selection', True)
+        )
+        self._elo_selection_games_per_opponent = getattr(config, 'elo_selection_games', 10)
+        self._elo_selection_copy_best = getattr(config, 'elo_selection_copy_best', True)
+        if self._use_elo_checkpoint_selection:
+            print("[Training] Elo-based checkpoint selection enabled")
+
         # Bottleneck fix integrations (2025-12)
         self._streaming_pipelines: Dict[str, Any] = {}
         self._async_validator: Optional[Any] = None
@@ -444,6 +500,26 @@ class TrainingScheduler:
             if wal_db_path.parent.exists():
                 self._connection_pool = ConnectionPool(wal_db_path)
                 print("[Training] Connection pool enabled for database operations")
+
+        # Circuit breaker for training operations (2025-12)
+        self._circuit_breaker_registry: Optional[Any] = None
+        if HAS_CIRCUIT_BREAKER:
+            self._circuit_breaker_registry = CircuitBreakerRegistry()
+            # Create circuit breaker for training spawn operations
+            self._circuit_breaker_registry.get_or_create(
+                "training_spawn",
+                failure_threshold=3,
+                reset_timeout=300.0,  # 5 min cooldown after 3 failures
+                half_open_max_calls=1,
+            )
+            print("[Training] Circuit breaker protection enabled for training spawn")
+
+        # Retry policy configuration (2025-12)
+        self._retry_policy: Optional[Any] = None
+        if HAS_RETRY_POLICY:
+            # Use CONSERVATIVE policy for training (important operations)
+            self._retry_policy = RetryPolicy.CONSERVATIVE
+            print(f"[Training] Using {self._retry_policy.name} retry policy (max_retries={self._retry_policy.max_retries})")
 
     def _get_dynamic_threshold(self, config_key: str) -> int:
         """Calculate dynamic training threshold based on promotion velocity."""
@@ -1061,6 +1137,15 @@ class TrainingScheduler:
         if self.state.training_in_progress:
             return False
 
+        # Circuit breaker check - avoid spawning if too many recent failures (2025-12)
+        if self._circuit_breaker_registry:
+            cb = self._circuit_breaker_registry.get("training_spawn")
+            if cb and not cb.can_proceed():
+                print(f"[Training] BLOCKED by circuit breaker: training spawn circuit OPEN (too many recent failures)")
+                if HAS_PROMETHEUS:
+                    DATA_QUALITY_BLOCKED_TRAINING.labels(reason="circuit_breaker_open").inc()
+                return False
+
         self.record_training_start()
 
         # Data quality gate (enforced even without feedback controller if configured)
@@ -1112,6 +1197,23 @@ class TrainingScheduler:
             self.state.training_in_progress = True
             self.state.training_config = config_key
             self.state.training_started_at = time.time()
+
+            # NNUE dataset validation before training (2025-12)
+            if HAS_NNUE_VALIDATION:
+                db_path = self.config.selfplay_db_path / f"{config_key}.db"
+                if db_path.exists():
+                    try:
+                        validation_result = validate_database_integrity(db_path, quick_check=True)
+                        if not validation_result.is_valid:
+                            print(f"[Training] WARNING: Database integrity check failed for {config_key}")
+                            print(f"[Training]   Errors: {validation_result.errors[:3]}")  # First 3 errors
+                            if HAS_PROMETHEUS:
+                                VALIDATION_ERRORS.labels(error_type="db_integrity", config=config_key).inc()
+                            # Don't block training, just warn (data may still be usable)
+                        else:
+                            print(f"[Training] Database integrity OK ({validation_result.samples_checked} samples checked)")
+                    except Exception as e:
+                        print(f"[Training] Database validation error (continuing anyway): {e}")
 
             if HAS_COORDINATION and estimate_task_duration:
                 est_duration = estimate_task_duration("training", config=config_key)
@@ -1588,10 +1690,21 @@ class TrainingScheduler:
                 cwd=AI_SERVICE_ROOT,
             )
 
+            # Record success with circuit breaker
+            if self._circuit_breaker_registry:
+                cb = self._circuit_breaker_registry.get("training_spawn")
+                if cb:
+                    cb.record_success()
+
             return True
 
         except Exception as e:
             print(f"[TrainingScheduler] Error starting training: {e}")
+            # Record failure with circuit breaker
+            if self._circuit_breaker_registry:
+                cb = self._circuit_breaker_registry.get("training_spawn")
+                if cb:
+                    cb.record_failure()
             self.state.training_in_progress = False
             self._release_training_lock()
             return False
@@ -1794,6 +1907,19 @@ class TrainingScheduler:
                 except Exception as e:
                     print(f"[CMA-ES] Error checking plateau: {e}")
 
+            # Elo-based checkpoint selection: Find best checkpoint by playing strength
+            if success and self._use_elo_checkpoint_selection:
+                try:
+                    model_path = self._get_latest_model_path(config_key)
+                    if model_path:
+                        candidate_id = model_path.stem
+                        print(f"[Elo Selection] Triggering checkpoint evaluation for {candidate_id}")
+                        asyncio.create_task(
+                            self._run_elo_checkpoint_selection(config_key, candidate_id)
+                        )
+                except Exception as e:
+                    print(f"[Elo Selection] Error triggering selection: {e}")
+
             await self.event_bus.publish(DataEvent(
                 event_type=DataEventType.TRAINING_COMPLETED,
                 payload=result
@@ -1902,6 +2028,89 @@ class TrainingScheduler:
                 print(f"[CMA-ES] Auto-tuning failed for {config_key}: {stderr.decode()[:200]}")
         except Exception as e:
             print(f"[CMA-ES] Error monitoring process: {e}")
+
+    async def _run_elo_checkpoint_selection(
+        self,
+        config_key: str,
+        candidate_id: str,
+    ) -> None:
+        """Run Elo-based checkpoint selection in a thread pool.
+
+        This evaluates all checkpoints for a training run by playing games
+        against baseline opponents, selecting the best by playing strength
+        rather than validation loss.
+        """
+        if not HAS_ELO_CHECKPOINT_SELECTION or select_best_checkpoint is None:
+            return
+
+        try:
+            # Parse board type from config key (e.g., "square8_2p" -> BoardType.SQUARE8)
+            parts = config_key.rsplit("_", 1)
+            board_type_str = parts[0]
+            num_players = int(parts[1].replace("p", "")) if len(parts) > 1 else 2
+
+            # Import BoardType here to avoid circular imports
+            from app.models import BoardType
+            board_type_map = {
+                "square8": BoardType.SQUARE8,
+                "square19": BoardType.SQUARE19,
+                "hexagonal": BoardType.HEXAGONAL,
+                "hex8": BoardType.HEX8,
+            }
+            board_type = board_type_map.get(board_type_str)
+            if board_type is None:
+                print(f"[Elo Selection] Unknown board type: {board_type_str}")
+                return
+
+            print(f"[Elo Selection] Evaluating checkpoints for {candidate_id}...")
+
+            # Run CPU-bound evaluation in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            best_ckpt, results = await loop.run_in_executor(
+                None,  # Use default thread pool
+                lambda: select_best_checkpoint(
+                    candidate_id=candidate_id,
+                    models_dir=str(AI_SERVICE_ROOT / "models"),
+                    games_per_opponent=self._elo_selection_games_per_opponent,
+                    board_type=board_type,
+                    num_players=num_players,
+                ),
+            )
+
+            if best_ckpt:
+                # Find Elo for best checkpoint
+                best_elo = None
+                for r in results:
+                    if r["checkpoint"] == str(best_ckpt):
+                        best_elo = r.get("estimated_elo")
+                        break
+
+                print(f"[Elo Selection] Best checkpoint: {best_ckpt.name} (Elo: {best_elo:.0f})")
+
+                # Optionally copy best to models/<candidate_id>_elo_best.pth
+                if self._elo_selection_copy_best:
+                    import shutil
+                    best_path = AI_SERVICE_ROOT / "models" / f"{candidate_id}_elo_best.pth"
+                    shutil.copy2(best_ckpt, best_path)
+                    print(f"[Elo Selection] Copied to: {best_path}")
+
+                # Update PFSP pool with accurate Elo if available
+                if self._pfsp_pool is not None and best_elo is not None:
+                    try:
+                        self._pfsp_pool.update_stats(
+                            best_ckpt.stem,
+                            elo=best_elo,
+                        )
+                    except Exception:
+                        pass
+
+            else:
+                print(f"[Elo Selection] No valid checkpoints found for {candidate_id}")
+
+        except Exception as e:
+            print(f"[Elo Selection] Error during evaluation: {e}")
+            import traceback
+            traceback.print_exc()
 
     def get_pfsp_opponent(self, config_key: str) -> Optional[str]:
         """Get a PFSP-selected opponent for selfplay."""
@@ -2470,8 +2679,11 @@ class TrainingScheduler:
     def schedule_training_retry(self, config_key: str) -> Optional[float]:
         """Schedule a retry for a failed training run.
 
-        Uses exponential backoff based on retry count. Returns the
+        Uses exponential backoff with jitter based on retry count. Returns the
         scheduled retry time, or None if max retries exceeded.
+
+        Jitter is applied to prevent thundering herd when multiple training
+        runs fail simultaneously (e.g., cluster-wide issue).
 
         Args:
             config_key: Config that failed training
@@ -2479,9 +2691,17 @@ class TrainingScheduler:
         Returns:
             Scheduled retry timestamp, or None if max retries exceeded
         """
-        max_retries = getattr(self.config, 'training_max_retries', 3)
-        base_delay = getattr(self.config, 'training_retry_backoff_base', 60.0)
-        multiplier = getattr(self.config, 'training_retry_backoff_multiplier', 2.0)
+        # Use RetryPolicy if available, otherwise fall back to config values
+        if self._retry_policy and HAS_RETRY_POLICY:
+            max_retries = self._retry_policy.max_retries
+            base_delay = self._retry_policy.base_delay
+            multiplier = self._retry_policy.exponential_base
+            use_jitter = self._retry_policy.jitter
+        else:
+            max_retries = getattr(self.config, 'training_max_retries', 3)
+            base_delay = getattr(self.config, 'training_retry_backoff_base', 60.0)
+            multiplier = getattr(self.config, 'training_retry_backoff_multiplier', 2.0)
+            use_jitter = True  # Default to jitter for safety
 
         current_retries = self._retry_attempts.get(config_key, 0)
 
@@ -2501,6 +2721,15 @@ class TrainingScheduler:
 
         # Calculate delay with exponential backoff
         delay = base_delay * (multiplier ** current_retries)
+
+        # Add jitter to prevent thundering herd (2025-12)
+        if use_jitter:
+            import random
+            # Add +/- 25% jitter
+            jitter_range = delay * 0.25
+            delay = delay + random.uniform(-jitter_range, jitter_range)
+            delay = max(base_delay, delay)  # Ensure minimum delay
+
         scheduled_time = time.time() + delay
 
         # Add to pending retries
@@ -2508,7 +2737,8 @@ class TrainingScheduler:
         self._pending_retries.sort(key=lambda x: x[1])  # Sort by scheduled time
 
         print(f"[Training] Scheduled retry {current_retries + 1}/{max_retries} for {config_key} "
-              f"in {delay:.0f}s (at {datetime.fromtimestamp(scheduled_time).strftime('%H:%M:%S')})")
+              f"in {delay:.0f}s (at {datetime.fromtimestamp(scheduled_time).strftime('%H:%M:%S')})"
+              f"{' [+jitter]' if use_jitter else ''}")
 
         return scheduled_time
 
