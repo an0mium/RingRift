@@ -434,6 +434,7 @@ def augment_data(
     neural_net,
     board_type: BoardType,
     hex_transform: Optional[HexSymmetryTransform] = None,
+    use_board_aware_encoding: bool = False,
 ):
     """
     Augment data by rotating and flipping.
@@ -443,7 +444,18 @@ def augment_data(
 
     For square boards: 8 augmentations (4 rotations × 2 flips)
     For hexagonal boards: 12 augmentations (D6 symmetry group)
+
+    Parameters
+    ----------
+    use_board_aware_encoding : bool
+        If True, policy indices use board-aware encoding (compact indices).
+        When True, augmentation is skipped for square boards since policy
+        transformation requires decode_move_for_board (not yet implemented).
     """
+    # Skip augmentation for square boards when using board-aware encoding
+    # Policy transformation requires decode_move_for_board which is not yet implemented
+    if use_board_aware_encoding and board_type not in (BoardType.HEXAGONAL, BoardType.HEX8):
+        return [(features, globals_vec, policy_indices, policy_values)]
     # Hex boards: use D6 symmetry augmentation (12 transformations)
     if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
         return augment_hex_data(
@@ -1019,6 +1031,8 @@ def generate_dataset(
                         p_values = np.array([], dtype=np.float32)
 
                         # Augment and add immediately
+                        # Note: use_board_aware_encoding=True since policy indices
+                        # come from encode_move_for_board (even if empty here)
                         augmented_samples = augment_data(
                             stacked_features,
                             root_globals,
@@ -1026,6 +1040,7 @@ def generate_dataset(
                             p_values,
                             ai.neural_net,
                             state.board.type,
+                            use_board_aware_encoding=True,
                         )
 
                         for f, g, pi, pv in augmented_samples:
@@ -1104,14 +1119,16 @@ def generate_dataset(
                         probs = probs / probs.sum()
 
                         for i, (m, _) in enumerate(moves_data):
-                            idx = ai.neural_net.encode_move(m, state.board)
+                            # Use board-aware encoding for compact policy indices
+                            idx = encode_move_for_board(m, state.board)
                             if idx != INVALID_MOVE_INDEX:
                                 p_indices.append(idx)
                                 p_values.append(float(probs[i]))
 
                 # Fallback if no search data
                 if not p_indices:
-                    idx = ai.neural_net.encode_move(move, state.board)
+                    # Use board-aware encoding for compact policy indices
+                    idx = encode_move_for_board(move, state.board)
                     if idx != INVALID_MOVE_INDEX:
                         p_indices.append(idx)
                         p_values.append(1.0)
@@ -1147,15 +1164,17 @@ def generate_dataset(
                     state_history.pop(0)
 
                 # Extract soft policy from MCTS visits
+                # Use board-aware encoding for compact policy indices
                 p_indices_arr, p_values_arr = extract_mcts_visit_distribution(
                     ai,
                     state,
-                    encoder=ai.neural_net,
+                    use_board_aware_encoding=True,
                 )
 
                 # Fallback: 1-hot on selected move if distribution is empty
                 if p_indices_arr.size == 0:
-                    idx = ai.neural_net.encode_move(move, state.board)
+                    # Use board-aware encoding for compact policy indices
+                    idx = encode_move_for_board(move, state.board)
                     if idx != INVALID_MOVE_INDEX:
                         p_indices_arr = np.array([idx], dtype=np.int32)
                         p_values_arr = np.array([1.0], dtype=np.float32)
@@ -1287,6 +1306,7 @@ def generate_dataset(
                 outcome = calculate_outcome(state, step['player'], moves_remaining)
 
             # Augment data for training; board_type is fixed per dataset.
+            # Use board-aware encoding for policy indices (compact indices)
             augmented_samples = augment_data(
                 step["features"],
                 step["globals"],
@@ -1294,6 +1314,7 @@ def generate_dataset(
                 step["policy_values"],
                 ai_p1.neural_net,
                 board_type,
+                use_board_aware_encoding=True,
             )
 
             for feat, glob, pi, pv in augmented_samples:
@@ -1834,7 +1855,7 @@ def generate_dataset_gpu_parallel(
                     final_state, sample["player"], moves_remaining
                 )
 
-                # Augment data
+                # Augment data (using board-aware encoding for policy indices)
                 augmented = augment_data(
                     sample["features"],
                     sample["globals"],
@@ -1842,6 +1863,7 @@ def generate_dataset_gpu_parallel(
                     sample["policy_values"],
                     nn_encoder,
                     board_type,
+                    use_board_aware_encoding=True,
                 )
 
                 for feat, glob, pi, pv in augmented:
