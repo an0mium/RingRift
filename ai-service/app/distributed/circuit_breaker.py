@@ -483,6 +483,214 @@ def format_circuit_status(status: CircuitStatus) -> str:
     return " ".join(parts)
 
 
+# =============================================================================
+# Operation-Type Registry for Fine-Grained Circuit Control
+# =============================================================================
+
+class CircuitBreakerRegistry:
+    """Registry for operation-type specific circuit breakers.
+
+    Provides separate circuit breakers for different operation types
+    (SSH, HTTP, P2P, aria2) with appropriate configurations.
+
+    Usage:
+        registry = get_circuit_registry()
+        breaker = registry.get_breaker("lambda-h100", "ssh")
+
+        if breaker.can_execute("lambda-h100"):
+            ...
+    """
+
+    _instance: Optional["CircuitBreakerRegistry"] = None
+    _lock = RLock()
+
+    def __init__(self):
+        self._breakers: Dict[str, CircuitBreaker] = {}
+        self._configs = {
+            "ssh": {"failure_threshold": 3, "recovery_timeout": 60.0},
+            "http": {"failure_threshold": 5, "recovery_timeout": 30.0},
+            "p2p": {"failure_threshold": 3, "recovery_timeout": 45.0},
+            "aria2": {"failure_threshold": 2, "recovery_timeout": 120.0},
+            "rsync": {"failure_threshold": 2, "recovery_timeout": 90.0},
+        }
+
+    @classmethod
+    def get_instance(cls) -> "CircuitBreakerRegistry":
+        """Get singleton instance."""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
+
+    def get_breaker(self, operation_type: str) -> CircuitBreaker:
+        """Get or create a circuit breaker for an operation type."""
+        with self._lock:
+            if operation_type not in self._breakers:
+                config = self._configs.get(operation_type, {})
+                self._breakers[operation_type] = CircuitBreaker(
+                    failure_threshold=config.get("failure_threshold", 3),
+                    recovery_timeout=config.get("recovery_timeout", 60.0),
+                    half_open_max_calls=1,
+                    success_threshold=1,
+                )
+            return self._breakers[operation_type]
+
+    def get_timeout(self, operation_type: str, host: str, default: float) -> float:
+        """Get appropriate timeout based on circuit state.
+
+        Returns shorter timeout when in HALF_OPEN for faster probing.
+        """
+        breaker = self.get_breaker(operation_type)
+        state = breaker.get_state(host)
+
+        if state == CircuitState.HALF_OPEN:
+            # Use shorter timeout for probing
+            return min(default * 0.3, 15.0)
+        return default
+
+    def get_all_open_circuits(self) -> Dict[str, Dict[str, CircuitStatus]]:
+        """Get all circuits that are currently OPEN or HALF_OPEN."""
+        result = {}
+        with self._lock:
+            for op_type, breaker in self._breakers.items():
+                states = breaker.get_all_states()
+                open_states = {
+                    target: status
+                    for target, status in states.items()
+                    if status.state != CircuitState.CLOSED
+                }
+                if open_states:
+                    result[op_type] = open_states
+        return result
+
+
+_circuit_registry: Optional[CircuitBreakerRegistry] = None
+
+
+def get_circuit_registry() -> CircuitBreakerRegistry:
+    """Get the global circuit breaker registry."""
+    global _circuit_registry
+    if _circuit_registry is None:
+        _circuit_registry = CircuitBreakerRegistry.get_instance()
+    return _circuit_registry
+
+
+def get_operation_breaker(operation_type: str) -> CircuitBreaker:
+    """Get circuit breaker for a specific operation type."""
+    return get_circuit_registry().get_breaker(operation_type)
+
+
+def get_adaptive_timeout(operation_type: str, host: str, default: float) -> float:
+    """Get timeout adjusted for circuit state."""
+    return get_circuit_registry().get_timeout(operation_type, host, default)
+
+
+# =============================================================================
+# Fallback Chain with Timeout Budget
+# =============================================================================
+
+class FallbackChain:
+    """Coordinated fallback chain with timeout budget management.
+
+    Ensures fallback operations don't exceed total timeout budget,
+    and skips operations whose circuits are open.
+
+    Usage:
+        chain = FallbackChain(total_timeout=300.0)
+        chain.add_operation("ssh", ssh_sync, timeout=120.0)
+        chain.add_operation("p2p", p2p_sync, timeout=90.0)
+        chain.add_operation("aria2", aria2_sync, timeout=90.0)
+
+        result = await chain.execute(host="lambda-h100")
+    """
+
+    def __init__(self, total_timeout: float = 300.0):
+        self.total_timeout = total_timeout
+        self._operations: list = []
+        self._start_time: Optional[float] = None
+
+    def add_operation(
+        self,
+        operation_type: str,
+        func: Callable,
+        timeout: float,
+        name: Optional[str] = None,
+    ) -> "FallbackChain":
+        """Add an operation to the fallback chain."""
+        self._operations.append({
+            "operation_type": operation_type,
+            "func": func,
+            "timeout": timeout,
+            "name": name or operation_type,
+        })
+        return self
+
+    @property
+    def remaining_budget(self) -> float:
+        """Get remaining timeout budget."""
+        if self._start_time is None:
+            return self.total_timeout
+        elapsed = time.time() - self._start_time
+        return max(0, self.total_timeout - elapsed)
+
+    async def execute(self, host: str, **kwargs) -> Any:
+        """Execute the fallback chain.
+
+        Returns the result from the first successful operation.
+        Raises the last exception if all operations fail.
+        """
+        self._start_time = time.time()
+        last_error: Optional[Exception] = None
+        registry = get_circuit_registry()
+
+        for op in self._operations:
+            op_type = op["operation_type"]
+            func = op["func"]
+            base_timeout = op["timeout"]
+            name = op["name"]
+
+            # Check remaining budget
+            remaining = self.remaining_budget
+            if remaining <= 0:
+                break
+
+            # Check circuit state
+            breaker = registry.get_breaker(op_type)
+            if not breaker.can_execute(host):
+                continue  # Skip this operation
+
+            # Calculate effective timeout
+            timeout = min(
+                base_timeout,
+                remaining,
+                registry.get_timeout(op_type, host, base_timeout),
+            )
+
+            try:
+                if asyncio.iscoroutinefunction(func):
+                    result = await asyncio.wait_for(
+                        func(host=host, timeout=timeout, **kwargs),
+                        timeout=timeout + 5,  # Small buffer for cleanup
+                    )
+                else:
+                    result = func(host=host, timeout=timeout, **kwargs)
+
+                breaker.record_success(host)
+                return result
+
+            except asyncio.TimeoutError as e:
+                breaker.record_failure(host, e)
+                last_error = e
+            except Exception as e:
+                breaker.record_failure(host, e)
+                last_error = e
+
+        if last_error:
+            raise last_error
+        raise CircuitOpenError(f"All circuits open for {host}")
+
+
 if __name__ == "__main__":
     # Demo
     breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=5.0)
