@@ -83,6 +83,27 @@ def db_connection(db_path: str | Path, timeout: float = 30.0) -> Generator[sqlit
                 pass
 
 
+def is_gzip_file(filepath: Path) -> bool:
+    """Check if a file is gzip-compressed by reading magic bytes."""
+    try:
+        with open(filepath, "rb") as f:
+            magic = f.read(2)
+            return magic == b'\x1f\x8b'  # Gzip magic number
+    except (IOError, OSError):
+        return False
+
+
+def open_jsonl_file(filepath: Path):
+    """Open a JSONL file, automatically detecting gzip compression.
+
+    Returns a context manager that yields lines as strings.
+    """
+    if is_gzip_file(filepath):
+        return gzip.open(filepath, "rt", encoding="utf-8", errors="replace")
+    else:
+        return open(filepath, "r", encoding="utf-8", errors="replace")
+
+
 def retry_operation(
     func,
     max_retries: int = 3,
@@ -368,7 +389,7 @@ try:
     HAS_AIOHTTP = True
 except ImportError:
     HAS_AIOHTTP = False
-    print("Warning: aiohttp not installed. Install with: pip install aiohttp")
+    logger.warning("aiohttp not installed. Install with: pip install aiohttp")
 
 # SOCKS proxy support for userspace Tailscale networking
 try:
@@ -690,9 +711,9 @@ class WebhookNotifier:
                 try:
                     async with session.post(self.slack_webhook, json=slack_payload) as resp:
                         if resp.status != 200:
-                            print(f"[Webhook] Slack alert failed: {resp.status}")
+                            logger.warning(f"[Webhook] Slack alert failed: {resp.status}")
                 except Exception as e:
-                    print(f"[Webhook] Slack error: {e}")
+                    logger.error(f"[Webhook] Slack error: {e}")
 
             # Send to Discord
             if self.discord_webhook:
@@ -714,12 +735,12 @@ class WebhookNotifier:
                 try:
                     async with session.post(self.discord_webhook, json=discord_payload) as resp:
                         if resp.status not in (200, 204):
-                            print(f"[Webhook] Discord alert failed: {resp.status}")
+                            logger.warning(f"[Webhook] Discord alert failed: {resp.status}")
                 except Exception as e:
-                    print(f"[Webhook] Discord error: {e}")
+                    logger.error(f"[Webhook] Discord error: {e}")
 
         except Exception as e:
-            print(f"[Webhook] Alert send error: {e}")
+            logger.error(f"[Webhook] Alert send error: {e}")
 
     async def close(self):
         if self._session and not self._session.closed:
@@ -762,12 +783,12 @@ class P2POrchestrator:
             resources = get_system_resources()
             if should_use_ramdrive():
                 self.storage_type = "ramdrive"
-                print(f"[P2P] Auto-detected storage: RAMDRIVE "
+                logger.info(f"Auto-detected storage: RAMDRIVE "
                       f"(RAM: {resources.total_ram_gb:.0f}GB, "
                       f"Disk: {resources.free_disk_gb:.0f}GB free / {resources.disk_usage_percent:.0f}% used)")
             else:
                 self.storage_type = "disk"
-                print(f"[P2P] Auto-detected storage: DISK "
+                logger.info(f"Auto-detected storage: DISK "
                       f"(RAM: {resources.total_ram_gb:.0f}GB, "
                       f"Disk: {resources.free_disk_gb:.0f}GB free / {resources.disk_usage_percent:.0f}% used)")
             log_storage_recommendation()
@@ -806,7 +827,7 @@ class P2POrchestrator:
                 try:
                     token = Path(token_file).read_text().strip()
                 except Exception as e:
-                    print(f"[P2P] Auth: failed to read {AUTH_TOKEN_FILE_ENV}={token_file}: {e}")
+                    logger.info(f"Auth: failed to read {AUTH_TOKEN_FILE_ENV}={token_file}: {e}")
 
         self.auth_token = token.strip()
         self.require_auth = bool(require_auth)
@@ -905,9 +926,9 @@ class P2POrchestrator:
                     db_path=STATE_DIR / f"{node_id}_improvement.db",
                     ringrift_path=self.ringrift_path,
                 )
-                print(f"[P2P] ImprovementCycleManager initialized")
+                logger.info(f"ImprovementCycleManager initialized")
             except Exception as e:
-                print(f"[P2P] Failed to initialize ImprovementCycleManager: {e}")
+                logger.error(f"Failed to initialize ImprovementCycleManager: {e}")
         self.last_improvement_cycle_check: float = 0.0
 
         # P2P-integrated monitoring (leader starts Prometheus/Grafana)
@@ -920,9 +941,9 @@ class P2POrchestrator:
                     grafana_port=3000,
                     config_dir=Path(self.ringrift_path) / "monitoring",
                 )
-                print(f"[P2P] MonitoringManager initialized")
+                logger.info(f"MonitoringManager initialized")
             except Exception as e:
-                print(f"[P2P] Failed to initialize MonitoringManager: {e}")
+                logger.error(f"Failed to initialize MonitoringManager: {e}")
         self._monitoring_was_leader = False  # Track leadership changes
         self.improvement_cycle_check_interval: float = 600.0  # Check every 10 minutes
 
@@ -985,9 +1006,9 @@ class P2POrchestrator:
                     coordinator_host="lambda-h100",  # Default coordinator
                     sync_interval=300,  # Sync every 5 minutes
                 )
-                print(f"[P2P] EloSyncManager initialized (db: {db_path})")
+                logger.info(f"EloSyncManager initialized (db: {db_path})")
             except Exception as e:
-                print(f"[P2P] Failed to initialize EloSyncManager: {e}")
+                logger.error(f"Failed to initialize EloSyncManager: {e}")
 
         # PFSP (Prioritized Fictitious Self-Play) opponent pool (leader-only)
         # Maintains a pool of historical models weighted by difficulty for diverse training
@@ -1001,9 +1022,9 @@ class P2POrchestrator:
                         diversity_weight=0.25,
                         recency_weight=0.15,
                     )
-                print(f"[P2P] PFSP opponent pools initialized for {len(self.pfsp_pools)} configs")
+                logger.info(f"PFSP opponent pools initialized for {len(self.pfsp_pools)} configs")
             except Exception as e:
-                print(f"[P2P] Failed to initialize PFSP pools: {e}")
+                logger.error(f"Failed to initialize PFSP pools: {e}")
 
         # CMA-ES Auto-Tuner (leader-only)
         # Automatically triggers hyperparameter optimization when Elo plateaus
@@ -1023,9 +1044,9 @@ class P2POrchestrator:
                         min_epochs_between_tuning=50,
                         max_auto_tunes=3,
                     )
-                print(f"[P2P] CMA-ES auto-tuners initialized for {len(self.cmaes_auto_tuners)} configs")
+                logger.info(f"CMA-ES auto-tuners initialized for {len(self.cmaes_auto_tuners)} configs")
             except Exception as e:
-                print(f"[P2P] Failed to initialize CMA-ES auto-tuners: {e}")
+                logger.error(f"Failed to initialize CMA-ES auto-tuners: {e}")
 
         # Locks for thread safety
         # Use RLock (reentrant lock) to allow nested acquisitions from same thread
@@ -1089,7 +1110,7 @@ class P2POrchestrator:
         self.coordinator_url = COORDINATOR_URL
         self.last_coordinator_check: float = 0.0
         self.coordinator_available: bool = False
-        print(f"[P2P] Safeguards: rate_limit={SPAWN_RATE_LIMIT_PER_MINUTE}/min, "
+        logger.info(f"Safeguards: rate_limit={SPAWN_RATE_LIMIT_PER_MINUTE}/min, "
               f"load_max={LOAD_AVERAGE_MAX_MULTIPLIER}x, agent_mode={self.agent_mode}")
 
         # Load persisted state
@@ -1104,31 +1125,31 @@ class P2POrchestrator:
             f"[P2P] Initialized node {node_id} on {host}:{port} "
             f"(advertise {self.advertise_host}:{self.advertise_port})"
         )
-        print(f"[P2P] RingRift path: {self.ringrift_path}")
-        print(f"[P2P] Version: {self.build_version}")
-        print(f"[P2P] Known peers: {self.known_peers}")
+        logger.info(f"RingRift path: {self.ringrift_path}")
+        logger.info(f"Version: {self.build_version}")
+        logger.info(f"Known peers: {self.known_peers}")
         if self.relay_peers:
-            print(f"[P2P] Relay peers (forced relay mode): {list(self.relay_peers)}")
+            logger.info(f"Relay peers (forced relay mode): {list(self.relay_peers)}")
         if self.auth_token:
-            print(f"[P2P] Auth: enabled via {AUTH_TOKEN_ENV}")
+            logger.info(f"Auth: enabled via {AUTH_TOKEN_ENV}")
         else:
-            print(f"[P2P] Auth: disabled (set {AUTH_TOKEN_ENV} to enable)")
+            logger.info(f"Auth: disabled (set {AUTH_TOKEN_ENV} to enable)")
 
         # Hybrid transport for HTTP/SSH fallback (self-healing Vast connectivity)
         self.hybrid_transport: Optional['HybridTransport'] = None
         if HAS_HYBRID_TRANSPORT:
             try:
                 self.hybrid_transport = get_hybrid_transport()
-                print(f"[P2P] HybridTransport: enabled (HTTP with SSH fallback for Vast)")
+                logger.info(f"HybridTransport: enabled (HTTP with SSH fallback for Vast)")
             except Exception as e:
-                print(f"[P2P] HybridTransport: failed to initialize: {e}")
+                logger.info(f"HybridTransport: failed to initialize: {e}")
 
     def _is_leader(self) -> bool:
         """Check if this node is the current cluster leader with valid lease."""
         if self.leader_id != self.node_id:
             # Consistency: we should never claim role=leader while leader_id points elsewhere (or is None).
             if self.role == NodeRole.LEADER:
-                print("[P2P] Inconsistent leadership state (role=leader but leader_id!=self); stepping down")
+                logger.info("Inconsistent leadership state (role=leader but leader_id!=self); stepping down")
                 self.role = NodeRole.FOLLOWER
                 self.last_lease_renewal = 0.0
                 if not self.leader_id:
@@ -1146,7 +1167,7 @@ class P2POrchestrator:
             return False
         # Consistency: we should never claim leader_id=self while being a follower/candidate.
         if self.role != NodeRole.LEADER:
-            print("[P2P] Inconsistent leadership state (leader_id=self but role!=leader); clearing leader_id")
+            logger.info("Inconsistent leadership state (leader_id=self but role!=leader); clearing leader_id")
             self.role = NodeRole.FOLLOWER
             self.leader_id = None
             self.leader_lease_id = ""
@@ -1163,7 +1184,7 @@ class P2POrchestrator:
         # LEARNED LESSONS - Lease-based leadership prevents split-brain
         # Must have valid lease to act as leader
         if self.leader_lease_expires > 0 and time.time() >= self.leader_lease_expires:
-            print("[P2P] Leadership lease expired, stepping down")
+            logger.info("Leadership lease expired, stepping down")
             self.role = NodeRole.FOLLOWER
             self.leader_id = None
             self.leader_lease_id = ""
@@ -1177,7 +1198,7 @@ class P2POrchestrator:
                 pass
             return False
         if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
-            print("[P2P] Leadership without voter quorum, stepping down")
+            logger.info("Leadership without voter quorum, stepping down")
             self.role = NodeRole.FOLLOWER
             self.leader_id = None
             self.leader_lease_id = ""
@@ -1241,7 +1262,7 @@ class P2POrchestrator:
                 async with session.get(f"{self.coordinator_url}/api/health") as resp:
                     self.coordinator_available = resp.status == 200
                     if self.coordinator_available:
-                        print(f"[P2P] Coordinator available at {self.coordinator_url}")
+                        logger.info(f"Coordinator available at {self.coordinator_url}")
                     return self.coordinator_available
         except Exception:
             self.coordinator_available = False
@@ -1261,20 +1282,20 @@ class P2POrchestrator:
         # Check 1: Load average
         load_ok, load_reason = self.self_info.check_load_average_safe()
         if not load_ok:
-            print(f"[P2P] BLOCKED spawn ({reason}): {load_reason}")
+            logger.info(f"BLOCKED spawn ({reason}): {load_reason}")
             return False, load_reason
 
         # Check 2: Rate limit
         rate_ok, rate_reason = self._check_spawn_rate_limit()
         if not rate_ok:
-            print(f"[P2P] BLOCKED spawn ({reason}): {rate_reason}")
+            logger.info(f"BLOCKED spawn ({reason}): {rate_reason}")
             return False, rate_reason
 
         # Check 3: Agent mode - if coordinator is available and we're in agent mode,
         # we should not autonomously spawn jobs (let coordinator decide)
         if self.agent_mode and self.coordinator_available:
             msg = "Agent mode: deferring to coordinator"
-            print(f"[P2P] BLOCKED spawn ({reason}): {msg}")
+            logger.info(f"BLOCKED spawn ({reason}): {msg}")
             return False, msg
 
         # Check 4: Backpressure (new coordination) - if training queue is saturated,
@@ -1282,14 +1303,14 @@ class P2POrchestrator:
         if HAS_NEW_COORDINATION and "selfplay" in reason.lower():
             if should_stop_production(QueueType.TRAINING_DATA):
                 msg = "Backpressure: training queue at STOP level"
-                print(f"[P2P] BLOCKED spawn ({reason}): {msg}")
+                logger.info(f"BLOCKED spawn ({reason}): {msg}")
                 return False, msg
             if should_throttle_production(QueueType.TRAINING_DATA):
                 throttle = get_throttle_factor(QueueType.TRAINING_DATA)
                 import random
                 if random.random() > throttle:
                     msg = f"Backpressure: throttled (factor={throttle:.2f})"
-                    print(f"[P2P] BLOCKED spawn ({reason}): {msg}")
+                    logger.info(f"BLOCKED spawn ({reason}): {msg}")
                     return False, msg
 
         # Check 5: Graceful degradation - don't spawn under heavy resource pressure
@@ -1297,14 +1318,14 @@ class P2POrchestrator:
             degradation = get_degradation_level()
             if degradation >= 4:  # CRITICAL - resources at/above limits
                 msg = f"Graceful degradation: critical resource pressure (level {degradation})"
-                print(f"[P2P] BLOCKED spawn ({reason}): {msg}")
+                logger.info(f"BLOCKED spawn ({reason}): {msg}")
                 return False, msg
             elif degradation >= 3:  # HEAVY - only critical ops proceed
                 # Selfplay is NORMAL priority, blocked under heavy pressure
                 if should_proceed_with_priority is not None:
                     if not should_proceed_with_priority(OperationPriority.NORMAL):
                         msg = f"Graceful degradation: heavy resource pressure (level {degradation})"
-                        print(f"[P2P] BLOCKED spawn ({reason}): {msg}")
+                        logger.info(f"BLOCKED spawn ({reason}): {msg}")
                         return False, msg
 
         return True, "All safeguards passed"
@@ -1636,7 +1657,7 @@ class P2POrchestrator:
                 delattr(self, "_original_voters")
                 if hasattr(self, "_partition_election_started"):
                     delattr(self, "_partition_election_started")
-                print(f"[P2P] Partition healed: restored original voters {', '.join(original)}")
+                logger.info(f"Partition healed: restored original voters {', '.join(original)}")
                 return True
         return False
 
@@ -1726,7 +1747,7 @@ class P2POrchestrator:
 
         # Demote unhealthy voters
         if unhealthy_voters:
-            print(f"[P2P] Dynamic voters: demoting unhealthy voters: {unhealthy_voters}")
+            logger.info(f"Dynamic voters: demoting unhealthy voters: {unhealthy_voters}")
             changed = True
 
         # Promote new voters if below target
@@ -1738,7 +1759,7 @@ class P2POrchestrator:
             needed = DYNAMIC_VOTER_TARGET - len(new_voters)
             for candidate in candidates[:needed]:
                 new_voters.append(candidate)
-                print(f"[P2P] Dynamic voters: promoting {candidate} to voter")
+                logger.info(f"Dynamic voters: promoting {candidate} to voter")
                 changed = True
 
         if changed and new_voters:
@@ -1786,14 +1807,14 @@ class P2POrchestrator:
         if response_rate < LEADER_MIN_RESPONSE_RATE:
             if self._leader_degraded_since == 0.0:
                 self._leader_degraded_since = now
-                print(f"[P2P] Leader health degraded: {response_rate:.1%} response rate (min: {LEADER_MIN_RESPONSE_RATE:.0%})")
+                logger.info(f"Leader health degraded: {response_rate:.1%} response rate (min: {LEADER_MIN_RESPONSE_RATE:.0%})")
             elif now - self._leader_degraded_since > LEADER_DEGRADED_STEPDOWN_DELAY:
-                print(f"[P2P] Leader health critically degraded for {LEADER_DEGRADED_STEPDOWN_DELAY}s, stepping down")
+                logger.info(f"Leader health critically degraded for {LEADER_DEGRADED_STEPDOWN_DELAY}s, stepping down")
                 self._leader_degraded_since = 0.0
                 return False
         else:
             if self._leader_degraded_since > 0:
-                print(f"[P2P] Leader health recovered: {response_rate:.1%} response rate")
+                logger.info(f"Leader health recovered: {response_rate:.1%} response rate")
             self._leader_degraded_since = 0.0
 
         return True
@@ -2000,7 +2021,7 @@ class P2POrchestrator:
                                 data = await resp.json()
                                 leader_id = str((data or {}).get("leader_id") or "")
                                 if leader_id:
-                                    print(f"[P2P] Arbiter {base_url} reports leader: {leader_id}")
+                                    logger.info(f"Arbiter {base_url} reports leader: {leader_id}")
                                     return leader_id
                     except Exception as e:
                         # Try next arbiter
@@ -2345,7 +2366,7 @@ class P2POrchestrator:
                     info = NodeInfo.from_dict(json.loads(row[1]))
                     self.peers[row[0]] = info
                 except Exception as e:
-                    print(f"[P2P] Failed to load peer {row[0]}: {e}")
+                    logger.error(f"Failed to load peer {row[0]}: {e}")
 
             # Load jobs
             cursor.execute("SELECT * FROM jobs WHERE status = 'running'")
@@ -2427,15 +2448,15 @@ class P2POrchestrator:
             # abrupt shutdowns or partial writes): never keep role=leader without
             # a matching leader_id.
             if self.role == NodeRole.LEADER and not self.leader_id:
-                print("[P2P] Loaded role=leader but leader_id is empty; stepping down to follower")
+                logger.info("Loaded role=leader but leader_id is empty; stepping down to follower")
                 self.role = NodeRole.FOLLOWER
                 self.leader_lease_id = ""
                 self.leader_lease_expires = 0.0
                 self.last_lease_renewal = 0.0
 
-            print(f"[P2P] Loaded state: {len(self.peers)} peers, {len(self.local_jobs)} jobs")
+            logger.info(f"Loaded state: {len(self.peers)} peers, {len(self.local_jobs)} jobs")
         except Exception as e:
-            print(f"[P2P] Failed to load state: {e}")
+            logger.error(f"Failed to load state: {e}")
         finally:
             if conn:
                 conn.close()
@@ -2491,7 +2512,7 @@ class P2POrchestrator:
 
             conn.commit()
         except Exception as e:
-            print(f"[P2P] Failed to save state: {e}")
+            logger.error(f"Failed to save state: {e}")
         finally:
             if conn:
                 conn.close()
@@ -2562,7 +2583,7 @@ class P2POrchestrator:
             """, entries)
             conn.commit()
         except Exception as e:
-            print(f"[P2P] Failed to flush metrics buffer ({len(entries)} entries): {e}")
+            logger.error(f"Failed to flush metrics buffer ({len(entries)} entries): {e}")
         finally:
             if conn:
                 conn.close()
@@ -2611,7 +2632,7 @@ class P2POrchestrator:
                 })
             return results
         except Exception as e:
-            print(f"[P2P] Failed to get metrics history: {e}")
+            logger.error(f"Failed to get metrics history: {e}")
             return []
         finally:
             if conn:
@@ -2657,7 +2678,7 @@ class P2POrchestrator:
 
             return {"period_hours": hours, "since": since, "metrics": summary}
         except Exception as e:
-            print(f"[P2P] Failed to get metrics summary: {e}")
+            logger.error(f"Failed to get metrics summary: {e}")
             return {}
         finally:
             if conn:
@@ -2852,7 +2873,7 @@ class P2POrchestrator:
 
         partition_ratio = unreachable / len(peers_snapshot)
         if partition_ratio > 0.5:
-            print(f"[P2P] Network partition detected: {unreachable}/{len(peers_snapshot)} peers unreachable ({partition_ratio:.0%})")
+            logger.info(f"Network partition detected: {unreachable}/{len(peers_snapshot)} peers unreachable ({partition_ratio:.0%})")
             return True
         return False
 
@@ -2863,14 +2884,14 @@ class P2POrchestrator:
     def _enable_tailscale_priority(self) -> None:
         """Enable Tailscale-first mode for heartbeats during partition recovery."""
         if not getattr(self, "_tailscale_priority", False):
-            print("[P2P] Enabling Tailscale-priority mode for partition recovery")
+            logger.info("Enabling Tailscale-priority mode for partition recovery")
             self._tailscale_priority = True
             self._tailscale_priority_until = time.time() + 300  # 5 minutes
 
     def _disable_tailscale_priority(self) -> None:
         """Disable Tailscale-first mode when connectivity recovers."""
         if getattr(self, "_tailscale_priority", False):
-            print("[P2P] Disabling Tailscale-priority mode (connectivity recovered)")
+            logger.info("Disabling Tailscale-priority mode (connectivity recovered)")
             self._tailscale_priority = False
 
     def _tailscale_urls_for_voter(self, voter: "NodeInfo", path: str) -> List[str]:
@@ -3025,7 +3046,7 @@ class P2POrchestrator:
                 pass
 
         except Exception as e:
-            print(f"[P2P] Resource check error: {e}")
+            logger.info(f"Resource check error: {e}")
 
         return result
 
@@ -3072,7 +3093,7 @@ class P2POrchestrator:
             self.diversity_metrics["asymmetric_games"] += 1
             strong = config.get("strong_config", {})
             weak = config.get("weak_config", {})
-            print(f"[P2P] DIVERSE: Asymmetric game scheduled - "
+            logger.info(f"DIVERSE: Asymmetric game scheduled - "
                   f"Strong({strong.get('engine_mode')}@D{strong.get('difficulty')}) vs "
                   f"Weak({weak.get('engine_mode')}@D{weak.get('difficulty')}) "
                   f"on {board_key}")
@@ -3182,7 +3203,7 @@ class P2POrchestrator:
         )
 
         if not data_dir.exists():
-            print(f"[P2P] Data directory not found: {data_dir}")
+            logger.info(f"Data directory not found: {data_dir}")
             return manifest
 
         files: List[DataFileInfo] = []
@@ -3310,11 +3331,11 @@ class P2POrchestrator:
                             manifest.training_data_size += stat.st_size
 
                     except Exception as e:
-                        print(f"[P2P] Error scanning file {file_path}: {e}")
+                        logger.error(f"scanning file {file_path}: {e}")
 
         manifest.files = files
 
-        print(f"[P2P] Collected manifest: {manifest.total_files} files, "
+        logger.info(f"Collected manifest: {manifest.total_files} files, "
               f"{manifest.total_size_bytes / (1024*1024):.1f}MB, "
               f"{manifest.selfplay_games} games")
 
@@ -3330,7 +3351,7 @@ class P2POrchestrator:
                     md5.update(chunk)
             return md5.hexdigest()
         except Exception as e:
-            print(f"[P2P] Error hashing file {file_path}: {e}")
+            logger.error(f"hashing file {file_path}: {e}")
             return ""
 
     async def _request_peer_manifest(self, peer_info: NodeInfo) -> Optional[NodeDataManifest]:
@@ -3351,7 +3372,7 @@ class P2POrchestrator:
                     except Exception:
                         continue
         except Exception as e:
-            print(f"[P2P] Error requesting manifest from {peer_info.node_id}: {e}")
+            logger.error(f"requesting manifest from {peer_info.node_id}: {e}")
         return None
 
     def _get_manifest_cache_path(self) -> Path:
@@ -3377,7 +3398,7 @@ class P2POrchestrator:
                 json.dump(cache_data, f)
             return True
         except Exception as e:
-            print(f"[P2P] Failed to save manifest cache: {e}")
+            logger.error(f"Failed to save manifest cache: {e}")
             return False
 
     def _load_manifest_from_cache(self, max_age_seconds: int = 300) -> Optional[NodeDataManifest]:
@@ -3413,10 +3434,10 @@ class P2POrchestrator:
                 return None
 
             manifest = NodeDataManifest.from_dict(manifest_dict)
-            print(f"[P2P] Loaded manifest from cache (age: {int(time.time() - saved_at)}s)")
+            logger.info(f"Loaded manifest from cache (age: {int(time.time() - saved_at)}s)")
             return manifest
         except Exception as e:
-            print(f"[P2P] Failed to load manifest cache: {e}")
+            logger.error(f"Failed to load manifest cache: {e}")
             return None
 
     def _collect_local_data_manifest_cached(self, max_cache_age: int = 300) -> NodeDataManifest:
@@ -3500,7 +3521,7 @@ class P2POrchestrator:
             if nodes_without_file:
                 cluster_manifest.missing_from_nodes[file_path] = nodes_without_file
 
-        print(f"[P2P] Cluster manifest: {cluster_manifest.total_nodes} nodes, "
+        logger.info(f"Cluster manifest: {cluster_manifest.total_nodes} nodes, "
               f"{len(cluster_manifest.unique_files)} unique files, "
               f"{cluster_manifest.total_selfplay_games} total games")
 
@@ -3516,11 +3537,11 @@ class P2POrchestrator:
         Identifies which files are missing from which nodes and creates sync jobs.
         """
         if not self.cluster_data_manifest:
-            print("[P2P] No cluster manifest available, cannot generate sync plan")
+            logger.info("No cluster manifest available, cannot generate sync plan")
             return None
 
         if not self.cluster_data_manifest.missing_from_nodes:
-            print("[P2P] All nodes have all files, no sync needed")
+            logger.info("All nodes have all files, no sync needed")
             return None
 
         plan = ClusterSyncPlan(
@@ -3561,7 +3582,7 @@ class P2POrchestrator:
                 plan.sync_jobs.append(job)
                 plan.total_files_to_sync += 1
 
-        print(f"[P2P] Generated sync plan: {len(plan.sync_jobs)} jobs, "
+        logger.info(f"Generated sync plan: {len(plan.sync_jobs)} jobs, "
               f"{plan.total_files_to_sync} files, "
               f"{plan.total_bytes_to_sync / (1024*1024):.1f} MB total")
 
@@ -3575,12 +3596,12 @@ class P2POrchestrator:
         # Check disk capacity before syncing
         has_capacity, disk_percent = check_disk_has_capacity()
         if not has_capacity:
-            print(f"[P2P] SKIPPING SYNC - Disk usage {disk_percent:.1f}% exceeds limit {MAX_DISK_USAGE_PERCENT}%")
+            logger.info(f"SKIPPING SYNC - Disk usage {disk_percent:.1f}% exceeds limit {MAX_DISK_USAGE_PERCENT}%")
             return
 
         with self.sync_lock:
             if self.sync_in_progress:
-                print("[P2P] Sync already in progress, skipping")
+                logger.info("Sync already in progress, skipping")
                 return
             self.sync_in_progress = True
             self.current_sync_plan.status = "running"
@@ -3597,7 +3618,7 @@ class P2POrchestrator:
             for target_node, jobs in jobs_by_target.items():
                 peer = self.peers.get(target_node)
                 if target_node != self.node_id and (not peer or not peer.is_alive()):
-                    print(f"[P2P] Target node {target_node} not available, skipping sync")
+                    logger.info(f"Target node {target_node} not available, skipping sync")
                     for job in jobs:
                         job.status = "failed"
                         job.error_message = "Target node not available"
@@ -3703,9 +3724,9 @@ class P2POrchestrator:
                     self.current_sync_plan.jobs_failed += 1
 
             if ok:
-                print(f"[P2P] Sync job {job.job_id[:8]} completed: {job.source_node} -> {job.target_node}")
+                logger.info(f"Sync job {job.job_id[:8]} completed: {job.source_node} -> {job.target_node}")
             else:
-                print(f"[P2P] Sync job {job.job_id[:8]} failed: {job.error_message}")
+                logger.info(f"Sync job {job.job_id[:8]} failed: {job.error_message}")
 
             return ok
 
@@ -3715,7 +3736,7 @@ class P2POrchestrator:
             job.completed_at = time.time()
             if self.current_sync_plan:
                 self.current_sync_plan.jobs_failed += 1
-            print(f"[P2P] Sync job {job.job_id[:8]} failed: {e}")
+            logger.info(f"Sync job {job.job_id[:8]} failed: {e}")
             return False
 
     async def _handle_sync_pull_request(
@@ -3875,7 +3896,7 @@ class P2POrchestrator:
             return {"success": False, "error": "Not the leader"}
 
         # First, collect fresh manifests
-        print("[P2P] Collecting cluster manifest for sync...")
+        logger.info("Collecting cluster manifest for sync...")
         self.cluster_data_manifest = await self._collect_cluster_manifest()
 
         # Generate sync plan
@@ -4088,7 +4109,7 @@ class P2POrchestrator:
         """
         cpu_node = self._get_best_cpu_node_for_gauntlet()
         if not cpu_node:
-            print("[P2P] No CPU node available for gauntlet, running locally")
+            logger.info("No CPU node available for gauntlet, running locally")
             return None
 
         # If we're already the best CPU node, return None to run locally
@@ -4111,27 +4132,27 @@ class P2POrchestrator:
                         async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
                             if resp.status == 200:
                                 result = await resp.json()
-                                print(f"[P2P] Gauntlet dispatched to {cpu_node.node_id} "
+                                logger.info(f"Gauntlet dispatched to {cpu_node.node_id} "
                                       f"(cpu_power={cpu_node.cpu_power_score()})")
                                 return result
                     except Exception as e:
                         continue
 
-            print(f"[P2P] Failed to dispatch gauntlet to {cpu_node.node_id}")
+            logger.error(f"Failed to dispatch gauntlet to {cpu_node.node_id}")
             return None
         except Exception as e:
-            print(f"[P2P] Error dispatching gauntlet: {e}")
+            logger.error(f"dispatching gauntlet: {e}")
             return None
 
     def _should_sync_to_node(self, node: NodeInfo) -> bool:
         """Check if we should sync data TO this node based on disk space."""
         # Don't sync to nodes with critical disk usage
         if node.disk_percent >= DISK_CRITICAL_THRESHOLD:
-            print(f"[P2P] Skipping sync to {node.node_id}: disk critical ({node.disk_percent:.1f}%)")
+            logger.info(f"Skipping sync to {node.node_id}: disk critical ({node.disk_percent:.1f}%)")
             return False
         # Warn but allow sync to nodes with warning-level disk
         if node.disk_percent >= DISK_WARNING_THRESHOLD:
-            print(f"[P2P] Warning: {node.node_id} disk at {node.disk_percent:.1f}%")
+            logger.warning(f"{node.node_id} disk at {node.disk_percent:.1f}%")
         return True
 
     def _should_cleanup_source(self, node: NodeInfo) -> bool:
@@ -4156,9 +4177,9 @@ class P2POrchestrator:
                     {"files": list(files or []), "reason": "post_sync_cleanup"},
                 )
                 if cmd_id:
-                    print(f"[P2P] Enqueued relay cleanup_files for {node_id} ({len(files)} files)")
+                    logger.info(f"Enqueued relay cleanup_files for {node_id} ({len(files)} files)")
                     return True
-                print(f"[P2P] Relay queue full for {node_id}; skipping cleanup_files enqueue")
+                logger.info(f"Relay queue full for {node_id}; skipping cleanup_files enqueue")
                 return False
 
             timeout = ClientTimeout(total=60)
@@ -4176,15 +4197,15 @@ class P2POrchestrator:
                                 continue
                             result = await resp.json()
                             freed_bytes = result.get("freed_bytes", 0)
-                            print(f"[P2P] Cleanup on {node_id}: freed {freed_bytes / 1e6:.1f}MB")
+                            logger.info(f"Cleanup on {node_id}: freed {freed_bytes / 1e6:.1f}MB")
                             return True
                     except Exception as e:
                         last_err = str(e)
                         continue
                 if last_err:
-                    print(f"[P2P] Cleanup files request failed on {node_id}: {last_err}")
+                    logger.info(f"Cleanup files request failed on {node_id}: {last_err}")
         except Exception as e:
-            print(f"[P2P] Failed to cleanup files on {node_id}: {e}")
+            logger.error(f"Failed to cleanup files on {node_id}: {e}")
         return False
 
     async def _sync_selfplay_to_training_nodes(self) -> Dict[str, Any]:
@@ -4211,14 +4232,14 @@ class P2POrchestrator:
         if not eligible_training_nodes:
             return {"success": False, "error": "All training nodes have critical disk usage"}
 
-        print(f"[P2P] Training sync: {len(eligible_training_nodes)} eligible training nodes")
+        logger.info(f"Training sync: {len(eligible_training_nodes)} eligible training nodes")
         for node in eligible_training_nodes:
-            print(f"[P2P]   - {node.node_id}: {node.gpu_name} (power={node.gpu_power_score()}, disk={node.disk_percent:.1f}%)")
+            logger.info(f"  - {node.node_id}: {node.gpu_name} (power={node.gpu_power_score()}, disk={node.disk_percent:.1f}%)")
 
         # Collect current cluster manifest if stale
         if (time.time() - self.last_manifest_collection > self.manifest_collection_interval
                 or not self.cluster_data_manifest):
-            print("[P2P] Collecting fresh cluster manifest for training sync...")
+            logger.info("Collecting fresh cluster manifest for training sync...")
             self.cluster_data_manifest = await self._collect_cluster_manifest()
             self.last_manifest_collection = time.time()
 
@@ -4277,7 +4298,7 @@ class P2POrchestrator:
                     )
                     self.active_sync_jobs[job_id] = job
                     sync_jobs_created += 1
-                    print(f"[P2P] Created training sync job: {len(files_to_sync)} files from {source_id} to {target_node.node_id}")
+                    logger.info(f"Created training sync job: {len(files_to_sync)} files from {source_id} to {target_node.node_id}")
 
                     # Track files for cleanup if source has high disk usage
                     if needs_cleanup:
@@ -4298,7 +4319,7 @@ class P2POrchestrator:
         # Cleanup source nodes with high disk usage after successful syncs
         cleanup_results = {}
         if successful_syncs > 0 and sources_to_cleanup:
-            print(f"[P2P] Running post-sync cleanup on {len(sources_to_cleanup)} source nodes...")
+            logger.info(f"Running post-sync cleanup on {len(sources_to_cleanup)} source nodes...")
             for source_id, files in sources_to_cleanup.items():
                 success = await self._cleanup_synced_files(source_id, files)
                 cleanup_results[source_id] = success
@@ -4330,7 +4351,7 @@ class P2POrchestrator:
                 else:
                     job.status = "failed"
             except Exception as e:
-                print(f"[P2P] Sync job {job.job_id} failed: {e}")
+                logger.info(f"Sync job {job.job_id} failed: {e}")
                 job.status = "failed"
                 job.error_message = str(e)
 
@@ -4340,7 +4361,7 @@ class P2POrchestrator:
         Leader-only: Runs every TRAINING_SYNC_INTERVAL seconds to ensure
         training nodes have the latest selfplay data.
         """
-        print(f"[P2P] Training sync loop started (interval: {self.training_sync_interval}s)")
+        logger.info(f"Training sync loop started (interval: {self.training_sync_interval}s)")
 
         while self.running:
             try:
@@ -4356,20 +4377,20 @@ class P2POrchestrator:
                 # Check disk capacity before syncing
                 has_capacity, disk_percent = check_disk_has_capacity()
                 if not has_capacity:
-                    print(f"[P2P] SKIPPING training sync - Disk {disk_percent:.1f}% >= {MAX_DISK_USAGE_PERCENT}%")
+                    logger.info(f"SKIPPING training sync - Disk {disk_percent:.1f}% >= {MAX_DISK_USAGE_PERCENT}%")
                     continue
 
-                print("[P2P] Running periodic training node sync...")
+                logger.info("Running periodic training node sync...")
                 result = await self._sync_selfplay_to_training_nodes()
                 if result.get("success"):
-                    print(f"[P2P] Training sync completed: {result.get('sync_jobs_created', 0)} jobs created")
+                    logger.info(f"Training sync completed: {result.get('sync_jobs_created', 0)} jobs created")
                 else:
-                    print(f"[P2P] Training sync failed: {result.get('error', 'Unknown error')}")
+                    logger.info(f"Training sync failed: {result.get('error', 'Unknown error')}")
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"[P2P] Training sync loop error: {e}")
+                logger.info(f"Training sync loop error: {e}")
                 await asyncio.sleep(60)  # Wait before retrying
 
     async def _force_ip_refresh_all_sources(self) -> int:
@@ -4387,7 +4408,7 @@ class P2POrchestrator:
         registry = get_registry()
         total_updated = 0
 
-        print("[P2P] Force-refreshing all IP sources for partition recovery...")
+        logger.info("Force-refreshing all IP sources for partition recovery...")
 
         # Refresh Tailscale first (most likely to help in partition)
         try:
@@ -4395,33 +4416,33 @@ class P2POrchestrator:
             registry._last_tailscale_check = 0
             updated = await registry.update_tailscale_ips()
             if updated > 0:
-                print(f"[P2P] Tailscale refresh: {updated} IPs updated")
+                logger.info(f"Tailscale refresh: {updated} IPs updated")
                 total_updated += updated
         except Exception as e:
-            print(f"[P2P] Tailscale refresh error: {e}")
+            logger.info(f"Tailscale refresh error: {e}")
 
         # Refresh Vast IPs
         try:
             registry._last_vast_check = 0
             updated = await registry.update_vast_ips()
             if updated > 0:
-                print(f"[P2P] Vast refresh: {updated} IPs updated")
+                logger.info(f"Vast refresh: {updated} IPs updated")
                 total_updated += updated
         except Exception as e:
-            print(f"[P2P] Vast refresh error: {e}")
+            logger.info(f"Vast refresh error: {e}")
 
         # Refresh AWS IPs
         try:
             registry._last_aws_check = 0
             updated = await registry.update_aws_ips()
             if updated > 0:
-                print(f"[P2P] AWS refresh: {updated} IPs updated")
+                logger.info(f"AWS refresh: {updated} IPs updated")
                 total_updated += updated
         except Exception as e:
-            print(f"[P2P] AWS refresh error: {e}")
+            logger.info(f"AWS refresh error: {e}")
 
         if total_updated > 0:
-            print(f"[P2P] Force refresh complete: {total_updated} total IPs updated")
+            logger.info(f"Force refresh complete: {total_updated} total IPs updated")
         return total_updated
 
     async def _vast_ip_update_loop(self):
@@ -4433,7 +4454,7 @@ class P2POrchestrator:
         if not HAS_DYNAMIC_REGISTRY:
             return
 
-        print("[P2P] Vast IP update loop started")
+        logger.info("Vast IP update loop started")
         registry = get_registry()
 
         while self.running:
@@ -4442,12 +4463,12 @@ class P2POrchestrator:
 
                 updated = await registry.update_vast_ips()
                 if updated > 0:
-                    print(f"[P2P] Updated {updated} Vast instance IPs from API")
+                    logger.info(f"Updated {updated} Vast instance IPs from API")
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"[P2P] Vast IP update loop error: {e}")
+                logger.info(f"Vast IP update loop error: {e}")
                 await asyncio.sleep(60)
 
     async def _aws_ip_update_loop(self):
@@ -4459,7 +4480,7 @@ class P2POrchestrator:
         if not HAS_DYNAMIC_REGISTRY:
             return
 
-        print("[P2P] AWS IP update loop started")
+        logger.info("AWS IP update loop started")
         registry = get_registry()
 
         while self.running:
@@ -4468,12 +4489,12 @@ class P2POrchestrator:
 
                 updated = await registry.update_aws_ips()
                 if updated > 0:
-                    print(f"[P2P] Updated {updated} AWS instance IPs via CLI")
+                    logger.info(f"Updated {updated} AWS instance IPs via CLI")
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"[P2P] AWS IP update loop error: {e}")
+                logger.info(f"AWS IP update loop error: {e}")
                 await asyncio.sleep(60)
 
     async def _tailscale_ip_update_loop(self):
@@ -4485,7 +4506,7 @@ class P2POrchestrator:
         if not HAS_DYNAMIC_REGISTRY:
             return
 
-        print("[P2P] Tailscale IP update loop started")
+        logger.info("Tailscale IP update loop started")
         registry = get_registry()
 
         while self.running:
@@ -4494,12 +4515,12 @@ class P2POrchestrator:
 
                 updated = await registry.update_tailscale_ips()
                 if updated > 0:
-                    print(f"[P2P] Updated {updated} node Tailscale IPs")
+                    logger.info(f"Updated {updated} node Tailscale IPs")
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"[P2P] Tailscale IP update loop error: {e}")
+                logger.info(f"Tailscale IP update loop error: {e}")
                 await asyncio.sleep(60)
 
     async def _convert_jsonl_to_db(self, data_dir: Path, games_dir: Path) -> int:
@@ -4567,7 +4588,7 @@ class P2POrchestrator:
 
         # If large backlog, spawn external converter in background
         if len(unconverted_files) > LARGE_BACKLOG_THRESHOLD:
-            print(f"[P2P] Large JSONL backlog ({len(unconverted_files)} files), spawning background converter")
+            logger.info(f"Large JSONL backlog ({len(unconverted_files)} files), spawning background converter")
             converter_script = self.ringrift_path / "ai-service" / "scripts" / "chunked_jsonl_converter.py"
             if converter_script.exists():
                 try:
@@ -4583,7 +4604,7 @@ class P2POrchestrator:
                         cwd=str(self.ringrift_path / "ai-service"),
                     )
                 except Exception as e:
-                    print(f"[P2P] Failed to spawn background converter: {e}")
+                    logger.error(f"Failed to spawn background converter: {e}")
 
         # Group files by board type
         board_type_files: Dict[str, List[Tuple[Path, str]]] = {}
@@ -4647,7 +4668,7 @@ class P2POrchestrator:
                     try:
                         # Read file in chunks to avoid memory issues
                         chunk_buffer = []
-                        with open(jsonl_file, "r", encoding="utf-8", errors="replace") as f:
+                        with open_jsonl_file(jsonl_file) as f:
                             for line_num, line in enumerate(f, 1):
                                 line = line.strip()
                                 if not line:
@@ -4694,17 +4715,17 @@ class P2POrchestrator:
 
                         newly_converted.append(file_key)
                     except Exception as e:
-                        print(f"[P2P] Error converting {jsonl_file.name}: {e}")
+                        logger.error(f"converting {jsonl_file.name}: {e}")
                         continue
 
                 conn.commit()
                 total_converted += games_added
 
                 if games_added > 0:
-                    print(f"[P2P] Converted {games_added} games to {db_path.name}")
+                    logger.info(f"Converted {games_added} games to {db_path.name}")
 
             except Exception as e:
-                print(f"[P2P] Error creating DB for {board_key}: {e}")
+                logger.error(f"creating DB for {board_key}: {e}")
             finally:
                 if conn:
                     conn.close()
@@ -4718,7 +4739,7 @@ class P2POrchestrator:
                 pass
 
         if total_converted > 0:
-            print(f"[P2P] JSONL conversion complete: {total_converted} total games converted")
+            logger.info(f"JSONL conversion complete: {total_converted} total games converted")
 
         return total_converted
 
@@ -4791,7 +4812,7 @@ class P2POrchestrator:
             valid_files = []
             for jsonl_file in jsonl_files:
                 try:
-                    with open(jsonl_file, 'r') as f:
+                    with open_jsonl_file(jsonl_file) as f:
                         for line in f:
                             if not line.strip():
                                 continue
@@ -4826,7 +4847,7 @@ class P2POrchestrator:
             converter_script = self.ringrift_path / "ai-service" / "scripts" / "jsonl_to_npz.py"
 
             if not converter_script.exists():
-                print(f"[P2P] JSONL→NPZ converter not found: {converter_script}")
+                logger.info(f"JSONL→NPZ converter not found: {converter_script}")
                 continue
 
             cmd = [
@@ -4844,21 +4865,21 @@ class P2POrchestrator:
             env["PYTHONPATH"] = str(self.ringrift_path / "ai-service")
 
             try:
-                print(f"[P2P] Converting {game_count} {config_key} JSONL games to NPZ...")
+                logger.info(f"Converting {game_count} {config_key} JSONL games to NPZ...")
                 result = subprocess.run(
                     cmd, capture_output=True, text=True, timeout=600, env=env,
                     cwd=str(self.ringrift_path / "ai-service")
                 )
                 if result.returncode == 0 and output_npz.exists():
-                    print(f"[P2P] Created {output_npz.name} from JSONL")
+                    logger.info(f"Created {output_npz.name} from JSONL")
                     conversions_done += 1
                     newly_converted.append(config_key)
                 else:
-                    print(f"[P2P] JSONL→NPZ conversion failed for {config_key}: {result.stderr[:200] if result.stderr else 'no error'}")
+                    logger.info(f"JSONL→NPZ conversion failed for {config_key}: {result.stderr[:200] if result.stderr else 'no error'}")
             except subprocess.TimeoutExpired:
-                print(f"[P2P] JSONL→NPZ conversion timeout for {config_key}")
+                logger.info(f"JSONL→NPZ conversion timeout for {config_key}")
             except Exception as e:
-                print(f"[P2P] JSONL→NPZ conversion error for {config_key}: {e}")
+                logger.info(f"JSONL→NPZ conversion error for {config_key}: {e}")
 
         # Update marker file
         if newly_converted:
@@ -4878,7 +4899,7 @@ class P2POrchestrator:
         - Syncs training data to GPU nodes
         - Auto-triggers training when enough data available
         """
-        print(f"[P2P] Data management loop started (interval: {DATA_MANAGEMENT_INTERVAL}s)")
+        logger.info(f"Data management loop started (interval: {DATA_MANAGEMENT_INTERVAL}s)")
 
         # Track active export jobs
         active_exports: Dict[str, float] = {}  # path -> start_time
@@ -4891,7 +4912,7 @@ class P2POrchestrator:
                 # Check disk usage and trigger cleanup if needed
                 has_capacity, disk_pct = check_disk_has_capacity(DISK_WARNING_THRESHOLD)
                 if not has_capacity:
-                    print(f"[P2P] Disk at {disk_pct:.1f}% (warning threshold {DISK_WARNING_THRESHOLD}%), triggering cleanup...")
+                    logger.info(f"Disk at {disk_pct:.1f}% (warning threshold {DISK_WARNING_THRESHOLD}%), triggering cleanup...")
                     await self._cleanup_local_disk()
                     has_capacity, disk_pct = check_disk_has_capacity(DISK_CRITICAL_THRESHOLD)
 
@@ -4906,27 +4927,27 @@ class P2POrchestrator:
                 try:
                     converted = await self._convert_jsonl_to_db(data_dir, games_dir)
                     if converted > 0:
-                        print(f"[P2P] Local JSONL→DB conversion: {converted} games converted")
+                        logger.info(f"Local JSONL→DB conversion: {converted} games converted")
                 except Exception as conv_err:
-                    print(f"[P2P] JSONL→DB conversion error: {conv_err}")
+                    logger.info(f"JSONL→DB conversion error: {conv_err}")
 
                 # Also convert JSONL directly to NPZ for training (preferred path)
                 try:
                     npz_created = await self._convert_jsonl_to_npz_for_training(data_dir, training_dir)
                     if npz_created > 0:
-                        print(f"[P2P] Local JSONL→NPZ conversion: {npz_created} training files created")
+                        logger.info(f"Local JSONL→NPZ conversion: {npz_created} training files created")
                 except Exception as npz_err:
-                    print(f"[P2P] JSONL→NPZ conversion error: {npz_err}")
+                    logger.info(f"JSONL→NPZ conversion error: {npz_err}")
 
                 # ==== LEADER-ONLY OPERATIONS ====
                 if not self._is_leader():
                     continue
 
-                print("[P2P] Running data management check (leader)...")
+                logger.info("Running data management check (leader)...")
 
                 # Re-check disk after conversion
                 if not has_capacity:
-                    print(f"[P2P] Disk at {disk_pct:.1f}% after cleanup, skipping leader data operations")
+                    logger.info(f"Disk at {disk_pct:.1f}% after cleanup, skipping leader data operations")
                     continue
 
                 # Check database integrity (every 6th cycle = ~30 min)
@@ -4943,10 +4964,10 @@ class P2POrchestrator:
                         )
                         if db_results["corrupted"] > 0:
                             moved = db_results.get("failed", 0)  # "failed" = moved without recovery
-                            print(f"[P2P] DB integrity: {db_results['checked']} checked, "
+                            logger.info(f"DB integrity: {db_results['checked']} checked, "
                                   f"{db_results['corrupted']} corrupted, {moved} moved")
                     except Exception as db_err:
-                        print(f"[P2P] DB integrity check error: {db_err}")
+                        logger.info(f"DB integrity check error: {db_err}")
 
                 # 1. Check local database sizes and trigger exports
                 # Count current exports
@@ -4965,7 +4986,7 @@ class P2POrchestrator:
 
                             # Check concurrent export limit
                             if current_exports >= MAX_CONCURRENT_EXPORTS:
-                                print(f"[P2P] Skipping export for {db_file.name} (max concurrent reached)")
+                                logger.info(f"Skipping export for {db_file.name} (max concurrent reached)")
                                 continue
 
                             # Determine board type from filename
@@ -4976,7 +4997,7 @@ class P2POrchestrator:
                                 board_type = "square19"
 
                             # Start export job
-                            print(f"[P2P] Auto-triggering export for {db_file.name} ({db_size_mb:.0f}MB)")
+                            logger.info(f"Auto-triggering export for {db_file.name} ({db_size_mb:.0f}MB)")
                             export_output = training_dir / f"auto_{db_file.stem}_{int(time.time())}.npz"
 
                             try:
@@ -5004,10 +5025,10 @@ class P2POrchestrator:
                                 )
                                 active_exports[export_key] = time.time()
                                 current_exports += 1
-                                print(f"[P2P] Started export job for {db_file.name}")
+                                logger.info(f"Started export job for {db_file.name}")
 
                             except Exception as e:
-                                print(f"[P2P] Failed to start export for {db_file.name}: {e}")
+                                logger.error(f"Failed to start export for {db_file.name}: {e}")
 
                 # 2. Calculate total training data size
                 total_training_mb = 0.0
@@ -5015,13 +5036,13 @@ class P2POrchestrator:
                     for npz_file in training_dir.glob("*.npz"):
                         total_training_mb += npz_file.stat().st_size / (1024 * 1024)
 
-                print(f"[P2P] Training data available: {total_training_mb:.1f}MB")
+                logger.info(f"Training data available: {total_training_mb:.1f}MB")
 
                 # 3. Auto-trigger training if threshold exceeded and GPU available
                 if total_training_mb >= AUTO_TRAINING_THRESHOLD_MB:
                     # Check if this node has GPU and no training running
                     if self.self_info.is_gpu_node() and self.self_info.training_jobs == 0:
-                        print(f"[P2P] Auto-triggering training ({total_training_mb:.1f}MB data available)")
+                        logger.info(f"Auto-triggering training ({total_training_mb:.1f}MB data available)")
                         # Find largest training file
                         largest_npz = max(
                             training_dir.glob("*.npz"),
@@ -5037,7 +5058,7 @@ class P2POrchestrator:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"[P2P] Data management loop error: {e}")
+                logger.info(f"Data management loop error: {e}")
                 import traceback
                 traceback.print_exc()
                 await asyncio.sleep(60)
@@ -5051,7 +5072,7 @@ class P2POrchestrator:
         - Use sync_models.py infrastructure for hash-based deduplication
         - Only leader runs this to avoid conflicts
         """
-        print(f"[P2P] Model sync loop started (interval: {MODEL_SYNC_INTERVAL}s)")
+        logger.info(f"Model sync loop started (interval: {MODEL_SYNC_INTERVAL}s)")
 
         while self.running:
             try:
@@ -5062,16 +5083,16 @@ class P2POrchestrator:
 
                 if not HAS_MODEL_SYNC or not HAS_HOSTS_FOR_SYNC:
                     if self.verbose:
-                        print("[P2P] Model sync skipped: sync_models module not available")
+                        logger.info("Model sync skipped: sync_models module not available")
                     continue
 
                 # Check disk capacity before downloading models (enforces 70% limit)
                 has_capacity, disk_pct = check_disk_has_capacity(DISK_CRITICAL_THRESHOLD)
                 if not has_capacity:
-                    print(f"[P2P] Model sync skipped: disk at {disk_pct:.1f}% (limit {DISK_CRITICAL_THRESHOLD}%)")
+                    logger.info(f"Model sync skipped: disk at {disk_pct:.1f}% (limit {DISK_CRITICAL_THRESHOLD}%)")
                     continue
 
-                print("[P2P] Running model sync check...")
+                logger.info("Running model sync check...")
 
                 # Run sync in a thread pool to avoid blocking the event loop
                 loop = asyncio.get_event_loop()
@@ -5108,12 +5129,12 @@ class P2POrchestrator:
                     collected, distributed, errors, total_models, num_hosts = result
 
                     if collected > 0 or distributed > 0:
-                        print(f"[P2P] Model sync: collected {collected}, distributed {distributed} "
+                        logger.info(f"Model sync: collected {collected}, distributed {distributed} "
                               f"({total_models} total models across {num_hosts} hosts)")
 
                     if errors:
                         for err in errors[:3]:
-                            print(f"[P2P] Model sync error: {err}")
+                            logger.info(f"Model sync error: {err}")
 
                     # Also use DataSyncManager for additional transport methods (tailscale, aria2)
                     if HAS_DATA_SYNC and errors:
@@ -5123,19 +5144,19 @@ class P2POrchestrator:
                             model_results = await sync_manager.sync_best_models()
                             success_count = sum(1 for v in model_results.values() if v)
                             if success_count > 0:
-                                print(f"[P2P] DataSync fallback: {success_count}/{len(model_results)} additional syncs")
+                                logger.info(f"DataSync fallback: {success_count}/{len(model_results)} additional syncs")
                         except Exception as dsync_err:
                             if self.verbose:
-                                print(f"[P2P] DataSync fallback error: {dsync_err}")
+                                logger.info(f"DataSync fallback error: {dsync_err}")
                 else:
                     collected, distributed, errors = result[:3]
                     if errors:
-                        print(f"[P2P] Model sync failed: {errors[0]}")
+                        logger.info(f"Model sync failed: {errors[0]}")
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"[P2P] Model sync loop error: {e}")
+                logger.info(f"Model sync loop error: {e}")
                 import traceback
                 traceback.print_exc()
                 await asyncio.sleep(60)
@@ -5201,7 +5222,7 @@ class P2POrchestrator:
                         # Check if aggregation already running
                         if not getattr(self, "_jsonl_aggregation_running", False):
                             self._jsonl_aggregation_running = True
-                            print(f"[P2P] JSONL aggregation: ~{total_lines * len(recent_jsonl) // 20} games in {len(recent_jsonl)} files")
+                            logger.info(f"JSONL aggregation: ~{total_lines * len(recent_jsonl) // 20} games in {len(recent_jsonl)} files")
                             cmd = [
                                 sys.executable, str(aggregate_script),
                                 "--input-dir", str(selfplay_dir),
@@ -5214,7 +5235,7 @@ class P2POrchestrator:
                                 stderr=subprocess.STDOUT,
                                 cwd=str(Path(self.ringrift_path) / "ai-service"),
                             )
-                            print(f"[P2P] Started JSONL aggregation (PID: {proc.pid})")
+                            logger.info(f"Started JSONL aggregation (PID: {proc.pid})")
                             # Reset flag after ~10 minutes
                             asyncio.get_event_loop().call_later(
                                 600, lambda: setattr(self, "_jsonl_aggregation_running", False)
@@ -5258,7 +5279,7 @@ class P2POrchestrator:
 
                         if export_node and export_node.node_id != self.node_id:
                             # Dispatch to high-CPU node
-                            print(f"[P2P] Dispatching NPZ export ({game_count} games) to {export_node.node_id} "
+                            logger.info(f"Dispatching NPZ export ({game_count} games) to {export_node.node_id} "
                                   f"(cpu_power={export_node.cpu_power_score()}, cpus={export_node.cpu_count})")
                             asyncio.create_task(self._dispatch_export_job(
                                 node=export_node,
@@ -5274,7 +5295,7 @@ class P2POrchestrator:
                             # Fall back to local export if no suitable CPU node
                             export_script = Path(self.ringrift_path) / "ai-service" / "scripts" / "export_replay_dataset.py"
                             if export_script.exists():
-                                print(f"[P2P] Starting local NPZ export ({game_count} games) -> {npz_output}")
+                                logger.info(f"Starting local NPZ export ({game_count} games) -> {npz_output}")
                                 cmd = [
                                     sys.executable, str(export_script),
                                     "--db", str(jsonl_db_path),
@@ -5297,7 +5318,7 @@ class P2POrchestrator:
                             1800, lambda: setattr(self, "_npz_export_running", False)
                         )
                 except Exception as e:
-                    print(f"[P2P] NPZ export check error: {e}")
+                    logger.info(f"NPZ export check error: {e}")
 
             # --- PART 2: Merge job DBs (CPU selfplay output) ---
             dbs_to_merge = []
@@ -5316,7 +5337,7 @@ class P2POrchestrator:
 
             if dbs_to_merge:
                 total_games = sum(c for _, c in dbs_to_merge)
-                print(f"[P2P] DB consolidation: {len(dbs_to_merge)} DBs with {total_games} games to merge")
+                logger.info(f"DB consolidation: {len(dbs_to_merge)} DBs with {total_games} games to merge")
 
                 # Use merge script if available
                 merge_script = Path(self.ringrift_path) / "ai-service" / "scripts" / "merge_game_dbs.py"
@@ -5338,10 +5359,10 @@ class P2POrchestrator:
                         stderr=subprocess.DEVNULL,
                         cwd=str(Path(self.ringrift_path) / "ai-service"),
                     )
-                    print(f"[P2P] Started DB merge (PID: {proc.pid})")
+                    logger.info(f"Started DB merge (PID: {proc.pid})")
 
         except Exception as e:
-            print(f"[P2P] Data consolidation error: {e}")
+            logger.info(f"Data consolidation error: {e}")
 
     async def _start_auto_training(self, data_path: str):
         """Start automatic training job on local node."""
@@ -5370,11 +5391,11 @@ class P2POrchestrator:
                 env=env,
                 cwd=f"{self.ringrift_path}/ai-service",
             )
-            print(f"[P2P] Started auto-training job in {run_dir}")
+            logger.info(f"Started auto-training job in {run_dir}")
             self.self_info.training_jobs += 1
 
         except Exception as e:
-            print(f"[P2P] Failed to start auto-training: {e}")
+            logger.error(f"Failed to start auto-training: {e}")
 
     async def _request_data_from_peers(self):
         """Sync training data (NPZ files) from peers with large datasets.
@@ -5387,7 +5408,7 @@ class P2POrchestrator:
             has_capacity, disk_pct = check_disk_has_capacity(DISK_CRITICAL_THRESHOLD)
             if not has_capacity:
                 if self.verbose:
-                    print(f"[P2P] Skipping data sync request: disk at {disk_pct:.1f}% (limit {DISK_CRITICAL_THRESHOLD}%)")
+                    logger.info(f"Skipping data sync request: disk at {disk_pct:.1f}% (limit {DISK_CRITICAL_THRESHOLD}%)")
                 return
 
             # Only sync if we're a GPU node (training capable)
@@ -5451,7 +5472,7 @@ class P2POrchestrator:
 
                     # Sync if remote has significantly more data (>20MB more)
                     if remote_mb > local_training_mb + 20:
-                        print(f"[P2P] Syncing training data from {host_name}: {remote_mb:.1f}MB -> local {local_training_mb:.1f}MB")
+                        logger.info(f"Syncing training data from {host_name}: {remote_mb:.1f}MB -> local {local_training_mb:.1f}MB")
 
                         # Use rsync to sync NPZ files
                         rsync_cmd = [
@@ -5467,26 +5488,26 @@ class P2POrchestrator:
 
                         if sync_result.returncode == 0:
                             synced_from.append(host_name)
-                            print(f"[P2P] Successfully synced training data from {host_name}")
+                            logger.info(f"Successfully synced training data from {host_name}")
                         else:
-                            print(f"[P2P] Failed to sync from {host_name}: {sync_result.stderr[:200]}")
+                            logger.error(f"Failed to sync from {host_name}: {sync_result.stderr[:200]}")
 
                 except subprocess.TimeoutExpired:
-                    print(f"[P2P] Timeout checking training data on {host_name}")
+                    logger.info(f"Timeout checking training data on {host_name}")
                 except Exception as e:
-                    print(f"[P2P] Error syncing from {host_name}: {e}")
+                    logger.error(f"syncing from {host_name}: {e}")
 
             if synced_from:
                 # Recalculate local size after sync
                 new_local_mb = sum(
                     f.stat().st_size for f in local_training_dir.glob("*.npz")
                 ) / (1024 * 1024)
-                print(f"[P2P] Training data sync complete: {local_training_mb:.1f}MB -> {new_local_mb:.1f}MB")
+                logger.info(f"Training data sync complete: {local_training_mb:.1f}MB -> {new_local_mb:.1f}MB")
 
             self._last_training_data_sync = time.time()
 
         except Exception as e:
-            print(f"[P2P] Data sync request error: {e}")
+            logger.info(f"Data sync request error: {e}")
             import traceback
             traceback.print_exc()
 
@@ -5505,7 +5526,7 @@ class P2POrchestrator:
             if result.returncode == 0:
                 return result.stdout.strip()
         except Exception as e:
-            print(f"[P2P] Failed to get local git commit: {e}")
+            logger.error(f"Failed to get local git commit: {e}")
         return None
 
     def _get_local_git_branch(self) -> Optional[str]:
@@ -5519,7 +5540,7 @@ class P2POrchestrator:
             if result.returncode == 0:
                 return result.stdout.strip()
         except Exception as e:
-            print(f"[P2P] Failed to get local git branch: {e}")
+            logger.error(f"Failed to get local git branch: {e}")
         return None
 
     def _get_remote_git_commit(self) -> Optional[str]:
@@ -5532,7 +5553,7 @@ class P2POrchestrator:
                 capture_output=True, text=True, timeout=60
             )
             if fetch_result.returncode != 0:
-                print(f"[P2P] Git fetch failed: {fetch_result.stderr}")
+                logger.info(f"Git fetch failed: {fetch_result.stderr}")
                 return None
 
             # Get remote branch commit
@@ -5544,7 +5565,7 @@ class P2POrchestrator:
             if result.returncode == 0:
                 return result.stdout.strip()
         except Exception as e:
-            print(f"[P2P] Failed to get remote git commit: {e}")
+            logger.error(f"Failed to get remote git commit: {e}")
         return None
 
     def _check_for_updates(self) -> Tuple[bool, Optional[str], Optional[str]]:
@@ -5572,7 +5593,7 @@ class P2POrchestrator:
             if result.returncode == 0:
                 return int(result.stdout.strip())
         except Exception as e:
-            print(f"[P2P] Failed to count commits behind: {e}")
+            logger.error(f"Failed to count commits behind: {e}")
         return 0
 
     def _check_local_changes(self) -> bool:
@@ -5594,7 +5615,7 @@ class P2POrchestrator:
                 # If there's output, there are uncommitted changes
                 return bool(result.stdout.strip())
         except Exception as e:
-            print(f"[P2P] Failed to check local changes: {e}")
+            logger.error(f"Failed to check local changes: {e}")
         return True  # Assume changes exist on error (safer)
 
     async def _stop_all_local_jobs(self) -> int:
@@ -5608,14 +5629,14 @@ class P2POrchestrator:
                 try:
                     if job.pid > 0:
                         os.kill(job.pid, signal.SIGTERM)
-                        print(f"[P2P] Sent SIGTERM to job {job_id} (PID {job.pid})")
+                        logger.info(f"Sent SIGTERM to job {job_id} (PID {job.pid})")
                         stopped += 1
                         job.status = "stopping"
                 except ProcessLookupError:
                     # Process already gone
                     job.status = "stopped"
                 except Exception as e:
-                    print(f"[P2P] Failed to stop job {job_id}: {e}")
+                    logger.error(f"Failed to stop job {job_id}: {e}")
 
         # Wait for processes to terminate
         if stopped > 0:
@@ -5627,7 +5648,7 @@ class P2POrchestrator:
                     if job.status == "stopping" and job.pid > 0:
                         try:
                             os.kill(job.pid, signal.SIGKILL)
-                            print(f"[P2P] Force killed job {job_id}")
+                            logger.info(f"Force killed job {job_id}")
                         except OSError:
                             pass  # Process already dead
                         job.status = "stopped"
@@ -5647,7 +5668,7 @@ class P2POrchestrator:
         if GRACEFUL_SHUTDOWN_BEFORE_UPDATE:
             stopped = await self._stop_all_local_jobs()
             if stopped > 0:
-                print(f"[P2P] Stopped {stopped} jobs before update")
+                logger.info(f"Stopped {stopped} jobs before update")
 
         try:
             # Perform git pull
@@ -5660,7 +5681,7 @@ class P2POrchestrator:
             if result.returncode != 0:
                 return False, f"Git pull failed: {result.stderr}"
 
-            print(f"[P2P] Git pull successful: {result.stdout}")
+            logger.info(f"Git pull successful: {result.stdout}")
             return True, result.stdout
 
         except subprocess.TimeoutExpired:
@@ -5670,7 +5691,7 @@ class P2POrchestrator:
 
     async def _restart_orchestrator(self):
         """Restart the orchestrator process after update."""
-        print("[P2P] Restarting orchestrator to apply updates...")
+        logger.info("Restarting orchestrator to apply updates...")
 
         # Save state before restart
         self._save_state()
@@ -5688,10 +5709,10 @@ class P2POrchestrator:
     async def _git_update_loop(self):
         """Background loop to periodically check for and apply updates."""
         if not AUTO_UPDATE_ENABLED:
-            print("[P2P] Auto-update disabled")
+            logger.info("Auto-update disabled")
             return
 
-        print(f"[P2P] Git auto-update loop started (interval: {GIT_UPDATE_CHECK_INTERVAL}s)")
+        logger.info(f"Git auto-update loop started (interval: {GIT_UPDATE_CHECK_INTERVAL}s)")
 
         while self.running:
             try:
@@ -5705,23 +5726,23 @@ class P2POrchestrator:
 
                 if has_updates and local_commit and remote_commit:
                     commits_behind = self._get_commits_behind(local_commit, remote_commit)
-                    print(f"[P2P] Update available: {commits_behind} commits behind")
-                    print(f"[P2P] Local:  {local_commit[:8]}")
-                    print(f"[P2P] Remote: {remote_commit[:8]}")
+                    logger.info(f"Update available: {commits_behind} commits behind")
+                    logger.info(f"Local:  {local_commit[:8]}")
+                    logger.info(f"Remote: {remote_commit[:8]}")
 
                     # Perform update
                     success, message = await self._perform_git_update()
 
                     if success:
-                        print(f"[P2P] Update successful, restarting...")
+                        logger.info(f"Update successful, restarting...")
                         await self._restart_orchestrator()
                     else:
-                        print(f"[P2P] Update failed: {message}")
+                        logger.info(f"Update failed: {message}")
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"[P2P] Git update loop error: {e}")
+                logger.info(f"Git update loop error: {e}")
                 await asyncio.sleep(60)  # Wait before retry on error
 
     # ============================================
@@ -6128,9 +6149,9 @@ class P2POrchestrator:
             if not voters and self.role == NodeRole.LEADER and new_leader < self.node_id:
                 # Exception: accept if our lease has expired
                 if self.leader_lease_expires > 0 and time.time() >= self.leader_lease_expires:
-                    print(f"[P2P] Our lease expired, accepting leader: {new_leader}")
+                    logger.info(f"Our lease expired, accepting leader: {new_leader}")
                 else:
-                    print(f"[P2P] Rejecting leader announcement from lower-priority node: {new_leader} < {self.node_id}")
+                    logger.info(f"Rejecting leader announcement from lower-priority node: {new_leader} < {self.node_id}")
                     return web.json_response({"accepted": False, "reason": "lower_priority"})
 
             # Reject leadership from nodes that are not directly reachable / uniquely addressable.
@@ -6150,7 +6171,7 @@ class P2POrchestrator:
                     self.leader_lease_id = lease_id
                     return web.json_response({"accepted": True})
 
-            print(f"[P2P] Accepting leader announcement: {new_leader}")
+            logger.info(f"Accepting leader announcement: {new_leader}")
             self.leader_id = new_leader
             self.leader_lease_id = lease_id
             self.leader_lease_expires = lease_expires if lease_expires else time.time() + LEADER_LEASE_DURATION
@@ -6247,9 +6268,9 @@ class P2POrchestrator:
                             os.kill(job.pid, signal.SIGKILL)
                             job.status = "killed"
                             killed += 1
-                            print(f"[P2P] Killed job {job_id} (pid {job.pid}): {reason}")
+                            logger.info(f"Killed job {job_id} (pid {job.pid}): {reason}")
                         except Exception as e:
-                            print(f"[P2P] Failed to kill job {job_id}: {e}")
+                            logger.error(f"Failed to kill job {job_id}: {e}")
 
             # Kill by job_type pattern (for stuck training, etc.)
             if job_type and killed == 0:
@@ -6267,9 +6288,9 @@ class P2POrchestrator:
                         )
                         if result.returncode == 0:
                             killed += 1
-                            print(f"[P2P] Killed processes matching '{pattern}': {reason}")
+                            logger.info(f"Killed processes matching '{pattern}': {reason}")
                     except Exception as e:
-                        print(f"[P2P] pkill error for {pattern}: {e}")
+                        logger.info(f"pkill error for {pattern}: {e}")
 
             return web.json_response({
                 "success": killed > 0,
@@ -6287,7 +6308,7 @@ class P2POrchestrator:
         when the leader detects disk usage approaching critical thresholds.
         """
         try:
-            print(f"[P2P] Cleanup request received")
+            logger.info(f"Cleanup request received")
 
             # Run cleanup in background to avoid blocking the request
             asyncio.create_task(self._cleanup_local_disk())
@@ -6309,7 +6330,7 @@ class P2POrchestrator:
         Kills all selfplay processes and clears job tracking so they restart.
         """
         try:
-            print(f"[P2P] Restart stuck jobs request received")
+            logger.info(f"Restart stuck jobs request received")
 
             # Run in background to avoid blocking
             asyncio.create_task(self._restart_local_stuck_jobs())
@@ -6366,7 +6387,7 @@ class P2POrchestrator:
                 engine_mode=engine_mode,
             ))
 
-            print(f"[P2P] Started GPU selfplay job {job_id}: {board_type}/{num_players}p, {num_games} games")
+            logger.info(f"Started GPU selfplay job {job_id}: {board_type}/{num_players}p, {num_games} games")
             return web.json_response({
                 "success": True,
                 "job_id": job_id,
@@ -6376,7 +6397,7 @@ class P2POrchestrator:
                 "node_id": self.node_id,
             })
         except Exception as e:
-            print(f"[P2P] Failed to start selfplay: {e}")
+            logger.error(f"Failed to start selfplay: {e}")
             return web.json_response({"success": False, "error": str(e)}, status=500)
 
     async def _run_gpu_selfplay_job(
@@ -6388,7 +6409,7 @@ class P2POrchestrator:
 
         script_path = os.path.join(self.ringrift_path, "ai-service", "scripts", "run_hybrid_selfplay.py")
         if not os.path.exists(script_path):
-            print(f"[P2P] Selfplay script not found: {script_path}")
+            logger.info(f"Selfplay script not found: {script_path}")
             return
 
         # Set up output directory with database recording
@@ -6455,19 +6476,19 @@ class P2POrchestrator:
                 if job_id in self.active_jobs.get("selfplay", {}):
                     if proc.returncode == 0:
                         self.active_jobs["selfplay"][job_id]["status"] = "completed"
-                        print(f"[P2P] GPU selfplay job {job_id} completed successfully")
+                        logger.info(f"GPU selfplay job {job_id} completed successfully")
                     else:
                         self.active_jobs["selfplay"][job_id]["status"] = "failed"
-                        print(f"[P2P] GPU selfplay job {job_id} failed: {stderr.decode()[:500]}")
+                        logger.info(f"GPU selfplay job {job_id} failed: {stderr.decode()[:500]}")
                     del self.active_jobs["selfplay"][job_id]
 
         except asyncio.TimeoutError:
-            print(f"[P2P] GPU selfplay job {job_id} timed out")
+            logger.info(f"GPU selfplay job {job_id} timed out")
             with self.jobs_lock:
                 if job_id in self.active_jobs.get("selfplay", {}):
                     del self.active_jobs["selfplay"][job_id]
         except Exception as e:
-            print(f"[P2P] GPU selfplay job {job_id} error: {e}")
+            logger.info(f"GPU selfplay job {job_id} error: {e}")
             with self.jobs_lock:
                 if job_id in self.active_jobs.get("selfplay", {}):
                     del self.active_jobs["selfplay"][job_id]
@@ -6486,7 +6507,7 @@ class P2POrchestrator:
             if not files:
                 return web.json_response({"success": False, "error": "No files specified"}, status=400)
 
-            print(f"[P2P] Cleanup files request: {len(files)} files, reason={reason}")
+            logger.info(f"Cleanup files request: {len(files)} files, reason={reason}")
 
             data_dir = self.get_data_directory()
             freed_bytes = 0
@@ -6500,7 +6521,7 @@ class P2POrchestrator:
                     resolved = full_path.resolve()
                     resolved.relative_to(data_root)
                 except Exception:
-                    print(f"[P2P] Cleanup: skipping path outside data dir: {file_path}")
+                    logger.info(f"Cleanup: skipping path outside data dir: {file_path}")
                     continue
 
                 if resolved.exists():
@@ -6510,9 +6531,9 @@ class P2POrchestrator:
                         freed_bytes += size
                         deleted_count += 1
                     except Exception as e:
-                        print(f"[P2P] Failed to delete {file_path}: {e}")
+                        logger.error(f"Failed to delete {file_path}: {e}")
 
-            print(f"[P2P] Cleanup complete: {deleted_count} files, {freed_bytes / 1e6:.1f}MB freed")
+            logger.info(f"Cleanup complete: {deleted_count} files, {freed_bytes / 1e6:.1f}MB freed")
 
             return web.json_response({
                 "success": True,
@@ -6546,9 +6567,9 @@ class P2POrchestrator:
 
                 for node_id in retired_peers:
                     del self.peers[node_id]
-                    print(f"[P2P] Purged retired peer: {node_id}")
+                    logger.info(f"Purged retired peer: {node_id}")
 
-                print(f"[P2P] Purged {len(retired_peers)} retired peers")
+                logger.info(f"Purged {len(retired_peers)} retired peers")
 
             return web.json_response({
                 "success": True,
@@ -6604,7 +6625,7 @@ class P2POrchestrator:
                         if node_id in self.peers:
                             del self.peers[node_id]
                             purged_ids.append(node_id)
-                            print(f"[P2P] Purged stale peer: {node_id} (no heartbeat for {peer['age_seconds']}s)")
+                            logger.info(f"Purged stale peer: {node_id} (no heartbeat for {peer['age_seconds']}s)")
 
             return web.json_response({
                 "success": True,
@@ -6666,7 +6687,7 @@ class P2POrchestrator:
                 peer_info.consecutive_failures = 0
                 peer_info.last_failure_time = 0.0
 
-                print(f"[P2P] Unretired peer: {node_id} (admin request)")
+                logger.info(f"Unretired peer: {node_id} (admin request)")
 
             return web.json_response({
                 "success": True,
@@ -6813,7 +6834,7 @@ class P2POrchestrator:
             async with AsyncLockWrapper(self.peers_lock):
                 self.peers[peer_info.node_id] = peer_info
 
-            print(f"[P2P] Relay heartbeat from {peer_info.node_id} (real IP: {real_ip})")
+            logger.info(f"Relay heartbeat from {peer_info.node_id} (real IP: {real_ip})")
 
             # Apply relay ACKs/results and return any queued commands.
             commands_to_send: List[Dict[str, Any]] = []
@@ -6838,9 +6859,9 @@ class P2POrchestrator:
                             if not cmd_id:
                                 continue
                             if ok:
-                                print(f"[P2P] Relay command {cmd_id} on {peer_info.node_id}: ok")
+                                logger.info(f"Relay command {cmd_id} on {peer_info.node_id}: ok")
                             else:
-                                print(f"[P2P] Relay command {cmd_id} on {peer_info.node_id}: failed {err[:200]}")
+                                logger.info(f"Relay command {cmd_id} on {peer_info.node_id}: failed {err[:200]}")
                         except Exception:
                             continue
 
@@ -7227,7 +7248,7 @@ class P2POrchestrator:
             success = registry.register_node(node_id, host, port, vast_instance_id, tailscale_ip=tailscale_ip)
 
             if success:
-                print(f"[P2P] Node registered: {node_id} at {host}:{port}")
+                logger.info(f"Node registered: {node_id} at {host}:{port}")
                 return web.json_response({
                     "success": True,
                     "node_id": node_id,
@@ -7485,7 +7506,7 @@ class P2POrchestrator:
                 "error": "config_key and tasks required"
             }, status=400)
 
-        print(f"[P2P] Gauntlet: Executing {len(tasks)} games for {config_key} (run {run_id})")
+        logger.info(f"Gauntlet: Executing {len(tasks)} games for {config_key} (run {run_id})")
 
         try:
             results = await self._execute_gauntlet_batch(config_key, tasks)
@@ -7499,7 +7520,7 @@ class P2POrchestrator:
             })
 
         except Exception as e:
-            print(f"[P2P] Gauntlet execution error: {e}")
+            logger.info(f"Gauntlet execution error: {e}")
             return web.json_response({
                 "success": False,
                 "error": str(e),
@@ -7532,7 +7553,7 @@ class P2POrchestrator:
             from app.game.board import create_board
             from app.game.engine import GameEngine
         except ImportError as e:
-            print(f"[P2P] Gauntlet: Import error: {e}")
+            logger.info(f"Gauntlet: Import error: {e}")
             # Return simulated results if modules not available
             for task in tasks:
                 results.append({
@@ -7582,7 +7603,7 @@ class P2POrchestrator:
                     results.append(result)
 
             # Progress update
-            print(f"[P2P] Gauntlet: Completed {len(results)}/{len(tasks)} games")
+            logger.info(f"Gauntlet: Completed {len(results)}/{len(tasks)} games")
 
         return results
 
@@ -7818,7 +7839,7 @@ class P2POrchestrator:
                             wins += 1
                     total_games += 1
                 except Exception as e:
-                    print(f"[P2P] Quick eval game {game_num} error: {e}")
+                    logger.info(f"Quick eval game {game_num} error: {e}")
                     total_games += 1
 
             win_rate = wins / total_games if total_games > 0 else 0
@@ -8048,7 +8069,7 @@ class P2POrchestrator:
             self.distributed_cmaes_state[job_id] = state
             state.status = "running"
 
-            print(f"[P2P] Started distributed CMA-ES job {job_id} with {len(state.worker_nodes)} workers")
+            logger.info(f"Started distributed CMA-ES job {job_id} with {len(state.worker_nodes)} workers")
 
             # Launch coordinator task
             asyncio.create_task(self._run_distributed_cmaes(job_id))
@@ -8090,7 +8111,7 @@ class P2POrchestrator:
             num_players = data.get("num_players", 2)
 
             # Store evaluation task for local processing
-            print(f"[P2P] Received CMA-ES evaluation request: job={job_id}, gen={generation}, idx={individual_idx}")
+            logger.info(f"Received CMA-ES evaluation request: job={job_id}, gen={generation}, idx={individual_idx}")
 
             # Start evaluation in background
             asyncio.create_task(self._evaluate_cmaes_weights(
@@ -8138,7 +8159,7 @@ class P2POrchestrator:
             if job_id not in self.distributed_cmaes_state:
                 return web.json_response({"error": "Job not found"}, status=404)
 
-            print(f"[P2P] CMA-ES result: job={job_id}, gen={generation}, idx={individual_idx}, fitness={fitness:.4f} from {worker_id}")
+            logger.info(f"CMA-ES result: job={job_id}, gen={generation}, idx={individual_idx}, fitness={fitness:.4f} from {worker_id}")
 
             # Store result - the coordinator loop will process it
             state = self.distributed_cmaes_state[job_id]
@@ -8171,15 +8192,15 @@ class P2POrchestrator:
             if not state:
                 return
 
-            print(f"[P2P] CMA-ES coordinator started for job {job_id}")
-            print(f"[P2P] Config: {state.generations} gens, pop={state.population_size}, {state.games_per_eval} games/eval")
+            logger.info(f"CMA-ES coordinator started for job {job_id}")
+            logger.info(f"Config: {state.generations} gens, pop={state.population_size}, {state.games_per_eval} games/eval")
 
             # Try to import CMA-ES library
             try:
                 import cma
                 import numpy as np
             except ImportError:
-                print("[P2P] CMA-ES requires: pip install cma numpy")
+                logger.info("CMA-ES requires: pip install cma numpy")
                 state.status = "error: cma not installed"
                 return
 
@@ -8248,7 +8269,7 @@ class P2POrchestrator:
                                         "num_players": state.num_players,
                                     }, headers=self._auth_headers())
                         except Exception as e:
-                            print(f"[P2P] Failed to send eval to {worker_id}: {e}")
+                            logger.error(f"Failed to send eval to {worker_id}: {e}")
                             # Fall back to local evaluation
                             fitness = await self._evaluate_cmaes_weights_local(
                                 weights, state.games_per_eval, state.board_type, state.num_players
@@ -8276,7 +8297,7 @@ class P2POrchestrator:
                     elapsed = time.time() - wait_start
                     if int(elapsed) % 30 == 0 and elapsed > 1:
                         received = len(fitness_results)
-                        print(f"[P2P] Gen {state.current_generation}: {received}/{len(solutions)} results received ({elapsed:.0f}s elapsed)")
+                        logger.info(f"Gen {state.current_generation}: {received}/{len(solutions)} results received ({elapsed:.0f}s elapsed)")
 
                 # Fill in any missing results with default fitness
                 fitnesses = []
@@ -8293,11 +8314,11 @@ class P2POrchestrator:
                     state.best_fitness = -fitnesses[best_idx]
                     state.best_weights = {name: float(solutions[best_idx][i]) for i, name in enumerate(weight_names)}
 
-                print(f"[P2P] Gen {state.current_generation}: best_fitness={state.best_fitness:.4f}")
+                logger.info(f"Gen {state.current_generation}: best_fitness={state.best_fitness:.4f}")
 
             state.status = "completed"
-            print(f"[P2P] CMA-ES job {job_id} completed: best_fitness={state.best_fitness:.4f}")
-            print(f"[P2P] Best weights: {state.best_weights}")
+            logger.info(f"CMA-ES job {job_id} completed: best_fitness={state.best_fitness:.4f}")
+            logger.info(f"Best weights: {state.best_weights}")
 
             # Feed CMA-ES results back to improvement cycle manager
             if self.improvement_cycle_manager and state.best_weights:
@@ -8305,7 +8326,7 @@ class P2POrchestrator:
                     agent_id = self.improvement_cycle_manager.handle_cmaes_complete(
                         state.board_type, state.num_players, state.best_weights
                     )
-                    print(f"[P2P] CMA-ES weights registered as agent: {agent_id}")
+                    logger.info(f"CMA-ES weights registered as agent: {agent_id}")
                     self.diversity_metrics["cmaes_triggers"] += 1
 
                     # Save weights to file for future use
@@ -8320,18 +8341,18 @@ class P2POrchestrator:
                             "generation": state.current_generation,
                             "timestamp": time.time(),
                         }, f, indent=2)
-                    print(f"[P2P] Saved CMA-ES weights to {weights_file}")
+                    logger.info(f"Saved CMA-ES weights to {weights_file}")
 
                     # Propagate new weights to selfplay jobs
                     asyncio.create_task(self._propagate_cmaes_weights(
                         state.board_type, state.num_players, state.best_weights
                     ))
                 except Exception as e:
-                    print(f"[P2P] Failed to register CMA-ES weights: {e}")
+                    logger.error(f"Failed to register CMA-ES weights: {e}")
 
         except Exception as e:
             import traceback
-            print(f"[P2P] CMA-ES coordinator error: {e}")
+            logger.info(f"CMA-ES coordinator error: {e}")
             traceback.print_exc()
             if job_id in self.distributed_cmaes_state:
                 self.distributed_cmaes_state[job_id].status = f"error: {e}"
@@ -8413,11 +8434,11 @@ print(wins / total)
                 if proc.returncode == 0:
                     return float(stdout.decode().strip())
                 else:
-                    print(f"[P2P] Local eval error: {stderr.decode()}")
+                    logger.info(f"Local eval error: {stderr.decode()}")
                     return 0.5
 
         except Exception as e:
-            print(f"[P2P] Local CMA-ES evaluation error: {e}")
+            logger.info(f"Local CMA-ES evaluation error: {e}")
             return 0.5
 
     async def _evaluate_cmaes_weights(
@@ -8431,7 +8452,7 @@ print(wins / total)
                 weights, games_per_eval, board_type, num_players
             )
 
-            print(f"[P2P] Completed local CMA-ES evaluation: job={job_id}, gen={generation}, idx={individual_idx}, fitness={fitness:.4f}")
+            logger.info(f"Completed local CMA-ES evaluation: job={job_id}, gen={generation}, idx={individual_idx}, fitness={fitness:.4f}")
 
             # If we're not the coordinator, report result back
             if self.role != NodeRole.LEADER:
@@ -8453,10 +8474,10 @@ print(wins / total)
                                     "worker_id": self.node_id,
                                 }, headers=self._auth_headers())
                         except Exception as e:
-                            print(f"[P2P] Failed to report CMA-ES result to leader: {e}")
+                            logger.error(f"Failed to report CMA-ES result to leader: {e}")
 
         except Exception as e:
-            print(f"[P2P] CMA-ES evaluation error: {e}")
+            logger.info(f"CMA-ES evaluation error: {e}")
 
     # ============================================
     # Distributed Tournament Handlers
@@ -8543,7 +8564,7 @@ print(wins / total)
 
             self.distributed_tournament_state[job_id] = state
 
-            print(f"[P2P] Started tournament {job_id}: {len(agent_ids)} agents, {len(pairings)} matches, {len(workers)} workers")
+            logger.info(f"Started tournament {job_id}: {len(agent_ids)} agents, {len(pairings)} matches, {len(workers)} workers")
 
             # Launch coordinator task
             asyncio.create_task(self._run_distributed_tournament(job_id))
@@ -8568,7 +8589,7 @@ print(wins / total)
             if not job_id or not match_info:
                 return web.json_response({"error": "job_id and match required"}, status=400)
 
-            print(f"[P2P] Received tournament match request: {match_info}")
+            logger.info(f"Received tournament match request: {match_info}")
 
             # Start match in background
             asyncio.create_task(self._play_tournament_match(job_id, match_info))
@@ -8615,7 +8636,7 @@ print(wins / total)
             state.completed_matches += 1
             state.last_update = time.time()
 
-            print(f"[P2P] Tournament result: {state.completed_matches}/{state.total_matches} matches from {worker_id}")
+            logger.info(f"Tournament result: {state.completed_matches}/{state.total_matches} matches from {worker_id}")
 
             return web.json_response({
                 "success": True,
@@ -8649,9 +8670,9 @@ print(wins / total)
             duration_sec: Game duration in seconds
         """
         try:
-            print(f"[P2P] Tournament endpoint called, parsing request...")
+            logger.info(f"Tournament endpoint called, parsing request...")
             data = await request.json()
-            print(f"[P2P] Request parsed: {data}")
+            logger.info(f"Request parsed: {data}")
 
             match_id = data.get("match_id", str(uuid.uuid4())[:8])
             agent_a = data.get("agent_a", "random")
@@ -8661,25 +8682,25 @@ print(wins / total)
             board_type_str = data.get("board_type", "square8")
             num_players = data.get("num_players", 2)
 
-            print(f"[P2P] Playing Elo match {match_id}: {agent_a} vs {agent_b}")
+            logger.info(f"Playing Elo match {match_id}: {agent_a} vs {agent_b}")
             start_time = time.time()
 
             # Acquire semaphore to prevent concurrent matches (OOM protection)
             # Create lazily in async context to avoid event loop issues
             if self._tournament_match_semaphore is None:
-                print(f"[P2P] Creating tournament semaphore...")
+                logger.info(f"Creating tournament semaphore...")
                 self._tournament_match_semaphore = asyncio.Semaphore(1)
 
             # Try to acquire semaphore with timeout to avoid deadlocks
             # If we can't get the semaphore within 30 seconds, fail fast
-            print(f"[P2P] Acquiring semaphore (current holder: {getattr(self, '_current_match_holder', 'none')})...")
+            logger.info(f"Acquiring semaphore (current holder: {getattr(self, '_current_match_holder', 'none')})...")
             try:
                 acquired = await asyncio.wait_for(
                     self._tournament_match_semaphore.acquire(),
                     timeout=30.0
                 )
             except asyncio.TimeoutError:
-                print(f"[P2P] Semaphore acquisition timed out after 30s (holder: {getattr(self, '_current_match_holder', 'unknown')})")
+                logger.info(f"Semaphore acquisition timed out after 30s (holder: {getattr(self, '_current_match_holder', 'unknown')})")
                 return web.json_response({
                     "success": False,
                     "error": f"Server busy - another match in progress (holder: {getattr(self, '_current_match_holder', 'unknown')})",
@@ -8689,7 +8710,7 @@ print(wins / total)
             # Track who holds the semaphore for debugging
             self._current_match_holder = f"{match_id} ({agent_a} vs {agent_b})"
             try:
-                print(f"[P2P] Semaphore acquired, running match {match_id}...")
+                logger.info(f"Semaphore acquired, running match {match_id}...")
                 # Run the match in a thread pool to avoid blocking
                 # Add 5-minute timeout to prevent hung matches
                 loop = asyncio.get_event_loop()
@@ -8706,7 +8727,7 @@ print(wins / total)
                         timeout=300.0,  # 5 minute timeout for tournament matches
                     )
                 except asyncio.TimeoutError:
-                    print(f"[P2P] Elo match {match_id} timed out after 5 minutes")
+                    logger.info(f"Elo match {match_id} timed out after 5 minutes")
                     return web.json_response({
                         "success": False,
                         "error": "Match timed out after 5 minutes",
@@ -8716,7 +8737,7 @@ print(wins / total)
                 # Always release semaphore and clear holder
                 self._current_match_holder = None
                 self._tournament_match_semaphore.release()
-                print(f"[P2P] Semaphore released for match {match_id}")
+                logger.info(f"Semaphore released for match {match_id}")
 
             duration = time.time() - start_time
 
@@ -8744,12 +8765,12 @@ print(wins / total)
                 "worker_node": self.node_id,
             }
 
-            print(f"[P2P] Elo match {match_id} complete: {agent_a} vs {agent_b} -> {response['winner']} ({result.get('game_length', 0)} moves)")
+            logger.info(f"Elo match {match_id} complete: {agent_a} vs {agent_b} -> {response['winner']} ({result.get('game_length', 0)} moves)")
             return web.json_response(response)
 
         except Exception as e:
             import traceback
-            print(f"[P2P] Elo match error: {e}")
+            logger.info(f"Elo match error: {e}")
             traceback.print_exc()
             return web.json_response({"error": str(e)}, status=500)
 
@@ -8841,7 +8862,7 @@ print(wins / total)
                     requested_diff = agent_config.get("difficulty", 5)
                     capped_diff = min(requested_diff, 5)  # Cap at 5 for tournaments
                     if capped_diff < requested_diff:
-                        print(f"[P2P] Descent AI difficulty capped from {requested_diff} to {capped_diff} for tournament")
+                        logger.info(f"Descent AI difficulty capped from {requested_diff} to {capped_diff} for tournament")
                     config = AIConfig(
                         ai_type=AIType.DESCENT,
                         board_type=board_type,
@@ -8859,7 +8880,7 @@ print(wins / total)
 
                     # Require at least 8GB free for neural network loading (conservative to prevent OOM)
                     if available_gb < 8.0:
-                        print(f"[P2P] Skipping NN-based AI {ai_type}: only {available_gb:.1f}GB available (need 8GB)")
+                        logger.info(f"Skipping NN-based AI {ai_type}: only {available_gb:.1f}GB available (need 8GB)")
                         # Fall back to descent AI (CPU-based, no NN)
                         from app.ai.descent_ai import DescentAI
                         config = AIConfig(ai_type=AIType.DESCENT, board_type=board_type, difficulty=7, rng_seed=rng_seed)
@@ -8870,7 +8891,7 @@ print(wins / total)
                         from scripts.run_model_elo_tournament import create_ai_from_model
                         return create_ai_from_model(agent_config, player_num, board_type)
                     except Exception as e:
-                        print(f"[P2P] Failed to create NN AI {ai_type}: {e}, falling back to heuristic")
+                        logger.error(f"Failed to create NN AI {ai_type}: {e}, falling back to heuristic")
                         from app.ai.heuristic_ai import HeuristicAI
                         config = AIConfig(ai_type=AIType.HEURISTIC, board_type=board_type, difficulty=7, rng_seed=rng_seed)
                         return HeuristicAI(player_num, config)
@@ -8908,7 +8929,7 @@ print(wins / total)
 
         except Exception as e:
             import traceback
-            print(f"[P2P] _play_elo_match_sync error: {e}")
+            logger.info(f"_play_elo_match_sync error: {e}")
             traceback.print_exc()
             return None
 
@@ -9127,7 +9148,7 @@ print(wins / total)
             if not state:
                 return
 
-            print(f"[P2P] Tournament coordinator started for job {job_id}")
+            logger.info(f"Tournament coordinator started for job {job_id}")
 
             # Distribute matches to workers
             while state.pending_matches and state.status == "running":
@@ -9152,10 +9173,10 @@ print(wins / total)
             self._calculate_tournament_ratings(state)
             state.status = "completed"
 
-            print(f"[P2P] Tournament {job_id} completed: {state.completed_matches} matches, ratings={state.final_ratings}")
+            logger.info(f"Tournament {job_id} completed: {state.completed_matches} matches, ratings={state.final_ratings}")
 
         except Exception as e:
-            print(f"[P2P] Tournament coordinator error: {e}")
+            logger.info(f"Tournament coordinator error: {e}")
             if job_id in self.distributed_tournament_state:
                 self.distributed_tournament_state[job_id].status = f"error: {e}"
 
@@ -9172,7 +9193,7 @@ print(wins / total)
                 url = self._url_for_peer(worker, "/tournament/match")
                 await session.post(url, json={"job_id": job_id, "match": match}, headers=self._auth_headers())
         except Exception as e:
-            print(f"[P2P] Failed to send match to worker {worker_id}: {e}")
+            logger.error(f"Failed to send match to worker {worker_id}: {e}")
 
     async def _play_tournament_match(self, job_id: str, match_info: dict):
         """Play a tournament match locally using subprocess selfplay."""
@@ -9187,7 +9208,7 @@ print(wins / total)
             board_type = match_info.get("board_type", "square8")
             num_players = match_info.get("num_players", 2)
 
-            print(f"[P2P] Playing tournament match: {agent1} vs {agent2} (game {game_num})")
+            logger.info(f"Playing tournament match: {agent1} vs {agent2} (game {game_num})")
 
             # Build the subprocess command to run a single game
             # Agent IDs map to model paths or heuristic configurations
@@ -9282,7 +9303,7 @@ print(json.dumps(result))
             )
 
             if proc.returncode != 0:
-                print(f"[P2P] Tournament match subprocess error: {stderr.decode()}")
+                logger.info(f"Tournament match subprocess error: {stderr.decode()}")
                 result = {
                     "agent1": agent1,
                     "agent2": agent2,
@@ -9296,7 +9317,7 @@ print(json.dumps(result))
                 result_line = output_lines[-1] if output_lines else '{}'
                 result = json_module.loads(result_line)
 
-            print(f"[P2P] Match result: {agent1} vs {agent2} -> winner={result.get('winner')}")
+            logger.info(f"Match result: {agent1} vs {agent2} -> winner={result.get('winner')}")
 
             # Report result back to coordinator (leader)
             if self.role != NodeRole.LEADER and self.leader_id:
@@ -9313,7 +9334,7 @@ print(json.dumps(result))
                                 "worker_id": self.node_id,
                             }, headers=self._auth_headers())
                     except Exception as e:
-                        print(f"[P2P] Failed to report tournament result to leader: {e}")
+                        logger.error(f"Failed to report tournament result to leader: {e}")
             else:
                 # We are the leader, update state directly
                 if job_id in self.distributed_tournament_state:
@@ -9323,9 +9344,9 @@ print(json.dumps(result))
                     state.last_update = time.time()
 
         except asyncio.TimeoutError:
-            print(f"[P2P] Tournament match timed out: {match_info}")
+            logger.info(f"Tournament match timed out: {match_info}")
         except Exception as e:
-            print(f"[P2P] Tournament match error: {e}")
+            logger.info(f"Tournament match error: {e}")
 
     def _calculate_tournament_ratings(self, state: DistributedTournamentState):
         """Calculate final Elo ratings from tournament results.
@@ -9405,9 +9426,9 @@ print(json.dumps(result))
 
         # Log rankings
         ranked = sorted(state.final_ratings.items(), key=lambda x: x[1]["elo"], reverse=True)
-        print(f"[P2P] Tournament final rankings:")
+        logger.info(f"Tournament final rankings:")
         for rank, (agent, stats) in enumerate(ranked, 1):
-            print(f"  {rank}. {agent}: Elo={stats['elo']}, W/L/D={stats['wins']}/{stats['losses']}/{stats['draws']}")
+            logger.info(f"  {rank}. {agent}: Elo={stats['elo']}, W/L/D={stats['wins']}/{stats['losses']}/{stats['draws']}")
 
         # Persist results to unified Elo database
         try:
@@ -9440,13 +9461,13 @@ print(json.dumps(result))
                     duration_sec=result.get("duration_sec", 0.0),
                 )
 
-            print(f"[P2P] Persisted {len(state.results)} matches to unified Elo database")
+            logger.info(f"Persisted {len(state.results)} matches to unified Elo database")
 
             # Trigger Elo sync to propagate matches to cluster
             if HAS_ELO_SYNC and self.elo_sync_manager:
                 asyncio.create_task(self._trigger_elo_sync_after_matches(len(state.results)))
         except Exception as e:
-            print(f"[P2P] Warning: Failed to persist to unified Elo database: {e}")
+            logger.warning(f"Failed to persist to unified Elo database: {e}")
 
     # ============================================
     # Improvement Loop Handlers
@@ -9486,10 +9507,10 @@ print(json.dumps(result))
                         requestor=f"p2p_{self.node_id}",
                     )
                     if approved_rate != requested_games:
-                        print(f"[P2P] games_per_iteration adjusted: {requested_games} -> {approved_rate} (utilization-based)")
+                        logger.info(f"games_per_iteration adjusted: {requested_games} -> {approved_rate} (utilization-based)")
                     requested_games = approved_rate
                 except Exception as e:
-                    print(f"[P2P] Rate negotiation failed, using default: {e}")
+                    logger.info(f"Rate negotiation failed, using default: {e}")
 
             state = ImprovementLoopState(
                 job_id=job_id,
@@ -9514,7 +9535,7 @@ print(json.dumps(result))
 
             self.improvement_loop_state[job_id] = state
 
-            print(f"[P2P] Started improvement loop {job_id}: {len(workers)} workers, {len(gpu_workers)} GPU workers")
+            logger.info(f"Started improvement loop {job_id}: {len(workers)} workers, {len(gpu_workers)} GPU workers")
 
             # Launch improvement loop
             asyncio.create_task(self._run_improvement_loop(job_id))
@@ -9572,14 +9593,14 @@ print(json.dumps(result))
                 games_done = result.get("games_done", 0)
                 state.selfplay_progress[worker_id] = games_done
                 total_done = sum(state.selfplay_progress.values())
-                print(f"[P2P] Improvement loop selfplay: {total_done}/{state.games_per_iteration} games")
+                logger.info(f"Improvement loop selfplay: {total_done}/{state.games_per_iteration} games")
             elif phase == "train":
                 state.best_model_path = result.get("model_path", state.best_model_path)
             elif phase == "evaluate":
                 winrate = result.get("winrate", 0.0)
                 if winrate > state.best_winrate:
                     state.best_winrate = winrate
-                    print(f"[P2P] New best model: winrate={winrate:.2%}")
+                    logger.info(f"New best model: winrate={winrate:.2%}")
 
             return web.json_response({
                 "success": True,
@@ -9612,7 +9633,7 @@ print(json.dumps(result))
             result = await self.start_cluster_sync()
             return web.json_response(result)
         except Exception as e:
-            print(f"[P2P] Error in handle_sync_start: {e}")
+            logger.error(f"in handle_sync_start: {e}")
             import traceback
             traceback.print_exc()
             return web.json_response({"error": str(e)}, status=500)
@@ -9646,7 +9667,7 @@ print(json.dumps(result))
                 "pending_sync_requests": len(self.pending_sync_requests),
             })
         except Exception as e:
-            print(f"[P2P] Error in handle_sync_status: {e}")
+            logger.error(f"in handle_sync_status: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
     async def handle_sync_pull(self, request: web.Request) -> web.Response:
@@ -9697,7 +9718,7 @@ print(json.dumps(result))
                     "error": "Missing required fields: source_host (or unknown source_node_id)"
                 }, status=400)
 
-            print(f"[P2P] Received sync pull request: {len(files)} files from {source_node_id}")
+            logger.info(f"Received sync pull request: {len(files)} files from {source_node_id}")
 
             result = await self._handle_sync_pull_request(
                 source_host=source_host,
@@ -9710,7 +9731,7 @@ print(json.dumps(result))
 
             return web.json_response(result)
         except Exception as e:
-            print(f"[P2P] Error in handle_sync_pull: {e}")
+            logger.error(f"in handle_sync_pull: {e}")
             import traceback
             traceback.print_exc()
             return web.json_response({"error": str(e)}, status=500)
@@ -9798,7 +9819,7 @@ print(json.dumps(result))
                     if error_message:
                         job.error_message = str(error_message)
 
-                    print(f"[P2P] Sync job {job_id} {status}: {job.files_completed} files, {job.bytes_transferred} bytes")
+                    logger.info(f"Sync job {job_id} {status}: {job.files_completed} files, {job.bytes_transferred} bytes")
 
                     # Update sync plan status if all jobs are done
                     if self.current_sync_plan:
@@ -9813,7 +9834,7 @@ print(json.dumps(result))
                             self.current_sync_plan.completed_at = time.time()
                             self.sync_in_progress = False
                             self.last_sync_time = time.time()
-                            print(f"[P2P] Cluster sync plan completed: {completed} succeeded, {failed} failed")
+                            logger.info(f"Cluster sync plan completed: {completed} succeeded, {failed} failed")
 
             return web.json_response({
                 "success": True,
@@ -9821,7 +9842,7 @@ print(json.dumps(result))
                 "status": status,
             })
         except Exception as e:
-            print(f"[P2P] Error in handle_sync_job_update: {e}")
+            logger.error(f"in handle_sync_job_update: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
     async def _run_improvement_loop(self, job_id: str):
@@ -9831,11 +9852,11 @@ print(json.dumps(result))
             if not state:
                 return
 
-            print(f"[P2P] Improvement loop coordinator started for job {job_id}")
+            logger.info(f"Improvement loop coordinator started for job {job_id}")
 
             while state.current_iteration < state.max_iterations and state.status == "running":
                 state.current_iteration += 1
-                print(f"[P2P] Improvement iteration {state.current_iteration}/{state.max_iterations}")
+                logger.info(f"Improvement iteration {state.current_iteration}/{state.max_iterations}")
 
                 # Phase 1: Selfplay
                 state.phase = "selfplay"
@@ -9862,10 +9883,10 @@ print(json.dumps(result))
 
             state.status = "completed"
             state.phase = "idle"
-            print(f"[P2P] Improvement loop {job_id} completed after {state.current_iteration} iterations")
+            logger.info(f"Improvement loop {job_id} completed after {state.current_iteration} iterations")
 
         except Exception as e:
-            print(f"[P2P] Improvement loop error: {e}")
+            logger.info(f"Improvement loop error: {e}")
             if job_id in self.improvement_loop_state:
                 self.improvement_loop_state[job_id].status = f"error: {e}"
 
@@ -9888,7 +9909,7 @@ print(json.dumps(result))
         games_per_worker = state.games_per_iteration // num_workers
         remainder = state.games_per_iteration % num_workers
 
-        print(f"[P2P] Starting distributed selfplay: {games_per_worker} games/worker, {num_workers} workers")
+        logger.info(f"Starting distributed selfplay: {games_per_worker} games/worker, {num_workers} workers")
 
         # Create output directory for this iteration
         iteration_dir = os.path.join(
@@ -9923,11 +9944,11 @@ print(json.dumps(result))
                     }, headers=self._auth_headers())
                     tasks_sent += 1
             except Exception as e:
-                print(f"[P2P] Failed to send selfplay task to {worker_id}: {e}")
+                logger.error(f"Failed to send selfplay task to {worker_id}: {e}")
 
         if tasks_sent == 0:
             # No workers available, run locally
-            print(f"[P2P] No workers available, running selfplay locally")
+            logger.info(f"No workers available, running selfplay locally")
             await self._run_local_selfplay(
                 job_id, state.games_per_iteration,
                 state.board_type, state.num_players,
@@ -9947,7 +9968,7 @@ print(json.dumps(result))
                 await asyncio.sleep(check_interval)
                 elapsed += check_interval
 
-            print(f"[P2P] Selfplay phase completed: {sum(state.selfplay_progress.values())} games")
+            logger.info(f"Selfplay phase completed: {sum(state.selfplay_progress.values())} games")
 
     async def _run_local_selfplay(
         self, job_id: str, num_games: int, board_type: str,
@@ -9988,17 +10009,17 @@ print(json.dumps(result))
             )
 
             if proc.returncode == 0:
-                print(f"[P2P] Local selfplay completed: {num_games} games")
+                logger.info(f"Local selfplay completed: {num_games} games")
                 # Update progress
                 if job_id in self.improvement_loop_state:
                     self.improvement_loop_state[job_id].selfplay_progress[self.node_id] = num_games
             else:
-                print(f"[P2P] Local selfplay failed: {stderr.decode()[:500]}")
+                logger.info(f"Local selfplay failed: {stderr.decode()[:500]}")
 
         except asyncio.TimeoutError:
-            print(f"[P2P] Local selfplay timed out")
+            logger.info(f"Local selfplay timed out")
         except Exception as e:
-            print(f"[P2P] Local selfplay error: {e}")
+            logger.info(f"Local selfplay error: {e}")
 
     async def _export_training_data(self, job_id: str):
         """Export training data from selfplay games.
@@ -10011,7 +10032,7 @@ print(json.dumps(result))
         if not state:
             return
 
-        print(f"[P2P] Exporting training data for job {job_id}, iteration {state.current_iteration}")
+        logger.info(f"Exporting training data for job {job_id}, iteration {state.current_iteration}")
 
         iteration_dir = os.path.join(
             self.ringrift_path, "ai-service", "data", "selfplay",
@@ -10081,15 +10102,15 @@ else:
             )
 
             if proc.returncode == 0:
-                print(f"[P2P] Training data export completed")
+                logger.info(f"Training data export completed")
                 state.training_data_path = output_file
             else:
-                print(f"[P2P] Training data export failed: {stderr.decode()[:500]}")
+                logger.info(f"Training data export failed: {stderr.decode()[:500]}")
 
         except asyncio.TimeoutError:
-            print(f"[P2P] Training data export timed out")
+            logger.info(f"Training data export timed out")
         except Exception as e:
-            print(f"[P2P] Training data export error: {e}")
+            logger.info(f"Training data export error: {e}")
 
     async def _run_training(self, job_id: str):
         """Run neural network training on GPU node.
@@ -10103,7 +10124,7 @@ else:
         if not state:
             return
 
-        print(f"[P2P] Running training for job {job_id}, iteration {state.current_iteration}")
+        logger.info(f"Running training for job {job_id}, iteration {state.current_iteration}")
 
         # Find GPU worker
         gpu_worker = None
@@ -10143,10 +10164,10 @@ else:
                             result = await resp.json()
                             if result.get("success"):
                                 state.candidate_model_path = result.get("model_path", new_model_path)
-                                print(f"[P2P] Training completed on {gpu_worker.node_id}")
+                                logger.info(f"Training completed on {gpu_worker.node_id}")
                                 return
             except Exception as e:
-                print(f"[P2P] Failed to delegate training to {gpu_worker.node_id}: {e}")
+                logger.error(f"Failed to delegate training to {gpu_worker.node_id}: {e}")
 
         # Run training locally
         await self._run_local_training(training_config)
@@ -10156,7 +10177,7 @@ else:
         """Run training locally using subprocess."""
         import sys
 
-        print(f"[P2P] Running local training")
+        logger.info(f"Running local training")
 
         training_script = f"""
 import sys
@@ -10213,14 +10234,14 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 timeout=3600  # 1 hour max
             )
 
-            print(f"[P2P] Training output: {stdout.decode()}")
+            logger.info(f"Training output: {stdout.decode()}")
             if proc.returncode != 0:
-                print(f"[P2P] Training stderr: {stderr.decode()[:500]}")
+                logger.info(f"Training stderr: {stderr.decode()[:500]}")
 
         except asyncio.TimeoutError:
-            print(f"[P2P] Local training timed out")
+            logger.info(f"Local training timed out")
         except Exception as e:
-            print(f"[P2P] Local training error: {e}")
+            logger.info(f"Local training error: {e}")
 
     # ============================================
     # Phase 3: Training Pipeline Integration Methods
@@ -10372,7 +10393,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             # Found a failed job with checkpoint - add resume info
             job_config["resume_checkpoint_path"] = resumable.checkpoint_path
             job_config["resume_epoch"] = resumable.checkpoint_epoch
-            print(f"[P2P] Found resumable job {resumable.job_id} with checkpoint at epoch {resumable.checkpoint_epoch}")
+            logger.info(f"Found resumable job {resumable.job_id} with checkpoint at epoch {resumable.checkpoint_epoch}")
 
         # Generate job ID
         job_id = f"{job_type}_{config_key}_{int(time.time())}"
@@ -10427,7 +10448,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             worker_node = candidates[0] if candidates else None
 
         if not worker_node:
-            print(f"[P2P] No suitable worker for {job_type} training job")
+            logger.info(f"No suitable worker for {job_type} training job")
             return None
 
         job.worker_node = worker_node.node_id
@@ -10450,7 +10471,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             job.checkpoint_path = resume_checkpoint
             job.checkpoint_epoch = resume_epoch
             job.resume_from_checkpoint = True
-            print(f"[P2P] Resuming training from checkpoint: {resume_checkpoint} (epoch {resume_epoch})")
+            logger.info(f"Resuming training from checkpoint: {resume_checkpoint} (epoch {resume_epoch})")
 
         # Send to worker
         try:
@@ -10479,7 +10500,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                         if result.get("success"):
                             job.status = "running"
                             job.started_at = time.time()
-                            print(f"[P2P] Started {job_type} training job {job_id} on {worker_node.node_id}")
+                            logger.info(f"Started {job_type} training job {job_id} on {worker_node.node_id}")
                             self._save_state()
                             return job
                         job.status = "failed"
@@ -10493,7 +10514,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         except Exception as e:
             job.status = "failed"
             job.error_message = str(e)
-            print(f"[P2P] Failed to dispatch {job_type} training to {worker_node.node_id}: {e}")
+            logger.error(f"Failed to dispatch {job_type} training to {worker_node.node_id}: {e}")
 
         return job
 
@@ -10512,7 +10533,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         jobs_to_start = self._check_training_readiness()
 
         for job_config in jobs_to_start:
-            print(f"[P2P] Auto-triggering {job_config['job_type']} training for {job_config['config_key']} ({job_config['total_games']} games)")
+            logger.info(f"Auto-triggering {job_config['job_type']} training for {job_config['config_key']} ({job_config['total_games']} games)")
             await self._dispatch_training_job(job_config)
 
     async def _check_local_training_fallback(self):
@@ -10617,7 +10638,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             board_type = parts[0]
             num_players = int(parts[1].replace("p", ""))
 
-            print(f"[P2P] DISTRIBUTED TRAINING: Claiming {config_key} ({game_count} local games, leaderless for {int(leaderless_duration)}s)")
+            logger.info(f"DISTRIBUTED TRAINING: Claiming {config_key} ({game_count} local games, leaderless for {int(leaderless_duration)}s)")
             job_config = {
                 "job_type": "nnue",
                 "board_type": board_type,
@@ -10630,7 +10651,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
         if triggered_count > 0:
             self.last_local_training_fallback = current_time
-            print(f"[P2P] LEADERLESS FALLBACK: Triggered {triggered_count} local training job(s)")
+            logger.info(f"LEADERLESS FALLBACK: Triggered {triggered_count} local training job(s)")
 
     async def _check_improvement_cycles(self):
         """Periodic check for improvement cycle readiness (leader only).
@@ -10675,7 +10696,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         cmaes_ready = self.improvement_cycle_manager.check_cmaes_needed()
         for board_type, num_players in cmaes_ready:
             # Trigger distributed CMA-ES
-            print(f"[P2P] CMA-ES optimization ready for {board_type}_{num_players}p")
+            logger.info(f"CMA-ES optimization ready for {board_type}_{num_players}p")
             asyncio.create_task(self._trigger_auto_cmaes(board_type, num_players))
 
         # Check for rollback needs (consecutive training failures)
@@ -10685,18 +10706,18 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     cycle.board_type, cycle.num_players
                 )
                 if should_rollback:
-                    print(f"[P2P] ROLLBACK NEEDED for {key}: {reason}")
+                    logger.info(f"ROLLBACK NEEDED for {key}: {reason}")
                     if self.improvement_cycle_manager.execute_rollback(cycle.board_type, cycle.num_players):
                         self.diversity_metrics["rollbacks"] += 1
                         # Increase diversity to escape plateau
-                        print(f"[P2P] Increasing diversity to escape training plateau for {key}")
+                        logger.info(f"Increasing diversity to escape training plateau for {key}")
 
         for job_config in jobs_to_start:
             cycle_id = job_config["cycle_id"]
             board_type = job_config["board_type"]
             num_players = job_config["num_players"]
 
-            print(f"[P2P] ImprovementCycle {cycle_id}: Starting training "
+            logger.info(f"ImprovementCycle {cycle_id}: Starting training "
                   f"({job_config['total_games']} games)")
 
             # Find GPU worker for training
@@ -10713,7 +10734,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 gpu_worker = candidates[0]
 
             if not gpu_worker:
-                print(f"[P2P] ImprovementCycle {cycle_id}: No GPU worker available, deferring")
+                logger.info(f"ImprovementCycle {cycle_id}: No GPU worker available, deferring")
                 self.improvement_cycle_manager.update_cycle_phase(
                     cycle_id, "idle", error_message="No GPU worker available"
                 )
@@ -10756,7 +10777,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     worker_node = self.peers.get(job.worker_node)
 
             if not worker_node:
-                print(f"[P2P] ImprovementCycle {cycle_id}: Worker {job.worker_node} not found")
+                logger.info(f"ImprovementCycle {cycle_id}: Worker {job.worker_node} not found")
                 self.improvement_cycle_manager.update_cycle_phase(
                     cycle_id, "idle", error_message=f"Worker {job.worker_node} not found"
                 )
@@ -10787,7 +10808,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                         if result.get("success"):
                             job.status = "running"
                             job.started_at = time.time()
-                            print(f"[P2P] ImprovementCycle {cycle_id}: Training started on {worker_node.node_id}")
+                            logger.info(f"ImprovementCycle {cycle_id}: Training started on {worker_node.node_id}")
                             return
                         self.improvement_cycle_manager.update_cycle_phase(
                             cycle_id, "idle", error_message=result.get("error", "Training failed to start")
@@ -10801,7 +10822,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 )
 
         except Exception as e:
-            print(f"[P2P] ImprovementCycle {cycle_id}: Training dispatch failed: {e}")
+            logger.info(f"ImprovementCycle {cycle_id}: Training dispatch failed: {e}")
             self.improvement_cycle_manager.update_cycle_phase(
                 cycle_id, "idle", error_message=str(e)
             )
@@ -10942,7 +10963,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             return
 
         try:
-            print(f"[P2P] Training job {job.job_id} completed, triggering evaluation")
+            logger.info(f"Training job {job.job_id} completed, triggering evaluation")
 
             # NEW: Run immediate gauntlet evaluation
             passed = await self._run_post_training_gauntlet(job)
@@ -10955,7 +10976,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     job.num_players,
                     reason="failed_post_training_gauntlet"
                 )
-                print(f"[P2P] Model archived: failed post-training gauntlet (< 50% vs median)")
+                logger.info(f"Model archived: failed post-training gauntlet (< 50% vs median)")
                 return  # Don't proceed with tournament scheduling
 
             # Notify improvement cycle manager
@@ -10970,7 +10991,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             await self._schedule_model_comparison_tournament(job)
 
         except Exception as e:
-            print(f"[P2P] Error handling training completion for {job.job_id}: {e}")
+            logger.error(f"handling training completion for {job.job_id}: {e}")
 
     async def _schedule_model_comparison_tournament(self, job: 'TrainingJob') -> None:
         """Schedule a tournament to compare the new model against baseline."""
@@ -10986,10 +11007,10 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             )
 
             if not matchups:
-                print(f"[P2P] No tournament matchups for {job.board_type}_{job.num_players}p")
+                logger.info(f"No tournament matchups for {job.board_type}_{job.num_players}p")
                 return
 
-            print(f"[P2P] Scheduling {len(matchups)} tournament matchups for new model")
+            logger.info(f"Scheduling {len(matchups)} tournament matchups for new model")
 
             # Run evaluation games (simplified - in production would dispatch to workers)
             total_wins = 0
@@ -11002,7 +11023,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     total_games += games
                     # Placeholder: actual tournament execution would go here
                     # For now, mark as needing external evaluation
-                    print(f"[P2P] Tournament: {matchup['agent_a']} vs {matchup['agent_b']} ({games} games)")
+                    logger.info(f"Tournament: {matchup['agent_a']} vs {matchup['agent_b']} ({games} games)")
 
             # Update cycle state - evaluation is now pending
             cycle_key = f"{job.board_type}_{job.num_players}p"
@@ -11011,7 +11032,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 self.improvement_cycle_manager._save_state()
 
         except Exception as e:
-            print(f"[P2P] Error scheduling tournament: {e}")
+            logger.error(f"scheduling tournament: {e}")
 
     # =========================================================================
     # POST-TRAINING GAUNTLET: Immediate evaluation after training
@@ -11053,7 +11074,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             median_idx = len(rows) // 2
             return rows[median_idx][0]
         except Exception as e:
-            print(f"[P2P] Error getting median model: {e}")
+            logger.error(f"getting median model: {e}")
             return None
 
     async def _run_post_training_gauntlet(self, job: 'TrainingJob') -> bool:
@@ -11070,14 +11091,14 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         """
         # Check for skip flag
         if os.environ.get("RINGRIFT_SKIP_POST_TRAINING_GAUNTLET", "0") == "1":
-            print("[P2P] Post-training gauntlet skipped (RINGRIFT_SKIP_POST_TRAINING_GAUNTLET=1)")
+            logger.info("Post-training gauntlet skipped (RINGRIFT_SKIP_POST_TRAINING_GAUNTLET=1)")
             return True
 
         config_key = f"{job.board_type}_{job.num_players}p"
         model_path = job.output_model_path
 
         if not model_path or not os.path.exists(model_path):
-            print(f"[P2P] Model path not found: {model_path}, skipping gauntlet")
+            logger.info(f"Model path not found: {model_path}, skipping gauntlet")
             return True
 
         model_id = os.path.splitext(os.path.basename(model_path))[0]
@@ -11085,10 +11106,10 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         # Get median model from ELO database
         median_model = self._get_median_model(config_key)
         if not median_model:
-            print(f"[P2P] No median model for {config_key}, skipping gauntlet")
+            logger.info(f"No median model for {config_key}, skipping gauntlet")
             return True  # Pass if no baseline to compare against
 
-        print(f"[P2P] Running post-training gauntlet: {model_id} vs {median_model} (median)")
+        logger.info(f"Running post-training gauntlet: {model_id} vs {median_model} (median)")
 
         GAMES_PER_SIDE = 4
 
@@ -11108,11 +11129,11 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 win_rate = remote_result.get("win_rate", 0)
                 passed = remote_result.get("passed", False)
                 remote_node = remote_result.get("node_id", "unknown")
-                print(f"[P2P] Post-training gauntlet (remote on {remote_node}): "
+                logger.info(f"Post-training gauntlet (remote on {remote_node}): "
                       f"{wins}/{total_games} ({win_rate:.1%}) {'PASSED' if passed else 'FAILED'}")
                 return passed
         except Exception as e:
-            print(f"[P2P] Remote gauntlet dispatch failed: {e}, falling back to local")
+            logger.info(f"Remote gauntlet dispatch failed: {e}, falling back to local")
 
         # Fallback: Run locally if remote dispatch failed or we're the best CPU node
         model_dir = Path(self.ringrift_path) / "ai-service" / "models"
@@ -11147,7 +11168,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                         wins += 1
                 total_games += 1
             except Exception as e:
-                print(f"[P2P] Gauntlet game {game_num} error: {e}")
+                logger.info(f"Gauntlet game {game_num} error: {e}")
                 total_games += 1  # Count as played but not won
 
         win_rate = wins / total_games if total_games > 0 else 0
@@ -11156,7 +11177,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         MIN_WIN_RATE = 0.50
         passed = win_rate >= MIN_WIN_RATE
 
-        print(f"[P2P] Post-training gauntlet vs median (local): {wins}/{total_games} "
+        logger.info(f"Post-training gauntlet vs median (local): {wins}/{total_games} "
               f"({win_rate:.1%}) {'PASSED' if passed else 'FAILED'}")
 
         return passed
@@ -11182,9 +11203,9 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
         try:
             shutil.move(model_path, archive_path)
-            print(f"[P2P] Archived {model_name} to {archive_dir} ({reason})")
+            logger.info(f"Archived {model_name} to {archive_dir} ({reason})")
         except Exception as e:
-            print(f"[P2P] Error moving model to archive: {e}")
+            logger.error(f"moving model to archive: {e}")
             return
 
         # Update ELO database to mark as archived
@@ -11204,7 +11225,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 conn.commit()
                 conn.close()
             except Exception as e:
-                print(f"[P2P] Error updating ELO database for archived model: {e}")
+                logger.error(f"updating ELO database for archived model: {e}")
 
     async def handle_nnue_start(self, request: web.Request) -> web.Response:
         """Handle NNUE training start request (worker endpoint)."""
@@ -11320,7 +11341,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 cwd=os.path.join(self.ringrift_path, "ai-service"),
             )
 
-            print(f"[P2P] Started NNUE training subprocess (PID {proc.pid}) for job {job_id}")
+            logger.info(f"Started NNUE training subprocess (PID {proc.pid}) for job {job_id}")
 
             # Don't wait - let it run in background
             asyncio.create_task(self._monitor_training_process(job_id, proc, output_path))
@@ -11340,7 +11361,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         """
         try:
             job_id = f"auto_cmaes_{board_type}_{num_players}p_{int(time.time())}"
-            print(f"[P2P] Auto-triggering CMA-ES: {job_id}")
+            logger.info(f"Auto-triggering CMA-ES: {job_id}")
 
             # Check for GPU workers
             gpu_workers = []
@@ -11369,7 +11390,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 )
                 self.distributed_cmaes_state[cmaes_job_id] = state
                 asyncio.create_task(self._run_distributed_cmaes(cmaes_job_id))
-                print(f"[P2P] Started distributed CMA-ES with {len(gpu_workers)} workers")
+                logger.info(f"Started distributed CMA-ES with {len(gpu_workers)} workers")
             else:
                 # LOCAL MODE - use GPU CMA-ES script
                 output_dir = os.path.join(
@@ -11401,10 +11422,10 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     stderr=asyncio.subprocess.PIPE,
                     env=env,
                 )
-                print(f"[P2P] Started local CMA-ES optimization (PID {proc.pid})")
+                logger.info(f"Started local CMA-ES optimization (PID {proc.pid})")
 
         except Exception as e:
-            print(f"[P2P] Auto CMA-ES trigger failed: {e}")
+            logger.info(f"Auto CMA-ES trigger failed: {e}")
 
     async def handle_cmaes_start_auto(self, request: web.Request) -> web.Response:
         """Handle CMA-ES optimization start request.
@@ -11431,7 +11452,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             if len(gpu_workers) >= 2:
                 # DISTRIBUTED MODE: Use P2P distributed CMA-ES across cluster
-                print(f"[P2P] Starting DISTRIBUTED GPU CMA-ES with {len(gpu_workers)} workers")
+                logger.info(f"Starting DISTRIBUTED GPU CMA-ES with {len(gpu_workers)} workers")
 
                 # Create distributed CMA-ES state
                 cmaes_job_id = f"cmaes_auto_{job_id}_{int(time.time())}"
@@ -11467,7 +11488,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             else:
                 # LOCAL MODE: Run GPU CMA-ES on this node only
-                print(f"[P2P] Starting LOCAL GPU CMA-ES (no remote workers available)")
+                logger.info(f"Starting LOCAL GPU CMA-ES (no remote workers available)")
 
                 output_dir = os.path.join(
                     self.ringrift_path, "ai-service", "data", "cmaes",
@@ -11499,7 +11520,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     env=env,
                 )
 
-                print(f"[P2P] Started local GPU CMA-ES (PID {proc.pid}) for job {job_id}")
+                logger.info(f"Started local GPU CMA-ES (PID {proc.pid}) for job {job_id}")
                 asyncio.create_task(self._monitor_training_process(job_id, proc, output_dir))
 
                 return web.json_response({
@@ -11537,7 +11558,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                             }
                             await session.post(url, json=payload, headers=self._auth_headers())
                     except Exception as e:
-                        print(f"[P2P] Failed to report training completion to leader: {e}")
+                        logger.error(f"Failed to report training completion to leader: {e}")
             else:
                 # We are the leader, update directly
                 with self.training_lock:
@@ -11565,9 +11586,9 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                                         elo=INITIAL_ELO_RATING,  # From app.config.thresholds
                                         win_rate=0.5,
                                     )
-                                    print(f"[P2P/PFSP] Added {model_id} to opponent pool for {config_key}")
+                                    logger.info(f"[PFSP] Added {model_id} to opponent pool for {config_key}")
                                 except Exception as e:
-                                    print(f"[P2P/PFSP] Error adding model to pool: {e}")
+                                    logger.error(f"[PFSP] Error adding model to pool: {e}")
                             # CMA-ES: Check for Elo plateau and trigger auto-tuning
                             asyncio.create_task(self._check_cmaes_auto_tuning(config_key))
                         else:
@@ -11575,12 +11596,12 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                             job.error_message = stderr.decode()[:500]
                         job.completed_at = time.time()
 
-            print(f"[P2P] Training job {job_id} {'completed' if success else 'failed'}")
+            logger.info(f"Training job {job_id} {'completed' if success else 'failed'}")
 
         except asyncio.TimeoutError:
-            print(f"[P2P] Training job {job_id} timed out")
+            logger.info(f"Training job {job_id} timed out")
         except Exception as e:
-            print(f"[P2P] Training monitor error for {job_id}: {e}")
+            logger.info(f"Training monitor error for {job_id}: {e}")
 
     async def _monitor_gpu_selfplay_and_validate(
         self,
@@ -11614,19 +11635,19 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     job.status = "completed" if return_code == 0 else "failed"
 
             if return_code != 0:
-                print(f"[P2P] GPU selfplay job {job_id} failed (exit code {return_code})")
+                logger.info(f"GPU selfplay job {job_id} failed (exit code {return_code})")
                 return
 
             # Find the generated JSONL file
             jsonl_files = list(output_dir.glob("*.jsonl"))
             if not jsonl_files:
-                print(f"[P2P] GPU selfplay job {job_id}: No JSONL output found")
+                logger.info(f"GPU selfplay job {job_id}: No JSONL output found")
                 return
 
             input_jsonl = jsonl_files[0]
             validated_db = output_dir / "validated_games.db"
 
-            print(f"[P2P] GPU selfplay job {job_id} completed, running CPU validation...")
+            logger.info(f"GPU selfplay job {job_id} completed, running CPU validation...")
 
             # Run CPU validation import
             validate_cmd = [
@@ -11665,8 +11686,8 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
                 validation_rate = imported / (imported + failed) * 100 if (imported + failed) > 0 else 0
 
-                print(f"[P2P] GPU selfplay {job_id} CPU validation complete:")
-                print(f"[P2P]   Valid games: {imported}, Invalid: {failed}, Validation rate: {validation_rate:.1f}%")
+                logger.info(f"GPU selfplay {job_id} CPU validation complete:")
+                logger.info(f"  Valid games: {imported}, Invalid: {failed}, Validation rate: {validation_rate:.1f}%")
 
                 # Track validation metrics for diversity reporting
                 if hasattr(self, 'diversity_metrics'):
@@ -11699,9 +11720,9 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                         validated_db, board_type, num_players, imported
                     ))
                 elif validation_rate < 95:
-                    print(f"[P2P] WARNING: GPU selfplay validation rate {validation_rate:.1f}% is below 95%")
-                    print(f"[P2P]   This indicates potential GPU/CPU rule divergence")
-                    print(f"[P2P]   Skipping auto-import to canonical database")
+                    logger.info(f"WARNING: GPU selfplay validation rate {validation_rate:.1f}% is below 95%")
+                    logger.info(f"  This indicates potential GPU/CPU rule divergence")
+                    logger.info(f"  Skipping auto-import to canonical database")
                     # Alert on low validation rate
                     asyncio.create_task(self.notifier.send(
                         title="Low GPU Validation Rate",
@@ -11717,17 +11738,17 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     ))
 
             else:
-                print(f"[P2P] GPU selfplay {job_id} CPU validation failed:")
-                print(f"[P2P]   {stderr.decode()[:500]}")
+                logger.info(f"GPU selfplay {job_id} CPU validation failed:")
+                logger.info(f"  {stderr.decode()[:500]}")
 
         except asyncio.TimeoutError:
-            print(f"[P2P] GPU selfplay job {job_id} timed out")
+            logger.info(f"GPU selfplay job {job_id} timed out")
             with self.jobs_lock:
                 job = self.local_jobs.get(job_id)
                 if job:
                     job.status = "failed"
         except Exception as e:
-            print(f"[P2P] GPU selfplay monitor error for {job_id}: {e}")
+            logger.info(f"GPU selfplay monitor error for {job_id}: {e}")
             with self.jobs_lock:
                 job = self.local_jobs.get(job_id)
                 if job:
@@ -11743,7 +11764,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         """
         try:
             config_key = f"{job.board_type}_{job.num_players}p"
-            print(f"[P2P] Scheduling model comparison tournament for {config_key}")
+            logger.info(f"Scheduling model comparison tournament for {config_key}")
 
             # Find current baseline model
             baseline_dir = Path(self.ringrift_path) / "ai-service" / "models" / job.job_type
@@ -11756,7 +11777,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             if not baseline_model:
                 # No baseline - this model becomes baseline
-                print(f"[P2P] No baseline found for {config_key}, new model becomes baseline")
+                logger.info(f"No baseline found for {config_key}, new model becomes baseline")
                 await self._promote_to_baseline(new_model_path, job.board_type, job.num_players, job.job_type)
                 return
 
@@ -11785,13 +11806,13 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             asyncio.create_task(self._run_model_comparison_tournament(tournament_config))
 
         except Exception as e:
-            print(f"[P2P] Model comparison scheduling error: {e}")
+            logger.info(f"Model comparison scheduling error: {e}")
 
     async def _run_model_comparison_tournament(self, config: dict):
         """Run a model comparison tournament and update baseline if new model wins."""
         tournament_id = config["tournament_id"]
         try:
-            print(f"[P2P] Running model comparison tournament {tournament_id}")
+            logger.info(f"Running model comparison tournament {tournament_id}")
 
             results_dir = Path(self.ringrift_path) / "ai-service" / "results" / "tournaments"
             results_dir.mkdir(parents=True, exist_ok=True)
@@ -11830,11 +11851,11 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     total_games = new_model_wins + baseline_wins
 
                     win_rate = new_model_wins / total_games if total_games > 0 else 0.5
-                    print(f"[P2P] Tournament {tournament_id}: new model win rate = {win_rate:.1%}")
+                    logger.info(f"Tournament {tournament_id}: new model win rate = {win_rate:.1%}")
 
                     promoted = win_rate >= 0.55
                     if promoted:
-                        print(f"[P2P] New model beats baseline! Promoting to best baseline.")
+                        logger.info(f"New model beats baseline! Promoting to best baseline.")
                         await self._promote_to_baseline(
                             config["model_a"], config["board_type"],
                             config["num_players"], "nnue" if "nnue" in config["model_a"].lower() else "cmaes"
@@ -11857,7 +11878,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     self.ssh_tournament_runs[tournament_id].completed_at = time.time()
 
         except Exception as e:
-            print(f"[P2P] Tournament {tournament_id} error: {e}")
+            logger.info(f"Tournament {tournament_id} error: {e}")
             with self.ssh_tournament_lock:
                 if tournament_id in self.ssh_tournament_runs:
                     self.ssh_tournament_runs[tournament_id].status = "failed"
@@ -11874,13 +11895,13 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             if baseline_path.exists():
                 backup_path = baseline_dir / f"{board_type}_{num_players}p_prev_{int(time.time())}.pt"
                 shutil.copy2(baseline_path, backup_path)
-                print(f"[P2P] Backed up previous baseline to {backup_path}")
+                logger.info(f"Backed up previous baseline to {backup_path}")
 
             shutil.copy2(model_path, baseline_path)
-            print(f"[P2P] Promoted {model_path} to baseline at {baseline_path}")
+            logger.info(f"Promoted {model_path} to baseline at {baseline_path}")
 
         except Exception as e:
-            print(f"[P2P] Baseline promotion error: {e}")
+            logger.info(f"Baseline promotion error: {e}")
 
     async def _check_cmaes_auto_tuning(self, config_key: str):
         """Check if CMA-ES auto-tuning should be triggered for a config.
@@ -11925,14 +11946,14 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             self.last_cmaes_elo[config_key] = best_elo
 
             if should_tune:
-                print(f"[P2P/CMA-ES] Elo plateau detected for {config_key} (Elo: {best_elo:.0f})")
-                print(f"[P2P/CMA-ES] Triggering auto hyperparameter optimization...")
+                logger.info(f"[CMA-ES] Elo plateau detected for {config_key} (Elo: {best_elo:.0f})")
+                logger.info(f"[CMA-ES] Triggering auto hyperparameter optimization...")
 
                 # Trigger CMA-ES via existing distributed infrastructure
                 await self._trigger_auto_cmaes(board_type, num_players)
 
         except Exception as e:
-            print(f"[P2P/CMA-ES] Auto-tuning check error for {config_key}: {e}")
+            logger.info(f"[CMA-ES] Auto-tuning check error for {config_key}: {e}")
 
     def get_pfsp_opponent(self, config_key: str) -> Optional[str]:
         """Get a PFSP-sampled opponent model for selfplay.
@@ -11949,7 +11970,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             if opponent:
                 return opponent.model_path
         except Exception as e:
-            print(f"[P2P/PFSP] Error sampling opponent: {e}")
+            logger.error(f"[PFSP] Error sampling opponent: {e}")
         return None
 
     def update_pfsp_stats(self, config_key: str, model_id: str, win_rate: float, elo: float):
@@ -11962,9 +11983,9 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
         try:
             self.pfsp_pools[config_key].update_stats(model_id, win_rate=win_rate, elo=elo)
-            print(f"[P2P/PFSP] Updated stats for {model_id}: win_rate={win_rate:.2f}, elo={elo:.0f}")
+            logger.info(f"[PFSP] Updated stats for {model_id}: win_rate={win_rate:.2f}, elo={elo:.0f}")
         except Exception as e:
-            print(f"[P2P/PFSP] Error updating stats: {e}")
+            logger.error(f"[PFSP] Error updating stats: {e}")
 
     async def _handle_tournament_completion(
         self,
@@ -11990,7 +12011,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 self.improvement_cycle_manager.handle_evaluation_complete(
                     board_type, num_players, win_rate, new_model
                 )
-                print(f"[P2P] Updated improvement cycle for {board_type}_{num_players}p")
+                logger.info(f"Updated improvement cycle for {board_type}_{num_players}p")
 
             # 2. Record to unified Elo database
             try:
@@ -12005,13 +12026,13 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     num_players=num_players,
                     tournament_id=tournament_id,
                 )
-                print(f"[P2P] Recorded tournament result to unified Elo DB")
+                logger.info(f"Recorded tournament result to unified Elo DB")
 
                 # Trigger Elo sync to propagate to cluster
                 if HAS_ELO_SYNC and self.elo_sync_manager:
                     asyncio.create_task(self._trigger_elo_sync_after_matches(1))
             except Exception as e:
-                print(f"[P2P] Elo database update failed (non-fatal): {e}")
+                logger.info(f"Elo database update failed (non-fatal): {e}")
 
             # 3. Update diversity metrics
             if hasattr(self, 'diversity_metrics'):
@@ -12059,7 +12080,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 ))
 
         except Exception as e:
-            print(f"[P2P] Tournament completion handler error: {e}")
+            logger.info(f"Tournament completion handler error: {e}")
             asyncio.create_task(self.notifier.send(
                 title="Tournament Handler Error",
                 message=str(e),
@@ -12074,7 +12095,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         """
         try:
             config_key = f"{board_type}_{num_players}p"
-            print(f"[P2P] Boosting selfplay for {config_key} after promotion")
+            logger.info(f"Boosting selfplay for {config_key} after promotion")
 
             # Schedule additional selfplay jobs for this configuration
             # This will be picked up by the next job scheduling cycle
@@ -12092,7 +12113,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 }
 
         except Exception as e:
-            print(f"[P2P] Selfplay boost error: {e}")
+            logger.info(f"Selfplay boost error: {e}")
 
     async def _propagate_cmaes_weights(
         self, board_type: str, num_players: int, weights: Dict[str, float]
@@ -12105,7 +12126,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         """
         try:
             config_key = f"{board_type}_{num_players}p"
-            print(f"[P2P] Propagating CMA-ES weights for {config_key}")
+            logger.info(f"Propagating CMA-ES weights for {config_key}")
 
             # 1. Save to shared heuristic weights config
             config_path = Path(self.ringrift_path) / "ai-service" / "config" / "heuristic_weights.json"
@@ -12124,7 +12145,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 "updated_at": time.time(),
             }
             config_path.write_text(json_mod.dumps(existing, indent=2))
-            print(f"[P2P] Updated heuristic_weights.json with {config_key} weights")
+            logger.info(f"Updated heuristic_weights.json with {config_key} weights")
 
             # 2. Track config for weight-aware selfplay scheduling
             if not hasattr(self, 'cmaes_weight_configs'):
@@ -12147,15 +12168,15 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             for job_id in jobs_to_stop:
                 await self._stop_local_job(job_id)
-                print(f"[P2P] Stopped selfplay job {job_id} for weight update")
+                logger.info(f"Stopped selfplay job {job_id} for weight update")
 
             # 4. Boost selfplay to generate data with new weights
             asyncio.create_task(self._boost_selfplay_for_config(board_type, num_players))
 
-            print(f"[P2P] Weight propagation complete for {config_key}")
+            logger.info(f"Weight propagation complete for {config_key}")
 
         except Exception as e:
-            print(f"[P2P] CMA-ES weight propagation error: {e}")
+            logger.info(f"CMA-ES weight propagation error: {e}")
 
     async def _stop_local_job(self, job_id: str):
         """Stop a local job by job ID."""
@@ -12166,7 +12187,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     job.process.terminate()
                     job.status = "stopped"
         except Exception as e:
-            print(f"[P2P] Error stopping job {job_id}: {e}")
+            logger.error(f"stopping job {job_id}: {e}")
 
     async def _import_gpu_selfplay_to_canonical(
         self, validated_db: Path, board_type: str, num_players: int, game_count: int
@@ -12182,7 +12203,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             if not canonical_db.parent.exists():
                 canonical_db.parent.mkdir(parents=True, exist_ok=True)
 
-            print(f"[P2P] Auto-importing {game_count} validated GPU games to canonical DB...")
+            logger.info(f"Auto-importing {game_count} validated GPU games to canonical DB...")
 
             # Use sqlite3 to merge games from validated_db to canonical_db
             import sqlite3
@@ -12285,7 +12306,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             src_conn.close()
             dst_conn.close()
 
-            print(f"[P2P] Successfully imported {imported} GPU selfplay games to canonical DB")
+            logger.info(f"Successfully imported {imported} GPU selfplay games to canonical DB")
 
             # Update cluster data manifest to reflect new games
             config_key = f"{board_type}_{num_players}p"
@@ -12300,7 +12321,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 self.improvement_cycle_manager.record_games(board_type, num_players, imported)
 
         except Exception as e:
-            print(f"[P2P] GPU selfplay import error: {e}")
+            logger.info(f"GPU selfplay import error: {e}")
             import traceback
             traceback.print_exc()
 
@@ -13144,7 +13165,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             config = cycle.config
             best_model_id = cycle.best_model_id or f"baseline_{config.board_type}_{config.num_players}p"
 
-            print(f"[P2P] ImprovementCycle {cycle_id}: Scheduling evaluation {new_model_id} vs {best_model_id}")
+            logger.info(f"ImprovementCycle {cycle_id}: Scheduling evaluation {new_model_id} vs {best_model_id}")
 
             self.improvement_cycle_manager.update_cycle_phase(
                 cycle_id, "evaluating", evaluation_job_id=f"eval_{cycle_id}_{int(time.time())}"
@@ -13165,7 +13186,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 draws = eval_result.get("draws", 0)
             else:
                 # Fallback to mock results if SSH evaluation fails
-                print(f"[P2P] ImprovementCycle {cycle_id}: SSH evaluation failed, using fallback")
+                logger.info(f"ImprovementCycle {cycle_id}: SSH evaluation failed, using fallback")
                 import random
                 total_games = config.evaluation_games
                 new_model_wins = random.randint(int(total_games * 0.4), int(total_games * 0.6))
@@ -13178,7 +13199,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             )
 
         except Exception as e:
-            print(f"[P2P] ImprovementCycle {cycle_id}: Evaluation scheduling failed: {e}")
+            logger.info(f"ImprovementCycle {cycle_id}: Evaluation scheduling failed: {e}")
             if self.improvement_cycle_manager:
                 self.improvement_cycle_manager.update_cycle_phase(cycle_id, "idle", error_message=str(e))
 
@@ -13248,7 +13269,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 --games {games} \
                 --ai-type descent 2>/dev/null'''
 
-            print(f"[P2P] Running SSH evaluation on {eval_host.name}: {new_model_id} vs {baseline_model_id}")
+            logger.info(f"Running SSH evaluation on {eval_host.name}: {new_model_id} vs {baseline_model_id}")
 
             proc = await asyncio.create_subprocess_exec(
                 "ssh",
@@ -13268,7 +13289,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             if proc.returncode != 0:
                 stderr_text = stderr.decode()[:500] if stderr else ""
-                print(f"[P2P] SSH evaluation failed on {eval_host.name}: {stderr_text}")
+                logger.info(f"SSH evaluation failed on {eval_host.name}: {stderr_text}")
                 return {"success": False, "error": f"SSH command failed: {stderr_text}"}
 
             # Parse JSON result from stdout
@@ -13277,7 +13298,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 return {"success": False, "error": "No output from evaluation script"}
 
             result = json.loads(stdout_text)
-            print(f"[P2P] SSH evaluation complete: {result.get('new_model_wins', 0)}-{result.get('baseline_wins', 0)}-{result.get('draws', 0)}")
+            logger.info(f"SSH evaluation complete: {result.get('new_model_wins', 0)}-{result.get('baseline_wins', 0)}-{result.get('draws', 0)}")
             return result
 
         except asyncio.TimeoutError:
@@ -13291,7 +13312,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         """Auto-deploy promoted model to sandbox and cluster nodes."""
         try:
             import subprocess
-            print(f"[P2P] Auto-deploying model: {model_path}")
+            logger.info(f"Auto-deploying model: {model_path}")
 
             # Run deployment script
             result = await asyncio.get_event_loop().run_in_executor(
@@ -13311,12 +13332,12 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             )
 
             if result.returncode == 0:
-                print(f"[P2P] Model deployed successfully: {model_path}")
+                logger.info(f"Model deployed successfully: {model_path}")
             else:
-                print(f"[P2P] Model deployment failed: {result.stderr}")
+                logger.info(f"Model deployment failed: {result.stderr}")
 
         except Exception as e:
-            print(f"[P2P] Auto-deploy error: {e}")
+            logger.info(f"Auto-deploy error: {e}")
 
     # Canonical Pipeline Integration (for pipeline_orchestrator.py)
     # =========================================================================
@@ -13353,7 +13374,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     "error": f"Unknown phase: {phase}. Supported: canonical_selfplay, parity_validation, npz_export"}, status=400)
             return web.json_response(result)
         except Exception as e:
-            print(f"[P2P] Pipeline start error: {e}")
+            logger.info(f"Pipeline start error: {e}")
             return web.json_response({"success": False, "error": str(e)}, status=500)
 
     async def handle_pipeline_status(self, request: web.Request) -> web.Response:
@@ -13411,7 +13432,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         if not healthy_nodes:
             return {"success": False, "error": "No healthy nodes available"}
 
-        print(f"[P2P] Starting canonical selfplay pipeline: {len(healthy_nodes)} nodes, {games_per_node} games/node")
+        logger.info(f"Starting canonical selfplay pipeline: {len(healthy_nodes)} nodes, {games_per_node} games/node")
         dispatched = 0
         for i, (node_id, node) in enumerate(healthy_nodes):
             node_seed = seed + i * 10000 + hash(node_id) % 10000
@@ -13433,7 +13454,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                         if cmd_id:
                             dispatched += 1
                         else:
-                            print(f"[P2P] Relay queue full; skipping canonical selfplay enqueue for {node_id}")
+                            logger.info(f"Relay queue full; skipping canonical selfplay enqueue for {node_id}")
                     else:
                         payload = {
                             "job_id": f"{job_id}-{node_id}",
@@ -13452,7 +13473,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                                 except Exception:
                                     continue
                 except Exception as e:
-                    print(f"[P2P] Failed to dispatch selfplay to {node_id}: {e}")
+                    logger.error(f"Failed to dispatch selfplay to {node_id}: {e}")
 
         self._pipeline_status = {"job_id": job_id, "phase": "canonical_selfplay", "status": "running",
             "dispatched_count": dispatched, "total_nodes": len(healthy_nodes),
@@ -13479,16 +13500,16 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
             env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
 
-            print(f"[P2P] Starting canonical selfplay job {job_id}: {num_games} games -> {db_file}")
+            logger.info(f"Starting canonical selfplay job {job_id}: {num_games} games -> {db_file}")
             proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE,
                                                         stderr=asyncio.subprocess.PIPE, env=env)
             stdout, stderr = await proc.communicate()
             if proc.returncode == 0:
-                print(f"[P2P] Canonical selfplay job {job_id} completed successfully")
+                logger.info(f"Canonical selfplay job {job_id} completed successfully")
             else:
-                print(f"[P2P] Canonical selfplay job {job_id} failed: {stderr.decode()[:500]}")
+                logger.info(f"Canonical selfplay job {job_id} failed: {stderr.decode()[:500]}")
         except Exception as e:
-            print(f"[P2P] Canonical selfplay job {job_id} error: {e}")
+            logger.info(f"Canonical selfplay job {job_id} error: {e}")
 
     async def _start_parity_validation_pipeline(self, board_type: str, num_players: int,
                                                 db_paths: Optional[List[str]]) -> Dict[str, Any]:
@@ -13519,22 +13540,22 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
             env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
 
-            print(f"[P2P] Starting parity validation job {job_id}: {len(db_paths)} databases")
+            logger.info(f"Starting parity validation job {job_id}: {len(db_paths)} databases")
             proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE,
                                                         stderr=asyncio.subprocess.PIPE, env=env)
             stdout, stderr = await proc.communicate()
             if proc.returncode == 0:
-                print(f"[P2P] Parity validation job {job_id} completed successfully")
+                logger.info(f"Parity validation job {job_id} completed successfully")
                 self._pipeline_status["status"] = "completed"
                 if os.path.exists(output_json):
                     with open(output_json) as f:
                         self._pipeline_status["results"] = json.load(f)
             else:
-                print(f"[P2P] Parity validation job {job_id} failed: {stderr.decode()[:500]}")
+                logger.info(f"Parity validation job {job_id} failed: {stderr.decode()[:500]}")
                 self._pipeline_status["status"] = "failed"
                 self._pipeline_status["error"] = stderr.decode()[:500]
         except Exception as e:
-            print(f"[P2P] Parity validation job {job_id} error: {e}")
+            logger.info(f"Parity validation job {job_id} error: {e}")
             self._pipeline_status["status"] = "failed"
             self._pipeline_status["error"] = str(e)
 
@@ -13569,20 +13590,20 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             env = os.environ.copy()
             env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
 
-            print(f"[P2P] Starting NPZ export job {job_id}: {len(db_paths)} databases -> {output_file}")
+            logger.info(f"Starting NPZ export job {job_id}: {len(db_paths)} databases -> {output_file}")
             proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE,
                                                         stderr=asyncio.subprocess.PIPE, env=env)
             stdout, stderr = await proc.communicate()
             if proc.returncode == 0:
-                print(f"[P2P] NPZ export job {job_id} completed successfully")
+                logger.info(f"NPZ export job {job_id} completed successfully")
                 self._pipeline_status["status"] = "completed"
                 self._pipeline_status["output_file"] = output_file
             else:
-                print(f"[P2P] NPZ export job {job_id} failed: {stderr.decode()[:500]}")
+                logger.info(f"NPZ export job {job_id} failed: {stderr.decode()[:500]}")
                 self._pipeline_status["status"] = "failed"
                 self._pipeline_status["error"] = stderr.decode()[:500]
         except Exception as e:
-            print(f"[P2P] NPZ export job {job_id} error: {e}")
+            logger.info(f"NPZ export job {job_id} error: {e}")
             self._pipeline_status["status"] = "failed"
             self._pipeline_status["error"] = str(e)
 
@@ -14344,7 +14365,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     # Skip files older than 24h
                     if jsonl_path.stat().st_mtime < cutoff_time:
                         continue
-                    with open(jsonl_path, "r") as f:
+                    with open_jsonl_file(jsonl_path) as f:
                         for line in f:
                             try:
                                 game = json.loads(line)
@@ -14402,7 +14423,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 try:
                     if jsonl_path.stat().st_mtime < cutoff:
                         continue
-                    with open(jsonl_path, "r") as f:
+                    with open_jsonl_file(jsonl_path) as f:
                         for line in f:
                             try:
                                 game = json.loads(line)
@@ -14649,7 +14670,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 try:
                     if jsonl_path.stat().st_mtime < cutoff:
                         continue
-                    with open(jsonl_path, "r") as f:
+                    with open_jsonl_file(jsonl_path) as f:
                         for line in f:
                             try:
                                 game = json.loads(line)
@@ -14953,7 +14974,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     try:
                         if jsonl_path.stat().st_mtime < cutoff:
                             continue
-                        with open(jsonl_path, "r") as f:
+                        with open_jsonl_file(jsonl_path) as f:
                             for line in f:
                                 try:
                                     game = json.loads(line)
@@ -15866,10 +15887,10 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 self._pending_sync_matches = 0
                 success = await self.elo_sync_manager.sync_with_cluster()
                 if success:
-                    print(f"[P2P] Elo sync triggered after {pending} matches: "
+                    logger.info(f"Elo sync triggered after {pending} matches: "
                           f"{self.elo_sync_manager.state.local_match_count} total")
         except Exception as e:
-            print(f"[P2P] Elo sync trigger error: {e}")
+            logger.info(f"Elo sync trigger error: {e}")
 
     async def _elo_sync_loop(self):
         """Background loop for periodic Elo database synchronization."""
@@ -15880,10 +15901,10 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         try:
             await self.elo_sync_manager.initialize()
         except Exception as e:
-            print(f"[P2P] EloSyncManager initialization failed: {e}")
+            logger.info(f"EloSyncManager initialization failed: {e}")
             return
 
-        print(f"[P2P] Elo sync loop started (interval: {self.elo_sync_manager.sync_interval}s)")
+        logger.info(f"Elo sync loop started (interval: {self.elo_sync_manager.sync_interval}s)")
 
         while self.running:
             try:
@@ -15891,9 +15912,9 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 if not self.sync_in_progress:
                     success = await self.elo_sync_manager.sync_with_cluster()
                     if success:
-                        print(f"[P2P] Elo sync completed: {self.elo_sync_manager.state.local_match_count} matches")
+                        logger.info(f"Elo sync completed: {self.elo_sync_manager.state.local_match_count} matches")
             except Exception as e:
-                print(f"[P2P] Elo sync error: {e}")
+                logger.info(f"Elo sync error: {e}")
 
             await asyncio.sleep(self.elo_sync_manager.sync_interval)
 
@@ -15937,7 +15958,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     try:
                         if jsonl_path.stat().st_mtime < cutoff:
                             continue
-                        with open(jsonl_path, "r") as f:
+                        with open_jsonl_file(jsonl_path) as f:
                             for line in f:
                                 try:
                                     game = json.loads(line)
@@ -18033,7 +18054,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         if not state:
             return
 
-        print(f"[P2P] Running evaluation for job {job_id}, iteration {state.current_iteration}")
+        logger.info(f"Running evaluation for job {job_id}, iteration {state.current_iteration}")
 
         candidate_model = getattr(state, 'candidate_model_path', None)
         best_model = state.best_model_path
@@ -18129,17 +18150,17 @@ print(json.dumps({{
                 result = json_module.loads(result_line)
 
                 state.evaluation_winrate = result.get('winrate', 0.5)
-                print(f"[P2P] Evaluation result: winrate={state.evaluation_winrate:.2%}")
-                print(f"  Candidate: {result.get('candidate_wins')}, Best: {result.get('best_wins')}, Draws: {result.get('draws')}")
+                logger.info(f"Evaluation result: winrate={state.evaluation_winrate:.2%}")
+                logger.info(f"  Candidate")
             else:
-                print(f"[P2P] Evaluation failed: {stderr.decode()[:500]}")
+                logger.info(f"Evaluation failed: {stderr.decode()[:500]}")
                 state.evaluation_winrate = 0.5
 
         except asyncio.TimeoutError:
-            print(f"[P2P] Evaluation timed out")
+            logger.info(f"Evaluation timed out")
             state.evaluation_winrate = 0.5
         except Exception as e:
-            print(f"[P2P] Evaluation error: {e}")
+            logger.info(f"Evaluation error: {e}")
             state.evaluation_winrate = 0.5
 
     async def _promote_model_if_better(self, job_id: str):
@@ -18156,10 +18177,10 @@ print(json.dumps({{
         winrate = getattr(state, 'evaluation_winrate', 0.5)
         candidate_path = getattr(state, 'candidate_model_path', None)
 
-        print(f"[P2P] Checking model promotion for job {job_id}")
-        print(f"  Current best winrate: {state.best_winrate:.2%}")
-        print(f"  Candidate winrate: {winrate:.2%}")
-        print(f"  Threshold: {PROMOTION_THRESHOLD:.0%}")
+        logger.info(f"Checking model promotion for job {job_id}")
+        logger.info(f"  Current")
+        logger.info(f"  Candidate")
+        logger.info(f"  Threshold")
 
         if winrate >= PROMOTION_THRESHOLD and candidate_path:
             # Promote candidate to best
@@ -18176,12 +18197,12 @@ print(json.dumps({{
             best_path = os.path.join(best_model_dir, f"{state.board_type}_{state.num_players}p.pt")
             if os.path.exists(candidate_path):
                 shutil.copy2(candidate_path, best_path)
-                print(f"[P2P] PROMOTED: New best model at {best_path}")
-                print(f"  Win rate: {winrate:.2%}")
+                logger.info(f"PROMOTED: New best model at {best_path}")
+                logger.info(f"  Win rate: {winrate:.2%}")
             else:
-                print(f"[P2P] Cannot promote: candidate model not found at {candidate_path}")
+                logger.info(f"Cannot promote: candidate model not found at {candidate_path}")
         else:
-            print(f"[P2P] No promotion: candidate ({winrate:.2%}) below threshold ({PROMOTION_THRESHOLD:.0%})")
+            logger.info(f"No promotion: candidate ({winrate:.2%}) below threshold ({PROMOTION_THRESHOLD:.0%})")
 
     # ============================================
     # Core Logic
@@ -18428,14 +18449,14 @@ print(json.dumps({{
                     new = max(0, after - before)
                     if new:
                         imported_any = True
-                        print(f"[P2P] Bootstrap: imported {new} new peers from {host}:{port}")
+                        logger.info(f"Bootstrap: imported {new} new peers from {host}:{port}")
 
                     leader_id = str(data.get("leader_id") or "").strip()
                     if leader_id and leader_id != self.node_id:
                         # If we're currently leader but the seed reports a higher-priority
                         # leader, step down to converge quickly.
                         if self.role == NodeRole.LEADER and leader_id > self.node_id:
-                            print(f"[P2P] Bootstrap: stepping down for leader {leader_id}")
+                            logger.info(f"Bootstrap: stepping down for leader {leader_id}")
                             self.role = NodeRole.FOLLOWER
                         self.leader_id = leader_id
                 except Exception:
@@ -18522,7 +18543,7 @@ print(json.dumps({{
                     leader_id = data.get("leader_id")
                     if leader_id and leader_id != self.node_id:
                         if self.leader_id != leader_id:
-                            print(f"[P2P] Adopted leader from relay: {leader_id}")
+                            logger.info(f"Adopted leader from relay: {leader_id}")
                         self.leader_id = leader_id
                         self.role = NodeRole.FOLLOWER
 
@@ -18550,7 +18571,7 @@ print(json.dumps({{
                 cmd_ts = cmd.get("ts") or cmd.get("timestamp") or now
                 cmd_age_secs = now - float(cmd_ts)
                 if cmd_age_secs > 300:
-                    print(f"[P2P] WARNING: Relay command {cmd_id} ({cmd_type}) is {cmd_age_secs:.0f}s old - relay delivery may be delayed")
+                    logger.info(f"WARNING: Relay command {cmd_id} ({cmd_type}) is {cmd_age_secs:.0f}s old - relay delivery may be delayed")
 
                 attempts = int(self.relay_command_attempts.get(cmd_id, 0) or 0) + 1
                 self.relay_command_attempts[cmd_id] = attempts
@@ -18719,7 +18740,7 @@ print(json.dumps({{
                             ):
                                 continue
                             if self.leader_id != info.node_id or self.role != NodeRole.FOLLOWER:
-                                print(f"[P2P] Following configured leader from heartbeat: {info.node_id}")
+                                logger.info(f"Following configured leader from heartbeat: {info.node_id}")
                             prev_leader = self.leader_id
                             self.leader_id = info.node_id
                             # Provisional lease: allow time for the leader to send
@@ -18769,7 +18790,7 @@ print(json.dumps({{
                                 # Try Tailscale mesh IP (100.x.x.x)
                                 info = await self._send_heartbeat_to_peer(ts_ip, peer.port, scheme=peer_scheme)
                                 if info:
-                                    print(f"[P2P] Reached {peer.node_id} via Tailscale ({ts_ip})")
+                                    logger.info(f"Reached {peer.node_id} via Tailscale ({ts_ip})")
                         if info:
                             info.consecutive_failures = 0
                             info.last_failure_time = 0.0
@@ -18787,7 +18808,7 @@ print(json.dumps({{
                                 ):
                                     continue
                                 if self.leader_id != info.node_id:
-                                    print(f"[P2P] Adopted leader from heartbeat: {info.node_id}")
+                                    logger.info(f"Adopted leader from heartbeat: {info.node_id}")
                                 prev_leader = self.leader_id
                                 self.leader_id = info.node_id
                                 if prev_leader != info.node_id or not self._is_leader_lease_valid():
@@ -18861,7 +18882,7 @@ print(json.dumps({{
 
                 # Health-based leadership: step down if we can't reach enough peers
                 if self.role == NodeRole.LEADER and not self._check_leader_health():
-                    print(f"[P2P] Stepping down due to degraded health")
+                    logger.info(f"Stepping down due to degraded health")
                     self.role = NodeRole.FOLLOWER
                     self.leader_id = None
                     self.leader_lease_id = ""
@@ -18901,7 +18922,7 @@ print(json.dumps({{
                 self._save_state()
 
             except Exception as e:
-                print(f"[P2P] Heartbeat error: {e}")
+                logger.info(f"Heartbeat error: {e}")
 
             # Notify systemd watchdog that we're still alive
             systemd_notify_watchdog()
@@ -18922,7 +18943,7 @@ print(json.dumps({{
         if self.node_id not in self.voter_node_ids:
             return
 
-        print(f"[P2P] Starting voter heartbeat loop (interval={VOTER_HEARTBEAT_INTERVAL}s)")
+        logger.info(f"Starting voter heartbeat loop (interval={VOTER_HEARTBEAT_INTERVAL}s)")
         last_voter_mesh_refresh = 0.0
 
         while self.running:
@@ -18948,7 +18969,7 @@ print(json.dumps({{
                     if success:
                         # AGGRESSIVE NAT RECOVERY: Clear NAT-blocked immediately on success
                         if VOTER_NAT_RECOVERY_AGGRESSIVE and voter_peer.nat_blocked:
-                            print(f"[P2P] Voter {voter_id} NAT-blocked status cleared (heartbeat succeeded)")
+                            logger.info(f"Voter {voter_id} NAT-blocked status cleared (heartbeat succeeded)")
                             async with AsyncLockWrapper(self.peers_lock):
                                 if voter_id in self.peers:
                                     self.peers[voter_id].nat_blocked = False
@@ -18971,7 +18992,7 @@ print(json.dumps({{
                     await self._refresh_voter_mesh()
 
             except Exception as e:
-                print(f"[P2P] Voter heartbeat error: {e}")
+                logger.info(f"Voter heartbeat error: {e}")
 
             await asyncio.sleep(VOTER_HEARTBEAT_INTERVAL)
 
@@ -19002,7 +19023,7 @@ print(json.dumps({{
                 # Update leader if this voter claims leadership
                 if info.role == NodeRole.LEADER and info.node_id != self.node_id:
                     if self.leader_id != info.node_id:
-                        print(f"[P2P] Discovered leader from voter heartbeat: {info.node_id}")
+                        logger.info(f"Discovered leader from voter heartbeat: {info.node_id}")
                         self.leader_id = info.node_id
                         self.role = NodeRole.FOLLOWER
                         self.leader_lease_expires = time.time() + LEADER_LEASE_DURATION
@@ -19021,7 +19042,7 @@ print(json.dumps({{
         if ts_ip and ts_ip != voter_peer.host:
             info = await self._send_heartbeat_to_peer(ts_ip, voter_peer.port, scheme=peer_scheme, timeout=VOTER_HEARTBEAT_TIMEOUT)
             if info:
-                print(f"[P2P] Reached voter {voter_peer.node_id} via Tailscale ({ts_ip})")
+                logger.info(f"Reached voter {voter_peer.node_id} via Tailscale ({ts_ip})")
                 with self.peers_lock:
                     info.last_heartbeat = time.time()
                     info.consecutive_failures = 0
@@ -19034,7 +19055,7 @@ print(json.dumps({{
         if rh and rp and (rh != voter_peer.host or rp != voter_peer.port):
             info = await self._send_heartbeat_to_peer(rh, rp, scheme=peer_scheme, timeout=VOTER_HEARTBEAT_TIMEOUT)
             if info:
-                print(f"[P2P] Reached voter {voter_peer.node_id} via reported endpoint ({rh}:{rp})")
+                logger.info(f"Reached voter {voter_peer.node_id} via reported endpoint ({rh}:{rp})")
                 with self.peers_lock:
                     info.last_heartbeat = time.time()
                     info.consecutive_failures = 0
@@ -19062,7 +19083,7 @@ print(json.dumps({{
                                 peer_info = NodeInfo.from_dict(peers_data[voter_id])
                                 with self.peers_lock:
                                     self.peers[voter_id] = peer_info
-                                print(f"[P2P] Discovered voter {voter_id} from {host}")
+                                logger.info(f"Discovered voter {voter_id} from {host}")
                                 return
             except Exception:
                 continue
@@ -19078,7 +19099,7 @@ print(json.dumps({{
 
         if len(known_voters) < len(self.voter_node_ids):
             missing_voters = [v for v in self.voter_node_ids if v not in known_voters]
-            print(f"[P2P] Voter mesh incomplete, missing: {missing_voters}")
+            logger.info(f"Voter mesh incomplete, missing: {missing_voters}")
 
             # Try to discover missing voters
             for voter_id in missing_voters:
@@ -19094,7 +19115,7 @@ print(json.dumps({{
         - Intelligent relay selection
         - Hole-punch coordination
         """
-        print("[P2P] Starting advanced NAT management loop")
+        logger.info("Starting advanced NAT management loop")
         last_stun_probe = 0.0
 
         while self.running:
@@ -19113,7 +19134,7 @@ print(json.dumps({{
                 await self._update_relay_preferences()
 
             except Exception as e:
-                print(f"[P2P] NAT management error: {e}")
+                logger.info(f"NAT management error: {e}")
 
             await asyncio.sleep(NAT_BLOCKED_PROBE_INTERVAL)
 
@@ -19154,7 +19175,7 @@ print(json.dumps({{
         # we likely have symmetric NAT
         if len(external_ips) > 1:
             self._nat_type = "symmetric"
-            print(f"[P2P] Detected symmetric NAT (multiple external IPs seen)")
+            logger.info(f"Detected symmetric NAT (multiple external IPs seen)")
         elif len(external_ips) == 1:
             self._nat_type = "cone"
         else:
@@ -19201,7 +19222,7 @@ print(json.dumps({{
                         ) as resp:
                             if resp.status == 200:
                                 # Peer is reachable! Clear NAT-blocked status
-                                print(f"[P2P] NAT-blocked peer {peer.node_id} is now reachable at {host}:{port}")
+                                logger.info(f"NAT-blocked peer {peer.node_id} is now reachable at {host}:{port}")
                                 with self.peers_lock:
                                     if peer.node_id in self.peers:
                                         self.peers[peer.node_id].nat_blocked = False
@@ -19226,7 +19247,7 @@ print(json.dumps({{
         for peer in peers_needing_relay:
             # Mark as preferring relay
             if not peer.nat_blocked:
-                print(f"[P2P] Peer {peer.node_id} has {peer.consecutive_failures} consecutive failures, marking as NAT-blocked")
+                logger.info(f"Peer {peer.node_id} has {peer.consecutive_failures} consecutive failures, marking as NAT-blocked")
                 with self.peers_lock:
                     if peer.node_id in self.peers:
                         self.peers[peer.node_id].nat_blocked = True
@@ -19269,7 +19290,7 @@ print(json.dumps({{
         # is fully responsive. Initial manifest collection reads 700+ JSONL files and
         # can take several minutes, which can block health checks if started too early.
         await asyncio.sleep(60.0)  # Wait 60s before first manifest collection
-        print("[P2P] Starting manifest collection loop (first collection in 60s)")
+        logger.info("Starting manifest collection loop (first collection in 60s)")
         while self.running:
             try:
                 if self.role == NodeRole.LEADER:
@@ -19283,7 +19304,7 @@ print(json.dumps({{
                                 cluster_manifest.by_board_type
                             )
                         except Exception as e:
-                            print(f"[P2P] ImprovementCycleManager update error: {e}")
+                            logger.info(f"ImprovementCycleManager update error: {e}")
                 else:
                     local_manifest = await asyncio.to_thread(self._collect_local_data_manifest)
                     with self.manifest_lock:
@@ -19292,7 +19313,7 @@ print(json.dumps({{
                 self.last_manifest_collection = time.time()
 
             except Exception as e:
-                print(f"[P2P] Manifest collection error: {e}")
+                logger.info(f"Manifest collection error: {e}")
 
             await asyncio.sleep(self.manifest_collection_interval)
 
@@ -19396,7 +19417,7 @@ print(json.dumps({{
                                 existing.nat_blocked = False
                                 existing.nat_blocked_since = 0.0
                                 existing.relay_via = ""
-                                print(f"[P2P] NAT recovery: {peer.node_id} is now directly reachable")
+                                logger.info(f"NAT recovery: {peer.node_id} is now directly reachable")
                                 return True
         except Exception:
             # Probe failed - peer still not reachable
@@ -19428,7 +19449,7 @@ print(json.dumps({{
                 recovered += 1
 
         if recovered > 0:
-            print(f"[P2P] NAT recovery sweep: {recovered} peer(s) recovered")
+            logger.info(f"NAT recovery sweep: {recovered} peer(s) recovered")
 
         return recovered
 
@@ -19480,7 +19501,7 @@ print(json.dumps({{
         leader = sorted(leaders, key=lambda p: p.node_id)[-1]
 
         if self.leader_id != leader.node_id:
-            print(f"[P2P] Adopted existing leader from peers: {leader.node_id}")
+            logger.info(f"Adopted existing leader from peers: {leader.node_id}")
         self.leader_id = leader.node_id
         self.last_leader_seen = time.time()  # Track when we last had a functioning leader
         self.role = NodeRole.FOLLOWER
@@ -19509,7 +19530,7 @@ print(json.dumps({{
                     if not getattr(info, "retired", False) and dead_for >= PEER_RETIRE_AFTER_SECONDS:
                         info.retired = True
                         info.retired_at = now
-                        print(f"[P2P] Retiring peer {node_id} (offline for {int(dead_for)}s)")
+                        logger.info(f"Retiring peer {node_id} (offline for {int(dead_for)}s)")
                 elif info.is_alive() and getattr(info, "retired", False):
                     # Peer came back: clear retirement.
                     info.retired = False
@@ -19519,7 +19540,7 @@ print(json.dumps({{
                 info = self.peers.get(node_id)
                 if info and getattr(info, "retired", False):
                     continue
-                print(f"[P2P] Peer {node_id} is dead (no heartbeat for {PEER_TIMEOUT}s)")
+                logger.info(f"Peer {node_id} is dead (no heartbeat for {PEER_TIMEOUT}s)")
 
             # Auto-purge very old retired peers
             for node_id, info in self.peers.items():
@@ -19530,11 +19551,11 @@ print(json.dumps({{
 
             for node_id in peers_to_purge:
                 del self.peers[node_id]
-                print(f"[P2P] Auto-purged stale peer: {node_id} (retired for >{PEER_PURGE_AFTER_SECONDS}s)")
+                logger.info(f"Auto-purged stale peer: {node_id} (retired for >{PEER_PURGE_AFTER_SECONDS}s)")
 
         # Clear stale leader IDs after restarts/partitions
         if self.leader_id and not self._is_leader_lease_valid():
-            print(f"[P2P] Clearing stale/expired leader lease: leader_id={self.leader_id}")
+            logger.info(f"Clearing stale/expired leader lease: leader_id={self.leader_id}")
             self.leader_id = None
             self.leader_lease_id = ""
             self.leader_lease_expires = 0.0
@@ -19551,7 +19572,7 @@ print(json.dumps({{
                 conflict_keys = self._endpoint_conflict_keys([self.self_info] + peers_snapshot)
                 if not self._is_leader_eligible(leader, conflict_keys):
                     reason = "dead" if not leader.is_alive() else "ineligible"
-                    print(f"[P2P] Leader {self.leader_id} is {reason}, starting election")
+                    logger.info(f"Leader {self.leader_id} is {reason}, starting election")
                     self.leader_id = None
                     self.leader_lease_id = ""
                     self.leader_lease_expires = 0.0
@@ -19584,7 +19605,7 @@ print(json.dumps({{
                     if not getattr(info, "retired", False) and dead_for >= PEER_RETIRE_AFTER_SECONDS:
                         info.retired = True
                         info.retired_at = now
-                        print(f"[P2P] Retiring peer {node_id} (offline for {int(dead_for)}s)")
+                        logger.info(f"Retiring peer {node_id} (offline for {int(dead_for)}s)")
                 elif info.is_alive() and getattr(info, "retired", False):
                     # Peer came back: clear retirement.
                     info.retired = False
@@ -19594,7 +19615,7 @@ print(json.dumps({{
                 info = self.peers.get(node_id)
                 if info and getattr(info, "retired", False):
                     continue
-                print(f"[P2P] Peer {node_id} is dead (no heartbeat for {PEER_TIMEOUT}s)")
+                logger.info(f"Peer {node_id} is dead (no heartbeat for {PEER_TIMEOUT}s)")
                 # Don't remove immediately, just mark as dead for historical tracking
 
             # STABILITY FIX: Auto-purge very old retired peers to prevent unbounded list growth
@@ -19609,7 +19630,7 @@ print(json.dumps({{
 
             for node_id in peers_to_purge:
                 del self.peers[node_id]
-                print(f"[P2P] Auto-purged stale peer: {node_id} (retired for >{PEER_PURGE_AFTER_SECONDS}s)")
+                logger.info(f"Auto-purged stale peer: {node_id} (retired for >{PEER_PURGE_AFTER_SECONDS}s)")
 
         # LEARNED LESSONS - Clear stale leader IDs after restarts/partitions.
         #
@@ -19619,7 +19640,7 @@ print(json.dumps({{
         # validity check, the cluster can get stuck leaderless and stop dispatching
         # jobs (while still "thinking" it has a leader).
         if self.leader_id and not self._is_leader_lease_valid():
-            print(f"[P2P] Clearing stale/expired leader lease: leader_id={self.leader_id}")
+            logger.info(f"Clearing stale/expired leader lease: leader_id={self.leader_id}")
             self.leader_id = None
             self.leader_lease_id = ""
             self.leader_lease_expires = 0.0
@@ -19636,7 +19657,7 @@ print(json.dumps({{
                 conflict_keys = self._endpoint_conflict_keys([self.self_info] + peers_snapshot)
                 if not self._is_leader_eligible(leader, conflict_keys):
                     reason = "dead" if not leader.is_alive() else "ineligible"
-                    print(f"[P2P] Leader {self.leader_id} is {reason}, starting election")
+                    logger.info(f"Leader {self.leader_id} is {reason}, starting election")
                     # Clear stale/ineligible leader to avoid proxy/relay selecting it.
                     self.leader_id = None
                     self.leader_lease_id = ""
@@ -19699,7 +19720,7 @@ print(json.dumps({{
 
         self.election_in_progress = True
         self.role = NodeRole.CANDIDATE
-        print(f"[P2P] Starting election, my ID: {self.node_id}")
+        logger.info(f"Starting election, my ID: {self.node_id}")
 
         try:
             # Send election message to all nodes with higher IDs
@@ -19727,7 +19748,7 @@ print(json.dumps({{
                                 data = await resp.json()
                                 if data.get("response") == "ALIVE":
                                     got_response = True
-                                    print(f"[P2P] Higher node {peer.node_id} responded")
+                                    logger.info(f"Higher node {peer.node_id} responded")
                     except Exception:
                         pass  # Network errors expected during elections
 
@@ -19751,17 +19772,17 @@ print(json.dumps({{
         """Become the cluster leader with lease-based leadership."""
         self._update_self_info()
         if getattr(self.self_info, "nat_blocked", False):
-            print(f"[P2P] Refusing leadership while NAT-blocked: {self.node_id}")
+            logger.info(f"Refusing leadership while NAT-blocked: {self.node_id}")
             return
         if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
-            print(f"[P2P] Refusing leadership without voter quorum: {self.node_id}")
+            logger.info(f"Refusing leadership without voter quorum: {self.node_id}")
             return
         import uuid
         lease_id = f"{self.node_id}_{int(time.time())}_{uuid.uuid4().hex[:8]}"
         lease_expires = await self._acquire_voter_lease_quorum(lease_id, int(LEADER_LEASE_DURATION))
         if getattr(self, "voter_node_ids", []):
             if not lease_expires:
-                print(f"[P2P] Failed to obtain voter lease quorum; refusing leadership: {self.node_id}")
+                logger.error(f"Failed to obtain voter lease quorum; refusing leadership: {self.node_id}")
                 self.role = NodeRole.FOLLOWER
                 self.leader_id = None
                 self.leader_lease_id = ""
@@ -19771,7 +19792,7 @@ print(json.dumps({{
                 self._save_state()
                 return
 
-        print(f"[P2P] I am now the leader: {self.node_id}")
+        logger.info(f"I am now the leader: {self.node_id}")
         self.role = NodeRole.LEADER
         self.leader_id = self.node_id
         self.last_leader_seen = time.time()  # Track when we last had a functioning leader
@@ -19882,7 +19903,7 @@ print(json.dumps({{
             return  # Another node should be coordinator
 
         # Become emergency coordinator (without voter lease)
-        print(f"[P2P] EMERGENCY COORDINATOR: Taking leadership without voter quorum "
+        logger.info(f"EMERGENCY COORDINATOR: Taking leadership without voter quorum "
               f"(quorum missing for {int(quorum_missing_duration)}s, {len(candidates)} candidates)")
 
         self.role = NodeRole.LEADER
@@ -19916,7 +19937,7 @@ print(json.dumps({{
                         pass  # Network errors expected during emergency coordination
 
         self._save_state()
-        print(f"[P2P] EMERGENCY COORDINATOR: {self.node_id} is now emergency leader")
+        logger.info(f"EMERGENCY COORDINATOR: {self.node_id} is now emergency leader")
 
     def _get_peer_health_score(self, peer_id: str) -> float:
         """Calculate health score for a peer (0-100, higher is healthier).
@@ -19989,7 +20010,7 @@ print(json.dumps({{
             # Open circuit after 3 failures
             if breaker["failures"] >= 3:
                 breaker["open_until"] = time.time() + 300  # 5 minute cooldown
-                print(f"[P2P] CIRCUIT BREAKER: Opening circuit for {peer_id} (3 failures)")
+                logger.info(f"CIRCUIT BREAKER: Opening circuit for {peer_id} (3 failures)")
 
         self._p2p_circuit_breaker[peer_id] = breaker
 
@@ -20133,7 +20154,7 @@ print(json.dumps({{
         # Log and initiate sync
         total_missing = sum(len(f) for f in files_to_sync.values())
         model_files = sum(1 for f in files_to_request if "models/" in f or f.endswith(".pt"))
-        print(f"[P2P] P2P SYNC: Missing {total_missing} files, requesting {len(files_to_request)} "
+        logger.info(f"P2P SYNC: Missing {total_missing} files, requesting {len(files_to_request)} "
               f"({model_files} models) from {best_peer} (health={self._get_peer_health_score(best_peer):.0f})")
 
         try:
@@ -20152,7 +20173,7 @@ print(json.dumps({{
                 self._record_sync_result_for_adaptive("data", success)  # ADAPTIVE INTERVAL
 
                 if success:
-                    print(f"[P2P] P2P SYNC: Completed {len(files_to_request)} files from {best_peer}")
+                    logger.info(f"P2P SYNC: Completed {len(files_to_request)} files from {best_peer}")
                     self._last_successful_p2p_sync = now
                     # Invalidate manifest cache
                     cache_path = self._get_manifest_cache_path()
@@ -20166,12 +20187,12 @@ print(json.dumps({{
                         if fpath in file_hashes:
                             self._record_synced_file(file_hashes[fpath], 0)
                 else:
-                    print(f"[P2P] P2P SYNC: Failed from {best_peer}: {job.error_message}")
+                    logger.info(f"P2P SYNC: Failed from {best_peer}: {job.error_message}")
             finally:
                 self.sync_in_progress = False
 
         except Exception as e:
-            print(f"[P2P] P2P SYNC: Error: {e}")
+            logger.info(f"P2P SYNC: Error: {e}")
             self._record_sync_result_for_adaptive("data", False)  # ADAPTIVE: record failure
             self._record_p2p_sync_result(best_peer, False)
             self.sync_in_progress = False
@@ -20248,7 +20269,7 @@ print(json.dumps({{
         if not peer or not peer.is_alive():
             return
 
-        print(f"[P2P] MODEL SYNC: Requesting {len(models_to_sync)} models from {best_peer}")
+        logger.info(f"MODEL SYNC: Requesting {len(models_to_sync)} models from {best_peer}")
 
         try:
             import uuid
@@ -20265,11 +20286,11 @@ print(json.dumps({{
                 self._record_p2p_sync_result(best_peer, success)
                 self._record_sync_result_for_adaptive("model", success)  # ADAPTIVE INTERVAL
                 if success:
-                    print(f"[P2P] MODEL SYNC: Got {len(models_to_sync)} models from {best_peer}")
+                    logger.info(f"MODEL SYNC: Got {len(models_to_sync)} models from {best_peer}")
             finally:
                 self.sync_in_progress = False
         except Exception as e:
-            print(f"[P2P] MODEL SYNC: Error: {e}")
+            logger.info(f"MODEL SYNC: Error: {e}")
             self._record_sync_result_for_adaptive("model", False)  # ADAPTIVE: record failure
             self.sync_in_progress = False
 
@@ -20373,7 +20394,7 @@ print(json.dumps({{
         if not peer or not peer.is_alive():
             return
 
-        print(f"[P2P] TRAINING DB SYNC: Requesting {len(dbs_to_sync)} training DBs from {best_peer}")
+        logger.info(f"TRAINING DB SYNC: Requesting {len(dbs_to_sync)} training DBs from {best_peer}")
 
         try:
             import uuid
@@ -20390,11 +20411,11 @@ print(json.dumps({{
                 self._record_p2p_sync_result(best_peer, success)
                 self._record_sync_result_for_adaptive("training_db", success)  # ADAPTIVE INTERVAL
                 if success:
-                    print(f"[P2P] TRAINING DB SYNC: Got {len(dbs_to_sync)} training DBs from {best_peer}")
+                    logger.info(f"TRAINING DB SYNC: Got {len(dbs_to_sync)} training DBs from {best_peer}")
             finally:
                 self.sync_in_progress = False
         except Exception as e:
-            print(f"[P2P] TRAINING DB SYNC: Error: {e}")
+            logger.info(f"TRAINING DB SYNC: Error: {e}")
             self._record_sync_result_for_adaptive("training_db", False)  # ADAPTIVE: record failure
             self.sync_in_progress = False
 
@@ -20660,7 +20681,7 @@ print(json.dumps({{
             }
             # Log metrics before reset
             avg_latency = sum(old_metrics["propagation_delay_ms"]) / max(1, len(old_metrics["propagation_delay_ms"]))
-            print(f"[GOSSIP METRICS] Hourly: sent={old_metrics['message_sent']} recv={old_metrics['message_received']} "
+            logger.debug(f"[GOSSIP] Hourly: sent={old_metrics['message_sent']} recv={old_metrics['message_received']} "
                   f"updates={old_metrics['state_updates']} repairs={old_metrics['anti_entropy_repairs']} "
                   f"stale={old_metrics['stale_states_detected']} avg_latency={avg_latency:.1f}ms")
             # ALERTING: Notify on high gossip latency (>1000ms average)
@@ -20816,7 +20837,7 @@ print(json.dumps({{
 
                                 if updates > 0:
                                     self._record_gossip_metrics("anti_entropy")
-                                    print(f"[GOSSIP] Anti-entropy repair: {updates} state updates from {peer.node_id}")
+                                    logger.debug(f"[GOSSIP] Anti-entropy repair: {updates} state updates from {peer.node_id}")
 
                                 return
                     except Exception:
@@ -21175,7 +21196,7 @@ print(json.dumps({{
 
         # Attempt recovery for identified nodes (max 2 per cycle)
         for node_id, peer, reason in nodes_to_recover[:2]:
-            print(f"[P2P] NODE RECOVERY: Attempting to recover {node_id} ({reason})")
+            logger.info(f"NODE RECOVERY: Attempting to recover {node_id} ({reason})")
             self._node_recovery_attempts[node_id] = now
             self._node_recovery_metrics["attempts"] += 1
 
@@ -21195,7 +21216,7 @@ print(json.dumps({{
             success = await self._attempt_node_recovery(node_id, peer)
             if success:
                 self._node_recovery_metrics["successes"] += 1
-                print(f"[P2P] NODE RECOVERY: Successfully restarted {node_id}")
+                logger.info(f"NODE RECOVERY: Successfully restarted {node_id}")
                 # ALERTING: Notify on successful recovery
                 asyncio.create_task(self.notifier.send(
                     title="Node Recovery Success",
@@ -21206,7 +21227,7 @@ print(json.dumps({{
                 ))
             else:
                 self._node_recovery_metrics["failures"] += 1
-                print(f"[P2P] NODE RECOVERY: Failed to restart {node_id}")
+                logger.info(f"NODE RECOVERY: Failed to restart {node_id}")
                 # ALERTING: Notify on failed recovery
                 asyncio.create_task(self.notifier.send(
                     title="Node Recovery Failed",
@@ -21244,14 +21265,14 @@ print(json.dumps({{
             if proc.returncode == 0:
                 return True
             else:
-                print(f"[P2P] NODE RECOVERY: SSH failed for {node_id}: {stderr.decode()[:100]}")
+                logger.info(f"NODE RECOVERY: SSH failed for {node_id}: {stderr.decode()[:100]}")
                 return False
 
         except asyncio.TimeoutError:
-            print(f"[P2P] NODE RECOVERY: SSH timeout for {node_id}")
+            logger.info(f"NODE RECOVERY: SSH timeout for {node_id}")
             return False
         except Exception as e:
-            print(f"[P2P] NODE RECOVERY: Error recovering {node_id}: {e}")
+            logger.info(f"NODE RECOVERY: Error recovering {node_id}: {e}")
             return False
 
     def _get_node_recovery_metrics(self) -> dict:
@@ -21939,7 +21960,7 @@ print(json.dumps({{
         with self._tournament_coordination_lock:
             self._tournament_proposals[proposal_id] = proposal
 
-        print(f"[P2P] TOURNAMENT: Created proposal {proposal_id} for {len(agent_ids or [])} agents")
+        logger.info(f"TOURNAMENT: Created proposal {proposal_id} for {len(agent_ids or [])} agents")
         return proposal
 
     def _vote_on_tournament_proposal(self, proposal_id: str, vote: str = "approve") -> bool:
@@ -22084,7 +22105,7 @@ print(json.dumps({{
                     proposal["status"] = "approved"
                     proposal["coordinator"] = coordinator
 
-                    print(f"[P2P] TOURNAMENT: Proposal {proposal_id} approved! "
+                    logger.info(f"TOURNAMENT: Proposal {proposal_id} approved! "
                           f"Coordinator: {coordinator} ({len(approve_votes)}/{alive_count} votes)")
 
                     # If we're the coordinator, start the tournament
@@ -22110,7 +22131,7 @@ print(json.dumps({{
         agent_ids = proposal.get("agent_ids", [])
 
         if len(agent_ids) < 2:
-            print(f"[P2P] TOURNAMENT: Cannot start - need at least 2 agents")
+            logger.info(f"TOURNAMENT: Cannot start - need at least 2 agents")
             return
 
         # Create round-robin pairings
@@ -22144,12 +22165,12 @@ print(json.dumps({{
         state.worker_nodes = workers
 
         if not state.worker_nodes:
-            print(f"[P2P] TOURNAMENT: No workers available for {job_id}")
+            logger.info(f"TOURNAMENT: No workers available for {job_id}")
             return
 
         self.distributed_tournament_state[job_id] = state
 
-        print(f"[P2P] TOURNAMENT: Started {job_id} from proposal {proposal.get('proposal_id')}: "
+        logger.info(f"TOURNAMENT: Started {job_id} from proposal {proposal.get('proposal_id')}: "
               f"{len(agent_ids)} agents, {len(pairings)} matches, {len(workers)} workers")
 
         # Launch coordinator task
@@ -22204,12 +22225,12 @@ print(json.dumps({{
             # Start monitoring services
             success = await self.monitoring_manager.start_as_leader()
             if success:
-                print(f"[P2P] Monitoring services started on leader node")
+                logger.info(f"Monitoring services started on leader node")
                 self._monitoring_was_leader = True
             else:
-                print(f"[P2P] Failed to start monitoring services")
+                logger.error(f"Failed to start monitoring services")
         except Exception as e:
-            print(f"[P2P] Error starting monitoring services: {e}")
+            logger.error(f"starting monitoring services: {e}")
 
     async def _stop_monitoring_if_not_leader(self):
         """Stop Prometheus/Grafana when we step down from leadership."""
@@ -22221,10 +22242,10 @@ print(json.dumps({{
         if self.role != NodeRole.LEADER:
             try:
                 await self.monitoring_manager.stop()
-                print(f"[P2P] Monitoring services stopped (no longer leader)")
+                logger.info(f"Monitoring services stopped (no longer leader)")
                 self._monitoring_was_leader = False
             except Exception as e:
-                print(f"[P2P] Error stopping monitoring services: {e}")
+                logger.error(f"stopping monitoring services: {e}")
 
     async def _update_monitoring_peers(self):
         """Update Prometheus config with current peer list."""
@@ -22243,14 +22264,14 @@ print(json.dumps({{
             self.monitoring_manager.update_peers(peer_list)
             await self.monitoring_manager.reload_config()
         except Exception as e:
-            print(f"[P2P] Error updating monitoring peers: {e}")
+            logger.error(f"updating monitoring peers: {e}")
 
     async def _renew_leader_lease(self):
         """Renew our leadership lease and broadcast to peers."""
         if self.role != NodeRole.LEADER:
             return
         if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
-            print(f"[P2P] Lost voter quorum; stepping down: {self.node_id}")
+            logger.info(f"Lost voter quorum; stepping down: {self.node_id}")
             self.role = NodeRole.FOLLOWER
             self.leader_id = None
             self.leader_lease_id = ""
@@ -22271,15 +22292,15 @@ print(json.dumps({{
         if getattr(self, "voter_node_ids", []):
             if not lease_expires:
                 # Voter quorum failed - try arbiter fallback before stepping down
-                print(f"[P2P] Voter lease quorum failed; checking arbiter...")
+                logger.info(f"Voter lease quorum failed; checking arbiter...")
                 arbiter_leader = await self._query_arbiter_for_leader()
                 if arbiter_leader == self.node_id:
                     # Arbiter still recognizes us as leader - extend lease provisionally
-                    print(f"[P2P] Arbiter confirms us as leader despite quorum failure; continuing with provisional lease")
+                    logger.info(f"Arbiter confirms us as leader despite quorum failure; continuing with provisional lease")
                     lease_expires = now + LEADER_LEASE_DURATION / 2  # Shorter lease until quorum recovers
                 elif arbiter_leader:
                     # Arbiter says someone else is leader - defer to arbiter
-                    print(f"[P2P] Arbiter reports different leader ({arbiter_leader}); stepping down")
+                    logger.info(f"Arbiter reports different leader ({arbiter_leader}); stepping down")
                     self.role = NodeRole.FOLLOWER
                     self.leader_id = arbiter_leader
                     self.leader_lease_id = ""
@@ -22290,7 +22311,7 @@ print(json.dumps({{
                     return
                 else:
                     # Arbiter also unreachable - step down to be safe
-                    print(f"[P2P] Failed to renew voter lease quorum and arbiter unreachable; stepping down: {self.node_id}")
+                    logger.error(f"Failed to renew voter lease quorum and arbiter unreachable; stepping down: {self.node_id}")
                     self.role = NodeRole.FOLLOWER
                     self.leader_id = None
                     self.leader_lease_id = ""
@@ -22325,7 +22346,7 @@ print(json.dumps({{
                         except Exception:
                             pass  # Network errors expected during lease renewal
         except Exception as e:
-            print(f"[P2P] Lease renewal error: {e}")
+            logger.info(f"Lease renewal error: {e}")
 
     def _is_leader_lease_valid(self) -> bool:
         """Check if the current leader's lease is still valid."""
@@ -22371,7 +22392,7 @@ print(json.dumps({{
                 self._last_voter_ack_check = now
                 leased_leader = await self._determine_leased_leader_from_voters()
                 if leased_leader and leased_leader != self.node_id:
-                    print(f"[P2P] VOTER ACK CHECK: Voters grant to {leased_leader}, not us; stepping down")
+                    logger.info(f"VOTER ACK CHECK: Voters grant to {leased_leader}, not us; stepping down")
                     self.role = NodeRole.FOLLOWER
                     self.leader_id = leased_leader
                     self.leader_lease_id = ""
@@ -22429,8 +22450,8 @@ print(json.dumps({{
 
         if highest_leader.node_id != self.node_id:
             # We're not the highest-priority leader - step down
-            print(f"[P2P] SPLIT-BRAIN detected! Found leaders: {[p.node_id for p in other_leaders]}")
-            print(f"[P2P] Stepping down in favor of higher-priority leader: {highest_leader.node_id}")
+            logger.info(f"SPLIT-BRAIN detected! Found leaders: {[p.node_id for p in other_leaders]}")
+            logger.info(f"Stepping down in favor of higher-priority leader: {highest_leader.node_id}")
             self.role = NodeRole.FOLLOWER
             self.leader_id = highest_leader.node_id
             self.leader_lease_id = ""
@@ -22441,7 +22462,7 @@ print(json.dumps({{
 
         # We are the highest - other leaders should step down
         # Send coordinator message to assert our leadership
-        print(f"[P2P] SPLIT-BRAIN detected! Asserting leadership over: {[p.node_id for p in other_leaders]}")
+        logger.info(f"SPLIT-BRAIN detected! Asserting leadership over: {[p.node_id for p in other_leaders]}")
         timeout = ClientTimeout(total=5)
         async with get_client_session(timeout) as session:
             for peer in other_leaders:
@@ -22530,7 +22551,7 @@ print(json.dumps({{
                     # Self-healing: detect and recover stuck nodes via SSH restart
                     await self._check_node_recovery()
             except Exception as e:
-                print(f"[P2P] Job management error: {e}")
+                logger.info(f"Job management error: {e}")
 
             await asyncio.sleep(JOB_CHECK_INTERVAL)
 
@@ -22559,7 +22580,7 @@ print(json.dumps({{
             started = getattr(job, "started_at", 0) or 0
             last_progress = getattr(job, "last_progress_time", started) or started
             if now - last_progress > TRAINING_STUCK_THRESHOLD and now - started > TRAINING_STUCK_THRESHOLD:
-                print(f"[P2P] STUCK DETECTED: Training job {job.job_id} on {job.target_node} - no progress for {int((now - last_progress)/60)}min")
+                logger.info(f"STUCK DETECTED: Training job {job.job_id} on {job.target_node} - no progress for {int((now - last_progress)/60)}min")
                 # Try to kill the process on the target node
                 target_node = job.target_node
                 if target_node and target_node != self.node_id:
@@ -22575,7 +22596,7 @@ print(json.dumps({{
                 job.error_message = "Killed: no progress detected"
                 job.completed_at = now
                 killed += 1
-                print(f"[P2P] Killed stuck training job {job.job_id}")
+                logger.info(f"Killed stuck training job {job.job_id}")
                 # ALERTING: Notify when stuck job is killed
                 asyncio.create_task(self.notifier.send(
                     title="Stuck Job Killed",
@@ -22608,13 +22629,13 @@ print(json.dumps({{
                 if last_gpu_active == 0:
                     peer._last_gpu_active_time = now
                 elif now - last_gpu_active > SELFPLAY_STUCK_THRESHOLD:
-                    print(f"[P2P] STUCK DETECTED: {peer.node_id} has {selfplay_jobs} jobs but 0% GPU for {int((now - last_gpu_active)/60)}min")
+                    logger.info(f"STUCK DETECTED: {peer.node_id} has {selfplay_jobs} jobs but 0% GPU for {int((now - last_gpu_active)/60)}min")
                     # Don't auto-kill selfplay, just log - might be CPU selfplay
             elif has_gpu and gpu_percent > 5:
                 peer._last_gpu_active_time = now
 
         if killed > 0:
-            print(f"[P2P] Self-healing: killed {killed} stuck job(s)")
+            logger.info(f"Self-healing: killed {killed} stuck job(s)")
         return killed
 
     async def _check_local_stuck_jobs(self) -> int:
@@ -22651,7 +22672,7 @@ print(json.dumps({{
             if last_gpu_active == 0:
                 self._local_last_gpu_active = now
             elif now - last_gpu_active > STUCK_THRESHOLD:
-                print(f"[P2P] LOCAL STUCK: {selfplay_jobs} selfplay jobs but {gpu_percent:.0f}% GPU for {int((now - last_gpu_active)/60)}min")
+                logger.info(f"LOCAL STUCK: {selfplay_jobs} selfplay jobs but {gpu_percent:.0f}% GPU for {int((now - last_gpu_active)/60)}min")
                 # Kill all local GPU selfplay processes and let them restart
                 try:
                     import subprocess
@@ -22662,7 +22683,7 @@ print(json.dumps({{
                     )
                     if result.returncode == 0:
                         killed += 1
-                        print(f"[P2P] LOCAL: Killed stuck GPU selfplay processes")
+                        logger.info(f"LOCAL: Killed stuck GPU selfplay processes")
                         # Clear job tracking so they restart
                         with self.jobs_lock:
                             gpu_jobs = [jid for jid, job in self.local_jobs.items()
@@ -22671,7 +22692,7 @@ print(json.dumps({{
                                 del self.local_jobs[jid]
                         self._local_last_gpu_active = now
                 except Exception as e:
-                    print(f"[P2P] LOCAL: Failed to kill stuck processes: {e}")
+                    logger.info(f"LOCAL: Failed to kill stuck processes: {e}")
         elif has_gpu and gpu_percent >= 5:
             self._local_last_gpu_active = now
 
@@ -22692,7 +22713,7 @@ print(json.dumps({{
             if actual_processes > tracked_jobs + 10:
                 last_orphan_check = getattr(self, "_last_orphan_kill", 0)
                 if now - last_orphan_check > 3600:  # Max once per hour
-                    print(f"[P2P] LOCAL: Orphan detection: {actual_processes} processes vs {tracked_jobs} tracked")
+                    logger.info(f"LOCAL: Orphan detection: {actual_processes} processes vs {tracked_jobs} tracked")
                     # Don't auto-kill orphans yet, just warn
                     # Could add aggressive cleanup here if needed
                     self._last_orphan_kill = now
@@ -22700,7 +22721,7 @@ print(json.dumps({{
             pass
 
         if killed > 0:
-            print(f"[P2P] LOCAL self-healing: terminated {killed} stuck process(es)")
+            logger.info(f"LOCAL self-healing: terminated {killed} stuck process(es)")
         return killed
 
     async def _remote_kill_stuck_job(self, target_node: str, job_id: str, job_type: str) -> bool:
@@ -22718,7 +22739,7 @@ print(json.dumps({{
                 async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
                     return resp.status == 200
         except Exception as e:
-            print(f"[P2P] Failed to kill stuck job on {target_node}: {e}")
+            logger.error(f"Failed to kill stuck job on {target_node}: {e}")
             return False
 
     async def _manage_local_jobs_decentralized(self) -> int:
@@ -22759,12 +22780,12 @@ print(json.dumps({{
 
         # Check resource pressure - don't start jobs if under pressure
         if node.disk_percent >= DISK_WARNING_THRESHOLD:
-            print(f"[P2P] LOCAL: Disk at {node.disk_percent:.0f}% - skipping job starts")
+            logger.info(f"LOCAL: Disk at {node.disk_percent:.0f}% - skipping job starts")
             await self._cleanup_local_disk()
             return 0
 
         if node.memory_percent >= MEMORY_WARNING_THRESHOLD:
-            print(f"[P2P] LOCAL: Memory at {node.memory_percent:.0f}% - skipping job starts")
+            logger.info(f"LOCAL: Memory at {node.memory_percent:.0f}% - skipping job starts")
             return 0
 
         # Calculate target jobs for this node
@@ -22774,7 +22795,7 @@ print(json.dumps({{
         # Start jobs if below target
         if current_jobs < target_selfplay:
             needed = min(target_selfplay - current_jobs, 3)  # Max 3 per cycle
-            print(f"[P2P] LOCAL: Starting {needed} selfplay job(s) ({current_jobs}/{target_selfplay})")
+            logger.info(f"LOCAL: Starting {needed} selfplay job(s) ({current_jobs}/{target_selfplay})")
 
             for _ in range(needed):
                 try:
@@ -22790,18 +22811,18 @@ print(json.dumps({{
                         if job:
                             changes += 1
                 except Exception as e:
-                    print(f"[P2P] LOCAL: Failed to start selfplay: {e}")
+                    logger.info(f"LOCAL: Failed to start selfplay: {e}")
                     break
 
         # Stop jobs if way over target (2x or more)
         elif current_jobs > target_selfplay * 2:
             excess = current_jobs - target_selfplay
-            print(f"[P2P] LOCAL: Reducing selfplay jobs by {excess} ({current_jobs}/{target_selfplay})")
+            logger.info(f"LOCAL: Reducing selfplay jobs by {excess} ({current_jobs}/{target_selfplay})")
             await self._reduce_local_selfplay_jobs(target_selfplay, reason="over_target")
             changes += excess
 
         if changes > 0:
-            print(f"[P2P] LOCAL job management: {changes} change(s)")
+            logger.info(f"LOCAL job management: {changes} change(s)")
         return changes
 
     async def _local_gpu_auto_scale(self) -> int:
@@ -22863,7 +22884,7 @@ print(json.dumps({{
                 new_jobs = max(1, int(gpu_headroom / 10 * jobs_per_10_percent))
                 new_jobs = min(new_jobs, max_jobs_per_cycle)  # Cap based on leader presence
 
-                print(f"[P2P] LOCAL: {gpu_percent:.0f}% GPU util, starting {new_jobs} diverse/hybrid selfplay job(s)")
+                logger.info(f"LOCAL: {gpu_percent:.0f}% GPU util, starting {new_jobs} diverse/hybrid selfplay job(s)")
 
                 for _ in range(new_jobs):
                     try:
@@ -22879,7 +22900,7 @@ print(json.dumps({{
                             if job:
                                 started += 1
                     except Exception as e:
-                        print(f"[P2P] LOCAL: Failed to start diverse selfplay: {e}")
+                        logger.info(f"LOCAL: Failed to start diverse selfplay: {e}")
                         break
 
                 self._local_gpu_idle_since = now  # Reset after action
@@ -22887,7 +22908,7 @@ print(json.dumps({{
             self._local_gpu_idle_since = 0  # GPU is busy, reset
 
         if started > 0:
-            print(f"[P2P] LOCAL GPU auto-scale: started {started} job(s)")
+            logger.info(f"LOCAL GPU auto-scale: started {started} job(s)")
         return started
 
     async def _local_resource_cleanup(self):
@@ -22909,17 +22930,17 @@ print(json.dumps({{
 
         # Disk cleanup
         if node.disk_percent >= DISK_CLEANUP_THRESHOLD:
-            print(f"[P2P] LOCAL: Disk at {node.disk_percent:.0f}% - triggering cleanup")
+            logger.info(f"LOCAL: Disk at {node.disk_percent:.0f}% - triggering cleanup")
             await self._cleanup_local_disk()
 
         # Memory pressure - reduce jobs
         if node.memory_percent >= MEMORY_CRITICAL_THRESHOLD:
-            print(f"[P2P] LOCAL: Memory CRITICAL at {node.memory_percent:.0f}%")
+            logger.info(f"LOCAL: Memory CRITICAL at {node.memory_percent:.0f}%")
             await self._reduce_local_selfplay_jobs(0, reason="memory_critical")
         elif node.memory_percent >= MEMORY_WARNING_THRESHOLD:
             current = int(getattr(node, "selfplay_jobs", 0) or 0)
             target = max(1, current // 2)
-            print(f"[P2P] LOCAL: Memory warning at {node.memory_percent:.0f}% - reducing jobs to {target}")
+            logger.info(f"LOCAL: Memory warning at {node.memory_percent:.0f}% - reducing jobs to {target}")
             await self._reduce_local_selfplay_jobs(target, reason="memory_warning")
 
     def _get_elo_based_priority_boost(self, board_type: str, num_players: int) -> int:
@@ -23142,12 +23163,12 @@ print(json.dumps({{
                     if job:
                         started += 1
                 except Exception as e:
-                    print(f"[P2P] Failed to start diverse selfplay on {node_id}: {e}")
+                    logger.error(f"Failed to start diverse selfplay on {node_id}: {e}")
                     break
 
         if started > 0:
             self._last_gpu_auto_scale = now
-            print(f"[P2P] Auto-scale: started {started} new diverse/hybrid selfplay job(s)")
+            logger.info(f"Auto-scale: started {started} new diverse/hybrid selfplay job(s)")
 
         return started
 
@@ -23190,14 +23211,14 @@ print(json.dumps({{
                 async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
                     if resp.status == 200:
                         data = await resp.json()
-                        print(f"[P2P] Started diverse selfplay on {node_id}: {board_type} {num_players}p")
+                        logger.info(f"Started diverse selfplay on {node_id}: {board_type} {num_players}p")
                         return data
                     else:
                         error = await resp.text()
-                        print(f"[P2P] Diverse selfplay start failed on {node_id}: {error}")
+                        logger.info(f"Diverse selfplay start failed on {node_id}: {error}")
                         return None
         except Exception as e:
-            print(f"[P2P] Failed to schedule diverse selfplay on {node_id}: {e}")
+            logger.error(f"Failed to schedule diverse selfplay on {node_id}: {e}")
             return None
 
     # Backward compatibility alias (GPU selfplay now redirects to diverse/hybrid)
@@ -23223,13 +23244,13 @@ print(json.dumps({{
         if HAS_NEW_COORDINATION:
             try:
                 if should_stop_production(QueueType.TRAINING_DATA):
-                    print(f"[P2P] Backpressure STOP: training queue full, halting selfplay on {node.node_id}")
+                    logger.info(f"Backpressure STOP: training queue full, halting selfplay on {node.node_id}")
                     return 0
                 if should_throttle_production(QueueType.TRAINING_DATA):
                     backpressure_factor = get_throttle_factor(QueueType.TRAINING_DATA)
-                    print(f"[P2P] Backpressure throttle: factor={backpressure_factor:.2f}")
+                    logger.info(f"Backpressure throttle: factor={backpressure_factor:.2f}")
             except Exception as e:
-                print(f"[P2P] Backpressure check error: {e}")
+                logger.info(f"Backpressure check error: {e}")
 
         # Minimum memory requirement - skip low-memory machines to avoid OOM
         memory_gb = int(getattr(node, "memory_gb", 0) or 0)
@@ -23276,7 +23297,7 @@ print(json.dumps({{
                     scale_up_increment = min(4, target_selfplay - current_jobs)
                     target_selfplay = current_jobs + scale_up_increment
                     if self.verbose:
-                        print(f"[P2P] Scale-up on {node.node_id}: {reason}, target={target_selfplay}")
+                        logger.info(f"Scale-up on {node.node_id}: {reason}, target={target_selfplay}")
 
                 # Check if we should scale down (overloaded)
                 scale_down, reduction, reason = should_scale_down(
@@ -23284,7 +23305,7 @@ print(json.dumps({{
                 )
                 if scale_down:
                     target_selfplay = max(1, current_jobs - reduction)
-                    print(f"[P2P] Scale-down on {node.node_id}: {reason}, target={target_selfplay}")
+                    logger.info(f"Scale-down on {node.node_id}: {reason}, target={target_selfplay}")
 
                 # Apply backpressure factor
                 target_selfplay = int(target_selfplay * backpressure_factor)
@@ -23295,7 +23316,7 @@ print(json.dumps({{
                 return int(max(1, target_selfplay))
 
             except Exception as e:
-                print(f"[P2P] Resource targets error, falling back to hardware-aware: {e}")
+                logger.info(f"Resource targets error, falling back to hardware-aware: {e}")
 
         # FALLBACK: Use unified hardware-aware limits from resource_optimizer
         # This ensures consistent limits across all orchestrators
@@ -23400,7 +23421,7 @@ print(json.dumps({{
                 )
                 return limits
             except Exception as e:
-                print(f"[P2P] Hybrid limits error: {e}")
+                logger.info(f"Hybrid limits error: {e}")
 
         # Fallback: No CPU-only jobs, use standard target
         gpu_jobs = self._target_selfplay_jobs_for_node(node)
@@ -23563,7 +23584,7 @@ print(json.dumps({{
             }
 
         except Exception as e:
-            print(f"[P2P] Cluster balance check error: {e}")
+            logger.info(f"Cluster balance check error: {e}")
             return {"action": "error", "error": str(e)}
 
     async def _manage_cluster_jobs(self):
@@ -23575,7 +23596,7 @@ print(json.dumps({{
         - Trigger cleanup when approaching limits
         - Use is_healthy() not just is_alive()
         """
-        print("[P2P] Leader: Managing cluster jobs...")
+        logger.info("Leader: Managing cluster jobs...")
 
         # Gather cluster state
         with self.peers_lock:
@@ -23589,7 +23610,7 @@ print(json.dumps({{
         for node in all_nodes:
             # LEARNED LESSONS - Proactive disk cleanup before hitting critical
             if node.disk_percent >= DISK_CLEANUP_THRESHOLD:
-                print(f"[P2P] {node.node_id}: Disk at {node.disk_percent:.0f}% - triggering cleanup")
+                logger.info(f"{node.node_id}: Disk at {node.disk_percent:.0f}% - triggering cleanup")
                 if node.node_id == self.node_id:
                     await self._cleanup_local_disk()
                 else:
@@ -23639,12 +23660,12 @@ print(json.dumps({{
                 # GPU idle with jobs running - track or take action
                 if node.node_id not in self.gpu_idle_since:
                     self.gpu_idle_since[node.node_id] = time.time()
-                    print(f"[P2P] {node.node_id}: GPU idle ({node.gpu_percent:.0f}%) with {node.selfplay_jobs} jobs - monitoring")
+                    logger.info(f"{node.node_id}: GPU idle ({node.gpu_percent:.0f}%) with {node.selfplay_jobs} jobs - monitoring")
                 else:
                     idle_duration = time.time() - self.gpu_idle_since[node.node_id]
                     if idle_duration >= GPU_IDLE_RESTART_TIMEOUT:
-                        print(f"[P2P] {node.node_id}: STUCK! GPU idle for {idle_duration:.0f}s with {node.selfplay_jobs} jobs")
-                        print(f"[P2P] {node.node_id}: Requesting job restart...")
+                        logger.info(f"{node.node_id}: STUCK! GPU idle for {idle_duration:.0f}s with {node.selfplay_jobs} jobs")
+                        logger.info(f"{node.node_id}: Requesting job restart...")
                         if node.node_id == self.node_id:
                             await self._restart_local_stuck_jobs()
                         else:
@@ -23692,12 +23713,12 @@ print(json.dumps({{
                 f"{n.node_id[:12]}={n.get_load_score():.0f}%"
                 for n in healthy_nodes[:5]
             )
-            print(f"[P2P] Load balancing: {load_summary}")
+            logger.info(f"Load balancing: {load_summary}")
 
         for node in healthy_nodes:
             load_score = node.get_load_score()
             if load_score >= LOAD_MAX_FOR_NEW_JOBS:
-                print(f"[P2P] {node.node_id}: Load {load_score:.0f}% - skipping new job starts")
+                logger.info(f"{node.node_id}: Load {load_score:.0f}% - skipping new job starts")
                 continue
 
             # LEARNED LESSONS - Reduce target when approaching limits
@@ -23716,7 +23737,7 @@ print(json.dumps({{
             # Check if node needs more jobs
             if node.selfplay_jobs < target_selfplay:
                 needed = target_selfplay - node.selfplay_jobs
-                print(f"[P2P] {node.node_id} needs {needed} more selfplay jobs")
+                logger.info(f"{node.node_id} needs {needed} more selfplay jobs")
 
                 # Job configuration diversity - cycle through different AI methods
                 # LEARNED LESSONS - Prioritize varied AI methods for better training:
@@ -23881,7 +23902,7 @@ print(json.dumps({{
                         and gpu_percent < 1
                     )
                     if gpu_seems_unavailable:
-                        print(f"[P2P] WARNING: {node.node_id} has GPU but 0% utilization with {node.selfplay_jobs} jobs - falling back to CPU selfplay")
+                        logger.info(f"WARNING: {node.node_id} has GPU but 0% utilization with {node.selfplay_jobs} jobs - falling back to CPU selfplay")
 
                     # HYBRID MODE: Decide between GPU and CPU-only based on capacity
                     spawn_cpu_only = False
@@ -23912,7 +23933,7 @@ print(json.dumps({{
                         task_type_str = "CPU-only"
 
                     gpu_info = f"gpu={node.gpu_name or 'none'}, gpu%={getattr(node, 'gpu_percent', 0):.0f}" if node.has_gpu else "no-gpu"
-                    print(f"[P2P] Assigning {task_type_str} task to {node.node_id} ({gpu_info}, load={node.get_load_score():.0f}%)")
+                    logger.info(f"Assigning {task_type_str} task to {node.node_id} ({gpu_info}, load={node.get_load_score():.0f}%)")
 
                     # FIXED: Round-robin config selection to ensure all configs get coverage
                     # Use unique_configs list for fair distribution across all 9 board/player combos
@@ -23957,7 +23978,7 @@ print(json.dumps({{
         - Compress and archive old logs
         - Clear /tmp files older than 24h
         """
-        print("[P2P] Running local disk cleanup...")
+        logger.info("Running local disk cleanup...")
         try:
             # Prefer the shared disk monitor (used by cron/resilience) for consistent cleanup policy.
             disk_monitor = Path(self.ringrift_path) / "ai-service" / "scripts" / "disk_monitor.py"
@@ -23984,9 +24005,9 @@ print(json.dumps({{
                     cwd=str(Path(self.ringrift_path) / "ai-service"),
                 )
                 if out.returncode == 0:
-                    print("[P2P] Disk monitor cleanup completed")
+                    logger.info("Disk monitor cleanup completed")
                 else:
-                    print(f"[P2P] Disk monitor cleanup failed: {out.stderr[:200]}")
+                    logger.info(f"Disk monitor cleanup failed: {out.stderr[:200]}")
             else:
                 # Minimal fallback: clear old logs if disk monitor isn't available.
                 log_dir = Path(self.ringrift_path) / "ai-service" / "logs"
@@ -23994,10 +24015,10 @@ print(json.dumps({{
                     for logfile in log_dir.rglob("*.log"):
                         if time.time() - logfile.stat().st_mtime > 7 * 86400:  # 7 days
                             logfile.unlink()
-                            print(f"[P2P] Cleaned old log: {logfile}")
+                            logger.info(f"Cleaned old log: {logfile}")
 
         except Exception as e:
-            print(f"[P2P] Disk cleanup error: {e}")
+            logger.info(f"Disk cleanup error: {e}")
 
     async def _request_remote_cleanup(self, node: NodeInfo):
         """Request a remote node to clean up disk space."""
@@ -24005,9 +24026,9 @@ print(json.dumps({{
             if getattr(node, "nat_blocked", False):
                 cmd_id = await self._enqueue_relay_command_for_peer(node, "cleanup", {})
                 if cmd_id:
-                    print(f"[P2P] Enqueued relay cleanup for {node.node_id}")
+                    logger.info(f"Enqueued relay cleanup for {node.node_id}")
                 else:
-                    print(f"[P2P] Relay queue full; skipping cleanup enqueue for {node.node_id}")
+                    logger.info(f"Relay queue full; skipping cleanup enqueue for {node.node_id}")
                 return
             timeout = ClientTimeout(total=HTTP_TOTAL_TIMEOUT)
             async with get_client_session(timeout) as session:
@@ -24016,16 +24037,16 @@ print(json.dumps({{
                     try:
                         async with session.post(url, json={}, headers=self._auth_headers()) as resp:
                             if resp.status == 200:
-                                print(f"[P2P] Cleanup requested on {node.node_id}")
+                                logger.info(f"Cleanup requested on {node.node_id}")
                                 return
                             last_err = f"http_{resp.status}"
                     except Exception as e:
                         last_err = str(e)
                         continue
                 if last_err:
-                    print(f"[P2P] Cleanup request failed on {node.node_id}: {last_err}")
+                    logger.info(f"Cleanup request failed on {node.node_id}: {last_err}")
         except Exception as e:
-            print(f"[P2P] Failed to request cleanup from {node.node_id}: {e}")
+            logger.error(f"Failed to request cleanup from {node.node_id}: {e}")
 
     async def _reduce_local_selfplay_jobs(self, target_selfplay_jobs: int, *, reason: str) -> Dict[str, Any]:
         """Best-effort: stop excess selfplay jobs on this node (load shedding).
@@ -24168,9 +24189,9 @@ print(json.dumps({{
             payload = {"target_selfplay_jobs": target, "reason": reason}
             cmd_id = await self._enqueue_relay_command_for_peer(node, "reduce_selfplay", payload)
             if cmd_id:
-                print(f"[P2P] Enqueued relay reduce_selfplay for {node.node_id} (target={target}, reason={reason})")
+                logger.info(f"Enqueued relay reduce_selfplay for {node.node_id} (target={target}, reason={reason})")
             else:
-                print(f"[P2P] Relay queue full for {node.node_id}; skipping reduce_selfplay enqueue")
+                logger.info(f"Relay queue full for {node.node_id}; skipping reduce_selfplay enqueue")
             return
 
         timeout = ClientTimeout(total=HTTP_TOTAL_TIMEOUT)
@@ -24181,21 +24202,21 @@ print(json.dumps({{
                 try:
                     async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
                         if resp.status == 200:
-                            print(f"[P2P] Requested load shedding on {node.node_id} (target={target}, reason={reason})")
+                            logger.info(f"Requested load shedding on {node.node_id} (target={target}, reason={reason})")
                             return
                         last_err = f"http_{resp.status}"
                 except Exception as e:
                     last_err = str(e)
                     continue
             if last_err:
-                print(f"[P2P] reduce_selfplay request failed on {node.node_id}: {last_err}")
+                logger.info(f"reduce_selfplay request failed on {node.node_id}: {last_err}")
 
     async def _restart_local_stuck_jobs(self):
         """Kill stuck selfplay processes and let job management restart them.
 
         LEARNED LESSONS - Addresses the issue where processes accumulate but GPU stays at 0%.
         """
-        print("[P2P] Restarting stuck local selfplay jobs...")
+        logger.info("Restarting stuck local selfplay jobs...")
         try:
             # Kill tracked selfplay jobs (avoid broad pkill patterns).
             jobs_to_clear: List[str] = []
@@ -24252,9 +24273,9 @@ print(json.dumps({{
                 for job_id in jobs_to_clear:
                     self.local_jobs.pop(job_id, None)
 
-            print(f"[P2P] Killed {killed} processes, cleared {len(jobs_to_clear)} job records")
+            logger.info(f"Killed {killed} processes, cleared {len(jobs_to_clear)} job records")
         except Exception as e:
-            print(f"[P2P] Error killing stuck processes: {e}")
+            logger.error(f"killing stuck processes: {e}")
 
     async def _request_job_restart(self, node: NodeInfo):
         """Request a remote node to restart its stuck selfplay jobs."""
@@ -24262,9 +24283,9 @@ print(json.dumps({{
             if getattr(node, "nat_blocked", False):
                 cmd_id = await self._enqueue_relay_command_for_peer(node, "restart_stuck_jobs", {})
                 if cmd_id:
-                    print(f"[P2P] Enqueued relay restart_stuck_jobs for {node.node_id}")
+                    logger.info(f"Enqueued relay restart_stuck_jobs for {node.node_id}")
                 else:
-                    print(f"[P2P] Relay queue full for {node.node_id}; skipping restart enqueue")
+                    logger.info(f"Relay queue full for {node.node_id}; skipping restart enqueue")
                 return
             timeout = ClientTimeout(total=HTTP_TOTAL_TIMEOUT)
             async with get_client_session(timeout) as session:
@@ -24277,16 +24298,16 @@ print(json.dumps({{
                                 continue
                             data = await resp.json()
                             if data.get("success"):
-                                print(f"[P2P] Job restart requested on {node.node_id}")
+                                logger.info(f"Job restart requested on {node.node_id}")
                                 return
                             last_err = str(data.get("error") or "restart_failed")
                     except Exception as e:
                         last_err = str(e)
                         continue
                 if last_err:
-                    print(f"[P2P] Job restart request failed on {node.node_id}: {last_err}")
+                    logger.info(f"Job restart request failed on {node.node_id}: {last_err}")
         except Exception as e:
-            print(f"[P2P] Failed to request job restart from {node.node_id}: {e}")
+            logger.error(f"Failed to request job restart from {node.node_id}: {e}")
 
     async def _start_local_job(
         self,
@@ -24308,13 +24329,13 @@ print(json.dumps({{
                 task_type_str = job_type.value if hasattr(job_type, 'value') else str(job_type)
                 allowed, reason = check_before_spawn(task_type_str, self.node_id)
                 if not allowed:
-                    print(f"[P2P] SAFEGUARD blocked {task_type_str} on {self.node_id}: {reason}")
+                    logger.info(f"SAFEGUARD blocked {task_type_str} on {self.node_id}: {reason}")
                     return None
 
                 # Apply backpressure delay
                 delay = _safeguards.get_delay()
                 if delay > 0:
-                    print(f"[P2P] SAFEGUARD applying {delay:.1f}s backpressure delay")
+                    logger.info(f"SAFEGUARD applying {delay:.1f}s backpressure delay")
                     await asyncio.sleep(delay)
 
             if job_id:
@@ -24399,7 +24420,7 @@ print(json.dumps({{
                 # SAFEGUARD: Final check before spawning (load + rate limit)
                 can_spawn, spawn_reason = self._can_spawn_process(f"selfplay-{board_type}-{num_players}p")
                 if not can_spawn:
-                    print(f"[P2P] BLOCKED selfplay spawn: {spawn_reason}")
+                    logger.info(f"BLOCKED selfplay spawn: {spawn_reason}")
                     return None
 
                 log_handle = open(output_dir / "run.log", "a")
@@ -24430,7 +24451,7 @@ print(json.dumps({{
                 with self.jobs_lock:
                     self.local_jobs[job_id] = job
 
-                print(f"[P2P] Started {job_type.value} job {job_id} (PID {proc.pid})")
+                logger.info(f"Started {job_type.value} job {job_id} (PID {proc.pid})")
                 self._save_state()
                 return job
 
@@ -24495,7 +24516,7 @@ print(json.dumps({{
 
                 can_spawn, spawn_reason = self._can_spawn_process(f"cpu-selfplay-{board_type}-{num_players}p")
                 if not can_spawn:
-                    print(f"[P2P] BLOCKED CPU selfplay spawn: {spawn_reason}")
+                    logger.info(f"BLOCKED CPU selfplay spawn: {spawn_reason}")
                     return None
 
                 log_handle = open(output_dir / "run.log", "a")
@@ -24526,7 +24547,7 @@ print(json.dumps({{
                 with self.jobs_lock:
                     self.local_jobs[job_id] = job
 
-                print(f"[P2P] Started {job_type.value} job {job_id} (PID {proc.pid}) [CPU-only hybrid mode]")
+                logger.info(f"Started {job_type.value} job {job_id} (PID {proc.pid}) [CPU-only hybrid mode]")
                 self._save_state()
                 return job
 
@@ -24605,7 +24626,7 @@ print(json.dumps({{
                 # SAFEGUARD: Final check before spawning (load + rate limit)
                 can_spawn, spawn_reason = self._can_spawn_process(f"gpu-selfplay-{board_type}-{num_players}p")
                 if not can_spawn:
-                    print(f"[P2P] BLOCKED GPU selfplay spawn: {spawn_reason}")
+                    logger.info(f"BLOCKED GPU selfplay spawn: {spawn_reason}")
                     return None
 
                 log_handle = open(output_dir / "gpu_run.log", "a")
@@ -24636,7 +24657,7 @@ print(json.dumps({{
                 with self.jobs_lock:
                     self.local_jobs[job_id] = job
 
-                print(f"[P2P] Started GPU selfplay job {job_id} (PID {proc.pid}, batch={batch_size})")
+                logger.info(f"Started GPU selfplay job {job_id} (PID {proc.pid}, batch={batch_size})")
                 self._save_state()
 
                 # Monitor GPU selfplay and trigger CPU validation when complete
@@ -24741,7 +24762,7 @@ print(json.dumps({{
                 # SAFEGUARD: Final check before spawning (load + rate limit)
                 can_spawn, spawn_reason = self._can_spawn_process(f"hybrid-selfplay-{board_type}-{num_players}p")
                 if not can_spawn:
-                    print(f"[P2P] BLOCKED hybrid selfplay spawn: {spawn_reason}")
+                    logger.info(f"BLOCKED hybrid selfplay spawn: {spawn_reason}")
                     return None
 
                 log_handle = open(output_dir / "hybrid_run.log", "a")
@@ -24772,7 +24793,7 @@ print(json.dumps({{
                 with self.jobs_lock:
                     self.local_jobs[job_id] = job
 
-                print(f"[P2P] Started HYBRID selfplay job {job_id} (PID {proc.pid})")
+                logger.info(f"Started HYBRID selfplay job {job_id} (PID {proc.pid})")
                 self._save_state()
                 return job
 
@@ -24780,7 +24801,7 @@ print(json.dumps({{
                 # CPU-intensive data export job (NPZ creation)
                 # These jobs should be routed to high-CPU nodes (vast nodes preferred)
                 if not export_params:
-                    print(f"[P2P] DATA_EXPORT job requires export_params")
+                    logger.info(f"DATA_EXPORT job requires export_params")
                     return None
 
                 input_path = export_params.get("input_path")
@@ -24790,7 +24811,7 @@ print(json.dumps({{
                 is_jsonl = export_params.get("is_jsonl", False)
 
                 if not input_path or not output_path:
-                    print(f"[P2P] DATA_EXPORT requires input_path and output_path")
+                    logger.info(f"DATA_EXPORT requires input_path and output_path")
                     return None
 
                 # Ensure output directory exists
@@ -24866,12 +24887,12 @@ print(json.dumps({{
                 with self.jobs_lock:
                     self.local_jobs[job_id] = job
 
-                print(f"[P2P] Started DATA_EXPORT job {job_id} (PID {proc.pid}): {input_path} -> {output_path}")
+                logger.info(f"Started DATA_EXPORT job {job_id} (PID {proc.pid}): {input_path} -> {output_path}")
                 self._save_state()
                 return job
 
         except Exception as e:
-            print(f"[P2P] Failed to start job: {e}")
+            logger.error(f"Failed to start job: {e}")
         return None
 
     async def _dispatch_export_job(
@@ -24910,9 +24931,9 @@ print(json.dumps({{
             if getattr(node, "nat_blocked", False):
                 cmd_id = await self._enqueue_relay_command_for_peer(node, "start_job", payload)
                 if cmd_id:
-                    print(f"[P2P] Enqueued relay export job for {node.node_id}: {job_id}")
+                    logger.info(f"Enqueued relay export job for {node.node_id}: {job_id}")
                 else:
-                    print(f"[P2P] Relay queue full for {node.node_id}; export not dispatched")
+                    logger.info(f"Relay queue full for {node.node_id}; export not dispatched")
                 return
 
             timeout = ClientTimeout(total=30)
@@ -24924,7 +24945,7 @@ print(json.dumps({{
                             if resp.status == 200:
                                 result = await resp.json()
                                 if result.get("success"):
-                                    print(f"[P2P] Export job dispatched to {node.node_id}: {job_id}")
+                                    logger.info(f"Export job dispatched to {node.node_id}: {job_id}")
                                     return
                                 last_err = result.get("error", "unknown")
                             else:
@@ -24933,10 +24954,10 @@ print(json.dumps({{
                         last_err = str(e)
 
                 if last_err:
-                    print(f"[P2P] Export job dispatch failed to {node.node_id}: {last_err}")
+                    logger.info(f"Export job dispatch failed to {node.node_id}: {last_err}")
 
         except Exception as e:
-            print(f"[P2P] Failed to dispatch export job to {node.node_id}: {e}")
+            logger.error(f"Failed to dispatch export job to {node.node_id}: {e}")
 
     async def _request_remote_job(
         self,
@@ -24956,7 +24977,7 @@ print(json.dumps({{
                 task_type_str = job_type.value if hasattr(job_type, 'value') else str(job_type)
                 allowed, reason = check_before_spawn(task_type_str, node.node_id)
                 if not allowed:
-                    print(f"[P2P] SAFEGUARD blocked remote {task_type_str} on {node.node_id}: {reason}")
+                    logger.info(f"SAFEGUARD blocked remote {task_type_str} on {node.node_id}: {reason}")
                     return
 
             job_id = f"{job_type.value}_{board_type}_{num_players}p_{int(time.time())}_{uuid.uuid4().hex[:6]}"
@@ -24977,7 +24998,7 @@ print(json.dumps({{
                         f"{job_type.value} {board_type} {num_players}p ({job_id})"
                     )
                 else:
-                    print(f"[P2P] Relay queue full for {node.node_id}; skipping enqueue")
+                    logger.info(f"Relay queue full for {node.node_id}; skipping enqueue")
                 return
 
             timeout = ClientTimeout(total=10)
@@ -24998,16 +25019,16 @@ print(json.dumps({{
                                 continue
                             data = await resp.json()
                             if data.get("success"):
-                                print(f"[P2P] Started remote {board_type} {num_players}p job on {node.node_id}")
+                                logger.info(f"Started remote {board_type} {num_players}p job on {node.node_id}")
                                 return
                             last_err = str(data.get("error") or "start_failed")
                     except Exception as e:
                         last_err = str(e)
                         continue
                 if last_err:
-                    print(f"[P2P] Failed to start remote job on {node.node_id}: {last_err}")
+                    logger.error(f"Failed to start remote job on {node.node_id}: {last_err}")
         except Exception as e:
-            print(f"[P2P] Failed to request remote job from {node.node_id}: {e}")
+            logger.error(f"Failed to request remote job from {node.node_id}: {e}")
 
     def _enqueue_relay_command(self, node_id: str, cmd_type: str, payload: Dict[str, Any]) -> Optional[str]:
         """Leader-side: enqueue a command for a NAT-blocked node to pull."""
@@ -25103,7 +25124,7 @@ print(json.dumps({{
                             last_err = str(e)
                             continue
                     if last_err:
-                        print(f"[P2P] Relay enqueue via {relay_node_id} failed for {peer_id}: {last_err}")
+                        logger.info(f"Relay enqueue via {relay_node_id} failed for {peer_id}: {last_err}")
 
         # Fallback: enqueue locally (works when peer polls the leader directly).
         return self._enqueue_relay_command(peer_id, cmd_type, payload)
@@ -25140,7 +25161,7 @@ print(json.dumps({{
                             peer_addr = f"{msg.get('host')}:{msg.get('port')}"
                             if peer_addr not in self.known_peers:
                                 self.known_peers.append(peer_addr)
-                                print(f"[P2P] Discovered peer: {msg.get('node_id')} at {peer_addr}")
+                                logger.info(f"Discovered peer: {msg.get('node_id')} at {peer_addr}")
                 except socket.timeout:
                     pass
 
@@ -25154,7 +25175,7 @@ print(json.dumps({{
     async def run(self):
         """Main entry point - start the orchestrator."""
         if not HAS_AIOHTTP:
-            print("Error: aiohttp is required. Install with: pip install aiohttp")
+            logger.error("aiohttp is required. Install with: pip install aiohttp")
             return
 
         # Set up HTTP server
@@ -25348,7 +25369,7 @@ print(json.dumps({{
         site = web.TCPSite(runner, self.host, self.port, reuse_address=True, backlog=1024)
         await site.start()
 
-        print(f"[P2P] HTTP server started on {self.host}:{self.port} (backlog=1024)")
+        logger.info(f"HTTP server started on {self.host}:{self.port} (backlog=1024)")
 
         # Notify systemd that we're ready to serve
         systemd_notify_ready()
@@ -25466,7 +25487,7 @@ def main():
 
     # Handle shutdown
     def signal_handler(sig, frame):
-        print("\n[P2P] Shutting down...")
+        logger.info("Shutting down...")
         orchestrator.running = False
         # Stop ramdrive syncer with final sync
         orchestrator.stop_ramdrive_syncer(final_sync=True)
