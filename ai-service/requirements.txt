@@ -83,3 +83,10 @@ pytz==2025.1
 
 # System monitoring
 psutil==6.1.1
+
+# OpenTelemetry for distributed tracing (per Section 4.3)
+opentelemetry-api==1.29.0
+opentelemetry-sdk==1.29.0
+opentelemetry-exporter-otlp==1.29.0
+opentelemetry-exporter-jaeger==1.21.0
+opentelemetry-instrumentation-fastapi==0.50b0

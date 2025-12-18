@@ -3145,7 +3145,11 @@ def on_sync_failure(game, error):
 - [x] Runbooks exist ✅ 40+ runbooks in `docs/runbooks/` (AI, Database, Deployment, etc.)
 - [x] AI performance runbook ✅ `docs/runbooks/AI_PERFORMANCE.md`
 - [x] High latency runbook ✅ `docs/runbooks/HIGH_LATENCY.md`
-- [ ] OpenTelemetry distributed tracing (`app/tracing.py`) - Not yet implemented
+- [x] OpenTelemetry distributed tracing ✅ `app/tracing.py` (20 tests)
+  - Multiple exporters (Jaeger, OTLP, Console)
+  - @traced and @traced_async decorators
+  - Context propagation helpers
+  - Graceful degradation when OTel not installed
 - [ ] Standardized `AIDecisionLog` dataclass - Partial (logging exists but not structured)
 
 **4.4 Self-Play Data Quality:**
