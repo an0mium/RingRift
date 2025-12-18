@@ -82,20 +82,30 @@ def _get_cached_nnue_policy(board_type: BoardType, num_players: int) -> Optional
             model_path = os.path.normpath(model_path)
 
             if os.path.exists(model_path):
-                state_dict = torch.load(model_path, map_location="cpu", weights_only=False)
+                checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
 
-                # Extract hidden dim from checkpoint
-                hidden_dim = 128
-                num_hidden_layers = 2
-                if isinstance(state_dict, dict):
-                    for key in state_dict.keys():
-                        match = re.match(r"fc1\.weight", key)
-                        if match and hasattr(state_dict[key], "shape"):
-                            hidden_dim = state_dict[key].shape[0]
-                            break
-                    num_fc_keys = sum(1 for k in state_dict.keys() if k.startswith("fc") and k.endswith(".weight"))
-                    if num_fc_keys >= 2:
-                        num_hidden_layers = num_fc_keys - 1
+                # Handle versioned checkpoints (with model_state_dict key)
+                # and legacy direct state_dict format
+                if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+                    state_dict = checkpoint['model_state_dict']
+                    # Use checkpoint metadata for hidden_dim/layers if available
+                    hidden_dim = checkpoint.get('hidden_dim', 128)
+                    num_hidden_layers = checkpoint.get('num_hidden_layers', 2)
+                else:
+                    # Legacy format: direct state_dict
+                    state_dict = checkpoint
+                    # Extract hidden dim from checkpoint weights
+                    hidden_dim = 128
+                    num_hidden_layers = 2
+                    if isinstance(state_dict, dict):
+                        for key in state_dict.keys():
+                            match = re.match(r"fc1\.weight", key)
+                            if match and hasattr(state_dict[key], "shape"):
+                                hidden_dim = state_dict[key].shape[0]
+                                break
+                        num_fc_keys = sum(1 for k in state_dict.keys() if k.startswith("fc") and k.endswith(".weight"))
+                        if num_fc_keys >= 2:
+                            num_hidden_layers = num_fc_keys - 1
 
                 model = RingRiftNNUEWithPolicy(
                     board_type=board_type,

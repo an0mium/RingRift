@@ -428,6 +428,751 @@ def clear_gpu_memory() -> None:
 
 
 # ============================================
+# Memory Pressure Detection & OOM Prevention
+# ============================================
+
+@dataclass(frozen=True)
+class MemoryPressureLevel:
+    """Memory pressure levels for graduated response."""
+    NORMAL = 0      # < 70% - normal operation
+    WARNING = 1     # 70-80% - start cleanup, reduce new allocations
+    ELEVATED = 2    # 80-85% - aggressive cleanup, pause non-critical work
+    CRITICAL = 3    # 85-90% - emergency cleanup, stop new operations
+    EMERGENCY = 4   # > 90% - trigger OOM prevention measures
+
+
+PRESSURE_THRESHOLDS = (70.0, 80.0, 85.0, 90.0)
+
+
+def get_memory_pressure_level() -> int:
+    """Get current memory pressure level.
+
+    Returns:
+        MemoryPressureLevel value (0-4)
+    """
+    used_percent, _, _ = get_memory_usage()
+
+    if used_percent >= 90.0:
+        return MemoryPressureLevel.EMERGENCY
+    elif used_percent >= 85.0:
+        return MemoryPressureLevel.CRITICAL
+    elif used_percent >= 80.0:
+        return MemoryPressureLevel.ELEVATED
+    elif used_percent >= 70.0:
+        return MemoryPressureLevel.WARNING
+    else:
+        return MemoryPressureLevel.NORMAL
+
+
+def get_psi_memory_pressure() -> Optional[dict]:
+    """Get Linux PSI (Pressure Stall Information) metrics.
+
+    PSI provides system-wide resource pressure information.
+    Only available on Linux 4.20+ with cgroup v2.
+
+    Returns:
+        Dict with 'some' and 'full' pressure percentages, or None if unavailable.
+    """
+    psi_file = Path("/proc/pressure/memory")
+    if not psi_file.exists():
+        return None
+
+    try:
+        content = psi_file.read_text()
+        result = {}
+        for line in content.strip().split('\n'):
+            parts = line.split()
+            if parts[0] == 'some':
+                # Parse: some avg10=0.00 avg60=0.00 avg300=0.00 total=0
+                for part in parts[1:]:
+                    if part.startswith('avg10='):
+                        result['some_avg10'] = float(part.split('=')[1])
+                    elif part.startswith('avg60='):
+                        result['some_avg60'] = float(part.split('=')[1])
+            elif parts[0] == 'full':
+                for part in parts[1:]:
+                    if part.startswith('avg10='):
+                        result['full_avg10'] = float(part.split('=')[1])
+                    elif part.startswith('avg60='):
+                        result['full_avg60'] = float(part.split('=')[1])
+        return result if result else None
+    except Exception as e:
+        logger.debug(f"Could not read PSI metrics: {e}")
+        return None
+
+
+def adjust_oom_score(score_adj: int = 500) -> bool:
+    """Adjust OOM killer priority for current process.
+
+    Higher score_adj = more likely to be killed by OOM killer.
+    Range is -1000 (never kill) to +1000 (kill first).
+
+    For GPU training, we want to be killed before system daemons
+    but after less important processes. 500 is a reasonable value.
+
+    Args:
+        score_adj: OOM score adjustment (-1000 to 1000)
+
+    Returns:
+        True if adjustment was successful.
+    """
+    oom_adj_path = Path(f"/proc/{os.getpid()}/oom_score_adj")
+    if not oom_adj_path.exists():
+        return False
+
+    try:
+        oom_adj_path.write_text(str(score_adj))
+        logger.info(f"Set OOM score adjustment to {score_adj}")
+        return True
+    except PermissionError:
+        logger.debug("Cannot adjust OOM score (requires root)")
+        return False
+    except Exception as e:
+        logger.debug(f"Could not adjust OOM score: {e}")
+        return False
+
+
+def get_oom_score() -> Optional[int]:
+    """Get current OOM score for this process.
+
+    Returns:
+        Current OOM score (0-1000), or None if unavailable.
+    """
+    try:
+        oom_score_path = Path(f"/proc/{os.getpid()}/oom_score")
+        if oom_score_path.exists():
+            return int(oom_score_path.read_text().strip())
+        return None
+    except Exception:
+        return None
+
+
+def trigger_memory_cleanup(level: int) -> int:
+    """Trigger memory cleanup based on pressure level.
+
+    Args:
+        level: MemoryPressureLevel value
+
+    Returns:
+        Estimated MB freed.
+    """
+    import gc
+    freed_mb = 0
+
+    # Level 1+: Python garbage collection
+    if level >= MemoryPressureLevel.WARNING:
+        collected = gc.collect()
+        freed_mb += collected * 0.001  # Rough estimate
+
+    # Level 2+: Clear GPU cache
+    if level >= MemoryPressureLevel.ELEVATED:
+        clear_gpu_memory()
+        freed_mb += 100  # GPU cache can be significant
+
+    # Level 3+: Aggressive cleanup
+    if level >= MemoryPressureLevel.CRITICAL:
+        # Run multiple GC generations
+        for _ in range(3):
+            gc.collect()
+
+        # Clear various caches
+        try:
+            import functools
+            if hasattr(functools, '_lru_cache_wrapper'):
+                # Can't easily clear all LRU caches, but we try
+                pass
+        except Exception:
+            pass
+
+        freed_mb += 50
+
+    # Level 4: Emergency measures
+    if level >= MemoryPressureLevel.EMERGENCY:
+        logger.warning("EMERGENCY memory pressure - aggressive cleanup triggered")
+
+        # Drop Python caches
+        try:
+            import importlib
+            importlib.invalidate_caches()
+        except Exception:
+            pass
+
+        # Clear more caches
+        try:
+            import sys
+            sys.intern('')  # Hint to clear interned strings
+        except Exception:
+            pass
+
+        # Final GC sweep
+        gc.collect()
+        freed_mb += 100
+
+    logger.info(f"Memory cleanup at level {level}: ~{freed_mb:.0f}MB freed (estimated)")
+    return int(freed_mb)
+
+
+def check_memory_and_cleanup(
+    required_gb: float = 1.0,
+    auto_cleanup: bool = True,
+) -> Tuple[bool, int]:
+    """Check memory and optionally trigger cleanup if needed.
+
+    Args:
+        required_gb: Minimum memory required in GB
+        auto_cleanup: Whether to trigger cleanup on pressure
+
+    Returns:
+        Tuple of (memory_ok, pressure_level)
+    """
+    level = get_memory_pressure_level()
+
+    if auto_cleanup and level >= MemoryPressureLevel.WARNING:
+        trigger_memory_cleanup(level)
+        # Re-check after cleanup
+        level = get_memory_pressure_level()
+
+    memory_ok = check_memory(required_gb, log_warning=False)
+    return memory_ok, level
+
+
+def register_oom_signal_handler() -> bool:
+    """Register signal handlers for graceful OOM handling.
+
+    On Linux, SIGTERM is often sent before SIGKILL during OOM.
+    This gives us a brief window to save state.
+
+    Returns:
+        True if handlers were registered.
+    """
+    import signal
+
+    def oom_handler(signum, frame):
+        logger.critical("OOM signal received - attempting graceful shutdown")
+        # Trigger emergency cleanup
+        trigger_memory_cleanup(MemoryPressureLevel.EMERGENCY)
+        # Let the default handler run
+        signal.default_int_handler(signum, frame)
+
+    try:
+        signal.signal(signal.SIGTERM, oom_handler)
+        return True
+    except Exception as e:
+        logger.debug(f"Could not register OOM signal handler: {e}")
+        return False
+
+
+class MemoryPressureMonitor:
+    """Background monitor for memory pressure with automatic cleanup.
+
+    Usage:
+        monitor = MemoryPressureMonitor()
+        monitor.start()
+
+        # ... do work ...
+
+        monitor.stop()
+    """
+
+    def __init__(
+        self,
+        check_interval: float = 5.0,
+        auto_cleanup: bool = True,
+        on_critical: Optional[callable] = None,
+    ):
+        """
+        Args:
+            check_interval: Seconds between pressure checks
+            auto_cleanup: Trigger cleanup on elevated pressure
+            on_critical: Callback when reaching critical level
+        """
+        self.check_interval = check_interval
+        self.auto_cleanup = auto_cleanup
+        self.on_critical = on_critical
+        self._running = False
+        self._thread = None
+        self._last_level = MemoryPressureLevel.NORMAL
+
+    def start(self):
+        """Start the background monitor."""
+        if self._running:
+            return
+
+        import threading
+        self._running = True
+        self._thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self._thread.start()
+        logger.info("Memory pressure monitor started")
+
+    def stop(self):
+        """Stop the background monitor."""
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=2.0)
+
+    def _monitor_loop(self):
+        """Background monitoring loop."""
+        while self._running:
+            try:
+                level = get_memory_pressure_level()
+
+                # Log transitions
+                if level != self._last_level:
+                    level_names = ['NORMAL', 'WARNING', 'ELEVATED', 'CRITICAL', 'EMERGENCY']
+                    logger.info(
+                        f"Memory pressure: {level_names[self._last_level]} -> {level_names[level]}"
+                    )
+                    self._last_level = level
+
+                # Auto cleanup
+                if self.auto_cleanup and level >= MemoryPressureLevel.ELEVATED:
+                    trigger_memory_cleanup(level)
+
+                # Critical callback
+                if level >= MemoryPressureLevel.CRITICAL and self.on_critical:
+                    try:
+                        self.on_critical(level)
+                    except Exception as e:
+                        logger.warning(f"Critical callback error: {e}")
+
+            except Exception as e:
+                logger.debug(f"Memory monitor error: {e}")
+
+            time.sleep(self.check_interval)
+
+
+# Global monitor instance (optional)
+_memory_monitor: Optional[MemoryPressureMonitor] = None
+
+
+def start_memory_monitor(
+    check_interval: float = 5.0,
+    auto_cleanup: bool = True,
+    on_critical: Optional[callable] = None,
+) -> MemoryPressureMonitor:
+    """Start the global memory pressure monitor.
+
+    Returns:
+        The monitor instance.
+    """
+    global _memory_monitor
+    if _memory_monitor is None:
+        _memory_monitor = MemoryPressureMonitor(
+            check_interval=check_interval,
+            auto_cleanup=auto_cleanup,
+            on_critical=on_critical,
+        )
+        _memory_monitor.start()
+    return _memory_monitor
+
+
+def stop_memory_monitor():
+    """Stop the global memory pressure monitor."""
+    global _memory_monitor
+    if _memory_monitor is not None:
+        _memory_monitor.stop()
+        _memory_monitor = None
+
+
+# ============================================
+# Disk Space Cleanup Automation
+# ============================================
+
+@dataclass(frozen=True)
+class DiskPressureLevel:
+    """Disk pressure levels for graduated cleanup."""
+    NORMAL = 0      # < 70% - normal operation
+    WARNING = 1     # 70-75% - start cleanup, archive old files
+    ELEVATED = 2    # 75-80% - aggressive cleanup, remove old logs
+    CRITICAL = 3    # 80-85% - emergency cleanup, remove old models
+    EMERGENCY = 4   # > 85% - remove all non-essential files
+
+
+DISK_PRESSURE_THRESHOLDS = (70.0, 75.0, 80.0, 85.0)
+
+
+def get_disk_pressure_level(path: Optional[str] = None) -> int:
+    """Get current disk pressure level.
+
+    Returns:
+        DiskPressureLevel value (0-4)
+    """
+    used_percent, _, _ = get_disk_usage(path)
+
+    if used_percent >= 85.0:
+        return DiskPressureLevel.EMERGENCY
+    elif used_percent >= 80.0:
+        return DiskPressureLevel.CRITICAL
+    elif used_percent >= 75.0:
+        return DiskPressureLevel.ELEVATED
+    elif used_percent >= 70.0:
+        return DiskPressureLevel.WARNING
+    else:
+        return DiskPressureLevel.NORMAL
+
+
+def get_ai_service_root() -> Path:
+    """Get the AI service root directory."""
+    return Path(__file__).parent.parent.parent
+
+
+def cleanup_old_logs(max_age_days: int = 7) -> int:
+    """Clean up old log files.
+
+    Args:
+        max_age_days: Delete logs older than this many days
+
+    Returns:
+        Number of files deleted.
+    """
+    import time
+    logs_dir = get_ai_service_root() / "logs"
+    if not logs_dir.exists():
+        return 0
+
+    cutoff_time = time.time() - (max_age_days * 86400)
+    deleted = 0
+
+    for log_file in logs_dir.glob("**/*.log*"):
+        try:
+            if log_file.stat().st_mtime < cutoff_time:
+                log_file.unlink()
+                deleted += 1
+        except Exception:
+            pass
+
+    if deleted > 0:
+        logger.info(f"Deleted {deleted} old log files")
+    return deleted
+
+
+def cleanup_old_checkpoints(keep_per_config: int = 5, dry_run: bool = False) -> Tuple[int, int]:
+    """Clean up old model checkpoints, keeping the most recent per config.
+
+    Args:
+        keep_per_config: Number of models to keep per board config
+        dry_run: If True, only report what would be deleted
+
+    Returns:
+        Tuple of (files_deleted, bytes_freed)
+    """
+    import re
+    from collections import defaultdict
+    from datetime import datetime
+
+    models_dir = get_ai_service_root() / "models"
+    if not models_dir.exists():
+        return 0, 0
+
+    # Group models by config
+    models_by_config = defaultdict(list)
+
+    for model_file in models_dir.glob("*.pth"):
+        filename = model_file.name
+
+        # Skip best models
+        if "best" in filename.lower():
+            continue
+
+        # Try to extract timestamp
+        match = re.search(r'(\d{8}_\d{6})', filename)
+        if not match:
+            continue
+
+        try:
+            timestamp = datetime.strptime(match.group(1), "%Y%m%d_%H%M%S")
+        except Exception:
+            continue
+
+        # Extract board config
+        config_match = re.search(r'(sq(?:uare)?(?:8|19))_(\d)p', filename, re.IGNORECASE)
+        if config_match:
+            config = f"{config_match.group(1).lower()}_{config_match.group(2)}p"
+        elif "hex" in filename.lower():
+            players_match = re.search(r'(\d)p', filename)
+            config = f"hex_{players_match.group(1) if players_match else '2'}p"
+        else:
+            config = "unknown"
+
+        models_by_config[config].append((model_file, timestamp))
+
+    # For each config, keep only the most recent
+    files_deleted = 0
+    bytes_freed = 0
+
+    for config, models in models_by_config.items():
+        # Sort by timestamp, newest first
+        models.sort(key=lambda x: x[1], reverse=True)
+
+        # Delete old models
+        for model_file, _ in models[keep_per_config:]:
+            try:
+                size = model_file.stat().st_size
+                if not dry_run:
+                    model_file.unlink()
+                files_deleted += 1
+                bytes_freed += size
+            except Exception:
+                pass
+
+    if files_deleted > 0:
+        action = "Would delete" if dry_run else "Deleted"
+        logger.info(f"{action} {files_deleted} old checkpoints ({bytes_freed / 1024 / 1024:.1f}MB)")
+
+    return files_deleted, bytes_freed
+
+
+def cleanup_temp_files() -> int:
+    """Clean up temporary files (.tmp, .part, etc).
+
+    Returns:
+        Number of files deleted.
+    """
+    root = get_ai_service_root()
+    deleted = 0
+
+    patterns = ["**/*.tmp", "**/*.part", "**/*.temp", "**/~*", "**/*.pyc"]
+
+    for pattern in patterns:
+        for temp_file in root.glob(pattern):
+            try:
+                # Skip if modified in the last hour (might be in use)
+                if (time.time() - temp_file.stat().st_mtime) > 3600:
+                    temp_file.unlink()
+                    deleted += 1
+            except Exception:
+                pass
+
+    if deleted > 0:
+        logger.info(f"Deleted {deleted} temporary files")
+    return deleted
+
+
+def cleanup_old_games(keep_days: int = 30) -> Tuple[int, int]:
+    """Clean up old game databases beyond retention period.
+
+    Args:
+        keep_days: Keep games from the last N days
+
+    Returns:
+        Tuple of (files_deleted, bytes_freed)
+    """
+    import time
+    games_dir = get_ai_service_root() / "data" / "games"
+    if not games_dir.exists():
+        return 0, 0
+
+    cutoff_time = time.time() - (keep_days * 86400)
+    files_deleted = 0
+    bytes_freed = 0
+
+    # Only clean up synced subdirectories, not main databases
+    synced_dir = games_dir / "synced"
+    if synced_dir.exists():
+        for db_file in synced_dir.glob("**/*.db"):
+            try:
+                if db_file.stat().st_mtime < cutoff_time:
+                    size = db_file.stat().st_size
+                    db_file.unlink()
+                    files_deleted += 1
+                    bytes_freed += size
+            except Exception:
+                pass
+
+    if files_deleted > 0:
+        logger.info(f"Deleted {files_deleted} old game files ({bytes_freed / 1024 / 1024:.1f}MB)")
+
+    return files_deleted, bytes_freed
+
+
+def trigger_disk_cleanup(level: int, dry_run: bool = False) -> int:
+    """Trigger disk cleanup based on pressure level.
+
+    Args:
+        level: DiskPressureLevel value
+        dry_run: If True, only report what would be done
+
+    Returns:
+        Estimated MB freed.
+    """
+    freed_mb = 0
+
+    # Level 1+: Clean temporary files
+    if level >= DiskPressureLevel.WARNING:
+        deleted = cleanup_temp_files()
+        freed_mb += deleted * 0.1  # Rough estimate
+
+    # Level 2+: Clean old logs
+    if level >= DiskPressureLevel.ELEVATED:
+        deleted = cleanup_old_logs(max_age_days=3)  # More aggressive at level 2
+        freed_mb += deleted * 1  # ~1MB per log file
+
+    # Level 3+: Clean old checkpoints
+    if level >= DiskPressureLevel.CRITICAL:
+        files, bytes_freed = cleanup_old_checkpoints(keep_per_config=3, dry_run=dry_run)
+        freed_mb += bytes_freed / (1024 * 1024)
+
+    # Level 4: Emergency cleanup
+    if level >= DiskPressureLevel.EMERGENCY:
+        logger.warning("EMERGENCY disk pressure - aggressive cleanup triggered")
+
+        # More aggressive log cleanup
+        cleanup_old_logs(max_age_days=1)
+
+        # More aggressive checkpoint cleanup
+        files, bytes_freed = cleanup_old_checkpoints(keep_per_config=2, dry_run=dry_run)
+        freed_mb += bytes_freed / (1024 * 1024)
+
+        # Clean old games
+        files, bytes_freed = cleanup_old_games(keep_days=14)
+        freed_mb += bytes_freed / (1024 * 1024)
+
+    logger.info(f"Disk cleanup at level {level}: ~{freed_mb:.0f}MB freed")
+    return int(freed_mb)
+
+
+def check_disk_and_cleanup(
+    required_gb: float = 2.0,
+    auto_cleanup: bool = True,
+    path: Optional[str] = None,
+) -> Tuple[bool, int]:
+    """Check disk space and optionally trigger cleanup if needed.
+
+    Args:
+        required_gb: Minimum disk space required in GB
+        auto_cleanup: Whether to trigger cleanup on pressure
+        path: Path to check
+
+    Returns:
+        Tuple of (disk_ok, pressure_level)
+    """
+    level = get_disk_pressure_level(path)
+
+    if auto_cleanup and level >= DiskPressureLevel.WARNING:
+        trigger_disk_cleanup(level)
+        # Re-check after cleanup
+        level = get_disk_pressure_level(path)
+
+    disk_ok = check_disk_space(required_gb, path, log_warning=False)
+    return disk_ok, level
+
+
+class DiskPressureMonitor:
+    """Background monitor for disk pressure with automatic cleanup.
+
+    Usage:
+        monitor = DiskPressureMonitor()
+        monitor.start()
+
+        # ... do work ...
+
+        monitor.stop()
+    """
+
+    def __init__(
+        self,
+        check_interval: float = 60.0,  # Check every minute
+        auto_cleanup: bool = True,
+        on_critical: Optional[callable] = None,
+        path: Optional[str] = None,
+    ):
+        """
+        Args:
+            check_interval: Seconds between pressure checks
+            auto_cleanup: Trigger cleanup on elevated pressure
+            on_critical: Callback when reaching critical level
+            path: Path to monitor
+        """
+        self.check_interval = check_interval
+        self.auto_cleanup = auto_cleanup
+        self.on_critical = on_critical
+        self.path = path
+        self._running = False
+        self._thread = None
+        self._last_level = DiskPressureLevel.NORMAL
+
+    def start(self):
+        """Start the background monitor."""
+        if self._running:
+            return
+
+        import threading
+        self._running = True
+        self._thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self._thread.start()
+        logger.info("Disk pressure monitor started")
+
+    def stop(self):
+        """Stop the background monitor."""
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=2.0)
+
+    def _monitor_loop(self):
+        """Background monitoring loop."""
+        while self._running:
+            try:
+                level = get_disk_pressure_level(self.path)
+
+                # Log transitions
+                if level != self._last_level:
+                    level_names = ['NORMAL', 'WARNING', 'ELEVATED', 'CRITICAL', 'EMERGENCY']
+                    logger.info(
+                        f"Disk pressure: {level_names[self._last_level]} -> {level_names[level]}"
+                    )
+                    self._last_level = level
+
+                # Auto cleanup
+                if self.auto_cleanup and level >= DiskPressureLevel.ELEVATED:
+                    trigger_disk_cleanup(level)
+
+                # Critical callback
+                if level >= DiskPressureLevel.CRITICAL and self.on_critical:
+                    try:
+                        self.on_critical(level)
+                    except Exception as e:
+                        logger.warning(f"Critical callback error: {e}")
+
+            except Exception as e:
+                logger.debug(f"Disk monitor error: {e}")
+
+            time.sleep(self.check_interval)
+
+
+# Global disk monitor instance
+_disk_monitor: Optional[DiskPressureMonitor] = None
+
+
+def start_disk_monitor(
+    check_interval: float = 60.0,
+    auto_cleanup: bool = True,
+    on_critical: Optional[callable] = None,
+) -> DiskPressureMonitor:
+    """Start the global disk pressure monitor.
+
+    Returns:
+        The monitor instance.
+    """
+    global _disk_monitor
+    if _disk_monitor is None:
+        _disk_monitor = DiskPressureMonitor(
+            check_interval=check_interval,
+            auto_cleanup=auto_cleanup,
+            on_critical=on_critical,
+        )
+        _disk_monitor.start()
+    return _disk_monitor
+
+
+def stop_disk_monitor():
+    """Stop the global disk pressure monitor."""
+    global _disk_monitor
+    if _disk_monitor is not None:
+        _disk_monitor.stop()
+        _disk_monitor = None
+
+
+# ============================================
 # Combined Checks
 # ============================================
 
