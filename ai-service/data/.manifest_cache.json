@@ -1,11 +1,11 @@
 {
   "version": 1,
-  "saved_at": 1766017071.298791,
+  "saved_at": 1766018946.8832982,
   "manifest": {
     "node_id": "macbook-pro",
-    "collected_at": 1766017067.393742,
-    "total_files": 105,
-    "total_size_bytes": 42330181889,
+    "collected_at": 1766018946.420245,
+    "total_files": 108,
+    "total_size_bytes": 42650222849,
     "files": [
       {
         "path": "selfplay/hexagonal_2p_boost/games.jsonl",
@@ -459,8 +459,8 @@
       },
       {
         "path": "games/selfplay.db",
-        "size_bytes": 112017408,
-        "modified_time": 1766000213.3347666,
+        "size_bytes": 300621824,
+        "modified_time": 1766018893.5567524,
         "file_hash": "",
         "file_type": "games",
         "board_type": "",
@@ -488,9 +488,19 @@
         "game_count": 0
       },
       {
+        "path": "games/jsonl_converted_square8_2p.db",
+        "size_bytes": 7782400,
+        "modified_time": 1766017379.5695083,
+        "file_hash": "",
+        "file_type": "games",
+        "board_type": "square8",
+        "num_players": 2,
+        "game_count": 0
+      },
+      {
         "path": "games/all_jsonl_training.db",
-        "size_bytes": 3929141248,
-        "modified_time": 1765953521.0,
+        "size_bytes": 3938648064,
+        "modified_time": 1766017315.5170667,
         "file_hash": "",
         "file_type": "games",
         "board_type": "",
@@ -499,8 +509,8 @@
       },
       {
         "path": "games/jsonl_aggregated.db",
-        "size_bytes": 3929141248,
-        "modified_time": 1765953521.0,
+        "size_bytes": 3938648064,
+        "modified_time": 1766017315.5170667,
         "file_hash": "",
         "file_type": "games",
         "board_type": "",
@@ -519,12 +529,32 @@
       },
       {
         "path": "games/cluster_synced.db",
-        "size_bytes": 3929141248,
-        "modified_time": 1765953521.0,
+        "size_bytes": 3938648064,
+        "modified_time": 1766017315.5170667,
         "file_hash": "",
         "file_type": "games",
         "board_type": "",
         "num_players": 0,
+        "game_count": 0
+      },
+      {
+        "path": "games/jsonl_converted_hexagonal_2p.db",
+        "size_bytes": 95121408,
+        "modified_time": 1766017387.3890376,
+        "file_hash": "",
+        "file_type": "games",
+        "board_type": "hexagonal",
+        "num_players": 2,
+        "game_count": 0
+      },
+      {
+        "path": "games/jsonl_converted_hexagonal_3p.db",
+        "size_bytes": 12288,
+        "modified_time": 1766017379.6875246,
+        "file_hash": "",
+        "file_type": "games",
+        "board_type": "hexagonal",
+        "num_players": 3,
         "game_count": 0
       },
       {

@@ -1663,7 +1663,7 @@ def train_model(
     enhancements_manager = None
     if use_integrated_enhancements and HAS_INTEGRATED_ENHANCEMENTS:
         enh_config = IntegratedEnhancementsConfig(
-            curriculum_learning_enabled=enable_curriculum,
+            curriculum_enabled=enable_curriculum,
             augmentation_enabled=enable_augmentation,
             elo_weighting_enabled=enable_elo_weighting,
         )
@@ -2615,6 +2615,27 @@ def train_model(
                         policy_targets,
                     ) = batch_data
 
+                # Data quality metrics (every 100 batches to minimize overhead)
+                if i % 100 == 0 and i > 0:
+                    # Value target distribution: check for P1/P2 balance
+                    # Positive values typically indicate P1 advantage, negative P2
+                    if value_targets.dim() == 1:
+                        mean_val = value_targets.mean().item()
+                        pos_ratio = (value_targets > 0).float().mean().item()
+                        if abs(mean_val) > 0.15 or abs(pos_ratio - 0.5) > 0.15:
+                            logger.debug(
+                                f"Data quality: value_mean={mean_val:.3f}, "
+                                f"positive_ratio={pos_ratio:.2%} (batch {i})"
+                            )
+                    # Policy entropy: measure diversity of targets
+                    # Low entropy indicates concentrated/biased policy targets
+                    policy_probs = policy_targets + 1e-8  # Avoid log(0)
+                    policy_entropy = -(policy_probs * policy_probs.log()).sum(dim=1).mean().item()
+                    if policy_entropy < 1.0:  # Very low entropy indicates potential issue
+                        logger.debug(
+                            f"Data quality: low policy entropy={policy_entropy:.3f} (batch {i})"
+                        )
+
                 # Transfer to device if not already there (prefetch may have done this)
                 if features.device != device:
                     features = features.to(device, non_blocking=True)
@@ -3216,6 +3237,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         description='Train RingRift Neural Network AI'
     )
 
+    # Config file (overrides individual arguments)
+    parser.add_argument(
+        '--config', type=str, default=None,
+        help='Path to TrainingPipelineConfig YAML/JSON file. Overrides individual arguments.'
+    )
+
     # Data and model paths
     parser.add_argument(
         '--data-path', type=str, default=None,
@@ -3582,6 +3609,36 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
 def main():
     """Main entry point for training."""
     args = parse_args()
+
+    # Load config file if provided (overrides individual arguments)
+    if args.config:
+        from app.training.config import TrainingPipelineConfig
+        try:
+            pipeline_config = TrainingPipelineConfig.load(args.config)
+            logger.info(f"Loaded config from {args.config}")
+
+            # Apply config values to args (config takes precedence if args not set)
+            if args.data_path is None:
+                args.data_path = pipeline_config.data.data_dir
+            if args.epochs is None:
+                args.epochs = pipeline_config.train.epochs_per_iter
+            if args.batch_size is None:
+                args.batch_size = pipeline_config.train.batch_size
+            if args.learning_rate is None:
+                args.learning_rate = pipeline_config.train.learning_rate
+            if args.checkpoint_dir is None or args.checkpoint_dir == 'checkpoints':
+                args.checkpoint_dir = pipeline_config.checkpoint.checkpoint_dir
+            if args.board_type is None:
+                args.board_type = pipeline_config.train.board_type.value
+
+            # Log config summary
+            logger.info(f"  Board type: {pipeline_config.train.board_type.value}")
+            logger.info(f"  Learning rate: {pipeline_config.train.learning_rate}")
+            logger.info(f"  Batch size: {pipeline_config.train.batch_size}")
+
+        except Exception as e:
+            logger.error(f"Failed to load config from {args.config}: {e}")
+            raise
 
     # Curriculum training mode: iterative self-play with model promotion
     if getattr(args, "curriculum", False):

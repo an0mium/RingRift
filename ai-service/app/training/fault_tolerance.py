@@ -92,13 +92,116 @@ def retry_with_backoff(
     return decorator
 
 
-class RecoverableError(Exception):
-    """Exception that indicates a recoverable error."""
+# =============================================================================
+# Training Exception Hierarchy
+# =============================================================================
+
+
+class TrainingError(Exception):
+    """Base exception for all training-related errors."""
+
+    def __init__(self, message: str, context: Optional[Dict[str, Any]] = None):
+        super().__init__(message)
+        self.context = context or {}
+
+
+class RecoverableError(TrainingError):
+    """Exception that indicates a recoverable error (can retry)."""
     pass
 
 
-class NonRecoverableError(Exception):
+class NonRecoverableError(TrainingError):
     """Exception that indicates a non-recoverable error (skip retry)."""
+    pass
+
+
+class ValidationError(TrainingError):
+    """Exception for configuration or data validation failures.
+
+    Examples:
+    - Invalid TrainingConfig values
+    - Invalid model checkpoint format
+    - Schema validation failures
+    """
+    pass
+
+
+class DataQualityError(TrainingError):
+    """Exception for data quality issues.
+
+    Examples:
+    - Parity validation failures
+    - Corrupted training data
+    - NaN/Inf values in training data
+    - Too many duplicate samples
+    """
+
+    def __init__(
+        self,
+        message: str,
+        quality_score: Optional[float] = None,
+        samples_affected: Optional[int] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(message, context)
+        self.quality_score = quality_score
+        self.samples_affected = samples_affected
+
+
+class LifecycleError(TrainingError):
+    """Exception for model lifecycle errors.
+
+    Examples:
+    - Invalid stage transition (e.g., skipping from training to production)
+    - Model not found during promotion
+    - Archive/delete failures
+    """
+
+    def __init__(
+        self,
+        message: str,
+        model_id: Optional[str] = None,
+        current_stage: Optional[str] = None,
+        target_stage: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(message, context)
+        self.model_id = model_id
+        self.current_stage = current_stage
+        self.target_stage = target_stage
+
+
+class ResourceError(TrainingError):
+    """Exception for resource-related failures.
+
+    Examples:
+    - GPU out of memory
+    - Disk space exhausted
+    - CPU/memory limits exceeded
+    """
+
+    def __init__(
+        self,
+        message: str,
+        resource_type: Optional[str] = None,
+        available: Optional[float] = None,
+        required: Optional[float] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(message, context)
+        self.resource_type = resource_type
+        self.available = available
+        self.required = required
+
+
+class CheckpointError(TrainingError):
+    """Exception for checkpoint-related failures.
+
+    Examples:
+    - Checkpoint file corrupted
+    - Incompatible checkpoint version
+    - Failed to save checkpoint
+    """
     pass
 
 

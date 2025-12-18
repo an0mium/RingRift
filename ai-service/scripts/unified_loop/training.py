@@ -47,19 +47,91 @@ except ImportError:
 
 # Optional Prometheus metrics - avoid duplicate registration
 try:
-    from prometheus_client import Counter, REGISTRY
+    from prometheus_client import Counter, Gauge, Histogram, REGISTRY
     HAS_PROMETHEUS = True
-    if 'ringrift_data_quality_blocked_training_total' in REGISTRY._names_to_collectors:
-        DATA_QUALITY_BLOCKED_TRAINING = REGISTRY._names_to_collectors['ringrift_data_quality_blocked_training_total']
-    else:
-        DATA_QUALITY_BLOCKED_TRAINING = Counter(
-            'ringrift_data_quality_blocked_training_total',
-            'Training runs blocked by data quality gate',
-            ['reason']
-        )
+
+    def _get_or_create_counter(name, desc, labels=None):
+        if name in REGISTRY._names_to_collectors:
+            return REGISTRY._names_to_collectors[name]
+        return Counter(name, desc, labels or [])
+
+    def _get_or_create_gauge(name, desc, labels=None):
+        if name in REGISTRY._names_to_collectors:
+            return REGISTRY._names_to_collectors[name]
+        return Gauge(name, desc, labels or [])
+
+    def _get_or_create_histogram(name, desc, labels=None, buckets=None):
+        if name in REGISTRY._names_to_collectors:
+            return REGISTRY._names_to_collectors[name]
+        return Histogram(name, desc, labels or [], buckets=buckets)
+
+    # Data quality metrics
+    DATA_QUALITY_BLOCKED_TRAINING = _get_or_create_counter(
+        'ringrift_data_quality_blocked_training_total',
+        'Training runs blocked by data quality gate',
+        ['reason']
+    )
+
+    # Training duration metrics
+    TRAINING_DURATION_SECONDS = _get_or_create_histogram(
+        'ringrift_training_duration_seconds',
+        'Duration of training runs in seconds',
+        ['config', 'result'],
+        buckets=[60, 300, 600, 1800, 3600, 7200, 14400, 28800]
+    )
+
+    # Training retry metrics
+    TRAINING_RETRY_ATTEMPTS = _get_or_create_counter(
+        'ringrift_training_retry_attempts_total',
+        'Number of training retry attempts',
+        ['config']
+    )
+    TRAINING_RETRY_SUCCESS = _get_or_create_counter(
+        'ringrift_training_retry_success_total',
+        'Successful training runs after retry',
+        ['config', 'attempt_number']
+    )
+
+    # Validation metrics
+    VALIDATION_ERRORS = _get_or_create_counter(
+        'ringrift_validation_errors_total',
+        'Number of validation errors by type',
+        ['error_type', 'config']
+    )
+    PARITY_FAILURE_RATE = _get_or_create_gauge(
+        'ringrift_parity_failure_rate',
+        'Current parity failure rate (0-1)',
+        ['config']
+    )
+
+    # Lifecycle metrics
+    LIFECYCLE_MAINTENANCE_RUNS = _get_or_create_counter(
+        'ringrift_lifecycle_maintenance_runs_total',
+        'Number of lifecycle maintenance runs',
+        ['config']
+    )
+    MODELS_ARCHIVED = _get_or_create_counter(
+        'ringrift_models_archived_total',
+        'Number of models archived by lifecycle manager',
+        ['config']
+    )
+    MODELS_DELETED = _get_or_create_counter(
+        'ringrift_models_deleted_total',
+        'Number of models deleted by lifecycle manager',
+        ['config']
+    )
+
 except ImportError:
     HAS_PROMETHEUS = False
     DATA_QUALITY_BLOCKED_TRAINING = None
+    TRAINING_DURATION_SECONDS = None
+    TRAINING_RETRY_ATTEMPTS = None
+    TRAINING_RETRY_SUCCESS = None
+    VALIDATION_ERRORS = None
+    PARITY_FAILURE_RATE = None
+    LIFECYCLE_MAINTENANCE_RUNS = None
+    MODELS_ARCHIVED = None
+    MODELS_DELETED = None
 
 # Improvement optimizer for positive feedback acceleration
 try:
@@ -881,7 +953,10 @@ class TrainingScheduler:
 
         self.record_training_start()
 
-        # Data quality gate
+        # Data quality gate (enforced even without feedback controller if configured)
+        enforce_gate = getattr(self.config, 'enforce_data_quality_gate', True)
+        min_quality = getattr(self.config, 'min_data_quality_for_training', 0.7)
+
         if self.feedback:
             parity_failure_rate = self.feedback.data_monitor.get_parity_failure_rate()
             if parity_failure_rate > self.feedback_config.max_parity_failure_rate:
@@ -900,6 +975,14 @@ class TrainingScheduler:
                 print(f"[Training] BLOCKED by data quality gate: score {self.feedback.state.data_quality_score:.2f}")
                 if HAS_PROMETHEUS:
                     DATA_QUALITY_BLOCKED_TRAINING.labels(reason="low_score").inc()
+                return False
+        elif enforce_gate:
+            # No feedback controller - use cached parity state if available
+            if self._parity_failure_rate > getattr(self.config, 'parity_failure_threshold', 0.10):
+                print(f"[Training] BLOCKED by data quality gate (no feedback): "
+                      f"cached parity failure rate {self._parity_failure_rate:.1%}")
+                if HAS_PROMETHEUS:
+                    DATA_QUALITY_BLOCKED_TRAINING.labels(reason="parity_failure_cached").inc()
                 return False
 
         parts = config_key.rsplit("_", 1)
@@ -2280,6 +2363,10 @@ class TrainingScheduler:
         self._retry_attempts[config_key] = current_retries + 1
         self._last_failure_time[config_key] = time.time()
 
+        # Emit retry metric
+        if HAS_PROMETHEUS and TRAINING_RETRY_ATTEMPTS:
+            TRAINING_RETRY_ATTEMPTS.labels(config=config_key).inc()
+
         # Calculate delay with exponential backoff
         delay = base_delay * (multiplier ** current_retries)
         scheduled_time = time.time() + delay
@@ -2304,6 +2391,9 @@ class TrainingScheduler:
             del self._retry_attempts[config_key]
             if old_count > 0:
                 print(f"[Training] Reset retry count for {config_key} (was {old_count})")
+                # Emit success after retry metric
+                if HAS_PROMETHEUS and TRAINING_RETRY_SUCCESS:
+                    TRAINING_RETRY_SUCCESS.labels(config=config_key, attempt_number=str(old_count)).inc()
 
         if config_key in self._last_failure_time:
             del self._last_failure_time[config_key]

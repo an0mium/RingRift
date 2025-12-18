@@ -130,12 +130,15 @@ def create_hex_test_npz(
     num_samples: int = 100,
     seed: int = 42,
 ) -> str:
-    """Create a test .npz file for hex boards (21x21)."""
-    # 10 channels * 4 (history_length + 1) = 40
+    """Create a test .npz file for hex boards (25x25).
+
+    HexStateEncoder uses a 25x25 grid (radius=12 mapped to [0,24]).
+    10 channels * 4 (history_length + 1) = 40 total feature channels.
+    """
     return create_test_npz(
         path=path,
         num_samples=num_samples,
-        feature_shape=(40, 21, 21),
+        feature_shape=(40, 25, 25),  # 25x25 grid for hex boards
         global_features=10,
         policy_size=P_HEX,
         seed=seed,
@@ -911,7 +914,6 @@ class TestComponentInteractions:
         top_model_id, top_elo = rankings[0]
         assert top_elo > 1500
 
-    @pytest.mark.skip(reason="Hex encoder integration changed - needs update")
     def test_hex_and_square_mixed(
         self,
         temp_dir,
@@ -922,14 +924,18 @@ class TestComponentInteractions:
 
         Tests that the system can correctly identify feature tensors
         as belonging to square or hex boards based on their shape.
+
+        Board sizes:
+        - Square8: 8x8
+        - Hexagonal: 25x25 (radius=12 grid)
         """
         # Create square features
         square_features = np.random.rand(10, 8, 8).astype(np.float32)
         board_type = detect_board_type_from_features(square_features)
         assert board_type == BoardType.SQUARE8
 
-        # Create hex features
-        hex_features = np.random.rand(10, 21, 21).astype(np.float32)
+        # Create hex features (25x25 grid for HexStateEncoder)
+        hex_features = np.random.rand(10, 25, 25).astype(np.float32)
         board_type = detect_board_type_from_features(hex_features)
         assert board_type == BoardType.HEXAGONAL
 
@@ -938,11 +944,10 @@ class TestComponentInteractions:
         board_type = detect_board_type_from_features(square_batch)
         assert board_type == BoardType.SQUARE8
 
-        hex_batch = np.random.rand(4, 10, 21, 21).astype(np.float32)
+        hex_batch = np.random.rand(4, 10, 25, 25).astype(np.float32)
         board_type = detect_board_type_from_features(hex_batch)
         assert board_type == BoardType.HEXAGONAL
 
-    @pytest.mark.skip(reason="Hex encoder integration changed - needs update")
     def test_hex_encoder_with_dataloader(
         self,
         temp_dir,
@@ -950,6 +955,8 @@ class TestComponentInteractions:
     ):
         """
         Test HexStateEncoder works with StreamingDataLoader data.
+
+        HexStateEncoder uses a 25x25 grid (radius=12).
         """
         encoder = HexStateEncoder()
 
@@ -963,12 +970,14 @@ class TestComponentInteractions:
 
         for (features, globals_tensor), (values, policies) in loader:
             # Verify feature shapes match encoder expectations
-            assert features.shape[1:] == (40, 21, 21)
+            # 40 channels = 10 base channels * 4 (history_length + 1)
+            # 25x25 grid for hex boards (radius=12)
+            assert features.shape[1:] == (40, 25, 25)
             assert globals_tensor.shape[1] == 10
 
-            # Verify valid mask is correct shape
+            # Verify valid mask is correct shape (25x25 grid)
             valid_mask = encoder.get_valid_mask_tensor()
-            assert valid_mask.shape == (1, 21, 21)
+            assert valid_mask.shape == (1, 25, 25)
 
             # Check policy size matches
             assert policies.shape[1] == encoder.POLICY_SIZE

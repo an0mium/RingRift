@@ -322,6 +322,11 @@ class TrainingConfig:
     use_async_validation: bool = True  # Enable async validation
     validation_sample_rate: float = 0.05  # Fraction of moves to validate (5%)
     parity_failure_threshold: float = 0.10  # Block training above 10% failures
+    # Data Quality Gate Enforcement (2025-12)
+    enforce_data_quality_gate: bool = True  # Block training on quality failures even without feedback controller
+    min_data_quality_for_training: float = 0.7  # Minimum quality score to allow training
+    validate_training_data: bool = True  # Validate NPZ files before training
+    fail_on_invalid_training_data: bool = False  # Hard-fail vs warn on invalid data
     # Connection Pooling - Thread-local DB connection reuse
     use_connection_pool: bool = True  # Enable connection pooling for WAL
     # Training Auto-Recovery (Phase 7)
@@ -403,6 +408,55 @@ class TrainingConfig:
     # Reanalysis - re-evaluate games with current model
     reanalysis_enabled: bool = False
     reanalysis_blend_ratio: float = 0.5
+
+    def __post_init__(self):
+        """Validate TrainingConfig fields after initialization."""
+        errors = []
+
+        # Validate thresholds
+        if self.trigger_threshold_games < 1:
+            errors.append(f"trigger_threshold_games must be >= 1, got {self.trigger_threshold_games}")
+        if self.min_interval_seconds < 0:
+            errors.append(f"min_interval_seconds must be >= 0, got {self.min_interval_seconds}")
+        if self.max_concurrent_jobs < 1:
+            errors.append(f"max_concurrent_jobs must be >= 1, got {self.max_concurrent_jobs}")
+
+        # Validate batch sizes
+        if self.batch_size < 1:
+            errors.append(f"batch_size must be >= 1, got {self.batch_size}")
+        if self.min_batch_size < 1:
+            errors.append(f"min_batch_size must be >= 1, got {self.min_batch_size}")
+        if self.max_batch_size < self.min_batch_size:
+            errors.append(f"max_batch_size ({self.max_batch_size}) must be >= min_batch_size ({self.min_batch_size})")
+
+        # Validate ratios (0-1)
+        ratio_fields = [
+            ('swa_start_fraction', self.swa_start_fraction),
+            ('ema_decay', self.ema_decay),
+            ('distill_alpha', self.distill_alpha),
+            ('validation_sample_rate', self.validation_sample_rate),
+            ('parity_failure_threshold', self.parity_failure_threshold),
+            ('min_data_quality_for_training', self.min_data_quality_for_training),
+        ]
+        for name, value in ratio_fields:
+            if not 0.0 <= value <= 1.0:
+                errors.append(f"{name} must be between 0.0 and 1.0, got {value}")
+
+        # Validate retry settings
+        if self.training_max_retries < 0:
+            errors.append(f"training_max_retries must be >= 0, got {self.training_max_retries}")
+        if self.training_retry_backoff_base <= 0:
+            errors.append(f"training_retry_backoff_base must be > 0, got {self.training_retry_backoff_base}")
+        if self.training_retry_backoff_multiplier < 1.0:
+            errors.append(f"training_retry_backoff_multiplier must be >= 1.0, got {self.training_retry_backoff_multiplier}")
+
+        # Validate epoch settings
+        if self.warmup_epochs < 0:
+            errors.append(f"warmup_epochs must be >= 0, got {self.warmup_epochs}")
+
+        # Raise all errors at once
+        if errors:
+            raise ValueError(f"TrainingConfig validation failed:\n  " + "\n  ".join(errors))
 
 
 @dataclass

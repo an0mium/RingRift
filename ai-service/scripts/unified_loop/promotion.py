@@ -94,6 +94,14 @@ except ImportError:
     EvaluationResult = None
     OVERFIT_THRESHOLD = 0.15  # Default fallback
 
+# Optional ModelLifecycleManager for unified lifecycle management
+try:
+    from app.training.model_lifecycle import ModelLifecycleManager
+    HAS_LIFECYCLE_MANAGER = True
+except ImportError:
+    HAS_LIFECYCLE_MANAGER = False
+    ModelLifecycleManager = None
+
 
 class ModelPromoter:
     """Handles automatic model promotion based on Elo.
@@ -121,6 +129,15 @@ class ModelPromoter:
                 self._promotion_controller = PromotionController(criteria=criteria)
             except Exception as e:
                 print(f"[ModelPromoter] Warning: Failed to initialize PromotionController: {e}")
+
+        # Initialize ModelLifecycleManager for unified lifecycle tracking
+        self._lifecycle_manager = None
+        if HAS_LIFECYCLE_MANAGER and ModelLifecycleManager is not None:
+            try:
+                self._lifecycle_manager = ModelLifecycleManager()
+                print("[ModelPromoter] ModelLifecycleManager initialized for unified lifecycle tracking")
+            except Exception as e:
+                print(f"[ModelPromoter] Warning: Failed to initialize ModelLifecycleManager: {e}")
 
     async def check_promotion_candidates(self) -> List[Dict[str, Any]]:
         """Check for models that should be promoted."""
@@ -301,6 +318,17 @@ class ModelPromoter:
                 # Sync to cluster if enabled
                 if self.config.sync_to_cluster:
                     await self._sync_to_cluster(candidate)
+
+                # Run lifecycle maintenance for this config (clean up old models)
+                if self._lifecycle_manager:
+                    try:
+                        config_key = candidate["config"]
+                        result = self._lifecycle_manager.check_config(config_key)
+                        if result.archived > 0 or result.deleted > 0:
+                            print(f"[ModelPromoter] Lifecycle maintenance for {config_key}: "
+                                  f"archived={result.archived}, deleted={result.deleted}")
+                    except Exception as e:
+                        print(f"[ModelPromoter] Lifecycle maintenance error (non-blocking): {e}")
 
             return success
 
