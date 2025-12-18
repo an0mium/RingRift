@@ -50,6 +50,43 @@ from typing import Any, Callable, Dict, Optional, TypeVar
 
 T = TypeVar("T")
 
+# ============================================
+# Prometheus Metrics (optional)
+# ============================================
+
+try:
+    from prometheus_client import Counter, Gauge
+    HAS_PROMETHEUS = True
+except ImportError:
+    HAS_PROMETHEUS = False
+
+if HAS_PROMETHEUS:
+    PROM_CIRCUIT_STATE = Gauge(
+        'ringrift_circuit_breaker_state',
+        'Circuit breaker state (0=closed, 1=open, 2=half_open)',
+        ['operation_type', 'target']
+    )
+    PROM_CIRCUIT_FAILURES = Counter(
+        'ringrift_circuit_breaker_failures_total',
+        'Total circuit breaker failures recorded',
+        ['operation_type', 'target']
+    )
+    PROM_CIRCUIT_SUCCESSES = Counter(
+        'ringrift_circuit_breaker_successes_total',
+        'Total circuit breaker successes recorded',
+        ['operation_type', 'target']
+    )
+    PROM_CIRCUIT_OPENS = Counter(
+        'ringrift_circuit_breaker_opens_total',
+        'Total circuit breaker open events',
+        ['operation_type', 'target']
+    )
+    PROM_CIRCUIT_BLOCKED_REQUESTS = Counter(
+        'ringrift_circuit_breaker_blocked_total',
+        'Total requests blocked by open circuit',
+        ['operation_type', 'target']
+    )
+
 
 class CircuitState(Enum):
     """Circuit breaker states."""
@@ -128,12 +165,14 @@ class CircuitBreaker:
         half_open_max_calls: int = 1,
         success_threshold: int = 1,
         on_state_change: Optional[Callable[[str, CircuitState, CircuitState], None]] = None,
+        operation_type: str = "default",  # For Prometheus metrics labeling
     ):
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.half_open_max_calls = half_open_max_calls
         self.success_threshold = success_threshold
         self._on_state_change = on_state_change
+        self.operation_type = operation_type
 
         self._circuits: Dict[str, _CircuitData] = {}
         self._lock = RLock()
@@ -181,8 +220,18 @@ class CircuitBreaker:
                 if circuit.half_open_calls < self.half_open_max_calls:
                     circuit.half_open_calls += 1
                     return True
+                # Blocked in half-open
+                if HAS_PROMETHEUS:
+                    PROM_CIRCUIT_BLOCKED_REQUESTS.labels(
+                        operation_type=self.operation_type, target=target
+                    ).inc()
                 return False
             else:  # OPEN
+                # Record blocked request
+                if HAS_PROMETHEUS:
+                    PROM_CIRCUIT_BLOCKED_REQUESTS.labels(
+                        operation_type=self.operation_type, target=target
+                    ).inc()
                 return False
 
     def record_success(self, target: str) -> None:
@@ -209,6 +258,17 @@ class CircuitBreaker:
 
             new_state = circuit.state
 
+        # Emit Prometheus metrics
+        if HAS_PROMETHEUS:
+            PROM_CIRCUIT_SUCCESSES.labels(
+                operation_type=self.operation_type, target=target
+            ).inc()
+            # Update state gauge
+            state_value = {"closed": 0, "open": 1, "half_open": 2}.get(new_state.value, 0)
+            PROM_CIRCUIT_STATE.labels(
+                operation_type=self.operation_type, target=target
+            ).set(state_value)
+
         # Notify state change outside lock
         if old_state is not None and new_state is not None:
             self._notify_state_change(target, old_state, new_state)
@@ -217,6 +277,7 @@ class CircuitBreaker:
         """Record a failed operation for target."""
         old_state = None
         new_state = None
+        opened_circuit = False
 
         with self._lock:
             circuit = self._get_or_create_circuit(target)
@@ -229,13 +290,30 @@ class CircuitBreaker:
                 circuit.state = CircuitState.OPEN
                 circuit.opened_at = time.time()
                 circuit.success_count = 0
+                opened_circuit = True
             elif circuit.state == CircuitState.CLOSED:
                 # Check if we should open the circuit
                 if circuit.failure_count >= self.failure_threshold:
                     circuit.state = CircuitState.OPEN
                     circuit.opened_at = time.time()
+                    opened_circuit = True
 
             new_state = circuit.state
+
+        # Emit Prometheus metrics
+        if HAS_PROMETHEUS:
+            PROM_CIRCUIT_FAILURES.labels(
+                operation_type=self.operation_type, target=target
+            ).inc()
+            if opened_circuit:
+                PROM_CIRCUIT_OPENS.labels(
+                    operation_type=self.operation_type, target=target
+                ).inc()
+            # Update state gauge
+            state_value = {"closed": 0, "open": 1, "half_open": 2}.get(new_state.value, 0)
+            PROM_CIRCUIT_STATE.labels(
+                operation_type=self.operation_type, target=target
+            ).set(state_value)
 
         # Notify state change outside lock
         if old_state is not None and new_state is not None:

@@ -409,3 +409,153 @@ class ModelPromoter:
             pass
         except Exception as e:
             print(f"[ModelPromoter] Error emitting execution metrics: {e}")
+
+
+async def verify_elo_promotion_pipeline() -> Dict[str, Any]:
+    """Verify the Elo promotion pipeline is working end-to-end.
+
+    This function checks all components of the promotion pipeline:
+    1. EloService availability and database connectivity
+    2. PromotionController initialization
+    3. Model rating queries
+    4. Champion model detection
+    5. Promotion candidate evaluation
+
+    Returns:
+        Dict with verification results for each component.
+    """
+    results = {
+        "elo_service_available": False,
+        "elo_database_accessible": False,
+        "promotion_controller_available": False,
+        "model_ratings_count": 0,
+        "champions_found": [],
+        "promotion_candidates": [],
+        "errors": [],
+        "timestamp": None,
+    }
+
+    from datetime import datetime
+    results["timestamp"] = datetime.now().isoformat()
+
+    # Check EloService
+    if not HAS_ELO_SERVICE or get_elo_service is None:
+        results["errors"].append("EloService not available")
+    else:
+        try:
+            elo_svc = get_elo_service()
+            results["elo_service_available"] = True
+
+            # Check database connectivity
+            rows = elo_svc.execute_query(
+                "SELECT COUNT(*) FROM elo_ratings"
+            )
+            if rows:
+                results["elo_database_accessible"] = True
+                results["model_ratings_count"] = rows[0][0]
+        except Exception as e:
+            results["errors"].append(f"EloService error: {str(e)}")
+
+    # Check PromotionController
+    if not HAS_PROMOTION_CONTROLLER:
+        results["errors"].append("PromotionController not available")
+    else:
+        try:
+            criteria = PromotionCriteria()
+            controller = PromotionController(criteria=criteria)
+            results["promotion_controller_available"] = True
+        except Exception as e:
+            results["errors"].append(f"PromotionController error: {str(e)}")
+
+    # Check for champions in the database
+    if results["elo_service_available"] and results["elo_database_accessible"]:
+        try:
+            elo_svc = get_elo_service()
+            # Find champion models
+            rows = elo_svc.execute_query("""
+                SELECT participant_id, board_type, num_players, rating, games_played
+                FROM elo_ratings
+                WHERE participant_id LIKE 'ringrift_best_%'
+                ORDER BY board_type, num_players
+            """)
+            for row in rows:
+                results["champions_found"].append({
+                    "model_id": row[0],
+                    "board_type": row[1],
+                    "num_players": row[2],
+                    "rating": row[3],
+                    "games_played": row[4],
+                })
+        except Exception as e:
+            results["errors"].append(f"Champion query error: {str(e)}")
+
+    # Check for promotion candidates
+    if results["elo_service_available"] and results["elo_database_accessible"]:
+        try:
+            elo_svc = get_elo_service()
+            # Find potential candidates (models with > 50 games that aren't champions)
+            rows = elo_svc.execute_query("""
+                SELECT participant_id, board_type, num_players, rating, games_played
+                FROM elo_ratings
+                WHERE games_played >= 50
+                  AND participant_id NOT LIKE 'ringrift_best_%'
+                ORDER BY rating DESC
+                LIMIT 10
+            """)
+            for row in rows:
+                results["promotion_candidates"].append({
+                    "model_id": row[0],
+                    "board_type": row[1],
+                    "num_players": row[2],
+                    "rating": row[3],
+                    "games_played": row[4],
+                })
+        except Exception as e:
+            results["errors"].append(f"Candidate query error: {str(e)}")
+
+    # Summary
+    results["pipeline_healthy"] = (
+        results["elo_service_available"]
+        and results["elo_database_accessible"]
+        and results["promotion_controller_available"]
+        and len(results["errors"]) == 0
+    )
+
+    return results
+
+
+def print_promotion_verification(results: Dict[str, Any]) -> None:
+    """Pretty print promotion verification results."""
+    print("\n" + "=" * 60)
+    print("ELO PROMOTION PIPELINE VERIFICATION")
+    print("=" * 60)
+
+    status = "HEALTHY" if results.get("pipeline_healthy") else "ISSUES DETECTED"
+    print(f"\nOverall Status: {status}")
+    print(f"Timestamp: {results.get('timestamp')}")
+
+    print(f"\nComponent Status:")
+    print(f"  EloService: {'OK' if results.get('elo_service_available') else 'MISSING'}")
+    print(f"  Database: {'OK' if results.get('elo_database_accessible') else 'ERROR'}")
+    print(f"  PromotionController: {'OK' if results.get('promotion_controller_available') else 'MISSING'}")
+
+    print(f"\nModel Ratings: {results.get('model_ratings_count', 0)} models in database")
+
+    if results.get("champions_found"):
+        print(f"\nChampion Models ({len(results['champions_found'])}):")
+        for c in results["champions_found"]:
+            print(f"  {c['model_id']}: Elo={c['rating']:.1f}, games={c['games_played']}")
+    else:
+        print("\nNo champion models found (ringrift_best_*)")
+
+    if results.get("promotion_candidates"):
+        print(f"\nTop Promotion Candidates ({len(results['promotion_candidates'])}):")
+        for c in results["promotion_candidates"][:5]:
+            print(f"  {c['model_id']}: Elo={c['rating']:.1f}, games={c['games_played']}")
+
+    if results.get("errors"):
+        print(f"\nErrors ({len(results['errors'])}):")
+        for error in results["errors"]:
+            print(f"  - {error}")
+
+    print("\n" + "=" * 60)

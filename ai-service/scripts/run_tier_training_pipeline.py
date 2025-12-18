@@ -325,6 +325,39 @@ def _run_neural_tier_training(
     metrics["extra"] = {
         "checkpoint_path": save_path,
     }
+
+    # Run Elo-based checkpoint selection to find best checkpoint by playing strength
+    # This addresses the loss/Elo disconnect where lower val_loss != better play
+    try:
+        from scripts.select_best_checkpoint_by_elo import select_best_checkpoint
+        print(f"\n[tier-training] Running Elo-based checkpoint selection for {candidate_id}...")
+        best_ckpt, elo_results = select_best_checkpoint(
+            candidate_id=candidate_id,
+            models_dir=base_config.model_dir,
+            games_per_opponent=5,  # Quick evaluation
+            board_type=board_enum,
+            num_players=2,
+        )
+        if best_ckpt and elo_results:
+            # Find the Elo for the best checkpoint
+            best_elo = None
+            for r in elo_results:
+                if r["checkpoint"] == str(best_ckpt):
+                    best_elo = r.get("estimated_elo")
+                    break
+            metrics["extra"]["elo_best_checkpoint"] = str(best_ckpt)
+            metrics["extra"]["elo_best_elo"] = best_elo
+            metrics["extra"]["elo_results"] = elo_results
+            # Copy best checkpoint to _elo_best.pth
+            import shutil
+            elo_best_path = os.path.join(base_config.model_dir, f"{candidate_id}_elo_best.pth")
+            shutil.copy2(best_ckpt, elo_best_path)
+            metrics["extra"]["elo_best_path"] = elo_best_path
+            print(f"[tier-training] Elo-best checkpoint: {best_ckpt.name} (Elo: {best_elo:.0f})")
+    except Exception as e:
+        print(f"[tier-training] Warning: Elo-based selection failed: {e}")
+        metrics["extra"]["elo_selection_error"] = str(e)
+
     return training_params, metrics
 
 

@@ -57,20 +57,47 @@ main() {
 
     print_status INFO "Checking Lambda nodes..."
     local failed=0
-    
-    check_node "l-2xh100" "100.97.104.89" || failed=$((failed + 1))
-    check_node "l-a10" "100.91.25.13" || failed=$((failed + 1))
-    check_node "l-gh200e" "100.88.176.74" || failed=$((failed + 1))
-    check_node "l-gh200f" "100.104.165.116" || failed=$((failed + 1))
-    check_node "l-gh200g" "100.104.126.58" || failed=$((failed + 1))
-    check_node "l-gh200b" "100.83.234.82" || failed=$((failed + 1))
-    
-    echo ""
-    local healthy=$((6 - failed))
-    if [ $failed -eq 0 ]; then
-        print_status OK "All 6 nodes healthy"
+    local total=0
+
+    # Load node IPs from config file (gitignored)
+    local config_file="$(dirname "$0")/../config/cluster_nodes.env"
+    if [ -f "$config_file" ]; then
+        source "$config_file"
+
+        # Check H100 node
+        if [ -n "$H100_IP" ]; then
+            check_node "l-2xh100" "$H100_IP" || failed=$((failed + 1))
+            total=$((total + 1))
+        fi
+
+        # Check A10 node
+        if [ -n "$A10_IP" ]; then
+            check_node "l-a10" "$A10_IP" || failed=$((failed + 1))
+            total=$((total + 1))
+        fi
+
+        # Check GH200 nodes (array from config)
+        if [ -n "${GH200_NODES+x}" ]; then
+            for node in "${GH200_NODES[@]}"; do
+                local ip="${node%%:*}"
+                local name="${node##*:}"
+                check_node "$name" "$ip" || failed=$((failed + 1))
+                total=$((total + 1))
+            done
+        fi
     else
-        print_status WARN "$healthy/6 nodes healthy"
+        print_status WARN "Config file not found: $config_file"
+        print_status INFO "Copy config/cluster_nodes.env.example to cluster_nodes.env"
+    fi
+
+    echo ""
+    local healthy=$((total - failed))
+    if [ $total -eq 0 ]; then
+        print_status WARN "No nodes configured"
+    elif [ $failed -eq 0 ]; then
+        print_status OK "All $total nodes healthy"
+    else
+        print_status WARN "$healthy/$total nodes healthy"
     fi
 
     echo ""

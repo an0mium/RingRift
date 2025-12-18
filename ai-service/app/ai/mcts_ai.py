@@ -864,6 +864,16 @@ class MCTSAI(HeuristicAI):
         self.nnue_policy_model: Optional["RingRiftNNUEWithPolicy"] = None
         self._pending_nnue_policy_init: bool = False
 
+        # Policy temperature for NNUE priors - higher values flatten the distribution
+        # to reduce the influence of low-confidence policy predictions.
+        # Default 2.0 because NNUE policy accuracy is typically 10-20%.
+        self.policy_temperature: float = getattr(config, "policy_temperature", 2.0)
+
+        # Prior uniform mix - blends policy priors with uniform distribution.
+        # 0.0 = pure policy, 1.0 = pure uniform, 0.3 = 70% policy + 30% uniform.
+        # Helps when policy accuracy is low (< 20%).
+        self.prior_uniform_mix: float = getattr(config, "prior_uniform_mix", 0.3)
+
         # Enable NNUE policy priors by default when no neural net is available
         # or explicitly via use_nnue_policy_priors config
         use_nnue_policy_config = getattr(config, "use_nnue_policy_priors", None)
@@ -1127,15 +1137,19 @@ class MCTSAI(HeuristicAI):
             if score > max_score:
                 max_score = score
 
-        # Convert to probabilities using softmax
+        # Convert to probabilities using softmax with temperature
         if not move_scores:
             return {}
 
-        # Subtract max for numerical stability then softmax
+        # Apply temperature: higher temp -> flatter distribution
+        # This reduces the influence of low-confidence policy predictions
+        temperature = self.policy_temperature
+
+        # Subtract max for numerical stability then softmax with temperature
         exp_scores = {}
         total_exp = 0.0
         for key, score in move_scores.items():
-            exp_val = math.exp(score - max_score)
+            exp_val = math.exp((score - max_score) / temperature)
             exp_scores[key] = exp_val
             total_exp += exp_val
 
@@ -1143,6 +1157,13 @@ class MCTSAI(HeuristicAI):
         if total_exp > 0:
             for key in exp_scores:
                 exp_scores[key] /= total_exp
+
+        # Mix with uniform distribution to hedge against low-accuracy policy
+        mix = self.prior_uniform_mix
+        if mix > 0 and len(exp_scores) > 0:
+            uniform = 1.0 / len(exp_scores)
+            for key in exp_scores:
+                exp_scores[key] = (1.0 - mix) * exp_scores[key] + mix * uniform
 
         return exp_scores
 
@@ -2057,9 +2078,10 @@ class MCTSAI(HeuristicAI):
         # Apply Dirichlet noise only at root during self-play.
         self._maybe_apply_root_dirichlet_noise(node, state.board.type)
 
-        # For large boards, order untried moves by priors so progressive
-        # widening expands high-probability moves first.
-        if self._use_progressive_widening(state.board.type) and node.policy_map:
+        # Order untried moves by priors when policy_map is available.
+        # For progressive widening this focuses on top-prior moves; for other
+        # boards it still benefits from policy guidance during expansion.
+        if node.policy_map:
             node.untried_moves.sort(
                 key=lambda m: node.policy_map.get(str(m), 0.0),
                 reverse=True,
@@ -2749,9 +2771,10 @@ class MCTSAI(HeuristicAI):
         # Apply Dirichlet noise only at root during self-play.
         self._maybe_apply_root_dirichlet_noise(node, state.board.type)
 
-        # For large boards, order untried moves by priors so progressive
-        # widening expands high-probability moves first.
-        if self._use_progressive_widening(state.board.type) and node.policy_map:
+        # Order untried moves by priors when policy_map is available.
+        # For progressive widening this focuses on top-prior moves; for other
+        # boards it still benefits from policy guidance during expansion.
+        if node.policy_map:
             node.untried_moves.sort(
                 key=lambda m: node.policy_map.get(str(m), 0.0),
                 reverse=True,
@@ -2927,7 +2950,7 @@ class MCTSAI(HeuristicAI):
         return 16
 
     def _maybe_seed_root_priors(self, root: Any, game_state: GameState) -> None:
-        """Seed NN priors at the root for large boards.
+        """Seed NN priors at the root.
 
         Progressive widening relies on high-quality priors to select the
         initial children. For square19/hex boards, evaluate the root once
@@ -2935,11 +2958,18 @@ class MCTSAI(HeuristicAI):
         consistent priors.
 
         When no neural network is available but NNUE policy is loaded, uses
-        NNUE policy priors as a lightweight alternative.
+        NNUE policy priors as a lightweight alternative. This applies to ALL
+        board types (including square8) to benefit from policy guidance even
+        without progressive widening.
         """
         board_type = game_state.board.type
-        if not self._use_progressive_widening(board_type):
-            return
+        use_progressive = self._use_progressive_widening(board_type)
+
+        # For non-progressive-widening boards, only seed if NNUE policy is available
+        # (no neural net and NNUE model loaded)
+        if not use_progressive:
+            if self.neural_net or self.nnue_policy_model is None:
+                return
 
         existing_map = getattr(root, "policy_map", None)
         if isinstance(existing_map, dict) and existing_map:
@@ -2956,7 +2986,7 @@ class MCTSAI(HeuristicAI):
                     if nnue_policy:
                         root.policy_map = nnue_policy
                         root.untried_moves = list(valid_moves)
-                        # Sort by priors for progressive widening
+                        # Sort by priors
                         root.untried_moves.sort(
                             key=lambda m: root.policy_map.get(str(m), 0.0),
                             reverse=True,
@@ -2969,6 +2999,14 @@ class MCTSAI(HeuristicAI):
                             prior = root.policy_map.get(str(move))
                             if prior is not None:
                                 child.prior = float(prior)
+                        # Compute entropy for logging (higher = more uniform)
+                        max_p = max(nnue_policy.values()) if nnue_policy else 0.0
+                        min_p = min(nnue_policy.values()) if nnue_policy else 0.0
+                        logger.debug(
+                            f"Seeded NNUE root priors for {board_type.value}: "
+                            f"{len(nnue_policy)} moves, temp={self.policy_temperature:.1f}, "
+                            f"max_prior={max_p:.3f}, min_prior={min_p:.4f}"
+                        )
                 except Exception:
                     logger.debug("Failed to seed NNUE root priors", exc_info=True)
             return
@@ -3090,14 +3128,17 @@ class MCTSAI(HeuristicAI):
         return len(children) < self._max_children_allowed(visits, board_type)
 
     def _select_untried_move(self, node: Any, board_type: BoardType) -> Move:
-        """Pick the next untried move for expansion."""
+        """Pick the next untried move for expansion.
+
+        When policy_map is available (from neural net or NNUE policy), selects
+        the highest-probability move. Otherwise falls back to random selection.
+        """
         moves: List[Move] = list(getattr(node, "untried_moves", []))
         if not moves:
             raise ValueError("No untried moves to select")
-        if self._use_progressive_widening(board_type) and getattr(
-            node, "policy_map", None
-        ):
-            policy_map: Dict[str, float] = cast(Dict[str, float], node.policy_map)
+        # Use policy-guided selection when policy_map is available
+        policy_map = getattr(node, "policy_map", None)
+        if isinstance(policy_map, dict) and policy_map:
             return max(moves, key=lambda m: policy_map.get(str(m), 0.0))
         return cast(Move, self.get_random_element(moves))
 

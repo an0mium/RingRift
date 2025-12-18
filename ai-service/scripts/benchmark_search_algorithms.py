@@ -92,6 +92,7 @@ def get_best_model_id(board_type: BoardType, num_players: int = 2) -> Optional[s
         BoardType.SQUARE8: "sq8",
         BoardType.SQUARE19: "sq19",
         BoardType.HEXAGONAL: "hex",
+        BoardType.HEX8: "hex8",
     }
     prefix = board_prefix_map.get(board_type, "sq8")
 
@@ -515,7 +516,7 @@ def main():
         "--board",
         type=str,
         default="square8",
-        choices=["square8", "square19", "hexagonal"],
+        choices=["square8", "square19", "hexagonal", "hex8"],
         help="Board type (default: square8)"
     )
     parser.add_argument(
@@ -547,6 +548,7 @@ def main():
         "square8": BoardType.SQUARE8,
         "square19": BoardType.SQUARE19,
         "hexagonal": BoardType.HEXAGONAL,
+        "hex8": BoardType.HEX8,
     }
     board_type = board_type_map[args.board]
 

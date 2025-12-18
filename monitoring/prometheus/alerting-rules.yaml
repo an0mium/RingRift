@@ -387,3 +387,121 @@ groups:
         annotations:
           summary: 'Very low training ROI for {{ $labels.board_type }}_{{ $labels.num_players }}p'
           description: 'Only {{ $value | printf "%.2f" }} Elo/GPU-hr - may have hit improvement ceiling'
+
+      # ==========================================================================
+      # Pressure Monitoring Alerts (2025-12)
+      # ==========================================================================
+
+      # Memory Pressure Critical
+      - alert: MemoryPressureCritical
+        expr: |
+          ringrift_memory_pressure_level >= 3
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Critical memory pressure detected'
+          description: 'Memory pressure level is {{ $value }} (CRITICAL/EMERGENCY). Auto-cleanup triggered.'
+
+      # Disk Pressure Critical
+      - alert: DiskPressureCritical
+        expr: |
+          ringrift_disk_pressure_level >= 3
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Critical disk pressure detected'
+          description: 'Disk pressure level is {{ $value }} (CRITICAL/EMERGENCY). Auto-cleanup triggered.'
+
+      # Sustained Memory Pressure Warning
+      - alert: MemoryPressureWarning
+        expr: |
+          ringrift_memory_pressure_level >= 2
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Sustained memory pressure detected'
+          description: 'Memory pressure has been ELEVATED or higher for 30 minutes - consider scaling resources'
+
+      # Sustained Disk Pressure Warning
+      - alert: DiskPressureWarning
+        expr: |
+          ringrift_disk_pressure_level >= 2
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Sustained disk pressure detected'
+          description: 'Disk pressure has been ELEVATED or higher for 30 minutes - check cleanup jobs'
+
+      # Frequent Pressure Cleanup
+      - alert: FrequentPressureCleanup
+        expr: |
+          increase(ringrift_pressure_cleanup_total[1h]) > 10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Frequent pressure cleanup events'
+          description: '{{ $value }} cleanup events in the last hour - system under sustained pressure'
+
+      # ==========================================================================
+      # Circuit Breaker Alerts (2025-12)
+      # ==========================================================================
+
+      # Circuit Breaker Open
+      - alert: CircuitBreakerOpen
+        expr: |
+          ringrift_circuit_breaker_state == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Circuit breaker OPEN for {{ $labels.operation_type }}/{{ $labels.target }}'
+          description: 'Circuit breaker has been OPEN for 5+ minutes - operations are being blocked'
+
+      # Circuit Breaker Stuck Open
+      - alert: CircuitBreakerStuckOpen
+        expr: |
+          ringrift_circuit_breaker_state == 1
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Circuit breaker stuck OPEN for {{ $labels.operation_type }}/{{ $labels.target }}'
+          description: 'Circuit breaker has been OPEN for 30+ minutes - may indicate persistent failure'
+
+      # High Circuit Breaker Failure Rate
+      - alert: HighCircuitBreakerFailures
+        expr: |
+          increase(ringrift_circuit_breaker_failures_total[15m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'High failure rate for {{ $labels.operation_type }}/{{ $labels.target }}'
+          description: '{{ $value }} failures in 15 minutes - check target system health'
+
+      # Training Blocked by Circuit Breaker
+      - alert: TrainingBlockedByCircuitBreaker
+        expr: |
+          increase(ringrift_circuit_breaker_blocked_total{operation_type="training"}[1h]) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Training blocked by circuit breaker'
+          description: 'Training operations are being blocked by open circuit breaker'
+
+      # Multiple Circuit Breakers Open
+      - alert: MultipleCircuitBreakersOpen
+        expr: |
+          count(ringrift_circuit_breaker_state == 1) > 3
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Multiple circuit breakers OPEN'
+          description: '{{ $value }} circuit breakers are currently OPEN - may indicate cluster-wide issue'

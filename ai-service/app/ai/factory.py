@@ -64,13 +64,22 @@ class DifficultyProfile(TypedDict):
 
 # NOTE: think_time_ms is passed to the AI as a soft search-budget hint but
 # must not be used to delay after a move has been selected.
+#
+# Benchmark Results (Dec 2025):
+# - 2P: Gumbel+NN >> MCTS+NN > Descent+NN
+# - 3P: Gumbel+NN >> (MaxN ≈ BRS ≈ MCTS+NN ≈ Descent+NN)
+# - 4P: Gumbel+NN >> MaxN > BRS > MCTS+NN
+#
+# For 2P games, the default ladder below applies.
+# For 3-4P games, use MULTIPLAYER_DIFFICULTY_OVERRIDES which swaps
+# Minimax levels for MaxN/BRS (better suited for multi-player).
 CANONICAL_DIFFICULTY_PROFILES: Dict[int, DifficultyProfile] = {
     1: {
         # Beginner: pure random baseline
         "ai_type": AIType.RANDOM,
         "randomness": 0.5,
         "think_time_ms": 150,
-        "profile_id": "v1-random-1",
+        "profile_id": "v2-random-1",
         "use_neural_net": False,
     },
     2: {
@@ -78,100 +87,146 @@ CANONICAL_DIFFICULTY_PROFILES: Dict[int, DifficultyProfile] = {
         "ai_type": AIType.HEURISTIC,
         "randomness": 0.3,
         "think_time_ms": 200,
-        "profile_id": "v1-heuristic-2",
+        "profile_id": "v2-heuristic-2",
         "use_neural_net": False,
     },
     3: {
-        # Lower-mid: minimax with heuristic evaluation only (no neural net)
-        "ai_type": AIType.MINIMAX,
+        # Lower-mid: Policy-only (neural policy without search)
+        # Uses NN-trained move distribution, weaker than search-based
+        "ai_type": AIType.POLICY_ONLY,
         "randomness": 0.15,
-        "think_time_ms": 1800,
-        "profile_id": "v1-minimax-3",
-        "use_neural_net": False,
-    },
-    4: {
-        # Mid: minimax with NNUE neural evaluation
-        "ai_type": AIType.MINIMAX,
-        "randomness": 0.08,
-        "think_time_ms": 2800,
-        "profile_id": "v1-minimax-4-nnue",
+        "think_time_ms": 500,
+        "profile_id": "v2-policy-3",
         "use_neural_net": True,
     },
+    4: {
+        # Mid-low: Minimax with heuristic evaluation (2P small boards only)
+        # For large boards or 3-4P, use MULTIPLAYER_DIFFICULTY_OVERRIDES
+        "ai_type": AIType.MINIMAX,
+        "randomness": 0.08,
+        "think_time_ms": 2000,
+        "profile_id": "v2-minimax-4",
+        "use_neural_net": False,
+    },
     5: {
-        # Upper-mid: Descent with neural guidance (replaces plain MCTS)
-        "ai_type": AIType.DESCENT,
+        # Mid: Minimax with NNUE neural evaluation (2P small boards)
+        # For large boards: Descent+NN; For 3-4P: MaxN
+        "ai_type": AIType.MINIMAX,
         "randomness": 0.05,
-        "think_time_ms": 4000,
-        "profile_id": "v1-descent-5-neural",
+        "think_time_ms": 3000,
+        "profile_id": "v2-minimax-5-nnue",
         "use_neural_net": True,
     },
     6: {
-        # High: Descent with neural guidance and larger budget
+        # Upper-mid: Descent with neural guidance
         "ai_type": AIType.DESCENT,
         "randomness": 0.02,
-        "think_time_ms": 5500,
-        "profile_id": "v1-descent-6-neural",
+        "think_time_ms": 4500,
+        "profile_id": "v2-descent-6-neural",
         "use_neural_net": True,
     },
     7: {
-        # Expert: MCTS with neural guidance
+        # High: MCTS with neural guidance
         "ai_type": AIType.MCTS,
         "randomness": 0.0,
-        "think_time_ms": 7500,
-        "profile_id": "v1-mcts-7-neural",
+        "think_time_ms": 6000,
+        "profile_id": "v2-mcts-7-neural",
         "use_neural_net": True,
     },
     8: {
-        # Strong expert: MCTS with neural guidance and larger budget
+        # Expert: MCTS with neural guidance and larger budget
         "ai_type": AIType.MCTS,
         "randomness": 0.0,
-        "think_time_ms": 9600,
-        "profile_id": "v1-mcts-8-neural",
+        "think_time_ms": 9000,
+        "profile_id": "v2-mcts-8-neural",
         "use_neural_net": True,
     },
     9: {
-        # Master: Gumbel MCTS with extended search (strongest per benchmarks)
+        # Master: Gumbel MCTS (strongest algorithm per benchmarks)
         "ai_type": AIType.GUMBEL_MCTS,
         "randomness": 0.0,
-        "think_time_ms": 12600,
-        "profile_id": "v1-gumbel-9-master",
+        "think_time_ms": 12000,
+        "profile_id": "v2-gumbel-9-master",
         "use_neural_net": True,
     },
     10: {
-        # Grandmaster: Gumbel MCTS with maximum search budget
+        # Grandmaster: Gumbel MCTS with extended search
         "ai_type": AIType.GUMBEL_MCTS,
         "randomness": 0.0,
-        "think_time_ms": 16000,
-        "profile_id": "v1-gumbel-10-grandmaster",
+        "think_time_ms": 18000,
+        "profile_id": "v2-gumbel-10-grandmaster",
         "use_neural_net": True,
     },
     11: {
-        # Ultimate: Gumbel MCTS super-hard mode with extended think time
-        # This level is intended to be nearly unbeatable by humans
+        # Ultimate: Gumbel MCTS with maximum think time
+        # Nearly unbeatable by humans
         "ai_type": AIType.GUMBEL_MCTS,
         "randomness": 0.0,
         "think_time_ms": 60000,  # 60 seconds per move
-        "profile_id": "v1-gumbel-11-ultimate",
+        "profile_id": "v2-gumbel-11-ultimate",
+        "use_neural_net": True,
+    },
+}
+
+# Overrides for 3-4 player games where MaxN/BRS outperform Minimax
+# Benchmarks show: MaxN > BRS > MCTS in 4P; MaxN ≈ BRS ≈ MCTS in 3P
+MULTIPLAYER_DIFFICULTY_OVERRIDES: Dict[int, DifficultyProfile] = {
+    4: {
+        # For 3-4P: BRS (Best Reply Search) - faster than MaxN, good for 3P
+        "ai_type": AIType.BRS,
+        "randomness": 0.08,
+        "think_time_ms": 2000,
+        "profile_id": "v2-brs-4-mp",
+        "use_neural_net": False,
+    },
+    5: {
+        # For 3-4P: MaxN (better than BRS for 4P, equal for 3P)
+        "ai_type": AIType.MAXN,
+        "randomness": 0.05,
+        "think_time_ms": 3000,
+        "profile_id": "v2-maxn-5-mp",
+        "use_neural_net": False,
+    },
+}
+
+# Overrides for large boards where Minimax is too slow
+LARGE_BOARD_DIFFICULTY_OVERRIDES: Dict[int, DifficultyProfile] = {
+    4: {
+        # For large boards: Descent+NN (Minimax too slow)
+        "ai_type": AIType.DESCENT,
+        "randomness": 0.08,
+        "think_time_ms": 2500,
+        "profile_id": "v2-descent-4-large",
+        "use_neural_net": True,
+    },
+    5: {
+        # For large boards: Descent+NN with larger budget
+        "ai_type": AIType.DESCENT,
+        "randomness": 0.05,
+        "think_time_ms": 3500,
+        "profile_id": "v2-descent-5-large",
         "use_neural_net": True,
     },
 }
 
 # Difficulty level descriptions for UI/documentation
-# NOTE: For larger boards (hex8, square19, hexagonal), D3-4 use Descent + NN
-# instead of Minimax, as Minimax is too slow for larger state spaces.
+# Adapted based on player count and board size
 DIFFICULTY_DESCRIPTIONS: Dict[int, str] = {
     1: "Beginner - Pure random moves",
     2: "Easy - Simple heuristic with randomness",
-    3: "Lower-mid - Minimax search (small boards) / Descent + NN (large boards)",
-    4: "Mid - Minimax + NNUE (small boards) / Descent + NN (large boards)",
-    5: "Upper-mid - Descent with neural guidance",
-    6: "High - Descent with neural guidance",
-    7: "Expert - MCTS with neural guidance",
-    8: "Strong Expert - MCTS with larger search budget",
-    9: "Master - Gumbel MCTS with extended search",
-    10: "Grandmaster - Maximum strength Gumbel MCTS",
+    3: "Lower-mid - Policy-only (neural network move selection)",
+    4: "Mid-low - Minimax/BRS (2P) or BRS/Descent (3-4P/large boards)",
+    5: "Mid - Minimax+NNUE (2P small) / MaxN (3-4P) / Descent+NN (large)",
+    6: "Upper-mid - Descent with neural guidance",
+    7: "High - MCTS with neural guidance",
+    8: "Expert - MCTS with larger search budget",
+    9: "Master - Gumbel MCTS (strongest algorithm)",
+    10: "Grandmaster - Gumbel MCTS with extended search",
     11: "Ultimate - Gumbel MCTS with 60s think time (nearly unbeatable)",
 }
+
+# Board types considered "large" (Minimax too slow)
+LARGE_BOARD_TYPES = {"square19", "hexagonal", "hex"}
 
 
 # -----------------------------------------------------------------------------
@@ -179,20 +234,44 @@ DIFFICULTY_DESCRIPTIONS: Dict[int, str] = {
 # -----------------------------------------------------------------------------
 
 
-def get_difficulty_profile(difficulty: int) -> DifficultyProfile:
-    """Return the canonical difficulty profile for the given ladder level.
+def get_difficulty_profile(
+    difficulty: int,
+    *,
+    num_players: int = 2,
+    board_type: Optional[str] = None,
+) -> DifficultyProfile:
+    """Return the difficulty profile for the given level, player count, and board.
 
     Difficulty is clamped into [1, 11] so that out-of-range values still map
     to a well-defined profile instead of silently diverging between callers.
 
+    The profile may be adjusted based on:
+    - num_players: For 3-4 players, uses MaxN/BRS instead of Minimax at D4-5
+    - board_type: For large boards, uses Descent instead of Minimax at D4-5
+
     Args:
         difficulty: Difficulty level (1-11, clamped if out of range)
+        num_players: Number of players (2-4, default 2)
+        board_type: Board type string (e.g., "square8", "square19", "hexagonal")
 
     Returns:
         DifficultyProfile with ai_type, randomness, think_time_ms, etc.
     """
     effective = max(1, min(11, difficulty))
-    return CANONICAL_DIFFICULTY_PROFILES[effective]
+
+    # Start with canonical profile
+    profile = CANONICAL_DIFFICULTY_PROFILES[effective]
+
+    # Check for multiplayer override (3-4 players)
+    if num_players >= 3 and effective in MULTIPLAYER_DIFFICULTY_OVERRIDES:
+        return MULTIPLAYER_DIFFICULTY_OVERRIDES[effective]
+
+    # Check for large board override (Minimax too slow)
+    if board_type and board_type.lower() in LARGE_BOARD_TYPES:
+        if effective in LARGE_BOARD_DIFFICULTY_OVERRIDES:
+            return LARGE_BOARD_DIFFICULTY_OVERRIDES[effective]
+
+    return profile
 
 
 def select_ai_type(difficulty: int) -> AIType:
@@ -424,6 +503,8 @@ class AIFactory:
         difficulty: int,
         player_number: int,
         *,
+        num_players: int = 2,
+        board_type: Optional[str] = None,
         think_time_override: Optional[int] = None,
         randomness_override: Optional[float] = None,
         rng_seed: Optional[int] = None,
@@ -433,11 +514,14 @@ class AIFactory:
         """Create an AI instance from a difficulty level.
 
         This is the recommended way to create AIs for normal gameplay,
-        as it uses the canonical difficulty profiles.
+        as it uses the canonical difficulty profiles with appropriate
+        overrides for player count and board size.
 
         Args:
             difficulty: Difficulty level (1-11)
             player_number: The player number (1-indexed)
+            num_players: Total number of players (2-4, affects AI selection)
+            board_type: Board type string (affects AI selection for large boards)
             think_time_override: Override default think time (ms)
             randomness_override: Override default randomness (0.0-1.0)
             rng_seed: Optional RNG seed for reproducibility
@@ -447,7 +531,11 @@ class AIFactory:
         Returns:
             Configured AI instance
         """
-        profile = get_difficulty_profile(difficulty)
+        profile = get_difficulty_profile(
+            difficulty,
+            num_players=num_players,
+            board_type=board_type,
+        )
 
         config = AIConfig(
             difficulty=max(1, min(11, difficulty)),

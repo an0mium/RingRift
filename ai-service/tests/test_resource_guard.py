@@ -361,3 +361,180 @@ class TestAsyncResourceLimiter:
         ok, issues = limiter._check_resources()
         assert ok is True
         assert issues == []
+
+
+# =============================================================================
+# Memory Pressure Detection Tests
+# =============================================================================
+
+class TestMemoryPressureDetection:
+    """Tests for memory pressure detection and automatic cleanup."""
+
+    def test_memory_pressure_level_import(self):
+        """MemoryPressureLevel should be importable."""
+        from app.utils.resource_guard import MemoryPressureLevel
+        assert MemoryPressureLevel.NORMAL == 0
+        assert MemoryPressureLevel.WARNING == 1
+        assert MemoryPressureLevel.ELEVATED == 2
+        assert MemoryPressureLevel.CRITICAL == 3
+        assert MemoryPressureLevel.EMERGENCY == 4
+
+    @patch('app.utils.resource_guard.get_memory_usage')
+    def test_get_memory_pressure_level_normal(self, mock_mem):
+        """Normal memory usage should return NORMAL level."""
+        from app.utils.resource_guard import get_memory_pressure_level, MemoryPressureLevel
+        mock_mem.return_value = (50.0, 8.0, 16.0)  # 50% used
+        level = get_memory_pressure_level()
+        assert level == MemoryPressureLevel.NORMAL
+
+    @patch('app.utils.resource_guard.get_memory_usage')
+    def test_get_memory_pressure_level_warning(self, mock_mem):
+        """70-80% memory usage should return WARNING level."""
+        from app.utils.resource_guard import get_memory_pressure_level, MemoryPressureLevel
+        mock_mem.return_value = (75.0, 12.0, 16.0)  # 75% used
+        level = get_memory_pressure_level()
+        assert level == MemoryPressureLevel.WARNING
+
+    @patch('app.utils.resource_guard.get_memory_usage')
+    def test_get_memory_pressure_level_critical(self, mock_mem):
+        """85-90% memory usage should return CRITICAL level."""
+        from app.utils.resource_guard import get_memory_pressure_level, MemoryPressureLevel
+        mock_mem.return_value = (87.0, 14.0, 16.0)  # 87% used
+        level = get_memory_pressure_level()
+        assert level == MemoryPressureLevel.CRITICAL
+
+    @patch('app.utils.resource_guard.get_memory_usage')
+    def test_get_memory_pressure_level_emergency(self, mock_mem):
+        """90%+ memory usage should return EMERGENCY level."""
+        from app.utils.resource_guard import get_memory_pressure_level, MemoryPressureLevel
+        mock_mem.return_value = (92.0, 14.7, 16.0)  # 92% used
+        level = get_memory_pressure_level()
+        assert level == MemoryPressureLevel.EMERGENCY
+
+    def test_trigger_memory_cleanup_import(self):
+        """trigger_memory_cleanup should be importable."""
+        from app.utils.resource_guard import trigger_memory_cleanup, MemoryPressureLevel
+        # Should not raise
+        freed = trigger_memory_cleanup(MemoryPressureLevel.WARNING)
+        assert isinstance(freed, int)
+
+    def test_check_memory_and_cleanup_import(self):
+        """check_memory_and_cleanup should be importable."""
+        from app.utils.resource_guard import check_memory_and_cleanup
+        # Should return tuple of (bool, int)
+        result = check_memory_and_cleanup(required_gb=0.1, auto_cleanup=False)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+
+    def test_memory_pressure_monitor_import(self):
+        """MemoryPressureMonitor should be importable and instantiable."""
+        from app.utils.resource_guard import MemoryPressureMonitor
+        monitor = MemoryPressureMonitor(check_interval=60.0, auto_cleanup=False)
+        assert monitor.check_interval == 60.0
+        assert monitor.auto_cleanup is False
+
+
+# =============================================================================
+# Disk Pressure and Cleanup Tests
+# =============================================================================
+
+class TestDiskPressureCleanup:
+    """Tests for disk pressure detection and automatic cleanup."""
+
+    def test_disk_pressure_level_import(self):
+        """DiskPressureLevel should be importable."""
+        from app.utils.resource_guard import DiskPressureLevel
+        assert DiskPressureLevel.NORMAL == 0
+        assert DiskPressureLevel.WARNING == 1
+        assert DiskPressureLevel.ELEVATED == 2
+        assert DiskPressureLevel.CRITICAL == 3
+        assert DiskPressureLevel.EMERGENCY == 4
+
+    @patch('app.utils.resource_guard.get_disk_usage')
+    def test_get_disk_pressure_level_normal(self, mock_disk):
+        """Normal disk usage should return NORMAL level."""
+        from app.utils.resource_guard import get_disk_pressure_level, DiskPressureLevel
+        mock_disk.return_value = (50.0, 500.0, 1000.0)  # 50% used
+        level = get_disk_pressure_level()
+        assert level == DiskPressureLevel.NORMAL
+
+    @patch('app.utils.resource_guard.get_disk_usage')
+    def test_get_disk_pressure_level_warning(self, mock_disk):
+        """70-75% disk usage should return WARNING level."""
+        from app.utils.resource_guard import get_disk_pressure_level, DiskPressureLevel
+        mock_disk.return_value = (72.0, 720.0, 1000.0)  # 72% used
+        level = get_disk_pressure_level()
+        assert level == DiskPressureLevel.WARNING
+
+    @patch('app.utils.resource_guard.get_disk_usage')
+    def test_get_disk_pressure_level_emergency(self, mock_disk):
+        """85%+ disk usage should return EMERGENCY level."""
+        from app.utils.resource_guard import get_disk_pressure_level, DiskPressureLevel
+        mock_disk.return_value = (88.0, 880.0, 1000.0)  # 88% used
+        level = get_disk_pressure_level()
+        assert level == DiskPressureLevel.EMERGENCY
+
+    def test_cleanup_temp_files_import(self):
+        """cleanup_temp_files should be importable."""
+        from app.utils.resource_guard import cleanup_temp_files
+        # Should not raise
+        deleted = cleanup_temp_files()
+        assert isinstance(deleted, int)
+
+    def test_cleanup_old_logs_import(self):
+        """cleanup_old_logs should be importable."""
+        from app.utils.resource_guard import cleanup_old_logs
+        # Should not raise
+        deleted = cleanup_old_logs(max_age_days=7)
+        assert isinstance(deleted, int)
+
+    def test_trigger_disk_cleanup_import(self):
+        """trigger_disk_cleanup should be importable."""
+        from app.utils.resource_guard import trigger_disk_cleanup, DiskPressureLevel
+        # Should not raise (dry_run to avoid actual cleanup)
+        freed = trigger_disk_cleanup(DiskPressureLevel.WARNING, dry_run=True)
+        assert isinstance(freed, int)
+
+    def test_check_disk_and_cleanup_import(self):
+        """check_disk_and_cleanup should be importable."""
+        from app.utils.resource_guard import check_disk_and_cleanup
+        # Should return tuple of (bool, int)
+        result = check_disk_and_cleanup(required_gb=0.1, auto_cleanup=False)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+
+    def test_disk_pressure_monitor_import(self):
+        """DiskPressureMonitor should be importable and instantiable."""
+        from app.utils.resource_guard import DiskPressureMonitor
+        monitor = DiskPressureMonitor(check_interval=120.0, auto_cleanup=False)
+        assert monitor.check_interval == 120.0
+        assert monitor.auto_cleanup is False
+
+
+# =============================================================================
+# OOM Prevention Tests
+# =============================================================================
+
+class TestOOMPrevention:
+    """Tests for OOM killer prevention and signal handling."""
+
+    def test_get_oom_score_import(self):
+        """get_oom_score should be importable."""
+        from app.utils.resource_guard import get_oom_score
+        # On Linux returns int, on other platforms returns None
+        result = get_oom_score()
+        assert result is None or isinstance(result, int)
+
+    def test_adjust_oom_score_import(self):
+        """adjust_oom_score should be importable."""
+        from app.utils.resource_guard import adjust_oom_score
+        # Should not raise (may return False if not on Linux)
+        result = adjust_oom_score(score_adj=500)
+        assert isinstance(result, bool)
+
+    def test_register_oom_signal_handler_import(self):
+        """register_oom_signal_handler should be importable."""
+        from app.utils.resource_guard import register_oom_signal_handler
+        # Should not raise
+        result = register_oom_signal_handler()
+        assert isinstance(result, bool)

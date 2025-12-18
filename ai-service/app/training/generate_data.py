@@ -908,6 +908,14 @@ def generate_dataset(
             except ImportError:
                 pass  # resource_guard not available
 
+            # GPU memory cleanup to prevent OOM over long runs
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass
+
         game_start_time = time.time()
         # Set seed for each game if provided, incrementing to ensure variety
         game_seed = seed + game_idx if seed is not None else None
@@ -1011,6 +1019,14 @@ def generate_dataset(
 
             if not move:
                 # No moves available, current player loses
+                # Log this anomaly for debugging (games ending this early is unusual)
+                logger.warning(
+                    f"AI_NO_MOVE_RETURNED [game {game_idx+1}, move {move_count}]: "
+                    f"engine={current_engine}, player={current_player}, "
+                    f"phase={state.current_phase.value}, "
+                    f"game_status={state.game_status.value}. "
+                    f"This typically indicates OOM or model loading failure."
+                )
                 state.winner = 2 if current_player == 1 else 1
                 state.game_status = GameStatus.COMPLETED
                 break

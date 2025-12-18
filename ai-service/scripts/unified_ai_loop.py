@@ -107,14 +107,30 @@ try:
         get_cpu_usage,
         can_proceed as resources_can_proceed,
         LIMITS as RESOURCE_LIMITS,
+        # Memory pressure monitoring (added 2025-12-18)
+        start_memory_monitor,
+        stop_memory_monitor,
+        MemoryPressureLevel,
+        get_memory_pressure_level,
+        # Disk pressure monitoring (added 2025-12-18)
+        start_disk_monitor,
+        stop_disk_monitor,
+        DiskPressureLevel,
+        get_disk_pressure_level,
     )
     HAS_RESOURCE_GUARD = True
+    HAS_PRESSURE_MONITORS = True
 except ImportError:
     HAS_RESOURCE_GUARD = False
+    HAS_PRESSURE_MONITORS = False
     unified_check_disk = None
     unified_check_memory = None
     unified_check_cpu = None
     RESOURCE_LIMITS = None
+    start_memory_monitor = None
+    stop_memory_monitor = None
+    start_disk_monitor = None
+    stop_disk_monitor = None
 
 # Model hygiene: validation at startup
 try:
@@ -1486,6 +1502,68 @@ class HealthTracker:
 class MetricsHandler(BaseHTTPRequestHandler):
     """HTTP handler for Prometheus metrics endpoint."""
 
+    def _get_detailed_health(self) -> dict:
+        """Get comprehensive health status including pressure levels and circuit breakers."""
+        health = {
+            "status": "healthy",
+            "timestamp": time.time(),
+            "components": {},
+        }
+
+        # Memory pressure
+        if HAS_PRESSURE_MONITORS and get_memory_pressure_level:
+            try:
+                mem_level = get_memory_pressure_level()
+                health["components"]["memory_pressure"] = {
+                    "level": mem_level,
+                    "level_name": ["NORMAL", "WARNING", "ELEVATED", "CRITICAL", "EMERGENCY"][mem_level],
+                    "ok": mem_level < 3,  # CRITICAL or EMERGENCY is not OK
+                }
+                if mem_level >= 3:
+                    health["status"] = "degraded"
+            except Exception:
+                health["components"]["memory_pressure"] = {"error": "unavailable"}
+
+        # Disk pressure
+        if HAS_PRESSURE_MONITORS and get_disk_pressure_level:
+            try:
+                disk_level = get_disk_pressure_level()
+                health["components"]["disk_pressure"] = {
+                    "level": disk_level,
+                    "level_name": ["NORMAL", "WARNING", "ELEVATED", "CRITICAL", "EMERGENCY"][disk_level],
+                    "ok": disk_level < 3,
+                }
+                if disk_level >= 3:
+                    health["status"] = "degraded"
+            except Exception:
+                health["components"]["disk_pressure"] = {"error": "unavailable"}
+
+        # Circuit breakers (if available)
+        try:
+            from app.distributed.circuit_breaker import get_circuit_registry, CircuitState
+            registry = get_circuit_registry()
+            open_circuits = registry.get_all_open_circuits()
+            health["components"]["circuit_breakers"] = {
+                "open_count": sum(len(circuits) for circuits in open_circuits.values()),
+                "open_circuits": {
+                    op_type: [t for t, status in circuits.items() if status.state != CircuitState.CLOSED]
+                    for op_type, circuits in open_circuits.items()
+                },
+                "ok": not any(open_circuits.values()),
+            }
+            if any(open_circuits.values()):
+                health["status"] = "degraded"
+        except Exception:
+            health["components"]["circuit_breakers"] = {"error": "unavailable"}
+
+        # Training scheduler state
+        global _health_tracker
+        if _health_tracker is not None:
+            tracker_summary = _health_tracker.get_health_summary()
+            health["components"]["training"] = tracker_summary.get("training", {})
+
+        return health
+
     def do_GET(self):
         if self.path == '/metrics' and HAS_PROMETHEUS:
             self.send_response(200)
@@ -1509,6 +1587,15 @@ class MetricsHandler(BaseHTTPRequestHandler):
                 self.send_header('Content-Type', 'text/plain')
                 self.end_headers()
                 self.wfile.write(b'OK')
+        elif self.path == '/health/detailed':
+            # Enhanced health endpoint with pressure levels and circuit breakers (2025-12)
+            health_data = self._get_detailed_health()
+            status = health_data.get("status", "unknown")
+            http_code = 200 if status == "healthy" else 503 if status == "unhealthy" else 200
+            self.send_response(http_code)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(health_data, indent=2).encode())
         else:
             self.send_response(404)
             self.end_headers()
@@ -7308,6 +7395,34 @@ class UnifiedAILoop:
         print(f"[UnifiedLoop] Shadow eval: {self.config.evaluation.shadow_interval_seconds}s")
         print(f"[UnifiedLoop] Full eval: {self.config.evaluation.full_tournament_interval_seconds}s")
 
+        # Start resource pressure monitors for proactive management
+        if HAS_PRESSURE_MONITORS and not self.config.dry_run:
+            def on_memory_critical(level):
+                print(f"[UnifiedLoop] MEMORY CRITICAL: pressure level {level} - auto-cleanup triggered")
+                # Pause training if memory is critical
+                if level >= 3:  # CRITICAL or EMERGENCY
+                    self.state.training_paused = True
+                    print("[UnifiedLoop] Training paused due to memory pressure")
+
+            def on_disk_critical(level):
+                print(f"[UnifiedLoop] DISK CRITICAL: pressure level {level} - auto-cleanup triggered")
+                # Pause data collection if disk is critical
+                if level >= 3:  # CRITICAL or EMERGENCY
+                    self.state.data_collection_paused = True
+                    print("[UnifiedLoop] Data collection paused due to disk pressure")
+
+            start_memory_monitor(
+                check_interval=10.0,  # Check every 10 seconds
+                auto_cleanup=True,
+                on_critical=on_memory_critical,
+            )
+            start_disk_monitor(
+                check_interval=60.0,  # Check every minute
+                auto_cleanup=True,
+                on_critical=on_disk_critical,
+            )
+            print("[UnifiedLoop] Memory and disk pressure monitors started")
+
         if self.config.dry_run:
             print("[UnifiedLoop] Dry run - showing planned operations:")
             for host_name, host in self.state.hosts.items():
@@ -7370,6 +7485,22 @@ class UnifiedAILoop:
         self._running = False
         self._shutdown_event.set()
         self._save_state()
+
+        # Stop pressure monitors (2025-12)
+        if HAS_PRESSURE_MONITORS:
+            try:
+                if stop_memory_monitor:
+                    stop_memory_monitor()
+                    print("[UnifiedLoop] Memory pressure monitor stopped")
+            except Exception as e:
+                print(f"[UnifiedLoop] Warning: Failed to stop memory monitor: {e}")
+            try:
+                if stop_disk_monitor:
+                    stop_disk_monitor()
+                    print("[UnifiedLoop] Disk pressure monitor stopped")
+            except Exception as e:
+                print(f"[UnifiedLoop] Warning: Failed to stop disk monitor: {e}")
+
         # Unregister from task coordinator
         if self.task_coordinator and self._task_id:
             try:

@@ -509,6 +509,24 @@ class NNUESQLiteDataset(Dataset):
 
         logger.info(f"Total NNUE samples: {len(self.samples)}")
 
+        # Validate the extracted samples
+        if self.samples:
+            validation = validate_nnue_dataset(self.samples, self.feature_dim, log_errors=True)
+            logger.info(
+                f"Validation: {validation.valid_samples}/{validation.total_samples} valid "
+                f"(wins={validation.class_balance.get('wins', 0)}, "
+                f"losses={validation.class_balance.get('losses', 0)}, "
+                f"draws={validation.class_balance.get('draws', 0)})"
+            )
+            if validation.feature_stats:
+                logger.info(
+                    f"Feature stats: mean={validation.feature_stats.get('mean', 0):.4f}, "
+                    f"std={validation.feature_stats.get('std', 0):.4f}, "
+                    f"sparsity={validation.feature_stats.get('sparsity', 0):.2%}"
+                )
+            if not validation.is_valid:
+                logger.warning("Dataset validation failed - training may have issues")
+
     def _extract_from_db(self, db_path: str) -> List[NNUESample]:
         """Extract samples from a single SQLite database."""
         samples: List[NNUESample] = []

@@ -126,6 +126,30 @@ if HAS_PROMETHEUS:
         'Current GPU usage percent (for alerting)'
     )
 
+    # Pressure level metrics (2025-12)
+    PROM_MEMORY_PRESSURE_LEVEL = Gauge(
+        'ringrift_memory_pressure_level',
+        'Current memory pressure level (0=normal, 1=warning, 2=elevated, 3=critical, 4=emergency)'
+    )
+    PROM_DISK_PRESSURE_LEVEL = Gauge(
+        'ringrift_disk_pressure_level',
+        'Current disk pressure level (0=normal, 1=warning, 2=elevated, 3=critical, 4=emergency)'
+    )
+    PROM_PRESSURE_CLEANUP_TOTAL = Counter(
+        'ringrift_pressure_cleanup_total',
+        'Total cleanup operations triggered by pressure',
+        ['resource_type', 'cleanup_type']
+    )
+    PROM_PRESSURE_CRITICAL_EVENTS = Counter(
+        'ringrift_pressure_critical_events_total',
+        'Critical pressure events requiring intervention',
+        ['resource_type']
+    )
+    PROM_OOM_SCORE_ADJUSTED = Gauge(
+        'ringrift_oom_score_adjusted',
+        'Current OOM score adjustment value'
+    )
+
 # ============================================
 # Resource Limits - 80% max utilization
 # ============================================
@@ -453,15 +477,21 @@ def get_memory_pressure_level() -> int:
     used_percent, _, _ = get_memory_usage()
 
     if used_percent >= 90.0:
-        return MemoryPressureLevel.EMERGENCY
+        level = MemoryPressureLevel.EMERGENCY
     elif used_percent >= 85.0:
-        return MemoryPressureLevel.CRITICAL
+        level = MemoryPressureLevel.CRITICAL
     elif used_percent >= 80.0:
-        return MemoryPressureLevel.ELEVATED
+        level = MemoryPressureLevel.ELEVATED
     elif used_percent >= 70.0:
-        return MemoryPressureLevel.WARNING
+        level = MemoryPressureLevel.WARNING
     else:
-        return MemoryPressureLevel.NORMAL
+        level = MemoryPressureLevel.NORMAL
+
+    # Update Prometheus metric
+    if HAS_PROMETHEUS:
+        PROM_MEMORY_PRESSURE_LEVEL.set(level)
+
+    return level
 
 
 def get_psi_memory_pressure() -> Optional[dict]:
@@ -607,6 +637,12 @@ def trigger_memory_cleanup(level: int) -> int:
         # Final GC sweep
         gc.collect()
         freed_mb += 100
+
+    # Emit Prometheus metrics
+    if HAS_PROMETHEUS:
+        PROM_PRESSURE_CLEANUP_TOTAL.labels(resource_type="memory", cleanup_type="gc").inc()
+        if level >= MemoryPressureLevel.CRITICAL:
+            PROM_PRESSURE_CRITICAL_EVENTS.labels(resource_type="memory").inc()
 
     logger.info(f"Memory cleanup at level {level}: ~{freed_mb:.0f}MB freed (estimated)")
     return int(freed_mb)
@@ -800,15 +836,21 @@ def get_disk_pressure_level(path: Optional[str] = None) -> int:
     used_percent, _, _ = get_disk_usage(path)
 
     if used_percent >= 85.0:
-        return DiskPressureLevel.EMERGENCY
+        level = DiskPressureLevel.EMERGENCY
     elif used_percent >= 80.0:
-        return DiskPressureLevel.CRITICAL
+        level = DiskPressureLevel.CRITICAL
     elif used_percent >= 75.0:
-        return DiskPressureLevel.ELEVATED
+        level = DiskPressureLevel.ELEVATED
     elif used_percent >= 70.0:
-        return DiskPressureLevel.WARNING
+        level = DiskPressureLevel.WARNING
     else:
-        return DiskPressureLevel.NORMAL
+        level = DiskPressureLevel.NORMAL
+
+    # Update Prometheus metric
+    if HAS_PROMETHEUS:
+        PROM_DISK_PRESSURE_LEVEL.set(level)
+
+    return level
 
 
 def get_ai_service_root() -> Path:
@@ -1026,6 +1068,12 @@ def trigger_disk_cleanup(level: int, dry_run: bool = False) -> int:
         # Clean old games
         files, bytes_freed = cleanup_old_games(keep_days=14)
         freed_mb += bytes_freed / (1024 * 1024)
+
+    # Emit Prometheus metrics
+    if HAS_PROMETHEUS:
+        PROM_PRESSURE_CLEANUP_TOTAL.labels(resource_type="disk", cleanup_type="files").inc()
+        if level >= DiskPressureLevel.CRITICAL:
+            PROM_PRESSURE_CRITICAL_EVENTS.labels(resource_type="disk").inc()
 
     logger.info(f"Disk cleanup at level {level}: ~{freed_mb:.0f}MB freed")
     return int(freed_mb)

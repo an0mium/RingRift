@@ -1,0 +1,139 @@
+# RingRift Cluster Node Configuration - EXAMPLE TEMPLATE
+# Copy this file to cluster_nodes.yaml and fill in your actual node details.
+#
+# The actual cluster_nodes.yaml is gitignored to protect private IPs.
+
+# ================================================================================
+# GPU-HEAVY NODES (GH200, H100, A100) - Prioritize: Training, GPU CMA-ES, Tournaments
+# ================================================================================
+gpu_heavy:
+  - name: "gpu-node-1"
+    host: "10.0.0.1"  # Replace with actual IP or Tailscale hostname
+    user: "ubuntu"
+    gpu: "H100 80GB"
+    gpu_memory_gb: 80
+    cpu_cores: 64
+    description: "Primary training node"
+    priority: 1  # Lower = higher priority for work assignment
+
+  - name: "gpu-node-2"
+    host: "10.0.0.2"
+    user: "ubuntu"
+    gpu: "GH200 96GB"
+    gpu_memory_gb: 96
+    cpu_cores: 72
+    description: "GH200 unified memory"
+    priority: 2
+
+# ================================================================================
+# GPU-MEDIUM NODES (A10, RTX 3090/4090) - Mixed workloads
+# ================================================================================
+gpu_medium:
+  - name: "eval-node-1"
+    host: "10.0.0.10"
+    user: "ubuntu"
+    gpu: "A10 24GB"
+    gpu_memory_gb: 24
+    cpu_cores: 16
+    description: "Evaluation and gauntlet node"
+    priority: 3
+
+# ================================================================================
+# CPU-RICH NODES - Prioritize: CPU CMA-ES, Hybrid Selfplay, Data Processing
+# These should be tried FIRST before using GPU nodes for CPU work
+# ================================================================================
+cpu_rich:
+  - name: "cpu-worker-1"
+    host: "cpu1.example.com"
+    user: "ubuntu"
+    cpu_cores: 96
+    memory_gb: 192
+    description: "CPU compute optimized instance"
+    priority: 1  # Highest priority for CPU work
+    wake_method: "ssh"  # ssh, tailscale, or hcloud
+
+  - name: "hetzner-cpu"
+    host: "hetzner-cpu1"  # Tailscale hostname
+    user: "root"
+    cpu_cores: 48
+    memory_gb: 128
+    description: "Hetzner dedicated CPU server"
+    priority: 2
+    wake_method: "hcloud"  # Use hcloud CLI to start if stopped
+
+  - name: "local-dev"
+    host: "100.x.x.x"  # Tailscale IP
+    user: "username"
+    cpu_cores: 14
+    memory_gb: 64
+    description: "Local development machine"
+    priority: 3
+    wake_method: "tailscale"
+    is_optional: true  # May not always be available
+
+# ================================================================================
+# VAST.AI NODES - Dynamic pool, managed by P2P orchestrator
+# ================================================================================
+vast_ai:
+  enabled: true
+  api_check: "vastai show instances"
+  min_instances: 5
+  max_instances: 20
+  preferred_gpu: ["RTX 4090", "RTX 3090", "A100"]
+
+# ================================================================================
+# WORK ROUTING RULES
+# ================================================================================
+routing_rules:
+  # CPU-heavy work should ALWAYS try CPU-rich nodes first
+  cpu_work:
+    types: ["cma_es_cpu", "hybrid_selfplay", "data_merge", "data_export"]
+    node_priority:
+      - "cpu_rich"      # Try CPU-rich nodes first
+      - "gpu_medium"    # Then medium GPU nodes
+      - "gpu_heavy"     # GPU-heavy nodes as last resort
+    before_gpu_fallback:
+      - wake_cpu_nodes: true
+      - retry_count: 2
+      - retry_delay_seconds: 30
+
+  # GPU-heavy work should ONLY run on GPU nodes
+  gpu_work:
+    types: ["training", "gpu_cmaes", "tournament", "gpu_selfplay", "gauntlet"]
+    node_priority:
+      - "gpu_heavy"     # GPU-heavy nodes first
+      - "gpu_medium"    # Then medium GPU nodes
+    never_on: ["cpu_rich"]
+
+  # GPU CMA-ES is a special case - runs on GPU but is optimization work
+  gpu_cmaes:
+    description: "GPU-accelerated CMA-ES using EvoTorch - 10-100x faster than CPU"
+    node_priority:
+      - "gpu_heavy"  # Prefer GPU-heavy nodes
+    min_gpu_memory_gb: 8
+
+# ================================================================================
+# WAKE-UP CONFIGURATION
+# ================================================================================
+wake_config:
+  ssh_timeout: 10
+  tailscale_ping_timeout: 5
+  hcloud_start_timeout: 60
+  max_wake_attempts: 3
+
+  # Tailscale wake (for devices that support Magic DNS wake)
+  tailscale:
+    enabled: true
+    pre_check: "tailscale ping --timeout=5s {host}"
+
+  # SSH wake (for always-on servers)
+  ssh:
+    enabled: true
+    command: "echo alive"
+    options: "-o ConnectTimeout=10 -o BatchMode=yes"
+
+  # Hetzner Cloud CLI
+  hcloud:
+    enabled: true
+    check_cmd: "hcloud server list -o noheader | grep {name}"
+    start_cmd: "hcloud server poweron {name}"

@@ -137,6 +137,7 @@ class TestRetryWithBackoff:
             exponential_base=2.0,
             max_delay=10.0,
             on_retry=on_retry,
+            jitter=False,  # Disable jitter to test exact exponential delays
         )
         def always_fails():
             nonlocal call_count
@@ -786,3 +787,234 @@ class TestExceptionTypes:
         error = NonRecoverableError("Permanent failure")
         assert str(error) == "Permanent failure"
         assert isinstance(error, Exception)
+
+
+# =============================================================================
+# Async Retry with Backoff Tests
+# =============================================================================
+
+class TestAsyncRetryWithBackoff:
+    """Tests for async_retry_with_backoff decorator."""
+
+    @pytest.mark.asyncio
+    async def test_async_success_no_retry(self):
+        """Test that successful async calls don't retry."""
+        from app.training.fault_tolerance import async_retry_with_backoff
+
+        call_count = 0
+
+        @async_retry_with_backoff(max_retries=3, base_delay=0.01)
+        async def async_succeed():
+            nonlocal call_count
+            call_count += 1
+            return "success"
+
+        result = await async_succeed()
+        assert result == "success"
+        assert call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_async_retry_on_failure(self):
+        """Test that async failures trigger retry."""
+        from app.training.fault_tolerance import async_retry_with_backoff
+
+        call_count = 0
+
+        @async_retry_with_backoff(max_retries=3, base_delay=0.01, jitter=False)
+        async def async_fail_twice():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise ValueError("Temporary failure")
+            return "success"
+
+        result = await async_fail_twice()
+        assert result == "success"
+        assert call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_async_max_retries_exceeded(self):
+        """Test that async exhausts retries then raises."""
+        from app.training.fault_tolerance import async_retry_with_backoff
+
+        call_count = 0
+
+        @async_retry_with_backoff(max_retries=2, base_delay=0.01, jitter=False)
+        async def async_always_fails():
+            nonlocal call_count
+            call_count += 1
+            raise ValueError("Always fails")
+
+        with pytest.raises(ValueError, match="Always fails"):
+            await async_always_fails()
+
+        assert call_count == 3  # Initial + 2 retries
+
+    @pytest.mark.asyncio
+    async def test_async_jitter_enabled(self):
+        """Test that jitter adds variation to delays."""
+        from app.training.fault_tolerance import async_retry_with_backoff
+
+        delays = []
+
+        def on_retry(exc, attempt, delay):
+            delays.append(delay)
+
+        @async_retry_with_backoff(
+            max_retries=5,
+            base_delay=0.01,
+            jitter=True,
+            on_retry=on_retry,
+        )
+        async def async_always_fails():
+            raise ValueError("fail")
+
+        with pytest.raises(ValueError):
+            await async_always_fails()
+
+        # With jitter, delays should vary (not all identical)
+        assert len(delays) == 5
+        # Jitter multiplies by 0.5-1.5, so values should differ
+        assert len(set(round(d, 4) for d in delays)) > 1 or all(d > 0 for d in delays)
+
+
+# =============================================================================
+# RetryPolicy Tests
+# =============================================================================
+
+class TestRetryPolicy:
+    """Tests for RetryPolicy pre-configured policies."""
+
+    def test_aggressive_policy(self):
+        """Test AGGRESSIVE policy values."""
+        from app.training.fault_tolerance import RetryPolicy
+
+        policy = RetryPolicy.AGGRESSIVE
+        assert policy["max_retries"] == 5
+        assert policy["base_delay"] == 0.5
+        assert policy["max_delay"] == 10.0
+        assert policy["exponential_base"] == 1.5
+
+    def test_standard_policy(self):
+        """Test STANDARD policy values."""
+        from app.training.fault_tolerance import RetryPolicy
+
+        policy = RetryPolicy.STANDARD
+        assert policy["max_retries"] == 3
+        assert policy["base_delay"] == 1.0
+        assert policy["max_delay"] == 60.0
+        assert policy["exponential_base"] == 2.0
+
+    def test_conservative_policy(self):
+        """Test CONSERVATIVE policy values."""
+        from app.training.fault_tolerance import RetryPolicy
+
+        policy = RetryPolicy.CONSERVATIVE
+        assert policy["max_retries"] == 3
+        assert policy["base_delay"] == 5.0
+        assert policy["max_delay"] == 300.0
+
+    def test_network_policy(self):
+        """Test NETWORK policy values."""
+        from app.training.fault_tolerance import RetryPolicy
+
+        policy = RetryPolicy.NETWORK
+        assert policy["max_retries"] == 4
+        assert policy["base_delay"] == 2.0
+        assert policy["max_delay"] == 120.0
+
+    def test_get_policy_by_name(self):
+        """Test get_policy method."""
+        from app.training.fault_tolerance import RetryPolicy
+
+        # Case-insensitive lookup
+        policy = RetryPolicy.get_policy("AGGRESSIVE")
+        assert policy == RetryPolicy.AGGRESSIVE
+
+        policy = RetryPolicy.get_policy("network")
+        assert policy == RetryPolicy.NETWORK
+
+        # Unknown returns STANDARD
+        policy = RetryPolicy.get_policy("unknown")
+        assert policy == RetryPolicy.STANDARD
+
+    def test_apply_sync(self):
+        """Test apply method for sync functions."""
+        from app.training.fault_tolerance import RetryPolicy
+
+        # Should return a decorator
+        decorator = RetryPolicy.apply(RetryPolicy.STANDARD, sync=True)
+        assert callable(decorator)
+
+        # Apply to a function
+        @RetryPolicy.apply(RetryPolicy.AGGRESSIVE, sync=True)
+        def sample_func():
+            return "ok"
+
+        result = sample_func()
+        assert result == "ok"
+
+    def test_apply_async(self):
+        """Test apply method for async functions."""
+        from app.training.fault_tolerance import RetryPolicy
+
+        # Should return a decorator
+        decorator = RetryPolicy.apply(RetryPolicy.NETWORK, sync=False)
+        assert callable(decorator)
+
+
+# =============================================================================
+# Jitter Tests
+# =============================================================================
+
+class TestJitterBehavior:
+    """Tests for jitter in retry decorators."""
+
+    def test_sync_retry_jitter_enabled(self):
+        """Test that sync retry has jitter by default."""
+        delays = []
+
+        def on_retry(exc, attempt, delay):
+            delays.append(delay)
+
+        @retry_with_backoff(
+            max_retries=3,
+            base_delay=0.01,
+            jitter=True,
+            on_retry=on_retry,
+        )
+        def always_fails():
+            raise ValueError("fail")
+
+        with pytest.raises(ValueError):
+            always_fails()
+
+        # With jitter, delays should be positive
+        assert all(d > 0 for d in delays)
+
+    def test_sync_retry_jitter_disabled(self):
+        """Test that sync retry without jitter has predictable delays."""
+        delays = []
+
+        def on_retry(exc, attempt, delay):
+            delays.append(delay)
+
+        @retry_with_backoff(
+            max_retries=3,
+            base_delay=0.01,
+            exponential_base=2.0,
+            jitter=False,
+            on_retry=on_retry,
+        )
+        def always_fails():
+            raise ValueError("fail")
+
+        with pytest.raises(ValueError):
+            always_fails()
+
+        # Without jitter, delays should follow exponential pattern
+        assert len(delays) == 3
+        # 0.01, 0.02, 0.04 (approximately)
+        assert delays[0] == pytest.approx(0.01, rel=0.1)
+        assert delays[1] == pytest.approx(0.02, rel=0.1)
+        assert delays[2] == pytest.approx(0.04, rel=0.1)

@@ -39,6 +39,7 @@ def retry_with_backoff(
     exponential_base: float = 2.0,
     exceptions: tuple = (Exception,),
     on_retry: Optional[Callable[[Exception, int, float], None]] = None,
+    jitter: bool = True,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """
     Decorator that retries a function with exponential backoff.
@@ -50,6 +51,7 @@ def retry_with_backoff(
         exponential_base: Base for exponential backoff calculation
         exceptions: Tuple of exception types to catch and retry
         on_retry: Optional callback(exception, attempt, delay) called before each retry
+        jitter: Add random jitter to prevent thundering herd (default True)
 
     Returns:
         Decorated function with retry logic
@@ -60,6 +62,8 @@ def retry_with_backoff(
             # May fail due to OOM or other transient errors
             return model(batch)
     """
+    import random
+
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         def wrapper(*args, **kwargs) -> T:
             last_exception = None
@@ -75,6 +79,11 @@ def retry_with_backoff(
                         base_delay * (exponential_base ** attempt),
                         max_delay
                     )
+
+                    # Add jitter to prevent thundering herd
+                    if jitter:
+                        delay = delay * (0.5 + random.random())
+
                     logger.warning(
                         f"Attempt {attempt + 1}/{max_retries + 1} failed: {e}. "
                         f"Retrying in {delay:.1f}s..."
@@ -90,6 +99,179 @@ def retry_with_backoff(
 
         return wrapper
     return decorator
+
+
+def async_retry_with_backoff(
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 60.0,
+    exponential_base: float = 2.0,
+    exceptions: tuple = (Exception,),
+    on_retry: Optional[Callable[[Exception, int, float], None]] = None,
+    jitter: bool = True,
+    circuit_breaker_key: Optional[str] = None,
+):
+    """
+    Async decorator that retries an async function with exponential backoff.
+
+    Args:
+        max_retries: Maximum number of retry attempts
+        base_delay: Initial delay between retries (seconds)
+        max_delay: Maximum delay between retries (seconds)
+        exponential_base: Base for exponential backoff calculation
+        exceptions: Tuple of exception types to catch and retry
+        on_retry: Optional callback(exception, attempt, delay) called before each retry
+        jitter: Add random jitter to prevent thundering herd (default True)
+        circuit_breaker_key: Optional key for circuit breaker integration
+
+    Returns:
+        Decorated async function with retry logic
+
+    Usage:
+        @async_retry_with_backoff(max_retries=3, base_delay=1.0)
+        async def fetch_data(url):
+            async with aiohttp.ClientSession() as session:
+                return await session.get(url)
+    """
+    import random
+    import asyncio
+
+    # Try to import circuit breaker
+    try:
+        from app.distributed.circuit_breaker import get_operation_breaker
+        HAS_CIRCUIT_BREAKER = True
+    except ImportError:
+        HAS_CIRCUIT_BREAKER = False
+        get_operation_breaker = None
+
+    def decorator(func):
+        async def wrapper(*args, **kwargs):
+            last_exception = None
+            breaker = None
+
+            # Get circuit breaker if configured
+            if HAS_CIRCUIT_BREAKER and circuit_breaker_key:
+                breaker = get_operation_breaker(circuit_breaker_key)
+
+            for attempt in range(max_retries + 1):
+                # Check circuit breaker before attempt
+                if breaker:
+                    host = kwargs.get('host', args[0] if args else 'default')
+                    if not breaker.can_execute(str(host)):
+                        raise RecoverableError(f"Circuit breaker open for {host}")
+
+                try:
+                    result = await func(*args, **kwargs)
+                    # Record success in circuit breaker
+                    if breaker:
+                        host = kwargs.get('host', args[0] if args else 'default')
+                        breaker.record_success(str(host))
+                    return result
+
+                except exceptions as e:
+                    last_exception = e
+
+                    # Record failure in circuit breaker
+                    if breaker:
+                        host = kwargs.get('host', args[0] if args else 'default')
+                        breaker.record_failure(str(host), e)
+
+                    if attempt == max_retries:
+                        raise
+
+                    delay = min(
+                        base_delay * (exponential_base ** attempt),
+                        max_delay
+                    )
+
+                    # Add jitter to prevent thundering herd
+                    if jitter:
+                        delay = delay * (0.5 + random.random())
+
+                    logger.warning(
+                        f"Async attempt {attempt + 1}/{max_retries + 1} failed: {e}. "
+                        f"Retrying in {delay:.1f}s..."
+                    )
+
+                    if on_retry:
+                        on_retry(e, attempt + 1, delay)
+
+                    await asyncio.sleep(delay)
+
+            # Should never reach here, but for type safety
+            raise last_exception  # type: ignore
+
+        return wrapper
+    return decorator
+
+
+class RetryPolicy:
+    """Configurable retry policy for different operation types.
+
+    Provides pre-configured policies for common scenarios:
+    - AGGRESSIVE: Fast retries for time-sensitive operations
+    - STANDARD: Default balanced retry policy
+    - CONSERVATIVE: Slow retries for heavy operations
+    - NETWORK: Network-optimized with longer delays
+    """
+
+    # Pre-configured policies
+    AGGRESSIVE = {
+        "max_retries": 5,
+        "base_delay": 0.5,
+        "max_delay": 10.0,
+        "exponential_base": 1.5,
+    }
+
+    STANDARD = {
+        "max_retries": 3,
+        "base_delay": 1.0,
+        "max_delay": 60.0,
+        "exponential_base": 2.0,
+    }
+
+    CONSERVATIVE = {
+        "max_retries": 3,
+        "base_delay": 5.0,
+        "max_delay": 300.0,
+        "exponential_base": 2.0,
+    }
+
+    NETWORK = {
+        "max_retries": 4,
+        "base_delay": 2.0,
+        "max_delay": 120.0,
+        "exponential_base": 2.0,
+    }
+
+    @classmethod
+    def get_policy(cls, name: str) -> Dict[str, Any]:
+        """Get a pre-configured retry policy by name."""
+        policies = {
+            "aggressive": cls.AGGRESSIVE,
+            "standard": cls.STANDARD,
+            "conservative": cls.CONSERVATIVE,
+            "network": cls.NETWORK,
+        }
+        return policies.get(name.lower(), cls.STANDARD)
+
+    @staticmethod
+    def apply(policy: Dict[str, Any], sync: bool = True):
+        """Apply a retry policy as a decorator.
+
+        Args:
+            policy: Dict with retry configuration
+            sync: If True, returns sync decorator; if False, returns async decorator
+
+        Usage:
+            @RetryPolicy.apply(RetryPolicy.NETWORK, sync=False)
+            async def fetch_remote_data(url):
+                ...
+        """
+        if sync:
+            return retry_with_backoff(**policy)
+        else:
+            return async_retry_with_backoff(**policy)
 
 
 # =============================================================================
