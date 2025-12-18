@@ -407,6 +407,8 @@ class SSHBackend(OrchestratorBackend):
                         "gpu": host_data.get("gpu"),
                         "memory_gb": host_data.get("memory_gb"),
                         "role": host_data.get("role"),
+                        "training_enabled": host_data.get("training_enabled", True),
+                        "selfplay_enabled": host_data.get("selfplay_enabled", True),
                     },
                 )
             )
@@ -635,10 +637,17 @@ class SSHBackend(OrchestratorBackend):
         cmd = f"cd {ringrift_path} && "
         if venv_activate:
             cmd += f"{venv_activate} && "
+
+        # Build training command with correct arguments
+        board_type = kwargs.get("board_type", "square8")
+        num_players = kwargs.get("num_players", 2)
+
         cmd += (
             f"python scripts/run_nn_training_baseline.py "
-            f"--data {data_path} "
-            f"--output {model_output_path} "
+            f"--run-dir {model_output_path} "
+            f"--data-path {data_path} "
+            f"--board {board_type} "
+            f"--num-players {num_players} "
             f"--epochs {epochs}"
         )
 

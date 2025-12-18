@@ -8,6 +8,27 @@
       "reason": "culled_below_top_25pct"
     },
     {
+      "model_id": "sq8_2p_nn_baseline_20251212_111725_20251212_051727",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1766072828.051658,
+      "reason": "culled_below_top_25pct"
+    },
+    {
+      "model_id": "ringrift_v4_sq8_2p_20251212_095153",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1766072828.05323,
+      "reason": "culled_below_top_25pct"
+    },
+    {
+      "model_id": "ringrift_v4_sq8_2p",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1766072828.0523462,
+      "reason": "culled_below_top_25pct"
+    },
+    {
       "model_id": "ringrift_v4_sq8_2p_20251212_093419",
       "board_type": "square8",
       "num_players": 2,
@@ -47,6 +68,13 @@
       "board_type": "square8",
       "num_players": 2,
       "archived_at": 1766072214.810949,
+      "reason": "culled_below_top_25pct"
+    },
+    {
+      "model_id": "sq8_2p_nn_baseline_20251214_160753_20251214_100754",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1766072828.05411,
       "reason": "culled_below_top_25pct"
     },
     {
@@ -239,6 +267,13 @@
       "reason": "culled_below_top_25pct"
     },
     {
+      "model_id": "sq8_2p_nn_baseline_20251214_072040",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1766072828.0509021,
+      "reason": "culled_below_top_25pct"
+    },
+    {
       "model_id": "sq8_2p_nn_baseline_20251214_072040_20251214_072220",
       "board_type": "square8",
       "num_players": 2,
@@ -313,6 +348,13 @@
       "board_type": "square8",
       "num_players": 2,
       "archived_at": 1766072214.8084722,
+      "reason": "culled_below_top_25pct"
+    },
+    {
+      "model_id": "sq8_2p_nn_baseline_20251212_103942_20251212_043946",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1766072828.052021,
       "reason": "culled_below_top_25pct"
     },
     {
@@ -526,6 +568,13 @@
       "reason": "culled_below_top_25pct"
     },
     {
+      "model_id": "sq8_2p_nn_baseline_20251216_072352_20251216_072418",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1766072828.0537002,
+      "reason": "culled_below_top_25pct"
+    },
+    {
       "model_id": "sq8_2p_nn_baseline_20251216_034626",
       "board_type": "square8",
       "num_players": 2,
@@ -565,6 +614,13 @@
       "board_type": "square8",
       "num_players": 2,
       "archived_at": 1766072214.8147001,
+      "reason": "culled_below_top_25pct"
+    },
+    {
+      "model_id": "sq8_2p_nn_baseline_20251216_111239_20251216_111354",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1766072828.051313,
       "reason": "culled_below_top_25pct"
     },
     {
@@ -650,16 +706,27 @@
       "num_players": 2,
       "archived_at": 1766072214.828937,
       "reason": "culled_below_top_25pct"
+    },
+    {
+      "model_id": "sq8_2p_d8_cand_20251218_040151_20251217_220637",
+      "board_type": "square8",
+      "num_players": 2,
+      "archived_at": 1766073006.722402,
+      "reason": "culled_below_top_25pct"
     }
   ],
   "archived_ids": [
     "ringrift_v4_sq8_2p_h100",
+    "sq8_2p_nn_baseline_20251212_111725_20251212_051727",
+    "ringrift_v4_sq8_2p_20251212_095153",
+    "ringrift_v4_sq8_2p",
     "ringrift_v4_sq8_2p_20251212_093419",
     "ringrift_v4_sq8_2p_20251212_092557",
     "ringrift_v4_sq8_2p_20251212_091646",
     "baseline_random_square8_2p",
     "baseline_heuristic_square8_2p",
     "ringrift_v6_sq8_2p_5090quad",
+    "sq8_2p_nn_baseline_20251214_160753_20251214_100754",
     "sq8_2p_nn_baseline_20251214_154430_20251214_094431",
     "ringrift_v1_20251208_192542",
     "v7_sq8_2p_large_20251213_030530",
@@ -687,6 +754,7 @@
     "ringrift_best_sq8_2p",
     "sq8_2p_nn_baseline_20251214_062159_20251214_062214",
     "sq8_2p_nn_baseline_20251214_062159_20251214_062208",
+    "sq8_2p_nn_baseline_20251214_072040",
     "sq8_2p_nn_baseline_20251214_072040_20251214_072220",
     "baseline_mcts_500_square8_2p",
     "sq8_2p_noearlystop_50ep_20251214_082041",
@@ -698,6 +766,7 @@
     "sq8_2p_nn_baseline_20251214_152415",
     "ringrift_best_sq8_2p_mps",
     "sq8_2p_nn_baseline_20251212_110907_20251212_050908",
+    "sq8_2p_nn_baseline_20251212_103942_20251212_043946",
     "ringrift_v3_sq8_2p_20251212_005103_20251212_012024",
     "sq8_2p_nn_baseline_20251215_024030_20251215_030353",
     "sq8_2p_nn_baseline_20251211_165444",
@@ -728,12 +797,14 @@
     "sq8_2p_nn_baseline_20251216_025032_20251216_025036",
     "sq8_2p_nn_baseline_20251216_021830_20251216_021833",
     "sq8_2p_nn_baseline_20251216_020024",
+    "sq8_2p_nn_baseline_20251216_072352_20251216_072418",
     "sq8_2p_nn_baseline_20251216_034626",
     "sq8_2p_nn_baseline_20251216_044507",
     "sq8_2p_nn_baseline_20251216_063834_20251216_064006",
     "ringrift_v1_20251212_204956",
     "ringrift_v2_sq8_2p_20251214",
     "sq8_2p_nn_baseline_20251214_092435_20251214_092611",
+    "sq8_2p_nn_baseline_20251216_111239_20251216_111354",
     "sq8_2p_nn_baseline_20251216_144825_20251216_144850",
     "sq8_2p_nn_baseline_20251216_185302_20251216_185423",
     "sq8_2p_nn_baseline_20251216_210346_20251216_210403",
@@ -745,8 +816,9 @@
     "sq8_2p_nn_baseline_20251217_150048_20251217_150050",
     "sq8_2p_d6_cand_20251214_212959",
     "sq8_2p_nn_baseline_20251216_215413_20251216_215416",
-    "policy_sq8_2p_20251218_013806"
+    "policy_sq8_2p_20251218_013806",
+    "sq8_2p_d8_cand_20251218_040151_20251217_220637"
   ],
-  "updated_at": 1766072214.8325388,
-  "total_count": 93
+  "updated_at": 1766073006.723317,
+  "total_count": 102
 }
