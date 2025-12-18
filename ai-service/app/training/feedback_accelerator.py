@@ -969,9 +969,30 @@ def record_games_generated(config_key: str, games: int) -> None:
     get_feedback_accelerator().record_games_generated(config_key, games)
 
 
-def record_training_complete(config_key: str, success: bool = True) -> None:
-    """Record that training completed for a config."""
-    get_feedback_accelerator().record_training_complete(config_key, success)
+def record_training_complete(
+    config_key: str,
+    success: bool = True,
+    loss_improved: bool = False,
+    games_used: int = 0,
+    new_elo: Optional[float] = None,
+) -> None:
+    """Record that training completed for a config.
+
+    Args:
+        config_key: Configuration identifier (e.g., 'square8_2p')
+        success: Whether training completed successfully
+        loss_improved: Whether the loss improved during training
+        games_used: Number of games used for training
+        new_elo: Optional new Elo rating after evaluation
+    """
+    # Map loss_improved to success if success wasn't explicitly set
+    effective_success = success and (loss_improved if loss_improved is not None else True)
+    get_feedback_accelerator().record_training_complete(
+        config_key,
+        success=effective_success,
+        new_elo=new_elo,
+        games_at_training=games_used if games_used > 0 else None,
+    )
 
 
 def record_promotion(config_key: str, new_elo: float, model_id: Optional[str] = None) -> None:
