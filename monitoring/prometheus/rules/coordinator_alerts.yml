@@ -1,0 +1,198 @@
+# =============================================================================
+# RingRift Coordinator Manager Alerting Rules
+# =============================================================================
+#
+# Alerts for coordinator/manager components:
+# - RecoveryManager: Node/job recovery tracking
+# - BandwidthManager: Transfer bandwidth allocation
+# - SyncCoordinator: Data synchronization across cluster
+#
+# Severity Levels:
+# - critical: Immediate attention, potential data loss or cluster failure
+# - warning: Investigation needed, degraded functionality
+# - info: Informational, no immediate action required
+#
+# =============================================================================
+
+groups:
+  # ===========================================================================
+  # COORDINATOR STATUS ALERTS
+  # ===========================================================================
+  - name: coordinator_status
+    interval: 30s
+    rules:
+      # -------------------------------------------------------------------------
+      # Coordinator in Error State
+      # -------------------------------------------------------------------------
+      - alert: CoordinatorError
+        expr: ringrift_coordinator_status == 5
+        for: 2m
+        labels:
+          severity: critical
+          team: infrastructure
+          component: coordinators
+        annotations:
+          summary: 'Coordinator {{ $labels.coordinator_name }} is in error state'
+          description: 'The {{ $labels.coordinator_name }} coordinator has been in error state for more than 2 minutes. Manual intervention may be required.'
+          runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/COORDINATOR_ERROR.md'
+          impact: 'Coordinator functionality is unavailable, dependent services may be affected.'
+
+      # -------------------------------------------------------------------------
+      # Coordinator Stopped Unexpectedly
+      # -------------------------------------------------------------------------
+      - alert: CoordinatorStopped
+        expr: ringrift_coordinator_status == 0 and ringrift_coordinator_uptime_seconds > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+          component: coordinators
+        annotations:
+          summary: 'Coordinator {{ $labels.coordinator_name }} has stopped'
+          description: 'The {{ $labels.coordinator_name }} coordinator has stopped after running. This may indicate a crash or shutdown.'
+          impact: 'Coordinator functionality is unavailable until restart.'
+
+      # -------------------------------------------------------------------------
+      # High Coordinator Error Rate
+      # -------------------------------------------------------------------------
+      - alert: CoordinatorHighErrorRate
+        expr: rate(ringrift_coordinator_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+          component: coordinators
+        annotations:
+          summary: 'High error rate in {{ $labels.coordinator_name }} ({{ $value | humanize }}/s)'
+          description: 'The {{ $labels.coordinator_name }} coordinator is experiencing {{ $value | humanize }} errors per second. Error type: {{ $labels.error_type }}'
+          impact: 'Coordinator operations are failing frequently.'
+
+  # ===========================================================================
+  # SYNC COORDINATOR ALERTS
+  # ===========================================================================
+  - name: sync_coordinator
+    interval: 30s
+    rules:
+      # -------------------------------------------------------------------------
+      # Cluster Health Degraded
+      # -------------------------------------------------------------------------
+      - alert: ClusterHealthDegraded
+        expr: ringrift_sync_cluster_health_score < 80
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+          component: sync
+        annotations:
+          summary: 'Cluster health score is {{ $value }}%'
+          description: 'The sync cluster health score has dropped below 80%. Some hosts may be stale or unreachable.'
+          impact: 'Data synchronization may be delayed or incomplete.'
+
+      # -------------------------------------------------------------------------
+      # Cluster Health Critical
+      # -------------------------------------------------------------------------
+      - alert: ClusterHealthCritical
+        expr: ringrift_sync_cluster_health_score < 50
+        for: 2m
+        labels:
+          severity: critical
+          team: infrastructure
+          component: sync
+        annotations:
+          summary: 'Cluster health score critical at {{ $value }}%'
+          description: 'The sync cluster health score has dropped below 50%. Multiple hosts may be unavailable.'
+          runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/CLUSTER_HEALTH_CRITICAL.md'
+          impact: 'Training data may be significantly delayed or lost.'
+
+      # -------------------------------------------------------------------------
+      # Critical Hosts Detected
+      # -------------------------------------------------------------------------
+      - alert: CriticalSyncHosts
+        expr: ringrift_sync_hosts_critical > 0
+        for: 5m
+        labels:
+          severity: critical
+          team: infrastructure
+          component: sync
+        annotations:
+          summary: '{{ $value }} hosts in critical sync state'
+          description: 'There are {{ $value }} hosts that are in a critical sync state and may require manual intervention.'
+          runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/SYNC_HOST_CRITICAL.md'
+          impact: 'Data from critical hosts may be lost if not recovered.'
+
+      # -------------------------------------------------------------------------
+      # High Unsynced Games
+      # -------------------------------------------------------------------------
+      - alert: HighUnsyncedGames
+        expr: ringrift_sync_games_unsynced > 1000
+        for: 10m
+        labels:
+          severity: warning
+          team: infrastructure
+          component: sync
+        annotations:
+          summary: '{{ $value }} unsynced games in cluster'
+          description: 'There are more than 1000 unsynced games across the cluster. Sync may be falling behind.'
+          impact: 'Training data backlog is building up.'
+
+  # ===========================================================================
+  # RECOVERY MANAGER ALERTS
+  # ===========================================================================
+  - name: recovery_manager
+    interval: 60s
+    rules:
+      # -------------------------------------------------------------------------
+      # High Recovery Failure Rate
+      # -------------------------------------------------------------------------
+      - alert: HighRecoveryFailureRate
+        expr: |
+          (
+            sum(rate(ringrift_recovery_attempts_total{result="failed"}[1h]))
+            /
+            sum(rate(ringrift_recovery_attempts_total[1h]))
+          ) > 0.3
+        for: 15m
+        labels:
+          severity: warning
+          team: infrastructure
+          component: recovery
+        annotations:
+          summary: 'Recovery failure rate is {{ $value | humanizePercentage }}'
+          description: 'More than 30% of recovery attempts are failing over the last hour.'
+          impact: 'Failed nodes/jobs may not be automatically recovered.'
+
+      # -------------------------------------------------------------------------
+      # Escalation Alert
+      # -------------------------------------------------------------------------
+      - alert: RecoveryEscalation
+        expr: increase(ringrift_recovery_escalations_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          team: infrastructure
+          component: recovery
+        annotations:
+          summary: 'Recovery escalation triggered ({{ $labels.reason }})'
+          description: 'The recovery manager has escalated an issue that requires human intervention. Reason: {{ $labels.reason }}'
+          impact: 'Automatic recovery has failed, manual action required.'
+
+  # ===========================================================================
+  # BANDWIDTH MANAGER ALERTS
+  # ===========================================================================
+  - name: bandwidth_manager
+    interval: 60s
+    rules:
+      # -------------------------------------------------------------------------
+      # High Bandwidth Saturation
+      # -------------------------------------------------------------------------
+      - alert: HighBandwidthSaturation
+        expr: ringrift_bandwidth_allocations_active > 10
+        for: 10m
+        labels:
+          severity: warning
+          team: infrastructure
+          component: bandwidth
+        annotations:
+          summary: 'High bandwidth allocation count on {{ $labels.host }} ({{ $value }})'
+          description: 'Host {{ $labels.host }} has more than 10 active bandwidth allocations. Transfers may be throttled.'
+          impact: 'Data transfers to/from this host may be slower than expected.'
