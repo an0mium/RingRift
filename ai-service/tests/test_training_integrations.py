@@ -917,5 +917,149 @@ class TestGradNormWeighting(unittest.TestCase):
         self.assertIn('legality_weight', loss_dict)
 
 
+class TestCircuitBreakerExponentialBackoff(unittest.TestCase):
+    """Tests for circuit breaker exponential backoff with jitter (2025-12)."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        """Import circuit breaker components."""
+        try:
+            from app.distributed.circuit_breaker import (
+                CircuitBreaker,
+                CircuitState,
+            )
+            cls.CircuitBreaker = CircuitBreaker
+            cls.CircuitState = CircuitState
+            cls.has_circuit_breaker = True
+        except ImportError:
+            cls.has_circuit_breaker = False
+
+    def test_backoff_initialization(self) -> None:
+        """Test that backoff parameters initialize correctly."""
+        if not self.has_circuit_breaker:
+            self.skipTest("CircuitBreaker not available")
+
+        breaker = self.CircuitBreaker(
+            failure_threshold=2,
+            recovery_timeout=10.0,
+            backoff_multiplier=3.0,
+            max_backoff=300.0,
+            jitter_factor=0.2,
+        )
+        self.assertEqual(breaker.backoff_multiplier, 3.0)
+        self.assertEqual(breaker.max_backoff, 300.0)
+        self.assertEqual(breaker.jitter_factor, 0.2)
+
+    def test_consecutive_opens_tracking(self) -> None:
+        """Test that consecutive_opens increments on circuit open."""
+        if not self.has_circuit_breaker:
+            self.skipTest("CircuitBreaker not available")
+
+        breaker = self.CircuitBreaker(failure_threshold=2, recovery_timeout=10.0)
+
+        # Open the circuit
+        breaker.record_failure("test-host")
+        breaker.record_failure("test-host")
+
+        status = breaker.get_status("test-host")
+        self.assertEqual(status.state, self.CircuitState.OPEN)
+        self.assertEqual(status.consecutive_opens, 1)
+
+    def test_consecutive_opens_resets_on_recovery(self) -> None:
+        """Test that consecutive_opens resets after successful recovery."""
+        if not self.has_circuit_breaker:
+            self.skipTest("CircuitBreaker not available")
+
+        breaker = self.CircuitBreaker(
+            failure_threshold=2,
+            recovery_timeout=0.01,  # Very short for testing
+            jitter_factor=0.0,  # No jitter for deterministic test
+        )
+
+        # Open the circuit
+        breaker.record_failure("test-host2")
+        breaker.record_failure("test-host2")
+        self.assertEqual(breaker.get_status("test-host2").consecutive_opens, 1)
+
+        # Wait for recovery timeout
+        time.sleep(0.02)
+
+        # Should be half-open now
+        self.assertTrue(breaker.can_execute("test-host2"))
+        state = breaker.get_state("test-host2")
+        self.assertEqual(state, self.CircuitState.HALF_OPEN)
+
+        # Successful recovery closes circuit and resets consecutive_opens
+        breaker.record_success("test-host2")
+        status = breaker.get_status("test-host2")
+        self.assertEqual(status.state, self.CircuitState.CLOSED)
+        self.assertEqual(status.consecutive_opens, 0)
+
+    def test_backoff_computation(self) -> None:
+        """Test that backoff increases with consecutive opens."""
+        if not self.has_circuit_breaker:
+            self.skipTest("CircuitBreaker not available")
+
+        breaker = self.CircuitBreaker(
+            failure_threshold=2,
+            recovery_timeout=10.0,
+            backoff_multiplier=2.0,
+            max_backoff=600.0,
+            jitter_factor=0.0,  # No jitter for deterministic test
+        )
+
+        # Manually access internal circuit to test backoff computation
+        circuit = breaker._get_or_create_circuit("backoff-test")
+        circuit.consecutive_opens = 0
+        self.assertAlmostEqual(breaker._compute_backoff_timeout(circuit), 10.0)
+
+        circuit.consecutive_opens = 1
+        self.assertAlmostEqual(breaker._compute_backoff_timeout(circuit), 20.0)
+
+        circuit.consecutive_opens = 2
+        self.assertAlmostEqual(breaker._compute_backoff_timeout(circuit), 40.0)
+
+        circuit.consecutive_opens = 3
+        self.assertAlmostEqual(breaker._compute_backoff_timeout(circuit), 80.0)
+
+    def test_backoff_capped_at_max(self) -> None:
+        """Test that backoff is capped at max_backoff."""
+        if not self.has_circuit_breaker:
+            self.skipTest("CircuitBreaker not available")
+
+        breaker = self.CircuitBreaker(
+            failure_threshold=2,
+            recovery_timeout=60.0,
+            backoff_multiplier=2.0,
+            max_backoff=120.0,
+            jitter_factor=0.0,
+        )
+
+        circuit = breaker._get_or_create_circuit("cap-test")
+        circuit.consecutive_opens = 10  # Would be 60 * 2^10 = 61440 without cap
+
+        backoff = breaker._compute_backoff_timeout(circuit)
+        self.assertEqual(backoff, 120.0)
+
+    def test_status_includes_consecutive_opens(self) -> None:
+        """Test that CircuitStatus includes consecutive_opens."""
+        if not self.has_circuit_breaker:
+            self.skipTest("CircuitBreaker not available")
+
+        breaker = self.CircuitBreaker(failure_threshold=2)
+
+        # Open the circuit multiple times
+        for _ in range(2):
+            breaker.record_failure("status-test")
+
+        status = breaker.get_status("status-test")
+        self.assertTrue(hasattr(status, 'consecutive_opens'))
+        self.assertEqual(status.consecutive_opens, 1)
+
+        # Also test to_dict includes it
+        status_dict = status.to_dict()
+        self.assertIn('consecutive_opens', status_dict)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -40,6 +40,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import random
 import time
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
@@ -128,6 +129,7 @@ class CircuitStatus:
     last_success_time: Optional[float]
     opened_at: Optional[float]
     half_open_at: Optional[float]
+    consecutive_opens: int = 0  # For exponential backoff tracking
 
     @property
     def time_since_open(self) -> Optional[float]:
@@ -147,6 +149,7 @@ class CircuitStatus:
             "opened_at": self.opened_at,
             "half_open_at": self.half_open_at,
             "time_since_open": self.time_since_open,
+            "consecutive_opens": self.consecutive_opens,
         }
 
 
@@ -225,10 +228,30 @@ class CircuitBreaker:
             self._circuits[target] = _CircuitData()
         return self._circuits[target]
 
+    def _compute_backoff_timeout(self, circuit: _CircuitData) -> float:
+        """Compute recovery timeout with exponential backoff and jitter.
+
+        Returns:
+            Recovery timeout in seconds, capped at max_backoff.
+        """
+        # Exponential backoff: base * (multiplier ^ consecutive_opens)
+        backoff = self.recovery_timeout * (
+            self.backoff_multiplier ** circuit.consecutive_opens
+        )
+        # Cap at max_backoff
+        backoff = min(backoff, self.max_backoff)
+        # Add jitter: random value in range [-jitter_factor, +jitter_factor] * backoff
+        if self.jitter_factor > 0:
+            jitter = backoff * self.jitter_factor * (2 * random.random() - 1)
+            backoff = max(0.1, backoff + jitter)  # Ensure positive
+        return backoff
+
     def _check_recovery(self, circuit: _CircuitData) -> None:
         """Check if circuit should transition to half-open."""
         if circuit.state == CircuitState.OPEN:
-            if circuit.opened_at and (time.time() - circuit.opened_at) >= self.recovery_timeout:
+            # Use exponential backoff timeout based on consecutive opens
+            timeout = self._compute_backoff_timeout(circuit)
+            if circuit.opened_at and (time.time() - circuit.opened_at) >= timeout:
                 circuit.state = CircuitState.HALF_OPEN
                 circuit.half_open_at = time.time()
                 circuit.half_open_calls = 0
@@ -286,6 +309,8 @@ class CircuitBreaker:
                     circuit.failure_count = 0
                     circuit.opened_at = None
                     circuit.half_open_at = None
+                    # Reset backoff on successful recovery
+                    circuit.consecutive_opens = 0
             elif circuit.state == CircuitState.CLOSED:
                 # Reset failure count on success
                 circuit.failure_count = 0
@@ -323,16 +348,18 @@ class CircuitBreaker:
             circuit.last_failure_time = time.time()
 
             if circuit.state == CircuitState.HALF_OPEN:
-                # Failure in half-open: go back to open
+                # Failure in half-open: go back to open with increased backoff
                 circuit.state = CircuitState.OPEN
                 circuit.opened_at = time.time()
                 circuit.success_count = 0
+                circuit.consecutive_opens += 1  # Increase backoff for next recovery
                 opened_circuit = True
             elif circuit.state == CircuitState.CLOSED:
                 # Check if we should open the circuit
                 if circuit.failure_count >= self.failure_threshold:
                     circuit.state = CircuitState.OPEN
                     circuit.opened_at = time.time()
+                    circuit.consecutive_opens += 1  # Track consecutive opens
                     opened_circuit = True
 
             new_state = circuit.state
@@ -380,6 +407,7 @@ class CircuitBreaker:
                 last_success_time=circuit.last_success_time,
                 opened_at=circuit.opened_at,
                 half_open_at=circuit.half_open_at,
+                consecutive_opens=circuit.consecutive_opens,
             )
 
     def get_all_states(self) -> Dict[str, CircuitStatus]:
@@ -395,6 +423,7 @@ class CircuitBreaker:
                     last_success_time=circuit.last_success_time,
                     opened_at=circuit.opened_at,
                     half_open_at=circuit.half_open_at,
+                    consecutive_opens=circuit.consecutive_opens,
                 )
                 for target, circuit in self._circuits.items()
             }
@@ -597,6 +626,9 @@ def format_circuit_status(status: CircuitStatus) -> str:
 
     if status.time_since_open:
         parts.append(f"open_for={status.time_since_open:.0f}s")
+
+    if status.consecutive_opens > 0:
+        parts.append(f"backoff_level={status.consecutive_opens}")
 
     return " ".join(parts)
 
