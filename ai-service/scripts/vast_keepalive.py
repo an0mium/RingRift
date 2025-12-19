@@ -27,16 +27,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
-LOG_DIR = AI_SERVICE_ROOT / "logs"
-LOG_FILE = LOG_DIR / "vast_keepalive.log"
-
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-
-# Ensure ai-service root on path for scripts/lib imports
-sys.path.insert(0, str(AI_SERVICE_ROOT))
-
+from scripts.lib.paths import AI_SERVICE_ROOT, LOGS_DIR
 from scripts.lib.logging_config import setup_script_logging
+from scripts.lib.ssh import run_vast_ssh_command
+
+LOG_FILE = LOGS_DIR / "vast_keepalive.log"
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 logger = setup_script_logging("vast_keepalive")
 
@@ -63,29 +59,6 @@ def run_vastai_command(args: List[str], timeout: int = 30) -> Tuple[bool, str]:
         return False, "timeout"
     except FileNotFoundError:
         return False, f"vastai not found at {VASTAI_CMD}"
-    except Exception as e:
-        return False, str(e)
-
-
-def run_ssh_command(host: str, port: int, command: str, timeout: int = 30) -> Tuple[bool, str]:
-    """Run SSH command on remote host."""
-    try:
-        result = subprocess.run(
-            [
-                "ssh", "-o", "StrictHostKeyChecking=accept-new",
-                "-o", f"ConnectTimeout={min(timeout, 10)}",
-                "-o", "BatchMode=yes",
-                "-p", str(port),
-                f"root@{host}",
-                command,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        return result.returncode == 0, result.stdout.strip() or result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return False, "timeout"
     except Exception as e:
         return False, str(e)
 
@@ -151,7 +124,7 @@ def send_keepalive(instance: Dict) -> Tuple[str, bool, str]:
         return inst_id, False, "no SSH info"
 
     # Send keepalive command - this prevents idle detection
-    success, output = run_ssh_command(
+    success, output = run_vast_ssh_command(
         host, port,
         KEEPALIVE_COMMAND,
         timeout=15,
@@ -191,22 +164,22 @@ def check_instance_health(instance: Dict) -> Dict:
         return health
 
     # Check reachability
-    success, _ = run_ssh_command(host, port, "echo ok", timeout=10)
+    success, _ = run_vast_ssh_command(host, port, "echo ok", timeout=10)
     if not success:
         return health
     health["reachable"] = True
 
     # Check Tailscale IP
-    success, output = run_ssh_command(host, port, "tailscale ip -4 2>/dev/null", timeout=10)
+    success, output = run_vast_ssh_command(host, port, "tailscale ip -4 2>/dev/null", timeout=10)
     if success and output.startswith("100."):
         health["tailscale_ip"] = output.strip()
 
     # Check P2P
-    success, output = run_ssh_command(host, port, "pgrep -c -f p2p_orchestrator 2>/dev/null || echo 0", timeout=10)
+    success, output = run_vast_ssh_command(host, port, "pgrep -c -f p2p_orchestrator 2>/dev/null || echo 0", timeout=10)
     health["p2p_running"] = success and int(output.strip() or "0") > 0
 
     # Check selfplay/workers
-    success, output = run_ssh_command(
+    success, output = run_vast_ssh_command(
         host, port,
         "pgrep -c -f 'generate_data|selfplay|gauntlet' 2>/dev/null || echo 0",
         timeout=10,
@@ -216,7 +189,7 @@ def check_instance_health(instance: Dict) -> Dict:
         health["selfplay_running"] = health["workers"] > 0
 
     # Check game count
-    success, output = run_ssh_command(
+    success, output = run_vast_ssh_command(
         host, port,
         """python3 -c "
 import sqlite3, glob
@@ -263,7 +236,7 @@ def restart_workers_on_instance(instance: Dict) -> bool:
         board_type = "square8"
 
     # Restart workers
-    success, output = run_ssh_command(
+    success, output = run_vast_ssh_command(
         host, port,
         f"""cd /root/ringrift/ai-service && \\
         source venv/bin/activate 2>/dev/null && \\
@@ -294,7 +267,7 @@ def sync_code_on_instance(instance: Dict) -> bool:
     if not host or not port:
         return False
 
-    success, output = run_ssh_command(
+    success, output = run_vast_ssh_command(
         host, port,
         "cd /root/ringrift && git fetch origin && git reset --hard origin/main 2>&1 | tail -1",
         timeout=60,

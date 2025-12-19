@@ -37,8 +37,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 # Add parent directory to path for imports
-AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(AI_SERVICE_ROOT))
+from scripts.lib.paths import AI_SERVICE_ROOT
+from scripts.lib.ssh import run_vast_ssh_command
 
 # P2P Configuration
 P2P_PORT = 8770
@@ -81,27 +81,6 @@ def run_local_command(cmd: str, timeout: int = 60) -> Tuple[bool, str]:
     try:
         result = subprocess.run(
             cmd, shell=True, capture_output=True, text=True, timeout=timeout
-        )
-        return result.returncode == 0, result.stdout.strip() or result.stderr.strip()
-    except subprocess.TimeoutExpired:
-        return False, "timeout"
-    except Exception as e:
-        return False, str(e)
-
-
-def run_ssh_command(host: str, port: int, cmd: str, timeout: int = 30) -> Tuple[bool, str]:
-    """Run command on remote Vast instance."""
-    try:
-        result = subprocess.run(
-            [
-                "ssh", "-o", "StrictHostKeyChecking=accept-new",
-                "-o", f"ConnectTimeout={min(timeout, 10)}",
-                "-o", "BatchMode=yes",
-                "-p", str(port),
-                f"root@{host}",
-                cmd,
-            ],
-            capture_output=True, text=True, timeout=timeout,
         )
         return result.returncode == 0, result.stdout.strip() or result.stderr.strip()
     except subprocess.TimeoutExpired:
@@ -204,7 +183,7 @@ def setup_tailscale_socks(host: str, port: int, name: str) -> Tuple[str, bool, s
     script = TAILSCALE_USERSPACE_SETUP.replace("{SOCKS_PORT}", str(SOCKS_PORT))
 
     # Write and execute script
-    success, output = run_ssh_command(
+    success, output = run_vast_ssh_command(
         host, port,
         f"cat > /tmp/setup_tailscale.sh << 'EOFSCRIPT'\n{script}\nEOFSCRIPT\n"
         f"chmod +x /tmp/setup_tailscale.sh && /tmp/setup_tailscale.sh",
@@ -282,7 +261,7 @@ def setup_aria2_server(host: str, port: int, name: str) -> Tuple[str, bool, str]
     script = ARIA2_SERVER_SETUP.replace("{ARIA2_RPC_PORT}", str(ARIA2_RPC_PORT))
     script = script.replace("{ARIA2_DATA_PORT}", str(ARIA2_DATA_PORT))
 
-    success, output = run_ssh_command(
+    success, output = run_vast_ssh_command(
         host, port,
         f"cat > /tmp/setup_aria2.sh << 'EOFSCRIPT'\n{script}\nEOFSCRIPT\n"
         f"chmod +x /tmp/setup_aria2.sh && /tmp/setup_aria2.sh",
@@ -337,7 +316,7 @@ def setup_cloudflare_tunnel(host: str, port: int, name: str) -> Tuple[str, bool,
     """Setup Cloudflare quick tunnel on a Vast instance."""
     script = CLOUDFLARE_TUNNEL_SETUP.replace("{P2P_PORT}", str(P2P_PORT))
 
-    success, output = run_ssh_command(
+    success, output = run_vast_ssh_command(
         host, port,
         f"cat > /tmp/setup_cf.sh << 'EOFSCRIPT'\n{script}\nEOFSCRIPT\n"
         f"chmod +x /tmp/setup_cf.sh && /tmp/setup_cf.sh",
@@ -414,7 +393,7 @@ def start_p2p_with_socks(host: str, port: int, name: str) -> Tuple[str, bool, st
     script = script.replace("{NODE_ID}", name)
     script = script.replace("{PEERS}", peers_str)
 
-    success, output = run_ssh_command(
+    success, output = run_vast_ssh_command(
         host, port,
         f"cat > /tmp/start_p2p.sh << 'EOFSCRIPT'\n{script}\nEOFSCRIPT\n"
         f"chmod +x /tmp/start_p2p.sh && /tmp/start_p2p.sh",
@@ -444,14 +423,14 @@ def check_instance_status(host: str, port: int, name: str) -> Dict:
     }
 
     # Check reachability
-    success, _ = run_ssh_command(host, port, "echo ok", timeout=10)
+    success, _ = run_vast_ssh_command(host, port, "echo ok", timeout=10)
     if not success:
         return status
     status["reachable"] = True
 
     # Check Tailscale SOCKS (test against first known peer if available)
     test_peer = KNOWN_PEERS[0] if KNOWN_PEERS else "localhost:8770"
-    success, output = run_ssh_command(
+    success, output = run_vast_ssh_command(
         host, port,
         f"curl -s --connect-timeout 3 --socks5 localhost:{SOCKS_PORT} http://{test_peer}/health 2>/dev/null && echo ok",
         timeout=15,
@@ -459,12 +438,12 @@ def check_instance_status(host: str, port: int, name: str) -> Dict:
     status["tailscale_socks"] = success and "ok" in output
 
     # Get Tailscale IP
-    success, output = run_ssh_command(host, port, "tailscale ip -4 2>/dev/null", timeout=10)
+    success, output = run_vast_ssh_command(host, port, "tailscale ip -4 2>/dev/null", timeout=10)
     if success and output.startswith("100."):
         status["tailscale_ip"] = output.strip()
 
     # Check aria2 RPC
-    success, _ = run_ssh_command(
+    success, _ = run_vast_ssh_command(
         host, port,
         f"curl -s http://localhost:{ARIA2_RPC_PORT}/jsonrpc -d '{{\"jsonrpc\":\"2.0\",\"method\":\"aria2.getVersion\",\"id\":1}}' | grep -q version",
         timeout=10,
@@ -472,17 +451,17 @@ def check_instance_status(host: str, port: int, name: str) -> Dict:
     status["aria2_rpc"] = success
 
     # Check aria2 data server
-    success, _ = run_ssh_command(
+    success, _ = run_vast_ssh_command(
         host, port, f"curl -s --connect-timeout 3 http://localhost:{ARIA2_DATA_PORT}/ | head -1", timeout=10
     )
     status["aria2_data"] = success
 
     # Check P2P
-    success, output = run_ssh_command(host, port, "pgrep -f p2p_orchestrator | head -1", timeout=10)
+    success, output = run_vast_ssh_command(host, port, "pgrep -f p2p_orchestrator | head -1", timeout=10)
     status["p2p_running"] = success and bool(output.strip())
 
     # Check Cloudflare tunnel
-    success, output = run_ssh_command(host, port, "cat /etc/ringrift/tunnel_url 2>/dev/null", timeout=10)
+    success, output = run_vast_ssh_command(host, port, "cat /etc/ringrift/tunnel_url 2>/dev/null", timeout=10)
     if success and "trycloudflare.com" in output:
         status["cloudflare_tunnel"] = output.strip()
 

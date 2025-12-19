@@ -35,13 +35,14 @@ warnings.warn(
 
 import argparse
 import os
-import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
+
+from scripts.lib.ssh import run_ssh_command
 
 # Ensure app imports work
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -104,19 +105,6 @@ def load_hosts_config() -> Dict:
         return yaml.safe_load(f).get('hosts', {})
 
 
-def run_ssh_command(host: str, user: str, command: str, timeout: int = 15) -> tuple:
-    """Run command on remote host via SSH."""
-    try:
-        result = subprocess.run(
-            ["ssh", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no",
-             f"{user}@{host}", command],
-            capture_output=True, text=True, timeout=timeout
-        )
-        return result.returncode == 0, result.stdout.strip()
-    except subprocess.TimeoutExpired:
-        return False, "SSH timeout"
-    except Exception as e:
-        return False, str(e)
 
 
 def check_node_status(node_name: str, config: Dict) -> NodeStatus:
@@ -133,7 +121,7 @@ def check_node_status(node_name: str, config: Dict) -> NodeStatus:
         return status
 
     # Check connectivity
-    success, output = run_ssh_command(ssh_host, ssh_user, "echo 'alive'")
+    success, output = run_ssh_command(ssh_host, "echo 'alive'", user=ssh_user)
     if not success:
         status.error = f"Unreachable: {output}"
         return status
@@ -143,8 +131,9 @@ def check_node_status(node_name: str, config: Dict) -> NodeStatus:
 
     # Check GPU status
     success, output = run_ssh_command(
-        ssh_host, ssh_user,
-        "nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null || echo 'N/A'"
+        ssh_host,
+        "nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null || echo 'N/A'",
+        user=ssh_user,
     )
     if success and output and output != 'N/A':
         try:
@@ -158,8 +147,9 @@ def check_node_status(node_name: str, config: Dict) -> NodeStatus:
 
     # Check memory
     success, output = run_ssh_command(
-        ssh_host, ssh_user,
-        "free -g | awk '/^Mem:/ {print $2,$3}'"
+        ssh_host,
+        "free -g | awk '/^Mem:/ {print $2,$3}'",
+        user=ssh_user,
     )
     if success and output:
         try:
@@ -172,8 +162,9 @@ def check_node_status(node_name: str, config: Dict) -> NodeStatus:
 
     # Check disk usage
     success, output = run_ssh_command(
-        ssh_host, ssh_user,
-        f"df -h {ringrift_path} 2>/dev/null | tail -1 | awk '{{print $5}}' | tr -d '%'"
+        ssh_host,
+        f"df -h {ringrift_path} 2>/dev/null | tail -1 | awk '{{print $5}}' | tr -d '%'",
+        user=ssh_user,
     )
     if success and output:
         try:
@@ -183,8 +174,9 @@ def check_node_status(node_name: str, config: Dict) -> NodeStatus:
 
     # Check for running selfplay
     success, output = run_ssh_command(
-        ssh_host, ssh_user,
-        "pgrep -f 'generate_gpu_training_data|benchmark_gpu_selfplay' | wc -l"
+        ssh_host,
+        "pgrep -f 'generate_gpu_training_data|benchmark_gpu_selfplay' | wc -l",
+        user=ssh_user,
     )
     if success:
         try:
@@ -194,8 +186,9 @@ def check_node_status(node_name: str, config: Dict) -> NodeStatus:
 
     # Check for running training
     success, output = run_ssh_command(
-        ssh_host, ssh_user,
-        "pgrep -f 'train_nnue|unified_ai_loop' | wc -l"
+        ssh_host,
+        "pgrep -f 'train_nnue|unified_ai_loop' | wc -l",
+        user=ssh_user,
     )
     if success:
         try:

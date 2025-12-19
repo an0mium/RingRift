@@ -2,12 +2,12 @@
 Unified Cluster Monitor for RingRift AI Training Infrastructure.
 
 Consolidates multiple monitoring scripts into a single module:
-- cluster_health_check.py → health_checker
-- cluster_monitor.py → cluster_status
-- disk_monitor.py → resource_monitor
-- elo_monitor.py → elo_tracker
-- training_monitor.py → training_status
-- data_quality_monitor.py → quality_monitor
+- cluster_health_check.py -> health_checker
+- cluster_monitor.py -> cluster_status
+- disk_monitor.py -> resource_monitor
+- elo_monitor.py -> elo_tracker
+- training_monitor.py -> training_status
+- data_quality_monitor.py -> quality_monitor
 
 Usage:
     from app.monitoring.unified_cluster_monitor import UnifiedClusterMonitor
@@ -28,10 +28,17 @@ import os
 import socket
 import sqlite3
 import time
+import urllib.request
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable
+
+# Import yaml at module level for test patchability
+try:
+    import yaml
+except ImportError:
+    yaml = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +84,47 @@ class ClusterNodeStatus:
     disk_used_percent: float = 0.0
     selfplay_rate: float = 0.0
     error: Optional[str] = None
+
+
+@dataclass
+class NodeHealth:
+    """Health status of a single cluster node (test-compatible API)."""
+    name: str
+    status: str = "unknown"
+    via_tailscale: bool = False
+    cpu_percent: float = 0.0
+    memory_percent: float = 0.0
+    disk_percent: float = 0.0
+    selfplay_active: bool = False
+    games_played: int = 0
+    gpu_util: float = 0.0
+    error: Optional[str] = None
+
+
+@dataclass
+class LeaderHealth:
+    """Health status of the cluster leader node."""
+    is_leader: bool = False
+    node_id: Optional[str] = None
+    selfplay_jobs: int = 0
+    selfplay_rate: float = 0.0
+    training_nnue_running: int = 0
+    training_cmaes_running: int = 0
+    error: Optional[str] = None
+
+
+@dataclass
+class ClusterHealth:
+    """Overall cluster health status (test-compatible API)."""
+    nodes: Dict[str, NodeHealth] = field(default_factory=dict)
+    leader: Optional[LeaderHealth] = None
+    total_nodes: int = 0
+    healthy_nodes: int = 0
+    total_games: int = 0
+    avg_gpu_util: float = 0.0
+    timestamp: Optional[datetime] = None
+    alerts: List[str] = field(default_factory=list)
+    critical_alerts: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -129,6 +177,61 @@ class ClusterStatus:
     alerts: List[str] = field(default_factory=list)
 
 
+# Path to cluster config file
+CONFIG_PATH = Path(__file__).parent.parent.parent / "config" / "distributed_hosts.yaml"
+
+
+class ClusterConfig:
+    """Cluster configuration loaded from distributed_hosts.yaml."""
+
+    def __init__(self, config_path: Optional[Path] = None):
+        """Load cluster configuration from YAML file."""
+        self.config_path = config_path or CONFIG_PATH
+        self.nodes: Dict[str, Dict[str, Any]] = {}
+        self.leader_url: Optional[str] = None
+        self._load_config()
+
+    def _load_config(self) -> None:
+        """Load configuration from YAML file."""
+        if not self.config_path.exists():
+            logger.warning(f"Config file not found: {self.config_path}")
+            return
+
+        try:
+            import yaml
+            with open(self.config_path) as f:
+                data = yaml.safe_load(f) or {}
+
+            hosts = data.get("hosts", {})
+            for name, host_data in hosts.items():
+                if host_data and host_data.get("status") != "disabled":
+                    self.nodes[name] = {
+                        "name": name,
+                        "ssh_host": host_data.get("ssh_host", ""),
+                        "ssh_user": host_data.get("ssh_user", "ubuntu"),
+                        "ssh_port": host_data.get("ssh_port", 22),
+                        "tailscale_ip": host_data.get("tailscale_ip"),
+                        "p2p_port": host_data.get("p2p_port", 8770),
+                        "is_leader": host_data.get("role") == "coordinator",
+                    }
+                    # Build URLs
+                    ip = host_data.get("ssh_host", "")
+                    ts_ip = host_data.get("tailscale_ip")
+                    port = host_data.get("p2p_port", 8770)
+                    self.nodes[name]["primary_url"] = f"http://{ip}:{port}/health" if ip else None
+                    self.nodes[name]["tailscale_url"] = f"http://{ts_ip}:{port}/health" if ts_ip else None
+
+                    if self.nodes[name]["is_leader"] and ts_ip:
+                        self.leader_url = f"http://{ts_ip}:{port}"
+
+        except Exception as e:
+            logger.error(f"Failed to load cluster config: {e}")
+
+    def get_node_names(self) -> List[str]:
+        """Get list of all node names."""
+        return list(self.nodes.keys())
+
+
 class UnifiedClusterMonitor:
     """
     Unified monitoring for RingRift AI training cluster.
@@ -143,6 +246,10 @@ class UnifiedClusterMonitor:
 
     def __init__(
         self,
+        config: Optional[ClusterConfig] = None,
+        webhook_url: Optional[str] = None,
+        check_interval: int = 60,
+        deep_checks: bool = False,
         recovery_manager=None,
         notifier=None,
         auto_recover: bool = False,
@@ -151,12 +258,32 @@ class UnifiedClusterMonitor:
         Initialize unified monitor.
 
         Args:
+            config: Cluster configuration (default: auto-load from file)
+            webhook_url: Optional webhook URL for alerts
+            check_interval: Seconds between health checks
+            deep_checks: Whether to perform SSH-based deep checks
             recovery_manager: Optional RecoveryManager for auto-recovery
             notifier: Optional notifier for alerts
             auto_recover: Whether to auto-recover on failures
         """
         self._running = False
         self._callbacks: List[Callable] = []
+
+        # Config and settings
+        self.config = config or ClusterConfig()
+        self.webhook_url = webhook_url
+        self.check_interval = check_interval
+        self.deep_checks = deep_checks
+
+        # Thresholds
+        self.disk_warning = 80.0
+        self.disk_critical = 95.0
+        self.memory_warning = 85.0
+        self.memory_critical = 95.0
+
+        # Alert cooldown tracking
+        self._alert_cooldown = 300  # 5 minutes
+        self._last_alerts: Dict[str, float] = {}
 
         # Initialize sub-monitors
         self.health_checker = HealthChecker() if HAS_HEALTH_CHECKS else None
@@ -174,13 +301,208 @@ class UnifiedClusterMonitor:
         self._training_db = Path("data/coordination/training_coordination.db")
         self._games_db = Path("data/games/selfplay.db")
 
-        # Cluster config
+        # Legacy cluster config
         self._cluster_config = None
         if HAS_CLUSTER_CONFIG:
             try:
                 self._cluster_config = get_cluster_config()
             except Exception:
                 pass
+
+    def _http_get_json(self, url: str, timeout: int = 5) -> Dict[str, Any]:
+        """Fetch JSON from HTTP endpoint."""
+        import urllib.request
+        import urllib.error
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "ClusterMonitor/1.0"})
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                return json.loads(response.read().decode())
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _should_alert(self, key: str) -> bool:
+        """Check if we should send an alert (respects cooldown)."""
+        now = time.time()
+        last_alert = self._last_alerts.get(key, 0)
+        if now - last_alert > self._alert_cooldown:
+            self._last_alerts[key] = now
+            return True
+        return False
+
+    def check_node_http(self, node_name: str) -> NodeHealth:
+        """Check node health via HTTP endpoint."""
+        node_config = self.config.nodes.get(node_name, {})
+        health = NodeHealth(name=node_name)
+
+        # Try primary URL first
+        primary_url = node_config.get("primary_url")
+        if primary_url:
+            result = self._http_get_json(primary_url)
+            if "error" not in result:
+                health.status = "healthy" if result.get("healthy") else "unhealthy"
+                health.cpu_percent = result.get("cpu_percent", 0.0)
+                health.memory_percent = result.get("memory_percent", 0.0)
+                health.disk_percent = result.get("disk_percent", 0.0)
+                health.selfplay_active = result.get("selfplay_active", False)
+                health.games_played = result.get("games_played", 0)
+                health.gpu_util = result.get("gpu_util", 0.0)
+                return health
+
+        # Fallback to Tailscale URL
+        tailscale_url = node_config.get("tailscale_url")
+        if tailscale_url:
+            result = self._http_get_json(tailscale_url)
+            if "error" not in result:
+                health.status = "healthy" if result.get("healthy") else "unhealthy"
+                health.via_tailscale = True
+                health.cpu_percent = result.get("cpu_percent", 0.0)
+                health.memory_percent = result.get("memory_percent", 0.0)
+                health.disk_percent = result.get("disk_percent", 0.0)
+                health.selfplay_active = result.get("selfplay_active", False)
+                health.games_played = result.get("games_played", 0)
+                health.gpu_util = result.get("gpu_util", 0.0)
+                return health
+
+        health.status = "unreachable"
+        health.error = "Failed to reach node via primary and Tailscale URLs"
+        return health
+
+    def check_leader(self) -> Optional[LeaderHealth]:
+        """Check leader node health."""
+        if not self.config.leader_url:
+            return None
+
+        result = self._http_get_json(f"{self.config.leader_url}/health")
+        if "error" in result:
+            return LeaderHealth(error=result["error"])
+
+        return LeaderHealth(
+            is_leader=True,
+            node_id=result.get("node_id"),
+            selfplay_jobs=result.get("selfplay_jobs", 0),
+            selfplay_rate=result.get("selfplay_rate", 0.0),
+            training_nnue_running=result.get("training_nnue_running", 0),
+            training_cmaes_running=result.get("training_cmaes_running", 0),
+        )
+
+    def check_cluster(self) -> ClusterHealth:
+        """Check health of all cluster nodes."""
+        cluster = ClusterHealth(timestamp=datetime.now())
+        node_names = self.config.get_node_names()
+
+        total_games = 0
+        total_gpu_util = 0.0
+        healthy_count = 0
+
+        for name in node_names:
+            health = self.check_node_http(name)
+            cluster.nodes[name] = health
+            if health.status == "healthy":
+                healthy_count += 1
+            total_games += health.games_played
+            total_gpu_util += health.gpu_util
+
+        cluster.total_nodes = len(node_names)
+        cluster.healthy_nodes = healthy_count
+        cluster.total_games = total_games
+        cluster.avg_gpu_util = total_gpu_util / len(node_names) if node_names else 0.0
+
+        # Check leader
+        cluster.leader = self.check_leader()
+
+        # Generate alerts
+        self.generate_alerts(cluster)
+
+        return cluster
+
+    def generate_alerts(self, cluster: ClusterHealth) -> None:
+        """Generate alerts based on cluster health."""
+        for name, health in cluster.nodes.items():
+            # Disk alerts
+            if health.disk_percent >= self.disk_critical:
+                cluster.critical_alerts.append(f"CRITICAL: {name} disk usage at {health.disk_percent:.1f}%")
+            elif health.disk_percent >= self.disk_warning:
+                cluster.alerts.append(f"Warning: {name} disk usage at {health.disk_percent:.1f}%")
+
+            # Memory alerts
+            if health.memory_percent >= self.memory_critical:
+                cluster.critical_alerts.append(f"CRITICAL: {name} memory usage at {health.memory_percent:.1f}%")
+            elif health.memory_percent >= self.memory_warning:
+                cluster.alerts.append(f"Warning: {name} memory usage at {health.memory_percent:.1f}%")
+
+            # Unreachable alerts
+            if health.status == "unreachable":
+                cluster.critical_alerts.append(f"CRITICAL: {name} is unreachable")
+
+        # Cluster down alert - check both total_nodes field and nodes dict
+        node_count = cluster.total_nodes if cluster.total_nodes > 0 else len(cluster.nodes)
+        if cluster.healthy_nodes == 0 and node_count > 0:
+            cluster.critical_alerts.append("CRITICAL: Cluster down - no healthy nodes")
+
+    def format_text(self, cluster: ClusterHealth) -> str:
+        """Format cluster health as text."""
+        lines = []
+        lines.append("=" * 60)
+        lines.append("CLUSTER HEALTH STATUS")
+        lines.append("=" * 60)
+        lines.append(f"Nodes: {cluster.healthy_nodes}/{cluster.total_nodes} healthy")
+        lines.append(f"Total games: {cluster.total_games}")
+        lines.append(f"Avg GPU util: {cluster.avg_gpu_util:.1f}%")
+        lines.append("-" * 60)
+
+        for name, health in cluster.nodes.items():
+            status = "✓" if health.status == "healthy" else "✗"
+            lines.append(f"{status} {name}: {health.status} | disk:{health.disk_percent:.0f}% mem:{health.memory_percent:.0f}%")
+
+        if cluster.alerts or cluster.critical_alerts:
+            lines.append("-" * 60)
+            lines.append("ALERTS:")
+            for alert in cluster.critical_alerts:
+                lines.append(f"  {alert}")
+            for alert in cluster.alerts:
+                lines.append(f"  {alert}")
+
+        return "\n".join(lines)
+
+    def format_json(self, cluster: ClusterHealth) -> str:
+        """Format cluster health as JSON."""
+        data = {
+            "timestamp": cluster.timestamp.isoformat() if cluster.timestamp else None,
+            "total_nodes": cluster.total_nodes,
+            "healthy_nodes": cluster.healthy_nodes,
+            "total_games": cluster.total_games,
+            "avg_gpu_util": cluster.avg_gpu_util,
+            "nodes": {
+                name: asdict(health) for name, health in cluster.nodes.items()
+            },
+            "alerts": cluster.alerts,
+            "critical_alerts": cluster.critical_alerts,
+        }
+        return json.dumps(data, indent=2, default=str)
+
+    def send_webhook_alert(self, message: str, level: str = "info") -> None:
+        """Send alert via webhook."""
+        if not self.webhook_url:
+            return
+
+        import urllib.request
+        import urllib.error
+
+        payload = json.dumps({
+            "text": message,
+            "level": level,
+            "timestamp": datetime.now().isoformat(),
+        }).encode()
+
+        try:
+            req = urllib.request.Request(
+                self.webhook_url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            urllib.request.urlopen(req, timeout=10)
+        except Exception as e:
+            logger.warning(f"Failed to send webhook alert: {e}")
 
     async def get_full_status(self) -> ClusterStatus:
         """Get complete cluster status."""

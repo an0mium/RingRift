@@ -22,7 +22,9 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Tuple
+
+from scripts.lib.ssh import run_vast_ssh_command
 
 
 @dataclass
@@ -61,42 +63,12 @@ def get_vast_instances() -> List[VastInstance]:
         return []
 
 
-def run_ssh_command(inst: VastInstance, command: str, timeout: int = 30, retries: int = 2) -> Tuple[bool, str]:
-    """Run SSH command on a Vast instance with retries."""
-    ssh_cmd = [
-        'ssh',
-        '-o', 'StrictHostKeyChecking=no',
-        '-o', 'ConnectTimeout=20',
-        '-o', 'ServerAliveInterval=10',
-        '-o', 'BatchMode=yes',
-        '-p', str(inst.ssh_port),
-        f'root@{inst.ssh_host}',
-        command
-    ]
-    for attempt in range(retries + 1):
-        try:
-            result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=timeout)
-            if result.returncode == 0:
-                return True, result.stdout.strip()
-            if attempt < retries:
-                time.sleep(2)
-        except subprocess.TimeoutExpired:
-            if attempt < retries:
-                time.sleep(2)
-                continue
-            return False, "Timeout"
-        except Exception as e:
-            if attempt < retries:
-                time.sleep(2)
-                continue
-            return False, str(e)
-    return False, "Failed after retries"
 
 
 def check_p2p_health(inst: VastInstance) -> Tuple[bool, int, float]:
     """Check P2P health on instance. Returns (is_healthy, selfplay_jobs, disk_percent)."""
-    ok, output = run_ssh_command(
-        inst,
+    ok, output = run_vast_ssh_command(
+        inst.ssh_host, inst.ssh_port,
         'curl -s http://localhost:8770/health 2>/dev/null',
         timeout=20
     )
@@ -120,7 +92,7 @@ def start_p2p(inst: VastInstance, skip_kill: bool = False) -> bool:
 
     # Kill existing P2P if requested
     if not skip_kill:
-        run_ssh_command(inst, 'pkill -f "p2p_orchestrator.py" 2>/dev/null || true', timeout=15, retries=1)
+        run_vast_ssh_command(inst.ssh_host, inst.ssh_port, 'pkill -f "p2p_orchestrator.py" 2>/dev/null || true', timeout=15, retries=1)
         time.sleep(2)
 
     # Use screen for robust process management (survives SSH disconnect)
@@ -134,7 +106,7 @@ python scripts/p2p_orchestrator.py --node-id {node_id} --port 8770 2>&1 | tee /t
 echo "STARTED"
 '''
 
-    ok, output = run_ssh_command(inst, startup_cmd, timeout=30, retries=1)
+    ok, output = run_vast_ssh_command(inst.ssh_host, inst.ssh_port, startup_cmd, timeout=30, retries=1)
     if not ok:
         return False
 
@@ -150,8 +122,8 @@ echo "STARTED"
 
 def stop_p2p(inst: VastInstance) -> bool:
     """Stop P2P orchestrator on instance."""
-    ok, _ = run_ssh_command(
-        inst,
+    ok, _ = run_vast_ssh_command(
+        inst.ssh_host, inst.ssh_port,
         'pkill -f "p2p_orchestrator.py" 2>/dev/null; echo OK',
         timeout=15
     )

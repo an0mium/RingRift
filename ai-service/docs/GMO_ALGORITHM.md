@@ -1,98 +1,139 @@
 # Gradient Move Optimization (GMO) Algorithm
 
-**A Novel Game-Playing Algorithm for RingRift**
+**A Synthesis of Established Techniques for RingRift Game AI**
 
-GMO is a new approach to game AI that uses gradient ascent in continuous move embedding space, guided by information-theoretic exploration principles (uncertainty and novelty), to find optimal moves.
+GMO combines several well-known ML/RL techniques into a practical move-selection pipeline for RingRift: gradient-based inference in embedding space, action embeddings with nearest-neighbor projection, MC Dropout uncertainty, and UCB-style exploration bonuses.
+
+> **Note on Novelty**: GMO is **not** a fundamentally novel algorithm. It is a synthesis of established techniques applied to a specific game domain. This document honestly attributes prior art.
 
 ---
 
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Key Innovation](#key-innovation)
-3. [Theoretical Foundation](#theoretical-foundation)
+2. [Prior Art & Lineage](#prior-art--lineage)
+3. [What GMO Actually Is](#what-gmo-actually-is)
 4. [Architecture](#architecture)
 5. [Algorithm Details](#algorithm-details)
-6. [Information-Theoretic Components](#information-theoretic-components)
+6. [Exploration Components](#exploration-components)
 7. [Configuration Reference](#configuration-reference)
 8. [Training](#training)
 9. [Usage](#usage)
 10. [Comparison to Other Approaches](#comparison-to-other-approaches)
-11. [File Reference](#file-reference)
-12. [Future Improvements](#future-improvements)
+11. [Potential Novel Extensions](#potential-novel-extensions)
+12. [File Reference](#file-reference)
+13. [References](#references)
 
 ---
 
 ## Overview
 
-GMO (Gradient Move Optimization) is a neural network-based game AI that differs fundamentally from traditional approaches:
+GMO (Gradient Move Optimization) is a neural network-based game AI that uses:
 
-| Traditional AI                        | GMO                                                     |
-| ------------------------------------- | ------------------------------------------------------- |
-| Enumerate moves -> evaluate -> select | Encode moves -> optimize embeddings -> project to legal |
-| Discrete action space                 | Continuous embedding space                              |
-| Forward pass only                     | Gradient ascent at inference                            |
-| Random exploration                    | Information-theoretic exploration                       |
+1. **Gradient ascent on action embeddings at inference time** - optimize in continuous space
+2. **Nearest-neighbor projection back to discrete actions** - map to legal moves
+3. **UCB-style exploration bonus** - value + uncertainty term
+4. **Novelty bonus** - encourage diverse play
 
-**Core Insight**: Instead of treating move selection as classification (pick highest probability) or tree search (explore game tree), GMO treats it as continuous optimization (gradient ascent in embedding space).
-
----
-
-## Key Innovation
-
-### Traditional Neural Network Game AI
-
-```
-Policy Network:  state -> neural_net -> softmax -> move_probabilities -> sample
-Value + MCTS:    state -> tree_search -> visit_counts -> move_selection
-Minimax:         state -> enumerate_moves -> evaluate_leaves -> alpha-beta
-```
-
-### GMO Innovation
-
-```
-state -> encode -> gradient_ascent(value + uncertainty + novelty) -> optimized_embedding -> nearest_legal_move
-```
-
-The key differences:
-
-1. **Continuous Optimization at Inference**: Unlike policy networks that make a single forward pass, GMO runs multiple gradient steps to refine the move selection.
-
-2. **Embedding Space Search**: Moves are embedded in a continuous vector space where similar moves have similar embeddings. This allows gradient-based navigation.
-
-3. **Projection Back to Discrete**: After optimization in continuous space, the result is projected back to the nearest legal move via cosine similarity.
-
-4. **No Tree Search**: Unlike MCTS or Minimax, GMO does not build or traverse a game tree. All computation happens in embedding space.
+| Component             | GMO Implementation                     |
+| --------------------- | -------------------------------------- |
+| Action representation | Continuous embeddings (128-dim)        |
+| Action selection      | Gradient optimization + projection     |
+| Exploration           | MC Dropout variance + novelty distance |
+| Objective             | value + beta*sqrt(var) + gamma*novelty |
 
 ---
 
-## Theoretical Foundation
+## Prior Art & Lineage
 
-### Why Continuous Optimization Works for Discrete Games
+GMO draws directly from several established lines of research. **None of the core components are novel.**
 
-1. **Smooth Value Landscape**: The value function over move embeddings is learned to be smooth - similar moves tend to have similar values. This smoothness enables gradient-based optimization.
+### 1. Gradient-Based Inference on Output/Action Embeddings
 
-2. **Continuous Relaxation**: The discrete set of legal moves can be viewed as points in a continuous embedding space. Optimizing in this space finds directions of improvement.
+**Prior Art**: Energy-Based Models (EBMs) and Structured Prediction Energy Networks (SPENs)
 
-3. **Local Refinement**: Starting from a good candidate move, gradient ascent can discover nearby moves that are even better - moves that a single forward pass might rank lower.
+The pattern of "define a differentiable scoring function over outputs, then do iterative gradient-based inference over a relaxed/continuous output representation" is the core idea in SPENs:
 
-### Information-Theoretic Exploration
+> "SPENs produce predictions by backpropagation to iteratively optimize the score/energy w.r.t. outputs, using a continuous relaxation and (optionally) rounding back to discrete."
+> -- Belanger & McCallum (2016)
 
-GMO balances three objectives:
+**More recent**: Test-time embedding optimization appears in offline RL work like DROP, which does "gradient ascent at testing time to infer the optimal embedding z\*".
 
-```
-Objective = E[Value] + beta*sqrt(Var) + gamma*Novelty
-```
+**Very close parallel**: A 2025 arXiv paper proposes "gradient ascent on text embeddings" to optimize outcomes, then a "decoding strategy" to translate optimized embeddings back into discrete natural-language actions.
 
-- **E[Value]**: Exploitation - moves predicted to lead to winning
-- **sqrt(Var)**: Epistemic uncertainty - moves where the model is uncertain (worth exploring)
-- **Novelty**: State-space diversity - moves different from previously played ones
+**GMO's relationship**: Direct application of this pattern. Not novel.
 
-This is inspired by:
+### 2. Action Embeddings + Nearest-Neighbor Projection
 
-- **UCB (Upper Confidence Bound)** from multi-armed bandits: value + exploration bonus
-- **Information gain** from Bayesian optimization: explore uncertain regions
-- **Novelty search** from evolutionary algorithms: encourage diversity
+**Prior Art**: Dulac-Arnold et al. (2015) "Deep Reinforcement Learning in Large Discrete Action Spaces"
+
+> "Embed discrete actions into a continuous space and use approximate nearest neighbors for lookup."
+
+**Also**: Chandak et al. (2019) summarizes this approach: using continuous actions and selecting the nearest discrete action.
+
+**GMO's relationship**: The projection step ("nearest legal move by cosine similarity") is exactly this standard pattern.
+
+### 3. MC Dropout for Uncertainty
+
+**Prior Art**: Gal & Ghahramani (2016) "Dropout as a Bayesian Approximation"
+
+Monte Carlo dropout as an approximate Bayesian uncertainty estimate is a classic technique. Using dropout-derived uncertainty in decision-making (including RL contexts) is well-established.
+
+**GMO's relationship**: Standard application of MC Dropout.
+
+### 4. UCB-Style Exploration Bonus
+
+**Prior Art**: Auer et al. (2002) "Finite-time Analysis of the Multiarmed Bandit Problem"
+
+The formula `value + c * uncertainty` is the canonical UCB exploration principle from bandits, with many RL analogues.
+
+**GMO's relationship**: `score = E[V] + beta*sqrt(Var)` is UCB with dropout variance. Not novel.
+
+### 5. Novelty Bonus
+
+**Prior Art**: Lehman & Stanley (2011) "Abandoning Objectives: Evolution Through the Search for Novelty Alone"
+
+Novelty search--rewarding behavioral novelty / distance in an embedding space--is an established exploration paradigm.
+
+**GMO's relationship**: The novelty tracker is exactly a nearest-neighbor novelty score in embedding space. Standard technique.
+
+### Summary: GMO Component Lineage
+
+| GMO Component                                     | Closest Prior Art                                 | Novel? |
+| ------------------------------------------------- | ------------------------------------------------- | ------ |
+| Gradient ascent on move embedding at inference    | SPENs, EBMs, test-time embedding optimization     | No     |
+| Project optimized embedding to nearest legal move | Action embeddings + NN lookup (Dulac-Arnold 2015) | No     |
+| Explore using dropout variance                    | MC Dropout (Gal & Ghahramani 2016)                | No     |
+| "value + beta\*uncertainty"                       | UCB (Auer et al. 2002)                            | No     |
+| Novelty memory bonus                              | Novelty search (Lehman & Stanley 2011)            | No     |
+| Two-phase pipeline (rank then optimize top-K)     | Engineering choice                                | No     |
+
+---
+
+## What GMO Actually Is
+
+GMO is best described as:
+
+> **An engineered synthesis** of gradient-based inference, action embeddings, uncertainty estimation, and exploration bonuses, packaged into a two-phase move-selection pipeline for RingRift.
+
+### What GMO Is NOT
+
+- **Not** a fundamentally new algorithmic principle
+- **Not** a novel form of exploration (it uses standard UCB + novelty)
+- **Not** a new way to handle uncertainty (it uses standard MC Dropout)
+- **Not** a new action representation (action embeddings are established)
+
+### What GMO Might Be
+
+- A **practical synthesis** that works well for RingRift
+- A **demonstration** that gradient-based action inference can work in board games
+- A **reference implementation** combining these techniques
+
+### Honest Framing for Any Publication
+
+If publishing or presenting GMO, use framing like:
+
+> "We apply gradient-based inference over action embeddings to board game move selection, combining established techniques from structured prediction (SPENs), action embeddings (Dulac-Arnold et al.), and uncertainty-driven exploration (MC Dropout, UCB). We demonstrate this synthesis on RingRift."
 
 ---
 
@@ -113,7 +154,7 @@ This is inspired by:
 |          v                          v                                        |
 |  +----------------+         +----------------+                              |
 |  |  StateEncoder  |         |  MoveEncoder   |                              |
-|  |   768->256->128  |         |  112->128->128   |                              |
+|  |  768->256->128 |         |  112->128->128 |                              |
 |  +-------+--------+         +-------+--------+                              |
 |          |                          |                                        |
 |          v                          v                                        |
@@ -124,34 +165,32 @@ This is inspired by:
 |                     |                                                        |
 |                     v                                                        |
 |  +---------------------------------------------------------------------+   |
-|  |                    Phase 1: Initial Ranking                          |   |
+|  |              Phase 1: Initial Ranking (standard UCB)                 |   |
 |  |                                                                      |   |
 |  |  For each move m_i:                                                 |   |
-|  |    1. MC Dropout -> mean_value, variance                             |   |
-|  |    2. NoveltyTracker -> novelty_score                                |   |
-|  |    3. score = value + beta*sqrt(var) + gamma*novelty                     |   |
+|  |    1. MC Dropout -> mean_value, variance                            |   |
+|  |    2. NoveltyTracker -> novelty_score                               |   |
+|  |    3. score = value + beta*sqrt(var) + gamma*novelty                |   |
 |  |                                                                      |   |
 |  |  Select top-K candidates by score                                   |   |
 |  +---------------------------------------------------------------------+   |
 |                     |                                                        |
 |                     v                                                        |
 |  +---------------------------------------------------------------------+   |
-|  |                   Phase 2: Gradient Optimization                     |   |
+|  |         Phase 2: Gradient Optimization (SPEN-style inference)        |   |
 |  |                                                                      |   |
 |  |  For each top-K candidate:                                          |   |
 |  |    1. Initialize: m_opt = m_candidate.clone()                       |   |
 |  |    2. For step in 1..10:                                            |   |
-|  |         objective = value(s, m_opt) + beta*sqrt(var(s, m_opt))            |   |
-|  |         m_opt += lr * grad_m objective                                 |   |
-|  |    3. Project: find nearest legal move by cosine similarity         |   |
+|  |         objective = value(s, m_opt) + exploration_bonus             |   |
+|  |         m_opt += lr * grad_m objective                              |   |
+|  |    3. Project: nearest legal move by cosine similarity              |   |
 |  |    4. Evaluate final move                                           |   |
 |  +---------------------------------------------------------------------+   |
 |                     |                                                        |
 |                     v                                                        |
 |              +-------------+                                                 |
 |              |  Best Move  |                                                 |
-|              |  (highest   |                                                 |
-|              |   score)    |                                                 |
 |              +-------------+                                                 |
 |                                                                              |
 +-----------------------------------------------------------------------------+
@@ -165,19 +204,19 @@ Encodes a RingRift GameState into a 128-dimensional embedding.
 
 **Features (12 planes x 64 positions = 768 features):**
 
-- Planes 0-3: Ring presence per player (which player owns rings at each position)
-- Planes 4-7: Stack control per player (which player controls stacks)
+- Planes 0-3: Ring presence per player
+- Planes 4-7: Stack control per player
 - Planes 8-11: Territory ownership per player
 
 **Architecture:**
 
 ```
 Input: 768 features (flattened board representation)
-  v
+  |
 Linear(768 -> 256) + ReLU
-  v
+  |
 Linear(256 -> 128)
-  v
+  |
 Output: 128-dim state embedding
 ```
 
@@ -187,68 +226,53 @@ Encodes a Move object into a 128-dimensional embedding.
 
 **Components:**
 
-- `type_embed`: 8 move types -> 32-dim (PLACE_RING, MOVE_STACK, OVERTAKING_CAPTURE, etc.)
+- `type_embed`: 8 move types -> 32-dim
 - `from_embed`: 65 positions -> 32-dim (64 board positions + None)
 - `to_embed`: 65 positions -> 32-dim
-- `placement_embed`: 4 values -> 16-dim (0, 1, 2, 3 rings)
+- `placement_embed`: 4 values -> 16-dim
 
 **Architecture:**
 
 ```
 Move -> [type_idx, from_idx, to_idx, placement_count]
-  v
-[type_embed(32) || from_embed(32) || to_embed(32) || placement_embed(16)]
-  v (concatenate = 112 dim)
-Linear(112 -> 128) + ReLU
-  v
-Linear(128 -> 128)
-  v
+  |
+[type_embed || from_embed || to_embed || placement_embed] (112 dim)
+  |
+Linear(112 -> 128) + ReLU -> Linear(128 -> 128)
+  |
 Output: 128-dim move embedding
 ```
 
 #### 3. GMOValueNetWithUncertainty (`gmo_ai.py:260-326`)
 
-Joint network that predicts both value and uncertainty for a (state, move) pair.
+Joint network that predicts value and learned uncertainty.
 
 **Architecture:**
 
 ```
 Input: concat(state_embed, move_embed) = 256-dim
-  v
+  |
 Linear(256 -> 256) + ReLU + Dropout(0.1)
-  v
+  |
 Linear(256 -> 256) + ReLU + Dropout(0.1)
-  v
-     +--------------+--------------+
-     v              v
-value_head    uncertainty_head
+  |
+  +------------------+------------------+
+  |                  |
+value_head      uncertainty_head
 Linear(256->1)    Linear(256->1)
-     v              v
-   tanh           raw
-     v              v
+  |                  |
+tanh               raw
+  |                  |
 value in [-1,1]   log_variance
 ```
 
-**Two Types of Uncertainty:**
-
-1. **Epistemic (model uncertainty)**: Estimated via MC Dropout - run 10 forward passes with dropout enabled, measure variance of predictions
-2. **Aleatoric (data uncertainty)**: Learned log_variance output - network learns when outcomes are inherently unpredictable
-
 #### 4. NoveltyTracker (`gmo_ai.py:333-381`)
 
-Tracks previously explored move embeddings to encourage diversity.
-
-**Implementation:**
+Standard nearest-neighbor novelty scorer (per Lehman & Stanley 2011).
 
 - Ring buffer storing last 1000 move embeddings
 - Novelty = minimum L2 distance to any stored embedding
 - Reset at start of each game
-
-```python
-novelty(m) = min_{m' in memory} ||embed(m) - embed(m')||_2
-```
-
-High novelty = move is far from anything we've tried before -> worth exploring.
 
 ---
 
@@ -262,79 +286,53 @@ def select_move(game_state):
     legal_moves = get_valid_moves(game_state)
 
     # 2. Encode state and moves
-    state_embed = state_encoder.encode(game_state)  # 128-dim
-    move_embeds = [move_encoder.encode(m) for m in legal_moves]  # N x 128
+    state_embed = state_encoder.encode(game_state)
+    move_embeds = [move_encoder.encode(m) for m in legal_moves]
 
-    # 3. Phase 1: Initial ranking with UCB-style scores
+    # 3. Phase 1: UCB-style ranking (standard technique)
     candidates = []
     for i, move_embed in enumerate(move_embeds):
-        # MC Dropout: 10 forward passes with dropout enabled
-        mean_value, entropy, variance = estimate_uncertainty(state_embed, move_embed)
-
-        # Distance to nearest previously explored move
+        mean_value, variance = mc_dropout_estimate(state_embed, move_embed)
         novelty = novelty_tracker.compute_novelty(move_embed)
-
-        # UCB-style score
         score = mean_value + beta * sqrt(variance) + gamma * novelty
         candidates.append((i, score, move_embed))
 
-    # Select top 5 candidates
-    top_k = sorted(candidates, key=lambda x: x[1], reverse=True)[:5]
+    top_k = sorted(candidates, reverse=True)[:5]
 
-    # 4. Phase 2: Gradient optimization for each top candidate
+    # 4. Phase 2: SPEN-style gradient optimization
     best_move, best_score = None, -inf
 
     for idx, _, initial_embed in top_k:
-        # Run gradient ascent in embedding space
-        optimized_embed = gradient_optimize(
-            state_embed,
-            initial_embed,
-            steps=10,
-            lr=0.1
-        )
+        # Gradient ascent in embedding space
+        optimized_embed = gradient_optimize(state_embed, initial_embed)
 
-        # Project back to nearest legal move
-        similarities = [cosine_sim(optimized_embed, me) for me in move_embeds]
-        nearest_idx = argmax(similarities)
+        # Project to nearest legal move (Dulac-Arnold style)
+        nearest_idx = argmax([cosine_sim(optimized_embed, me) for me in move_embeds])
 
-        # Final evaluation of the projected move
         final_score = evaluate(state_embed, move_embeds[nearest_idx])
-
         if final_score > best_score:
             best_score = final_score
             best_move = legal_moves[nearest_idx]
 
-    # 5. Update novelty tracker with selected move
     novelty_tracker.add(embed(best_move))
-
     return best_move
 ```
 
-### Gradient Optimization (`optimize_move_with_entropy` at `gmo_ai.py:429-472`)
+### Gradient Optimization
 
 ```python
-def optimize_move_with_entropy(state_embed, initial_move_embed, config):
-    # Clone embedding and enable gradients
+def gradient_optimize(state_embed, initial_move_embed):
     move_embed = initial_move_embed.clone().requires_grad_(True)
     optimizer = Adam([move_embed], lr=0.1)
 
     for step in range(10):
         optimizer.zero_grad()
+        mean_value, variance = mc_dropout_estimate(state_embed, move_embed)
 
-        # Estimate value and uncertainty via MC Dropout
-        mean_value, entropy, variance = estimate_uncertainty(
-            state_embed, move_embed, value_net, n_samples=10
-        )
-
-        # Anneal exploration over optimization steps
-        # Start with high exploration, reduce to pure exploitation
-        progress = step / 9  # 0.0 to 1.0
-        exploration_weight = beta * (1 - progress) * temperature
-
-        # Objective: maximize value + exploration bonus
+        # Anneal exploration (engineering choice, not novel)
+        exploration_weight = beta * (1 - step/9) * temperature
         objective = mean_value + exploration_weight * sqrt(variance)
 
-        # Gradient ascent (minimize negative objective)
         loss = -objective
         loss.backward()
         optimizer.step()
@@ -342,143 +340,37 @@ def optimize_move_with_entropy(state_embed, initial_move_embed, config):
     return move_embed.detach()
 ```
 
-### MC Dropout Uncertainty Estimation (`estimate_uncertainty` at `gmo_ai.py:388-426`)
-
-```python
-def estimate_uncertainty(state_embed, move_embed, value_net, n_samples=10):
-    # Enable dropout during inference
-    value_net.train()
-
-    # Collect n_samples predictions with different dropout masks
-    values = []
-    for _ in range(n_samples):
-        value, log_var = value_net(state_embed, move_embed)
-        values.append(value)
-
-    values = torch.stack(values)
-
-    # Statistics
-    mean_value = values.mean()
-    variance = values.var() + 1e-8  # Epistemic uncertainty
-
-    # Gaussian entropy: H = 0.5 * log(2pie*sigma^2)
-    entropy = 0.5 * log(2pi * e * variance)
-
-    return mean_value, entropy, variance
-```
-
-### Projection to Legal Move (`project_to_legal_move` at `gmo_ai.py:475-505`)
-
-```python
-def project_to_legal_move(optimized_embed, move_embeds, legal_moves, temperature=0):
-    # Normalize embeddings
-    opt_norm = normalize(optimized_embed)
-    moves_norm = normalize(move_embeds)
-
-    # Cosine similarities
-    similarities = dot(opt_norm, moves_norm.T)
-
-    if temperature > 0:
-        # Soft selection: sample from softmax
-        probs = softmax(similarities / temperature)
-        idx = sample(probs)
-    else:
-        # Hard selection: argmax
-        idx = argmax(similarities)
-
-    return legal_moves[idx], idx
-```
-
-### Exploration Temperature Adaptation (`get_exploration_temperature` at `gmo_ai.py:508-522`)
-
-```python
-def get_exploration_temperature(game_state, base_temp=1.0):
-    move_count = len(game_state.move_history)
-    rings_on_board = sum(stack.height for stack in game_state.board.stacks)
-
-    if move_count < 10:
-        return base_temp * 1.5   # Opening: explore more
-    elif rings_on_board > 20:
-        return base_temp * 0.5   # Complex position: exploit more
-    else:
-        return base_temp         # Midgame: balanced
-```
-
 ---
 
-## Information-Theoretic Components
+## Exploration Components
 
-### 1. Monte Carlo Dropout for Epistemic Uncertainty
+### 1. MC Dropout Uncertainty (Gal & Ghahramani 2016)
 
-**Concept**: Use dropout at inference time to approximate Bayesian uncertainty.
+Standard technique: keep dropout enabled during inference, run multiple forward passes, measure variance.
 
-**Implementation**:
-
-- Keep dropout enabled (`model.train()`) during forward passes
-- Run 10 forward passes with different dropout masks
-- Variance of predictions = epistemic uncertainty
-
-**Interpretation**:
-
-- High variance -> model has seen few similar positions -> explore
-- Low variance -> model is confident -> exploit
-
-**Reference**: Gal & Ghahramani (2016) "Dropout as a Bayesian Approximation"
-
-### 2. Learned Aleatoric Uncertainty
-
-**Concept**: Let the network output its own uncertainty estimate.
-
-**Implementation**:
-
-- ValueNet outputs both `value` and `log_variance`
-- Loss function: `precision * MSE + log_variance`
-  - `precision = exp(-log_variance)`
-
-**Training behavior**:
-
-- If prediction is wrong: increase variance to reduce loss
-- If prediction is accurate: decrease variance
-- Network learns which positions are inherently unpredictable
-
-**Reference**: Nix & Weigend (1994) "Estimating the mean and variance of the target probability distribution"
-
-### 3. Novelty Bonus
-
-**Concept**: Encourage exploring diverse moves, not just high-value moves.
-
-**Implementation**:
-
-- Maintain ring buffer of last 1000 move embeddings played
-- Novelty = L2 distance to nearest neighbor in buffer
-- Add gamma\*novelty to the objective
-
-**Effect**:
-
-- Prevents repetitive play patterns
-- Encourages trying new strategic ideas
-- Helps discover non-obvious good moves
-
-**Reference**: Lehman & Stanley (2011) "Abandoning Objectives: Evolution Through the Search for Novelty Alone"
-
-### 4. UCB-Style Exploration
-
-**Concept**: Balance exploitation (high expected value) with exploration (high uncertainty).
-
-**Formula**:
-
-```
-score = E[value] + beta*sqrt(variance) + gamma*novelty
+```python
+def mc_dropout_estimate(state_embed, move_embed, n_samples=10):
+    value_net.train()  # Enable dropout
+    values = [value_net(state_embed, move_embed) for _ in range(n_samples)]
+    return mean(values), var(values)
 ```
 
-**Analogy to UCB1**:
+### 2. UCB-Style Bonus (Auer et al. 2002)
+
+Standard technique: add uncertainty bonus to value.
 
 ```
-UCB1: x_bar + c*sqrt(ln(n)/n_i)
-GMO:  E[V] + beta*sqrt(Var) + gamma*novelty
+score = E[value] + beta * sqrt(variance)
 ```
 
-Both add an exploration bonus proportional to uncertainty.
+### 3. Novelty Bonus (Lehman & Stanley 2011)
+
+Standard technique: reward distance from previously seen states/actions.
+
+```
+novelty = min_distance(current_embed, memory_buffer)
+score += gamma * novelty
+```
 
 ---
 
@@ -487,44 +379,39 @@ Both add an exploration bonus proportional to uncertainty.
 ```python
 @dataclass
 class GMOConfig:
-    # === Embedding Dimensions ===
-    state_dim: int = 128     # State embedding size
-    move_dim: int = 128      # Move embedding size
-    hidden_dim: int = 256    # Value network hidden layer size
+    # Embedding dimensions
+    state_dim: int = 128
+    move_dim: int = 128
+    hidden_dim: int = 256
 
-    # === Optimization Parameters ===
-    top_k: int = 5           # Number of candidates to optimize
+    # Optimization parameters
+    top_k: int = 5           # Candidates to optimize
     optim_steps: int = 10    # Gradient steps per candidate
-    lr: float = 0.1          # Learning rate for move optimization
+    lr: float = 0.1          # Optimization learning rate
 
-    # === Exploration Parameters ===
-    beta: float = 0.3        # Uncertainty exploration coefficient
-                             # Higher = more exploration of uncertain moves
-    gamma: float = 0.1       # Novelty exploration coefficient
-                             # Higher = more diverse move selection
-    exploration_temp: float = 1.0  # Base exploration temperature
+    # Exploration parameters (UCB-style)
+    beta: float = 0.3        # Uncertainty coefficient
+    gamma: float = 0.1       # Novelty coefficient
+    exploration_temp: float = 1.0
 
-    # === MC Dropout Parameters ===
-    dropout_rate: float = 0.1  # Dropout probability in value network
-    mc_samples: int = 10       # Number of dropout samples for uncertainty
+    # MC Dropout parameters
+    dropout_rate: float = 0.1
+    mc_samples: int = 10
 
-    # === Novelty Tracking ===
-    novelty_memory_size: int = 1000  # Ring buffer size
+    # Novelty tracking
+    novelty_memory_size: int = 1000
 
-    # === Device ===
-    device: str = "cpu"  # "cpu", "cuda", or "mps"
+    device: str = "cpu"
 ```
 
 ### Parameter Tuning Guide
 
-| Parameter     | Low Value Effect            | High Value Effect           | Recommended Range |
-| ------------- | --------------------------- | --------------------------- | ----------------- |
-| `beta`        | Exploit known good moves    | Explore uncertain moves     | 0.1 - 0.5         |
-| `gamma`       | Allow repetitive patterns   | Force diverse play          | 0.05 - 0.2        |
-| `top_k`       | Faster, may miss good moves | Thorough, slower            | 3 - 10            |
-| `optim_steps` | Quick, less refined         | Better optimization, slower | 5 - 20            |
-| `lr`          | Slow convergence            | May overshoot               | 0.05 - 0.2        |
-| `mc_samples`  | Noisy uncertainty           | Accurate but slow           | 5 - 20            |
+| Parameter     | Low Value Effect            | High Value Effect           | Range      |
+| ------------- | --------------------------- | --------------------------- | ---------- |
+| `beta`        | Exploit known good moves    | Explore uncertain moves     | 0.1 - 0.5  |
+| `gamma`       | Allow repetitive patterns   | Force diverse play          | 0.05 - 0.2 |
+| `top_k`       | Faster, may miss good moves | Thorough, slower            | 3 - 10     |
+| `optim_steps` | Quick, less refined         | Better optimization, slower | 5 - 20     |
 
 ---
 
@@ -537,39 +424,23 @@ GMO trains on game records in JSONL format:
 ```json
 {
   "initial_state": {
-    /* GameState object */
+    /* GameState */
   },
   "moves": [
-    /* array of Move objects */
+    /* Move objects */
   ],
   "winner": 1,
   "board_type": "square8"
 }
 ```
 
-### Training Procedure
-
-1. **Load game records** from JSONL file
-2. **Extract (state, move, outcome) tuples**:
-   - State features from initial position
-   - Move embeddings for each move played
-   - Outcome: +1 if player won, -1 if lost (with temporal discounting)
-3. **Train networks** to predict outcomes with uncertainty
-4. **Evaluate periodically** by playing vs Random AI
-
 ### Loss Function
 
-Negative log-likelihood with learned uncertainty:
+Negative log-likelihood with learned uncertainty (Nix & Weigend 1994):
 
 ```
 L = exp(-log_var) * (pred - target)^2 + log_var
 ```
-
-This loss:
-
-- Penalizes wrong predictions (MSE term)
-- Penalizes overconfident wrong predictions (precision weighting)
-- Penalizes excessive uncertainty (log_var regularization)
 
 ### Training Command
 
@@ -579,44 +450,7 @@ python -m app.training.train_gmo \
     --output-dir models/gmo \
     --epochs 50 \
     --batch-size 64 \
-    --lr 0.001 \
-    --eval-interval 5 \
-    --device mps \
-    --verbose
-```
-
-### Training Arguments
-
-| Argument          | Default                                              | Description                 |
-| ----------------- | ---------------------------------------------------- | --------------------------- |
-| `--data-path`     | `data/gumbel_selfplay/sq8_gumbel_kl_canonical.jsonl` | Training data               |
-| `--output-dir`    | `models/gmo`                                         | Checkpoint output directory |
-| `--epochs`        | 50                                                   | Number of training epochs   |
-| `--batch-size`    | 64                                                   | Batch size                  |
-| `--lr`            | 0.001                                                | Learning rate               |
-| `--max-samples`   | None                                                 | Limit training samples      |
-| `--eval-interval` | 5                                                    | Epochs between evaluations  |
-| `--device`        | cpu                                                  | Device (cpu/cuda/mps)       |
-| `--verbose`       | False                                                | Enable debug logging        |
-
-### Checkpoints
-
-Training saves two checkpoints:
-
-- `gmo_best.pt`: Best validation loss during training
-- `gmo_final.pt`: Final model after all epochs
-
-Checkpoint contents:
-
-```python
-{
-    "state_encoder": state_encoder.state_dict(),
-    "move_encoder": move_encoder.state_dict(),
-    "value_net": value_net.state_dict(),
-    "gmo_config": GMOConfig(...),
-    "epoch": int,
-    "val_loss": float,
-}
+    --device mps
 ```
 
 ---
@@ -631,151 +465,126 @@ from app.ai.gmo_ai import GMOAI, GMOConfig
 from app.models import AIConfig, AIType
 from pathlib import Path
 
-# Method 1: Via factory (uses defaults)
+# Via factory
 ai = AIFactory.create(AIType.GMO, player_number=1, config=AIConfig(difficulty=6))
-
-# Method 2: Via tournament factory
-ai = AIFactory.create_for_tournament("gmo", player_number=1)
-
-# Method 3: Direct instantiation with custom config
-gmo_config = GMOConfig(
-    beta=0.4,      # More exploration
-    gamma=0.15,    # More novelty seeking
-    top_k=7,       # More candidates
-    device="mps",  # Use Apple Silicon GPU
-)
-ai = GMOAI(player_number=1, config=AIConfig(difficulty=6), gmo_config=gmo_config)
 
 # Load trained weights
 ai.load_checkpoint(Path("models/gmo/gmo_best.pt"))
 ```
 
-### Playing a Game
-
-```python
-from app.game_engine import GameEngine
-
-engine = GameEngine()
-state = create_initial_state()  # Your game state initialization
-
-while state.winner is None:
-    current_player = state.current_player
-
-    if current_player == 1:
-        move = gmo_ai.select_move(state)
-    else:
-        move = opponent_ai.select_move(state)
-
-    state = engine.apply_move(state, move)
-
-print(f"Winner: Player {state.winner}")
-```
-
-### Evaluating GMO vs Other AIs
+### Evaluation
 
 ```python
 from app.training.train_gmo import evaluate_vs_random
 
-# Load trained model
-gmo_ai = GMOAI(1, AIConfig(difficulty=6))
-gmo_ai.load_checkpoint(Path("models/gmo/gmo_best.pt"))
-
-# Run evaluation
 results = evaluate_vs_random(gmo_ai, num_games=100)
 print(f"Win rate vs Random: {results['win_rate']:.1%}")
-print(f"Average game length: {results['avg_game_length']:.1f} moves")
 ```
 
 ---
 
 ## Comparison to Other Approaches
 
-| Approach           | Move Selection        | Exploration     | Uncertainty          | Compute at Inference   |
-| ------------------ | --------------------- | --------------- | -------------------- | ---------------------- |
-| **Random AI**      | Uniform random        | N/A             | None                 | O(1)                   |
-| **Heuristic AI**   | Hand-crafted rules    | Rule-based      | None                 | O(N) per move          |
-| **Policy Network** | Softmax sampling      | Entropy bonus   | None                 | O(1) forward pass      |
-| **MCTS**           | Visit counts          | UCT formula     | Visit-based          | O(simulations)         |
-| **AlphaZero**      | MCTS + Policy prior   | Dirichlet noise | Visit-based          | O(simulations)         |
-| **GMO**            | Gradient optimization | Info-theoretic  | MC Dropout + learned | O(K x steps x samples) |
+| Approach           | Move Selection        | Exploration     | Based On                   |
+| ------------------ | --------------------- | --------------- | -------------------------- |
+| **Random AI**      | Uniform random        | N/A             | -                          |
+| **Policy Network** | Softmax sampling      | Entropy bonus   | Standard RL                |
+| **MCTS**           | Visit counts          | UCT formula     | Coulom 2006                |
+| **AlphaZero**      | MCTS + Policy         | Dirichlet noise | Silver et al. 2017         |
+| **GMO**            | Gradient + projection | UCB + novelty   | SPENs, UCB, Novelty Search |
 
-### Advantages of GMO
+### Advantages
 
-1. **No Tree Search**: Avoids exponential blowup of game tree
-2. **Continuous Refinement**: Can discover moves a single forward pass might miss
-3. **Principled Exploration**: Information-theoretic rather than random noise
-4. **Uncertainty Quantification**: Knows when it doesn't know
-5. **Fast at Low Settings**: With top_k=1, steps=1, it's just a forward pass
+1. No tree search required
+2. Continuous refinement of candidates
+3. Uncertainty-aware exploration
 
-### Disadvantages of GMO
+### Disadvantages
 
-1. **Projection Loss**: Optimized embedding may not correspond to any legal move perfectly
-2. **Local Optima**: Gradient ascent may not find global optimum
-3. **Training Data Quality**: Learns from quality of training games
-4. **Compute Cost**: Multiple forward passes per move selection
+1. Projection may lose information
+2. Multiple forward passes per move
+3. No lookahead (single-move horizon)
+
+---
+
+## Potential Novel Extensions
+
+If you want GMO to have genuinely novel contributions, consider:
+
+### 1. Learned Projection
+
+Instead of nearest-neighbor cosine similarity, learn a projection network:
+
+```
+optimized_embed -> ProjectionNet -> legal_move_logits
+```
+
+This could reduce "projection regret."
+
+### 2. True Information-Theoretic Objective
+
+Replace UCB-style `sqrt(variance)` with actual information gain:
+
+```
+objective = E[value] + beta * I(outcome; action | state)
+```
+
+This would be closer to Bayesian optimization.
+
+### 3. Theoretical Analysis
+
+Provide bounds on when gradient optimization + projection improves over single-pass selection. Conditions for monotonic policy improvement.
+
+### 4. Empirical Validation
+
+Rigorous comparisons vs MCTS, policy networks at equal compute budgets, with ablations showing each component's contribution.
 
 ---
 
 ## File Reference
 
-| File                        | Lines     | Description             |
-| --------------------------- | --------- | ----------------------- |
-| `app/ai/gmo_ai.py`          | ~400      | Main implementation     |
-| `app/training/train_gmo.py` | ~350      | Training script         |
-| `tests/test_gmo_ai.py`      | ~620      | Unit tests (28 tests)   |
-| `docs/GMO_ALGORITHM.md`     | This file | Documentation           |
-| `models/gmo/gmo_best.pt`    | ~1.5MB    | Best trained checkpoint |
-| `models/gmo/gmo_final.pt`   | ~1.5MB    | Final checkpoint        |
-
-### Key Functions
-
-| Function                     | Location           | Description                             |
-| ---------------------------- | ------------------ | --------------------------------------- |
-| `GMOAI.select_move`          | `gmo_ai.py:597`    | Main move selection algorithm           |
-| `estimate_uncertainty`       | `gmo_ai.py:388`    | MC Dropout uncertainty estimation       |
-| `optimize_move_with_entropy` | `gmo_ai.py:429`    | Gradient ascent in embedding space      |
-| `project_to_legal_move`      | `gmo_ai.py:475`    | Project embedding to nearest legal move |
-| `nll_loss_with_uncertainty`  | `gmo_ai.py:746`    | Training loss function                  |
-| `train_gmo`                  | `train_gmo.py:404` | Main training function                  |
-
----
-
-## Future Improvements
-
-### Short-term
-
-1. **Hyperparameter sweep**: Systematic tuning of beta, gamma, top_k, optim_steps
-2. **Self-play training**: Generate GMO vs GMO games for continued learning
-3. **Ensemble uncertainty**: Use multiple value networks instead of dropout
-
-### Medium-term
-
-1. **State-conditioned exploration**: Learn beta and gamma as functions of game state
-2. **Learned move embeddings**: Fine-tune move encoder end-to-end
-3. **Multi-step lookahead**: Optimize sequences of moves, not just single moves
-
-### Long-term
-
-1. **Combine with search**: Use GMO to propose moves for MCTS consideration
-2. **Meta-learning**: Adapt exploration parameters based on opponent model
-3. **Hierarchical optimization**: Optimize high-level strategy embeddings first
+| File                        | Lines  | Description             |
+| --------------------------- | ------ | ----------------------- |
+| `app/ai/gmo_ai.py`          | ~400   | Main implementation     |
+| `app/training/train_gmo.py` | ~350   | Training script         |
+| `tests/test_gmo_ai.py`      | ~620   | Unit tests (28 tests)   |
+| `docs/GMO_ALGORITHM.md`     | This   | Documentation           |
+| `models/gmo/gmo_best.pt`    | ~1.5MB | Best trained checkpoint |
 
 ---
 
 ## References
 
-1. Gal, Y., & Ghahramani, Z. (2016). Dropout as a Bayesian Approximation: Representing Model Uncertainty in Deep Learning. ICML.
+### Core Techniques Used
 
-2. Nix, D. A., & Weigend, A. S. (1994). Estimating the mean and variance of the target probability distribution. ICNN.
+1. **Belanger, D., & McCallum, A.** (2016). Structured Prediction Energy Networks. ICML.
+   _Gradient-based inference over continuous output relaxations_
 
-3. Lehman, J., & Stanley, K. O. (2011). Abandoning Objectives: Evolution Through the Search for Novelty Alone. Evolutionary Computation.
+2. **Dulac-Arnold, G., et al.** (2015). Deep Reinforcement Learning in Large Discrete Action Spaces. arXiv.
+   _Action embeddings with nearest-neighbor selection_
 
-4. Auer, P., Cesa-Bianchi, N., & Fischer, P. (2002). Finite-time Analysis of the Multiarmed Bandit Problem. Machine Learning.
+3. **Gal, Y., & Ghahramani, Z.** (2016). Dropout as a Bayesian Approximation. ICML.
+   _MC Dropout for uncertainty estimation_
 
-5. Silver, D., et al. (2017). Mastering the Game of Go without Human Knowledge. Nature.
+4. **Auer, P., et al.** (2002). Finite-time Analysis of the Multiarmed Bandit Problem. Machine Learning.
+   _UCB exploration principle_
+
+5. **Lehman, J., & Stanley, K. O.** (2011). Abandoning Objectives: Evolution Through the Search for Novelty Alone. Evolutionary Computation.
+   _Novelty search_
+
+6. **Nix, D. A., & Weigend, A. S.** (1994). Estimating the mean and variance of the target probability distribution. ICNN.
+   _Heteroscedastic regression / learned uncertainty_
+
+### Related Work
+
+7. **Silver, D., et al.** (2017). Mastering the Game of Go without Human Knowledge. Nature.
+   _AlphaZero for comparison_
+
+8. **Chandak, Y., et al.** (2019). Learning Action Representations for Reinforcement Learning. ICML.
+   _Action embeddings survey_
 
 ---
 
 _Last updated: December 2024_
-_Author: Claude (Anthropic)_
-_RingRift AI Service v1.0_
+_RingRift AI Service_
+_Honest attribution: GMO is a synthesis of established techniques, not a novel algorithm._

@@ -32,9 +32,11 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+from datetime import datetime
+
 from app.ai.heuristic_ai import HeuristicAI
 from app.ai.minimax_ai import MinimaxAI
-from app.models import AIConfig, BoardType
+from app.models import AIConfig, BoardType, GameStatus
 from app.rules.default_engine import DefaultRulesEngine
 from app.training.initial_state import create_initial_state
 

@@ -49,7 +49,10 @@ from dataclasses import dataclass, field, asdict, fields as dataclass_fields
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Generator
+from typing import Any, Dict, List, Optional, Set, Tuple, Generator, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.coordination.queue_populator import QueuePopulator
 import yaml
 
 # Work queue for centralized work distribution (lazy import to avoid circular deps)
@@ -421,10 +424,12 @@ except ImportError:
 
 # HTTP server imports
 try:
+    import aiohttp
     from aiohttp import web, ClientSession, ClientTimeout
     HAS_AIOHTTP = True
 except ImportError:
     HAS_AIOHTTP = False
+    aiohttp = None
     logger.warning("aiohttp not installed. Install with: pip install aiohttp")
 
 # SOCKS proxy support for userspace Tailscale networking
@@ -26794,6 +26799,10 @@ print(json.dumps({{
                     self._record_spawn()  # Track spawn for rate limiting
                 finally:
                     log_handle.close()
+
+                # Note: Using 'mcts' as default engine mode for GPU selfplay
+                gpu_engine_mode = "mcts"
+                batch_size = games_per_matchup
 
                 job = ClusterJob(
                     job_id=job_id,

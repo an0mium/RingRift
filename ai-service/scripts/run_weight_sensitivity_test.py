@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.models import AIConfig, BoardType, GameState, Move
+from app.models import AIConfig, BoardType, GameState, GameStatus, Move
 from app.ai.heuristic_ai import HeuristicAI
 from app.ai.heuristic_weights import BASE_V1_BALANCED_WEIGHTS, HEURISTIC_WEIGHT_KEYS
 from app.rules.default_engine import DefaultRulesEngine

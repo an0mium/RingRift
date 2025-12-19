@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scripts.lib.metrics import TimingStats
 
-from app.models import AIConfig, BoardType
+from app.models import AIConfig, BoardType, GameStatus
 from app.ai.heuristic_ai import HeuristicAI
 from app.ai.heuristic_weights import BASE_V1_BALANCED_WEIGHTS
 from app.rules.default_engine import DefaultRulesEngine

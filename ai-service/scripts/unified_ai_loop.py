@@ -876,6 +876,18 @@ except ImportError:
     RollbackCriteria = None
     RollbackMonitor = None
 
+# Centralized regression detection (December 2025)
+try:
+    from app.training.regression_detector import (
+        get_regression_detector,
+        RegressionSeverity,
+    )
+    HAS_REGRESSION_DETECTOR = True
+except ImportError:
+    HAS_REGRESSION_DETECTOR = False
+    get_regression_detector = None
+    RegressionSeverity = None
+
 # Model registry synchronization for cluster-wide consistency
 try:
     from app.training.registry_sync_manager import RegistrySyncManager
@@ -3686,8 +3698,70 @@ class UnifiedAILoop:
                     print(f"[Feedback] NAS trigger signal received: {signal.reason}")
                     # Could auto-start NAS here if enabled
 
+            # Check for regression using centralized detector (December 2025)
+            await self._check_regression_after_evaluation(payload)
+
         except Exception as e:
             print(f"[Feedback] Error processing evaluation feedback: {e}")
+
+    async def _check_regression_after_evaluation(self, payload: Dict[str, Any]) -> None:
+        """Check for regression using centralized RegressionDetector.
+
+        This integrates the centralized regression detection into the evaluation
+        pipeline. When regression is detected, events are automatically published
+        via the RegressionDetector's event bus integration.
+
+        Args:
+            payload: Evaluation result payload with elo, win_rate, config, etc.
+        """
+        if not HAS_REGRESSION_DETECTOR or get_regression_detector is None:
+            return
+
+        try:
+            config_key = payload.get('config') or payload.get('config_key')
+            current_elo = payload.get('elo')
+            current_win_rate = payload.get('win_rate')
+            games_played = payload.get('games_played', 0)
+            model_id = payload.get('model_id')
+
+            if not config_key or current_elo is None:
+                return
+
+            # Get baseline from config state
+            baseline_elo = None
+            baseline_win_rate = None
+            if config_key in self.state.configs:
+                config_state = self.state.configs[config_key]
+                # Use previous Elo as baseline (before this evaluation)
+                baseline_elo = getattr(config_state, 'previous_elo', None)
+                baseline_win_rate = getattr(config_state, 'previous_win_rate', None)
+                # Update previous values for next check
+                config_state.previous_elo = current_elo
+                config_state.previous_win_rate = current_win_rate
+
+            if baseline_elo is None:
+                # First evaluation - no baseline to compare
+                return
+
+            # Use centralized regression detector
+            detector = get_regression_detector()
+            event = detector.check_regression(
+                model_id=model_id or f"{config_key}_current",
+                current_elo=current_elo,
+                baseline_elo=baseline_elo,
+                current_win_rate=current_win_rate,
+                baseline_win_rate=baseline_win_rate,
+                games_played=games_played,
+            )
+
+            if event:
+                print(f"[RegressionDetector] {config_key}: {event.severity.name} regression detected "
+                      f"(Elo: {baseline_elo:.0f} -> {current_elo:.0f}, "
+                      f"drop: {event.elo_drop:.1f})")
+                # Events are automatically published via detector's event bus
+
+        except Exception as e:
+            print(f"[RegressionDetector] Error checking regression: {e}")
 
     async def _on_training_for_feedback(self, event: DataEvent):
         """Handle training completion for feedback loop."""

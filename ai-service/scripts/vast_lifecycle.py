@@ -25,12 +25,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
-LOG_DIR = AI_SERVICE_ROOT / "logs"
-LOG_FILE = LOG_DIR / "vast_lifecycle.log"
+from scripts.lib.paths import AI_SERVICE_ROOT, LOGS_DIR
+from scripts.lib.ssh import run_vast_ssh_command
 
-if str(AI_SERVICE_ROOT) not in sys.path:
-    sys.path.insert(0, str(AI_SERVICE_ROOT))
+LOG_FILE = LOGS_DIR / "vast_lifecycle.log"
 
 # Lambda target for data sync - prefer Tailscale IP for reliability
 # Public IP (150.136.65.197) gets connection resets under load
@@ -166,31 +164,6 @@ setup_logging(level="INFO", log_file=LOG_FILE)
 logger = get_logger("vast_lifecycle")
 
 
-def run_ssh_command(
-    host: str, port: int, command: str, timeout: int = 30
-) -> Tuple[bool, str]:
-    """Run SSH command on remote host."""
-    try:
-        result = subprocess.run(
-            [
-                "ssh",
-                "-o", "StrictHostKeyChecking=accept-new",
-                "-o", f"ConnectTimeout={min(timeout, 10)}",
-                "-p", str(port),
-                f"root@{host}",
-                command,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        return result.returncode == 0, result.stdout.strip()
-    except subprocess.TimeoutExpired:
-        return False, "timeout"
-    except Exception as e:
-        return False, str(e)
-
-
 def check_instance_health(instance: Dict) -> Dict:
     """Check health of a single Vast instance."""
     host, port = instance["host"], instance["port"]
@@ -210,7 +183,7 @@ def check_instance_health(instance: Dict) -> Dict:
     }
 
     # Check reachability
-    success, _ = run_ssh_command(host, port, "echo ok", timeout=15)
+    success, _ = run_vast_ssh_command(host, port, "echo ok", timeout=15)
     if not success:
         health["status"] = "unreachable"
         return health
@@ -218,7 +191,7 @@ def check_instance_health(instance: Dict) -> Dict:
     health["reachable"] = True
 
     # Check running selfplay workers
-    success, output = run_ssh_command(
+    success, output = run_vast_ssh_command(
         host, port,
         "pgrep -fa 'diverse_selfplay|selfplay' | grep -v pgrep | wc -l",
         timeout=15,
@@ -230,7 +203,7 @@ def check_instance_health(instance: Dict) -> Dict:
             health["workers_running"] = 0
 
     # Check running tournament/evaluation processes (valuable work)
-    success, output = run_ssh_command(
+    success, output = run_vast_ssh_command(
         host, port,
         "pgrep -fa 'elo_tournament|gauntlet|run_model_elo' | grep -v pgrep | wc -l",
         timeout=15,
@@ -242,7 +215,7 @@ def check_instance_health(instance: Dict) -> Dict:
             health["tournament_running"] = 0
 
     # Check running training processes (valuable work)
-    success, output = run_ssh_command(
+    success, output = run_vast_ssh_command(
         host, port,
         "pgrep -fa 'training_loop|train_model|run_tier_training' | grep -v pgrep | wc -l",
         timeout=15,
@@ -254,7 +227,7 @@ def check_instance_health(instance: Dict) -> Dict:
             health["training_running"] = 0
 
     # Check game count and age (look in all possible DB locations)
-    success, output = run_ssh_command(
+    success, output = run_vast_ssh_command(
         host, port,
         """python3 -c "
 import sqlite3
@@ -323,7 +296,7 @@ def sync_git_repo(instance: Dict) -> bool:
     logger.info(f"Syncing git repo on {name}...")
 
     # Check if repo exists
-    success, output = run_ssh_command(
+    success, output = run_vast_ssh_command(
         host, port,
         f"test -d {repo_path}/.git && echo 'exists'",
         timeout=10,
@@ -331,7 +304,7 @@ def sync_git_repo(instance: Dict) -> bool:
 
     if success and "exists" in output:
         # Repo exists, do git pull
-        success, output = run_ssh_command(
+        success, output = run_vast_ssh_command(
             host, port,
             f"cd {repo_path} && git fetch origin && git reset --hard origin/main && git log -1 --oneline",
             timeout=60,
@@ -344,7 +317,7 @@ def sync_git_repo(instance: Dict) -> bool:
             return False
     else:
         # Clone fresh
-        success, output = run_ssh_command(
+        success, output = run_vast_ssh_command(
             host, port,
             f"rm -rf {repo_path} && git clone --depth 1 https://github.com/an0mium/RingRift.git {repo_path} && "
             f"cd {repo_path} && git log -1 --oneline",
@@ -353,7 +326,7 @@ def sync_git_repo(instance: Dict) -> bool:
         if success:
             logger.info(f"  {name}: Cloned fresh - {output.strip()}")
             # Set up venv after fresh clone
-            run_ssh_command(
+            run_vast_ssh_command(
                 host, port,
                 f"cd {repo_path}/ai-service && python3 -m venv venv && "
                 f"venv/bin/pip install -q -r requirements.txt",
@@ -379,7 +352,7 @@ def restart_workers(instance: Dict, sync_code: bool = True) -> bool:
         sync_git_repo(instance)
 
     # Kill existing workers
-    run_ssh_command(host, port, "pkill -f 'generate_data|selfplay' || true", timeout=15)
+    run_vast_ssh_command(host, port, "pkill -f 'generate_data|selfplay' || true", timeout=15)
 
     # Determine num_games based on board type (larger boards = fewer games)
     num_games = {"hex8": 2000, "square8": 1500, "hexagonal": 500}.get(board_type, 1000)
@@ -388,7 +361,7 @@ def restart_workers(instance: Dict, sync_code: bool = True) -> bool:
     path = "/root/ringrift/ai-service"
 
     # Verify path exists
-    success, output = run_ssh_command(
+    success, output = run_vast_ssh_command(
         host, port,
         f"test -d {path} && echo 'found'",
         timeout=10,
@@ -409,7 +382,7 @@ def restart_workers(instance: Dict, sync_code: bool = True) -> bool:
 
     # Start new workers with GPU-appropriate board type and engine
     # RINGRIFT_DISABLE_TORCH_COMPILE=1 avoids triton compilation issues on some vast images
-    success, output = run_ssh_command(
+    success, output = run_vast_ssh_command(
         host, port,
         f"""cd {path} &&
         mkdir -p data/games logs models &&
@@ -444,7 +417,7 @@ def sync_data_from_instance(instance: Dict) -> int:
     os.makedirs(temp_dir, exist_ok=True)
 
     # Find and download all DBs
-    success, output = run_ssh_command(
+    success, output = run_vast_ssh_command(
         host, port,
         "find /root/ringrift/ai-service/data -name '*.db' -type f 2>/dev/null",
         timeout=15,
@@ -675,7 +648,7 @@ def run_code_sync() -> int:
     synced = 0
     for instance in instances:
         # First check if reachable
-        success, _ = run_ssh_command(instance["host"], instance["port"], "echo ok", timeout=15)
+        success, _ = run_vast_ssh_command(instance["host"], instance["port"], "echo ok", timeout=15)
         if not success:
             logger.warning(f"  {instance.get('name', 'unknown')}: unreachable")
             continue
@@ -696,7 +669,7 @@ def main():
     parser.add_argument("--auto", action="store_true", help="Full automation cycle")
     args = parser.parse_args()
 
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
     if args.auto:
         run_auto_cycle()

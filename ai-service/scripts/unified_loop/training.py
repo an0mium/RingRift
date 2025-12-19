@@ -29,6 +29,7 @@ from .config import (
 
 if TYPE_CHECKING:
     from unified_ai_loop import ConfigPriorityQueue, EventBus, UnifiedLoopState
+    from app.execution.backends import OrchestratorBackend
     from app.integration.pipeline_feedback import PipelineFeedbackController
 
 from app.utils.paths import AI_SERVICE_ROOT

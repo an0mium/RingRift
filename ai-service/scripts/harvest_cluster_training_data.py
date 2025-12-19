@@ -32,14 +32,15 @@ import hashlib
 import json
 import os
 import random
-import subprocess
 import sys
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+from scripts.lib.ssh import run_ssh_command
 
 # Cluster nodes with selfplay data
 CLUSTER_NODES = [
@@ -52,6 +53,7 @@ CLUSTER_NODES = [
     "lambda-gh200-l",
     "lambda-2xh100",
 ]
+CLUSTER_SSH_USER = "ubuntu"  # SSH user for Lambda Labs nodes
 
 # Quality scoring weights
 QUALITY_WEIGHTS = {
@@ -114,20 +116,6 @@ class ClusterDataStats:
     quality_distribution: Dict[str, int] = field(default_factory=dict)
 
 
-def run_ssh_command(node: str, command: str, timeout: int = 30) -> Tuple[bool, str]:
-    """Run a command on a remote node via SSH."""
-    try:
-        result = subprocess.run(
-            ["ssh", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no", node, command],
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
-        return result.returncode == 0, result.stdout
-    except subprocess.TimeoutExpired:
-        return False, "timeout"
-    except Exception as e:
-        return False, str(e)
 
 
 def compute_game_quality(game: Dict[str, Any], source_node: str, source_file: str) -> Optional[GameQuality]:
@@ -235,14 +223,16 @@ def analyze_node_data(node: str) -> Dict[str, Any]:
     # Get data size
     success, output = run_ssh_command(
         node,
-        "du -sb ~/ringrift/ai-service/data/selfplay/ 2>/dev/null | cut -f1"
+        "du -sb ~/ringrift/ai-service/data/selfplay/ 2>/dev/null | cut -f1",
+        user=CLUSTER_SSH_USER,
     )
     size_bytes = int(output.strip()) if success and output.strip().isdigit() else 0
 
     # Get file count
     success, output = run_ssh_command(
         node,
-        "find ~/ringrift/ai-service/data/selfplay -name '*.jsonl' 2>/dev/null | wc -l"
+        "find ~/ringrift/ai-service/data/selfplay -name '*.jsonl' 2>/dev/null | wc -l",
+        user=CLUSTER_SSH_USER,
     )
     file_count = int(output.strip()) if success and output.strip().isdigit() else 0
 
@@ -250,7 +240,8 @@ def analyze_node_data(node: str) -> Dict[str, Any]:
     success, output = run_ssh_command(
         node,
         """cd ~/ringrift/ai-service && find data/selfplay -name '*.jsonl' -type f 2>/dev/null | shuf | head -5 | while read f; do head -100 "$f" 2>/dev/null; done | shuf | head -50""",
-        timeout=60
+        user=CLUSTER_SSH_USER,
+        timeout=60,
     )
 
     sample_games = []
@@ -381,7 +372,8 @@ def harvest_games_from_node(
     success, output = run_ssh_command(
         node,
         f"find ~/ringrift/ai-service/data/selfplay -path '*{board_type}*{num_players}p*' -name '*.jsonl' 2>/dev/null | shuf",
-        timeout=30
+        user=CLUSTER_SSH_USER,
+        timeout=30,
     )
 
     if not success:
@@ -400,7 +392,8 @@ def harvest_games_from_node(
         success, output = run_ssh_command(
             node,
             f"cat '{file_path}' 2>/dev/null | shuf | head -500",
-            timeout=60
+            user=CLUSTER_SSH_USER,
+            timeout=60,
         )
 
         if not success:

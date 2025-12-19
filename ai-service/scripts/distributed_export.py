@@ -59,13 +59,15 @@ from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_compl
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.error import URLError
 from urllib.parse import urljoin
 from urllib.request import urlopen
 
 import numpy as np
 import yaml
+
+from scripts.lib.ssh import run_ssh_command as lib_run_ssh_command
 
 # Add ai-service to path
 ROOT = Path(__file__).resolve().parent.parent
@@ -607,32 +609,14 @@ def run_ssh_command(
     timeout: int = 30,
 ) -> Tuple[bool, str]:
     """Run SSH command on remote host."""
-    ssh_cmd = ["ssh"]
-
-    if host.get("ssh_key"):
-        key_path = os.path.expanduser(host["ssh_key"])
-        ssh_cmd.extend(["-i", key_path])
-
-    ssh_cmd.extend([
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "ConnectTimeout=10",
-        "-p", str(host["ssh_port"]),
-        f"{host['ssh_user']}@{host['ssh_host']}",
-        command,
-    ])
-
-    try:
-        result = subprocess.run(
-            ssh_cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        return result.returncode == 0, result.stdout + result.stderr
-    except subprocess.TimeoutExpired:
-        return False, "SSH timeout"
-    except Exception as e:
-        return False, str(e)
+    return lib_run_ssh_command(
+        host=host["ssh_host"],
+        command=command,
+        port=host.get("ssh_port", 22),
+        user=host.get("ssh_user", "root"),
+        ssh_key=host.get("ssh_key"),
+        timeout=timeout,
+    )
 
 
 def sync_db_to_host(

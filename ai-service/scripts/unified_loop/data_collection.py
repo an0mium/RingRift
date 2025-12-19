@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
-from .config import DataEvent, DataEventType, DataIngestionConfig
+from .config import DataEvent, DataEventType, DataIngestionConfig, HostState
 
 if TYPE_CHECKING:
     from unified_ai_loop import EventBus, UnifiedLoopState

@@ -1104,14 +1104,20 @@ class TestRegressionDetector:
 class TestFeedbackAccelerator:
     """Tests for app.training.feedback_accelerator."""
 
-    def test_feedback_state_dataclass(self):
-        """Test FeedbackState dataclass."""
-        from app.training.feedback_accelerator import FeedbackState
+    def test_config_momentum_dataclass(self):
+        """Test ConfigMomentum dataclass."""
+        from app.training.feedback_accelerator import (
+            ConfigMomentum,
+            MomentumState,
+            TrainingIntensity,
+        )
 
-        state = FeedbackState()
-        assert state.consecutive_promotions == 0
-        assert state.plateau_count == 0
-        assert state.momentum == 0.0
+        momentum = ConfigMomentum(config_key="test_config")
+        assert momentum.consecutive_improvements == 0
+        assert momentum.consecutive_plateaus == 0
+        assert momentum.momentum_state == MomentumState.STABLE
+        assert momentum.intensity == TrainingIntensity.NORMAL
+        assert momentum.total_promotions == 0
 
     def test_get_feedback_accelerator_singleton(self):
         """Test get_feedback_accelerator returns singleton."""
@@ -1128,23 +1134,38 @@ class TestFeedbackAccelerator:
 
         accel = get_feedback_accelerator()
 
-        initial_promotions = accel.get_state("square8_2p").consecutive_promotions
+        # Get initial state (may be None if config not tracked yet)
+        initial_momentum = accel.get_config_momentum("test_promo_config")
+        initial_promotions = initial_momentum.total_promotions if initial_momentum else 0
 
-        accel.record_promotion("square8_2p", elo_gain=30.0)
+        # Record a promotion
+        accel.record_promotion("test_promo_config", new_elo=1530.0)
 
-        state = accel.get_state("square8_2p")
-        assert state.consecutive_promotions == initial_promotions + 1
-        assert state.momentum > 0
+        # Check state was updated
+        momentum = accel.get_config_momentum("test_promo_config")
+        assert momentum is not None
+        assert momentum.total_promotions == initial_promotions + 1
+        # record_promotion updates last_promotion_elo, not current_elo
+        assert momentum.last_promotion_elo == 1530.0
 
-    def test_get_acceleration_factor(self):
-        """Test acceleration factor calculation."""
+    def test_get_training_intensity(self):
+        """Test training intensity calculation."""
         from app.training.feedback_accelerator import get_feedback_accelerator
 
         accel = get_feedback_accelerator()
 
-        # Initial factor should be near 1.0
-        factor = accel.get_acceleration_factor("square8_2p")
-        assert 0.5 <= factor <= 2.0
+        # Get training intensity for a config
+        intensity = accel.get_training_intensity("square8_2p")
+
+        # Should have expected keys
+        assert "epochs_multiplier" in intensity
+        assert "learning_rate_multiplier" in intensity
+        assert "min_games_threshold" in intensity
+        assert "intensity" in intensity
+
+        # Multipliers should be positive
+        assert intensity["epochs_multiplier"] >= 0
+        assert intensity["learning_rate_multiplier"] >= 0
 
 
 # =============================================================================

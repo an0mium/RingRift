@@ -677,7 +677,7 @@ def run_ts_replay(
     Python remains on ``get_state_at_move(n)`` (post_move) semantics for now;
     this mode is intended for tooling and detailed debugging only.
     """
-    root = repo_root()
+    root = REPO_ROOT
     cmd = [
         "npx",
         "ts-node",
@@ -903,7 +903,7 @@ def _dump_ts_states_for_ks(
     if not ks:
         return
 
-    root = repo_root()
+    root = REPO_ROOT
     env = os.environ.copy()
     env.setdefault("TS_NODE_PROJECT", "tsconfig.server.json")
     env["RINGRIFT_TS_REPLAY_DUMP_DIR"] = str(dump_dir)

@@ -22,11 +22,11 @@ AI_SERVICE_DIR="$(dirname "$SCRIPT_DIR")"
 # Cron schedule:
 # - Rebalance check every 10 minutes
 # - Auto-training check every 5 minutes
-# - Unified work orchestrator every 2 minutes
+# - Resource-aware router every 2 minutes
 
 REBALANCE_CRON="*/10 * * * * cd $AI_SERVICE_DIR && python3 scripts/smart_work_router.py --rebalance --quiet >> /tmp/work_rebalance.log 2>&1"
 AUTO_TRAIN_CRON="*/5 * * * * cd $AI_SERVICE_DIR && python3 scripts/auto_training_trigger.py >> /tmp/auto_training.log 2>&1"
-ORCHESTRATOR_CRON="*/2 * * * * cd $AI_SERVICE_DIR && python3 scripts/unified_work_orchestrator.py --node-id \$(hostname) --once >> /tmp/work_orchestrator.log 2>&1"
+ORCHESTRATOR_CRON="*/2 * * * * cd $AI_SERVICE_DIR && python3 scripts/resource_aware_router.py --rebalance >> /tmp/work_rebalance.log 2>&1"
 
 # Color codes
 RED='\033[0;31m'
@@ -41,7 +41,7 @@ install_cron() {
     crontab -l 2>/dev/null > /tmp/current_cron || true
 
     # Remove any existing RingRift cron entries
-    grep -v "smart_work_router\|auto_training_trigger\|unified_work_orchestrator" /tmp/current_cron > /tmp/new_cron || true
+    grep -v "smart_work_router\|auto_training_trigger\|unified_work_orchestrator\|resource_aware_router" /tmp/current_cron > /tmp/new_cron || true
 
     # Add header comment
     echo "" >> /tmp/new_cron
@@ -59,7 +59,7 @@ install_cron() {
     echo -e "${GREEN}Cron jobs installed:${NC}"
     echo "  - Smart work router: every 10 minutes"
     echo "  - Auto training trigger: every 5 minutes"
-    echo "  - Unified orchestrator: every 2 minutes"
+    echo "  - Resource-aware router: every 2 minutes"
     echo ""
     echo -e "${YELLOW}Verify with:${NC} crontab -l | grep -E 'smart_work|auto_train|orchestrator'"
 }
@@ -71,7 +71,7 @@ remove_cron() {
     crontab -l 2>/dev/null > /tmp/current_cron || true
 
     # Remove RingRift entries
-    grep -v "smart_work_router\|auto_training_trigger\|unified_work_orchestrator\|RingRift Cluster Work" /tmp/current_cron > /tmp/new_cron || true
+    grep -v "smart_work_router\|auto_training_trigger\|unified_work_orchestrator\|resource_aware_router\|RingRift Cluster Work" /tmp/current_cron > /tmp/new_cron || true
 
     # Install cleaned crontab
     crontab /tmp/new_cron
@@ -98,11 +98,11 @@ deploy_to_cluster() {
             cd ~/ringrift/ai-service 2>/dev/null || cd ~/ai-service 2>/dev/null || exit 1
 
             # Install cron jobs
-            crontab -l 2>/dev/null | grep -v 'smart_work_router\|auto_training_trigger\|unified_work_orchestrator' > /tmp/cron.tmp || true
+            crontab -l 2>/dev/null | grep -v 'smart_work_router\|auto_training_trigger\|unified_work_orchestrator\|resource_aware_router' > /tmp/cron.tmp || true
             echo '# RingRift Work Rebalancing' >> /tmp/cron.tmp
             echo '*/10 * * * * cd ~/ringrift/ai-service && python3 scripts/smart_work_router.py --rebalance --quiet >> /tmp/work_rebalance.log 2>&1' >> /tmp/cron.tmp
             echo '*/5 * * * * cd ~/ringrift/ai-service && python3 scripts/auto_training_trigger.py >> /tmp/auto_training.log 2>&1' >> /tmp/cron.tmp
-            echo '*/2 * * * * cd ~/ringrift/ai-service && python3 scripts/unified_work_orchestrator.py --node-id \$(hostname) --once >> /tmp/work_orchestrator.log 2>&1' >> /tmp/cron.tmp
+            echo '*/2 * * * * cd ~/ringrift/ai-service && python3 scripts/resource_aware_router.py --rebalance >> /tmp/work_rebalance.log 2>&1' >> /tmp/cron.tmp
             crontab /tmp/cron.tmp
             rm /tmp/cron.tmp
         " 2>/dev/null; then

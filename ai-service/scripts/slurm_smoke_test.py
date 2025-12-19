@@ -48,7 +48,16 @@ def _build_script(repo_root: Path, slurm_config, command: str) -> str:
         f"cd {repo_root}",
     ]
     venv_activate = getattr(slurm_config, "venv_activate", None)
-    if venv_activate:
+    venv_activate_arm64 = getattr(slurm_config, "venv_activate_arm64", None)
+    if venv_activate_arm64:
+        lines.append('ARCH="$(uname -m)"')
+        lines.append('if [ "$ARCH" = "aarch64" ]; then')
+        lines.append(f"  source {venv_activate_arm64}")
+        if venv_activate:
+            lines.append("else")
+            lines.append(f"  source {venv_activate}")
+        lines.append("fi")
+    elif venv_activate:
         lines.append(f"source {venv_activate}")
     for cmd in getattr(slurm_config, "setup_commands", []) or []:
         lines.append(str(cmd))

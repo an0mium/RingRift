@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.models import BoardType, AIConfig
+from app.models import BoardType, AIConfig, GameState, GameStatus
 from app.ai.heuristic_ai import HeuristicAI
 from app.rules.default_engine import DefaultRulesEngine
 from app.training.initial_state import create_initial_state

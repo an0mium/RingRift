@@ -32,6 +32,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from scripts.lib.ssh import SSHConfig, run_ssh_command_async_with_config
+
 
 @dataclass
 class HostResult:
@@ -94,28 +96,20 @@ def load_hosts_config() -> dict[str, Any]:
     return data.get("hosts", {})
 
 
-def build_ssh_cmd(host_config: dict[str, Any]) -> list[str]:
-    """Build SSH command prefix for a host."""
-    cmd = ["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
-
-    # Add SSH key if specified
-    if host_config.get("ssh_key"):
-        key_path = Path(host_config["ssh_key"]).expanduser()
-        cmd.extend(["-i", str(key_path)])
-
-    # Add port if non-default
-    port = host_config.get("ssh_port", 22)
-    if port != 22:
-        cmd.extend(["-p", str(port)])
-
-    # Build user@host
-    user = host_config.get("ssh_user", "root")
+def build_ssh_config(host_config: dict[str, Any]) -> SSHConfig:
+    """Build SSHConfig from host configuration."""
     host = host_config.get("ssh_host") or host_config.get("tailscale_ip")
     if not host:
         raise ValueError("No ssh_host or tailscale_ip defined")
 
-    cmd.append(f"{user}@{host}")
-    return cmd
+    return SSHConfig(
+        host=host,
+        port=host_config.get("ssh_port", 22),
+        user=host_config.get("ssh_user", "root"),
+        ssh_key=host_config.get("ssh_key"),
+        batch_mode=True,
+        strict_host_key_checking="no",  # Match original behavior
+    )
 
 
 def get_ringrift_path(host_config: dict[str, Any]) -> str:
@@ -129,34 +123,19 @@ def get_ringrift_path(host_config: dict[str, Any]) -> str:
     return path
 
 
-async def run_ssh_command(ssh_cmd: list[str], remote_cmd: str, timeout: int = 60) -> tuple[bool, str]:
+async def run_ssh_command(config: SSHConfig, remote_cmd: str, timeout: int = 60) -> tuple[bool, str]:
     """Run a command via SSH and return (success, output)."""
-    full_cmd = ssh_cmd + [remote_cmd]
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *full_cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        # Preserve leading whitespace for commands like `git status --porcelain`,
-        # which encode unstaged changes with a leading space (e.g. " M file").
-        output = stdout.decode("utf-8", errors="replace").rstrip()
-        return proc.returncode == 0, output
-    except asyncio.TimeoutError:
-        return False, "SSH timeout"
-    except Exception as e:
-        return False, f"SSH error: {e}"
+    return await run_ssh_command_async_with_config(config, remote_cmd, timeout=timeout)
 
 
 async def get_host_status(name: str, host_config: dict[str, Any]) -> HostResult:
     """Get git status for a single host."""
     try:
-        ssh_cmd = build_ssh_cmd(host_config)
+        ssh_config = build_ssh_config(host_config)
         path = get_ringrift_path(host_config)
 
         # Get current commit
-        success, output = await run_ssh_command(ssh_cmd, f"cd {path} && git log --oneline -1")
+        success, output = await run_ssh_command(ssh_config, f"cd {path} && git log --oneline -1")
         if not success:
             return HostResult(name=name, success=False, commit="", message=f"unreachable: {output}")
 
@@ -165,7 +144,7 @@ async def get_host_status(name: str, host_config: dict[str, Any]) -> HostResult:
         commit_msg = " ".join(commit_line.split()[1:]) if commit_line else ""
 
         # Check for local changes
-        _, status_output = await run_ssh_command(ssh_cmd, f"cd {path} && git status --porcelain")
+        _, status_output = await run_ssh_command(ssh_config, f"cd {path} && git status --porcelain")
         has_changes = bool(_extract_porcelain_lines(status_output).strip())
 
         return HostResult(
@@ -187,18 +166,18 @@ async def update_host(
 ) -> HostResult:
     """Update git on a single host."""
     try:
-        ssh_cmd = build_ssh_cmd(host_config)
+        ssh_config = build_ssh_config(host_config)
         path = get_ringrift_path(host_config)
 
         # Check for local changes first
-        _, status_output = await run_ssh_command(ssh_cmd, f"cd {path} && git status --porcelain")
+        _, status_output = await run_ssh_command(ssh_config, f"cd {path} && git status --porcelain")
         has_changes = bool(_extract_porcelain_lines(status_output).strip())
 
         if has_changes:
             if force_reset:
                 # Force reset to origin
                 success, output = await run_ssh_command(
-                    ssh_cmd,
+                    ssh_config,
                     f"cd {path} && git fetch origin main && git reset --hard origin/main",
                     timeout=120,
                 )
@@ -206,17 +185,17 @@ async def update_host(
                     return HostResult(name=name, success=False, commit="", message=f"reset failed: {output}", had_local_changes=True)
             elif auto_stash:
                 # Stash changes
-                success, _ = await run_ssh_command(ssh_cmd, f"cd {path} && git stash")
+                success, _ = await run_ssh_command(ssh_config, f"cd {path} && git stash")
                 if not success:
                     return HostResult(name=name, success=False, commit="", message="stash failed", had_local_changes=True)
 
                 # Pull
-                success, output = await run_ssh_command(ssh_cmd, f"cd {path} && git pull origin main", timeout=120)
+                success, output = await run_ssh_command(ssh_config, f"cd {path} && git pull origin main", timeout=120)
                 if not success:
                     return HostResult(name=name, success=False, commit="", message=f"pull failed: {output}", had_local_changes=True)
 
                 # Try to restore stash (may conflict)
-                await run_ssh_command(ssh_cmd, f"cd {path} && git stash pop || true")
+                await run_ssh_command(ssh_config, f"cd {path} && git stash pop || true")
             else:
                 return HostResult(
                     name=name,
@@ -227,12 +206,12 @@ async def update_host(
                 )
         else:
             # No local changes, just pull
-            success, output = await run_ssh_command(ssh_cmd, f"cd {path} && git pull origin main", timeout=120)
+            success, output = await run_ssh_command(ssh_config, f"cd {path} && git pull origin main", timeout=120)
             if not success:
                 return HostResult(name=name, success=False, commit="", message=f"pull failed: {output}")
 
         # Get new commit
-        success, output = await run_ssh_command(ssh_cmd, f"cd {path} && git log --oneline -1")
+        success, output = await run_ssh_command(ssh_config, f"cd {path} && git log --oneline -1")
         if not success:
             return HostResult(name=name, success=False, commit="", message="updated but couldn't get commit")
 
