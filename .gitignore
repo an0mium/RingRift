@@ -89,6 +89,7 @@ ai-service/runs/
 ai-service/data/selfplay/
 ai-service/data/selfplay/**/*.jsonl
 ai-service/data/selfplay/**/*.json
+ai-service/data/gmo_sweep/
 ai-service/data/synced_selfplay/
 ai-service/data/training/
 ai-service/data/export_cache/
