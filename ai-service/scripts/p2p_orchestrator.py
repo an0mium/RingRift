@@ -17209,10 +17209,28 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
                 # Check for alerts
                 node_ids = [p.node_id for p in self.peers.values() if p.is_alive()]
-                model_ids = []  # TODO: Get production models from registry
 
-                # Get last training time (approximate from stats)
+                # Get production models from registry (2025-12-18)
+                model_ids = []
                 last_training = time.time() - 3600  # Default to 1 hour ago
+                try:
+                    from app.training.model_registry import ModelRegistry, ModelStage
+                    registry = ModelRegistry()
+                    production_models = registry.get_versions_by_stage(ModelStage.PRODUCTION)
+                    model_ids = [f"{m['model_id']}_v{m['version']}" for m in production_models]
+
+                    # Get last training time from most recently updated model
+                    if production_models:
+                        # updated_at is ISO format string
+                        from datetime import datetime
+                        latest_update = max(
+                            datetime.fromisoformat(m['updated_at'].replace('Z', '+00:00'))
+                            for m in production_models
+                            if m.get('updated_at')
+                        )
+                        last_training = latest_update.timestamp()
+                except Exception as e:
+                    logger.debug(f"Model registry lookup failed, using defaults: {e}")
 
                 alerts = await alert_manager.run_all_checks(
                     node_ids=node_ids,

@@ -307,10 +307,101 @@ def unretire_node_via_api(node_id: str) -> bool:
         return False
 
 
+def ensure_tailscale_socks(instance: VastInstance) -> bool:
+    """Ensure Tailscale SOCKS proxy is running on Vast instance.
+
+    Vast containers run Tailscale in userspace mode with SOCKS5 proxy
+    since they don't have CAP_NET_ADMIN for native networking.
+    """
+    try:
+        cmd = """
+# Check if Tailscale SOCKS is already running
+if pgrep -f 'tailscaled.*socks5' > /dev/null; then
+    tailscale status --json 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print("OK:", d.get("Self",{}).get("HostName","unknown"))'
+    exit 0
+fi
+
+# Start Tailscale in userspace mode with SOCKS5 proxy
+echo "Starting Tailscale SOCKS..."
+killall tailscaled 2>/dev/null || true
+sleep 1
+
+# Get auth key from environment or stored file
+TSKEY="${TAILSCALE_AUTHKEY:-$(cat /etc/tailscale/authkey 2>/dev/null)}"
+if [ -z "$TSKEY" ]; then
+    echo "ERROR: No Tailscale auth key found"
+    exit 1
+fi
+
+# Start tailscaled in userspace mode
+nohup tailscaled --state=/var/lib/tailscale/tailscaled.state \
+    --socket=/var/run/tailscale/tailscaled.sock \
+    --tun=userspace-networking \
+    --socks5-server=localhost:1055 \
+    > /tmp/tailscaled.log 2>&1 &
+
+sleep 3
+
+# Authenticate if needed
+if ! tailscale status --json 2>/dev/null | grep -q '"Online": true'; then
+    tailscale up --authkey="$TSKEY" --accept-routes --accept-dns=false 2>/dev/null
+    sleep 2
+fi
+
+# Verify
+if pgrep -f 'tailscaled.*socks5' > /dev/null; then
+    echo "Tailscale SOCKS started"
+else
+    echo "ERROR: Failed to start Tailscale SOCKS"
+    exit 1
+fi
+"""
+        result = subprocess.run(
+            ['ssh', '-o', 'ConnectTimeout=15', '-o', 'StrictHostKeyChecking=no',
+             '-p', str(instance.ssh_port), f'root@{instance.ssh_host}', cmd],
+            capture_output=True, text=True, timeout=45
+        )
+
+        if 'OK:' in result.stdout or 'started' in result.stdout.lower():
+            return True
+        else:
+            logger.warning(f"Tailscale SOCKS issue on {instance.id}: {result.stdout[:200]}")
+            return False
+
+    except Exception as e:
+        logger.error(f"Failed to ensure Tailscale SOCKS on {instance.id}: {e}")
+        return False
+
+
 def start_p2p_on_instance(instance: VastInstance) -> bool:
-    """Start P2P orchestrator on a Vast instance."""
+    """Start P2P orchestrator on a Vast instance with SOCKS proxy support."""
     # Determine RingRift path
     ringrift_paths = ['/workspace/ringrift', '/root/ringrift']
+
+    # Ensure Tailscale SOCKS is running first
+    if not ensure_tailscale_socks(instance):
+        logger.warning(f"Skipping P2P start on {instance.id}: Tailscale SOCKS not available")
+        # Continue anyway - it might still work if SOCKS is running but check failed
+
+    # Bootstrap peers (Lambda nodes via Tailscale)
+    bootstrap_peers = "100.91.25.13:8770,100.78.101.123:8770,100.104.165.116:8770"
+
+    # Node ID mapping from Tailscale hostnames (more recognizable)
+    node_id_map = {
+        28844365: "vast-3070-24cpu",
+        28844370: "vast-2060s-22cpu",
+        28844401: "vast-l40s",
+        28889766: "vast-3060ti-64cpu",
+        28889768: "vast-3090-64cpu",
+        28889941: "vast-4080s-2x",
+        28889943: "vast-512cpu",
+        28890015: "vast-2080ti",
+        28918740: "vast-3060x4",
+        28918742: "vast-a40",
+        28920043: "vast-5070-4x-new",
+        28925166: "vast-5090",
+        28928169: "vast-8x5090",
+    }
 
     try:
         # Check which path exists
@@ -322,22 +413,35 @@ def start_p2p_on_instance(instance: VastInstance) -> bool:
         )
         ringrift_path = result.stdout.strip() if result.returncode == 0 else '/root/ringrift'
 
-        # Generate node ID
-        node_id = f"vast-{instance.id}"
+        # Generate node ID - prefer mapped name, fallback to instance ID
+        node_id = node_id_map.get(instance.id, f"vast-{instance.id}")
 
-        # Start P2P
+        # Start P2P with SOCKS proxy for Tailscale userspace networking
         cmd = f"""
 cd {ringrift_path}/ai-service
+source venv/bin/activate 2>/dev/null || true
 mkdir -p logs
+
+# Install aiohttp_socks for SOCKS proxy support (required for Vast containers)
+pip install aiohttp_socks -q 2>/dev/null
+
+# Kill existing P2P
 pkill -f p2p_orchestrator 2>/dev/null || true
-nohup /opt/conda/bin/python3 scripts/p2p_orchestrator.py \\
+sleep 1
+
+# Set environment for SOCKS proxy (Tailscale userspace mode)
+export PYTHONPATH=$(pwd)
+export RINGRIFT_SOCKS_PROXY='socks5://localhost:1055'
+
+# Start P2P with bootstrap peers
+nohup python3 scripts/p2p_orchestrator.py \\
     --node-id {node_id} \\
     --port 8770 \\
-    --peers https://p2p.ringrift.ai \\
-    --ringrift-path {ringrift_path} \\
-    > logs/p2p.log 2>&1 &
-sleep 2
-curl -s http://localhost:8770/health | head -c 100
+    --peers {bootstrap_peers} \\
+    > logs/p2p_orchestrator.log 2>&1 &
+
+sleep 4
+curl -s http://localhost:8770/health | head -c 200
 """
         result = subprocess.run(
             ['ssh', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=no',

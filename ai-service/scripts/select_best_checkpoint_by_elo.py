@@ -42,20 +42,15 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from app.models import BoardType, AIType, AIConfig, GameStatus
-from app.ai.heuristic_ai import HeuristicAI
-from app.ai.random_ai import RandomAI
+# Only import what we need directly - game_gauntlet handles the rest
+from app.models import BoardType, AIType, AIConfig
 from app.ai.policy_only_ai import PolicyOnlyAI
-from app.training.generate_data import create_initial_state
-from app.rules.default_engine import DefaultRulesEngine
 
 # Import canonical thresholds from single source of truth
 try:
     from app.config.thresholds import (
         MIN_WIN_RATE_VS_RANDOM,
         MIN_WIN_RATE_VS_HEURISTIC,
-        BASELINE_ELO_RANDOM,
-        BASELINE_ELO_HEURISTIC,
     )
     DEFAULT_MIN_RANDOM_WIN_RATE = MIN_WIN_RATE_VS_RANDOM
     DEFAULT_MIN_HEURISTIC_WIN_RATE = MIN_WIN_RATE_VS_HEURISTIC
@@ -63,8 +58,6 @@ except ImportError:
     # Fallback if running standalone
     DEFAULT_MIN_RANDOM_WIN_RATE = 0.85
     DEFAULT_MIN_HEURISTIC_WIN_RATE = 0.60
-    BASELINE_ELO_RANDOM = 400
-    BASELINE_ELO_HEURISTIC = 1200
 
 
 def is_versioned_checkpoint(checkpoint_path: Path) -> bool:
@@ -174,10 +167,15 @@ def evaluate_checkpoint(
 ) -> Dict[str, Any]:
     """Evaluate a checkpoint via mini-gauntlet against baselines.
 
+    Uses the unified game_gauntlet module for consistent evaluation.
+
     Returns dict with win rates and estimated Elo.
     Raises CheckpointLoadError if checkpoint cannot be loaded.
     """
-    from app.ai.neural_net import NeuralNetAI
+    from app.training.game_gauntlet import (
+        run_baseline_gauntlet,
+        BaselineOpponent,
+    )
 
     # Pre-validate checkpoint is loadable
     if not validate_checkpoint_loadable(checkpoint_path, board_type):
@@ -185,125 +183,29 @@ def evaluate_checkpoint(
             f"Cannot load checkpoint {checkpoint_path}: architecture mismatch"
         )
 
+    # Use unified game gauntlet for evaluation
+    gauntlet_result = run_baseline_gauntlet(
+        model_path=checkpoint_path,
+        board_type=board_type,
+        opponents=[BaselineOpponent.RANDOM, BaselineOpponent.HEURISTIC],
+        games_per_opponent=games_per_opponent,
+        num_players=num_players,
+        check_baseline_gating=False,  # We do gating at select_best level
+        verbose=False,
+    )
+
+    # Convert to legacy result format for backwards compatibility
     results = {
         "checkpoint": str(checkpoint_path),
-        "games": 0,
-        "wins": 0,
-        "losses": 0,
-        "draws": 0,
-        "vs_random": {"wins": 0, "games": 0},
-        "vs_heuristic": {"wins": 0, "games": 0},
+        "games": gauntlet_result.total_games,
+        "wins": gauntlet_result.total_wins,
+        "losses": gauntlet_result.total_losses,
+        "draws": gauntlet_result.total_draws,
+        "win_rate": gauntlet_result.win_rate,
+        "estimated_elo": gauntlet_result.estimated_elo,
+        "vs_random": gauntlet_result.opponent_results.get("random", {"wins": 0, "games": 0, "win_rate": 0.0}),
+        "vs_heuristic": gauntlet_result.opponent_results.get("heuristic", {"wins": 0, "games": 0, "win_rate": 0.0}),
     }
-
-    engine = DefaultRulesEngine()
-
-    # Create neural net AI for the checkpoint
-    def create_nn_ai(player: int) -> PolicyOnlyAI:
-        config = AIConfig(
-            ai_type=AIType.POLICY_ONLY,
-            board_type=board_type,
-            difficulty=8,
-            use_neural_net=True,
-            nn_model_id=str(checkpoint_path),
-            policy_temperature=0.5,
-        )
-        return PolicyOnlyAI(player, config, board_type=board_type)
-
-    baselines = [
-        ("random", lambda p: RandomAI(p, AIConfig(ai_type=AIType.RANDOM, board_type=board_type, difficulty=1))),
-        ("heuristic", lambda p: HeuristicAI(p, AIConfig(ai_type=AIType.HEURISTIC, board_type=board_type, difficulty=5))),
-    ]
-
-    for baseline_name, baseline_factory in baselines:
-        for game_num in range(games_per_opponent):
-            # Alternate who goes first
-            nn_player = 1 if game_num % 2 == 0 else 2
-            baseline_player = 2 if game_num % 2 == 0 else 1
-
-            try:
-                nn_ai = create_nn_ai(nn_player)
-                baseline_ai = baseline_factory(baseline_player)
-
-                state = create_initial_state(board_type, num_players)
-
-                move_count = 0
-                max_moves = 500
-
-                while state.game_status == GameStatus.ACTIVE and move_count < max_moves:
-                    current_player = state.current_player
-
-                    if current_player == nn_player:
-                        move = nn_ai.select_move(state)
-                    else:
-                        move = baseline_ai.select_move(state)
-
-                    if move:
-                        state = engine.apply_move(state, move)
-                    move_count += 1
-
-                # Determine winner
-                results["games"] += 1
-                results[f"vs_{baseline_name}"]["games"] += 1
-
-                if state.winner is not None:
-                    if state.winner == nn_player:
-                        results["wins"] += 1
-                        results[f"vs_{baseline_name}"]["wins"] += 1
-                    else:
-                        results["losses"] += 1
-                else:
-                    results["draws"] += 1
-
-            except Exception as e:
-                import traceback
-                print(f"  Error in game {game_num}: {type(e).__name__}: {e}")
-                traceback.print_exc()
-                continue
-
-    # Calculate win rates
-    if results["games"] > 0:
-        results["win_rate"] = results["wins"] / results["games"]
-    else:
-        results["win_rate"] = 0.0
-
-    for baseline_name in ["random", "heuristic"]:
-        if results[f"vs_{baseline_name}"]["games"] > 0:
-            results[f"vs_{baseline_name}"]["win_rate"] = (
-                results[f"vs_{baseline_name}"]["wins"] /
-                results[f"vs_{baseline_name}"]["games"]
-            )
-        else:
-            results[f"vs_{baseline_name}"]["win_rate"] = 0.0
-
-    # Estimate Elo based on win rates
-    # Random = 400 Elo, Heuristic = 1200 Elo
-    # Use weighted average based on performance
-    random_elo = BASELINE_ELO_RANDOM
-    heuristic_elo = BASELINE_ELO_HEURISTIC
-
-    def elo_from_winrate(win_rate: float, opponent_elo: float) -> float:
-        """Estimate Elo from win rate against known opponent."""
-        if win_rate <= 0:
-            return opponent_elo - 400
-        if win_rate >= 1:
-            return opponent_elo + 400
-        # Elo formula: E = 1 / (1 + 10^((Rb-Ra)/400))
-        # Solving for Ra: Ra = Rb - 400 * log10(1/E - 1)
-        import math
-        return opponent_elo - 400 * math.log10(1/win_rate - 1)
-
-    elo_vs_random = elo_from_winrate(results["vs_random"]["win_rate"], random_elo)
-    elo_vs_heuristic = elo_from_winrate(results["vs_heuristic"]["win_rate"], heuristic_elo)
-
-    # Weight by games played
-    total_games = results["vs_random"]["games"] + results["vs_heuristic"]["games"]
-    if total_games > 0:
-        results["estimated_elo"] = (
-            elo_vs_random * results["vs_random"]["games"] +
-            elo_vs_heuristic * results["vs_heuristic"]["games"]
-        ) / total_games
-    else:
-        results["estimated_elo"] = 1500.0
 
     return results
 

@@ -187,6 +187,16 @@ def _build_default_configs() -> Dict[str, TierEvaluationConfig]:
                     role="baseline",
                 ),
                 TierOpponentConfig(
+                    id="heuristic_d5",
+                    description=(
+                        "Heuristic baseline at difficulty 5 for robust "
+                        "baseline coverage"
+                    ),
+                    difficulty=5,
+                    ai_type=AIType.HEURISTIC,
+                    role="baseline",
+                ),
+                TierOpponentConfig(
                     id="tier_d6",
                     description=(
                         "Previous tier reference using canonical "
@@ -201,8 +211,8 @@ def _build_default_configs() -> Dict[str, TierEvaluationConfig]:
             max_regression_vs_previous_tier=0.05,
             description=(
                 "Strong MCTS tier intended to comfortably beat random and "
-                "not regress catastrophically relative to the canonical "
-                "difficulty-6 profile."
+                "heuristic baselines, and not regress catastrophically "
+                "relative to the canonical difficulty-6 profile."
             ),
         ),
         "D9": TierEvaluationConfig(
@@ -219,6 +229,16 @@ def _build_default_configs() -> Dict[str, TierEvaluationConfig]:
                     description="Random baseline (canonical difficulty 1)",
                     difficulty=1,
                     ai_type=AIType.RANDOM,
+                    role="baseline",
+                ),
+                TierOpponentConfig(
+                    id="heuristic_d6",
+                    description=(
+                        "Heuristic baseline at difficulty 6 for robust "
+                        "baseline coverage at master tier"
+                    ),
+                    difficulty=6,
+                    ai_type=AIType.HEURISTIC,
                     role="baseline",
                 ),
                 TierOpponentConfig(
@@ -253,6 +273,16 @@ def _build_default_configs() -> Dict[str, TierEvaluationConfig]:
                     description="Random baseline (canonical difficulty 1)",
                     difficulty=1,
                     ai_type=AIType.RANDOM,
+                    role="baseline",
+                ),
+                TierOpponentConfig(
+                    id="heuristic_d7",
+                    description=(
+                        "Heuristic baseline at difficulty 7 for robust "
+                        "baseline coverage at grandmaster tier"
+                    ),
+                    difficulty=7,
+                    ai_type=AIType.HEURISTIC,
                     role="baseline",
                 ),
                 TierOpponentConfig(
