@@ -601,3 +601,94 @@ model_validation:
   validation_timeout_seconds: 7200 # 2 hour timeout per validation
   auto_promote_on_pass: true # Auto-promote if validation passes
   min_elo_improvement: 25 # Required Elo improvement to pass
+
+# ============================================================================
+# STORAGE CONFIGURATION
+# Provider-specific storage paths for data persistence
+# ============================================================================
+
+storage:
+  # Default storage (relative paths, used when no provider-specific config)
+  default:
+    selfplay_games: 'data/selfplay'
+    model_checkpoints: 'models/checkpoints'
+    training_data: 'data/training'
+    elo_database: 'data/unified_elo.db'
+    sync_staging: 'data/sync_staging'
+
+  # Lambda Labs - Shared 14PB NFS filesystem
+  # All GH200/H100/A10 nodes mount this at /lambda/nfs
+  lambda:
+    # Shared NFS base path (mounted on all Lambda nodes)
+    nfs_base: '/lambda/nfs/RingRift'
+
+    # Selfplay game storage (write directly to NFS - no sync needed)
+    selfplay_games: '/lambda/nfs/RingRift/selfplay'
+
+    # Model checkpoints (shared for zero-copy model sync)
+    model_checkpoints: '/lambda/nfs/RingRift/models'
+
+    # Training data buffer (shared for distributed training)
+    training_data: '/lambda/nfs/RingRift/training_data'
+
+    # Elo database (single source of truth on NFS)
+    elo_database: '/lambda/nfs/RingRift/elo/unified_elo.db'
+
+    # Sync staging (not needed when using NFS, but keep for fallback)
+    sync_staging: '/lambda/nfs/RingRift/sync_staging'
+
+    # Node-local scratch (fast SSD for temp files)
+    local_scratch: '/tmp/ringrift'
+
+    # Use NFS for inter-node data sharing (no rsync needed)
+    use_nfs_for_sync: true
+
+    # Skip rsync for nodes with NFS access
+    skip_rsync_to_nfs_nodes: true
+
+  # Vast.ai - Ephemeral instances with local storage only
+  vast:
+    # No NFS - use ephemeral local storage
+    selfplay_games: '/workspace/data/selfplay'
+    model_checkpoints: '/workspace/models'
+    training_data: '/workspace/data/training'
+    elo_database: '/workspace/data/unified_elo.db'
+    sync_staging: '/workspace/data/sync_staging'
+
+    # RAM disk for ultra-fast temp storage (if available)
+    local_scratch: '/dev/shm/ringrift'
+
+    # Vast needs rsync for data persistence
+    use_nfs_for_sync: false
+    skip_rsync_to_nfs_nodes: false
+
+  # Mac machines - Local storage only
+  mac:
+    selfplay_games: 'data/selfplay'
+    model_checkpoints: 'models/checkpoints'
+    training_data: 'data/training'
+    elo_database: 'data/unified_elo.db'
+    sync_staging: 'data/sync_staging'
+    local_scratch: '/tmp/ringrift'
+    use_nfs_for_sync: false
+
+# Provider detection rules (used to auto-select storage config)
+provider_detection:
+  # Lambda: Check for NFS mount
+  lambda:
+    check_path: '/lambda/nfs'
+    hostname_patterns:
+      - 'lambda-*'
+      - '*.lambdalabs.cloud'
+
+  # Vast: Check for /workspace directory
+  vast:
+    check_path: '/workspace'
+    hostname_patterns:
+      - 'vast-*'
+      - 'C.*' # Vast container hostnames
+
+  # Mac: Check for /Volumes and Darwin
+  mac:
+    check_path: '/Volumes'
+    os_type: 'Darwin'

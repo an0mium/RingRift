@@ -3048,6 +3048,17 @@ def train_model(
                         if i % 100 == 0:
                             logger.debug(f"Hot buffer mixing skipped: {e}")
 
+                # Data augmentation: apply random symmetry transforms (2025-12)
+                if enhancements_manager is not None and enhancements_manager._augmentor is not None:
+                    try:
+                        features, policy_targets = enhancements_manager.augment_batch_dense(
+                            features, policy_targets
+                        )
+                    except Exception as e:
+                        # Don't fail training on augmentation errors
+                        if i % 100 == 0:
+                            logger.debug(f"Data augmentation skipped: {e}")
+
                 # Pad policy targets if smaller than model policy_size (e.g., dataset
                 # was generated with a smaller policy space than the model supports)
                 if hasattr(model, 'policy_size') and policy_targets.size(1) < model.policy_size:

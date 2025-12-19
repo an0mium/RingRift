@@ -451,6 +451,59 @@ class PERConfig:
 
 
 @dataclass
+class StoragePathsConfig:
+    """Storage paths for a specific provider."""
+    selfplay_games: str = "data/selfplay"
+    model_checkpoints: str = "models/checkpoints"
+    training_data: str = "data/training"
+    elo_database: str = "data/unified_elo.db"
+    sync_staging: str = "data/sync_staging"
+    local_scratch: str = "/tmp/ringrift"
+    nfs_base: Optional[str] = None  # NFS base path if applicable
+    use_nfs_for_sync: bool = False
+    skip_rsync_to_nfs_nodes: bool = False
+
+
+@dataclass
+class ProviderDetectionConfig:
+    """Rules for detecting which storage provider to use."""
+    check_path: str = ""
+    hostname_patterns: List[str] = field(default_factory=list)
+    os_type: Optional[str] = None
+
+
+@dataclass
+class StorageConfig:
+    """Storage configuration with provider-specific paths."""
+    default: StoragePathsConfig = field(default_factory=StoragePathsConfig)
+    lambda_: StoragePathsConfig = field(default_factory=lambda: StoragePathsConfig(
+        nfs_base="/lambda/nfs/RingRift",
+        selfplay_games="/lambda/nfs/RingRift/selfplay",
+        model_checkpoints="/lambda/nfs/RingRift/models",
+        training_data="/lambda/nfs/RingRift/training_data",
+        elo_database="/lambda/nfs/RingRift/elo/unified_elo.db",
+        sync_staging="/lambda/nfs/RingRift/sync_staging",
+        local_scratch="/tmp/ringrift",
+        use_nfs_for_sync=True,
+        skip_rsync_to_nfs_nodes=True,
+    ))
+    vast: StoragePathsConfig = field(default_factory=lambda: StoragePathsConfig(
+        selfplay_games="/workspace/data/selfplay",
+        model_checkpoints="/workspace/models",
+        training_data="/workspace/data/training",
+        elo_database="/workspace/data/unified_elo.db",
+        sync_staging="/workspace/data/sync_staging",
+        local_scratch="/dev/shm/ringrift",
+        use_nfs_for_sync=False,
+    ))
+    mac: StoragePathsConfig = field(default_factory=lambda: StoragePathsConfig(
+        local_scratch="/tmp/ringrift",
+    ))
+    # Provider detection rules
+    provider_detection: Dict[str, ProviderDetectionConfig] = field(default_factory=dict)
+
+
+@dataclass
 class FeedbackConfig:
     """Configuration for pipeline feedback controller integration.
 
@@ -551,6 +604,9 @@ class UnifiedConfig:
     feedback: FeedbackConfig = field(default_factory=FeedbackConfig)
     p2p: P2PClusterConfig = field(default_factory=P2PClusterConfig)
     model_pruning: ModelPruningConfig = field(default_factory=ModelPruningConfig)
+
+    # Storage configuration (provider-specific paths)
+    storage: StorageConfig = field(default_factory=StorageConfig)
 
     # Paths
     hosts_config_path: str = "config/distributed_hosts.yaml"
@@ -788,6 +844,39 @@ class UnifiedConfig:
 
         if "model_pruning" in data:
             config.model_pruning = ModelPruningConfig(**data["model_pruning"])
+
+        # Load storage configuration
+        if "storage" in data:
+            storage_data = data["storage"]
+            storage_config = StorageConfig()
+
+            # Load default paths
+            if "default" in storage_data:
+                storage_config.default = StoragePathsConfig(**storage_data["default"])
+
+            # Load Lambda paths
+            if "lambda" in storage_data:
+                storage_config.lambda_ = StoragePathsConfig(**storage_data["lambda"])
+
+            # Load Vast paths
+            if "vast" in storage_data:
+                storage_config.vast = StoragePathsConfig(**storage_data["vast"])
+
+            # Load Mac paths
+            if "mac" in storage_data:
+                storage_config.mac = StoragePathsConfig(**storage_data["mac"])
+
+            config.storage = storage_config
+
+        # Load provider detection rules
+        if "provider_detection" in data:
+            detection_data = data["provider_detection"]
+            for provider, rules in detection_data.items():
+                config.storage.provider_detection[provider] = ProviderDetectionConfig(
+                    check_path=rules.get("check_path", ""),
+                    hostname_patterns=rules.get("hostname_patterns", []),
+                    os_type=rules.get("os_type"),
+                )
 
         # Load paths
         config.hosts_config_path = data.get("hosts_config_path", config.hosts_config_path)

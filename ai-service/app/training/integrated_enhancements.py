@@ -22,8 +22,8 @@ update_step()              | INTEGRATED       | Used in train.py to sync step co
 should_early_stop()        | INTEGRATED       | Used in train.py for Elo-based stopping
 get_current_elo()          | INTEGRATED       | Used in train.py for logging
 get_baseline_gating_status | INTEGRATED       | Used in train.py for quality monitoring
+augment_batch_dense()      | INTEGRATED       | Used in train.py for data augmentation
 ---------------------------|------------------|----------------------------------
-augment_batch()            | NOT INTEGRATED   | Exists but never called in train.py
 compute_sample_weights()   | NOT INTEGRATED   | Exists but never called in train.py
 get_curriculum_parameters()| NOT INTEGRATED   | Values never used in training loop
 apply_gradient_surgery()   | NOT INTEGRATED   | Exists but never called in train.py
@@ -543,6 +543,48 @@ class IntegratedTrainingManager:
             return aug_features, aug_indices, aug_values
 
         return features, policy_indices, policy_values
+
+    def augment_batch_dense(
+        self,
+        features: Any,  # torch.Tensor (B, C, H, W)
+        policy_targets: Any,  # torch.Tensor (B, policy_size)
+    ) -> Tuple[Any, Any]:
+        """Apply data augmentation to a batch with dense policy targets.
+
+        This is the torch tensor version for integration with train.py.
+        Applies random augmentation per sample in the batch.
+
+        Args:
+            features: Batch of board features (B, C, H, W) as torch tensor
+            policy_targets: Dense policy targets (B, policy_size) as torch tensor
+
+        Returns:
+            Augmented (features, policy_targets) as torch tensors
+        """
+        if self._augmentor is None:
+            return features, policy_targets
+
+        torch, _ = _get_torch_nn()
+        device = features.device
+        batch_size = features.shape[0]
+
+        # Convert to numpy for augmentation
+        feat_np = features.cpu().numpy()
+        policy_np = policy_targets.cpu().numpy()
+
+        aug_features = np.zeros_like(feat_np)
+        aug_policy = np.zeros_like(policy_np)
+
+        for i in range(batch_size):
+            t = self._augmentor.get_random_transform()
+            aug_features[i] = self._augmentor.transform_board(feat_np[i], t)
+            aug_policy[i] = self._augmentor.transform_dense_policy(policy_np[i], t)
+
+        # Convert back to torch tensors
+        aug_features_t = torch.from_numpy(aug_features).to(device)
+        aug_policy_t = torch.from_numpy(aug_policy).to(device)
+
+        return aug_features_t, aug_policy_t
 
     def compute_auxiliary_loss(
         self,
