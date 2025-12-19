@@ -284,6 +284,40 @@ class SSHConfig:
     max_delay_seconds: float = 30.0
     connect_timeout_seconds: int = 10
     command_timeout_seconds: int = 3600  # 1 hour max
+    # SSH transport specific (from ssh_transport.py)
+    transport_command_timeout_seconds: int = 30  # For P2P commands via SSH
+    retry_delay_seconds: float = 1.0
+    address_cache_ttl_seconds: int = 300  # 5 minutes
+
+
+@dataclass
+class DistributedConfig:
+    """Configuration for distributed system components.
+
+    Centralizes settings previously hardcoded across:
+    - dynamic_registry.py
+    - ssh_transport.py
+    - unified_data_sync.py
+    """
+    # Node health state thresholds
+    degraded_failure_threshold: int = 2   # Failures before node marked degraded
+    offline_failure_threshold: int = 5    # Failures before node marked offline
+    recovery_success_threshold: int = 2   # Successes needed to recover from degraded
+
+    # API check intervals (seconds)
+    vast_api_check_interval_seconds: int = 300   # 5 minutes
+    aws_api_check_interval_seconds: int = 300    # 5 minutes
+    tailscale_check_interval_seconds: int = 120  # 2 minutes
+
+    # P2P orchestrator settings
+    p2p_port: int = 8770
+    p2p_base_url: str = "http://localhost:8770"
+
+    # Gossip sync
+    gossip_port: int = 8771
+
+    # Data server (for aria2 transport)
+    data_server_port: int = 8766
 
 
 @dataclass
@@ -593,6 +627,7 @@ class UnifiedConfig:
     ssh: SSHConfig = field(default_factory=SSHConfig)
     selfplay: SelfplayConfig = field(default_factory=SelfplayConfig)
     tournament: TournamentConfig = field(default_factory=TournamentConfig)
+    distributed: DistributedConfig = field(default_factory=DistributedConfig)
 
     # Integrated training enhancements (December 2025)
     enhancements: IntegratedEnhancementsConfig = field(default_factory=IntegratedEnhancementsConfig)

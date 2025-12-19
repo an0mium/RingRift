@@ -34,6 +34,30 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# Import secrets handling utilities
+try:
+    from app.utils.secrets import SecretString, mask_secret
+except ImportError:
+    # Fallback if utils not available
+    class SecretString:  # type: ignore[no-redef]
+        def __init__(self, value: str):
+            self._value = value
+        def get_value(self) -> str:
+            return self._value
+        def __str__(self) -> str:
+            if not self._value:
+                return "[empty]"
+            return "***" + self._value[-4:] if len(self._value) > 4 else "****"
+        def __bool__(self) -> bool:
+            return bool(self._value)
+
+    def mask_secret(value: Optional[str], visible_chars: int = 4) -> str:
+        if not value:
+            return "[empty]"
+        if len(value) <= visible_chars:
+            return "*" * len(value)
+        return "***" + value[-visible_chars:]
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,13 +69,25 @@ class NodeState(str, Enum):
     UNKNOWN = "unknown"         # Never contacted
 
 
-# Configuration
-DEGRADED_THRESHOLD = 2          # Failures before degraded
-OFFLINE_THRESHOLD = 5           # Failures before offline
-RECOVERY_CHECKS = 2             # Successful checks to go from degraded to online
-VAST_API_CHECK_INTERVAL = 300   # Check Vast API every 5 minutes
-AWS_API_CHECK_INTERVAL = 300    # Check AWS (CLI) every 5 minutes
-TAILSCALE_CHECK_INTERVAL = 120  # Check Tailscale status every 2 minutes
+# Try to load from unified config, with fallback defaults
+try:
+    from app.config.unified_config import get_config
+    _config = get_config()
+    DEGRADED_THRESHOLD = _config.distributed.degraded_failure_threshold
+    OFFLINE_THRESHOLD = _config.distributed.offline_failure_threshold
+    RECOVERY_CHECKS = _config.distributed.recovery_success_threshold
+    VAST_API_CHECK_INTERVAL = _config.distributed.vast_api_check_interval_seconds
+    AWS_API_CHECK_INTERVAL = _config.distributed.aws_api_check_interval_seconds
+    TAILSCALE_CHECK_INTERVAL = _config.distributed.tailscale_check_interval_seconds
+except ImportError:
+    # Fallback defaults if config not available
+    DEGRADED_THRESHOLD = 2          # Failures before degraded
+    OFFLINE_THRESHOLD = 5           # Failures before offline
+    RECOVERY_CHECKS = 2             # Successful checks to go from degraded to online
+    VAST_API_CHECK_INTERVAL = 300   # Check Vast API every 5 minutes
+    AWS_API_CHECK_INTERVAL = 300    # Check AWS (CLI) every 5 minutes
+    TAILSCALE_CHECK_INTERVAL = 120  # Check Tailscale status every 2 minutes
+
 STATE_FILE = "logs/p2p_orchestrator/dynamic_registry.json"
 
 
@@ -96,7 +132,9 @@ class DynamicHostRegistry:
         self._config_path = config_path
         self._state_file = Path(__file__).parent.parent.parent / STATE_FILE
         self._state_file.parent.mkdir(parents=True, exist_ok=True)
-        self._vast_api_key: Optional[str] = os.environ.get("VAST_API_KEY")
+        # Store API key as SecretString to prevent accidental logging
+        _api_key = os.environ.get("VAST_API_KEY")
+        self._vast_api_key: Optional[SecretString] = SecretString(_api_key) if _api_key else None
         self._last_vast_check = 0.0
         self._last_aws_check = 0.0
         self._last_tailscale_check = 0.0
@@ -370,7 +408,8 @@ class DynamicHostRegistry:
             import aiohttp
 
             async with aiohttp.ClientSession() as session:
-                headers = {"Authorization": f"Bearer {self._vast_api_key}"}
+                # Use get_value() to get actual API key - SecretString prevents accidental logging
+                headers = {"Authorization": f"Bearer {self._vast_api_key.get_value()}"}
                 async with session.get(
                     "https://console.vast.ai/api/v0/instances/",
                     headers=headers,

@@ -57,20 +57,27 @@ except ImportError:
     HAS_CIRCUIT_BREAKER = False
     CircuitOpenError = Exception
 
-# SSH connection settings
-SSH_CONNECT_TIMEOUT = 10  # seconds
-SSH_COMMAND_TIMEOUT = 30  # seconds
-SSH_MAX_RETRIES = 2
-SSH_RETRY_DELAY = 1.0  # seconds
+# Try to load from unified config, with fallback defaults
+try:
+    from app.config.unified_config import get_config
+    _config = get_config()
+    SSH_CONNECT_TIMEOUT = _config.ssh.connect_timeout_seconds
+    SSH_COMMAND_TIMEOUT = _config.ssh.transport_command_timeout_seconds
+    SSH_MAX_RETRIES = _config.ssh.max_retries
+    SSH_RETRY_DELAY = _config.ssh.retry_delay_seconds
+    SSH_ADDRESS_CACHE_TTL = _config.ssh.address_cache_ttl_seconds
+    LOCAL_P2P_PORT = _config.distributed.p2p_port
+except ImportError:
+    # Fallback defaults if config not available
+    SSH_CONNECT_TIMEOUT = 10  # seconds
+    SSH_COMMAND_TIMEOUT = 30  # seconds
+    SSH_MAX_RETRIES = 2
+    SSH_RETRY_DELAY = 1.0  # seconds
+    SSH_ADDRESS_CACHE_TTL = 300  # 5 minutes
+    LOCAL_P2P_PORT = int(os.environ.get("RINGRIFT_P2P_PORT", "8770"))
 
-# Cache SSH addresses to avoid repeated lookups
-SSH_ADDRESS_CACHE_TTL = 300  # 5 minutes
-
-# Default SSH user for Vast instances
+# Default SSH user for Vast instances (env override always available)
 VAST_SSH_USER = os.environ.get("RINGRIFT_VAST_SSH_USER", "root")
-
-# Local P2P port (what the orchestrator listens on)
-LOCAL_P2P_PORT = int(os.environ.get("RINGRIFT_P2P_PORT", "8770"))
 
 
 @dataclass
