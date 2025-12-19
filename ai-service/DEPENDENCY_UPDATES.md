@@ -62,10 +62,6 @@ All commands and versions in this document assume this shared repo‑root `.venv
 - **TensorBoard**: 2.18.0 (monitoring & visualization)
 - **TensorBoardX**: 2.6.2.2 (extended features)
 
-### Reinforcement Learning
-
-- **Gymnasium**: 1.0.0 (modern RL environment interface, successor to OpenAI Gym)
-
 ### Data Processing
 
 - **Pandas**: 2.2.3
@@ -100,6 +96,48 @@ All commands and versions in this document assume this shared repo‑root `.venv
 - PyTorch provides `torch.jit.script()` and `torch.jit.trace()` for JIT compilation
 - Native support without additional dependencies
 - Can be added later when numba supports Python 3.13
+
+### 3. gymnasium (removed 2025-12-19)
+
+**Reason**: Not imported anywhere in the codebase
+
+- gymnasium 1.0.0 was listed as a dependency but never actually used
+- Custom RL implementation uses PyTorch directly instead
+- Removed to reduce dependency footprint
+
+### 4. pytz and python-dateutil (removed 2025-12-19)
+
+**Reason**: Not imported anywhere in the codebase
+
+- Standard library `datetime` module is used throughout
+- Python 3.9+ has `zoneinfo` module for timezone support
+- Removed to reduce dependency footprint
+
+## Dependency Additions (2025-12-19)
+
+### zeroconf
+
+**Added to**: requirements.txt (was only in requirements-intel.txt)
+
+- Required by `app/distributed/discovery.py` for mDNS worker discovery
+- Used for automatic discovery of training workers on local network
+
+### pytest-cov
+
+**Added to**: requirements.txt
+
+- Enables coverage reporting for pytest runs in CI and local validation
+
+### OpenTelemetry Note
+
+The Jaeger Thrift exporter (`opentelemetry-exporter-jaeger==1.21.0`) is deprecated.
+Version 1.21.0 is the final release. For new deployments, use the OTLP exporter
+with Jaeger's native OTLP endpoint (port 4317):
+
+```bash
+export OTEL_EXPORTER=otlp
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+```
 
 ## RL Implementation Status (2025-12-14)
 
