@@ -40,11 +40,15 @@ See docs/CONSOLIDATION_ROADMAP.md for consolidation context.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Protocol
+from typing import Any, Callable, Dict, List, Optional, Protocol, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.distributed.data_events import EventBus
 
 # Import canonical thresholds
 try:
@@ -171,11 +175,20 @@ class RegressionDetector:
     - feedback_accelerator.py
 
     Subscribe to events instead of implementing detection logic elsewhere.
+
+    When an EventBus is provided, regression events are automatically published
+    to the event bus for cross-process coordination. Other modules should
+    subscribe to REGRESSION_* events instead of implementing their own detection.
     """
 
-    def __init__(self, config: Optional[RegressionConfig] = None):
+    def __init__(
+        self,
+        config: Optional[RegressionConfig] = None,
+        event_bus: Optional["EventBus"] = None,
+    ):
         self.config = config or RegressionConfig()
         self._listeners: List[RegressionListener] = []
+        self._event_bus = event_bus
 
         # State tracking
         self._baselines: Dict[str, Dict[str, Any]] = {}
@@ -184,6 +197,11 @@ class RegressionDetector:
         self._event_history: List[RegressionEvent] = []
 
         logger.info("[RegressionDetector] Initialized with canonical thresholds")
+
+    def set_event_bus(self, event_bus: "EventBus") -> None:
+        """Set the event bus for publishing regression events."""
+        self._event_bus = event_bus
+        logger.debug("[RegressionDetector] Event bus connected")
 
     def add_listener(self, listener: RegressionListener) -> None:
         """Add a regression event listener."""
@@ -266,9 +284,14 @@ class RegressionDetector:
         severity = self._determine_severity(elo_drop, win_rate_drop, error_rate)
 
         if severity is None:
-            # No regression detected, reset consecutive count
+            # No regression detected, decrement consecutive count
             if model_id in self._consecutive_counts:
-                self._consecutive_counts[model_id] = max(0, self._consecutive_counts[model_id] - 1)
+                old_count = self._consecutive_counts[model_id]
+                self._consecutive_counts[model_id] = max(0, old_count - 1)
+                # Publish cleared event when regression fully clears
+                if old_count > 0 and self._consecutive_counts[model_id] == 0:
+                    self._publish_regression_cleared(model_id)
+                    logger.info(f"[RegressionDetector] Regression cleared for {model_id}")
             return None
 
         # Increment consecutive count
@@ -306,8 +329,11 @@ class RegressionDetector:
         self._last_event_times[model_id] = event.timestamp
         self._event_history.append(event)
 
-        # Notify listeners
+        # Notify listeners (local protocol-based)
         self._notify_listeners(event)
+
+        # Publish to event bus (cross-process coordination)
+        self._publish_to_event_bus(event)
 
         logger.warning(
             f"[RegressionDetector] {severity.name} regression for {model_id}: "
@@ -395,6 +421,82 @@ class RegressionDetector:
             except Exception as e:
                 logger.error(f"[RegressionDetector] Listener error: {e}")
 
+    def _publish_to_event_bus(self, event: RegressionEvent) -> None:
+        """Publish regression event to the event bus for cross-process coordination."""
+        if self._event_bus is None:
+            return
+
+        try:
+            from app.distributed.data_events import DataEvent, DataEventType
+
+            # Map severity to event type
+            severity_to_event = {
+                RegressionSeverity.MINOR: DataEventType.REGRESSION_MINOR,
+                RegressionSeverity.MODERATE: DataEventType.REGRESSION_MODERATE,
+                RegressionSeverity.SEVERE: DataEventType.REGRESSION_SEVERE,
+                RegressionSeverity.CRITICAL: DataEventType.REGRESSION_CRITICAL,
+            }
+            specific_event_type = severity_to_event.get(
+                event.severity, DataEventType.REGRESSION_DETECTED
+            )
+
+            payload = event.to_dict()
+
+            # Publish the general regression event
+            general_event = DataEvent(
+                event_type=DataEventType.REGRESSION_DETECTED,
+                payload=payload,
+                source="regression_detector",
+            )
+
+            # Also publish severity-specific event for targeted subscribers
+            specific_event = DataEvent(
+                event_type=specific_event_type,
+                payload=payload,
+                source="regression_detector",
+            )
+
+            # Use synchronous publish if no event loop, async otherwise
+            try:
+                loop = asyncio.get_running_loop()
+                asyncio.create_task(self._event_bus.publish(general_event))
+                asyncio.create_task(self._event_bus.publish(specific_event))
+            except RuntimeError:
+                # No running event loop - use sync version if available
+                if hasattr(self._event_bus, 'publish_sync'):
+                    self._event_bus.publish_sync(general_event)
+                    self._event_bus.publish_sync(specific_event)
+
+        except Exception as e:
+            logger.error(f"[RegressionDetector] Event bus publish error: {e}")
+
+    def _publish_regression_cleared(self, model_id: str) -> None:
+        """Publish event when a model recovers from regression."""
+        if self._event_bus is None:
+            return
+
+        try:
+            from app.distributed.data_events import DataEvent, DataEventType
+
+            event = DataEvent(
+                event_type=DataEventType.REGRESSION_CLEARED,
+                payload={
+                    "model_id": model_id,
+                    "timestamp": time.time(),
+                },
+                source="regression_detector",
+            )
+
+            try:
+                loop = asyncio.get_running_loop()
+                asyncio.create_task(self._event_bus.publish(event))
+            except RuntimeError:
+                if hasattr(self._event_bus, 'publish_sync'):
+                    self._event_bus.publish_sync(event)
+
+        except Exception as e:
+            logger.error(f"[RegressionDetector] Event bus publish error: {e}")
+
     def get_status(self, model_id: str) -> Dict[str, Any]:
         """Get regression status for a model."""
         baseline = self._baselines.get(model_id, {})
@@ -439,11 +541,14 @@ _detector_instance: Optional[RegressionDetector] = None
 
 def get_regression_detector(
     config: Optional[RegressionConfig] = None,
+    connect_event_bus: bool = True,
 ) -> RegressionDetector:
     """Get or create the singleton regression detector.
 
     Args:
         config: Optional configuration (only used on first call)
+        connect_event_bus: If True, connects to the global event bus for
+            cross-process regression event publishing (default: True)
 
     Returns:
         RegressionDetector instance
@@ -453,15 +558,28 @@ def get_regression_detector(
     if _detector_instance is None:
         _detector_instance = RegressionDetector(config)
 
+    # Connect to event bus if requested and not already connected
+    if connect_event_bus and _detector_instance._event_bus is None:
+        try:
+            from app.distributed.data_events import get_event_bus
+            _detector_instance.set_event_bus(get_event_bus())
+        except ImportError:
+            pass  # Event bus not available
+
     return _detector_instance
 
 
 def create_regression_detector(
     config: Optional[RegressionConfig] = None,
+    event_bus: Optional["EventBus"] = None,
 ) -> RegressionDetector:
     """Create a new regression detector instance.
 
     Unlike get_regression_detector(), this always creates a new instance.
     Useful for testing or isolated use cases.
+
+    Args:
+        config: Optional configuration
+        event_bus: Optional event bus for cross-process coordination
     """
-    return RegressionDetector(config)
+    return RegressionDetector(config, event_bus=event_bus)

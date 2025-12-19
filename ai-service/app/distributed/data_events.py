@@ -75,6 +75,14 @@ class DataEventType(Enum):
     PLATEAU_DETECTED = "plateau_detected"
     HYPERPARAMETER_UPDATED = "hyperparameter_updated"
 
+    # Regression detection events (from unified RegressionDetector)
+    REGRESSION_DETECTED = "regression_detected"  # Any regression
+    REGRESSION_MINOR = "regression_minor"  # Severity: minor
+    REGRESSION_MODERATE = "regression_moderate"  # Severity: moderate
+    REGRESSION_SEVERE = "regression_severe"  # Severity: severe
+    REGRESSION_CRITICAL = "regression_critical"  # Severity: critical - rollback recommended
+    REGRESSION_CLEARED = "regression_cleared"  # Model recovered from regression
+
     # P2P/Model sync events
     P2P_MODEL_SYNCED = "p2p_model_synced"
 
@@ -292,6 +300,11 @@ CROSS_PROCESS_EVENT_TYPES = {
     DataEventType.CMAES_TRIGGERED,
     DataEventType.NAS_TRIGGERED,
     DataEventType.TRAINING_THRESHOLD_REACHED,
+    # Regression events - unified detection across all processes
+    DataEventType.REGRESSION_DETECTED,
+    DataEventType.REGRESSION_SEVERE,
+    DataEventType.REGRESSION_CRITICAL,
+    DataEventType.REGRESSION_CLEARED,
 }
 
 

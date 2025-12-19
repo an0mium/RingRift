@@ -917,6 +917,143 @@ class TestGradNormWeighting(unittest.TestCase):
         self.assertIn('legality_weight', loss_dict)
 
 
+class TestUnifiedRegressionDetector(unittest.TestCase):
+    """Tests for unified regression detector with EventBus integration (2025-12)."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        """Import regression detector components."""
+        try:
+            from app.training.regression_detector import (
+                RegressionDetector,
+                RegressionConfig,
+                RegressionEvent,
+                RegressionSeverity,
+            )
+            cls.RegressionDetector = RegressionDetector
+            cls.RegressionConfig = RegressionConfig
+            cls.RegressionEvent = RegressionEvent
+            cls.RegressionSeverity = RegressionSeverity
+            cls.has_regression_detector = True
+        except ImportError:
+            cls.has_regression_detector = False
+
+    def test_regression_detector_creation(self) -> None:
+        """Test that RegressionDetector can be created."""
+        if not self.has_regression_detector:
+            self.skipTest("RegressionDetector not available")
+
+        detector = self.RegressionDetector()
+        self.assertIsNotNone(detector)
+        self.assertIsInstance(detector.config, self.RegressionConfig)
+
+    def test_regression_severity_levels(self) -> None:
+        """Test that severity levels are properly defined."""
+        if not self.has_regression_detector:
+            self.skipTest("RegressionDetector not available")
+
+        self.assertEqual(len(self.RegressionSeverity), 4)
+        self.assertEqual(self.RegressionSeverity.MINOR.value, "minor")
+        self.assertEqual(self.RegressionSeverity.CRITICAL.value, "critical")
+
+    def test_regression_detection_minor(self) -> None:
+        """Test detection of minor regression."""
+        if not self.has_regression_detector:
+            self.skipTest("RegressionDetector not available")
+
+        config = self.RegressionConfig(min_games_for_detection=10)
+        detector = self.RegressionDetector(config=config)
+
+        # Set baseline
+        detector.set_baseline("test_model", elo=1500, win_rate=0.55)
+
+        # Check for minor regression (elo drop of 25)
+        event = detector.check_regression(
+            model_id="test_model",
+            current_elo=1475,  # 25 point drop
+            current_win_rate=0.52,
+            games_played=20,
+        )
+
+        self.assertIsNotNone(event)
+        self.assertEqual(event.severity, self.RegressionSeverity.MINOR)
+        self.assertEqual(event.elo_drop, 25)
+
+    def test_regression_detection_severe(self) -> None:
+        """Test detection of severe regression."""
+        if not self.has_regression_detector:
+            self.skipTest("RegressionDetector not available")
+
+        config = self.RegressionConfig(min_games_for_detection=10)
+        detector = self.RegressionDetector(config=config)
+
+        detector.set_baseline("test_model2", elo=1500, win_rate=0.55)
+
+        # Check for severe regression (elo drop of 60)
+        event = detector.check_regression(
+            model_id="test_model2",
+            current_elo=1440,  # 60 point drop
+            current_win_rate=0.40,
+            games_played=50,
+        )
+
+        self.assertIsNotNone(event)
+        self.assertIn(event.severity, [self.RegressionSeverity.SEVERE, self.RegressionSeverity.CRITICAL])
+
+    def test_consecutive_regression_escalation(self) -> None:
+        """Test that consecutive regressions escalate severity."""
+        if not self.has_regression_detector:
+            self.skipTest("RegressionDetector not available")
+
+        config = self.RegressionConfig(
+            min_games_for_detection=10,
+            consecutive_regressions_for_escalation=2,
+            cooldown_seconds=0,  # Disable cooldown for testing
+        )
+        detector = self.RegressionDetector(config=config)
+
+        detector.set_baseline("test_model3", elo=1500)
+
+        # First minor regression
+        event1 = detector.check_regression(
+            model_id="test_model3",
+            current_elo=1475,
+            games_played=20,
+        )
+        self.assertEqual(event1.severity, self.RegressionSeverity.MINOR)
+        self.assertEqual(event1.consecutive_count, 1)
+
+        # Second regression - should escalate
+        event2 = detector.check_regression(
+            model_id="test_model3",
+            current_elo=1475,
+            games_played=40,
+        )
+        self.assertEqual(event2.consecutive_count, 2)
+        # Minor should escalate to Moderate on consecutive
+        self.assertEqual(event2.severity, self.RegressionSeverity.MODERATE)
+
+    def test_regression_cleared_status(self) -> None:
+        """Test that regression clears when model recovers."""
+        if not self.has_regression_detector:
+            self.skipTest("RegressionDetector not available")
+
+        config = self.RegressionConfig(min_games_for_detection=10, cooldown_seconds=0)
+        detector = self.RegressionDetector(config=config)
+
+        detector.set_baseline("test_model4", elo=1500)
+
+        # Cause regression
+        detector.check_regression(model_id="test_model4", current_elo=1475, games_played=20)
+        status = detector.get_status("test_model4")
+        self.assertTrue(status["is_regressing"])
+
+        # Model recovers
+        detector.check_regression(model_id="test_model4", current_elo=1510, games_played=40)
+        status = detector.get_status("test_model4")
+        self.assertFalse(status["is_regressing"])
+
+
 class TestCircuitBreakerExponentialBackoff(unittest.TestCase):
     """Tests for circuit breaker exponential backoff with jitter (2025-12)."""
 
