@@ -151,3 +151,16 @@ scripts/cluster_status.sh
 scripts/distributed_model_evaluator.py
 scripts/external_drive_sync_daemon.py
 scripts/sync_models_cluster.sh
+
+# Training data output directories (generated locally)
+curriculum_runs/
+data/gumbel_selfplay/
+data/gpu_training_*.jsonl
+
+# Local monitoring/deployment scripts (machine-specific)
+scripts/monitor_10h.sh
+scripts/monitor_and_test.sh
+scripts/deploy_gpu_acceleration.sh
+scripts/generate_gpu_training_data.py
+scripts/run_cluster_ab_test.sh
+scripts/run_cluster_multitime_ab_test.sh
