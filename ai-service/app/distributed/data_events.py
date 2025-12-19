@@ -166,14 +166,21 @@ class EventBus:
 
     Supports both sync and async callbacks. Events are delivered
     in order of subscription.
+
+    December 2025: Added subscription registry with warnings for unsubscribed events.
     """
 
-    def __init__(self, max_history: int = 1000):
+    def __init__(self, max_history: int = 1000, warn_unsubscribed: bool = True):
         self._subscribers: Dict[DataEventType, List[EventCallback]] = {}
         self._global_subscribers: List[EventCallback] = []
         self._event_history: List[DataEvent] = []
         self._max_history = max_history
         self._lock = asyncio.Lock()
+
+        # Subscription registry (December 2025)
+        self._warn_unsubscribed = warn_unsubscribed
+        self._published_event_types: Dict[DataEventType, int] = {}  # type -> count
+        self._warned_event_types: set = set()  # Types we've already warned about
 
     def subscribe(
         self,
@@ -230,6 +237,11 @@ class EventBus:
             if len(self._event_history) > self._max_history:
                 self._event_history = self._event_history[-self._max_history:]
 
+            # Track published event types (December 2025)
+            self._published_event_types[event.event_type] = (
+                self._published_event_types.get(event.event_type, 0) + 1
+            )
+
         # Bridge to cross-process queue for multi-daemon coordination
         if bridge_cross_process:
             _bridge_to_cross_process(event)
@@ -238,6 +250,18 @@ class EventBus:
         callbacks = list(self._global_subscribers)
         if event.event_type in self._subscribers:
             callbacks.extend(self._subscribers[event.event_type])
+
+        # Warn if no subscribers (December 2025)
+        if (
+            self._warn_unsubscribed
+            and not callbacks
+            and event.event_type not in self._warned_event_types
+        ):
+            self._warned_event_types.add(event.event_type)
+            print(
+                f"[EventBus] WARNING: Event {event.event_type.value} published "
+                f"but has no subscribers. Consider adding a handler."
+            )
 
         # Invoke each callback
         for callback in callbacks:
@@ -291,6 +315,54 @@ class EventBus:
     def clear_history(self) -> None:
         """Clear event history."""
         self._event_history = []
+
+    # =========================================================================
+    # Subscription Registry (December 2025)
+    # =========================================================================
+
+    def get_subscribed_event_types(self) -> List[DataEventType]:
+        """Get list of event types that have at least one subscriber."""
+        return list(self._subscribers.keys())
+
+    def get_unsubscribed_published_types(self) -> List[DataEventType]:
+        """Get event types that have been published but have no subscribers.
+
+        This is useful for debugging to find events that are being published
+        but nobody is listening to.
+        """
+        unsubscribed = []
+        for event_type in self._published_event_types:
+            has_specific = event_type in self._subscribers and self._subscribers[event_type]
+            has_global = bool(self._global_subscribers)
+            if not has_specific and not has_global:
+                unsubscribed.append(event_type)
+        return unsubscribed
+
+    def get_subscriber_count(self, event_type: DataEventType) -> int:
+        """Get the number of subscribers for a specific event type."""
+        count = len(self._global_subscribers)
+        if event_type in self._subscribers:
+            count += len(self._subscribers[event_type])
+        return count
+
+    def get_subscription_stats(self) -> Dict[str, Any]:
+        """Get statistics about subscriptions and published events.
+
+        Returns:
+            Dict with subscription statistics
+        """
+        return {
+            "subscribed_types": [t.value for t in self.get_subscribed_event_types()],
+            "published_types": {t.value: c for t, c in self._published_event_types.items()},
+            "unsubscribed_published": [t.value for t in self.get_unsubscribed_published_types()],
+            "global_subscribers": len(self._global_subscribers),
+            "warned_types": [t.value for t in self._warned_event_types],
+            "total_events_published": sum(self._published_event_types.values()),
+        }
+
+    def has_subscribers(self, event_type: DataEventType) -> bool:
+        """Check if an event type has any subscribers (specific or global)."""
+        return self.get_subscriber_count(event_type) > 0
 
 
 def get_event_bus() -> EventBus:

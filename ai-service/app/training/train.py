@@ -152,6 +152,18 @@ except ImportError:
     HotDataBuffer = None
     HAS_HOT_DATA_BUFFER = False
 
+# Quality bridge for quality-aware data selection (2025-12)
+try:
+    from app.training.quality_bridge import (
+        get_quality_bridge,
+        QualityBridge,
+    )
+    HAS_QUALITY_BRIDGE = True
+except ImportError:
+    HAS_QUALITY_BRIDGE = False
+    get_quality_bridge = None
+    QualityBridge = None
+
 # Integrated enhancements (2024-12)
 try:
     from app.training.integrated_enhancements import (
@@ -818,6 +830,22 @@ def train_model(
         )
     elif use_hot_data_buffer and not HAS_HOT_DATA_BUFFER:
         logger.warning("Hot data buffer requested but not available (import failed)")
+
+    # Configure quality bridge for quality-aware data selection (2025-12)
+    # This integrates quality scores from the sync system with training data loading
+    if HAS_QUALITY_BRIDGE:
+        try:
+            quality_bridge = get_quality_bridge()
+            num_refreshed = quality_bridge.refresh(force=True)
+            logger.info(f"Quality bridge initialized with {num_refreshed} game quality scores")
+
+            # Configure hot buffer with quality lookups if available
+            if hot_buffer is not None:
+                configured = quality_bridge.configure_hot_data_buffer(hot_buffer)
+                if configured > 0:
+                    logger.info(f"Hot buffer configured with {configured} quality scores")
+        except Exception as e:
+            logger.warning(f"Failed to initialize quality bridge: {e}")
 
     # Initialize integrated enhancements if requested
     enhancements_manager = None

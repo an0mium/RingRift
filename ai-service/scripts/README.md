@@ -456,6 +456,41 @@ health = node.check_health()
 print(f"GPUs: {len(health.gpus)}, Status: {health.status}")
 ```
 
+### Alerts (`scripts.lib.alerts`)
+
+```python
+from scripts.lib.alerts import (
+    Alert,              # Base alert dataclass
+    AlertSeverity,      # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    AlertType,          # HIGH_DISK_USAGE, TRAINING_FAILED, etc.
+    AlertThresholds,    # Configurable thresholds
+    AlertManager,       # Alert collection and deduplication
+    create_alert,       # Convenience function to create alerts
+    check_disk_alert,   # Check disk usage thresholds
+    check_memory_alert, # Check memory usage thresholds
+)
+
+# Create alerts
+alert = create_alert(
+    AlertSeverity.WARNING,
+    AlertType.HIGH_DISK_USAGE,
+    "Disk usage at 75%",
+    details={"disk_percent": 75.0},
+    source="my_monitor",
+)
+
+# Use AlertManager for tracking and notifications
+manager = AlertManager(name="cluster_monitor")
+manager.add_alert(alert)
+manager.flush()  # Process through handlers
+
+# Use threshold checkers
+thresholds = AlertThresholds()  # Uses default thresholds
+disk_alert = check_disk_alert(75.0, thresholds)
+if disk_alert:
+    manager.add_alert(disk_alert)
+```
+
 ### Data Quality (`scripts.lib.data_quality`)
 
 ```python

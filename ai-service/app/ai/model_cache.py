@@ -33,6 +33,8 @@ from typing import Any, Dict, Tuple
 import torch
 import torch.nn as nn
 
+from app.utils.time_constants import ONE_HOUR
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -45,7 +47,7 @@ logger = logging.getLogger(__name__)
 _MODEL_CACHE: Dict[Tuple[str, str, str, Any, str], Tuple[nn.Module, float, float]] = {}
 
 # Cache configuration
-MODEL_CACHE_TTL_SECONDS = 3600  # 1 hour TTL for cached models
+MODEL_CACHE_TTL_SECONDS = ONE_HOUR  # 1 hour TTL for cached models
 MODEL_CACHE_MAX_SIZE = 10  # Maximum number of models to keep in cache
 
 

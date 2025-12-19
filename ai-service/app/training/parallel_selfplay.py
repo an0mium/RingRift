@@ -36,8 +36,12 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class SelfplayConfig:
-    """Configuration for selfplay game generation."""
+class ParallelSelfplayConfig:
+    """Configuration for parallel selfplay game generation workers.
+
+    This is the internal config for the parallel worker pool.
+    For unified per-run configuration, see :class:`app.training.selfplay_config.SelfplayConfig`.
+    """
     board_type: BoardType = BoardType.SQUARE8
     num_players: int = 2
     max_moves: int = 10000
@@ -58,6 +62,12 @@ class SelfplayConfig:
     use_temperature_decay: bool = False  # Enable temperature decay per game
     move_temp_threshold: int = 30  # Use higher temp for first N moves
     opening_temperature: float = 1.5  # Temperature for opening moves
+
+
+# Backward compatibility alias (December 2025)
+# This config is for parallel worker pool internals.
+# For unified per-run configuration, use app.training.selfplay_config.SelfplayConfig
+SelfplayConfig = ParallelSelfplayConfig
 
 
 @dataclass

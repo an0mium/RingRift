@@ -45,16 +45,32 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
 logger = logging.getLogger(__name__)
 
-# Utilization targets for job scheduling - 80% max (enforced 2025-12-16)
-TARGET_GPU_UTILIZATION_MIN = 60  # Start more jobs if GPU below this %
-TARGET_GPU_UTILIZATION_MAX = 80  # Don't start more jobs if GPU above this % (fixed from 90%)
-TARGET_CPU_UTILIZATION_MIN = 60  # Start more jobs if CPU below this %
-TARGET_CPU_UTILIZATION_MAX = 80  # Don't start more jobs if CPU above this % (fixed from 85%)
+# Resource thresholds - import from centralized thresholds (December 2025)
+try:
+    from app.config.thresholds import (
+        GPU_WARNING_PERCENT,
+        GPU_CRITICAL_PERCENT,
+        CPU_WARNING_PERCENT,
+        CPU_CRITICAL_PERCENT,
+        ELO_UNDERSERVED_THRESHOLD as ELO_UNDERSERVED_THRESHOLD_CONFIG,
+    )
+    TARGET_GPU_UTILIZATION_MIN = GPU_WARNING_PERCENT
+    TARGET_GPU_UTILIZATION_MAX = GPU_CRITICAL_PERCENT
+    TARGET_CPU_UTILIZATION_MIN = CPU_WARNING_PERCENT
+    TARGET_CPU_UTILIZATION_MAX = CPU_CRITICAL_PERCENT
+    ELO_UNDERSERVED_THRESHOLD = ELO_UNDERSERVED_THRESHOLD_CONFIG
+except ImportError:
+    # Fallback for testing/standalone use
+    TARGET_GPU_UTILIZATION_MIN = 60
+    TARGET_GPU_UTILIZATION_MAX = 80
+    TARGET_CPU_UTILIZATION_MIN = 60
+    TARGET_CPU_UTILIZATION_MAX = 80
+    ELO_UNDERSERVED_THRESHOLD = 100
+
 MIN_MEMORY_GB_FOR_TASKS = 64  # Skip nodes with less than this to avoid OOM
 
 # Elo curriculum configuration
 ELO_CURRICULUM_ENABLED = True
-ELO_UNDERSERVED_THRESHOLD = 100  # Configs with fewer games are "underserved"
 
 # Default Elo database path
 DEFAULT_ELO_DB_PATH = Path(__file__).parent.parent.parent / "data" / "unified_elo.db"

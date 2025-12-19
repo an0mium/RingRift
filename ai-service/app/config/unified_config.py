@@ -333,8 +333,12 @@ class DistributedConfig:
 
 
 @dataclass
-class SelfplayConfig:
-    """Selfplay settings (shared across all selfplay scripts)."""
+class SelfplayDefaults:
+    """Default selfplay settings shared across all selfplay scripts.
+
+    Note: This is for APPLICATION-LEVEL defaults loaded from config files.
+    For per-run configuration, use :class:`app.training.selfplay_config.SelfplayConfig`.
+    """
     # Game generation
     default_games_per_config: int = 50
     min_games_for_training: int = 500
@@ -349,6 +353,12 @@ class SelfplayConfig:
     mcts_simulations: int = 200
     temperature: float = 0.5
     noise_fraction: float = 0.25
+
+
+# Backward compatibility alias (deprecated December 2025)
+# Use SelfplayDefaults for app-level defaults or
+# app.training.selfplay_config.SelfplayConfig for per-run config
+SelfplayConfig = SelfplayDefaults
 
 
 @dataclass
@@ -746,7 +756,7 @@ class UnifiedConfig:
     # New unified sections (previously scattered as hardcoded constants)
     cluster: ClusterConfig = field(default_factory=ClusterConfig)
     ssh: SSHConfig = field(default_factory=SSHConfig)
-    selfplay: SelfplayConfig = field(default_factory=SelfplayConfig)
+    selfplay: SelfplayDefaults = field(default_factory=SelfplayDefaults)
     tournament: TournamentConfig = field(default_factory=TournamentConfig)
     distributed: DistributedConfig = field(default_factory=DistributedConfig)
 
@@ -962,7 +972,7 @@ class UnifiedConfig:
 
         if "selfplay" in data:
             sp_data = data["selfplay"]
-            config.selfplay = SelfplayConfig(
+            config.selfplay = SelfplayDefaults(
                 default_games_per_config=sp_data.get("default_games_per_config", 50),
                 min_games_for_training=sp_data.get("min_games_for_training", 500),
                 max_games_per_session=sp_data.get("max_games_per_session", 1000),

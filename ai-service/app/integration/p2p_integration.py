@@ -1279,6 +1279,152 @@ def integrate_pipeline_with_p2p(
     # This would set up the appropriate callbacks and handlers
 
 
+def integrate_feedback_with_selfplay(
+    feedback_router,
+    selfplay_coordinator: SelfplayCoordinator
+) -> None:
+    """
+    Integrate feedback signal router with selfplay coordinator.
+
+    Connects data quality signals to selfplay rate adjustments:
+    - QUARANTINE_DATA → reduce selfplay rate (data quality issue)
+    - DECREASE_DATA_COLLECTION → reduce rate
+    - INCREASE_DATA_COLLECTION → increase rate
+    - UPDATE_CURRICULUM_WEIGHTS → update config priorities
+
+    Args:
+        feedback_router: FeedbackSignalRouter instance
+        selfplay_coordinator: SelfplayCoordinator instance
+    """
+    # Import FeedbackAction here to avoid circular imports
+    try:
+        from app.integration.pipeline_feedback import FeedbackAction, FeedbackSignal
+    except ImportError:
+        logger.warning("[Feedback Integration] pipeline_feedback not available")
+        return
+
+    async def handle_quarantine_data(signal: FeedbackSignal) -> bool:
+        """Handle data quarantine signal - reduce selfplay rate."""
+        magnitude = signal.magnitude or 0.1
+        # High parity failure = reduce rate proportionally
+        # 10% failure rate → reduce to 80% rate, 20% → 60%, etc.
+        new_multiplier = max(0.5, 1.0 - (magnitude * 2))
+        selfplay_coordinator.adjust_target_rate(
+            new_multiplier,
+            f"Data quality issue: {signal.reason}"
+        )
+        logger.info(f"[Feedback→Selfplay] Quarantine signal: rate reduced to {new_multiplier:.0%}")
+        return True
+
+    async def handle_decrease_collection(signal: FeedbackSignal) -> bool:
+        """Handle decrease data collection signal."""
+        magnitude = signal.magnitude or 0.2
+        current_multiplier = selfplay_coordinator._rate_multiplier
+        new_multiplier = max(0.5, current_multiplier - magnitude)
+        selfplay_coordinator.adjust_target_rate(
+            new_multiplier,
+            f"Decrease requested: {signal.reason}"
+        )
+        logger.info(f"[Feedback→Selfplay] Decrease signal: rate {current_multiplier:.0%} → {new_multiplier:.0%}")
+        return True
+
+    async def handle_increase_collection(signal: FeedbackSignal) -> bool:
+        """Handle increase data collection signal."""
+        magnitude = signal.magnitude or 0.2
+        current_multiplier = selfplay_coordinator._rate_multiplier
+        new_multiplier = min(2.0, current_multiplier + magnitude)
+        selfplay_coordinator.adjust_target_rate(
+            new_multiplier,
+            f"Increase requested: {signal.reason}"
+        )
+        logger.info(f"[Feedback→Selfplay] Increase signal: rate {current_multiplier:.0%} → {new_multiplier:.0%}")
+        return True
+
+    async def handle_curriculum_weights(signal: FeedbackSignal) -> bool:
+        """Handle curriculum weight update signal."""
+        if signal.metadata and 'weights' in signal.metadata:
+            weights = signal.metadata['weights']
+            selfplay_coordinator.update_curriculum_weights(weights)
+            logger.info(f"[Feedback→Selfplay] Curriculum weights updated: {len(weights)} configs")
+            return True
+        return False
+
+    async def handle_training_data_quality(signal: FeedbackSignal) -> bool:
+        """Handle training data quality warnings."""
+        quality_score = signal.magnitude or 0.5
+        # If quality is low, adjust selfplay parameters
+        if quality_score < 0.7:
+            # Low quality → slightly reduce rate to focus on quality
+            new_multiplier = max(0.6, quality_score + 0.2)
+            selfplay_coordinator.adjust_target_rate(
+                new_multiplier,
+                f"Low data quality ({quality_score:.0%})"
+            )
+            logger.info(f"[Feedback→Selfplay] Quality warning: rate adjusted for quality {quality_score:.0%}")
+        return True
+
+    # Register handlers
+    feedback_router.register_handler(
+        FeedbackAction.QUARANTINE_DATA,
+        handle_quarantine_data,
+        name="selfplay_quarantine_handler"
+    )
+
+    feedback_router.register_handler(
+        FeedbackAction.DECREASE_DATA_COLLECTION,
+        handle_decrease_collection,
+        name="selfplay_decrease_handler"
+    )
+
+    feedback_router.register_handler(
+        FeedbackAction.INCREASE_DATA_COLLECTION,
+        handle_increase_collection,
+        name="selfplay_increase_handler"
+    )
+
+    # Also handle curriculum weight updates if available
+    if hasattr(FeedbackAction, 'UPDATE_CURRICULUM_WEIGHTS'):
+        feedback_router.register_handler(
+            FeedbackAction.UPDATE_CURRICULUM_WEIGHTS,
+            handle_curriculum_weights,
+            name="selfplay_curriculum_handler"
+        )
+
+    # Handle training quality signals
+    if hasattr(FeedbackAction, 'TRAINING_QUALITY_WARNING'):
+        feedback_router.register_handler(
+            FeedbackAction.TRAINING_QUALITY_WARNING,
+            handle_training_data_quality,
+            name="selfplay_quality_handler"
+        )
+
+    logger.info("[Feedback Integration] Feedback ↔ Selfplay integration established")
+
+
+def get_integrated_selfplay_coordinator(
+    p2p_manager: P2PIntegrationManager,
+    feedback_router=None
+) -> SelfplayCoordinator:
+    """
+    Get a SelfplayCoordinator that's integrated with feedback signals.
+
+    This is a convenience function for setting up the full integration.
+
+    Args:
+        p2p_manager: P2PIntegrationManager instance
+        feedback_router: Optional FeedbackSignalRouter for quality signals
+
+    Returns:
+        SelfplayCoordinator with feedback integration
+    """
+    coordinator = p2p_manager.selfplay
+
+    if feedback_router:
+        integrate_feedback_with_selfplay(feedback_router, coordinator)
+
+    return coordinator
+
+
 # ============================================
 # Main
 # ============================================

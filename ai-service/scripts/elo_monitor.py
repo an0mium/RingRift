@@ -20,9 +20,8 @@ import argparse
 import json
 import re
 import sys
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone, timedelta
-from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -37,25 +36,18 @@ from scripts.lib.logging_config import (
     get_metrics_logger,
 )
 from scripts.lib.config import BoardConfig
+from scripts.lib.alerts import (
+    Alert,
+    AlertSeverity,
+    AlertType,
+    AlertManager,
+    create_alert,
+)
 
 logger = get_logger(__name__)
 
 
-class AlertSeverity(Enum):
-    """Alert severity levels."""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-
-
-class AlertType(Enum):
-    """Types of Elo alerts."""
-    REGRESSION = "regression"
-    STAGNATION = "stagnation"
-    BELOW_PEAK = "below_peak"
-    NO_ACTIVITY = "no_activity"
-
-
+# Elo-specific dataclasses (keep separate from generic alerts)
 @dataclass
 class EloRating:
     """Current Elo rating for a configuration."""
@@ -84,13 +76,13 @@ class TrainingActivity:
 
 @dataclass
 class EloAlert:
-    """An alert about Elo status."""
+    """An Elo-specific alert (wrapper around shared Alert)."""
     alert_type: AlertType
     severity: AlertSeverity
     config_key: str
     message: str
     elo: float
-    details: Dict[str, Any]
+    details: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -101,6 +93,17 @@ class EloAlert:
             "elo": self.elo,
             **self.details,
         }
+
+    def to_alert(self) -> Alert:
+        """Convert to generic Alert."""
+        details = {**self.details, "config_key": self.config_key, "elo": self.elo}
+        return create_alert(
+            self.severity,
+            self.alert_type,
+            self.message,
+            details=details,
+            source="elo_monitor",
+        )
 
 
 @dataclass
@@ -302,8 +305,8 @@ class EloMonitor:
             elo_drop = prev_elo - rating.elo
             if elo_drop > self.regression_threshold:
                 alerts.append(EloAlert(
-                    alert_type=AlertType.REGRESSION,
-                    severity=AlertSeverity.HIGH,
+                    alert_type=AlertType.ELO_REGRESSION,
+                    severity=AlertSeverity.ERROR,
                     config_key=config_key,
                     message=f"Elo dropped {prev_elo:.1f} -> {rating.elo:.1f} ({elo_drop:.1f} points)",
                     elo=rating.elo,
@@ -316,8 +319,8 @@ class EloMonitor:
                 hours_since = self._hours_since_update(rating.last_update, now)
                 if hours_since is not None and hours_since > self.alert_hours:
                     alerts.append(EloAlert(
-                        alert_type=AlertType.STAGNATION,
-                        severity=AlertSeverity.MEDIUM,
+                        alert_type=AlertType.ELO_STAGNATION,
+                        severity=AlertSeverity.WARNING,
                         config_key=config_key,
                         message=f"No updates for {hours_since:.1f} hours (threshold: {self.alert_hours}h)",
                         elo=rating.elo,
@@ -329,8 +332,8 @@ class EloMonitor:
             below_peak = peak_elo - rating.elo
             if below_peak > 50:
                 alerts.append(EloAlert(
-                    alert_type=AlertType.BELOW_PEAK,
-                    severity=AlertSeverity.LOW,
+                    alert_type=AlertType.MODEL_DEGRADATION,
+                    severity=AlertSeverity.INFO,
                     config_key=config_key,
                     message=f"Current {rating.elo:.1f} is {below_peak:.1f} below peak {peak_elo:.1f}",
                     elo=rating.elo,

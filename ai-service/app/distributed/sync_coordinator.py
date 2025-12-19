@@ -1,4 +1,13 @@
-"""Sync Coordinator - Unified data synchronization orchestrator.
+"""Sync Coordinator - Unified data synchronization EXECUTION layer.
+
+Architecture Note:
+    This module is the EXECUTION layer that performs actual sync operations.
+    For SCHEDULING (deciding when/what to sync), use:
+    - :class:`SyncCoordinator` from :mod:`app.coordination.sync_coordinator`
+
+    Both are exported from :mod:`app.coordination`:
+    - `SyncCoordinator` - scheduling layer
+    - `DistributedSyncCoordinator` - this execution layer
 
 This module provides a single entry point for all data synchronization operations
 across the RingRift distributed training cluster. It integrates:

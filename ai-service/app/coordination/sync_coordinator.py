@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """Smart Sync Coordinator for unified cluster-wide data management.
 
-.. deprecated:: 2025-12-19
-    For sync operations, prefer :class:`UnifiedDataSyncService` from
-    :mod:`app.distributed.unified_data_sync`. For higher-level coordination,
-    use :class:`SyncCoordinator` from :mod:`app.distributed.sync_coordinator`.
+Architecture Note:
+    This module is the SCHEDULING layer for cluster-wide sync coordination.
+    It decides WHEN and WHAT to sync based on data freshness and priority.
 
-    This coordination layer module provides cluster-wide sync coordination but
-    the distributed layer implementation is more actively maintained.
+    For EXECUTION (actually performing syncs), use:
+    - :class:`SyncCoordinator` from :mod:`app.distributed.sync_coordinator`
+    - Re-exported as `DistributedSyncCoordinator` from :mod:`app.coordination`
+
+    The two layers work together:
+    1. This module tracks data freshness and recommends sync operations
+    2. The distributed layer executes syncs via aria2/SSH/P2P transports
 
 This module provides centralized coordination for data synchronization across
 all distributed hosts, preventing data silos and ensuring efficient transfers.
