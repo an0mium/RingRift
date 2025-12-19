@@ -185,7 +185,7 @@ export { validatePlacementOnBoard } from './validators/PlacementValidator';
 // Validation (GameState-Level)
 export { validatePlacement, validateSkipPlacement } from './validators/PlacementValidator';
 
-// Application (stubs - to be implemented)
+// Application
 export { applyPlacementMove, evaluateSkipPlacementEligibility } from './placementHelpers';
 
 // =============================================================================

@@ -562,10 +562,45 @@ export function parseEnv(
 }
 
 /**
+ * Mask sensitive environment variable values for logging.
+ *
+ * @param key - Environment variable name
+ * @param value - Environment variable value
+ * @returns Masked value for display
+ */
+function maskSensitiveValue(key: string, value: string | undefined): string {
+  if (!value) return '[not set]';
+
+  const sensitivePatterns = [
+    'SECRET',
+    'PASSWORD',
+    'KEY',
+    'TOKEN',
+    'CREDENTIAL',
+    'AUTH',
+    'SMTP_PASS',
+  ];
+
+  const isSensitive = sensitivePatterns.some((pattern) => key.toUpperCase().includes(pattern));
+
+  if (isSensitive) {
+    if (value.length <= 4) return '****';
+    return `${value.substring(0, 2)}***${value.substring(value.length - 2)}`;
+  }
+
+  // For URLs, mask credentials if present
+  if (key.includes('URL') && value.includes('@')) {
+    return value.replace(/:\/\/[^:]+:[^@]+@/, '://****:****@');
+  }
+
+  return value;
+}
+
+/**
  * Load and validate environment variables, exiting on failure.
  *
  * This function should be called once at startup. If validation fails,
- * it prints clear error messages and exits the process.
+ * it prints clear error messages with context and exits the process.
  *
  * @param env - Environment object to parse (defaults to process.env)
  * @returns Validated environment object
@@ -576,10 +611,35 @@ export function loadEnvOrExit(
   const result = parseEnv(env);
 
   if (!result.success) {
-    console.error('❌ Invalid environment configuration:');
+    console.error('');
+    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.error('❌ ENVIRONMENT CONFIGURATION ERROR');
+    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.error('');
+    console.error('The following environment variables failed validation:');
+    console.error('');
+
     for (const error of result.errors ?? []) {
-      console.error(`  - ${error.path || 'root'}: ${error.message}`);
+      const envKey = error.path || 'SCHEMA';
+      const currentValue = env[envKey];
+      const maskedValue = maskSensitiveValue(envKey, currentValue);
+
+      console.error(`  ${envKey}:`);
+      console.error(`    Error: ${error.message}`);
+      console.error(`    Current value: ${maskedValue}`);
+      console.error('');
     }
+
+    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.error('');
+    console.error('To fix this:');
+    console.error('  1. Check your .env file or environment variables');
+    console.error('  2. Ensure required variables are set for your NODE_ENV');
+    console.error('  3. See .env.example for expected format and valid values');
+    console.error('');
+    console.error(`Current NODE_ENV: ${env.NODE_ENV ?? '[not set]'}`);
+    console.error('');
+
     process.exit(1);
   }
 

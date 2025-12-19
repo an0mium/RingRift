@@ -115,10 +115,6 @@ function deriveTerritoryEliminationContext(
  *   - **Exception:** Recovery actions use buried ring extraction instead
  *     (RR-CANON-R114; expressed as `eliminationContext: 'recovery'` on
  *     `eliminate_rings_from_stack` moves).
- *
- * Implementations will be introduced in later P0 tasks when backend and
- * sandbox engines are refactored to call into these helpers. For P0 Task #21,
- * the functions are specified and documented but left as design-time stubs.
  */
 
 /**

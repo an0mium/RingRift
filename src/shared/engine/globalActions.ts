@@ -413,10 +413,23 @@ export function enumerateForcedEliminationOptions(
  * - Returns the updated GameState along with basic accounting metadata so
  *   callers can assert INV-ELIMINATION-MONOTONIC / INV-S-MONOTONIC.
  *
+ * IMPORTANT - Auto-Selection Heuristic (December 2025 clarification):
+ * When targetPosition is not provided, this function applies a deterministic
+ * heuristic that differs from rules semantics. Per RR-CANON-R100, the player
+ * must explicitly choose which stack to eliminate. The auto-selection heuristic
+ * is intended ONLY for:
+ * 1. Diagnostic/soak harnesses where user interaction is not available
+ * 2. Test fixtures that need deterministic forced elimination
+ * 3. Legacy code paths being phased out
+ *
+ * Interactive user-facing hosts MUST provide a targetPosition from an explicit
+ * player choice (via elimination_target PendingDecision from the orchestrator).
+ *
  * @param state - Current game state
  * @param player - Player who must eliminate
- * @param targetPosition - Optional: specific stack position chosen by player.
- *                         If not provided, auto-selects (smallest cap heuristic).
+ * @param targetPosition - Stack position chosen by player. REQUIRED for
+ *                         interactive paths. If not provided, uses legacy
+ *                         auto-selection heuristic (smallest cap first).
  */
 export interface ForcedEliminationOutcome {
   /** Updated state after applying forced elimination. */
@@ -461,6 +474,8 @@ export function applyForcedEliminationForPlayer(
   }
 
   // Auto-select if no target provided or target was invalid
+  // WARNING: This heuristic is for legacy/diagnostic use only. Interactive paths
+  // should always provide an explicit targetPosition from player choice.
   if (!chosenStack) {
     let smallestCap = Number.POSITIVE_INFINITY;
 

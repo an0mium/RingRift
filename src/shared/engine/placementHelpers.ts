@@ -48,10 +48,6 @@ import { isValidPosition } from './validators/utils';
  * - define a single source of truth for:
  *   - how `place_ring` moves update `ringsInHand` and board stacks, and
  *   - when `skip_placement` is a legal decision for the active player.
- *
- * Implementations will be introduced in later P0 tasks once hosts are
- * refactored to call into this module. For P0 Task #21, the functions are
- * specified and documented but left as design-time stubs.
  */
 
 /**
