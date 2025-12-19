@@ -15,6 +15,51 @@ Usage:
 
 from typing import Optional, Dict, Any
 
+__all__ = [
+    # Base error
+    "RingRiftError",
+    # Game rules errors
+    "RulesViolationError",
+    "InvalidStateError",
+    "InvalidMoveError",
+    # AI errors
+    "AIError",
+    "AIFallbackError",
+    "AITimeoutError",
+    "ModelLoadError",
+    "CheckpointIncompatibleError",
+    # Training errors
+    "TrainingError",
+    "DatasetError",
+    "RegressionDetectedError",
+    "DataQualityError",
+    "LifecycleError",
+    "CheckpointError",
+    # Infrastructure errors
+    "InfrastructureError",
+    "StorageError",
+    "ClusterError",
+    "NoHealthyWorkersError",
+    "SyncError",
+    # Validation errors
+    "ValidationError",
+    "ConfigurationError",
+    "ParityError",
+    # Retry/recovery errors
+    "RetryableError",
+    "NonRetryableError",
+    "EmergencyHaltError",
+    "SSHError",
+    # Resource errors
+    "ResourceError",
+    "OutOfMemoryError",
+    "DiskSpaceError",
+    # Database errors
+    "DatabaseError",
+    # Aliases
+    "FatalError",
+]
+
 
 class RingRiftError(Exception):
     """Base exception for all RingRift errors.
@@ -484,3 +529,4 @@ class CheckpointError(TrainingError):
 # Aliases for training-specific error patterns
 RecoverableError = RetryableError
 NonRecoverableError = NonRetryableError
+FatalError = NonRetryableError  # More intuitive name for critical failures

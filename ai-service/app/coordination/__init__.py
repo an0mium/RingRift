@@ -474,6 +474,20 @@ from app.coordination.unified_event_coordinator import (
     get_coordinator_stats as get_event_coordinator_stats,
 )
 
+# Unified Event Router (December 2025 - single API for all event systems)
+# Note: EventRouter provides the publishing API, EventCoordinator provides bridging daemon
+from app.coordination.event_router import (
+    UnifiedEventRouter,
+    RouterEvent,
+    EventSource,
+    get_router as get_event_router,
+    reset_router as reset_event_router,
+    publish as publish_event,
+    publish_sync as publish_event_sync,
+    subscribe as subscribe_event,
+    unsubscribe as unsubscribe_event,
+)
+
 # Distributed Tracing (December 2025)
 from app.coordination.tracing import (
     TraceContext,
