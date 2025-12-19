@@ -1391,7 +1391,11 @@ class UnifiedDataSyncService:
                     logger.debug(f"Error releasing DATA_SYNC role during shutdown: {e}")
 
             if self._p2p_fallback and hasattr(self._p2p_fallback, 'close'):
-                await self._p2p_fallback.close()
+                try:
+                    await self._p2p_fallback.close()
+                    logger.info("P2P fallback sync closed")
+                except Exception as e:
+                    logger.warning(f"Error closing P2P fallback sync: {e}")
 
             # Stop gossip daemon
             if self._gossip_daemon:
