@@ -123,11 +123,19 @@ try:
         FRESHNESS_CHECK_INTERVAL,
     )
 except ImportError:
-    # Fallback defaults if thresholds module unavailable
-    STALE_DATA_THRESHOLD_SECONDS = 1800  # 30 minutes
-    CRITICAL_STALE_THRESHOLD_SECONDS = 3600  # 1 hour
-    MAX_SYNC_QUEUE_SIZE = 20
-    FRESHNESS_CHECK_INTERVAL = 60
+    # Try coordination_defaults first
+    try:
+        from app.config.coordination_defaults import SyncCoordinatorDefaults
+        STALE_DATA_THRESHOLD_SECONDS = 1800  # 30 minutes
+        CRITICAL_STALE_THRESHOLD_SECONDS = SyncCoordinatorDefaults.CRITICAL_STALE_THRESHOLD
+        MAX_SYNC_QUEUE_SIZE = 20
+        FRESHNESS_CHECK_INTERVAL = SyncCoordinatorDefaults.FRESHNESS_CHECK_INTERVAL
+    except ImportError:
+        # Final fallback defaults
+        STALE_DATA_THRESHOLD_SECONDS = 1800  # 30 minutes
+        CRITICAL_STALE_THRESHOLD_SECONDS = 3600  # 1 hour
+        MAX_SYNC_QUEUE_SIZE = 20
+        FRESHNESS_CHECK_INTERVAL = 60
 SYNC_PRIORITY_WEIGHTS = {
     "games_behind": 1.0,      # Weight per game behind
     "time_since_sync": 0.01,  # Weight per second since last sync

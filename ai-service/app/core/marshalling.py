@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import logging
 from abc import ABC, abstractmethod
 from base64 import b64decode, b64encode
 from datetime import datetime, date, timedelta
@@ -48,8 +47,6 @@ from typing import (
     get_type_hints,
 )
 from uuid import UUID
-
-logger = logging.getLogger(__name__)
 
 __all__ = [
     "Serializable",
