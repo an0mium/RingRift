@@ -43,6 +43,9 @@ Architecture Overview (December 2025)
    - significance.py: Statistical utilities (wilson_score_interval)
    - value_calibration.py: CalibrationTracker for value head
    - seed_utils.py: Reproducibility helpers
+   - checkpointing.py: save_checkpoint, load_checkpoint, AsyncCheckpointer
+   - schedulers.py: LR scheduler creation (warmup, cosine, step decay)
+   - selfplay_config.py: Unified selfplay configuration
 
 Quick Start
 -----------
@@ -343,4 +346,72 @@ if HAS_VALUE_CALIBRATION:
         "CalibrationReport",
         "ValueCalibrator",
         "create_reliability_diagram",
+    ])
+
+# Import checkpointing utilities (December 2025)
+try:
+    from app.training.checkpointing import (
+        save_checkpoint,
+        load_checkpoint,
+        AsyncCheckpointer,
+        GracefulShutdownHandler,
+    )
+    HAS_CHECKPOINTING = True
+except ImportError:
+    HAS_CHECKPOINTING = False
+
+__all__.append("HAS_CHECKPOINTING")
+
+if HAS_CHECKPOINTING:
+    __all__.extend([
+        "save_checkpoint",
+        "load_checkpoint",
+        "AsyncCheckpointer",
+        "GracefulShutdownHandler",
+    ])
+
+# Import LR scheduler utilities (December 2025)
+try:
+    from app.training.schedulers import (
+        get_warmup_scheduler,
+        create_lr_scheduler,
+    )
+    HAS_SCHEDULERS = True
+except ImportError:
+    HAS_SCHEDULERS = False
+
+__all__.append("HAS_SCHEDULERS")
+
+if HAS_SCHEDULERS:
+    __all__.extend([
+        "get_warmup_scheduler",
+        "create_lr_scheduler",
+    ])
+
+# Import selfplay configuration (December 2025)
+try:
+    from app.training.selfplay_config import (
+        SelfplayConfig,
+        EngineMode,
+        OutputFormat,
+        parse_selfplay_args,
+        create_argument_parser,
+        get_default_config,
+        get_production_config,
+    )
+    HAS_SELFPLAY_CONFIG = True
+except ImportError:
+    HAS_SELFPLAY_CONFIG = False
+
+__all__.append("HAS_SELFPLAY_CONFIG")
+
+if HAS_SELFPLAY_CONFIG:
+    __all__.extend([
+        "SelfplayConfig",
+        "EngineMode",
+        "OutputFormat",
+        "parse_selfplay_args",
+        "create_argument_parser",
+        "get_default_config",
+        "get_production_config",
     ])
