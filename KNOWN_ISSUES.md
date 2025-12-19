@@ -489,9 +489,9 @@ Earlier harnesses like `tests/unit/ClientSandboxEngine.aiStall.seed1.test.ts` an
 
 **Component(s):** k6 scenarios (`tests/load/scenarios/*.js`), HTTP API (`/api/games`), WebSocket server (`/socket.io/`)  
 **Severity:** High for production-readiness and SLO confidence  
-**Status:** Infra availability issues resolved by PASS24.1; Socket.IO protocol alignment and ID lifecycle handling are now implemented in the k6 harness. Remaining work is to **run** these scenarios systematically against staging, interpret results against SLOs, and tune thresholds/alerting.
+**Status:** Target-scale run executed (2025-12-10) with strong latency and stability, but error-rate signals were dominated by auth-token expiration and expected rate limiting. Auth refresh handling landed in `concurrent-games.js` and `player-moves.js` (2025-12-19) to reduce 401 noise; remaining work is to rerun target-scale + AI-heavy scenarios and record clean SLO summaries in `docs/testing/BASELINE_CAPACITY.md`.
 
-Following PASS24.1, all four k6 load scenarios run against the nginx-fronted stack (`BASE_URL=http://127.0.0.1`, `WS_URL=ws://127.0.0.1`) without socket-level `ECONNREFUSED` or `status=0` failures. However, several **application-level** issues remain:
+Following PASS24.1, all four k6 load scenarios run against the nginx-fronted stack (`BASE_URL=http://127.0.0.1`, `WS_URL=ws://127.0.0.1`) without socket-level `ECONNREFUSED` or `status=0` failures. Target-scale runs are now recorded, but several **application-level** gaps remain:
 
 - **Concurrent games & player-moves – ID lifecycle and contract assumptions (RESOLVED in harness; pending systematic runs)**
   - Scenarios: `concurrent-games.js`, `player-moves.js` under `tests/load/scenarios/`.
@@ -499,13 +499,15 @@ Following PASS24.1, all four k6 load scenarios run against the nginx-fronted sta
     - `POST /api/games` and `GET /api/games/:gameId` remain the canonical surfaces for game creation/state fetch and are consistently reachable under load.
     - Both scenarios now create game IDs via `POST /api/games`, track them per VU, and **retire** IDs when games reach a terminal status, return 404 (expired/cleaned up), or exceed a bounded poll budget (`MAX_POLLS_PER_GAME`), matching backend lifecycle semantics.
     - 400 responses from `GET /api/games/:gameId` are treated explicitly as **scenario bugs** (invalid ID format) and trigger ID retirement + logging, while 429s and other 4xx/5xx responses are recorded as genuine load/behaviour signals.
+    - 401/403 responses now trigger an auth refresh + single retry before classification, reducing token-expiry noise during long runs.
   - Impact:
     - `http_req_failed` and related thresholds in these scenarios now primarily reflect backend capacity/behaviour (including rate limiting) rather than stale-ID contract issues.
-    - Interpreting k6 output still requires correlating error rates with backend metrics and SLOs, but the harness itself no longer dominates error budgets with `GAME_INVALID_ID`.
+    - Interpreting k6 output still requires correlating error rates with backend metrics and SLOs, but the harness itself no longer dominates error budgets with `GAME_INVALID_ID` or token-expiry failures.
   - Tracking / references:
     - [`GAME_PERFORMANCE.md`](docs/runbooks/GAME_PERFORMANCE.md) – PASS22 and PASS24.1 baseline notes for game creation, concurrent games, and player moves.
     - [`PASS22_COMPLETION_SUMMARY.md`](docs/archive/assessments/PASS22_COMPLETION_SUMMARY.md) – Load-test baselines plus PASS24.1 follow-up.
     - [`PASS22_ASSESSMENT_REPORT.md`](docs/archive/assessments/PASS22_ASSESSMENT_REPORT.md) – PASS24.1 addendum marking infra availability acceptable and calling out remaining functional k6 gaps.
+    - [`BASELINE_CAPACITY.md`](docs/testing/BASELINE_CAPACITY.md) – Target-scale run records and rerun checklist.
 
 - **WebSocket stress – Socket.IO v4 protocol implemented (RESOLVED at harness level, still needs routine use)**
   - Scenario: `websocket-stress.js` under `tests/load/scenarios/`.
@@ -546,7 +548,7 @@ leaderboards in the API/UI.
 **Status:** Baseline Prometheus/Grafana metrics and alerts in place; tracing/error aggregation and SLO enforcement still maturing.
 
 - Node backend exposes a consolidated `/metrics` endpoint via `MetricsService` (HTTP, AI, rules, lifecycle, and orchestrator metrics), and the Python AI service exports its own Prometheus metrics.
-- Prometheus and Grafana dashboards are wired under `monitoring/` with alert rules in `monitoring/prometheus/alerts.yml` and documented thresholds in `docs/ALERTING_THRESHOLDS.md` (including new connection/decision lifecycle alerts).
+- Prometheus and Grafana dashboards are wired under `monitoring/` with alert rules in `monitoring/prometheus/alerts.yml` and documented thresholds in `docs/operations/ALERTING_THRESHOLDS.md` (including new connection/decision lifecycle alerts).
 - k6 load scenarios under `tests/load/**` are aligned with these metrics and dashboards (see `tests/load/README.md`), but are not yet part of a regular CI/staging cadence.
 - Remaining gaps:
   - No end‑to‑end distributed tracing or centralized error aggregation (e.g. Sentry/OTel) wired into the services.
@@ -557,7 +559,7 @@ leaderboards in the API/UI.
 
 - Gradually introduce tracing/error aggregation and tie key alerts to on‑call rotations.
 - Promote `npm run test:p0-robustness` and k6 smoke/load profiles into CI/staging pipelines as explicit SLO gates.
-- Periodically revisit `docs/ALERTING_THRESHOLDS.md` and related dashboards to tune thresholds based on real‑world load tests and early production behaviour.
+- Periodically revisit `docs/operations/ALERTING_THRESHOLDS.md` and related dashboards to tune thresholds based on real‑world load tests and early production behaviour.
 
 ---
 

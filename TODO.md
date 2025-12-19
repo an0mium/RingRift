@@ -1,9 +1,9 @@
 # RingRift Task Tracker
 
-**Last Updated:** 2025-12-17 (Training System Unification + Ladder Fixes)
+**Last Updated:** 2025-12-19 (Load Harness Auth Refresh + Docs Alignment)
 **Project Health:** GREEN
 **Purpose:** Canonical task tracker for near- and mid-term work
-**Current Focus:** Production validation at scale, parity maintenance, client test coverage
+**Current Focus:** Production validation re-run (auth refresh + AI-heavy), parity maintenance, persistence + multiplayer UX polish
 
 ---
 
@@ -74,7 +74,7 @@ This is the canonical high-level task/backlog tracker. For rules semantics, defe
 
 - **Rules coverage to 80%:** Extend the scenario matrix with chain→line→territory multi-choice turns on all boards, add tests that assert `GameEndExplanation` payloads for those sequences, then tighten coverage thresholds; update `RULES_SCENARIO_MATRIX.md` and clear the matching entry in `KNOWN_ISSUES.md` when landed.
 - **AI ladder (Square-8 2p):** Run `ai-service/scripts/run_tier_training_pipeline.py` and `ai-service/scripts/run_full_tier_gating.py` on canonical data; refresh `ai-service/config/tier_training_pipeline.square8_2p.json`; regenerate canonical self-play via `ai-service/scripts/generate_canonical_selfplay.py` with parity/history validation and update `ai-service/TRAINING_DATA_REGISTRY.md`.
-- **Load/ops alignment:** Execute staging runs for baseline, target-scale, and AI-heavy harnesses; verify via `tests/load/scripts/verify-slos.js`; record paths in `docs/BASELINE_CAPACITY.md`; rerun secrets rotation + backup/restore drills and update `docs/GO_NO_GO_CHECKLIST.md`.
+- **Load/ops alignment:** Re-run baseline, target-scale, and AI-heavy harnesses now that auth refresh is wired into `concurrent-games.js` and `player-moves.js`; verify via `tests/load/scripts/verify-slos.js`; record paths in `docs/testing/BASELINE_CAPACITY.md`; rerun secrets rotation + backup/restore drills and update `docs/testing/GO_NO_GO_CHECKLIST.md`.
 
 ---
 
