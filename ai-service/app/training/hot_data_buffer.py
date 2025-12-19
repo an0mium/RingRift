@@ -872,7 +872,7 @@ class HotDataBuffer:
             sample_priorities = []
 
             for game in games_list:
-                n_samples = len(game.to_training_samples())
+                n_samples = len(game.to_training_samples(encoder=self._encoder))
                 sample_priorities.extend([game.priority] * n_samples)
 
             sample_priorities = np.array(sample_priorities, dtype=np.float64)
@@ -883,7 +883,7 @@ class HotDataBuffer:
                 self._rebuild_sample_cache()
                 sample_priorities = []
                 for game in self._buffer.values():
-                    n_samples = len(game.to_training_samples())
+                    n_samples = len(game.to_training_samples(encoder=self._encoder))
                     sample_priorities.extend([game.priority] * n_samples)
                 sample_priorities = np.array(sample_priorities, dtype=np.float64)
 
