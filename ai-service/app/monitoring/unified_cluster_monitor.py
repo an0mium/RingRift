@@ -197,8 +197,11 @@ class ClusterConfig:
             logger.warning(f"Config file not found: {self.config_path}")
             return
 
+        if yaml is None:
+            logger.warning("PyYAML not installed, cannot load cluster config")
+            return
+
         try:
-            import yaml
             with open(self.config_path) as f:
                 data = yaml.safe_load(f) or {}
 
@@ -311,8 +314,6 @@ class UnifiedClusterMonitor:
 
     def _http_get_json(self, url: str, timeout: int = 5) -> Dict[str, Any]:
         """Fetch JSON from HTTP endpoint."""
-        import urllib.request
-        import urllib.error
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "ClusterMonitor/1.0"})
             with urllib.request.urlopen(req, timeout=timeout) as response:
@@ -484,9 +485,6 @@ class UnifiedClusterMonitor:
         """Send alert via webhook."""
         if not self.webhook_url:
             return
-
-        import urllib.request
-        import urllib.error
 
         payload = json.dumps({
             "text": message,

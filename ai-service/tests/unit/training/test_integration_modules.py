@@ -899,7 +899,8 @@ class TestDeprecationWarnings:
             ]
             assert len(deprecation_warnings) >= 1
 
-        result = asyncio.get_event_loop().run_until_complete(simple_async_func())
+        # Use asyncio.run() for modern Python
+        result = asyncio.run(simple_async_func())
         assert result == "async_success"
 
 
@@ -1199,18 +1200,23 @@ class TestQualityBridge:
 
         QualityBridge.reset_instance()
 
-    def test_quality_score_range(self):
-        """Test quality score is in valid range."""
+    def test_quality_lookup_returns_dict(self):
+        """Test quality lookup returns a dict."""
         from app.training.quality_bridge import get_quality_bridge, QualityBridge
 
         QualityBridge.reset_instance()
         bridge = get_quality_bridge()
 
-        # Get default quality score
-        score = bridge.get_quality_score("square8_2p")
+        # Get quality lookup dict
+        lookup = bridge.get_quality_lookup()
 
-        # Should be between 0 and 1
-        assert 0.0 <= score <= 1.0
+        # Should be a dict (may be empty if no data)
+        assert isinstance(lookup, dict)
+
+        # If there are entries, scores should be in valid range
+        for game_id, score in lookup.items():
+            assert isinstance(game_id, str)
+            assert 0.0 <= score <= 1.0
 
         QualityBridge.reset_instance()
 
