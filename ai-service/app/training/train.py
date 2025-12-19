@@ -513,10 +513,7 @@ from app.training.schedulers import get_warmup_scheduler, create_lr_scheduler
 # RingRiftDataset and WeightedRingRiftDataset are imported from app.training.datasets
 
 
-_DATASET_CLASSES_REMOVED = True  # Classes now in app.training.datasets
-
-
-class _RingRiftDataset_REMOVED(Dataset):
+class _DELETE_ME_START:
     """
     Dataset of self-play positions for a single board geometry.
 
@@ -1053,11 +1050,7 @@ class WeightedRingRiftDataset(RingRiftDataset):
         else:
             weights = torch.from_numpy(self.sample_weights)
 
-        return WeightedRandomSampler(
-            weights=weights,
-            num_samples=self.length,
-            replacement=True,
-        )
+_DELETE_ME_END = True
 
 
 def train_model(
@@ -1386,6 +1379,7 @@ def train_model(
 
         inferred_size: Optional[int] = None
         policy_encoding: Optional[str] = None
+        dataset_history_length: Optional[int] = None
         if data_path_str:
             try:
                 if os.path.exists(data_path_str):
@@ -1399,6 +1393,11 @@ def train_model(
                                 policy_encoding = str(np.asarray(d["policy_encoding"]).item())
                             except Exception:
                                 policy_encoding = None
+                        if "history_length" in d:
+                            try:
+                                dataset_history_length = int(np.asarray(d["history_length"]).item())
+                            except Exception:
+                                dataset_history_length = None
                         if "policy_indices" in d:
                             pi = d["policy_indices"]
                             max_idx = -1
@@ -1418,6 +1417,42 @@ def train_model(
                         data_path_str,
                         exc,
                     )
+
+        if dataset_history_length is not None and dataset_history_length != config.history_length:
+            raise ValueError(
+                "Training history_length does not match dataset metadata.\n"
+                f"  dataset={data_path_str}\n"
+                f"  dataset_history_length={dataset_history_length}\n"
+                f"  config.history_length={config.history_length}\n"
+                "Regenerate the dataset with matching --history-length or "
+                "update the training config."
+            )
+        elif dataset_history_length is None and config.history_length != 3:
+            if not distributed or is_main_process():
+                logger.warning(
+                    "Dataset %s missing history_length metadata; using "
+                    "config.history_length=%d. Ensure the dataset was built "
+                    "with matching history frames.",
+                    data_path_str,
+                    config.history_length,
+                )
+
+        if model_version in ('v3', 'v4'):
+            if policy_encoding == "legacy_max_n":
+                raise ValueError(
+                    f"Dataset uses legacy MAX_N policy encoding but --model-version={model_version} "
+                    "requires board-aware policy encoding.\n"
+                    f"  dataset={data_path_str}\n"
+                    "Regenerate the dataset with --board-aware-encoding."
+                )
+            if policy_encoding is None and (not distributed or is_main_process()):
+                logger.warning(
+                    "Dataset %s missing policy_encoding metadata; assuming board-aware "
+                    "encoding for %s. If this dataset was exported with legacy MAX_N, "
+                    "regenerate with --board-aware-encoding.",
+                    data_path_str,
+                    model_version,
+                )
 
         if inferred_size is not None:
             board_default_size = get_policy_size_for_board(config.board_type)
@@ -1922,6 +1957,68 @@ def train_model(
             if distributed:
                 cleanup_distributed()
             return
+
+        # Best-effort metadata check on the first file to validate history_length
+        # and policy_encoding expectations.
+        first_path = data_paths[0]
+        dataset_history_length: Optional[int] = None
+        policy_encoding: Optional[str] = None
+        try:
+            if first_path and os.path.exists(first_path):
+                with np.load(first_path, mmap_mode="r", allow_pickle=True) as d:
+                    if "policy_encoding" in d:
+                        try:
+                            policy_encoding = str(np.asarray(d["policy_encoding"]).item())
+                        except Exception:
+                            policy_encoding = None
+                    if "history_length" in d:
+                        try:
+                            dataset_history_length = int(np.asarray(d["history_length"]).item())
+                        except Exception:
+                            dataset_history_length = None
+        except Exception as exc:
+            if not distributed or is_main_process():
+                logger.warning(
+                    "Failed to read dataset metadata from %s: %s",
+                    first_path,
+                    exc,
+                )
+
+        if dataset_history_length is not None and dataset_history_length != config.history_length:
+            raise ValueError(
+                "Training history_length does not match dataset metadata.\n"
+                f"  dataset={first_path}\n"
+                f"  dataset_history_length={dataset_history_length}\n"
+                f"  config.history_length={config.history_length}\n"
+                "Regenerate the dataset with matching --history-length or "
+                "update the training config."
+            )
+        elif dataset_history_length is None and config.history_length != 3:
+            if not distributed or is_main_process():
+                logger.warning(
+                    "Dataset %s missing history_length metadata; using "
+                    "config.history_length=%d. Ensure the dataset was built "
+                    "with matching history frames.",
+                    first_path,
+                    config.history_length,
+                )
+
+        if model_version in ('v3', 'v4'):
+            if policy_encoding == "legacy_max_n":
+                raise ValueError(
+                    f"Dataset uses legacy MAX_N policy encoding but --model-version={model_version} "
+                    "requires board-aware policy encoding.\n"
+                    f"  dataset={first_path}\n"
+                    "Regenerate the dataset with --board-aware-encoding."
+                )
+            if policy_encoding is None and (not distributed or is_main_process()):
+                logger.warning(
+                    "Dataset %s missing policy_encoding metadata; assuming board-aware "
+                    "encoding for %s. If this dataset was exported with legacy MAX_N, "
+                    "regenerate with --board-aware-encoding.",
+                    first_path,
+                    model_version,
+                )
 
         # Get total sample count across all files
         total_samples = sum(

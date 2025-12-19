@@ -12,9 +12,10 @@ fields such as ``nn_model_id``, ``allow_fresh_weights``, and
 Memory management
 -----------------
 To prevent OOM issues in long soak tests and selfplay runs, this module
-uses a singleton model cache (``_MODEL_CACHE``) that shares model instances
-across multiple :class:`NeuralNetAI` instances. Call :func:`clear_model_cache`
-to release GPU/MPS memory between games or soak batches.
+uses a singleton model cache (via :mod:`.model_cache`) that shares model
+instances across multiple :class:`NeuralNetAI` instances. Call
+:func:`.model_cache.clear_model_cache` to release GPU/MPS memory between
+games or soak batches.
 """
 
 from __future__ import annotations
@@ -47,142 +48,18 @@ from .game_state_utils import (
     infer_rings_per_player,
     select_threat_opponent,
 )
+from .model_cache import (
+    get_cache_ref as _get_model_cache,
+    evict_stale_models as _evict_stale_models,
+    clear_model_cache,
+    get_cached_model_count,
+    strip_module_prefix as _strip_module_prefix,
+)
 
 logger = logging.getLogger(__name__)
 
-# =============================================================================
-# Model Cache for Memory Efficiency
-# =============================================================================
-#
-# Singleton cache to share model instances across NeuralNetAI instances.
-# Key: (architecture_type, device_str, model_path, board_type)
-# Value: (loaded model instance, creation_timestamp, last_access_timestamp)
-_MODEL_CACHE: Dict[Tuple[str, str, str, str], Tuple[nn.Module, float, float]] = {}
-
-# Cache configuration
-_MODEL_CACHE_TTL_SECONDS = 3600  # 1 hour TTL for cached models
-_MODEL_CACHE_MAX_SIZE = 10  # Maximum number of models to keep in cache
-
-
-def _evict_stale_models() -> int:
-    """Evict models older than TTL or when cache exceeds max size.
-
-    Returns the number of models evicted.
-    """
-    global _MODEL_CACHE
-    import time
-
-    now = time.time()
-    evicted = 0
-    keys_to_remove = []
-
-    # First pass: remove models older than TTL
-    for key, (model, created_at, last_access) in _MODEL_CACHE.items():
-        if now - last_access > _MODEL_CACHE_TTL_SECONDS:
-            keys_to_remove.append(key)
-
-    for key in keys_to_remove:
-        model, _, _ = _MODEL_CACHE.pop(key)
-        try:
-            model.cpu()
-        except Exception:
-            pass
-        evicted += 1
-
-    # Second pass: if still over limit, remove least recently used
-    if len(_MODEL_CACHE) > _MODEL_CACHE_MAX_SIZE:
-        # Sort by last_access timestamp (oldest first)
-        sorted_items = sorted(
-            _MODEL_CACHE.items(),
-            key=lambda x: x[1][2]  # last_access timestamp
-        )
-        # Remove oldest until under limit
-        while len(_MODEL_CACHE) > _MODEL_CACHE_MAX_SIZE and sorted_items:
-            key, (model, _, _) = sorted_items.pop(0)
-            if key in _MODEL_CACHE:
-                del _MODEL_CACHE[key]
-                try:
-                    model.cpu()
-                except Exception:
-                    pass
-                evicted += 1
-
-    if evicted > 0:
-        # Clear GPU caches after eviction
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        if hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
-            try:
-                torch.mps.empty_cache()
-            except Exception:
-                pass
-        gc.collect()
-        logger.debug(f"Evicted {evicted} stale models from cache")
-
-    return evicted
-
-
-def clear_model_cache() -> None:
-    """Clear the model cache and release GPU/MPS memory.
-
-    Call this function between games or soak batches to prevent OOM issues.
-    This is especially important for MPS where memory management is more
-    aggressive than CUDA.
-    """
-    global _MODEL_CACHE
-    cache_size = len(_MODEL_CACHE)
-
-    # Move models to CPU before clearing to release GPU memory
-    for model, _, _ in _MODEL_CACHE.values():
-        try:
-            model.cpu()
-        except Exception:
-            pass
-
-    _MODEL_CACHE.clear()
-
-    # Clear PyTorch caches
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-
-    # Clear MPS cache if available (PyTorch 2.0+)
-    if hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
-        try:
-            torch.mps.empty_cache()
-        except Exception:
-            pass
-
-    # Force garbage collection
-    gc.collect()
-
-    if cache_size > 0:
-        logger.info(f"Cleared model cache ({cache_size} models)")
-
-
-def get_cached_model_count() -> int:
-    """Return the number of models currently in the cache."""
-    return len(_MODEL_CACHE)
-
-
-def _strip_module_prefix(state_dict: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize a PyTorch state_dict by stripping a leading ``module.`` prefix.
-
-    Some training jobs save checkpoints from DistributedDataParallel (DDP),
-    which prefixes all parameter keys with ``module.``. Runtime inference
-    expects the non-prefixed keys.
-    """
-    if not state_dict:
-        return state_dict
-    if not any(isinstance(k, str) and k.startswith("module.") for k in state_dict.keys()):
-        return state_dict
-    stripped: Dict[str, Any] = {}
-    for key, value in state_dict.items():
-        if isinstance(key, str) and key.startswith("module."):
-            stripped[key[len("module."):]] = value
-        else:
-            stripped[key] = value
-    return stripped
-
+# Reference to the shared model cache (for direct access in this module)
+_MODEL_CACHE = _get_model_cache()
 
 INVALID_MOVE_INDEX = -1
 MAX_N = 19  # Canonical maximum side length for policy encoding (19x19 grid)

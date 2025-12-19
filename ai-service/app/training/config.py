@@ -357,6 +357,7 @@ class TrainConfig:
     max_moves_per_game: int = 10000
     k_elo: int = 32
     policy_weight: float = 1.0
+    rank_dist_weight: float = 0.2
 
     # Learning rate schedule settings for better convergence
     warmup_epochs: int = 1  # LR warmup for training stability
