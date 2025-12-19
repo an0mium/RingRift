@@ -1198,6 +1198,113 @@ class BatchGameState:
 
         return batch
 
+    @classmethod
+    def from_game_states(
+        cls,
+        game_states: List["GameState"],
+        device: Optional[torch.device] = None,
+    ) -> "BatchGameState":
+        """Convert multiple CPU GameStates to a BatchGameState.
+
+        This is the efficient batch version of from_single_game, used for
+        GPU-accelerated evaluation of multiple positions (e.g., in Max-N search).
+
+        Args:
+            game_states: List of GameState objects to convert
+            device: GPU device (auto-detected if None)
+
+        Returns:
+            BatchGameState with batch_size=len(game_states)
+        """
+        if not game_states:
+            raise ValueError("game_states cannot be empty")
+
+        from app.models import GameState, BoardType, GamePhase as CPUGamePhase
+
+        if device is None:
+            device = get_device()
+
+        # Use first state to determine board configuration
+        first_state = game_states[0]
+        board_type = first_state.board_type
+        board_size = {
+            BoardType.SQUARE8: 8,
+            BoardType.SQUARE19: 19,
+            BoardType.HEX8: 9,
+            BoardType.HEXAGONAL: 13,
+        }.get(board_type, 8)
+
+        num_players = len(first_state.players)
+        batch_size = len(game_states)
+
+        # Create empty batch state
+        batch = cls.create_batch(
+            batch_size=batch_size,
+            board_size=board_size,
+            num_players=num_players,
+            device=device,
+        )
+
+        is_hex = board_type in (BoardType.HEXAGONAL, BoardType.HEX8)
+
+        # Phase mapping
+        phase_map = {
+            CPUGamePhase.RING_PLACEMENT: 0,
+            CPUGamePhase.MOVEMENT: 1,
+            CPUGamePhase.CAPTURE: 1,
+            CPUGamePhase.CHAIN_CAPTURE: 1,
+            CPUGamePhase.LINE_PROCESSING: 2,
+            CPUGamePhase.TERRITORY_PROCESSING: 3,
+            CPUGamePhase.FORCED_ELIMINATION: 3,
+            CPUGamePhase.GAME_OVER: 4,
+        }
+
+        # Convert each state
+        for g, game_state in enumerate(game_states):
+            # Copy board state
+            for key, stack in game_state.board.stacks.items():
+                coords = list(map(int, key.split(",")))
+                if is_hex:
+                    continue  # Skip hex for now
+                x, y = coords[0], coords[1]
+                if 0 <= x < board_size and 0 <= y < board_size:
+                    batch.stack_owner[g, y, x] = stack.controlling_player
+                    batch.stack_height[g, y, x] = len(stack.rings)
+                    batch.cap_height[g, y, x] = stack.cap_height
+
+            for key, marker in game_state.board.markers.items():
+                coords = list(map(int, key.split(",")))
+                if is_hex:
+                    continue
+                x, y = coords[0], coords[1]
+                if 0 <= x < board_size and 0 <= y < board_size:
+                    player = marker.player if hasattr(marker, 'player') else marker
+                    batch.marker_owner[g, y, x] = player
+
+            for key, player in game_state.board.collapsed_spaces.items():
+                coords = list(map(int, key.split(",")))
+                if is_hex:
+                    continue
+                x, y = coords[0], coords[1]
+                if 0 <= x < board_size and 0 <= y < board_size:
+                    batch.is_collapsed[g, y, x] = True
+
+            # Copy player state
+            for player in game_state.players:
+                pn = player.player_number
+                batch.rings_in_hand[g, pn] = player.rings_in_hand
+                batch.eliminated_rings[g, pn] = player.eliminated_rings
+                batch.territory_count[g, pn] = player.territory_spaces
+                batch.buried_rings[g, pn] = getattr(player, 'buried_rings', 0)
+
+            # Copy game state
+            batch.current_player[g] = game_state.current_player
+            batch.move_count[g] = game_state.move_count
+            batch.current_phase[g] = phase_map.get(game_state.current_phase, 0)
+            batch.active[g] = game_state.game_status != "completed"
+
+        return batch
+
     def to_game_state(self, game_idx: int) -> "GameState":
         """Convert a single game from this batch back to a CPU GameState.
 

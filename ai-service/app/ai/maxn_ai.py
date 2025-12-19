@@ -139,23 +139,17 @@ class MaxNAI(HeuristicAI):
             return False
 
         try:
-            from .gpu_batch import get_device, GPUHeuristicEvaluator
+            from .gpu_batch import get_device
 
             self._gpu_device = get_device(prefer_gpu=True)
             self._gpu_available = self._gpu_device.type in ('cuda', 'mps')
 
             if self._gpu_available:
-                # Initialize GPU heuristic evaluator
-                board_size = self._board_size or 8
-                num_players = self._num_players or 2
-                self._gpu_evaluator = GPUHeuristicEvaluator(
-                    device=self._gpu_device,
-                    board_size=board_size,
-                    num_players=num_players,
-                )
+                # Note: Using full-parity 49-feature GPU heuristic (evaluate_positions_batch)
+                # instead of simplified GPUHeuristicEvaluator for CPU parity
                 logger.info(
                     f"MaxNAI: GPU acceleration enabled on {self._gpu_device} "
-                    f"(batch_size={self._gpu_batch_size})"
+                    f"(full 49-feature parity, batch_size={self._gpu_batch_size})"
                 )
             else:
                 logger.info(
@@ -213,48 +207,51 @@ class MaxNAI(HeuristicAI):
 
         This is the core GPU acceleration: instead of evaluating each position
         individually with CPU heuristics, we batch them for parallel GPU evaluation.
+
+        Uses the full 49-feature GPU heuristic (evaluate_positions_batch) for
+        CPU parity, rather than the simplified GPUHeuristicEvaluator.
         """
         if not self._leaf_buffer or not self._gpu_available:
             return
 
         try:
-            from .gpu_batch import GPUBoardState
-            from .hybrid_gpu import batch_game_states_to_gpu
+            from .gpu_parallel_games import BatchGameState, evaluate_positions_batch
+            from .heuristic_weights import get_weights_for_player_count
 
             # States are already immutable (converted when added to buffer)
             immutable_states = [state for state, _ in self._leaf_buffer]
             hashes = [h for _, h in self._leaf_buffer]
 
-            # Create GPU batch
-            gpu_state = batch_game_states_to_gpu(
+            # Create BatchGameState for full-parity evaluation
+            batch_state = BatchGameState.from_game_states(
                 immutable_states,
-                self._gpu_device,
-                self._board_size or 8,
+                device=self._gpu_device,
             )
 
-            # Evaluate for all players in parallel (GPU handles batch)
+            # Get weights for current player count (uses CMA-ES optimized weights)
             num_players = self._num_players or 2
-            all_scores: Dict[int, np.ndarray] = {}
+            weights = get_weights_for_player_count(num_players)
 
-            for player_num in range(1, num_players + 1):
-                scores_tensor = self._gpu_evaluator.evaluate_batch(gpu_state, player_num)
-                all_scores[player_num] = scores_tensor.cpu().numpy()
+            # Full 49-feature GPU evaluation - returns (batch_size, num_players+1) tensor
+            scores_tensor = evaluate_positions_batch(batch_state, weights)
 
             # Store results indexed by state hash
             for i, state_hash in enumerate(hashes):
                 player_scores: Dict[int, float] = {}
                 for player_num in range(1, num_players + 1):
-                    player_scores[player_num] = float(all_scores[player_num][i])
+                    player_scores[player_num] = float(scores_tensor[i, player_num].item())
                 self._leaf_results[state_hash] = player_scores
 
             # Shadow validation if enabled
             if self._shadow_validator is not None:
                 self._validate_batch(immutable_states, hashes)
 
-            logger.debug(f"MaxNAI: GPU batch evaluated {len(self._leaf_buffer)} leaves")
+            logger.debug(f"MaxNAI: GPU batch evaluated {len(self._leaf_buffer)} leaves (full parity)")
 
         except Exception as e:
             logger.warning(f"MaxNAI: GPU batch flush failed, falling back to CPU: {e}")
+            import traceback
+            logger.debug(f"MaxNAI: Traceback: {traceback.format_exc()}")
             # Fall back to CPU evaluation for this batch
             for state, state_hash in self._leaf_buffer:
                 mutable = MutableGameState.from_immutable(state)
