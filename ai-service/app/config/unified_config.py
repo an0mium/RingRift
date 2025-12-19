@@ -1301,3 +1301,158 @@ def create_training_manager(
     except ImportError as e:
         logger.warning(f"Failed to import integrated enhancements: {e}")
         return None
+
+
+# =============================================================================
+# Storage Path Helpers
+# =============================================================================
+
+def detect_storage_provider() -> str:
+    """Detect the current storage provider based on environment.
+
+    Returns:
+        Provider name: "lambda", "vast", "mac", or "default"
+    """
+    import fnmatch
+    import platform
+    import socket
+
+    config = get_config()
+    hostname = socket.gethostname()
+
+    # Check detection rules in priority order
+    for provider, rules in config.storage.provider_detection.items():
+        # Check OS type
+        if rules.os_type and platform.system() == rules.os_type:
+            return provider
+
+        # Check path existence
+        if rules.check_path and Path(rules.check_path).exists():
+            return provider
+
+        # Check hostname patterns
+        for pattern in rules.hostname_patterns:
+            if fnmatch.fnmatch(hostname, pattern):
+                return provider
+
+    # Fallback detection without explicit rules
+    # Lambda: NFS mount
+    if Path("/lambda/nfs").exists():
+        return "lambda"
+
+    # Vast: /workspace directory
+    if Path("/workspace").exists():
+        return "vast"
+
+    # Mac: Darwin OS
+    if platform.system() == "Darwin":
+        return "mac"
+
+    return "default"
+
+
+def get_storage_paths(provider: Optional[str] = None) -> StoragePathsConfig:
+    """Get storage paths for the current or specified provider.
+
+    Args:
+        provider: Optional provider name. Auto-detected if not specified.
+
+    Returns:
+        StoragePathsConfig with paths for the provider.
+
+    Example:
+        from app.config.unified_config import get_storage_paths
+
+        paths = get_storage_paths()
+        selfplay_dir = paths.selfplay_games
+        model_dir = paths.model_checkpoints
+
+        # For specific provider
+        lambda_paths = get_storage_paths("lambda")
+    """
+    if provider is None:
+        provider = detect_storage_provider()
+
+    config = get_config()
+
+    if provider == "lambda":
+        return config.storage.lambda_
+    elif provider == "vast":
+        return config.storage.vast
+    elif provider == "mac":
+        return config.storage.mac
+    else:
+        return config.storage.default
+
+
+def get_selfplay_dir(provider: Optional[str] = None) -> Path:
+    """Get the selfplay games directory for the current provider."""
+    return Path(get_storage_paths(provider).selfplay_games)
+
+
+def get_model_checkpoint_dir(provider: Optional[str] = None) -> Path:
+    """Get the model checkpoint directory for the current provider."""
+    return Path(get_storage_paths(provider).model_checkpoints)
+
+
+def get_training_data_dir(provider: Optional[str] = None) -> Path:
+    """Get the training data directory for the current provider."""
+    return Path(get_storage_paths(provider).training_data)
+
+
+def get_nfs_base(provider: Optional[str] = None) -> Optional[Path]:
+    """Get the NFS base path if available for the provider."""
+    paths = get_storage_paths(provider)
+    if paths.nfs_base:
+        return Path(paths.nfs_base)
+    return None
+
+
+def should_use_nfs_sync(provider: Optional[str] = None) -> bool:
+    """Check if NFS should be used for data sync (no rsync needed)."""
+    return get_storage_paths(provider).use_nfs_for_sync
+
+
+def should_skip_rsync_to_node(node_id: str) -> bool:
+    """Check if rsync should be skipped for a node (has NFS access).
+
+    Args:
+        node_id: The node identifier
+
+    Returns:
+        True if node has NFS access and rsync should be skipped
+    """
+    # Lambda nodes with NFS don't need rsync between each other
+    if node_id.startswith("lambda-"):
+        return get_storage_paths("lambda").skip_rsync_to_nfs_nodes
+    return False
+
+
+def ensure_storage_dirs(provider: Optional[str] = None) -> None:
+    """Ensure all storage directories exist for the provider.
+
+    Creates directories if they don't exist.
+    """
+    paths = get_storage_paths(provider)
+
+    for path_str in [
+        paths.selfplay_games,
+        paths.model_checkpoints,
+        paths.training_data,
+        paths.sync_staging,
+        paths.local_scratch,
+    ]:
+        path = Path(path_str)
+        if not path.is_absolute():
+            # Make relative paths absolute from ai-service root
+            ai_service_root = Path(__file__).parent.parent.parent
+            path = ai_service_root / path
+
+        path.mkdir(parents=True, exist_ok=True)
+
+    # Also create parent dir for elo database
+    elo_path = Path(paths.elo_database)
+    if not elo_path.is_absolute():
+        ai_service_root = Path(__file__).parent.parent.parent
+        elo_path = ai_service_root / elo_path
+    elo_path.parent.mkdir(parents=True, exist_ok=True)
