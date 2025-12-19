@@ -49,11 +49,22 @@ from app.ai.policy_only_ai import PolicyOnlyAI
 from app.training.generate_data import create_initial_state
 from app.rules.default_engine import DefaultRulesEngine
 
-# Minimum win rate thresholds for checkpoint gating
-# Checkpoints that don't meet these are considered "unqualified" and skipped
-# These can be overridden via command line arguments
-DEFAULT_MIN_RANDOM_WIN_RATE = 0.85  # Must beat random at 85%+
-DEFAULT_MIN_HEURISTIC_WIN_RATE = 0.60  # Must beat heuristic at 60%+
+# Import canonical thresholds from single source of truth
+try:
+    from app.config.thresholds import (
+        MIN_WIN_RATE_VS_RANDOM,
+        MIN_WIN_RATE_VS_HEURISTIC,
+        BASELINE_ELO_RANDOM,
+        BASELINE_ELO_HEURISTIC,
+    )
+    DEFAULT_MIN_RANDOM_WIN_RATE = MIN_WIN_RATE_VS_RANDOM
+    DEFAULT_MIN_HEURISTIC_WIN_RATE = MIN_WIN_RATE_VS_HEURISTIC
+except ImportError:
+    # Fallback if running standalone
+    DEFAULT_MIN_RANDOM_WIN_RATE = 0.85
+    DEFAULT_MIN_HEURISTIC_WIN_RATE = 0.60
+    BASELINE_ELO_RANDOM = 400
+    BASELINE_ELO_HEURISTIC = 1200
 
 
 def is_versioned_checkpoint(checkpoint_path: Path) -> bool:
@@ -267,8 +278,8 @@ def evaluate_checkpoint(
     # Estimate Elo based on win rates
     # Random = 400 Elo, Heuristic = 1200 Elo
     # Use weighted average based on performance
-    random_elo = 400
-    heuristic_elo = 1200
+    random_elo = BASELINE_ELO_RANDOM
+    heuristic_elo = BASELINE_ELO_HEURISTIC
 
     def elo_from_winrate(win_rate: float, opponent_elo: float) -> float:
         """Estimate Elo from win rate against known opponent."""

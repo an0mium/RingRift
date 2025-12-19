@@ -18,12 +18,19 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
-# Import canonical Elo constants
+# Import canonical threshold constants
 try:
-    from app.config.thresholds import INITIAL_ELO_RATING, ELO_DROP_ROLLBACK
+    from app.config.thresholds import (
+        INITIAL_ELO_RATING,
+        ELO_DROP_ROLLBACK,
+        MIN_WIN_RATE_VS_RANDOM,
+        MIN_WIN_RATE_VS_HEURISTIC,
+    )
 except ImportError:
     INITIAL_ELO_RATING = 1500.0
     ELO_DROP_ROLLBACK = 50.0
+    MIN_WIN_RATE_VS_RANDOM = 0.85
+    MIN_WIN_RATE_VS_HEURISTIC = 0.60
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +55,10 @@ class EvalConfig:
     checkpoint_dir: str = "data/eval_checkpoints"
     # Baseline gating: minimum win rates required against each baseline
     # Checkpoints that don't meet these are considered "unqualified"
+    # Values imported from app.config.thresholds for single source of truth
     min_baseline_win_rates: Dict[str, float] = field(default_factory=lambda: {
-        "random": 0.85,  # Must beat random at 85%+
-        "heuristic": 0.60,  # Must beat heuristic at 60%+
+        "random": MIN_WIN_RATE_VS_RANDOM,
+        "heuristic": MIN_WIN_RATE_VS_HEURISTIC,
     })
 
 
@@ -250,6 +258,47 @@ class BackgroundEvaluator:
         """Check if training should early stop due to Elo drop."""
         with self._lock:
             return (self.best_elo - self.current_elo) > self.config.elo_drop_threshold
+
+    def get_baseline_gating_status(self) -> Tuple[bool, List[str], int]:
+        """Get current baseline gating status.
+
+        Returns:
+            Tuple of (passes_gating, failed_baselines, consecutive_failures)
+            - passes_gating: True if latest eval passes all baseline thresholds
+            - failed_baselines: List of baselines that failed (empty if passes)
+            - consecutive_failures: Number of consecutive evals that failed gating
+        """
+        with self._lock:
+            if not self.eval_results:
+                return True, [], 0
+
+            latest = self.eval_results[-1]
+
+            # Count consecutive failures from most recent
+            consecutive_failures = 0
+            for result in reversed(self.eval_results):
+                if not result.passes_baseline_gating:
+                    consecutive_failures += 1
+                else:
+                    break
+
+            return (
+                latest.passes_baseline_gating,
+                latest.failed_baselines.copy(),
+                consecutive_failures,
+            )
+
+    def should_trigger_baseline_warning(self, failure_threshold: int = 3) -> bool:
+        """Check if consecutive baseline failures exceed threshold.
+
+        Args:
+            failure_threshold: Number of consecutive failures to trigger warning
+
+        Returns:
+            True if should trigger warning/intervention
+        """
+        _, _, consecutive_failures = self.get_baseline_gating_status()
+        return consecutive_failures >= failure_threshold
 
 
 def create_background_evaluator(

@@ -82,6 +82,22 @@ MIN_ELO_RATING = 100.0
 MAX_ELO_RATING = 3000.0
 
 # =============================================================================
+# Baseline Gating Thresholds
+# =============================================================================
+# Checkpoints must beat baselines at these rates to be considered "qualified"
+# This prevents selecting checkpoints strong in neural-vs-neural but weak vs basics
+
+# Minimum win rate against random AI for checkpoint qualification
+MIN_WIN_RATE_VS_RANDOM = 0.85  # 85%
+
+# Minimum win rate against heuristic AI for checkpoint qualification
+MIN_WIN_RATE_VS_HEURISTIC = 0.60  # 60%
+
+# Baseline Elo estimates for Elo calculation from win rates
+BASELINE_ELO_RANDOM = 400
+BASELINE_ELO_HEURISTIC = 1200
+
+# =============================================================================
 # Evaluation Thresholds
 # =============================================================================
 

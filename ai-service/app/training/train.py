@@ -3432,6 +3432,23 @@ def train_model(
                     )
                 break
 
+            # Check baseline gating - warn if model failing against basic baselines
+            if enhancements_manager is not None:
+                passes_gating, failed_baselines, consecutive_failures = (
+                    enhancements_manager.get_baseline_gating_status()
+                )
+                if not passes_gating and (not distributed or is_main_process()):
+                    logger.warning(
+                        f"[BASELINE GATING] Epoch {epoch+1}: Model failed baseline thresholds "
+                        f"({', '.join(failed_baselines)}). Consecutive failures: {consecutive_failures}"
+                    )
+                    if consecutive_failures >= 5:
+                        logger.error(
+                            f"[BASELINE GATING] {consecutive_failures} consecutive failures! "
+                            "Model may be overfitting to neural-vs-neural play. "
+                            "Consider: more diverse training data, regularization, or early stopping."
+                        )
+
             if early_stopper is not None:
                 # Get current Elo from enhancements manager if available
                 current_elo = None

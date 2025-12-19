@@ -590,6 +590,30 @@ class IntegratedTrainingManager:
             return self._background_evaluator.get_current_elo()
         return None
 
+    def get_baseline_gating_status(self) -> Tuple[bool, List[str], int]:
+        """Get baseline gating status from background evaluator.
+
+        Returns:
+            Tuple of (passes_gating, failed_baselines, consecutive_failures)
+            Returns (True, [], 0) if background evaluator is not available.
+        """
+        if self._background_evaluator is not None:
+            return self._background_evaluator.get_baseline_gating_status()
+        return True, [], 0
+
+    def should_warn_baseline_failures(self, threshold: int = 3) -> bool:
+        """Check if consecutive baseline failures exceed warning threshold.
+
+        Args:
+            threshold: Number of consecutive failures to trigger warning
+
+        Returns:
+            True if baseline failures exceed threshold
+        """
+        if self._background_evaluator is not None:
+            return self._background_evaluator.should_trigger_baseline_warning(threshold)
+        return False
+
     # =========================================================================
     # Lifecycle Management
     # =========================================================================
