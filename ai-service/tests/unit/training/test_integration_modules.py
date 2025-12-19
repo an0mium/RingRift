@@ -657,5 +657,313 @@ class TestThreadSpawnerCore:
         spawner.shutdown(timeout=1.0)
 
 
+# =============================================================================
+# Promotion Controller Distributed Lock Tests
+# =============================================================================
+
+class TestPromotionControllerDistributedLocking:
+    """Tests for distributed locking in promotion_controller."""
+
+    def test_has_distributed_locks_flag(self):
+        """Test _HAS_DISTRIBUTED_LOCKS is set correctly."""
+        from app.training.promotion_controller import _HAS_DISTRIBUTED_LOCKS
+
+        # Should be True when locking_integration is available
+        assert _HAS_DISTRIBUTED_LOCKS is True
+
+    def test_extract_config_key_standard_format(self):
+        """Test config key extraction from model ID."""
+        from app.training.promotion_controller import PromotionController
+
+        controller = PromotionController()
+
+        # Standard format: board_players_version
+        assert controller._extract_config_key("square8_2p_v42") == "square8_2p"
+        assert controller._extract_config_key("hex7_4p_v1") == "hex7_4p"
+        assert controller._extract_config_key("triangle6_3p_v100") == "triangle6_3p"
+
+    def test_extract_config_key_numeric_suffix(self):
+        """Test config key extraction with numeric suffix."""
+        from app.training.promotion_controller import PromotionController
+
+        controller = PromotionController()
+
+        # Numeric suffix
+        assert controller._extract_config_key("square8_2p_42") == "square8_2p"
+        assert controller._extract_config_key("hex7_4p_1") == "hex7_4p"
+
+    def test_extract_config_key_fallback(self):
+        """Test config key extraction fallback for unusual formats."""
+        from app.training.promotion_controller import PromotionController
+
+        controller = PromotionController()
+
+        # No version suffix - returns as-is
+        assert controller._extract_config_key("square8_2p") == "square8_2p"
+
+    def test_execute_promotion_acquires_lock(self):
+        """Test that execute_promotion uses distributed locking."""
+        from app.training.promotion_controller import (
+            PromotionController,
+            PromotionDecision,
+            PromotionType,
+        )
+        from unittest.mock import patch, MagicMock
+
+        controller = PromotionController()
+
+        decision = PromotionDecision(
+            model_id="square8_2p_v42",
+            promotion_type=PromotionType.STAGING,
+            should_promote=True,
+            reason="Test promotion",
+        )
+
+        # Mock TrainingLocks.promotion to verify it's called
+        with patch('app.training.promotion_controller.TrainingLocks') as mock_locks:
+            mock_context = MagicMock()
+            mock_context.__enter__ = MagicMock(return_value=MagicMock())
+            mock_context.__exit__ = MagicMock(return_value=False)
+            mock_locks.promotion.return_value = mock_context
+
+            # Also mock the locked method to prevent actual promotion
+            with patch.object(controller, '_execute_promotion_locked', return_value=True):
+                controller.execute_promotion(decision)
+
+            # Verify promotion lock was requested with correct config key
+            mock_locks.promotion.assert_called_once_with("square8_2p", timeout=60)
+
+    def test_execute_promotion_fails_without_lock(self):
+        """Test that execute_promotion fails gracefully when lock not acquired."""
+        from app.training.promotion_controller import (
+            PromotionController,
+            PromotionDecision,
+            PromotionType,
+        )
+        from unittest.mock import patch, MagicMock
+
+        controller = PromotionController()
+
+        decision = PromotionDecision(
+            model_id="square8_2p_v42",
+            promotion_type=PromotionType.STAGING,
+            should_promote=True,
+            reason="Test promotion",
+        )
+
+        # Mock TrainingLocks.promotion to return None (lock not acquired)
+        with patch('app.training.promotion_controller.TrainingLocks') as mock_locks:
+            mock_context = MagicMock()
+            mock_context.__enter__ = MagicMock(return_value=None)  # Lock not acquired
+            mock_context.__exit__ = MagicMock(return_value=False)
+            mock_locks.promotion.return_value = mock_context
+
+            result = controller.execute_promotion(decision)
+
+            # Should return False when lock not acquired
+            assert result is False
+
+
+# =============================================================================
+# Exception Consolidation Tests
+# =============================================================================
+
+class TestExceptionConsolidation:
+    """Tests for exception consolidation in app.errors."""
+
+    def test_exceptions_available_in_app_errors(self):
+        """Test all training exceptions are available in app.errors."""
+        from app.errors import (
+            TrainingError,
+            CheckpointError,
+            EvaluationError,
+            SelfplayError,
+            DataLoadError,
+            ModelVersioningError,
+        )
+
+        # All should be importable
+        assert TrainingError is not None
+        assert CheckpointError is not None
+        assert EvaluationError is not None
+        assert SelfplayError is not None
+        assert DataLoadError is not None
+        assert ModelVersioningError is not None
+
+    def test_exception_hierarchy(self):
+        """Test exception inheritance hierarchy."""
+        from app.errors import (
+            RingRiftError,
+            TrainingError,
+            CheckpointError,
+            EvaluationError,
+            SelfplayError,
+            DataLoadError,
+            ModelVersioningError,
+        )
+
+        # TrainingError inherits from RingRiftError
+        assert issubclass(TrainingError, RingRiftError)
+
+        # Training-specific errors inherit from TrainingError
+        assert issubclass(CheckpointError, TrainingError)
+        assert issubclass(EvaluationError, TrainingError)
+        assert issubclass(SelfplayError, TrainingError)
+        assert issubclass(DataLoadError, TrainingError)
+        assert issubclass(ModelVersioningError, CheckpointError)
+
+    def test_exceptions_reexported_from_exception_integration(self):
+        """Test exceptions are re-exported from exception_integration."""
+        from app.training.exception_integration import (
+            TrainingError,
+            CheckpointError,
+            EvaluationError,
+            SelfplayError,
+            DataLoadError,
+        )
+        from app.errors import (
+            TrainingError as TrainingErrorDirect,
+            CheckpointError as CheckpointErrorDirect,
+        )
+
+        # Should be the same classes
+        assert TrainingError is TrainingErrorDirect
+        assert CheckpointError is CheckpointErrorDirect
+
+    def test_exception_error_codes(self):
+        """Test exception error codes are set correctly."""
+        from app.errors import (
+            TrainingError,
+            EvaluationError,
+            SelfplayError,
+            DataLoadError,
+        )
+
+        assert TrainingError.code == "TRAINING_ERROR"
+        assert EvaluationError.code == "EVALUATION_ERROR"
+        assert SelfplayError.code == "SELFPLAY_ERROR"
+        assert DataLoadError.code == "DATA_LOAD_ERROR"
+
+
+# =============================================================================
+# Deprecation Warning Tests
+# =============================================================================
+
+class TestDeprecationWarnings:
+    """Tests for deprecation warnings in fault_tolerance."""
+
+    def test_retry_with_backoff_deprecation_warning(self):
+        """Test retry_with_backoff emits deprecation warning at decoration time."""
+        import warnings
+
+        # Capture warnings at decoration time (when decorator is applied)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
+            # Import inside context to capture deprecation warning
+            from app.training.fault_tolerance import retry_with_backoff
+
+            @retry_with_backoff(max_retries=1, base_delay=0.01)
+            def simple_func():
+                return "success"
+
+            # Should have deprecation warning from decoration
+            deprecation_warnings = [
+                x for x in w
+                if issubclass(x.category, DeprecationWarning)
+                and "retry_with_backoff is deprecated" in str(x.message)
+            ]
+            assert len(deprecation_warnings) >= 1
+
+        result = simple_func()
+        assert result == "success"
+
+    def test_async_retry_with_backoff_deprecation_warning(self):
+        """Test async_retry_with_backoff emits deprecation warning at decoration time."""
+        import warnings
+
+        # Capture warnings at decoration time
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
+            from app.training.fault_tolerance import async_retry_with_backoff
+
+            @async_retry_with_backoff(max_retries=1, base_delay=0.01)
+            async def simple_async_func():
+                return "async_success"
+
+            deprecation_warnings = [
+                x for x in w
+                if issubclass(x.category, DeprecationWarning)
+                and "async_retry_with_backoff is deprecated" in str(x.message)
+            ]
+            assert len(deprecation_warnings) >= 1
+
+        result = asyncio.get_event_loop().run_until_complete(simple_async_func())
+        assert result == "async_success"
+
+
+# =============================================================================
+# Unified Orchestrator Distributed Lock Tests
+# =============================================================================
+
+class TestUnifiedOrchestratorDistributedLocking:
+    """Tests for distributed locking in unified_orchestrator."""
+
+    def test_has_distributed_locks_flag(self):
+        """Test _HAS_DISTRIBUTED_LOCKS is set correctly."""
+        from app.training.unified_orchestrator import _HAS_DISTRIBUTED_LOCKS
+
+        # Should be True when locking_integration is available
+        assert _HAS_DISTRIBUTED_LOCKS is True
+
+    def test_save_checkpoint_locked_method_exists(self):
+        """Test _save_checkpoint_locked method exists."""
+        from app.training.unified_orchestrator import UnifiedTrainingOrchestrator
+
+        # Method should exist
+        assert hasattr(UnifiedTrainingOrchestrator, '_save_checkpoint_locked')
+
+    def test_training_metrics_flag(self):
+        """Test _HAS_TRAINING_METRICS is set correctly."""
+        from app.training.unified_orchestrator import _HAS_TRAINING_METRICS
+
+        # Should be True when metrics_integration is available
+        assert _HAS_TRAINING_METRICS is True
+
+    def test_training_events_flag(self):
+        """Test _HAS_TRAINING_EVENTS is set correctly."""
+        from app.training.unified_orchestrator import _HAS_TRAINING_EVENTS
+
+        # Should be True when event_integration is available
+        assert _HAS_TRAINING_EVENTS is True
+
+
+# =============================================================================
+# Model Versioning Exception Tests
+# =============================================================================
+
+class TestModelVersioningExceptions:
+    """Tests for model_versioning exception consolidation."""
+
+    def test_model_versioning_error_in_app_errors(self):
+        """Test ModelVersioningError is in app.errors."""
+        from app.errors import ModelVersioningError, CheckpointError
+
+        assert issubclass(ModelVersioningError, CheckpointError)
+        assert ModelVersioningError.code == "MODEL_VERSIONING_ERROR"
+
+    def test_subclasses_in_model_versioning(self):
+        """Test specialized subclasses remain in model_versioning."""
+        from app.training.model_versioning import (
+            ModelVersioningError,
+            VersionMismatchError,
+            ChecksumMismatchError,
+        )
+
+        assert issubclass(VersionMismatchError, ModelVersioningError)
+        assert issubclass(ChecksumMismatchError, ModelVersioningError)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

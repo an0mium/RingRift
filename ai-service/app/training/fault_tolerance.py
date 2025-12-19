@@ -77,9 +77,20 @@ def retry_with_backoff(
     """
     Decorator that retries a function with exponential backoff.
 
-    NOTE (December 2025): For new code, prefer using:
-        from app.core.error_handler import retry
-    This wrapper is maintained for backward compatibility.
+    .. deprecated:: December 2025
+        For new code, prefer using::
+
+            from app.core.error_handler import retry
+
+        Or for training-specific operations::
+
+            from app.training.exception_integration import (
+                retry_checkpoint_save,
+                retry_training_step,
+                TrainingRetryPolicies,
+            )
+
+        This wrapper is maintained for backward compatibility only.
 
     Args:
         max_retries: Maximum number of retry attempts
@@ -92,14 +103,15 @@ def retry_with_backoff(
 
     Returns:
         Decorated function with retry logic
-
-    Usage:
-        @retry_with_backoff(max_retries=3, base_delay=1.0)
-        def train_step(batch):
-            # May fail due to OOM or other transient errors
-            return model(batch)
     """
     import random
+    import warnings
+    warnings.warn(
+        "retry_with_backoff is deprecated. Use app.core.error_handler.retry "
+        "or app.training.exception_integration.TrainingRetryPolicies instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         def wrapper(*args, **kwargs) -> T:
@@ -151,10 +163,12 @@ def async_retry_with_backoff(
     """
     Async decorator that retries an async function with exponential backoff.
 
-    NOTE (December 2025): For new code, prefer using:
-        from app.core.error_handler import retry_async
-    This wrapper is maintained for backward compatibility.
-    The canonical retry_async now supports circuit_breaker_key.
+    .. deprecated:: December 2025
+        For new code, prefer using::
+
+            from app.core.error_handler import retry_async
+
+        This wrapper is maintained for backward compatibility only.
 
     Args:
         max_retries: Maximum number of retry attempts
@@ -168,15 +182,15 @@ def async_retry_with_backoff(
 
     Returns:
         Decorated async function with retry logic
-
-    Usage:
-        @async_retry_with_backoff(max_retries=3, base_delay=1.0)
-        async def fetch_data(url):
-            async with aiohttp.ClientSession() as session:
-                return await session.get(url)
     """
     import random
     import asyncio
+    import warnings
+    warnings.warn(
+        "async_retry_with_backoff is deprecated. Use app.core.error_handler.retry_async instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     # Try to import circuit breaker
     try:
@@ -1123,7 +1137,13 @@ class FaultTolerantTrainer:
         retry_delay: float = 10.0,
         heartbeat_interval: float = 30.0
     ):
-        self.checkpoint_manager = CheckpointManager(checkpoint_dir)
+        # Create checkpoint manager with config
+        if _HAS_UNIFIED_CHECKPOINT and UnifiedCheckpointConfig is not None:
+            config = UnifiedCheckpointConfig(checkpoint_dir=str(checkpoint_dir))
+            self.checkpoint_manager = CheckpointManager(config)
+        else:
+            # Fallback to legacy checkpoint manager
+            self.checkpoint_manager = CheckpointManager(checkpoint_dir)
         self.checkpoint_interval_steps = checkpoint_interval_steps
         self.checkpoint_interval_epochs = checkpoint_interval_epochs
         self.max_retries = max_retries

@@ -56,6 +56,34 @@ logger = logging.getLogger(__name__)
 # Use shared lazy torch import to prevent OOM in orchestrator processes
 from app.training.utils import get_torch
 
+# Training metrics publishing (December 2025 consolidation)
+try:
+    from app.training.metrics_integration import TrainingMetrics
+    _HAS_TRAINING_METRICS = True
+except ImportError:
+    _HAS_TRAINING_METRICS = False
+    TrainingMetrics = None
+
+# Training event publishing (December 2025 consolidation)
+try:
+    from app.training.event_integration import (
+        publish_step_completed_sync,
+        publish_checkpoint_saved_sync,
+    )
+    _HAS_TRAINING_EVENTS = True
+except ImportError:
+    _HAS_TRAINING_EVENTS = False
+    publish_step_completed_sync = None
+    publish_checkpoint_saved_sync = None
+
+# Distributed locking for cross-node coordination (December 2025)
+try:
+    from app.training.locking_integration import TrainingLocks
+    _HAS_DISTRIBUTED_LOCKS = True
+except ImportError:
+    _HAS_DISTRIBUTED_LOCKS = False
+    TrainingLocks = None
+
 
 # =============================================================================
 # Configuration
@@ -771,6 +799,28 @@ class UnifiedTrainingOrchestrator:
         self._enhancements.update_step()
         self._background_eval.update_step(self._step)
 
+        # Publish training metrics
+        config_key = f"{self.config.board_type}_{self.config.num_players}p"
+        if _HAS_TRAINING_METRICS and TrainingMetrics is not None:
+            lr = self._optimizer.param_groups[0].get("lr", 0.0) if self._optimizer else 0.0
+            TrainingMetrics.step(
+                config_key=config_key,
+                step=self._step,
+                loss=metrics.get("loss", 0.0),
+                learning_rate=lr,
+            )
+
+        # Publish step completed event (every N steps to avoid event flood)
+        if _HAS_TRAINING_EVENTS and self._step % self.config.log_interval == 0:
+            try:
+                publish_step_completed_sync(
+                    config_key=config_key,
+                    step=self._step,
+                    loss=metrics.get("loss", 0.0),
+                )
+            except Exception as e:
+                logger.debug(f"[Orchestrator] Event publish failed: {e}")
+
         # Periodic checkpointing
         if self._step % self.config.checkpoint_interval == 0:
             self._save_checkpoint(metrics)
@@ -799,6 +849,29 @@ class UnifiedTrainingOrchestrator:
         if not self._distributed.is_main_process:
             return
 
+        config_key = f"{self.config.board_type}_{self.config.num_players}p"
+
+        # Use distributed lock for cross-node coordination (December 2025)
+        if _HAS_DISTRIBUTED_LOCKS and TrainingLocks is not None:
+            with TrainingLocks.checkpoint_save(config_key, timeout=120) as lock:
+                if not lock:
+                    logger.warning(
+                        f"[Orchestrator] Could not acquire checkpoint lock for {config_key}, "
+                        f"another node may be saving"
+                    )
+                    return
+                self._save_checkpoint_locked(metrics, config_key)
+        else:
+            # Fallback to unlocked save if distributed locks unavailable
+            self._save_checkpoint_locked(metrics, config_key)
+
+    def _save_checkpoint_locked(self, metrics: Dict[str, float], config_key: str):
+        """Save checkpoint while holding the distributed lock.
+
+        Args:
+            metrics: Training metrics to save
+            config_key: Configuration key for event publishing
+        """
         try:
             # Import from canonical source (fault_tolerance re-exports from checkpoint_unified)
             from app.training.fault_tolerance import TrainingProgress
@@ -814,6 +887,24 @@ class UnifiedTrainingOrchestrator:
                 progress=progress,
                 metrics=metrics,
             )
+
+            # Publish checkpoint metric and event
+            if _HAS_TRAINING_METRICS and TrainingMetrics is not None:
+                TrainingMetrics.checkpoint(
+                    config_key=config_key,
+                    step=self._step,
+                    is_best=False,  # Best checkpoint tracking handled separately
+                )
+            if _HAS_TRAINING_EVENTS and publish_checkpoint_saved_sync is not None:
+                try:
+                    checkpoint_path = str(self._checkpoint._manager._checkpoint_dir) if hasattr(self._checkpoint, '_manager') else ""
+                    publish_checkpoint_saved_sync(
+                        config_key=config_key,
+                        checkpoint_path=checkpoint_path,
+                        step=self._step,
+                    )
+                except Exception as evt_e:
+                    logger.debug(f"[Orchestrator] Checkpoint event publish failed: {evt_e}")
         except Exception as e:
             logger.warning(f"[Orchestrator] Checkpoint save failed: {e}")
 

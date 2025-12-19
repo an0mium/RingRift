@@ -60,6 +60,15 @@ Usage:
 
 from __future__ import annotations
 
+import warnings
+warnings.warn(
+    "app.training.distributed DistributedTrainer is deprecated. "
+    "Use app.training.distributed_unified.UnifiedDistributedTrainer for new code. "
+    "Helper functions (setup_distributed, is_main_process, etc.) remain canonical.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 import logging
 import os
 import socket

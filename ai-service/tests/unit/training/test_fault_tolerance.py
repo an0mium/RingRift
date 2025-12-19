@@ -38,6 +38,7 @@ from app.training.fault_tolerance import (
     FaultTolerantTrainer,
     DistributedFaultHandler,
 )
+from app.training.checkpoint_unified import UnifiedCheckpointConfig
 
 
 class TestRetryWithBackoff:
@@ -339,19 +340,21 @@ class TestCheckpointManager:
     @pytest.fixture
     def manager(self, temp_dir):
         """Create CheckpointManager."""
-        return CheckpointManager(
-            checkpoint_dir=temp_dir / "checkpoints",
+        config = UnifiedCheckpointConfig(
+            checkpoint_dir=str(temp_dir / "checkpoints"),
             max_checkpoints=5,
             keep_best=2,
             keep_every_n_epochs=5,
         )
+        return CheckpointManager(config)
 
     def test_init_creates_directory(self, temp_dir):
         """Test that initialization creates checkpoint directory."""
         ckpt_dir = temp_dir / "new_checkpoints"
         assert not ckpt_dir.exists()
 
-        manager = CheckpointManager(ckpt_dir)
+        config = UnifiedCheckpointConfig(checkpoint_dir=str(ckpt_dir))
+        manager = CheckpointManager(config)
         assert ckpt_dir.exists()
 
     @pytest.mark.skipif(
@@ -449,7 +452,7 @@ class TestCheckpointManager:
 
         # Should have cleaned up old ones
         checkpoints = manager.list_checkpoints()
-        assert len(checkpoints) <= manager.max_checkpoints + manager.keep_best
+        assert len(checkpoints) <= manager.config.max_checkpoints + manager.config.keep_best
 
 
 class TestHeartbeatMonitor:
@@ -539,14 +542,16 @@ class TestGracefulShutdown:
 
     def test_shutdown_requested_initially_false(self, temp_dir):
         """Test that shutdown_requested is initially False."""
-        manager = CheckpointManager(temp_dir / "checkpoints")
+        config = UnifiedCheckpointConfig(checkpoint_dir=str(temp_dir / "checkpoints"))
+        manager = CheckpointManager(config)
         shutdown = GracefulShutdown(manager)
 
         assert not shutdown.shutdown_requested
 
     def test_request_shutdown(self, temp_dir):
         """Test programmatic shutdown request."""
-        manager = CheckpointManager(temp_dir / "checkpoints")
+        config = UnifiedCheckpointConfig(checkpoint_dir=str(temp_dir / "checkpoints"))
+        manager = CheckpointManager(config)
         shutdown = GracefulShutdown(manager)
 
         shutdown.request_shutdown()
@@ -779,13 +784,13 @@ class TestExceptionTypes:
     def test_recoverable_error(self):
         """Test RecoverableError."""
         error = RecoverableError("Temporary failure")
-        assert str(error) == "Temporary failure"
+        assert "Temporary failure" in str(error)
         assert isinstance(error, Exception)
 
     def test_non_recoverable_error(self):
         """Test NonRecoverableError."""
         error = NonRecoverableError("Permanent failure")
-        assert str(error) == "Permanent failure"
+        assert "Permanent failure" in str(error)
         assert isinstance(error, Exception)
 
 
