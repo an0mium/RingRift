@@ -505,3 +505,99 @@ groups:
         annotations:
           summary: 'Multiple circuit breakers OPEN'
           description: '{{ $value }} circuit breakers are currently OPEN - may indicate cluster-wide issue'
+
+      # =========================================================================
+      # Training Anomaly Detection Alerts (2025-12)
+      # =========================================================================
+
+      # High Anomaly Detection Rate
+      - alert: HighAnomalyDetectionRate
+        expr: |
+          increase(ringrift_training_anomalies_total[15m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'High training anomaly rate for {{ $labels.config }}'
+          description: '{{ $value }} anomalies detected in 15 minutes - check for data corruption or model instability'
+
+      # NaN/Inf in Training
+      - alert: NaNInTraining
+        expr: |
+          increase(ringrift_training_anomalies_total{type="nan"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'NaN/Inf detected in training for {{ $labels.config }}'
+          description: 'Training has produced NaN or Inf values - immediate investigation required'
+
+      # Loss Spike Detected
+      - alert: LossSpikesDetected
+        expr: |
+          increase(ringrift_training_anomalies_total{type="spike"}[30m]) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Repeated loss spikes for {{ $labels.config }}'
+          description: '{{ $value }} loss spikes in 30 minutes - may indicate unstable learning rate or data issues'
+
+      # Sustained High Anomaly Rate
+      - alert: SustainedAnomalies
+        expr: |
+          increase(ringrift_training_anomalies_total[1h]) > 50
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Sustained high anomaly rate for {{ $labels.config }}'
+          description: '{{ $value }} anomalies in the last hour - training may be fundamentally unstable'
+
+      # =========================================================================
+      # Gradient Clipping Alerts (2025-12)
+      # =========================================================================
+
+      # Gradient Explosion
+      - alert: GradientExplosion
+        expr: |
+          ringrift_gradient_norm > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Gradient explosion detected for {{ $labels.config }}'
+          description: 'Gradient norm is {{ $value | printf "%.1f" }} - significantly above normal range'
+
+      # Adaptive Clipper at Max
+      - alert: AdaptiveClipperAtMax
+        expr: |
+          ringrift_gradient_clip_norm >= 9.9
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Adaptive clipper at maximum for {{ $labels.config }}'
+          description: 'Gradient clip threshold is at maximum ({{ $value | printf "%.1f" }}) - gradients may be too large'
+
+      # Adaptive Clipper at Min
+      - alert: AdaptiveClipperAtMin
+        expr: |
+          ringrift_gradient_clip_norm <= 0.15
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: 'Adaptive clipper at minimum for {{ $labels.config }}'
+          description: 'Gradient clip threshold is at minimum ({{ $value | printf "%.2f" }}) - may be over-clipping'
+
+      # Gradient Norm Variance High
+      - alert: HighGradientVariance
+        expr: |
+          stddev_over_time(ringrift_gradient_norm[30m]) > 50
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: 'High gradient variance for {{ $labels.config }}'
+          description: 'Gradient norm std dev is {{ $value | printf "%.1f" }} - training may be unstable'

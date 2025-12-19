@@ -1612,6 +1612,14 @@ def train_model(
     # Data validation (2025-12)
     validate_data: bool = True,
     fail_on_invalid_data: bool = False,
+    # Fault tolerance (2025-12)
+    enable_circuit_breaker: bool = True,
+    enable_anomaly_detection: bool = True,
+    gradient_clip_mode: str = 'adaptive',
+    gradient_clip_max_norm: float = 1.0,
+    anomaly_spike_threshold: float = 3.0,
+    anomaly_gradient_threshold: float = 100.0,
+    enable_graceful_shutdown: bool = True,
 ):
     """
     Train the RingRift neural network model.
@@ -2698,34 +2706,48 @@ def train_model(
 
     # Initialize training circuit breaker for fault tolerance (2025-12)
     training_breaker = None
-    if HAS_CIRCUIT_BREAKER and get_training_breaker:
+    if enable_circuit_breaker and HAS_CIRCUIT_BREAKER and get_training_breaker:
         training_breaker = get_training_breaker()
         logger.info("Training circuit breaker enabled for fault tolerance")
+    elif not enable_circuit_breaker:
+        logger.info("Training circuit breaker disabled by configuration")
 
     # Initialize anomaly detector for NaN/Inf detection (2025-12)
     anomaly_detector = None
     anomaly_step = 0  # Track step for anomaly detection
-    if HAS_TRAINING_ENHANCEMENTS and TrainingAnomalyDetector:
+    if enable_anomaly_detection and HAS_TRAINING_ENHANCEMENTS and TrainingAnomalyDetector:
         anomaly_detector = TrainingAnomalyDetector(
-            loss_spike_threshold=3.0,  # 3 std devs for spike detection
-            gradient_norm_threshold=100.0,  # Gradient explosion threshold
+            loss_spike_threshold=anomaly_spike_threshold,
+            gradient_norm_threshold=anomaly_gradient_threshold,
             loss_window_size=100,  # Rolling window for statistics
             halt_on_nan=False,  # Don't halt, let circuit breaker handle
             max_consecutive_anomalies=10,  # Allow some recovery attempts
         )
-        logger.info("Training anomaly detector enabled")
-
-    # Initialize adaptive gradient clipper (2025-12)
-    adaptive_clipper = None
-    if HAS_TRAINING_ENHANCEMENTS and AdaptiveGradientClipper:
-        adaptive_clipper = AdaptiveGradientClipper(
-            initial_max_norm=1.0,
-            percentile=90.0,
-            history_size=100,
-            min_clip=0.1,
-            max_clip=10.0,
+        logger.info(
+            f"Training anomaly detector enabled (spike_threshold={anomaly_spike_threshold}, "
+            f"gradient_threshold={anomaly_gradient_threshold})"
         )
-        logger.info("Adaptive gradient clipping enabled")
+    elif not enable_anomaly_detection:
+        logger.info("Training anomaly detection disabled by configuration")
+
+    # Initialize gradient clipping based on mode (2025-12)
+    adaptive_clipper = None
+    fixed_clip_norm = gradient_clip_max_norm
+    if gradient_clip_mode == 'adaptive':
+        if HAS_TRAINING_ENHANCEMENTS and AdaptiveGradientClipper:
+            adaptive_clipper = AdaptiveGradientClipper(
+                initial_max_norm=gradient_clip_max_norm,
+                percentile=90.0,
+                history_size=100,
+                min_clip=0.1,
+                max_clip=10.0,
+            )
+            logger.info(f"Adaptive gradient clipping enabled (initial_norm={gradient_clip_max_norm})")
+        else:
+            logger.warning("Adaptive gradient clipping requested but not available, using fixed")
+            gradient_clip_mode = 'fixed'
+    if gradient_clip_mode == 'fixed':
+        logger.info(f"Fixed gradient clipping enabled (max_norm={fixed_clip_norm})")
 
     # Mutable training state for graceful shutdown checkpoint (2025-12)
     _training_state = {
@@ -2736,7 +2758,7 @@ def train_model(
 
     # Setup graceful shutdown handler for emergency checkpoints (2025-12)
     shutdown_handler: Optional[GracefulShutdownHandler] = None
-    if not distributed or is_main_process():
+    if enable_graceful_shutdown and (not distributed or is_main_process()):
         def _emergency_checkpoint_callback():
             """Save emergency checkpoint on signal."""
             model_to_save = model.module if distributed else model
@@ -3026,7 +3048,7 @@ def train_model(
                     else:
                         grad_norm = torch.nn.utils.clip_grad_norm_(
                             model.parameters(),
-                            max_norm=1.0,
+                            max_norm=fixed_clip_norm,
                         )
 
                     scaler.step(optimizer)
@@ -3850,6 +3872,54 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         ),
     )
 
+    # Fault tolerance arguments (2025-12)
+    parser.add_argument(
+        '--disable-circuit-breaker',
+        action='store_true',
+        help='Disable training circuit breaker for fault tolerance',
+    )
+    parser.add_argument(
+        '--disable-anomaly-detection',
+        action='store_true',
+        help='Disable training anomaly detection (NaN/Inf, loss spikes)',
+    )
+    parser.add_argument(
+        '--gradient-clip-mode',
+        type=str,
+        default='adaptive',
+        choices=['adaptive', 'fixed'],
+        help=(
+            'Gradient clipping mode: adaptive (dynamic threshold based on '
+            'history) or fixed (constant max_norm=1.0). Default: adaptive'
+        ),
+    )
+    parser.add_argument(
+        '--gradient-clip-max-norm',
+        type=float,
+        default=1.0,
+        help='Max gradient norm for fixed clipping mode (default: 1.0)',
+    )
+    parser.add_argument(
+        '--anomaly-spike-threshold',
+        type=float,
+        default=3.0,
+        help=(
+            'Loss spike detection threshold in standard deviations. '
+            'Higher = less sensitive (default: 3.0)'
+        ),
+    )
+    parser.add_argument(
+        '--anomaly-gradient-threshold',
+        type=float,
+        default=100.0,
+        help='Gradient explosion detection threshold (default: 100.0)',
+    )
+    parser.add_argument(
+        '--disable-graceful-shutdown',
+        action='store_true',
+        help='Disable graceful shutdown handler (emergency checkpoints)',
+    )
+
     # Heuristic CMA-ES optimisation (offline, eval-pool based).
     parser.add_argument(
         '--cmaes-heuristic',
@@ -4183,6 +4253,14 @@ def main():
         enable_auxiliary_tasks=getattr(args, 'enable_auxiliary_tasks', False),
         enable_batch_scheduling=getattr(args, 'enable_batch_scheduling', False),
         enable_background_eval=getattr(args, 'enable_background_eval', False),
+        # Fault tolerance (2025-12)
+        enable_circuit_breaker=not getattr(args, 'disable_circuit_breaker', False),
+        enable_anomaly_detection=not getattr(args, 'disable_anomaly_detection', False),
+        gradient_clip_mode=getattr(args, 'gradient_clip_mode', 'adaptive'),
+        gradient_clip_max_norm=getattr(args, 'gradient_clip_max_norm', 1.0),
+        anomaly_spike_threshold=getattr(args, 'anomaly_spike_threshold', 3.0),
+        anomaly_gradient_threshold=getattr(args, 'anomaly_gradient_threshold', 100.0),
+        enable_graceful_shutdown=not getattr(args, 'disable_graceful_shutdown', False),
     )
 
 

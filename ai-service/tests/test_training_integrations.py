@@ -596,5 +596,227 @@ class TestAuxiliaryTasks(unittest.TestCase):
         self.assertIn("total_aux", breakdown)
 
 
+class TestPerSampleLossTracking(unittest.TestCase):
+    """Tests for per-sample loss tracking infrastructure (2025-12)."""
+
+    def test_compute_per_sample_loss_shape(self) -> None:
+        """Test compute_per_sample_loss returns correct shape."""
+        from app.training.training_enhancements import compute_per_sample_loss
+
+        batch_size = 8
+        num_actions = 64
+
+        policy_logits = torch.randn(batch_size, num_actions)
+        policy_targets = torch.softmax(torch.randn(batch_size, num_actions), dim=-1)
+        value_pred = torch.randn(batch_size)
+        value_targets = torch.randn(batch_size)
+
+        losses = compute_per_sample_loss(
+            policy_logits, policy_targets, value_pred, value_targets
+        )
+
+        self.assertEqual(losses.shape, (batch_size,))
+
+    def test_compute_per_sample_loss_reduction(self) -> None:
+        """Test compute_per_sample_loss reduction modes."""
+        from app.training.training_enhancements import compute_per_sample_loss
+
+        batch_size = 4
+        num_actions = 16
+
+        policy_logits = torch.randn(batch_size, num_actions)
+        policy_targets = torch.softmax(torch.randn(batch_size, num_actions), dim=-1)
+        value_pred = torch.randn(batch_size)
+        value_targets = torch.randn(batch_size)
+
+        # Test mean reduction
+        mean_loss = compute_per_sample_loss(
+            policy_logits, policy_targets, value_pred, value_targets,
+            reduction='mean'
+        )
+        self.assertEqual(mean_loss.shape, ())  # Scalar
+
+        # Test sum reduction
+        sum_loss = compute_per_sample_loss(
+            policy_logits, policy_targets, value_pred, value_targets,
+            reduction='sum'
+        )
+        self.assertEqual(sum_loss.shape, ())  # Scalar
+
+        # Verify mean * batch_size ≈ sum
+        per_sample = compute_per_sample_loss(
+            policy_logits, policy_targets, value_pred, value_targets,
+            reduction='none'
+        )
+        self.assertAlmostEqual(
+            per_sample.sum().item(),
+            sum_loss.item(),
+            places=4
+        )
+
+    def test_per_sample_loss_tracker_record(self) -> None:
+        """Test PerSampleLossTracker records batches correctly."""
+        from app.training.training_enhancements import PerSampleLossTracker
+
+        tracker = PerSampleLossTracker(max_samples=100)
+
+        # Record a batch
+        batch_indices = [0, 1, 2, 3]
+        losses = torch.tensor([1.0, 2.0, 3.0, 4.0])
+        tracker.record_batch(batch_indices, losses, epoch=0, batch_idx=0)
+
+        stats = tracker.get_statistics()
+        self.assertEqual(stats['tracked_samples'], 4)
+        self.assertEqual(stats['total_samples'], 4)
+        self.assertAlmostEqual(stats['mean_loss'], 2.5, places=4)
+
+    def test_per_sample_loss_tracker_hardest_samples(self) -> None:
+        """Test PerSampleLossTracker identifies hardest samples."""
+        from app.training.training_enhancements import PerSampleLossTracker
+
+        tracker = PerSampleLossTracker(max_samples=100)
+
+        # Record samples with known losses
+        batch_indices = [0, 1, 2, 3, 4]
+        losses = torch.tensor([1.0, 5.0, 2.0, 4.0, 3.0])
+        tracker.record_batch(batch_indices, losses, epoch=0)
+
+        # Get hardest 3
+        hardest = tracker.get_hardest_samples(n=3)
+
+        self.assertEqual(len(hardest), 3)
+        # Sample 1 has loss 5.0, should be first
+        self.assertEqual(hardest[0][0], 1)
+        self.assertAlmostEqual(hardest[0][1], 5.0, places=4)
+        # Sample 3 has loss 4.0, should be second
+        self.assertEqual(hardest[1][0], 3)
+
+    def test_per_sample_loss_tracker_lru_eviction(self) -> None:
+        """Test PerSampleLossTracker LRU eviction works."""
+        from app.training.training_enhancements import PerSampleLossTracker
+
+        tracker = PerSampleLossTracker(max_samples=5)
+
+        # Record more samples than max_samples
+        for i in range(10):
+            tracker.record_batch([i], torch.tensor([float(i)]), epoch=0)
+
+        # Should only have max_samples tracked
+        stats = tracker.get_statistics()
+        self.assertLessEqual(stats['tracked_samples'], 5)
+
+
+class TestFaultToleranceCLIConfiguration(unittest.TestCase):
+    """Tests for CLI fault tolerance configuration (2025-12)."""
+
+    def test_fault_tolerance_args_in_parser(self) -> None:
+        """Test that fault tolerance CLI arguments exist in parser."""
+        from app.training.train import parse_args
+
+        # Parse with fault tolerance args - should not raise
+        args = parse_args([
+            '--data-path', '/tmp/test.npz',
+            '--disable-circuit-breaker',
+            '--disable-anomaly-detection',
+            '--gradient-clip-mode', 'fixed',
+            '--gradient-clip-max-norm', '2.0',
+            '--anomaly-spike-threshold', '4.0',
+            '--anomaly-gradient-threshold', '200.0',
+            '--disable-graceful-shutdown',
+        ])
+
+        # Verify all fault tolerance args were parsed
+        self.assertTrue(args.disable_circuit_breaker)
+        self.assertTrue(args.disable_anomaly_detection)
+        self.assertEqual(args.gradient_clip_mode, 'fixed')
+        self.assertEqual(args.gradient_clip_max_norm, 2.0)
+        self.assertEqual(args.anomaly_spike_threshold, 4.0)
+        self.assertEqual(args.anomaly_gradient_threshold, 200.0)
+        self.assertTrue(args.disable_graceful_shutdown)
+
+    def test_fault_tolerance_defaults(self) -> None:
+        """Test default values for fault tolerance args."""
+        from app.training.train import parse_args
+
+        args = parse_args(['--data-path', '/tmp/test.npz'])
+
+        # Verify defaults (fault tolerance enabled by default)
+        self.assertFalse(args.disable_circuit_breaker)
+        self.assertFalse(args.disable_anomaly_detection)
+        self.assertEqual(args.gradient_clip_mode, 'adaptive')
+        self.assertEqual(args.gradient_clip_max_norm, 1.0)
+        self.assertEqual(args.anomaly_spike_threshold, 3.0)
+        self.assertEqual(args.anomaly_gradient_threshold, 100.0)
+        self.assertFalse(args.disable_graceful_shutdown)
+
+    def test_gradient_clip_mode_choices(self) -> None:
+        """Test gradient clip mode only accepts valid choices."""
+        from app.training.train import parse_args
+
+        # Valid choices should work
+        for mode in ['adaptive', 'fixed']:
+            args = parse_args([
+                '--data-path', '/tmp/test.npz',
+                '--gradient-clip-mode', mode,
+            ])
+            self.assertEqual(args.gradient_clip_mode, mode)
+
+        # Invalid choice should raise
+        with self.assertRaises(SystemExit):
+            parse_args([
+                '--data-path', '/tmp/test.npz',
+                '--gradient-clip-mode', 'invalid',
+            ])
+
+
+class TestDistributedFaultTolerance(unittest.TestCase):
+    """Tests for fault tolerance in distributed training context (2025-12)."""
+
+    def test_train_model_signature_has_fault_tolerance_params(self) -> None:
+        """Test that train_model function accepts fault tolerance parameters."""
+        import inspect
+        from app.training.train import train_model
+
+        sig = inspect.signature(train_model)
+        params = sig.parameters
+
+        # Check all fault tolerance parameters exist
+        self.assertIn('enable_circuit_breaker', params)
+        self.assertIn('enable_anomaly_detection', params)
+        self.assertIn('gradient_clip_mode', params)
+        self.assertIn('gradient_clip_max_norm', params)
+        self.assertIn('anomaly_spike_threshold', params)
+        self.assertIn('anomaly_gradient_threshold', params)
+        self.assertIn('enable_graceful_shutdown', params)
+
+        # Check defaults are correct
+        self.assertEqual(params['enable_circuit_breaker'].default, True)
+        self.assertEqual(params['enable_anomaly_detection'].default, True)
+        self.assertEqual(params['gradient_clip_mode'].default, 'adaptive')
+        self.assertEqual(params['gradient_clip_max_norm'].default, 1.0)
+        self.assertEqual(params['anomaly_spike_threshold'].default, 3.0)
+        self.assertEqual(params['anomaly_gradient_threshold'].default, 100.0)
+        self.assertEqual(params['enable_graceful_shutdown'].default, True)
+
+    def test_graceful_shutdown_handler_for_distributed(self) -> None:
+        """Test GracefulShutdownHandler works in simulated distributed context."""
+        from app.training.train import GracefulShutdownHandler
+
+        handler = GracefulShutdownHandler()
+
+        # Test setup and teardown don't raise
+        callback_called = []
+        def test_callback():
+            callback_called.append(True)
+
+        handler.setup(test_callback)
+        self.assertFalse(handler.shutdown_requested)
+
+        handler.teardown()
+
+        # Callback should not be called without signal
+        self.assertEqual(len(callback_called), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
