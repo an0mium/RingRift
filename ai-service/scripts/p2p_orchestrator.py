@@ -4657,6 +4657,105 @@ class P2POrchestrator:
                 logger.info(f"Tailscale IP update loop error: {e}")
                 await asyncio.sleep(60)
 
+    async def _tailscale_peer_recovery_loop(self):
+        """Proactively discover and connect to all Tailscale nodes.
+
+        LEARNED LESSONS: Cross-cloud nodes (Lambda, Vast, Hetzner) can lose
+        connectivity intermittently. This loop ensures all nodes stay in the
+        P2P network by:
+        1. Running `tailscale status --json` to find all online nodes
+        2. Attempting to connect to nodes not in the peer list
+        3. Retrying dead/stale nodes more aggressively
+        """
+        import json
+        import subprocess
+
+        logger.info("Tailscale peer recovery loop started (interval=120s)")
+
+        # Patterns for compute nodes we want in the P2P network
+        COMPUTE_PATTERNS = [
+            "lambda-", "vast-", "gh200", "h100", "a100", "a10",
+            "192-222-", "aws-",  # Lambda public IPs and AWS nodes
+        ]
+
+        while self.running:
+            try:
+                await asyncio.sleep(120)  # Every 2 minutes
+
+                # Skip if not leader (only leader needs full mesh)
+                if self.role != "leader":
+                    continue
+
+                # Get current peer node_ids
+                current_peers = set()
+                with self.peers_lock:
+                    current_peers = {p.node_id for p in self.peers.values()}
+
+                # Get Tailscale peers
+                try:
+                    result = subprocess.run(
+                        ["tailscale", "status", "--json"],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    if result.returncode != 0:
+                        continue
+                    ts_data = json.loads(result.stdout)
+                except Exception as e:
+                    logger.debug(f"Tailscale status failed: {e}")
+                    continue
+
+                # Find compute nodes not in P2P network
+                missing_nodes = []
+                for peer_id, peer_info in ts_data.get("Peer", {}).items():
+                    hostname = peer_info.get("HostName", "").lower()
+                    online = peer_info.get("Online", False)
+                    ts_ips = peer_info.get("TailscaleIPs", [])
+
+                    if not online or not ts_ips:
+                        continue
+
+                    # Check if this is a compute node
+                    is_compute = any(pat in hostname for pat in COMPUTE_PATTERNS)
+                    if not is_compute:
+                        continue
+
+                    # Check if already in P2P network
+                    if hostname in current_peers or hostname.replace("-", "_") in current_peers:
+                        continue
+
+                    # Also check by IP prefix
+                    ip = ts_ips[0] if ts_ips else ""
+                    ip_based_id = ip.replace(".", "-")
+                    if ip_based_id in current_peers:
+                        continue
+
+                    missing_nodes.append((hostname, ip))
+
+                if missing_nodes:
+                    logger.info(f"Tailscale peer recovery: {len(missing_nodes)} compute nodes not in P2P network")
+                    for hostname, ip in missing_nodes[:10]:  # Limit to 10 per cycle
+                        logger.info(f"  Attempting to connect: {hostname} ({ip})")
+                        try:
+                            # Try to establish connection via heartbeat
+                            url = f"http://{ip}:{DEFAULT_PORT}/health"
+                            timeout = ClientTimeout(total=10)
+                            async with get_client_session(timeout) as session:
+                                async with session.get(url) as resp:
+                                    if resp.status == 200:
+                                        data = await resp.json()
+                                        node_id = data.get("node_id", hostname)
+                                        logger.info(f"  Connected to {node_id}, sending join request")
+                                        # Send heartbeat to register
+                                        await self._send_heartbeat_to_peer(ip, DEFAULT_PORT)
+                        except Exception as e:
+                            logger.debug(f"  Failed to connect to {hostname}: {e}")
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Tailscale peer recovery loop error: {e}")
+                await asyncio.sleep(60)
+
     async def _convert_jsonl_to_db(self, data_dir: Path, games_dir: Path) -> int:
         """Convert JSONL selfplay files to SQLite DB format for training.
 
@@ -27052,6 +27151,9 @@ print(json.dumps({{
             tasks.append(asyncio.create_task(self._vast_ip_update_loop()))
             tasks.append(asyncio.create_task(self._aws_ip_update_loop()))
             tasks.append(asyncio.create_task(self._tailscale_ip_update_loop()))
+
+        # Peer recovery loop - ensures all Tailscale nodes stay in P2P network
+        tasks.append(asyncio.create_task(self._tailscale_peer_recovery_loop()))
 
         # Add automatic data management loop (export triggers, training triggers, data sync)
         tasks.append(asyncio.create_task(self._data_management_loop()))

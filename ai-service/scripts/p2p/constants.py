@@ -29,7 +29,9 @@ except ImportError:
 
 DEFAULT_PORT = 8770
 HEARTBEAT_INTERVAL = 30  # seconds
-PEER_TIMEOUT = 90  # seconds without heartbeat = node considered dead
+# LEARNED LESSONS: Increased from 90s to 180s - cross-cloud network latency
+# between Lambda, Vast, Hetzner can cause intermittent connectivity
+PEER_TIMEOUT = 180  # seconds without heartbeat = node considered dead
 ELECTION_TIMEOUT = 10  # seconds to wait for election responses
 
 # Leader lease must be comfortably larger than the heartbeat cadence
@@ -123,8 +125,8 @@ GPU_POWER_RANKINGS = {
 
 HTTP_CONNECT_TIMEOUT = 10  # Fast timeout for connection phase
 HTTP_TOTAL_TIMEOUT = 30    # Total request timeout
-MAX_CONSECUTIVE_FAILURES = 3  # Mark node dead after 3 failures
-RETRY_DEAD_NODE_INTERVAL = 300  # Retry dead nodes every 5 minutes
+MAX_CONSECUTIVE_FAILURES = 5  # Mark node dead after 5 failures (increased from 3)
+RETRY_DEAD_NODE_INTERVAL = 120  # Retry dead nodes every 2 minutes (reduced from 5)
 
 # Peer lifecycle
 PEER_RETIRE_AFTER_SECONDS = int(os.environ.get("RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS", "3600") or 3600)
