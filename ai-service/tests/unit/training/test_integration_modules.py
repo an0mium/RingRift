@@ -965,5 +965,289 @@ class TestModelVersioningExceptions:
         assert issubclass(ChecksumMismatchError, ModelVersioningError)
 
 
+# =============================================================================
+# Regression Detector Tests
+# =============================================================================
+
+class TestRegressionDetector:
+    """Tests for app.training.regression_detector."""
+
+    def test_regression_severity_enum(self):
+        """Test RegressionSeverity enum values."""
+        from app.training.regression_detector import RegressionSeverity
+
+        assert RegressionSeverity.MINOR.value == "minor"
+        assert RegressionSeverity.MODERATE.value == "moderate"
+        assert RegressionSeverity.SEVERE.value == "severe"
+        assert RegressionSeverity.CRITICAL.value == "critical"
+
+    def test_get_regression_detector_singleton(self):
+        """Test get_regression_detector returns singleton."""
+        from app.training.regression_detector import (
+            get_regression_detector,
+            _detector_instance,
+        )
+
+        # Reset singleton for test isolation
+        import app.training.regression_detector as rd
+        rd._detector_instance = None
+
+        detector1 = get_regression_detector()
+        detector2 = get_regression_detector()
+
+        assert detector1 is detector2
+
+        # Cleanup
+        rd._detector_instance = None
+
+    def test_check_regression_no_regression(self):
+        """Test check_regression returns None when no regression."""
+        from app.training.regression_detector import RegressionDetector
+
+        detector = RegressionDetector()
+
+        event = detector.check_regression(
+            model_id="test_model",
+            current_elo=1550,
+            baseline_elo=1500,  # Improvement, not regression
+            current_win_rate=0.55,
+            baseline_win_rate=0.50,
+            games_played=100,
+        )
+
+        assert event is None  # No regression detected
+
+    def test_check_regression_minor(self):
+        """Test check_regression detects minor regression."""
+        from app.training.regression_detector import (
+            RegressionDetector,
+            RegressionSeverity,
+        )
+
+        detector = RegressionDetector()
+
+        event = detector.check_regression(
+            model_id="test_model",
+            current_elo=1480,
+            baseline_elo=1500,  # -20 Elo (minor)
+            current_win_rate=0.48,
+            baseline_win_rate=0.50,
+            games_played=100,
+        )
+
+        assert event is not None
+        assert event.severity == RegressionSeverity.MINOR
+
+    def test_check_regression_critical(self):
+        """Test check_regression detects critical regression."""
+        from app.training.regression_detector import (
+            RegressionDetector,
+            RegressionConfig,
+            RegressionSeverity,
+        )
+
+        config = RegressionConfig(
+            elo_drop_minor=10,
+            elo_drop_moderate=25,
+            elo_drop_severe=50,
+            elo_drop_critical=75,
+        )
+        detector = RegressionDetector(config)
+
+        event = detector.check_regression(
+            model_id="test_model",
+            current_elo=1400,
+            baseline_elo=1500,  # -100 Elo (critical)
+            current_win_rate=0.35,
+            baseline_win_rate=0.50,
+            games_played=100,
+        )
+
+        assert event is not None
+        assert event.severity == RegressionSeverity.CRITICAL
+
+    def test_add_listener(self):
+        """Test adding and notifying listeners."""
+        from app.training.regression_detector import (
+            RegressionDetector,
+            RegressionListener,
+            RegressionEvent,
+        )
+
+        class TestListener(RegressionListener):
+            def __init__(self):
+                self.events = []
+
+            def on_regression(self, event: RegressionEvent) -> None:
+                self.events.append(event)
+
+        detector = RegressionDetector()
+        listener = TestListener()
+        detector.add_listener(listener)
+
+        # Trigger a regression
+        detector.check_regression(
+            model_id="test_model",
+            current_elo=1400,
+            baseline_elo=1500,
+            games_played=100,
+        )
+
+        assert len(listener.events) == 1
+        assert listener.events[0].model_id == "test_model"
+
+
+# =============================================================================
+# Feedback Accelerator Tests
+# =============================================================================
+
+class TestFeedbackAccelerator:
+    """Tests for app.training.feedback_accelerator."""
+
+    def test_feedback_state_dataclass(self):
+        """Test FeedbackState dataclass."""
+        from app.training.feedback_accelerator import FeedbackState
+
+        state = FeedbackState()
+        assert state.consecutive_promotions == 0
+        assert state.plateau_count == 0
+        assert state.momentum == 0.0
+
+    def test_get_feedback_accelerator_singleton(self):
+        """Test get_feedback_accelerator returns singleton."""
+        from app.training.feedback_accelerator import get_feedback_accelerator
+
+        accel1 = get_feedback_accelerator()
+        accel2 = get_feedback_accelerator()
+
+        assert accel1 is accel2
+
+    def test_record_promotion_updates_state(self):
+        """Test recording a promotion updates feedback state."""
+        from app.training.feedback_accelerator import get_feedback_accelerator
+
+        accel = get_feedback_accelerator()
+
+        initial_promotions = accel.get_state("square8_2p").consecutive_promotions
+
+        accel.record_promotion("square8_2p", elo_gain=30.0)
+
+        state = accel.get_state("square8_2p")
+        assert state.consecutive_promotions == initial_promotions + 1
+        assert state.momentum > 0
+
+    def test_get_acceleration_factor(self):
+        """Test acceleration factor calculation."""
+        from app.training.feedback_accelerator import get_feedback_accelerator
+
+        accel = get_feedback_accelerator()
+
+        # Initial factor should be near 1.0
+        factor = accel.get_acceleration_factor("square8_2p")
+        assert 0.5 <= factor <= 2.0
+
+
+# =============================================================================
+# Quality Bridge Tests
+# =============================================================================
+
+class TestQualityBridge:
+    """Tests for app.training.quality_bridge."""
+
+    def test_quality_bridge_import(self):
+        """Test quality_bridge can be imported."""
+        from app.training.quality_bridge import (
+            QualityBridge,
+            get_quality_bridge,
+        )
+
+        assert QualityBridge is not None
+        assert get_quality_bridge is not None
+
+    def test_get_quality_bridge_singleton(self):
+        """Test get_quality_bridge returns singleton."""
+        from app.training.quality_bridge import (
+            get_quality_bridge,
+            reset_quality_bridge,
+        )
+
+        reset_quality_bridge()
+
+        bridge1 = get_quality_bridge()
+        bridge2 = get_quality_bridge()
+
+        assert bridge1 is bridge2
+
+        reset_quality_bridge()
+
+    def test_quality_score_range(self):
+        """Test quality score is in valid range."""
+        from app.training.quality_bridge import get_quality_bridge, reset_quality_bridge
+
+        reset_quality_bridge()
+        bridge = get_quality_bridge()
+
+        # Get default quality score
+        score = bridge.get_quality_score("square8_2p")
+
+        # Should be between 0 and 1
+        assert 0.0 <= score <= 1.0
+
+        reset_quality_bridge()
+
+
+# =============================================================================
+# Unified Signals Integration Tests
+# =============================================================================
+
+class TestUnifiedSignalsIntegration:
+    """Integration tests for unified_signals with other modules."""
+
+    def test_signal_computer_factory(self):
+        """Test get_signal_computer factory."""
+        from app.training.unified_signals import (
+            get_signal_computer,
+            reset_signal_computer,
+        )
+
+        reset_signal_computer()
+
+        computer1 = get_signal_computer()
+        computer2 = get_signal_computer()
+
+        assert computer1 is computer2
+
+        reset_signal_computer()
+
+    def test_compute_signals_basic(self):
+        """Test basic signal computation."""
+        from app.training.unified_signals import get_signal_computer, reset_signal_computer
+
+        reset_signal_computer()
+        computer = get_signal_computer()
+
+        signals = computer.compute_signals(
+            current_games=100,
+            current_elo=1500,
+            config_key="square8_2p",
+        )
+
+        assert signals is not None
+        assert hasattr(signals, 'urgency')
+        assert hasattr(signals, 'elo_trend')
+
+        reset_signal_computer()
+
+    def test_urgency_levels(self):
+        """Test TrainingUrgency enum values."""
+        from app.training.unified_signals import TrainingUrgency
+
+        assert TrainingUrgency.CRITICAL.value == "critical"
+        assert TrainingUrgency.HIGH.value == "high"
+        assert TrainingUrgency.NORMAL.value == "normal"
+        assert TrainingUrgency.LOW.value == "low"
+        assert TrainingUrgency.NONE.value == "none"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
