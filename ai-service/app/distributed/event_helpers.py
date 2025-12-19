@@ -1,5 +1,23 @@
 """Event Bus Helper Module - Consolidated event handling utilities.
 
+DEPRECATION NOTICE (December 2025):
+    This module provides direct access to the EventBus (data_events.py).
+    For new code, prefer the unified event router which consolidates all
+    3 event systems (EventBus, StageEventBus, CrossProcessEventQueue):
+
+        from app.coordination import (
+            get_event_router,
+            router_publish_event,  # async
+            publish_event_sync,    # sync
+            subscribe_event,
+        )
+
+    Or use the safe wrappers in this module with use_router=True:
+
+        await emit_event_safe("MODEL_PROMOTED", payload, source, use_router=True)
+
+    Migration guide: docs/CONSOLIDATION_STATUS_2025_12_19.md
+
 This module provides safe, reusable event bus functions to eliminate duplicate
 try/except import patterns found across 17+ scripts in the codebase.
 
@@ -73,6 +91,46 @@ try:
 except ImportError:
     pass
 
+# Try to import the unified event router (December 2025)
+_HAS_EVENT_ROUTER = False
+_get_router = None
+_router_publish = None
+
+try:
+    from app.coordination.event_router import (
+        get_router as _get_router_impl,
+        publish as _router_publish_impl,
+    )
+    _HAS_EVENT_ROUTER = True
+    _get_router = _get_router_impl
+    _router_publish = _router_publish_impl
+except ImportError:
+    pass
+
+# Global setting to prefer router for all emissions (December 2025)
+# Set to True to route all events through the unified router
+USE_ROUTER_BY_DEFAULT = False
+
+
+def has_event_router() -> bool:
+    """Check if the unified event router is available.
+
+    Returns:
+        True if app.coordination.event_router is importable, False otherwise.
+    """
+    return _HAS_EVENT_ROUTER
+
+
+def set_use_router_by_default(use_router: bool) -> None:
+    """Set whether to use the unified router by default for all emissions.
+
+    Args:
+        use_router: If True, all emit_*_safe functions will route through
+                    the unified event router instead of directly to EventBus.
+    """
+    global USE_ROUTER_BY_DEFAULT
+    USE_ROUTER_BY_DEFAULT = use_router
+
 
 def has_event_bus() -> bool:
     """Check if the event bus module is available.
@@ -140,7 +198,8 @@ def create_event(
 async def emit_event_safe(
     event_type: str,
     payload: Dict[str, Any],
-    source: str = ""
+    source: str = "",
+    use_router: Optional[bool] = None,
 ) -> bool:
     """Safely emit an event, handling unavailable event bus gracefully.
 
@@ -148,10 +207,27 @@ async def emit_event_safe(
         event_type: Event type name (will look up in DataEventType enum)
         payload: Event payload dictionary
         source: Source component name
+        use_router: If True, route through unified event router (recommended).
+                    If None, uses USE_ROUTER_BY_DEFAULT setting.
+                    If False, uses EventBus directly (legacy).
 
     Returns:
         True if event was emitted successfully, False otherwise.
     """
+    # Determine whether to use router
+    should_use_router = use_router if use_router is not None else USE_ROUTER_BY_DEFAULT
+
+    # Try unified router first if requested (December 2025)
+    if should_use_router and _HAS_EVENT_ROUTER and _router_publish is not None:
+        try:
+            await _router_publish(event_type, payload, source)
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to emit event via router {event_type}: {e}")
+            # Fall back to direct bus if router fails
+            logger.debug(f"Falling back to direct EventBus for {event_type}")
+
+    # Direct EventBus path (legacy)
     bus = get_event_bus_safe()
     if bus is None:
         logger.debug(f"Event bus unavailable, dropping event: {event_type}")
@@ -653,3 +729,41 @@ def emit_sync(
 DataEventType = _DataEventType
 DataEvent = _DataEvent
 EventBus = _EventBus
+
+# Router-related exports (December 2025)
+__all__ = [
+    # Availability checks
+    "has_event_bus",
+    "has_event_router",
+    # Configuration
+    "USE_ROUTER_BY_DEFAULT",
+    "set_use_router_by_default",
+    # Core functions
+    "get_event_bus_safe",
+    "get_event_types",
+    "create_event",
+    "emit_event_safe",
+    "subscribe_safe",
+    # Convenience emitters
+    "emit_model_promoted_safe",
+    "emit_training_completed_safe",
+    "emit_evaluation_completed_safe",
+    "emit_error_safe",
+    "emit_elo_updated_safe",
+    "emit_new_games_safe",
+    "emit_training_started_safe",
+    "emit_training_failed_safe",
+    # Quality events
+    "emit_quality_score_updated_safe",
+    "emit_quality_distribution_changed_safe",
+    "emit_high_quality_data_available_safe",
+    "emit_low_quality_data_warning_safe",
+    # Tier events
+    "emit_tier_promotion_safe",
+    # Sync wrapper
+    "emit_sync",
+    # Re-exports
+    "DataEventType",
+    "DataEvent",
+    "EventBus",
+]

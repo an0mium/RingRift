@@ -1,7 +1,7 @@
 # RingRift AI-Service Consolidation Status
 
 **Date:** December 19, 2025
-**Status:** Phase 3 Complete (All priority consolidation done)
+**Status:** Phase 4 Complete (Event System Audit + Unit Tests)
 
 ---
 
@@ -66,9 +66,10 @@
 
 ## Open Gaps / Risks
 
-- Unified module tests referenced in prior notes are not present in repo.
+- ~~Unified module tests referenced in prior notes are not present in repo.~~ ✓ **RESOLVED**: Added tests in Phase 4
 - `tests/test_model_registry.py` and `tests/test_promotion_controller.py` were removed;
-  replacement coverage is still needed.
+  replacement coverage partially addressed by `test_unified_model_store.py`
+- 63 files still import directly from `data_events.py` - gradual migration recommended
 
 ---
 
@@ -149,24 +150,125 @@
 
 ---
 
+## Phase 4 Consolidation Work (December 19, 2025)
+
+### 18. Unit Tests for Unified Modules ✓
+
+Added comprehensive test files for unified modules:
+
+- **`tests/unit/training/test_unified_model_store.py`** (43 tests)
+  - Import verification for unified API
+  - Import verification for legacy re-exports
+  - `ModelStoreStage` enum tests
+  - `ModelInfo` dataclass creation and serialization
+  - Singleton pattern verification
+  - Interface method presence checks
+
+- **`tests/unit/training/test_unified_data_validator.py`**
+  - Import verification for unified API
+  - Legacy re-exports (DataValidator, validate_npz_file)
+  - Territory validation re-exports
+  - Parity validation re-exports
+  - `ValidationType` and `ValidationSeverity` enums
+  - `UnifiedValidationResult` creation, issue tracking, serialization
+  - Singleton pattern verification
+
+- **`tests/unit/coordination/test_coordinator_base.py`**
+  - Import verification for enums, protocols, base classes, mixins
+  - `CoordinatorStatus` enum values
+  - `CoordinatorStats` dataclass defaults and serialization
+  - `get_all_coordinators()` and `get_coordinator_statuses()` helpers
+  - `CoordinatorRegistry` singleton pattern
+  - Health summary generation
+
+### 19. Event System Audit ✓
+
+**Findings:**
+
+- **73 files** reference EventBus/publish_event/emit_event patterns
+- **63 files** import directly from `data_events.py` (bypassing unified router)
+- **Only 4 files** explicitly import from `event_router.py`
+
+**Actions Taken:**
+
+1. Added deprecation notice to `app/distributed/event_helpers.py` pointing to unified router
+2. Added router integration to `event_helpers.py`:
+   - `has_event_router()` - check if router is available
+   - `set_use_router_by_default(bool)` - global switch
+   - `USE_ROUTER_BY_DEFAULT` - configuration flag
+   - Updated `emit_event_safe()` with `use_router` parameter
+3. Router integration falls back to direct EventBus if router fails
+4. Added `__all__` exports for all public functions
+
+**Migration Path:**
+
+```python
+# Option 1: Use unified router directly (recommended for new code)
+from app.coordination import (
+    get_event_router,
+    router_publish_event,  # async
+    publish_event_sync,    # sync
+)
+
+# Option 2: Use event_helpers with router (gradual migration)
+from app.distributed.event_helpers import (
+    emit_event_safe,
+    set_use_router_by_default,
+)
+set_use_router_by_default(True)  # Route all events through router
+await emit_event_safe("MODEL_PROMOTED", payload, source)
+
+# Option 3: Per-call router opt-in
+await emit_event_safe("MODEL_PROMOTED", payload, source, use_router=True)
+```
+
+### 20. Import Migration Updates ✓
+
+Updated imports in key files to use unified modules:
+
+- `app/training/train.py` - migrated to use `unified_data_validator`
+- `app/training/data_pipeline_controller.py` - migrated imports
+- `app/training/hot_data_buffer.py` - migrated imports
+
+### 21. Deprecation Warnings ✓
+
+Added runtime `DeprecationWarning` to legacy modules:
+
+- `app/training/checkpointing.py` - warns on import
+- `app/training/data_validation.py` - warns on import
+- `app/distributed/__init__.py` - warns on legacy symbol access
+
+---
+
 ## Recommended Next Steps (Priority Order)
 
-### Priority 1: Integration Verification
+### Priority 1: Integration Verification ✓ (Completed)
 
-#### 1.1 Verify Unified Module Usage
+#### 1.1 Verify Unified Module Usage ✓
 
-Check that new unified modules are used instead of old:
+- `checkpoint_unified.py` vs `checkpointing.py` ✓ (deprecation notice added)
+- `unified_data_validator.py` vs `data_validation.py` ✓ (deprecation + re-exports)
+- `unified_model_store.py` vs `model_registry.py` ✓ (deprecation + re-exports)
+
+#### 1.2 Event System Unification ✓
+
+- Added router integration to `event_helpers.py` ✓
+- Added `use_router` parameter to `emit_event_safe()` ✓
+- Added global `USE_ROUTER_BY_DEFAULT` switch ✓
+
+### Priority 2: Remaining Consolidation
+
+#### 2.1 Migrate Remaining Direct EventBus Imports
+
+63 files still import directly from `data_events.py`. Consider:
+
+- Enabling `USE_ROUTER_BY_DEFAULT = True` in production
+- Gradually migrating high-traffic emitters to use router
+
+#### 2.2 Orchestrator Unification
 
 - `unified_orchestrator.py` vs `train_loop.py`
-- `checkpoint_unified.py` vs `checkpointing.py` ✓ (deprecation notice added)
 - `distributed_unified.py` vs `distributed.py`
-
-#### 1.2 Event System Unification
-
-Verify all event emission uses unified router:
-
-- Check `app/distributed/event_helpers.py`
-- Update old emitters to use `coordination.event_router`
 
 ---
 
