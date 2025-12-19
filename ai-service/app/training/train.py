@@ -2791,6 +2791,12 @@ def train_model(
         shutdown_handler = GracefulShutdownHandler()
         shutdown_handler.setup(_emergency_checkpoint_callback)
 
+    # Track last good checkpoint for rollback on circuit breaker (2025-12)
+    _last_good_checkpoint_path: Optional[str] = None
+    _last_good_epoch: int = start_epoch
+    _circuit_breaker_rollbacks: int = 0
+    _max_circuit_breaker_rollbacks: int = 3  # Max rollbacks before giving up
+
     try:
         for epoch in range(start_epoch, config.epochs_per_iter):
             # Circuit breaker check - skip training if circuit is open (2025-12)
@@ -2799,6 +2805,33 @@ def train_model(
                 # Update circuit breaker state metric (1=open)
                 if HAS_PROMETHEUS and CIRCUIT_BREAKER_STATE and (not distributed or is_main_process()):
                     CIRCUIT_BREAKER_STATE.labels(config=config_label, operation='training_epoch').set(1)
+
+                # Attempt checkpoint rollback if we have a good checkpoint (2025-12)
+                if _last_good_checkpoint_path and _circuit_breaker_rollbacks < _max_circuit_breaker_rollbacks:
+                    _circuit_breaker_rollbacks += 1
+                    logger.warning(
+                        f"Circuit breaker rollback {_circuit_breaker_rollbacks}/{_max_circuit_breaker_rollbacks}: "
+                        f"restoring checkpoint from epoch {_last_good_epoch}"
+                    )
+                    try:
+                        # Load the last good checkpoint
+                        loaded_epoch, loaded_loss = load_checkpoint(
+                            _last_good_checkpoint_path, model, optimizer, device, scheduler=epoch_scheduler
+                        )
+                        logger.info(f"Rollback successful: restored to epoch {loaded_epoch}, loss {loaded_loss:.4f}")
+
+                        # Reduce learning rate by 50% to stabilize training
+                        for param_group in optimizer.param_groups:
+                            old_lr = param_group['lr']
+                            param_group['lr'] = old_lr * 0.5
+                            logger.info(f"Reduced learning rate: {old_lr:.2e} -> {param_group['lr']:.2e}")
+
+                        # Reset circuit breaker to allow retry
+                        if training_breaker:
+                            training_breaker.record_success("training_epoch")
+                    except Exception as e:
+                        logger.error(f"Rollback failed: {e}")
+
                 time.sleep(10.0)  # Brief pause before retry
                 continue
 
@@ -3098,15 +3131,30 @@ def train_model(
                     anomaly_step += 1
                     if anomaly_detector.check_loss(loss_val, anomaly_step):
                         anomaly_summary = anomaly_detector.get_summary()
+                        consecutive = anomaly_summary.get('consecutive_anomalies', 0)
                         logger.warning(
                             f"Training anomaly detected at batch {i}: "
                             f"total={anomaly_summary.get('total_anomalies', 0)}, "
-                            f"consecutive={anomaly_summary.get('consecutive_anomalies', 0)}"
+                            f"consecutive={consecutive}"
                         )
                         # Update Prometheus anomaly counter
                         if HAS_PROMETHEUS and ANOMALY_DETECTIONS and (not distributed or is_main_process()):
                             anomaly_type = 'nan' if loss_val != loss_val else 'spike'  # NaN != NaN
                             ANOMALY_DETECTIONS.labels(config=config_label, type=anomaly_type).inc()
+
+                        # Auto-reduce learning rate on repeated anomalies (2025-12)
+                        # Reduce by 30% after 3 consecutive anomalies (before circuit breaker)
+                        if consecutive >= 3 and consecutive % 3 == 0:
+                            for param_group in optimizer.param_groups:
+                                old_lr = param_group['lr']
+                                new_lr = old_lr * 0.7
+                                param_group['lr'] = new_lr
+                                if not distributed or is_main_process():
+                                    logger.warning(
+                                        f"Auto-reduced LR due to {consecutive} consecutive anomalies: "
+                                        f"{old_lr:.2e} -> {new_lr:.2e}"
+                                    )
+
                         # Record failure with circuit breaker
                         if training_breaker:
                             training_breaker.record_failure("training_epoch")
@@ -3464,6 +3512,9 @@ def train_model(
                             scheduler=epoch_scheduler,
                             early_stopping=early_stopper,
                         )
+                    # Track for circuit breaker rollback (2025-12)
+                    _last_good_checkpoint_path = checkpoint_path
+                    _last_good_epoch = epoch
 
             # Save best model (only on main process)
             if avg_val_loss < best_val_loss:
