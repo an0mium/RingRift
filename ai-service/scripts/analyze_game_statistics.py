@@ -813,10 +813,10 @@ def fix_jsonl_in_place(
                 # Check if any normalization was applied
                 was_modified = False
                 update_fields = ["board_type", "num_players", "victory_type"]
-                for field in update_fields:
-                    if field in normalized and normalized[field] != game.get(field):
+                for field_name in update_fields:
+                    if field_name in normalized and normalized[field_name] != game.get(field_name):
                         was_modified = True
-                        game[field] = normalized[field]
+                        game[field_name] = normalized[field_name]
 
                 if was_modified:
                     modified_count += 1
@@ -896,10 +896,10 @@ def clean_jsonl_file(
 
                 # Check if normalization changed anything
                 was_fixed = False
-                for field in ["board_type", "num_players", "victory_type"]:
-                    if field in normalized and normalized[field] != game.get(field):
+                for field_name in ["board_type", "num_players", "victory_type"]:
+                    if field_name in normalized and normalized[field_name] != game.get(field_name):
                         was_fixed = True
-                        game[field] = normalized[field]
+                        game[field_name] = normalized[field_name]
 
                 if was_fixed:
                     result.fixed_records += 1

@@ -192,9 +192,16 @@ become HPC-like once you add a scheduler and enforce stable allocations.
 ### Mixed-Architecture Caveat (GH200)
 
 GH200 nodes are aarch64. The shared NFS venv built on x86_64 nodes cannot run on
-ARM. Until a compatible aarch64 stack is available (container or source-built
-PyTorch), keep GH200 nodes in a separate partition (`gpu-gh200`) and avoid
-scheduling training/selfplay jobs there.
+ARM. To include GH200 in standard partitions:
+
+1. Build PyTorch 2.6.0 + torchvision 0.21.0 from source on a GH200 node into
+   `/lambda/nfs/RingRift/ai-service/venv-arm64`.
+2. Set `slurm.venv_activate_arm64` to that path so Slurm jobs auto-select the
+   correct venv based on `uname -m`.
+3. Move GH200 nodes back into `gpu-train` and `gpu-selfplay` once validated.
+
+Until the aarch64 venv is ready, keep GH200 nodes in a separate `gpu-gh200`
+partition and avoid scheduling training/selfplay there.
 
 ## Adoption Plan (Phased)
 

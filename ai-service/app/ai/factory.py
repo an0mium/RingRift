@@ -451,6 +451,12 @@ class AIFactory:
         elif ai_type == AIType.GUMBEL_MCTS:
             from app.ai.gumbel_mcts_ai import GumbelMCTSAI
             ai_class = GumbelMCTSAI
+        elif ai_type == AIType.EBMO:
+            from app.ai.ebmo_ai import EBMO_AI
+            ai_class = EBMO_AI
+        elif ai_type == AIType.GMO:
+            from app.ai.gmo_ai import GMOAI
+            ai_class = GMOAI
         else:
             raise ValueError(f"Unsupported AI type: {ai_type}")
 
@@ -704,6 +710,36 @@ class AIFactory:
             )
             from app.ai.gumbel_mcts_ai import GumbelMCTSAI
             return GumbelMCTSAI(player_number, config, bt)
+
+        # EBMO AI (Energy-Based Move Optimization)
+        if agent_lower == "ebmo" or agent_lower.startswith("ebmo_"):
+            # Parse optional model path: ebmo_modelpath
+            model_path = None
+            if "_" in agent_lower:
+                try:
+                    parts = agent_lower.split("_", 1)
+                    if len(parts) > 1:
+                        model_path = parts[1]
+                except (ValueError, IndexError):
+                    pass
+
+            config = AIConfig(
+                difficulty=5,
+                rng_seed=rng_seed,
+                nn_model_id=nn_model_id,
+            )
+            from app.ai.ebmo_ai import EBMO_AI
+            return EBMO_AI(player_number, config, model_path=model_path)
+
+        # GMO AI (Gradient Move Optimization - entropy-guided gradient ascent)
+        if agent_lower == "gmo" or agent_lower.startswith("gmo_"):
+            config = AIConfig(
+                difficulty=6,
+                rng_seed=rng_seed,
+                nn_model_id=nn_model_id,
+            )
+            from app.ai.gmo_ai import GMOAI
+            return GMOAI(player_number, config)
 
         if agent_lower.startswith("difficulty_") or agent_lower.startswith("level_"):
             # Parse difficulty level: difficulty_5, level_7, etc.

@@ -1,6 +1,28 @@
 """
 Automated Model Registry for RingRift AI.
 
+.. deprecated:: December 2025
+    For new code, prefer importing from :mod:`app.training.unified_model_store`
+    which provides a simpler API with automatic event emission::
+
+        # Preferred (unified API):
+        from app.training.unified_model_store import (
+            get_model_store,
+            register_model,
+            get_production_model,
+            promote_model,
+        )
+
+        # Or via package:
+        from app.training import (
+            UnifiedModelStore,
+            get_model_store,
+            ModelInfo,
+        )
+
+    This module remains available for direct access to ModelRegistry internals,
+    validation tracking, AutoPromoter, and database operations.
+
 Provides comprehensive model version tracking, metadata storage,
 promotion workflows, and comparison tools.
 
@@ -1179,6 +1201,31 @@ class AutoPromoter:
                 return ModelStage.PRODUCTION
 
         return None
+
+
+# Singleton instance
+_model_registry: Optional[ModelRegistry] = None
+
+
+def get_model_registry(registry_dir: Optional[Path] = None) -> ModelRegistry:
+    """Get the global model registry singleton.
+
+    Args:
+        registry_dir: Registry directory (only used on first call)
+
+    Returns:
+        ModelRegistry instance
+    """
+    global _model_registry
+    if _model_registry is None:
+        _model_registry = ModelRegistry(registry_dir)
+    return _model_registry
+
+
+def reset_model_registry() -> None:
+    """Reset the model registry singleton (for testing)."""
+    global _model_registry
+    _model_registry = None
 
 
 def main():

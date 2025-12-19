@@ -48,6 +48,37 @@ from typing import Any, Dict, List, Optional, Tuple, Callable
 # Default database location
 DEFAULT_MONITOR_DB = Path("/tmp/ringrift_coordination/queue_monitor.db")
 
+# Import centralized defaults (December 2025)
+try:
+    from app.config.coordination_defaults import QueueDefaults
+    _TRAINING_DATA_SOFT = QueueDefaults.TRAINING_DATA_SOFT_LIMIT
+    _TRAINING_DATA_HARD = QueueDefaults.TRAINING_DATA_HARD_LIMIT
+    _TRAINING_DATA_TARGET = QueueDefaults.TRAINING_DATA_TARGET
+    _PENDING_GAMES_SOFT = QueueDefaults.PENDING_GAMES_SOFT_LIMIT
+    _PENDING_GAMES_HARD = QueueDefaults.PENDING_GAMES_HARD_LIMIT
+    _PENDING_GAMES_TARGET = QueueDefaults.PENDING_GAMES_TARGET
+    _EVALUATION_SOFT = QueueDefaults.EVALUATION_SOFT_LIMIT
+    _EVALUATION_HARD = QueueDefaults.EVALUATION_HARD_LIMIT
+    _EVALUATION_TARGET = QueueDefaults.EVALUATION_TARGET
+    _SYNC_SOFT = QueueDefaults.SYNC_SOFT_LIMIT
+    _SYNC_HARD = QueueDefaults.SYNC_HARD_LIMIT
+    _SYNC_TARGET = QueueDefaults.SYNC_TARGET
+except ImportError:
+    # Fallback defaults
+    _TRAINING_DATA_SOFT = 100000
+    _TRAINING_DATA_HARD = 500000
+    _TRAINING_DATA_TARGET = 50000
+    _PENDING_GAMES_SOFT = 1000
+    _PENDING_GAMES_HARD = 5000
+    _PENDING_GAMES_TARGET = 500
+    _EVALUATION_SOFT = 50
+    _EVALUATION_HARD = 200
+    _EVALUATION_TARGET = 20
+    _SYNC_SOFT = 100
+    _SYNC_HARD = 500
+    _SYNC_TARGET = 50
+
+
 # Queue types
 class QueueType(Enum):
     """Types of queues to monitor."""
@@ -59,24 +90,24 @@ class QueueType(Enum):
     EXPORT_QUEUE = "export"              # Models waiting to export
 
 
-# Default thresholds and settings per queue
+# Default thresholds and settings per queue (uses centralized defaults)
 DEFAULT_QUEUE_CONFIG = {
     QueueType.TRAINING_DATA: {
-        "soft_limit": 100000,      # Start throttling at 100k games
-        "hard_limit": 500000,      # Stop production at 500k games
-        "target_depth": 50000,     # Ideal queue depth
+        "soft_limit": _TRAINING_DATA_SOFT,
+        "hard_limit": _TRAINING_DATA_HARD,
+        "target_depth": _TRAINING_DATA_TARGET,
         "drain_rate": 10000,       # Expected consumption per hour
     },
     QueueType.PENDING_GAMES: {
-        "soft_limit": 1000,        # Start throttling at 1000 games
-        "hard_limit": 5000,        # Stop spawning at 5000 games
-        "target_depth": 500,
+        "soft_limit": _PENDING_GAMES_SOFT,
+        "hard_limit": _PENDING_GAMES_HARD,
+        "target_depth": _PENDING_GAMES_TARGET,
         "drain_rate": 500,
     },
     QueueType.EVALUATION_QUEUE: {
-        "soft_limit": 50,
-        "hard_limit": 200,
-        "target_depth": 20,
+        "soft_limit": _EVALUATION_SOFT,
+        "hard_limit": _EVALUATION_HARD,
+        "target_depth": _EVALUATION_TARGET,
         "drain_rate": 20,
     },
     QueueType.PROMOTION_QUEUE: {
@@ -86,9 +117,9 @@ DEFAULT_QUEUE_CONFIG = {
         "drain_rate": 5,
     },
     QueueType.SYNC_QUEUE: {
-        "soft_limit": 100,
-        "hard_limit": 500,
-        "target_depth": 50,
+        "soft_limit": _SYNC_SOFT,
+        "hard_limit": _SYNC_HARD,
+        "target_depth": _SYNC_TARGET,
         "drain_rate": 100,
     },
     QueueType.EXPORT_QUEUE: {
@@ -557,3 +588,30 @@ if __name__ == "__main__":
 
     else:
         parser.print_help()
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Constants
+    "DEFAULT_QUEUE_CONFIG",
+    # Enums
+    "QueueType",
+    "BackpressureLevel",
+    # Data classes
+    "QueueStatus",
+    "QueueMetric",
+    # Main class
+    "QueueMonitor",
+    # Functions
+    "get_queue_monitor",
+    "reset_queue_monitor",
+    "report_queue_depth",
+    "check_backpressure",
+    "should_throttle_production",
+    "should_stop_production",
+    "get_throttle_factor",
+    "get_queue_stats",
+]

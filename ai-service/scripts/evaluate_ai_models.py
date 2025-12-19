@@ -103,6 +103,7 @@ from app.training.env import (  # noqa: E402
     make_env,
 )
 from app.utils.progress_reporter import ProgressReporter  # noqa: E402
+from scripts.lib.cli import BOARD_TYPE_MAP  # noqa: E402
 
 
 # AI Type Constants
@@ -119,13 +120,6 @@ SUPPORTED_AI_TYPES = [
     AI_TYPE_RANDOM,
     AI_TYPE_MINIMAX,
 ]
-
-BOARD_TYPE_MAP = {
-    "square8": BoardType.SQUARE8,
-    "square19": BoardType.SQUARE19,
-    "hexagonal": BoardType.HEXAGONAL,
-    "hex": BoardType.HEXAGONAL,
-}
 
 
 def _format_ai_label(ai_type: str, checkpoint: Optional[str]) -> str:

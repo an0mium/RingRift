@@ -660,3 +660,25 @@ if __name__ == "__main__":
 
     else:
         parser.print_help()
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Data classes
+    "HealthStatus",
+    # Functions
+    "check_host_health",
+    "is_host_healthy",
+    "get_healthy_hosts",
+    "get_health_summary",
+    "clear_health_cache",
+    "mark_host_unhealthy",
+    "get_cache_status",
+    "pre_spawn_check",
+    "check_cluster_health",
+    "is_cluster_healthy",
+    "gate_on_cluster_health",
+]

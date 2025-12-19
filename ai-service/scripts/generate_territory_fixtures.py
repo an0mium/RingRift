@@ -22,6 +22,8 @@ from typing import List, Optional, Tuple
 # Add ai-service to path for imports
 import sys
 
+from scripts.lib.paths import REPO_ROOT
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.db.game_replay import GameReplayDB, _compute_state_hash
@@ -46,14 +48,9 @@ def _canonicalize_status(status: str | None) -> str:
     return s
 
 
-def repo_root() -> Path:
-    """Return the monorepo root."""
-    return Path(__file__).resolve().parents[2]
-
-
 def find_selfplay_dbs() -> List[Path]:
     """Find selfplay database files."""
-    root = repo_root()
+    root = REPO_ROOT
     data_dir = root / "ai-service" / "data" / "games"
 
     dbs = []

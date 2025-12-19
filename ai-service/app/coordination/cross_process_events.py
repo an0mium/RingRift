@@ -674,3 +674,25 @@ if __name__ == "__main__":
 
     else:
         parser.print_help()
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Data classes
+    "CrossProcessEvent",
+    # Classes
+    "CrossProcessEventQueue",
+    "CrossProcessEventPoller",
+    # Functions
+    "get_event_queue",
+    "reset_event_queue",
+    "publish_event",
+    "subscribe_process",
+    "poll_events",
+    "ack_event",
+    "ack_events",
+    "bridge_to_cross_process",
+]

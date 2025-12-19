@@ -76,6 +76,7 @@ if ROOT not in sys.path:
 os.environ.setdefault("RINGRIFT_FORCE_CPU", "1")
 
 from scripts.lib.logging_config import setup_script_logging
+from scripts.lib.cli import BOARD_TYPE_MAP
 
 logger = setup_script_logging("jsonl_to_npz")
 
@@ -99,13 +100,6 @@ PHASE_VALID_MOVES = {
     "movement": [MoveType.MOVE_STACK, MoveType.RECOVERY_SLIDE, MoveType.NO_MOVEMENT_ACTION],
     "line_processing": [MoveType.PROCESS_LINE, MoveType.NO_LINE_ACTION],
     "territory_processing": [MoveType.PROCESS_TERRITORY_REGION, MoveType.NO_TERRITORY_ACTION],
-}
-
-
-BOARD_TYPE_MAP = {
-    "square8": BoardType.SQUARE8,
-    "square19": BoardType.SQUARE19,
-    "hexagonal": BoardType.HEXAGONAL,
 }
 
 

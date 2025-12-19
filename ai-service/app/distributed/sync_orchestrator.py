@@ -681,7 +681,7 @@ class SyncOrchestrator:
             async def on_training_complete(result):
                 if result.success and result.model_path:
                     logger.info(
-                        f"[SyncOrchestrator] Training complete, triggering model sync"
+                        "[SyncOrchestrator] Training complete, triggering model sync"
                     )
                     await self.sync_models()
                     await self.sync_registry()
@@ -692,7 +692,7 @@ class SyncOrchestrator:
             async def on_promotion_complete(result):
                 if result.success:
                     logger.info(
-                        f"[SyncOrchestrator] Promotion complete, triggering registry sync"
+                        "[SyncOrchestrator] Promotion complete, triggering registry sync"
                     )
                     await self.sync_registry()
 
@@ -861,8 +861,8 @@ class SyncOrchestrator:
             return []
 
         try:
-            # Get configs ready for training (highest priority)
-            ready_configs = self._quality_orchestrator.get_configs_ready_for_training()
+            # Get configs ready for training (for potential future filtering)
+            _ = self._quality_orchestrator.get_configs_ready_for_training()
 
             # Get all config states for sorting
             all_configs = []

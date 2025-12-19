@@ -12,6 +12,7 @@ Modules:
     data_quality: Game quality scoring and filtering
     datetime_utils: Timestamp generation, parsing, and file age operations
     file_formats: JSONL/JSON handling with gzip detection
+    hosts: Unified cluster host configuration (distributed_hosts.yaml)
     metrics: Statistics collection, timing, rates, and progress tracking
     state_manager: Persistent state loading/saving for daemon scripts
     health: System and service health monitoring
@@ -39,6 +40,7 @@ Usage:
     from scripts.lib.validation import validate_npz_file, DataValidator
     from scripts.lib.datetime_utils import format_elapsed_time, timestamp_id, ElapsedTimer
     from scripts.lib.metrics import TimingStats, RateCalculator, ProgressTracker
+    from scripts.lib.hosts import get_hosts, get_host, HostConfig, get_active_hosts
 """
 
 from scripts.lib.logging_config import (
@@ -273,6 +275,23 @@ from scripts.lib.state_manager import (
     save_json_state,
 )
 
+from scripts.lib.hosts import (
+    HostConfig,
+    HostsManager,
+    EloSyncConfig,
+    get_hosts,
+    get_host,
+    get_host_names,
+    get_elo_sync_config,
+    get_hosts_by_group,
+    get_hosts_manager,
+    load_distributed_hosts,
+    get_training_hosts,
+    get_selfplay_hosts,
+    get_active_hosts,
+    get_p2p_voters,
+)
+
 __all__ = [
     # logging_config
     "setup_logging",
@@ -476,4 +495,19 @@ __all__ = [
     "StatePersistence",
     "load_json_state",
     "save_json_state",
+    # hosts
+    "HostConfig",
+    "HostsManager",
+    "EloSyncConfig",
+    "get_hosts",
+    "get_host",
+    "get_host_names",
+    "get_elo_sync_config",
+    "get_hosts_by_group",
+    "get_hosts_manager",
+    "load_distributed_hosts",
+    "get_training_hosts",
+    "get_selfplay_hosts",
+    "get_active_hosts",
+    "get_p2p_voters",
 ]

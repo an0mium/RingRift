@@ -865,6 +865,86 @@ def training_slot(
             coordinator.complete_training(job_id, status="completed")
 
 
+def wire_training_events() -> TrainingCoordinator:
+    """Wire training coordinator to the event bus for automatic updates.
+
+    Subscribes to:
+    - TRAINING_STARTED: Track new training jobs
+    - TRAINING_PROGRESS: Update training progress
+    - TRAINING_COMPLETED: Mark training complete
+    - TRAINING_FAILED: Handle training failures
+
+    Returns:
+        The configured TrainingCoordinator instance
+    """
+    coordinator = get_training_coordinator()
+
+    try:
+        from app.distributed.data_events import DataEventType, get_event_bus
+
+        bus = get_event_bus()
+
+        def _event_payload(event: Any) -> Dict[str, Any]:
+            if isinstance(event, dict):
+                return event
+            payload = getattr(event, "payload", None)
+            return payload if isinstance(payload, dict) else {}
+
+        def _on_training_started(event: Any) -> None:
+            """Handle training start event."""
+            payload = _event_payload(event)
+            job_id = payload.get("job_id")
+            board_type = payload.get("board_type")
+            num_players = payload.get("num_players")
+            host = payload.get("host") or payload.get("node_id")
+            if job_id and board_type and num_players:
+                # Training already registered - just log
+                logger.info(f"[TrainingCoordinator] Training started: {job_id}")
+
+        def _on_training_progress(event: Any) -> None:
+            """Handle training progress update."""
+            payload = _event_payload(event)
+            job_id = payload.get("job_id")
+            epoch = payload.get("epoch")
+            loss = payload.get("loss") or payload.get("val_loss")
+            if job_id:
+                coordinator.update_progress(job_id, epoch=epoch, current_loss=loss)
+
+        def _on_training_completed(event: Any) -> None:
+            """Handle training completion."""
+            payload = _event_payload(event)
+            job_id = payload.get("job_id")
+            final_loss = payload.get("final_loss") or payload.get("val_loss")
+            elo = payload.get("elo")
+            if job_id:
+                coordinator.complete_training(
+                    job_id,
+                    status="completed",
+                    final_val_loss=final_loss,
+                    final_elo=elo,
+                )
+
+        def _on_training_failed(event: Any) -> None:
+            """Handle training failure."""
+            payload = _event_payload(event)
+            job_id = payload.get("job_id")
+            error = payload.get("error", "Unknown error")
+            if job_id:
+                coordinator.complete_training(job_id, status="failed", error=error)
+
+        bus.subscribe(DataEventType.TRAINING_STARTED, _on_training_started)
+        bus.subscribe(DataEventType.TRAINING_PROGRESS, _on_training_progress)
+        bus.subscribe(DataEventType.TRAINING_COMPLETED, _on_training_completed)
+        bus.subscribe(DataEventType.TRAINING_FAILED, _on_training_failed)
+
+        logger.info("[TrainingCoordinator] Wired to event bus (TRAINING_STARTED, TRAINING_PROGRESS, TRAINING_COMPLETED, TRAINING_FAILED)")
+
+    except ImportError:
+        logger.warning("[TrainingCoordinator] data_events not available, running without event bus")
+
+    return coordinator
+
+
 __all__ = [
     # Data classes
     "TrainingJob",
@@ -879,6 +959,8 @@ __all__ = [
     "can_train",
     "get_training_status",
     "training_slot",
+    # Event wiring
+    "wire_training_events",
 ]
 
 

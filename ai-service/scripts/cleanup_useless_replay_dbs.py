@@ -36,14 +36,11 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 from app.db.game_replay import GameReplayDB
-
-
-def repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+from scripts.lib.paths import REPO_ROOT
 
 
 def find_dbs() -> List[Path]:
-    root = repo_root()
+    root = REPO_ROOT
     search_paths = [
         root / "data" / "games",
         root / "ai-service" / "logs" / "cmaes",

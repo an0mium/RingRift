@@ -328,6 +328,7 @@ class SlurmConfig:
     shared_root: Optional[str] = None
     repo_subdir: str = "ai-service"
     venv_activate: Optional[str] = None
+    venv_activate_arm64: Optional[str] = None
     setup_commands: List[str] = field(default_factory=list)
     extra_sbatch_args: List[str] = field(default_factory=list)
     poll_interval_seconds: int = 20

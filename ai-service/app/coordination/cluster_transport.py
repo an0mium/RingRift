@@ -466,3 +466,18 @@ def get_cluster_transport() -> ClusterTransport:
     if _transport_instance is None:
         _transport_instance = ClusterTransport()
     return _transport_instance
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Data classes
+    "NodeConfig",
+    "TransportResult",
+    # Main class
+    "ClusterTransport",
+    # Functions
+    "get_cluster_transport",
+]

@@ -47,26 +47,52 @@ from typing import Any, Dict, List, Optional, Tuple
 # Default database location
 DEFAULT_SCHEDULER_DB = Path("/tmp/ringrift_coordination/duration_scheduler.db")
 
-# Default expected durations in seconds
+# Import centralized defaults (December 2025)
+try:
+    from app.config.coordination_defaults import DurationDefaults
+    _SELFPLAY = DurationDefaults.SELFPLAY_DURATION
+    _GPU_SELFPLAY = DurationDefaults.GPU_SELFPLAY_DURATION
+    _TRAINING = DurationDefaults.TRAINING_DURATION
+    _CMAES = DurationDefaults.CMAES_DURATION
+    _TOURNAMENT = DurationDefaults.TOURNAMENT_DURATION
+    _EVALUATION = DurationDefaults.EVALUATION_DURATION
+    _SYNC = DurationDefaults.SYNC_DURATION
+    _EXPORT = DurationDefaults.EXPORT_DURATION
+    _PIPELINE = DurationDefaults.PIPELINE_DURATION
+    _IMPROVEMENT = DurationDefaults.IMPROVEMENT_LOOP_DURATION
+    PEAK_HOURS_START = DurationDefaults.PEAK_HOURS_START
+    PEAK_HOURS_END = DurationDefaults.PEAK_HOURS_END
+except ImportError:
+    # Fallback defaults
+    _SELFPLAY = 3600
+    _GPU_SELFPLAY = 7200
+    _TRAINING = 14400
+    _CMAES = 28800
+    _TOURNAMENT = 1800
+    _EVALUATION = 3600
+    _SYNC = 600
+    _EXPORT = 300
+    _PIPELINE = 21600
+    _IMPROVEMENT = 43200
+    PEAK_HOURS_START = 14
+    PEAK_HOURS_END = 22
+
+# Default expected durations in seconds (uses centralized defaults)
 DEFAULT_DURATIONS = {
-    "selfplay": 3600,           # 1 hour
-    "gpu_selfplay": 7200,       # 2 hours
-    "training": 14400,          # 4 hours
-    "cmaes": 28800,             # 8 hours
-    "tournament": 1800,         # 30 minutes
-    "evaluation": 3600,         # 1 hour
-    "sync": 600,                # 10 minutes
-    "export": 300,              # 5 minutes
-    "pipeline": 21600,          # 6 hours
-    "improvement_loop": 43200,  # 12 hours
+    "selfplay": _SELFPLAY,
+    "gpu_selfplay": _GPU_SELFPLAY,
+    "training": _TRAINING,
+    "cmaes": _CMAES,
+    "tournament": _TOURNAMENT,
+    "evaluation": _EVALUATION,
+    "sync": _SYNC,
+    "export": _EXPORT,
+    "pipeline": _PIPELINE,
+    "improvement_loop": _IMPROVEMENT,
 }
 
 # Task types that should avoid peak hours (intensive tasks)
 INTENSIVE_TASK_TYPES = {"training", "cmaes", "pipeline", "improvement_loop"}
-
-# Peak hours (UTC) when intensive tasks should be avoided
-PEAK_HOURS_START = 14  # 2 PM UTC
-PEAK_HOURS_END = 22    # 10 PM UTC
 
 
 @dataclass
@@ -666,3 +692,29 @@ if __name__ == "__main__":
 
     else:
         parser.print_help()
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Constants
+    "DEFAULT_DURATIONS",
+    "INTENSIVE_TASK_TYPES",
+    "PEAK_HOURS_START",
+    "PEAK_HOURS_END",
+    # Data classes
+    "TaskDurationRecord",
+    "ScheduledTask",
+    # Main class
+    "DurationScheduler",
+    # Functions
+    "get_scheduler",
+    "reset_scheduler",
+    "estimate_task_duration",
+    "record_task_completion",
+    "register_running_task",
+    "get_resource_availability",
+    "can_schedule_task",
+]

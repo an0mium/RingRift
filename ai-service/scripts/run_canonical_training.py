@@ -33,14 +33,7 @@ from app.training.generate_data import (  # type: ignore[import]
 )
 from app.training.train import train_model  # type: ignore[import]
 from scripts.export_replay_dataset import export_replay_dataset  # type: ignore[import]
-
-
-BOARD_TYPE_MAP = {
-    "square8": BoardType.SQUARE8,
-    "square19": BoardType.SQUARE19,
-    "hex8": BoardType.HEX8,
-    "hexagonal": BoardType.HEXAGONAL,
-}
+from scripts.lib.cli import BOARD_TYPE_MAP
 
 
 def _default_model_version(board_type: BoardType) -> str:

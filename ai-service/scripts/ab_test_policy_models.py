@@ -307,7 +307,7 @@ def run_ab_test(
     prior_uniform_mix: float = 0.3,
 ) -> ABTestResults:
     """Run A/B test between two policy models."""
-    logger.info(f"Starting A/B test:")
+    logger.info("Starting A/B test:")
     logger.info(f"  Model A: {model_a_path}")
     logger.info(f"  Model B: {model_b_path or 'none (baseline)'}")
     logger.info(f"  Games: {num_games}")

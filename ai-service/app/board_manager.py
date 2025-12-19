@@ -18,6 +18,8 @@ from .models import (
     ProgressSnapshot, GameState
 )
 
+__all__ = ["BoardManager"]
+
 # Environment flag to use fast territory detection.
 #
 # Fast territory detection (app.ai.territory_cache.find_disconnected_regions_fast)
@@ -130,7 +132,6 @@ class BoardManager:
     @staticmethod
     def get_marker(position: Position, board: BoardState):
         """Return the marker at ``position`` or ``None`` if no marker."""
-        from .models import MarkerInfo
         # Try multiple key formats for hex boards (data may use "x,y" or "x,y,z")
         for pos_key in _get_position_keys_for_lookup(position, board.type):
             marker = board.markers.get(pos_key)

@@ -988,3 +988,48 @@ CircuitState = _CircuitState
 QueueType = _QueueType
 TransferPriority = _TransferPriority
 CrossProcessEventPoller = _CrossProcessEventPoller
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Type checking helpers
+    "has_coordination",
+    "get_task_types",
+    "get_orchestrator_roles",
+    # Safe accessors
+    "get_coordinator_safe",
+    "can_spawn_safe",
+    "register_task_safe",
+    "complete_task_safe",
+    "fail_task_safe",
+    "get_registry_safe",
+    # Role management
+    "acquire_role_safe",
+    "release_role_safe",
+    "has_role",
+    "get_role_holder",
+    # Spawn checks
+    "check_spawn_allowed",
+    "get_safeguards",
+    # Utilities
+    "get_current_node_id",
+    "is_unified_loop_running",
+    "warn_if_orchestrator_running",
+    # Queue helpers
+    "get_queue_types",
+    "should_throttle_safe",
+    # Re-exported types (for convenience)
+    "TaskType",
+    "TaskLimits",
+    "OrchestratorRole",
+    "OrchestratorRegistry",
+    "Safeguards",
+    "CircuitBreaker",
+    "CircuitState",
+    "QueueType",
+    "TransferPriority",
+    "CrossProcessEventPoller",
+]

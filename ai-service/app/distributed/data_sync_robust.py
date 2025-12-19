@@ -109,8 +109,7 @@ try:
     HAS_HOST_CLASSIFICATION = True
 except ImportError:
     HAS_HOST_CLASSIFICATION = False
-    # Fallback: define minimal versions
-    from enum import Enum
+    # Fallback: define minimal versions (Enum already imported at module level)
 
     class StorageType(str, Enum):
         """Storage type classification for hosts (fallback)."""

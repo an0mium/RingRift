@@ -2,6 +2,10 @@
 
 Consolidates cluster_alert.sh and webhook logic into one module.
 Uses webhooks from config/cluster.yaml.
+
+This module provides simple webhook-based alerting. For more advanced
+alert management (tracking, deduplication, alert types), use:
+    from scripts.lib.alerts import AlertManager, create_alert
 """
 
 from __future__ import annotations
@@ -10,35 +14,41 @@ import json
 import urllib.request
 import urllib.error
 from datetime import datetime
-from enum import Enum
-from typing import Optional
+from typing import Optional, Union
 
 from scripts.p2p.cluster_config import get_webhook_urls
 
+# Import AlertSeverity from lib for consistency
+try:
+    from scripts.lib.alerts import AlertSeverity
+    AlertLevel = AlertSeverity  # Alias for backwards compatibility
+except ImportError:
+    # Fallback if lib.alerts not available
+    from enum import Enum
+    class AlertSeverity(Enum):
+        DEBUG = "debug"
+        INFO = "info"
+        WARNING = "warning"
+        ERROR = "error"
+        CRITICAL = "critical"
+    AlertLevel = AlertSeverity
 
-class AlertLevel(Enum):
-    """Alert severity level."""
-    DEBUG = "debug"
-    INFO = "info"
-    WARNING = "warning"
-    ERROR = "error"
-    CRITICAL = "critical"
 
-
+# Color mapping for Slack/Discord
 LEVEL_COLORS = {
-    AlertLevel.DEBUG: "#808080",    # Gray
-    AlertLevel.INFO: "#36a64f",     # Green
-    AlertLevel.WARNING: "#ff9800",  # Orange
-    AlertLevel.ERROR: "#f44336",    # Red
-    AlertLevel.CRITICAL: "#9c27b0", # Purple
+    AlertSeverity.DEBUG: "#808080",    # Gray
+    AlertSeverity.INFO: "#36a64f",     # Green
+    AlertSeverity.WARNING: "#ff9800",  # Orange
+    AlertSeverity.ERROR: "#f44336",    # Red
+    AlertSeverity.CRITICAL: "#9c27b0", # Purple
 }
 
 LEVEL_EMOJI = {
-    AlertLevel.DEBUG: ":bug:",
-    AlertLevel.INFO: ":information_source:",
-    AlertLevel.WARNING: ":warning:",
-    AlertLevel.ERROR: ":x:",
-    AlertLevel.CRITICAL: ":rotating_light:",
+    AlertSeverity.DEBUG: ":bug:",
+    AlertSeverity.INFO: ":information_source:",
+    AlertSeverity.WARNING: ":warning:",
+    AlertSeverity.ERROR: ":x:",
+    AlertSeverity.CRITICAL: ":rotating_light:",
 }
 
 
@@ -46,7 +56,7 @@ def send_slack_alert(
     webhook_url: str,
     title: str,
     message: str,
-    level: AlertLevel = AlertLevel.INFO,
+    level: Union[AlertSeverity, AlertLevel] = AlertSeverity.INFO,
     node_id: str = "",
 ) -> bool:
     """Send alert to Slack webhook."""
@@ -80,7 +90,7 @@ def send_discord_alert(
     webhook_url: str,
     title: str,
     message: str,
-    level: AlertLevel = AlertLevel.INFO,
+    level: Union[AlertSeverity, AlertLevel] = AlertSeverity.INFO,
     node_id: str = "",
 ) -> bool:
     """Send alert to Discord webhook."""
@@ -117,7 +127,7 @@ def send_discord_alert(
 def send_alert(
     title: str,
     message: str,
-    level: AlertLevel = AlertLevel.INFO,
+    level: Union[AlertSeverity, AlertLevel] = AlertSeverity.INFO,
     node_id: str = "",
     slack_url: Optional[str] = None,
     discord_url: Optional[str] = None,

@@ -63,6 +63,12 @@ delete_file "training_orchestrator.py"
 delete_file "job_scheduler.py"
 
 echo ""
+echo "=== Cleaning up deprecated unified scripts (superseded by P2P) ==="
+delete_file "unified_work_orchestrator.py"
+delete_file "unified_cluster_monitor.py"
+delete_file "cluster_auto_recovery.py"
+
+echo ""
 echo "=== Cleaning up deprecated data collection scripts ==="
 delete_file "collect_and_merge_selfplay.sh"
 delete_file "collect_diverse_selfplay.sh"

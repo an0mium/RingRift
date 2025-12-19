@@ -656,3 +656,23 @@ def setup_signal_handlers() -> None:
         signal.signal(signal.SIGINT, handle_signal)
     except Exception as e:
         logger.debug(f"Could not set up signal handlers: {e}")
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Enums
+    "DaemonType",
+    "DaemonState",
+    # Data classes
+    "DaemonInfo",
+    "DaemonManagerConfig",
+    # Main class
+    "DaemonManager",
+    # Functions
+    "get_daemon_manager",
+    "reset_daemon_manager",
+    "setup_signal_handlers",
+]

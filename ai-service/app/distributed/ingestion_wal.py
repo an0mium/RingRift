@@ -47,10 +47,10 @@ logger = logging.getLogger(__name__)
 try:
     from app.distributed.unified_wal import (
         UnifiedWAL,
-        WALEntry,
+        WALEntry as UnifiedWALEntry,
         WALEntryType,
         WALEntryStatus,
-        WALCheckpoint,
+        WALCheckpoint as UnifiedWALCheckpoint,
         IngestionWAL as UnifiedIngestionWAL,
         get_unified_wal,
     )
@@ -58,6 +58,8 @@ try:
 except ImportError:
     HAS_UNIFIED_WAL = False
     UnifiedIngestionWAL = None
+    UnifiedWALEntry = None
+    UnifiedWALCheckpoint = None
 
 # For backward compatibility, also import legacy dependencies
 import json
@@ -599,7 +601,8 @@ if HAS_UNIFIED_WAL:
     # Use unified implementation from unified_wal.py
     IngestionWAL = UnifiedIngestionWAL
     # Re-export from unified_wal for convenience
-    # WALEntry, WALEntryType, WALEntryStatus, WALCheckpoint already imported
+    WALEntry = UnifiedWALEntry
+    WALCheckpoint = UnifiedWALCheckpoint
     logger.debug("Using UnifiedIngestionWAL from unified_wal.py")
 else:
     # Use legacy implementation

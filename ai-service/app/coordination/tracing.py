@@ -471,3 +471,31 @@ def get_trace_collector() -> TraceCollector:
 def collect_trace(trace: TraceContext) -> None:
     """Collect a trace using the global collector."""
     get_trace_collector().collect(trace)
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Classes
+    "TraceSpan",
+    "TraceContext",
+    "TraceCollector",
+    # Functions
+    "generate_trace_id",
+    "generate_span_id",
+    "get_trace_id",
+    "get_trace_context",
+    "set_trace_id",
+    "new_trace",
+    "with_trace",
+    "span",
+    "traced",
+    "inject_trace_into_event",
+    "extract_trace_from_event",
+    "inject_trace_into_headers",
+    "extract_trace_from_headers",
+    "get_trace_collector",
+    "collect_trace",
+]

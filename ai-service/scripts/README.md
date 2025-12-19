@@ -68,12 +68,6 @@ python scripts/cli.py health
   - Status: `python scripts/vast_keepalive.py --status`
   - Full cycle: `python scripts/vast_keepalive.py --auto`
   - Install cron: `python scripts/vast_keepalive.py --install-cron`
-- `cluster_monitor_unified.sh` - **Unified cluster health monitoring**
-  - Consolidates `cluster_monitoring.sh`, `cluster_monitor.sh`,
-    `cluster_monitor_daemon.sh`, and `cluster_health_monitor.sh`
-  - Tailscale mesh status, Vast.ai CLI monitoring, Lambda node health
-  - P2P orchestrator status, selfplay/gauntlet monitoring
-  - Start: `./scripts/cluster_monitor_unified.sh --duration 10`
 - `unified_cluster_monitor.py` - **Python unified cluster monitor**
   - HTTP health checks with SSH deep checks and leader API status
   - Webhook alerting and JSON output modes
@@ -82,18 +76,14 @@ python scripts/cli.py health
 - `scripts/monitor` - **Unified monitor CLI package**
   - Quick entry points for status, health, and alerting
   - Start: `python -m scripts.monitor status`
-- `cluster_monitoring.sh`, `cluster_monitor.sh`,
-  `cluster_monitor_daemon.sh`, `cluster_health_monitor.sh`
-  - **Deprecated** wrappers that print migration hints
+- Legacy `cluster_*` scripts and shell monitors have been removed
+  (see `scripts/DEPRECATED.md` for migration details).
 - `node_resilience.py` - **Node resilience daemon** (53KB)
   - P2P orchestrator monitoring with local selfplay fallback
   - Auto-reconnect on network changes, IP change detection
   - Start: `python scripts/node_resilience.py --daemon`
-- `cluster_manager.py` - Cluster node management
 - `gpu_cluster_manager.py` - GPU cluster inventory and scaling helpers
   - Uses `config/cluster.yaml` as the node source of truth
-- `cluster_worker.py` - Worker node implementation
-- `cluster_health_check.py` - Health monitoring
 - `setup_cluster_ssh.sh` - SSH agent/bootstrap helper + connectivity check
 
 ### Training
@@ -131,15 +121,15 @@ python scripts/cli.py health
   - Monitors training logs and triggers Elo tournaments on completion
   - Start: `python scripts/training_completion_watcher.py --daemon`
 - `auto_training_pipeline.py` - **Automated training pipeline** (40KB)
-  - Complete workflow: data collection → value training → policy training → A/B test → selfplay → sync
-  - Curriculum-based policy training with staged progression (endgame → opening)
+  - Complete workflow: data collection -> value training -> policy training -> A/B test -> selfplay -> sync
+  - Curriculum-based policy training with staged progression (endgame -> opening)
   - A/B testing to validate policy model improvements before deployment
   - Policy-guided selfplay for high-quality training data generation
   - Start: `python scripts/auto_training_pipeline.py --board-type square8 --num-players 2`
   - Dry run: `python scripts/auto_training_pipeline.py --dry-run --board-type square8`
   - Policy only: `python scripts/auto_training_pipeline.py --skip-collect --skip-backfill --skip-train`
 - `train_nnue_policy_curriculum.py` - **Staged curriculum policy training** (17KB)
-  - Progressive training: endgame → late-mid → midgame → opening → full
+  - Progressive training: endgame -> late-mid -> midgame -> opening -> full
   - Transfer learning between stages
   - Board-specific max_moves_per_position auto-selection
   - Start: `python scripts/train_nnue_policy_curriculum.py --db data/games/*.db --board-type square8`
@@ -152,7 +142,7 @@ python scripts/cli.py health
   - Start: `python scripts/reanalyze_mcts_policy.py --input games.jsonl --output mcts_games.jsonl`
 - `curriculum_training.py` - Generation-based curriculum training
 - `retrain_d10_fresh.sh` - **D10 retraining workflow** (4KB)
-  - Automates JSONL→NPZ→Train→Eval pipeline for D10 tier
+  - Automates JSONL->NPZ->Train->Eval pipeline for D10 tier
   - Integrated enhancements (augmentation, background eval)
   - Start: `./scripts/retrain_d10_fresh.sh`
   - Dry run: `./scripts/retrain_d10_fresh.sh --dry-run`
@@ -182,9 +172,8 @@ python scripts/cli.py health
 - `run_hybrid_selfplay.py` - **Hybrid CPU/GPU selfplay** (67KB)
   - Mixed MCTS and neural network modes
   - Start: `python scripts/run_hybrid_selfplay.py --board-type hex8 --engine-mode gumbel-mcts`
-- `cluster_control.py` - **Cluster selfplay orchestration**
-  - Start GPU selfplay on all cluster nodes: `python scripts/cluster_control.py selfplay start --board hex8`
-  - Check cluster status: `python scripts/cluster_control.py status`
+- Cluster selfplay is orchestrated via `p2p_orchestrator.py`
+  (see P2P Cluster Orchestration above).
 
 ### Evaluation
 
@@ -198,13 +187,7 @@ python scripts/cli.py health
 
 ### Data Management
 
-- `cluster_sync_coordinator.py` - **Cluster-wide sync orchestrator** (coordinates all sync utilities)
-  - Full sync: `python scripts/cluster_sync_coordinator.py --mode full`
-  - Models only: `python scripts/cluster_sync_coordinator.py --mode models`
-  - Games only: `python scripts/cluster_sync_coordinator.py --mode games`
-  - ELO only: `python scripts/cluster_sync_coordinator.py --mode elo`
-  - Status: `python scripts/cluster_sync_coordinator.py --status`
-  - Uses aria2/tailscale/cloudflare for hard-to-reach nodes
+- Cluster-wide sync is handled by `unified_data_sync.py` and the P2P orchestrator.
 - `unified_data_sync.py` - **Unified data sync service** (replaces deprecated scripts below)
   - Run as daemon: `python scripts/unified_data_sync.py`
   - With watchdog: `python scripts/unified_data_sync.py --watchdog`
@@ -264,8 +247,8 @@ python scripts/cli.py health
 - `vast_lifecycle.py` - Vast.ai instance lifecycle management
 - `vast_p2p_manager.py` - Vast.ai P2P network management
 - `cluster_auto_recovery.py` - Auto-recover failed cluster nodes
-- `cluster_automation.py` - Cluster automation utilities
-- `cluster_control.py` - Cluster control commands
+- Cluster automation/control now lives under `p2p_orchestrator.py`
+  (see P2P Cluster Orchestration above).
 
 ### Analysis
 

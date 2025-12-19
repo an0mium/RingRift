@@ -678,3 +678,27 @@ if __name__ == "__main__":
 
     else:
         parser.print_help()
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Enums
+    "TransferPriority",
+    # Data classes
+    "BandwidthAllocation",
+    "TransferRecord",
+    # Main class
+    "BandwidthManager",
+    # Functions
+    "get_bandwidth_manager",
+    "reset_bandwidth_manager",
+    "request_bandwidth",
+    "release_bandwidth",
+    "get_host_bandwidth_status",
+    "get_optimal_transfer_time",
+    "get_bandwidth_stats",
+    "bandwidth_allocation",
+]

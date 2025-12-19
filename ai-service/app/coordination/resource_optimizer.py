@@ -2416,3 +2416,38 @@ def apply_proactive_adjustment(requestor: str = "predictive") -> Optional[int]:
 def get_predictor_state() -> Dict[str, Any]:
     """Get predictor state for monitoring."""
     return get_resource_optimizer().get_predictor_state()
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Enums
+    "ResourceType",
+    "ScaleAction",
+    # Data classes
+    "NodeResources",
+    "ClusterState",
+    "OptimizationResult",
+    # Classes
+    "PIDController",
+    "UtilizationPredictor",
+    "ResourceOptimizer",
+    # Functions
+    "get_resource_optimizer",
+    "should_scale_up",
+    "should_scale_down",
+    "get_optimal_concurrency",
+    "record_utilization",
+    "get_cluster_utilization",
+    "negotiate_selfplay_rate",
+    "get_current_selfplay_rate",
+    "apply_feedback_adjustment",
+    "get_utilization_status",
+    "get_max_selfplay_for_node",
+    "get_max_cpu_only_selfplay",
+    "get_predictor_state",
+    "get_proactive_adjustment",
+    "apply_proactive_adjustment",
+]

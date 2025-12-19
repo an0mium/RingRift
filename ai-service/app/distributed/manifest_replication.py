@@ -320,7 +320,7 @@ class ManifestReplicator:
             # Verify copy
             copied_checksum = self._compute_checksum(self.external_backup_path)
             if copied_checksum != local_checksum:
-                logger.warning(f"External backup checksum mismatch")
+                logger.warning("External backup checksum mismatch")
                 return False
 
             self._last_external_backup = now
@@ -441,8 +441,6 @@ class ManifestReplicator:
 
         Returns True on success.
         """
-        ssh_args = self._build_ssh_args(host)
-
         # Backup existing local manifest if present
         if self.local_path.exists():
             backup_path = self.local_path.with_suffix(".db.bak")

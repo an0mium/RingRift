@@ -483,6 +483,95 @@ class CacheDefaults:
 
 
 # =============================================================================
+# Queue Monitoring Defaults (December 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class QueueDefaults:
+    """Default values for queue depth monitoring and backpressure.
+
+    Used by: app/coordination/queue_monitor.py
+    """
+    # Training data queue thresholds
+    TRAINING_DATA_SOFT_LIMIT: int = _env_int("RINGRIFT_QUEUE_TRAINING_SOFT", 100000)
+    TRAINING_DATA_HARD_LIMIT: int = _env_int("RINGRIFT_QUEUE_TRAINING_HARD", 500000)
+    TRAINING_DATA_TARGET: int = _env_int("RINGRIFT_QUEUE_TRAINING_TARGET", 50000)
+
+    # Pending games queue thresholds
+    PENDING_GAMES_SOFT_LIMIT: int = _env_int("RINGRIFT_QUEUE_GAMES_SOFT", 1000)
+    PENDING_GAMES_HARD_LIMIT: int = _env_int("RINGRIFT_QUEUE_GAMES_HARD", 5000)
+    PENDING_GAMES_TARGET: int = _env_int("RINGRIFT_QUEUE_GAMES_TARGET", 500)
+
+    # Evaluation queue thresholds
+    EVALUATION_SOFT_LIMIT: int = _env_int("RINGRIFT_QUEUE_EVAL_SOFT", 50)
+    EVALUATION_HARD_LIMIT: int = _env_int("RINGRIFT_QUEUE_EVAL_HARD", 200)
+    EVALUATION_TARGET: int = _env_int("RINGRIFT_QUEUE_EVAL_TARGET", 20)
+
+    # Sync queue thresholds
+    SYNC_SOFT_LIMIT: int = _env_int("RINGRIFT_QUEUE_SYNC_SOFT", 100)
+    SYNC_HARD_LIMIT: int = _env_int("RINGRIFT_QUEUE_SYNC_HARD", 500)
+    SYNC_TARGET: int = _env_int("RINGRIFT_QUEUE_SYNC_TARGET", 50)
+
+
+# =============================================================================
+# Auto-Scaling Defaults (December 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class ScalingDefaults:
+    """Default values for auto-scaling operations.
+
+    Used by: app/coordination/auto_scaler.py
+    """
+    # Queue depth thresholds for scaling
+    SCALE_UP_QUEUE_DEPTH: int = _env_int("RINGRIFT_SCALE_UP_QUEUE_DEPTH", 100)
+    SCALE_DOWN_QUEUE_DEPTH: int = _env_int("RINGRIFT_SCALE_DOWN_QUEUE_DEPTH", 10)
+
+    # Time thresholds (minutes)
+    SCALE_DOWN_IDLE_MINUTES: int = _env_int("RINGRIFT_SCALE_DOWN_IDLE_MINUTES", 30)
+    SCALE_UP_COOLDOWN_MINUTES: int = _env_int("RINGRIFT_SCALE_UP_COOLDOWN_MINUTES", 5)
+    SCALE_DOWN_COOLDOWN_MINUTES: int = _env_int("RINGRIFT_SCALE_DOWN_COOLDOWN_MINUTES", 10)
+
+    # Instance limits
+    MAX_INSTANCES: int = _env_int("RINGRIFT_MAX_INSTANCES", 10)
+    MIN_INSTANCES: int = _env_int("RINGRIFT_MIN_INSTANCES", 1)
+
+    # GPU utilization targets for scaling (%)
+    GPU_SCALE_UP_THRESHOLD: int = _env_int("RINGRIFT_GPU_SCALE_UP_THRESHOLD", 85)
+    GPU_SCALE_DOWN_THRESHOLD: int = _env_int("RINGRIFT_GPU_SCALE_DOWN_THRESHOLD", 30)
+
+    # Cost optimization
+    MAX_HOURLY_COST: float = _env_float("RINGRIFT_MAX_HOURLY_COST", 10.0)
+
+
+# =============================================================================
+# Duration Scheduling Defaults (December 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class DurationDefaults:
+    """Default values for duration-aware task scheduling.
+
+    Used by: app/coordination/duration_scheduler.py
+    """
+    # Default task durations (seconds)
+    SELFPLAY_DURATION: int = _env_int("RINGRIFT_DURATION_SELFPLAY", 3600)  # 1 hour
+    GPU_SELFPLAY_DURATION: int = _env_int("RINGRIFT_DURATION_GPU_SELFPLAY", 7200)  # 2 hours
+    TRAINING_DURATION: int = _env_int("RINGRIFT_DURATION_TRAINING", 14400)  # 4 hours
+    CMAES_DURATION: int = _env_int("RINGRIFT_DURATION_CMAES", 28800)  # 8 hours
+    TOURNAMENT_DURATION: int = _env_int("RINGRIFT_DURATION_TOURNAMENT", 1800)  # 30 min
+    EVALUATION_DURATION: int = _env_int("RINGRIFT_DURATION_EVALUATION", 3600)  # 1 hour
+    SYNC_DURATION: int = _env_int("RINGRIFT_DURATION_SYNC", 600)  # 10 min
+    EXPORT_DURATION: int = _env_int("RINGRIFT_DURATION_EXPORT", 300)  # 5 min
+    PIPELINE_DURATION: int = _env_int("RINGRIFT_DURATION_PIPELINE", 21600)  # 6 hours
+    IMPROVEMENT_LOOP_DURATION: int = _env_int("RINGRIFT_DURATION_IMPROVEMENT", 43200)  # 12 hours
+
+    # Peak hours (UTC) - avoid intensive tasks
+    PEAK_HOURS_START: int = _env_int("RINGRIFT_PEAK_HOURS_START", 14)  # 2 PM UTC
+    PEAK_HOURS_END: int = _env_int("RINGRIFT_PEAK_HOURS_END", 22)  # 10 PM UTC
+
+
+# =============================================================================
 # Sync Coordinator Extended Defaults (December 2025)
 # =============================================================================
 
@@ -764,6 +853,24 @@ def get_all_defaults() -> dict:
             "critical_stale_threshold": SyncCoordinatorDefaults.CRITICAL_STALE_THRESHOLD,
             "freshness_check_interval": SyncCoordinatorDefaults.FRESHNESS_CHECK_INTERVAL,
         },
+        "queue": {
+            "training_data_soft_limit": QueueDefaults.TRAINING_DATA_SOFT_LIMIT,
+            "training_data_hard_limit": QueueDefaults.TRAINING_DATA_HARD_LIMIT,
+            "pending_games_soft_limit": QueueDefaults.PENDING_GAMES_SOFT_LIMIT,
+            "evaluation_soft_limit": QueueDefaults.EVALUATION_SOFT_LIMIT,
+        },
+        "scaling": {
+            "scale_up_queue_depth": ScalingDefaults.SCALE_UP_QUEUE_DEPTH,
+            "scale_down_idle_minutes": ScalingDefaults.SCALE_DOWN_IDLE_MINUTES,
+            "max_instances": ScalingDefaults.MAX_INSTANCES,
+            "gpu_scale_up_threshold": ScalingDefaults.GPU_SCALE_UP_THRESHOLD,
+        },
+        "duration": {
+            "selfplay_duration": DurationDefaults.SELFPLAY_DURATION,
+            "training_duration": DurationDefaults.TRAINING_DURATION,
+            "peak_hours_start": DurationDefaults.PEAK_HOURS_START,
+            "peak_hours_end": DurationDefaults.PEAK_HOURS_END,
+        },
     }
 
 
@@ -792,6 +899,10 @@ __all__ = [
     "MetricsAnalysisDefaults",
     "CacheDefaults",
     "SyncCoordinatorDefaults",
+    # December 2025 new defaults
+    "QueueDefaults",
+    "ScalingDefaults",
+    "DurationDefaults",
     # Utilities
     "get_all_defaults",
     "get_circuit_breaker_configs",

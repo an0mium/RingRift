@@ -3,6 +3,13 @@
 Utility functions for registering trained models in the model registry.
 Provides a simple API for training scripts to register their outputs.
 
+Note:
+    This module provides training-specific convenience functions that wrap
+    the unified model store. For general model operations, prefer using
+    :mod:`app.training.unified_model_store` directly::
+
+        from app.training import get_model_store, register_model
+
 Usage:
     from app.training.training_registry import register_trained_model
 

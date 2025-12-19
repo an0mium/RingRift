@@ -1037,7 +1037,16 @@ class SlurmBackend(OrchestratorBackend):
         ]
 
         venv_activate = getattr(self.config, "venv_activate", None)
-        if venv_activate:
+        venv_activate_arm64 = getattr(self.config, "venv_activate_arm64", None)
+        if venv_activate_arm64:
+            lines.append('ARCH="$(uname -m)"')
+            lines.append('if [ "$ARCH" = "aarch64" ]; then')
+            lines.append(f"  source {shlex.quote(str(venv_activate_arm64))}")
+            if venv_activate:
+                lines.append("else")
+                lines.append(f"  source {shlex.quote(str(venv_activate))}")
+            lines.append("fi")
+        elif venv_activate:
             lines.append(f"source {shlex.quote(str(venv_activate))}")
 
         setup_commands = getattr(self.config, "setup_commands", []) or []

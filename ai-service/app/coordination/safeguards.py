@@ -622,3 +622,20 @@ def main():
 if __name__ == "__main__":
     import asyncio
     main()
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Data classes
+    "SafeguardConfig",
+    # Classes
+    "SpawnRateTracker",
+    "ResourceMonitor",
+    "Safeguards",
+    # Functions
+    "patch_p2p_start_job",
+    "check_before_spawn",
+]

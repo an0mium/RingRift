@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from scripts.lib.paths import REPO_ROOT
 from app.models import (
     BoardState,
     BoardType,
@@ -39,11 +40,6 @@ from app.models import (
 )
 from app.game_engine import GameEngine
 from app.rules import global_actions as ga
-
-
-def repo_root() -> Path:
-    """Return the monorepo root."""
-    return Path(__file__).resolve().parents[2]
 
 
 def compute_simple_hash(state: GameState) -> str:

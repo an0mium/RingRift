@@ -98,6 +98,14 @@ All superseded by `p2p_orchestrator.py`:
 | `training_orchestrator.py`    | P2P orchestrator (DELETE) |
 | `job_scheduler.py`            | P2P orchestrator (DELETE) |
 
+### Unified Scripts (superseded by P2P orchestrator)
+
+| Script                         | Replacement                     |
+| ------------------------------ | ------------------------------- |
+| `unified_work_orchestrator.py` | P2P orchestrator job scheduling |
+| `unified_cluster_monitor.py`   | `scripts/monitor/` + P2P status |
+| `cluster_auto_recovery.py`     | P2P self-healing loop           |
+
 ### Data Collection
 
 | Script         | Replacement         |
@@ -123,6 +131,9 @@ Scripts created in this session that may conflict:
 ## SAFE TO DELETE
 
 These can be deleted immediately (no dependencies):
+
+NOTE: These scripts have been removed from the repo as of 2025-12-19. The list
+below is kept for local cleanup reference only.
 
 ```bash
 # Duplicate monitoring scripts
@@ -189,4 +200,4 @@ A cleanup script is provided to safely remove deprecated files:
 - [x] **2025-12-19**: Integrate config/cluster.yaml into P2P orchestrator
 - [x] **2025-12-19**: Add auto-cleanup to P2P orchestrator (stale process killing)
 - [x] **2025-12-19**: Consolidate monitoring into `scripts/monitor/` module
-- [ ] **Pending**: Run `cleanup_deprecated.sh` after testing in production
+- [x] **2025-12-19**: Removed legacy cluster scripts from the repo

@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Dict, Final, List, Optional
+from typing import Any, Dict, Final
 
-from prometheus_client import Counter, Gauge, Histogram, Info, REGISTRY
+from prometheus_client import Counter, Gauge, REGISTRY
 
 logger = logging.getLogger(__name__)
 

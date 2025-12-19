@@ -1990,12 +1990,72 @@ class RollbackMonitor:
         }
 
 
-# Convenience function
+# =============================================================================
+# Singleton with State Machine Integration
+# =============================================================================
+
+_promotion_controller_singleton: Optional[PromotionController] = None
+_promotion_controller_lock = None  # Lazy init to avoid import issues
+
+
+def _get_controller_lock():
+    """Get or create the singleton lock."""
+    global _promotion_controller_lock
+    if _promotion_controller_lock is None:
+        import threading
+        _promotion_controller_lock = threading.Lock()
+    return _promotion_controller_lock
+
+
 def get_promotion_controller(
     criteria: Optional[PromotionCriteria] = None,
+    use_singleton: bool = True,
 ) -> PromotionController:
-    """Get a configured promotion controller instance."""
-    return PromotionController(criteria=criteria)
+    """Get a configured promotion controller instance.
+
+    Args:
+        criteria: Optional promotion criteria
+        use_singleton: If True (default), return singleton with state machine wired.
+                      If False, create a new instance without state machine.
+
+    Returns:
+        PromotionController instance
+
+    Note:
+        The singleton is automatically wired to the ModelLifecycleStateMachine
+        for audit trail tracking of all promotion decisions.
+    """
+    global _promotion_controller_singleton
+
+    if not use_singleton:
+        return PromotionController(criteria=criteria)
+
+    if _promotion_controller_singleton is None:
+        with _get_controller_lock():
+            if _promotion_controller_singleton is None:
+                controller = PromotionController(criteria=criteria)
+
+                # Wire state machine integration for audit trail
+                try:
+                    from app.training.model_state_machine import PromotionControllerIntegration
+                    integration = PromotionControllerIntegration()
+                    integration.wire_promotion_controller(controller)
+                    logger.info("[PromotionController] State machine integration wired")
+                except ImportError:
+                    logger.debug("[PromotionController] State machine not available")
+                except Exception as e:
+                    logger.warning(f"[PromotionController] Failed to wire state machine: {e}")
+
+                _promotion_controller_singleton = controller
+
+    return _promotion_controller_singleton
+
+
+def reset_promotion_controller() -> None:
+    """Reset the promotion controller singleton (for testing)."""
+    global _promotion_controller_singleton
+    with _get_controller_lock():
+        _promotion_controller_singleton = None
 
 
 def get_rollback_monitor(

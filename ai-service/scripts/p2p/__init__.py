@@ -85,6 +85,19 @@ from .utils import (
     systemd_notify_ready,
 )
 
+# Re-export client utilities
+from .client import (
+    P2PClient,
+    P2PClientError,
+    JobRequest,
+    JobResult,
+    ClusterStatus,
+    get_client,
+    get_cluster_status,
+    submit_selfplay_job,
+    submit_training_job,
+)
+
 __all__ = [
     # Types
     'NodeRole',
@@ -130,4 +143,14 @@ __all__ = [
     # General utilities
     'systemd_notify_watchdog',
     'systemd_notify_ready',
+    # Client utilities
+    'P2PClient',
+    'P2PClientError',
+    'JobRequest',
+    'JobResult',
+    'ClusterStatus',
+    'get_client',
+    'get_cluster_status',
+    'submit_selfplay_job',
+    'submit_training_job',
 ]

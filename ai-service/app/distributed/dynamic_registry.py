@@ -824,7 +824,7 @@ class DynamicHostRegistry:
                 with open(config_path, "w") as f:
                     yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
-                logger.info(f"Updated YAML config with dynamic addresses")
+                logger.info("Updated YAML config with dynamic addresses")
                 return True
 
             return False

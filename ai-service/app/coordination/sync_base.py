@@ -311,3 +311,18 @@ async def try_transports(
             logger.warning(f"Sync to {node} failed via {transport_name}: {e}")
 
     return False, ""
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Data classes
+    "SyncState",
+    "CircuitBreakerConfig",
+    # Classes
+    "SyncManagerBase",
+    # Functions
+    "try_transports",
+]

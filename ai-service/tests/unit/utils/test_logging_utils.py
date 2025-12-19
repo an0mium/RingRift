@@ -145,8 +145,16 @@ class TestLogDurationAsync:
 class TestConfigureLogging:
     """Tests for configure_logging function."""
 
+    @pytest.fixture(autouse=True)
+    def restore_root_logger_level(self):
+        """Save and restore root logger level to prevent test pollution."""
+        root = logging.getLogger()
+        original_level = root.level
+        yield
+        root.setLevel(original_level)
+
     def test_sets_root_level(self):
-        # Note: this modifies global state
+        # Note: this modifies global state (restored by fixture)
         configure_logging(level=logging.WARNING)
         root = logging.getLogger()
         assert root.level == logging.WARNING

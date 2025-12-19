@@ -17,7 +17,6 @@ Usage:
 
 import argparse
 import json
-import logging
 import math
 import sys
 import time
@@ -31,8 +30,9 @@ AI_SERVICE_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 from app.tournament.unified_elo_db import EloDatabase, get_elo_database
+from scripts.lib.logging_config import setup_script_logging
 
-logger = logging.getLogger(__name__)
+logger = setup_script_logging("gauntlet_to_elo")
 
 # Default paths
 GAUNTLET_RESULTS_FILE = AI_SERVICE_ROOT / "data" / "baseline_gauntlet_results.json"
@@ -267,11 +267,6 @@ def main():
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
 
     args = parser.parse_args()
-
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s"
-    )
 
     if not args.process and not args.dry_run:
         parser.print_help()

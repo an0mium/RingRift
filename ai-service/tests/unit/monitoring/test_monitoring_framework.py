@@ -56,8 +56,8 @@ class TestThresholds:
     def test_disk_thresholds(self):
         """Disk thresholds should have expected values."""
         disk = THRESHOLDS["disk"]
-        assert disk["warning"] == 70
-        assert disk["critical"] == 85
+        assert disk["warning"] == 65  # DISK_WARNING_PERCENT
+        assert disk["critical"] == 70  # DISK_CRITICAL_PERCENT
         assert disk["fatal"] == 95
         assert disk["unit"] == "percent"
 
@@ -75,7 +75,7 @@ class TestThresholds:
     def test_training_thresholds(self):
         """Training thresholds should exist."""
         training = THRESHOLDS["training"]
-        assert training["stale_hours"] == 24
+        assert training["stale_hours"] == 6.0  # TRAINING_STALENESS_HOURS
         assert training["model_stale_hours"] == 48
         assert training["min_batch_rate"] == 10
 
@@ -83,7 +83,7 @@ class TestThresholds:
         """Cluster thresholds should exist."""
         cluster = THRESHOLDS["cluster"]
         assert cluster["min_nodes_online"] == 5
-        assert cluster["node_timeout_seconds"] == 30
+        assert cluster["node_timeout_seconds"] == 90  # PEER_TIMEOUT
 
 
 class TestGetThreshold:
@@ -91,8 +91,8 @@ class TestGetThreshold:
 
     def test_get_existing_threshold(self):
         """Should return correct threshold value."""
-        assert get_threshold("disk", "warning") == 70
-        assert get_threshold("disk", "critical") == 85
+        assert get_threshold("disk", "warning") == 65  # DISK_WARNING_PERCENT
+        assert get_threshold("disk", "critical") == 70  # DISK_CRITICAL_PERCENT
 
     def test_get_nonexistent_category(self):
         """Should return default for missing category."""
@@ -110,12 +110,12 @@ class TestShouldAlert:
 
     def test_should_alert_gte_above_threshold(self):
         """Should alert when value >= threshold (default gte)."""
-        assert should_alert("disk", 75, "warning") is True  # 75 >= 70
-        assert should_alert("disk", 70, "warning") is True  # 70 >= 70
+        assert should_alert("disk", 75, "warning") is True  # 75 >= 65
+        assert should_alert("disk", 65, "warning") is True  # 65 >= 65
 
     def test_should_not_alert_gte_below_threshold(self):
         """Should not alert when value < threshold."""
-        assert should_alert("disk", 65, "warning") is False  # 65 < 70
+        assert should_alert("disk", 60, "warning") is False  # 60 < 65
 
     def test_should_alert_lte_comparison(self):
         """Should alert with lte comparison."""
@@ -126,13 +126,13 @@ class TestShouldAlert:
 
     def test_should_alert_gt_comparison(self):
         """Should alert with gt comparison (strictly greater)."""
-        assert should_alert("disk", 71, "warning", comparison="gt") is True
-        assert should_alert("disk", 70, "warning", comparison="gt") is False
+        assert should_alert("disk", 66, "warning", comparison="gt") is True
+        assert should_alert("disk", 65, "warning", comparison="gt") is False
 
     def test_should_alert_lt_comparison(self):
         """Should alert with lt comparison (strictly less)."""
-        assert should_alert("disk", 69, "warning", comparison="lt") is True
-        assert should_alert("disk", 70, "warning", comparison="lt") is False
+        assert should_alert("disk", 64, "warning", comparison="lt") is True
+        assert should_alert("disk", 65, "warning", comparison="lt") is False
 
     def test_should_alert_nonexistent_category(self):
         """Should return False for nonexistent category."""

@@ -90,14 +90,8 @@ from app.training.env import (
     get_theoretical_max_moves,
 )
 from app.game_engine import GameEngine
+from scripts.lib.cli import BOARD_TYPE_MAP
 
-
-# Board type mapping
-BOARD_TYPE_MAP = {
-    "square8": BoardType.SQUARE8,
-    "square19": BoardType.SQUARE19,
-    "hexagonal": BoardType.HEXAGONAL,
-}
 
 # Engine mode to AI type mapping
 ENGINE_MODE_TO_AI = {

@@ -933,3 +933,21 @@ def get_work_queue() -> WorkQueue:
     if _work_queue is None:
         _work_queue = WorkQueue()
     return _work_queue
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Enums
+    "WorkType",
+    "WorkStatus",
+    # Data classes
+    "WorkItem",
+    # Classes
+    "SlackWorkQueueNotifier",
+    "WorkQueue",
+    # Functions
+    "get_work_queue",
+]

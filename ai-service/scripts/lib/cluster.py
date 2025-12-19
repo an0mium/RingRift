@@ -412,43 +412,53 @@ class CommandError(Exception):
 class ClusterManager:
     """Manages a cluster of training nodes."""
 
-    # Default cluster nodes
-    DEFAULT_NODES = [
-        {"name": "lambda-gh200-e", "hostname": "100.88.176.74"},
-        {"name": "lambda-gh200-f", "hostname": "100.104.165.116"},
-        {"name": "lambda-gh200-g", "hostname": "100.104.126.58"},
-        {"name": "lambda-gh200-h", "hostname": "100.65.88.62"},
-        {"name": "lambda-gh200-i", "hostname": "100.99.27.56"},
-        {"name": "lambda-gh200-k", "hostname": "100.96.142.42"},
-        {"name": "lambda-gh200-l", "hostname": "100.76.145.60"},
-        {"name": "lambda-2xh100", "hostname": "100.97.104.89"},
-    ]
-
     def __init__(
         self,
         nodes: Optional[List[Dict[str, Any]]] = None,
         max_workers: int = 8,
         ssh_user: str = "ubuntu",
+        use_config: bool = True,
     ):
         """Initialize cluster manager.
 
         Args:
-            nodes: List of node configs (uses DEFAULT_NODES if not specified)
+            nodes: List of node configs. If not specified and use_config=True,
+                   loads from distributed_hosts.yaml/cluster.yaml
             max_workers: Max parallel workers for cluster operations
             ssh_user: Default SSH user
+            use_config: If True and nodes not specified, load from config files
         """
         self.max_workers = max_workers
-        node_configs = nodes or self.DEFAULT_NODES
-
         self.nodes: Dict[str, ClusterNode] = {}
-        for config in node_configs:
-            node = ClusterNode(
-                name=config["name"],
-                hostname=config.get("hostname"),
-                ssh_user=config.get("ssh_user", ssh_user),
-                ssh_key=config.get("ssh_key"),
-            )
-            self.nodes[node.name] = node
+
+        if nodes:
+            # Use explicitly provided nodes
+            for config in nodes:
+                node = ClusterNode(
+                    name=config["name"],
+                    hostname=config.get("hostname"),
+                    ssh_user=config.get("ssh_user", ssh_user),
+                    ssh_key=config.get("ssh_key"),
+                    ringrift_path=config.get("ringrift_path", "~/ringrift/ai-service"),
+                )
+                self.nodes[node.name] = node
+        elif use_config:
+            # Load from config files via hosts module
+            try:
+                from scripts.lib.hosts import get_active_hosts
+                for host_config in get_active_hosts():
+                    node = ClusterNode(
+                        name=host_config.name,
+                        hostname=host_config.effective_ssh_host,
+                        ssh_user=host_config.ssh_user,
+                        ssh_key=host_config.ssh_key,
+                        ringrift_path=host_config.ringrift_path,
+                    )
+                    self.nodes[node.name] = node
+            except ImportError:
+                logger.warning("Could not load hosts module, no nodes configured")
+            except Exception as e:
+                logger.warning(f"Failed to load hosts from config: {e}")
 
     def get_node(self, name: str) -> Optional[ClusterNode]:
         """Get a node by name."""

@@ -660,3 +660,24 @@ def create_monitoring_aware_scaler(
         scaler.subscribe_to_monitoring_events()
 
     return scaler
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Enums
+    "ScalingAction",
+    # Data classes
+    "ScalingConfig",
+    "ScalingDecision",
+    "ScaleEvent",
+    "NodeMetrics",
+    # Classes
+    "AutoScaler",
+    "MonitoringAwareAutoScaler",
+    # Functions
+    "load_scaling_config_from_yaml",
+    "create_monitoring_aware_scaler",
+]

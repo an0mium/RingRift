@@ -33,24 +33,22 @@ import directly from app.metrics_base (the renamed app/metrics.py).
 
 from __future__ import annotations
 
+import importlib.util
 import logging
+import os
 import threading
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 # Import orchestrator metrics
 # Re-export app-level metrics from the standalone metrics module
 # These are used by app/main.py for API request metrics
-import sys
-import importlib.util
 
 # Load app/metrics.py directly (it exists alongside this package)
 _metrics_file = __file__.replace("__init__.py", "").rstrip("/").rstrip("\\") + ".py"
 _spec = importlib.util.spec_from_file_location("app.metrics_base", _metrics_file.replace("/metrics/", "/metrics"))
 if _spec and _spec.loader:
     # The actual file is at app/metrics.py (parent dir + metrics.py)
-    import os
     _parent = os.path.dirname(os.path.dirname(__file__))
     _metrics_py = os.path.join(_parent, "metrics.py")
     if os.path.exists(_metrics_py):
@@ -350,6 +348,33 @@ __all__ = [
     "MetricType",
     "MetricInfo",
     "register_metric",
+    # Coordinator metrics
+    "COORDINATOR_STATUS",
+    "COORDINATOR_UPTIME",
+    "COORDINATOR_OPERATIONS",
+    "COORDINATOR_ERRORS",
+    "RECOVERY_ATTEMPTS",
+    "RECOVERY_ESCALATIONS",
+    "NODES_TRACKED",
+    "JOBS_TRACKED",
+    "BANDWIDTH_ALLOCATIONS_ACTIVE",
+    "BANDWIDTH_TRANSFERS_TOTAL",
+    "BANDWIDTH_BYTES_TOTAL",
+    "SYNC_HOSTS_TOTAL",
+    "SYNC_HOSTS_HEALTHY",
+    "SYNC_HOSTS_STALE",
+    "SYNC_HOSTS_CRITICAL",
+    "SYNC_GAMES_UNSYNCED",
+    "SYNC_CLUSTER_HEALTH",
+    "update_coordinator_status",
+    "update_coordinator_uptime",
+    "record_coordinator_operation",
+    "record_coordinator_error",
+    "update_recovery_stats",
+    "update_bandwidth_stats",
+    "update_sync_stats",
+    "collect_all_coordinator_metrics",
+    "collect_all_coordinator_metrics_sync",
 ]
 
 # Import catalog (December 2025)

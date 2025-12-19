@@ -151,6 +151,8 @@ class AIType(str, Enum):
     NEURAL_DEMO = "neural_demo"
     POLICY_ONLY = "policy_only"  # Direct NN policy without search
     GUMBEL_MCTS = "gumbel_mcts"  # Gumbel AlphaZero with Sequential Halving
+    EBMO = "ebmo"  # Energy-Based Move Optimization (gradient descent on action embeddings)
+    GMO = "gmo"  # Gradient Move Optimization (entropy-guided gradient ascent in move embedding space)
 
 
 class Position(BaseModel):

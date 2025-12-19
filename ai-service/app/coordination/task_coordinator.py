@@ -1703,3 +1703,118 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def wire_task_coordinator_events() -> TaskCoordinator:
+    """Wire task coordinator to the event bus for automatic updates.
+
+    Subscribes to:
+    - TASK_SPAWNED: Track new tasks
+    - TASK_HEARTBEAT: Update task heartbeats
+    - TASK_COMPLETED: Mark tasks complete
+    - TASK_FAILED: Handle task failures
+    - TASK_CANCELLED: Handle task cancellation
+
+    Returns:
+        The configured TaskCoordinator instance
+    """
+    coordinator = get_coordinator()
+
+    try:
+        from app.distributed.data_events import DataEventType, get_event_bus
+
+        bus = get_event_bus()
+
+        def _event_payload(event: Any) -> Dict[str, Any]:
+            if isinstance(event, dict):
+                return event
+            payload = getattr(event, "payload", None)
+            return payload if isinstance(payload, dict) else {}
+
+        def _on_task_spawned(event: Any) -> None:
+            """Handle task spawn event."""
+            payload = _event_payload(event)
+            task_id = payload.get("task_id")
+            task_type_str = payload.get("task_type")
+            node_id = payload.get("node_id") or payload.get("host")
+            pid = payload.get("pid", 0)
+            if task_id and task_type_str and node_id:
+                try:
+                    task_type = TaskType(task_type_str)
+                    coordinator.register_task(task_id, task_type, node_id, pid)
+                except ValueError:
+                    logger.warning(f"Unknown task type: {task_type_str}")
+
+        def _on_task_heartbeat(event: Any) -> None:
+            """Handle task heartbeat."""
+            payload = _event_payload(event)
+            task_id = payload.get("task_id")
+            if task_id:
+                coordinator.heartbeat_task(task_id)
+
+        def _on_task_completed(event: Any) -> None:
+            """Handle task completion."""
+            payload = _event_payload(event)
+            task_id = payload.get("task_id")
+            if task_id:
+                coordinator.unregister_task(task_id)
+
+        def _on_task_failed(event: Any) -> None:
+            """Handle task failure."""
+            payload = _event_payload(event)
+            task_id = payload.get("task_id")
+            error = payload.get("error", "Unknown error")
+            if task_id:
+                coordinator.fail_task(task_id, error)
+
+        def _on_task_cancelled(event: Any) -> None:
+            """Handle task cancellation."""
+            payload = _event_payload(event)
+            task_id = payload.get("task_id")
+            if task_id:
+                coordinator.unregister_task(task_id)
+
+        bus.subscribe(DataEventType.TASK_SPAWNED, _on_task_spawned)
+        bus.subscribe(DataEventType.TASK_HEARTBEAT, _on_task_heartbeat)
+        bus.subscribe(DataEventType.TASK_COMPLETED, _on_task_completed)
+        bus.subscribe(DataEventType.TASK_FAILED, _on_task_failed)
+        bus.subscribe(DataEventType.TASK_CANCELLED, _on_task_cancelled)
+
+        logger.info("[TaskCoordinator] Wired to event bus (TASK_SPAWNED, TASK_HEARTBEAT, TASK_COMPLETED, TASK_FAILED, TASK_CANCELLED)")
+
+    except ImportError:
+        logger.warning("[TaskCoordinator] data_events not available, running without event bus")
+
+    return coordinator
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Enums
+    "TaskType",
+    "ResourceType",
+    "CoordinatorState",
+    # Functions
+    "get_task_resource_type",
+    "is_gpu_task",
+    "is_cpu_task",
+    "get_queue_for_task",
+    # Classes
+    "TaskLimits",
+    "TaskInfo",
+    "OrchestratorLock",
+    "RateLimiter",
+    "TaskRegistry",
+    "TaskHeartbeatMonitor",
+    "TaskCoordinator",
+    "CoordinatedTask",
+    # Convenience functions
+    "get_coordinator",
+    "can_spawn",
+    "emergency_stop_all",
+    # Event wiring
+    "wire_task_coordinator_events",
+]

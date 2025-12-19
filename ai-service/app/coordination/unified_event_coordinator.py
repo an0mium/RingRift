@@ -857,3 +857,31 @@ if __name__ == "__main__":
             print("Coordinator stopped")
 
         asyncio.run(main())
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Data classes
+    "CoordinatorStats",
+    # Main class
+    "UnifiedEventCoordinator",
+    # Functions
+    "get_event_coordinator",
+    "start_coordinator",
+    "stop_coordinator",
+    "get_coordinator_stats",
+    # Async event emitters
+    "emit_training_started",
+    "emit_training_completed",
+    "emit_training_failed",
+    "emit_evaluation_completed",
+    "emit_sync_completed",
+    "emit_model_promoted",
+    "emit_selfplay_batch_completed",
+    # Sync event emitters
+    "emit_training_started_sync",
+    "emit_training_completed_sync",
+]

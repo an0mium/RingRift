@@ -43,9 +43,33 @@ import functools
 import logging
 import os
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, Optional, TypeVar, Union
+from typing import Any, Callable, Dict, Optional, TypeVar
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    # Core functions
+    "is_tracing_enabled",
+    "get_tracer",
+    "get_current_span",
+    "setup_tracing",
+    "shutdown_tracing",
+    # Decorators
+    "traced",
+    "traced_async",
+    # Context propagation
+    "inject_trace_context",
+    "extract_trace_context",
+    "trace_context_from_headers",
+    # Helper functions
+    "add_ai_move_attributes",
+    "add_training_attributes",
+    # Classes
+    "NoOpSpan",
+    "NoOpTracer",
+    # Module-level tracer
+    "tracer",
+]
 
 # Type variable for generic function signatures
 F = TypeVar('F', bound=Callable[..., Any])
@@ -473,11 +497,9 @@ class NoOpTracer:
     def start_span(self, name: str, **kwargs) -> NoOpSpan:
         return NoOpSpan()
 
-    def start_as_current_span(self, name: str, **kwargs) -> NoOpSpan:
-        return NoOpSpan()
-
     @contextmanager
     def start_as_current_span(self, name: str, **kwargs):
+        """Context manager that yields a NoOpSpan."""
         yield NoOpSpan()
 
 

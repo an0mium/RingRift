@@ -230,6 +230,8 @@ def configure_logging(
         format=format_string,
         stream=stream or sys.stderr,
     )
+    # basicConfig only sets level if no handlers exist, so set explicitly
+    logging.getLogger().setLevel(level)
 
 
 def silence_logger(name: str, level: int = logging.WARNING) -> None:

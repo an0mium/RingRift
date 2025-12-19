@@ -23,6 +23,7 @@ from typing import Optional
 _SCRIPT_LIB_DIR = Path(__file__).resolve().parent
 _SCRIPTS_DIR = _SCRIPT_LIB_DIR.parent
 AI_SERVICE_ROOT = _SCRIPTS_DIR.parent
+REPO_ROOT = AI_SERVICE_ROOT.parent  # Monorepo root (parent of ai-service)
 
 # =============================================================================
 # Primary Directories

@@ -874,3 +874,32 @@ def get_hosts_for_cpu_tasks(
     # Sort by CPU utilization (lowest first)
     suitable.sort(key=lambda x: x[1])
     return [h for h, _ in suitable]
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Enums
+    "HostTier",
+    # Data classes
+    "UtilizationTargets",
+    "HostTargets",
+    # Main class
+    "ResourceTargetManager",
+    # Functions
+    "get_resource_targets",
+    "get_host_targets",
+    "should_scale_up",
+    "should_scale_down",
+    "get_target_job_count",
+    "get_utilization_score",
+    "record_utilization",
+    "get_cluster_summary",
+    "set_backpressure",
+    "reset_resource_targets",
+    "select_host_for_task",
+    "get_hosts_for_gpu_tasks",
+    "get_hosts_for_cpu_tasks",
+]

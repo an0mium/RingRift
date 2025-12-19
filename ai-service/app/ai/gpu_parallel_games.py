@@ -5835,7 +5835,7 @@ class ParallelGameRunner:
             if self.device.type == "cuda" and torch.cuda.is_available():
                 try:
                     self.policy_model = self.policy_model.half()
-                    logger.info(f"ParallelGameRunner: Enabled FP16 inference for policy model")
+                    logger.info("ParallelGameRunner: Enabled FP16 inference for policy model")
                 except Exception as e:
                     logger.debug(f"FP16 inference not available: {e}")
 

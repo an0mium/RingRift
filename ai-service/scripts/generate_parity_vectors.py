@@ -43,6 +43,7 @@ from typing import Dict, List, Optional, Set, Tuple
 # Add ai-service to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from scripts.lib.paths import REPO_ROOT
 from app.db.game_replay import GameReplayDB, _compute_state_hash
 from app.models import GamePhase, MoveType
 
@@ -70,11 +71,6 @@ class ParityVector:
     canonical_move: Optional[dict]
     is_match: bool
     mismatch_kinds: List[str]
-
-
-def repo_root() -> Path:
-    """Return the monorepo root (parent of ai-service/)."""
-    return Path(__file__).resolve().parents[2]
 
 
 def _canonicalize_status(status: str | None) -> str:
@@ -144,7 +140,7 @@ def run_ts_replay(db_path: Path, game_id: str) -> Tuple[int, Dict[int, StateSumm
         (total_moves_ts, mapping from k -> StateSummary)
         where k=0 is initial state, k=1 is after move 0, etc.
     """
-    root = repo_root()
+    root = REPO_ROOT
     cmd = [
         "npx",
         "ts-node",

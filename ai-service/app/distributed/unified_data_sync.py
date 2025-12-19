@@ -1750,7 +1750,7 @@ Examples:
         for host in service.hosts.values():
             status = "ephemeral" if host.is_ephemeral else "persistent"
             logger.info(f"  {host.name}: {host.ssh_user}@{host.ssh_host}:{host.ssh_port} ({status})")
-        logger.info(f"Components enabled:")
+        logger.info("Components enabled:")
         logger.info(f"  Manifest replication: {service._manifest_replicator is not None}")
         logger.info(f"  P2P fallback: {service._p2p_fallback is not None}")
         logger.info(f"  Aria2 transport: {service._aria2_transport is not None}")

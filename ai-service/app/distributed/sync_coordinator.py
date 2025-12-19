@@ -1620,7 +1620,7 @@ class HighQualityDataSyncWatcher:
         # If high quality count increased significantly, trigger priority sync
         if high_quality_count >= 50 and avg_quality >= self.min_quality_score:
             logger.info(
-                f"[HighQualityDataSyncWatcher] Significant high-quality data detected, triggering sync"
+                "[HighQualityDataSyncWatcher] Significant high-quality data detected, triggering sync"
             )
             self._maybe_trigger_sync()
 

@@ -192,7 +192,7 @@ class GossipSyncDaemon:
         if self._server:
             self._server.close()
             await self._server.wait_closed()
-        print(f"[Gossip] Daemon stopped")
+        print("[Gossip] Daemon stopped")
 
     async def _sync_loop(self):
         """Main sync loop - periodically sync with peers."""

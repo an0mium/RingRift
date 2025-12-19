@@ -17,33 +17,16 @@ Usage:
 import os
 import sys
 import time
-import logging
 from pathlib import Path
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from app.models import GameState, BoardType, AIConfig
-from app.training.generate_data import create_initial_state
+from app.models import BoardType, AIConfig
+from app.training.initial_state import create_initial_state
 from app.rules.default_engine import DefaultRulesEngine
-
-
-def setup_logging(verbose: bool = False) -> None:
-    """Configure logging."""
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-
-
-def create_game_state(board_type: BoardType = BoardType.SQUARE8) -> GameState:
-    """Create a fresh game state for benchmarking."""
-    return create_initial_state(
-        board_type=board_type,
-        num_players=2,
-    )
+from scripts.lib.logging_config import setup_script_logging
 
 
 def benchmark_gumbel_mcts(
@@ -79,12 +62,12 @@ def benchmark_gumbel_mcts(
     print(f"AI: {ai}")
 
     # Create game state
-    game_state = create_game_state()
+    game_state = create_initial_state()
     engine = DefaultRulesEngine()
 
     # Warmup (first move may include initialization overhead)
     print("\nWarming up...")
-    warmup_state = create_game_state()
+    warmup_state = create_initial_state()
     ai.select_move(warmup_state)
 
     # Benchmark moves
@@ -192,7 +175,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    setup_logging(args.verbose)
+    setup_script_logging("benchmark_gumbel_gpu", level="DEBUG" if args.verbose else "INFO")
 
     if args.compare:
         compare_gpu_vs_cpu(args.num_moves, args.budget, args.num_sampled)

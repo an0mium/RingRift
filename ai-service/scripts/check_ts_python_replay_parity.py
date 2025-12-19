@@ -75,7 +75,7 @@ from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
+from scripts.lib.paths import AI_SERVICE_ROOT, REPO_ROOT
 # Ensure `app.*` imports resolve when invoked from repo root.
 if str(AI_SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(AI_SERVICE_ROOT))
@@ -147,14 +147,9 @@ def _canonicalize_status(status: str | None) -> str:
     return s
 
 
-def repo_root() -> Path:
-    """Return the monorepo root (one level above ai-service/)."""
-    return Path(__file__).resolve().parents[2]
-
-
 def find_dbs(explicit_db: Optional[str] = None) -> List[Path]:
     """Find GameReplayDB files to inspect."""
-    root = repo_root()
+    root = REPO_ROOT
     if explicit_db:
         return [Path(explicit_db).resolve()]
 

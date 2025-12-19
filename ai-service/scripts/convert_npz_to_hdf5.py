@@ -22,14 +22,18 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import logging
 import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
+
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from scripts.lib.logging_config import setup_script_logging
 
 # Try to import h5py
 try:
@@ -39,11 +43,7 @@ except ImportError:
     HAS_H5PY = False
     h5py = None
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+logger = setup_script_logging("convert_npz_to_hdf5")
 
 
 def compute_array_checksum(arr: np.ndarray) -> str:

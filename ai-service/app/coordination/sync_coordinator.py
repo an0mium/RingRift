@@ -1189,8 +1189,12 @@ async def execute_priority_sync(max_syncs: int = 3) -> Dict[str, Any]:
 
 
 def reset_sync_coordinator() -> None:
-    """Reset the coordinator singleton."""
-    SyncCoordinator.reset_instance()
+    """Reset the coordinator singleton.
+
+    .. deprecated:: 2025-12
+        Use :func:`reset_sync_scheduler` instead.
+    """
+    SyncScheduler.reset_instance()
 
 
 # =============================================================================
@@ -1230,3 +1234,97 @@ def get_sync_scheduler(db_path: Optional[Path] = None) -> SyncScheduler:
 def reset_sync_scheduler() -> None:
     """Reset the sync scheduler singleton."""
     SyncScheduler.reset_instance()
+
+
+def wire_sync_events() -> SyncScheduler:
+    """Wire sync coordinator to the event bus for automatic updates.
+
+    Subscribes to:
+    - DATA_SYNC_COMPLETED: Update host state after successful sync
+    - DATA_SYNC_FAILED: Mark sync failure for scheduling
+    - NEW_GAMES_AVAILABLE: Track new games for sync prioritization
+
+    Returns:
+        The configured SyncScheduler instance
+    """
+    scheduler = get_sync_scheduler()
+
+    try:
+        from app.distributed.data_events import DataEventType, get_event_bus
+
+        bus = get_event_bus()
+
+        def _event_payload(event: Any) -> Dict[str, Any]:
+            if isinstance(event, dict):
+                return event
+            payload = getattr(event, "payload", None)
+            return payload if isinstance(payload, dict) else {}
+
+        def _on_sync_completed(event: Any) -> None:
+            """Handle sync completion - update host state."""
+            payload = _event_payload(event)
+            host = payload.get("host") or payload.get("source_host")
+            games_synced = payload.get("games_synced", 0)
+            if host:
+                scheduler.record_sync_complete(host, success=True, games_synced=games_synced)
+
+        def _on_sync_failed(event: Any) -> None:
+            """Handle sync failure - update scheduling."""
+            payload = _event_payload(event)
+            host = payload.get("host") or payload.get("source_host")
+            error = payload.get("error", "Unknown error")
+            if host:
+                scheduler.record_sync_complete(host, success=False, error=error)
+
+        def _on_new_games(event: Any) -> None:
+            """Handle new games - update priority."""
+            payload = _event_payload(event)
+            host = payload.get("host") or payload.get("source_host")
+            count = payload.get("count", 1)
+            if host:
+                scheduler.record_games_generated(host, count)
+
+        bus.subscribe(DataEventType.DATA_SYNC_COMPLETED, _on_sync_completed)
+        bus.subscribe(DataEventType.DATA_SYNC_FAILED, _on_sync_failed)
+        bus.subscribe(DataEventType.NEW_GAMES_AVAILABLE, _on_new_games)
+
+        logger.info("[SyncScheduler] Wired to event bus (DATA_SYNC_COMPLETED, DATA_SYNC_FAILED, NEW_GAMES_AVAILABLE)")
+
+    except ImportError:
+        logger.warning("[SyncScheduler] data_events not available, running without event bus")
+
+    return scheduler
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Enums
+    "SyncPriority",
+    "HostType",
+    "SyncAction",
+    # Data classes
+    "HostDataState",
+    "SyncRecommendation",
+    "ClusterDataStatus",
+    # Main class
+    "SyncScheduler",
+    "SyncCoordinator",  # Deprecated alias
+    # Functions
+    "get_sync_coordinator",
+    "get_sync_scheduler",
+    "get_cluster_data_status",
+    "get_sync_recommendations",
+    "get_next_sync_target",
+    "register_host",
+    "update_host_state",
+    "record_sync_start",
+    "record_sync_complete",
+    "record_games_generated",
+    "execute_priority_sync",
+    "reset_sync_coordinator",
+    "reset_sync_scheduler",
+    "wire_sync_events",
+]

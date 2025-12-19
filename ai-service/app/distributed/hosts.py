@@ -178,8 +178,6 @@ def load_remote_hosts(config_path: Optional[str] = None) -> Dict[str, HostConfig
         Copy config/distributed_hosts.template.yaml to config/distributed_hosts.yaml
         and fill in your actual host details.
     """
-    global _HOST_CONFIG_CACHE
-
     # Return cached if already loaded
     if _HOST_CONFIG_CACHE and not config_path:
         return _HOST_CONFIG_CACHE
@@ -399,8 +397,6 @@ def detect_host_memory(host_name: str) -> HostMemoryInfo:
     Returns:
         HostMemoryInfo with total and available memory
     """
-    global _HOST_MEMORY_CACHE
-
     if host_name in _HOST_MEMORY_CACHE:
         return _HOST_MEMORY_CACHE[host_name]
 
@@ -534,7 +530,6 @@ def filter_ready_hosts(hosts: Dict[str, HostConfig]) -> Dict[str, HostConfig]:
 
 def clear_memory_cache() -> None:
     """Clear the memory detection cache to force re-detection."""
-    global _HOST_MEMORY_CACHE
     _HOST_MEMORY_CACHE.clear()
 
 

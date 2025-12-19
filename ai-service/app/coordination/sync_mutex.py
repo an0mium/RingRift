@@ -640,3 +640,30 @@ if __name__ == "__main__":
 
     else:
         parser.print_help()
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Constants
+    "LOCK_TIMEOUT_SECONDS",
+    "MAX_CONCURRENT_SYNCS_PER_HOST",
+    "MAX_GLOBAL_CONCURRENT_SYNCS",
+    # Data classes
+    "SyncLockInfo",
+    # Main class
+    "SyncMutex",
+    # Functions
+    "get_sync_mutex",
+    "reset_sync_mutex",
+    "acquire_sync_lock",
+    "release_sync_lock",
+    "is_sync_locked",
+    "get_sync_stats",
+    "sync_lock",
+    "sync_lock_required",
+    "sync_heartbeat",
+    "cleanup_crashed_sync_locks",
+]

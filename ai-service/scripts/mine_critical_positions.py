@@ -31,19 +31,16 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.models import (
     AIConfig,
-    BoardState,
     BoardType,
-    GamePhase,
     GameState,
     GameStatus,
     Move,
-    Player,
-    TimeControl,
 )
 from app.ai.heuristic_ai import HeuristicAI
-from app.rules.core import BOARD_CONFIGS
 from app.rules.default_engine import DefaultRulesEngine
 from app.db import GameReplayDB
+from app.training.initial_state import create_initial_state
+from scripts.lib.cli import BOARD_TYPE_MAP
 
 
 @dataclass
@@ -92,79 +89,6 @@ class GameTrajectory:
     moves: List[Dict[str, Any]] = field(default_factory=list)
 
 
-BOARD_TYPE_MAP = {
-    "square8": BoardType.SQUARE8,
-    "square19": BoardType.SQUARE19,
-    "hex": BoardType.HEXAGONAL,
-}
-
-
-def create_game_state(board_type_str: str, seed: int) -> GameState:
-    """Create initial game state for a board type."""
-    board_type = BOARD_TYPE_MAP.get(board_type_str, BoardType.SQUARE8)
-
-    config = BOARD_CONFIGS.get(board_type, BOARD_CONFIGS[BoardType.SQUARE8])
-    size = config.size
-    rings_per_player = config.rings_per_player
-
-    board = BoardState(
-        type=board_type,
-        size=size,
-        stacks={},
-        markers={},
-        collapsedSpaces={},
-        eliminatedRings={},
-    )
-
-    players = [
-        Player(
-            id=f"player{i}",
-            username=f"AI {i}",
-            type="ai",
-            playerNumber=i,
-            isReady=True,
-            timeRemaining=600000,
-            aiDifficulty=5,
-            ringsInHand=rings_per_player,
-            eliminatedRings=0,
-            territorySpaces=0,
-        )
-        for i in (1, 2)
-    ]
-
-    now = datetime.now()
-    time_control = TimeControl(initialTime=600000, increment=0, type="standard")
-
-    return GameState(
-        id=f"critical-mine-{seed}",
-        boardType=board_type,
-        rngSeed=seed,
-        board=board,
-        players=players,
-        currentPhase=GamePhase.RING_PLACEMENT,
-        currentPlayer=1,
-        moveHistory=[],
-        timeControl=time_control,
-        spectators=[],
-        gameStatus=GameStatus.ACTIVE,
-        winner=None,
-        createdAt=now,
-        lastMoveAt=now,
-        isRated=False,
-        maxPlayers=2,
-        totalRingsInPlay=rings_per_player * 2,
-        totalRingsEliminated=0,
-        victoryThreshold=5,
-        territoryVictoryThreshold=15,
-        chainCaptureState=None,
-        mustMoveFromStackKey=None,
-        zobristHash=None,
-        lpsRoundIndex=0,
-        lpsCurrentRoundActorMask={},
-        lpsExclusivePlayerForCompletedRound=None,
-    )
-
-
 def state_to_dict(state: GameState) -> Dict[str, Any]:
     """Convert GameState to serializable dict."""
     return state.model_dump(mode="json")
@@ -182,7 +106,8 @@ def play_game_with_trajectory(
 ) -> GameTrajectory:
     """Play a full game and record the trajectory."""
     rules = DefaultRulesEngine()
-    state = create_game_state(board_type, seed)
+    board_type_enum = BOARD_TYPE_MAP.get(board_type, BoardType.SQUARE8)
+    state = create_initial_state(board_type_enum, num_players=2)
 
     config1 = AIConfig(difficulty=5, seed=seed)
     config2 = AIConfig(difficulty=5, seed=seed + 1000)

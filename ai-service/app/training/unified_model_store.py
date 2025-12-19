@@ -565,7 +565,40 @@ def promote_model(
     return get_model_store().promote(model_id, target_stage, version)
 
 
+# Backward-compatible re-exports from model_registry (December 2025)
+# These allow gradual migration from model_registry to unified_model_store
+try:
+    from app.training.model_registry import (
+        ModelRegistry,
+        RegistryDatabase,
+        ModelStage,
+        ModelType,
+        ModelMetrics,
+        TrainingConfig,
+        ModelVersion,
+        ValidationStatus,
+        AutoPromoter,
+        get_model_registry,
+    )
+    _legacy_exports_available = True
+except ImportError:
+    _legacy_exports_available = False
+    ModelRegistry = None
+    RegistryDatabase = None
+    ModelStage = None
+    ModelType = None
+    ModelMetrics = None
+    TrainingConfig = None
+    ModelVersion = None
+    ValidationStatus = None
+    AutoPromoter = None
+
+    def get_model_registry():
+        raise ImportError("model_registry not available")
+
+
 __all__ = [
+    # Unified API (preferred)
     "UnifiedModelStore",
     "ModelInfo",
     "ModelStoreStage",
@@ -574,4 +607,15 @@ __all__ = [
     "register_model",
     "get_production_model",
     "promote_model",
+    # Legacy re-exports for backward compatibility
+    "ModelRegistry",
+    "RegistryDatabase",
+    "ModelStage",
+    "ModelType",
+    "ModelMetrics",
+    "TrainingConfig",
+    "ModelVersion",
+    "ValidationStatus",
+    "AutoPromoter",
+    "get_model_registry",
 ]

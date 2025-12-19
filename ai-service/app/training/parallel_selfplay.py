@@ -45,7 +45,7 @@ class ParallelSelfplayConfig:
     board_type: BoardType = BoardType.SQUARE8
     num_players: int = 2
     max_moves: int = 10000
-    engine: str = "descent"  # "descent", "mcts", or "gumbel"
+    engine: str = "descent"  # "descent", "mcts", "gumbel", or "ebmo"
     nn_model_id: Optional[str] = None
     multi_player_values: bool = False
     max_players: int = 4
@@ -143,6 +143,11 @@ def _generate_single_game(args: Tuple[int, int]) -> Optional[GameResult]:
         if config.engine == "gumbel":
             from app.ai.gumbel_mcts_ai import GumbelMCTSAI
 
+        # Conditionally import EBMO_AI
+        EBMO_AI = None
+        if config.engine == "ebmo":
+            from app.ai.ebmo_ai import EBMO_AI
+
         # Create environment
         env = RingRiftEnv(
             board_type=config.board_type,
@@ -171,6 +176,12 @@ def _generate_single_game(args: Tuple[int, int]) -> Optional[GameResult]:
                     player_number=pn,
                     config=ai_config,
                     board_type=config.board_type,
+                )
+            elif config.engine == "ebmo":
+                # EBMO uses gradient descent on action embeddings
+                ai_players[pn] = EBMO_AI(
+                    player_number=pn,
+                    config=ai_config,
                 )
             else:
                 ai_players[pn] = DescentAI(
@@ -425,7 +436,7 @@ def generate_dataset_parallel(
         seed: Random seed for reproducibility
         max_moves: Max moves per game
         num_players: Number of players
-        engine: AI engine type ("descent", "mcts", or "gumbel")
+        engine: AI engine type ("descent", "mcts", "gumbel", or "ebmo")
         history_length: Number of history frames to stack in features
         nn_model_id: Neural network model ID for AI
         multi_player_values: Include multi-player value vectors
