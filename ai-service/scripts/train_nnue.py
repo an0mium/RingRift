@@ -4309,10 +4309,11 @@ def train_nnue(
             logger.info(f"Hard example mining enabled (hard_fraction={hard_example_top_k:.0%})")
 
     # Training anomaly detection for NaN/Inf and loss spike protection
-    anomaly_detection = getattr(args, 'anomaly_detection', True)  # Default enabled
-    halt_on_nan = getattr(args, 'halt_on_nan', True)
-    loss_spike_threshold = getattr(args, 'loss_spike_threshold', 3.0)
-    gradient_norm_threshold = getattr(args, 'gradient_norm_threshold', 100.0)
+    # NOTE: These use hardcoded defaults since 'args' is not passed to this function
+    anomaly_detection = True  # Default enabled
+    halt_on_nan = True
+    loss_spike_threshold = 3.0
+    gradient_norm_threshold = 100.0
 
     anomaly_detector = None
     if anomaly_detection and TrainingAnomalyDetector is not None:

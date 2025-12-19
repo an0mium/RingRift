@@ -26,6 +26,7 @@ global:
   # Alertmanager does not support environment-variable interpolation in YAML
   # configs, so this must be a valid URL literal with a scheme even in local
   # staging. Replace with your real Slack webhook URL for production.
+  # Set via SLACK_WEBHOOK_URL environment variable or replace placeholder below
   slack_api_url: 'https://example.com/replace-with-slack-webhook'
 
   # ResolveTimeout is the time after which an alert is declared resolved

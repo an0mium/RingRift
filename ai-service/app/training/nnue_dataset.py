@@ -585,6 +585,34 @@ class NNUESQLiteDataset(Dataset):
                 ))
                 continue
 
+            # Check if snapshots have actual board data (not just initial empty state)
+            # If snapshots only have move 0 (initial) or have empty boards, use replay
+            has_useful_snapshots = False
+            for snap in snapshots:
+                move_num = snap['move_number']
+                # Skip initial state check - it's always empty
+                if move_num > 0:
+                    # Check if this snapshot has board data
+                    try:
+                        snap_json = snap['state_json']
+                        if snap['compressed']:
+                            snap_json = gzip.decompress(snap_json.encode()).decode()
+                        snap_dict = json.loads(snap_json)
+                        board_data = snap_dict.get('board', {})
+                        stacks = board_data.get('stacks', {})
+                        if stacks:  # Has actual board state
+                            has_useful_snapshots = True
+                            break
+                    except Exception:
+                        continue
+
+            if not has_useful_snapshots:
+                # Snapshots are initial-only or have empty boards - use replay
+                samples.extend(self._extract_via_replay(
+                    conn, game_id, winner, total_moves
+                ))
+                continue
+
             # Sample positions from snapshots (only if we have good coverage)
             for i, snapshot in enumerate(snapshots):
                 move_num = snapshot['move_number']
@@ -683,6 +711,32 @@ class NNUESQLiteDataset(Dataset):
 
             if not snapshots:
                 # Fall back to replay for games without snapshots
+                replay_samples = self._extract_via_replay(
+                    conn, game_id, winner, game_row['total_moves']
+                )
+                samples.extend(replay_samples)
+                continue
+
+            # Check if snapshots have actual board data (not just initial empty state)
+            has_useful_snapshots = False
+            for snap in snapshots:
+                move_num = snap['move_number']
+                if move_num > 0:
+                    try:
+                        snap_json = snap['state_json']
+                        if snap['compressed']:
+                            snap_json = gzip.decompress(snap_json.encode()).decode()
+                        snap_dict = json.loads(snap_json)
+                        board_data = snap_dict.get('board', {})
+                        stacks = board_data.get('stacks', {})
+                        if stacks:
+                            has_useful_snapshots = True
+                            break
+                    except Exception:
+                        continue
+
+            if not has_useful_snapshots:
+                # Snapshots are initial-only or have empty boards - use replay
                 replay_samples = self._extract_via_replay(
                     conn, game_id, winner, game_row['total_moves']
                 )

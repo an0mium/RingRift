@@ -392,3 +392,283 @@ class TestCoordinatorProtocol:
 
         not_coord = {"status": "running"}
         assert not is_coordinator(not_coord)
+
+
+# =============================================================================
+# Additional Edge Case Tests
+# =============================================================================
+
+class FailingCoordinator(CoordinatorBase):
+    """Coordinator that fails during lifecycle methods."""
+
+    def __init__(self, fail_on: str = "start"):
+        super().__init__(name="failing_test")
+        self.fail_on = fail_on
+
+    async def _do_initialize(self) -> None:
+        if self.fail_on == "initialize":
+            raise ValueError("Intentional init failure")
+
+    async def _do_start(self) -> None:
+        if self.fail_on == "start":
+            raise ValueError("Intentional start failure")
+
+    async def _do_stop(self) -> None:
+        if self.fail_on == "stop":
+            raise ValueError("Intentional stop failure")
+
+    async def get_stats(self) -> Dict[str, Any]:
+        return await super().get_stats()
+
+
+class TestCoordinatorBaseEdgeCases:
+    """Edge case tests for CoordinatorBase."""
+
+    @pytest.mark.asyncio
+    async def test_start_failure_sets_error_state(self):
+        """Test that start failure sets error state."""
+        coord = FailingCoordinator(fail_on="start")
+
+        with pytest.raises(ValueError, match="Intentional start failure"):
+            await coord.start()
+
+        assert coord.status == CoordinatorStatus.ERROR
+        assert not coord.is_running
+        assert "Intentional start failure" in coord._last_error
+
+    @pytest.mark.asyncio
+    async def test_initialize_failure_sets_error_state(self):
+        """Test that initialize failure sets error state."""
+        coord = FailingCoordinator(fail_on="initialize")
+
+        with pytest.raises(ValueError, match="Intentional init failure"):
+            await coord.initialize()
+
+        assert coord.status == CoordinatorStatus.ERROR
+
+    @pytest.mark.asyncio
+    async def test_stop_failure_sets_error_state(self):
+        """Test that stop failure sets error state."""
+        coord = FailingCoordinator(fail_on="stop")
+        await coord.start()  # Start successfully
+
+        with pytest.raises(ValueError, match="Intentional stop failure"):
+            await coord.stop()
+
+        assert coord.status == CoordinatorStatus.ERROR
+
+    @pytest.mark.asyncio
+    async def test_double_start_is_noop(self):
+        """Test that starting an already running coordinator is a no-op."""
+        coord = SimpleCoordinator()
+        await coord.start()
+        first_start_time = coord._start_time
+
+        await asyncio.sleep(0.01)  # Small delay
+        await coord.start()
+
+        assert coord._start_time == first_start_time  # Unchanged
+
+    @pytest.mark.asyncio
+    async def test_double_stop_is_noop(self):
+        """Test that stopping an already stopped coordinator is a no-op."""
+        coord = SimpleCoordinator()
+        await coord.start()
+        await coord.stop()
+        assert coord.status == CoordinatorStatus.STOPPED
+
+        await coord.stop()  # Should not raise
+        assert coord.status == CoordinatorStatus.STOPPED
+
+    @pytest.mark.asyncio
+    async def test_shutdown_calls_stop(self):
+        """Test that shutdown calls stop first."""
+        coord = SimpleCoordinator()
+        await coord.start()
+
+        await coord.shutdown()
+
+        assert coord.status == CoordinatorStatus.STOPPED
+        assert coord.stopped
+
+    @pytest.mark.asyncio
+    async def test_pause_when_not_running(self):
+        """Test pause when not running is ignored."""
+        coord = SimpleCoordinator()
+
+        await coord.pause()
+        assert coord.status == CoordinatorStatus.INITIALIZING  # Unchanged
+
+    @pytest.mark.asyncio
+    async def test_resume_when_not_paused(self):
+        """Test resume when not paused is ignored."""
+        coord = SimpleCoordinator()
+        await coord.start()
+
+        await coord.resume()
+        assert coord.status == CoordinatorStatus.RUNNING  # Unchanged
+
+
+class TestSQLitePersistenceMixinEdgeCases:
+    """Edge case tests for SQLitePersistenceMixin."""
+
+    def test_get_connection_without_init_raises(self):
+        """Test that getting connection before init raises error."""
+        class UninitializedCoord(CoordinatorBase, SQLitePersistenceMixin):
+            def __init__(self):
+                super().__init__(name="uninit_test")
+                # Don't call init_db()
+
+            def _get_schema(self) -> str:
+                return ""
+
+            async def get_stats(self) -> Dict[str, Any]:
+                return {}
+
+        coord = UninitializedCoord()
+        with pytest.raises(RuntimeError, match="Database not initialized"):
+            coord._get_connection()
+
+    def test_close_connection(self):
+        """Test that connection can be closed and reopened."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            coord = SQLiteCoordinator(db_path)
+
+            conn1 = coord._get_connection()
+            coord._close_connection()
+
+            # Connection should be None after close
+            assert not hasattr(coord._db_local, "conn") or coord._db_local.conn is None
+
+            # New connection should work
+            conn2 = coord._get_connection()
+            assert conn2 is not None
+            assert conn1 is not conn2
+
+    def test_multiple_coordinators_same_db(self):
+        """Test multiple coordinators can share the same database."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "shared.db"
+
+            coord1 = SQLiteCoordinator(db_path)
+            coord2 = SQLiteCoordinator(db_path)
+
+            # Both should have their own connections
+            conn1 = coord1._get_connection()
+            conn2 = coord2._get_connection()
+
+            # Both should be able to access the table
+            conn1.execute("INSERT INTO test_data (value) VALUES ('from_coord1')")
+            conn1.commit()
+
+            cursor = conn2.execute("SELECT value FROM test_data")
+            assert cursor.fetchone()[0] == "from_coord1"
+
+    def test_multithreaded_access(self):
+        """Test thread-local connections work correctly."""
+        import concurrent.futures
+        import threading
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "threaded.db"
+            coord = SQLiteCoordinator(db_path)
+
+            thread_ids = []
+            conn_ids = []
+            errors = []
+
+            def get_conn():
+                try:
+                    thread_ids.append(threading.current_thread().ident)
+                    conn = coord._get_connection()
+                    conn_ids.append(id(conn))
+                    # Do some work
+                    conn.execute("INSERT INTO test_data (value) VALUES (?)", (f"thread_{id(conn)}",))
+                    conn.commit()
+                except Exception as e:
+                    errors.append(e)
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                futures = [executor.submit(get_conn) for _ in range(4)]
+                concurrent.futures.wait(futures)
+
+            assert not errors, f"Errors during multithreaded access: {errors}"
+            # Each unique thread should get its own unique connection
+            # Note: ThreadPoolExecutor may reuse threads, so we check that unique threads == unique connections
+            assert len(set(thread_ids)) == len(set(conn_ids))
+
+
+class TestSingletonMixinEdgeCases:
+    """Edge case tests for SingletonMixin."""
+
+    def teardown_method(self):
+        """Clean up singleton instances after each test."""
+        SingletonCoordinator._clear_instance()
+
+    def test_singleton_thread_safety(self):
+        """Test singleton pattern is thread-safe."""
+        import concurrent.futures
+
+        instances = []
+
+        def get_inst():
+            inst = SingletonCoordinator.get_instance("test")
+            instances.append(id(inst))
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(get_inst) for _ in range(10)]
+            concurrent.futures.wait(futures)
+
+        # All should be the same instance
+        assert len(set(instances)) == 1
+
+
+class TestCallbackMixinEdgeCases:
+    """Edge case tests for CallbackMixin."""
+
+    @pytest.mark.asyncio
+    async def test_invoke_with_no_callbacks(self):
+        """Test invoking event with no registered callbacks."""
+        coord = CallbackCoordinator()
+
+        results = await coord.invoke_callbacks("nonexistent_event", "value")
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_invoke_with_no_args(self):
+        """Test invoking callback with no arguments."""
+        coord = CallbackCoordinator()
+        called = []
+
+        coord.register_callback("no_args", lambda: called.append("called"))
+        await coord.invoke_callbacks("no_args")
+
+        assert called == ["called"]
+
+    @pytest.mark.asyncio
+    async def test_manual_clear_callbacks(self):
+        """Test manually clearing callbacks for an event."""
+        coord = CallbackCoordinator()
+        results = []
+
+        cb1 = lambda: results.append(1)
+        cb2 = lambda: results.append(2)
+        coord.register_callback("event", cb1)
+        coord.register_callback("event", cb2)
+
+        # Manually clear by unregistering both
+        coord.unregister_callback("event", cb1)
+        coord.unregister_callback("event", cb2)
+
+        await coord.invoke_callbacks("event")
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_unregister_nonexistent_callback(self):
+        """Test unregistering a callback that doesn't exist."""
+        coord = CallbackCoordinator()
+
+        # Should not raise
+        coord.unregister_callback("event", lambda: None)
+        coord.unregister_callback("nonexistent", lambda: None)

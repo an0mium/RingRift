@@ -129,6 +129,41 @@ from app.metrics.orchestrator import (
     PIPELINE_PROMOTION,
 )
 
+# Import coordinator metrics
+from app.metrics.coordinator import (
+    # Status metrics
+    COORDINATOR_STATUS,
+    COORDINATOR_UPTIME,
+    COORDINATOR_OPERATIONS,
+    COORDINATOR_ERRORS,
+    # Recovery metrics
+    RECOVERY_ATTEMPTS,
+    RECOVERY_ESCALATIONS,
+    NODES_TRACKED,
+    JOBS_TRACKED,
+    # Bandwidth metrics
+    BANDWIDTH_ALLOCATIONS_ACTIVE,
+    BANDWIDTH_TRANSFERS_TOTAL,
+    BANDWIDTH_BYTES_TOTAL,
+    # Sync metrics
+    SYNC_HOSTS_TOTAL,
+    SYNC_HOSTS_HEALTHY,
+    SYNC_HOSTS_STALE,
+    SYNC_HOSTS_CRITICAL,
+    SYNC_GAMES_UNSYNCED,
+    SYNC_CLUSTER_HEALTH,
+    # Update functions
+    update_coordinator_status,
+    update_coordinator_uptime,
+    record_coordinator_operation,
+    record_coordinator_error,
+    update_recovery_stats,
+    update_bandwidth_stats,
+    update_sync_stats,
+    collect_all_coordinator_metrics,
+    collect_all_coordinator_metrics_sync,
+)
+
 # Metrics server management
 _server_started = False
 _server_lock = threading.RLock()
