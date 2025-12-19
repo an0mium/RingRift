@@ -14,16 +14,19 @@ Usage:
 """
 
 import argparse
-import json
 import os
 import sqlite3
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts.lib.state_manager import StateManager
 
 # Configuration
 BASELINE_ELO = 1650  # Models above this are considered strong
@@ -49,28 +52,18 @@ class MonitorState:
             self.known_strong_models = []
 
 
+# Use StateManager for persistent state
+_state_manager = StateManager(STATE_FILE, MonitorState)
+
+
 def load_state() -> MonitorState:
     """Load persisted state."""
-    if STATE_FILE.exists():
-        try:
-            with open(STATE_FILE) as f:
-                data = json.load(f)
-            return MonitorState(**data)
-        except Exception:
-            pass
-    return MonitorState()
+    return _state_manager.load()
 
 
 def save_state(state: MonitorState):
     """Save state for next run."""
-    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(STATE_FILE, 'w') as f:
-        json.dump({
-            'last_check': state.last_check,
-            'last_match_count': state.last_match_count,
-            'known_strong_models': state.known_strong_models,
-            'last_training_status': state.last_training_status,
-        }, f)
+    _state_manager.save(state)
 
 
 def get_elo_stats() -> Dict:

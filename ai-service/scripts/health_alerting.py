@@ -45,6 +45,7 @@ STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 # Use shared logging from scripts/lib
 from scripts.lib.logging_config import setup_script_logging
+from scripts.lib.state_manager import StateManager
 
 logger = setup_script_logging("health_alerting", log_dir=str(LOG_DIR))
 
@@ -454,24 +455,18 @@ def send_alerts(check: HealthCheck, config: AlertConfig, state: AlertState) -> b
 # State Management
 # =============================================================================
 
+# Use StateManager for persistent state
+_state_manager = StateManager(STATE_FILE, AlertState)
+
+
 def load_state() -> AlertState:
     """Load persistent state."""
-    if STATE_FILE.exists():
-        try:
-            with open(STATE_FILE) as f:
-                return AlertState.from_dict(json.load(f))
-        except Exception:
-            pass
-    return AlertState()
+    return _state_manager.load()
 
 
 def save_state(state: AlertState):
     """Save persistent state."""
-    try:
-        with open(STATE_FILE, "w") as f:
-            json.dump(state.to_dict(), f, indent=2)
-    except Exception as e:
-        logger.error(f"Failed to save state: {e}")
+    _state_manager.save(state)
 
 
 # =============================================================================

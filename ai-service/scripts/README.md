@@ -79,6 +79,9 @@ python scripts/cli.py health
   - Webhook alerting and JSON output modes
   - Uses `config/distributed_hosts.yaml` for node inventory
   - Start: `python scripts/unified_cluster_monitor.py --quick`
+- `scripts/monitor` - **Unified monitor CLI package**
+  - Quick entry points for status, health, and alerting
+  - Start: `python -m scripts.monitor status`
 - `cluster_monitoring.sh`, `cluster_monitor.sh`,
   `cluster_monitor_daemon.sh`, `cluster_health_monitor.sh`
   - **Deprecated** wrappers that print migration hints

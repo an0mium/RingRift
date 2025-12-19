@@ -956,3 +956,25 @@ async def shutdown_all_coordinators(timeout: float = 30.0) -> Dict[str, bool]:
     Convenience function for shutdown_all on the global registry.
     """
     return await get_coordinator_registry().shutdown_all(timeout=timeout)
+
+
+__all__ = [
+    # Enums and data classes
+    "CoordinatorStatus",
+    "CoordinatorStats",
+    # Protocols
+    "CoordinatorProtocol",
+    # Base classes
+    "CoordinatorBase",
+    # Mixins
+    "SQLitePersistenceMixin",
+    "SingletonMixin",
+    "CallbackMixin",
+    "EventDrivenMonitorMixin",
+    # Registry
+    "CoordinatorRegistry",
+    # Functions
+    "is_coordinator",
+    "get_coordinator_registry",
+    "shutdown_all_coordinators",
+]

@@ -865,6 +865,23 @@ def training_slot(
             coordinator.complete_training(job_id, status="completed")
 
 
+__all__ = [
+    # Data classes
+    "TrainingJob",
+    # Main class
+    "TrainingCoordinator",
+    # Singleton getter
+    "get_training_coordinator",
+    # Convenience functions
+    "request_training_slot",
+    "release_training_slot",
+    "update_training_progress",
+    "can_train",
+    "get_training_status",
+    "training_slot",
+]
+
+
 # CLI interface
 if __name__ == "__main__":
     import argparse

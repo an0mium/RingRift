@@ -454,3 +454,19 @@ def training_lock(config_key: str, timeout: int = DEFAULT_ACQUIRE_TIMEOUT):
     finally:
         if acquired:
             lock.release()
+
+
+__all__ = [
+    # Constants
+    "DEFAULT_LOCK_TIMEOUT",
+    "DEFAULT_ACQUIRE_TIMEOUT",
+    # Protocol
+    "LockProtocol",
+    # Main class
+    "DistributedLock",
+    # Functions
+    "get_appropriate_lock",
+    "acquire_training_lock",
+    "release_training_lock",
+    "training_lock",
+]

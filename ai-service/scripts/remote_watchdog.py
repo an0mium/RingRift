@@ -12,12 +12,13 @@ import subprocess
 import time
 import os
 import sys
-import json
 from pathlib import Path
 from datetime import datetime
 
 # Add project to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from scripts.lib.state_manager import load_json_state, save_json_state
 
 # Unified resource guard - 80% utilization limits (enforced 2025-12-16)
 try:
@@ -53,13 +54,15 @@ def log(msg):
     with open(LOG_FILE, "a") as f:
         f.write(line + "\n")
 
+DEFAULT_STATE = {"selfplay_idx": 0, "restarts": 0, "games_completed": 0}
+
+
 def load_state():
-    if STATE_FILE.exists():
-        return json.loads(STATE_FILE.read_text())
-    return {"selfplay_idx": 0, "restarts": 0, "games_completed": 0}
+    return load_json_state(STATE_FILE, default=DEFAULT_STATE)
+
 
 def save_state(state):
-    STATE_FILE.write_text(json.dumps(state, indent=2))
+    save_json_state(STATE_FILE, state)
 
 def count_selfplay_jobs():
     result = subprocess.run(

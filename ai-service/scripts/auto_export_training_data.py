@@ -47,6 +47,7 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 TRAINING_DIR.mkdir(parents=True, exist_ok=True)
 
 from scripts.lib.logging_config import setup_script_logging
+from scripts.lib.state_manager import StateManager
 
 logger = setup_script_logging("auto_export_training_data")
 
@@ -158,29 +159,18 @@ class ExportState:
     last_export_hash: Dict[str, str] = field(default_factory=dict)
 
 
+# Use StateManager for persistent state
+_state_manager = StateManager(STATE_FILE, ExportState)
+
+
 def load_state() -> ExportState:
     """Load export state from file."""
-    if STATE_FILE.exists():
-        try:
-            with open(STATE_FILE) as f:
-                data = json.load(f)
-            return ExportState(
-                last_export_time=data.get("last_export_time", {}),
-                last_game_count=data.get("last_game_count", {}),
-                last_export_hash=data.get("last_export_hash", {}),
-            )
-        except Exception as e:
-            logger.warning(f"Failed to load state: {e}")
-    return ExportState()
+    return _state_manager.load()
 
 
 def save_state(state: ExportState) -> None:
     """Save export state to file."""
-    try:
-        with open(STATE_FILE, "w") as f:
-            json.dump(asdict(state), f, indent=2)
-    except Exception as e:
-        logger.error(f"Failed to save state: {e}")
+    _state_manager.save(state)
 
 
 def find_databases(config: ExportConfig) -> List[Path]:

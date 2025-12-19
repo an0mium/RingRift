@@ -17,7 +17,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from app.coordination.work_queue import WorkQueue
+    from app.coordination.work_queue import WorkItem, WorkQueue
 
 logger = logging.getLogger(__name__)
 

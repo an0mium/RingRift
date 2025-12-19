@@ -337,16 +337,16 @@ def bootstrap_coordination(
 ) -> Dict[str, Any]:
     """Initialize all coordination components.
 
-    Initializes coordinators in the correct dependency order:
-    1. Resource monitoring (base infrastructure)
-    2. Metrics analysis (depends on events)
-    3. Cache coordination (depends on events)
-    4. Error recovery (depends on metrics, cache)
-    5. Model lifecycle (depends on cache, error)
-    6. Task lifecycle (depends on model)
-    7. Selfplay orchestrator (depends on task)
-    8. Pipeline orchestrator (depends on selfplay)
-    9. Optimization (depends on metrics, pipeline)
+    Initializes coordinators in the correct dependency order per coordinator_dependencies.py:
+    1. Task lifecycle (foundational - no dependencies)
+    2. Resource monitoring (foundational - no dependencies)
+    3. Cache coordination (foundational - no dependencies)
+    4. Error recovery (infrastructure support)
+    5. Model lifecycle (depends on cache)
+    6. Selfplay orchestrator (depends on task_lifecycle, resources)
+    7. Pipeline orchestrator (depends on selfplay, cache)
+    8. Metrics analysis (depends on pipeline)
+    9. Optimization (depends on metrics)
     10. Leadership (depends on all others)
 
     Args:
@@ -377,17 +377,25 @@ def bootstrap_coordination(
 
     logger.info("[Bootstrap] Starting coordination bootstrap...")
 
-    # Initialize in dependency order
+    # Initialize in dependency order per coordinator_dependencies.py
+    # Foundational coordinators first (no dependencies), then dependents
     init_order = [
+        # Foundational layer (no dependencies)
+        ("task_coordinator", enable_task, _init_task_coordinator),
         ("resource_coordinator", enable_resources, _init_resource_coordinator),
-        ("metrics_orchestrator", enable_metrics, _init_metrics_orchestrator),
         ("cache_orchestrator", enable_cache, _init_cache_orchestrator),
+        # Infrastructure support layer
         ("error_coordinator", enable_error, _init_error_coordinator),
         ("model_coordinator", enable_model, _init_model_coordinator),
-        ("task_coordinator", enable_task, _init_task_coordinator),
+        # Selfplay layer (depends on task_lifecycle, resources)
         ("selfplay_orchestrator", enable_selfplay, _init_selfplay_orchestrator),
+        # Pipeline layer (depends on selfplay, cache)
         ("pipeline_orchestrator", enable_pipeline, lambda: _init_pipeline_orchestrator(pipeline_auto_trigger)),
+        # Metrics layer (depends on pipeline)
+        ("metrics_orchestrator", enable_metrics, _init_metrics_orchestrator),
+        # Optimization layer (depends on metrics)
         ("optimization_coordinator", enable_optimization, _init_optimization_coordinator),
+        # Leadership layer (coordinates all others)
         ("leadership_coordinator", enable_leadership, _init_leadership_coordinator),
     ]
 
@@ -443,18 +451,18 @@ def shutdown_coordination() -> Dict[str, Any]:
     _state.shutdown_requested = True
     logger.info("[Bootstrap] Starting coordination shutdown...")
 
-    # Shutdown coordinators in reverse order
+    # Shutdown coordinators in reverse of initialization order
     shutdown_order = [
         "leadership_coordinator",
         "optimization_coordinator",
+        "metrics_orchestrator",
         "pipeline_orchestrator",
         "selfplay_orchestrator",
-        "task_coordinator",
         "model_coordinator",
         "error_coordinator",
         "cache_orchestrator",
-        "metrics_orchestrator",
         "resource_coordinator",
+        "task_coordinator",
     ]
 
     shutdown_results: Dict[str, bool] = {}

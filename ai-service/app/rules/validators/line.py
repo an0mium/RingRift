@@ -1,8 +1,11 @@
-from typing import Set
+from typing import TYPE_CHECKING, Set
 
 from app.models import GameState, Move, GamePhase, MoveType, Position
 from app.rules.interfaces import Validator
 from app.rules.core import get_effective_line_length
+
+if TYPE_CHECKING:
+    from app.models import LineInfo
 
 
 def _position_to_string(pos: Position) -> str:

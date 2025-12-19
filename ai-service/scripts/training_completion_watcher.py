@@ -18,7 +18,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import subprocess
@@ -31,26 +30,24 @@ from typing import Dict, List, Optional, Set
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
+from scripts.lib.state_manager import load_json_state, save_json_state
+
 LOG_DIR = AI_SERVICE_ROOT / "logs"
 STATE_FILE = AI_SERVICE_ROOT / "data" / "training_watcher_state.json"
 STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 
+DEFAULT_STATE = {"completed_trainings": [], "pending_elo": []}
+
+
 def load_state() -> Dict:
     """Load watcher state."""
-    if STATE_FILE.exists():
-        try:
-            with open(STATE_FILE) as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {"completed_trainings": [], "pending_elo": []}
+    return load_json_state(STATE_FILE, default=DEFAULT_STATE)
 
 
 def save_state(state: Dict) -> None:
     """Save watcher state."""
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f, indent=2)
+    save_json_state(STATE_FILE, state)
 
 
 def parse_log_for_completion(log_path: Path) -> Optional[Dict]:

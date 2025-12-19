@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 """Cluster Health Monitor - Unified health checking for RingRift cluster.
 
+.. deprecated::
+    This module is deprecated in favor of unified_cluster_monitor.py.
+    Use instead:
+
+        python scripts/unified_cluster_monitor.py --once
+        python scripts/unified_cluster_monitor.py --continuous --interval 60
+        python scripts/unified_cluster_monitor.py --webhook URL
+
+    Or via CLI:
+
+        python scripts/cli.py cluster --once
+        python scripts/cli.py cluster --continuous
+
+    This script will be removed in a future release.
+
 Consolidates cluster_health_check.py, cluster_alert.py into a single script.
 Reads hosts from distributed_hosts.yaml for a single source of truth.
 
@@ -23,6 +38,12 @@ Usage:
     # With webhook:
     python scripts/cluster_health_monitor.py --webhook https://discord.com/api/webhooks/...
 """
+import warnings
+warnings.warn(
+    "cluster_health_monitor.py is deprecated. Use unified_cluster_monitor.py instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import argparse
 import json

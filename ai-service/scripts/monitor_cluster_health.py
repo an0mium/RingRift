@@ -1,6 +1,19 @@
 #!/usr/bin/env python
 """Long-running cluster health monitor.
 
+.. deprecated::
+    This module is deprecated in favor of unified_cluster_monitor.py.
+    Use instead:
+
+        python scripts/unified_cluster_monitor.py --continuous --interval 120
+        python scripts/unified_cluster_monitor.py --deep-checks  # For SSH/GPU checks
+
+    Or via CLI:
+
+        python scripts/cli.py cluster --continuous
+
+    This script will be removed in a future release.
+
 Monitors cluster nodes every 2 minutes for 10 hours, checking:
 - Node connectivity (SSH)
 - GPU utilization
@@ -13,6 +26,12 @@ Usage:
     python scripts/monitor_cluster_health.py --duration 600  # 10 hours in minutes
     python scripts/monitor_cluster_health.py --interval 120  # Check every 2 min
 """
+import warnings
+warnings.warn(
+    "monitor_cluster_health.py is deprecated. Use unified_cluster_monitor.py instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import argparse
 import os

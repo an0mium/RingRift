@@ -1,12 +1,31 @@
 #!/usr/bin/env python3
 """Simple cluster health monitoring.
 
+.. deprecated::
+    This module is deprecated in favor of unified_cluster_monitor.py.
+    Use instead:
+
+        python scripts/unified_cluster_monitor.py --once
+        python scripts/unified_cluster_monitor.py --once --json
+
+    Or via CLI:
+
+        python scripts/cli.py cluster --once
+
+    This script will be removed in a future release.
+
 Queries P2P health endpoints across all nodes and reports status.
 
 Usage:
     python scripts/cluster_health_check.py
     python scripts/cluster_health_check.py --json
 """
+import warnings
+warnings.warn(
+    "cluster_health_check.py is deprecated. Use unified_cluster_monitor.py instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import argparse
 import json

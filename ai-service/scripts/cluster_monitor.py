@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
 """Continuous cluster monitoring script for RingRift AI training loop.
 
+.. deprecated::
+    This module is deprecated in favor of unified_cluster_monitor.py.
+    Use instead:
+
+        python scripts/unified_cluster_monitor.py --continuous
+
+    Or via CLI:
+
+        python scripts/cli.py cluster --continuous
+
+    This script will be removed in a future release.
+
 Monitors every 20 seconds:
 - Cluster health (active nodes, leader status)
 - Selfplay job counts
@@ -11,6 +23,12 @@ Monitors every 20 seconds:
 Usage:
     python scripts/cluster_monitor.py [--interval 20] [--leader-url http://150.136.65.197:8770]
 """
+import warnings
+warnings.warn(
+    "cluster_monitor.py is deprecated. Use unified_cluster_monitor.py instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 from __future__ import annotations
 

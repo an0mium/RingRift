@@ -46,7 +46,6 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "timeout_context",
     "retry_context",
-    "resource_pool",
     "rate_limiter",
     "cancellation_scope",
     "gather_with_limit",

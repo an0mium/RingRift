@@ -42,6 +42,7 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 from scripts.lib.logging_config import setup_script_logging
+from scripts.lib.state_manager import StateManager
 
 logger = setup_script_logging("vast_autoscaler")
 
@@ -434,33 +435,28 @@ def cmd_create_group(name: str, gpu: str, target: int, max_price: float):
 # Scaling Logic
 # =============================================================================
 
+# Use StateManager for persistent state
+_state_manager = StateManager(STATE_FILE, ScalingState)
+
+
 def load_state() -> ScalingState:
     """Load persistent state."""
-    if STATE_FILE.exists():
-        try:
-            with open(STATE_FILE) as f:
-                data = json.load(f)
-                state = ScalingState.from_dict(data)
-                # Reset daily counters if new day
-                if state.last_reset:
-                    if state.last_reset.date() < datetime.now().date():
-                        state.instances_created_today = 0
-                        state.instances_terminated_today = 0
-                        state.daily_spend = 0.0
-                        state.last_reset = datetime.now()
-                return state
-        except Exception as e:
-            logger.warning(f"Failed to load state: {e}")
-    return ScalingState(last_reset=datetime.now())
+    state = _state_manager.load()
+    # Reset daily counters if new day
+    if state.last_reset:
+        if state.last_reset.date() < datetime.now().date():
+            state.instances_created_today = 0
+            state.instances_terminated_today = 0
+            state.daily_spend = 0.0
+            state.last_reset = datetime.now()
+    elif state.last_reset is None:
+        state.last_reset = datetime.now()
+    return state
 
 
 def save_state(state: ScalingState):
     """Save persistent state."""
-    try:
-        with open(STATE_FILE, "w") as f:
-            json.dump(state.to_dict(), f, indent=2)
-    except Exception as e:
-        logger.error(f"Failed to save state: {e}")
+    _state_manager.save(state)
 
 
 def should_scale_up(

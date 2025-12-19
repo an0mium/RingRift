@@ -153,16 +153,40 @@ rm scripts/job_scheduler.py
 
 ## Migration Notes
 
-1. **Config**: P2P orchestrator should read from `config/cluster.yaml`
-2. **Alerts**: P2P orchestrator should use unified alerting (Slack/Discord)
-3. **Cleanup**: P2P orchestrator should auto-kill stale processes
-4. **Dashboard**: Single web dashboard at `localhost:8770/dashboard`
+1. **Config**: P2P orchestrator now reads from `config/cluster.yaml` [DONE]
+2. **Alerts**: P2P orchestrator uses unified alerting via WebhookNotifier [DONE]
+3. **Cleanup**: P2P orchestrator auto-kills stale processes in self-healing loop [DONE]
+4. **Dashboard**: Use `python -m scripts.monitor status` for quick status [DONE]
 
 ---
 
-## Timeline
+## Cleanup Script
 
-- **Week 1**: Create this manifest, integrate config.yaml
-- **Week 2**: Add auto-cleanup to P2P
-- **Week 3**: Consolidate monitoring
-- **Week 4**: Delete deprecated scripts
+A cleanup script is provided to safely remove deprecated files:
+
+```bash
+# Preview what will be deleted (recommended first step)
+./scripts/cleanup_deprecated.sh --dry-run
+
+# Actually delete the deprecated files
+./scripts/cleanup_deprecated.sh
+```
+
+---
+
+## New Consolidated Modules
+
+| Module                          | Purpose                       | Usage                                                       |
+| ------------------------------- | ----------------------------- | ----------------------------------------------------------- |
+| `scripts/p2p/cluster_config.py` | Unified cluster configuration | `from scripts.p2p.cluster_config import get_cluster_config` |
+| `scripts/monitor/`              | Consolidated monitoring       | `python -m scripts.monitor status\|health\|alert`           |
+
+---
+
+## Timeline - COMPLETED
+
+- [x] **2025-12-19**: Create deprecation manifest
+- [x] **2025-12-19**: Integrate config/cluster.yaml into P2P orchestrator
+- [x] **2025-12-19**: Add auto-cleanup to P2P orchestrator (stale process killing)
+- [x] **2025-12-19**: Consolidate monitoring into `scripts/monitor/` module
+- [ ] **Pending**: Run `cleanup_deprecated.sh` after testing in production

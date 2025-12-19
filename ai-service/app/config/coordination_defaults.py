@@ -362,6 +362,146 @@ class PIDDefaults:
     KD: float = _env_float("RINGRIFT_PID_KD", 0.1)
 
 
+# =============================================================================
+# Resource Monitoring Defaults (December 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class ResourceMonitoringDefaults:
+    """Default values for resource monitoring and backpressure.
+
+    Used by: app/coordination/resource_monitoring_coordinator.py
+    """
+    # Backpressure thresholds (%)
+    BACKPRESSURE_GPU_THRESHOLD: float = _env_float("RINGRIFT_BACKPRESSURE_GPU_THRESHOLD", 90.0)
+    BACKPRESSURE_MEMORY_THRESHOLD: float = _env_float("RINGRIFT_BACKPRESSURE_MEMORY_THRESHOLD", 85.0)
+    BACKPRESSURE_DISK_THRESHOLD: float = _env_float("RINGRIFT_BACKPRESSURE_DISK_THRESHOLD", 90.0)
+
+    # Resource update interval (seconds)
+    UPDATE_INTERVAL: int = _env_int("RINGRIFT_RESOURCE_UPDATE_INTERVAL", 10)
+
+    # Backpressure cooldown before release (seconds)
+    BACKPRESSURE_COOLDOWN: int = _env_int("RINGRIFT_BACKPRESSURE_COOLDOWN", 30)
+
+
+# =============================================================================
+# Optimization Coordinator Defaults (December 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class OptimizationDefaults:
+    """Default values for optimization coordination (CMA-ES, NAS).
+
+    Used by: app/coordination/optimization_coordinator.py
+    """
+    # Plateau detection window (epochs)
+    PLATEAU_WINDOW: int = _env_int("RINGRIFT_OPTIMIZATION_PLATEAU_WINDOW", 10)
+
+    # Plateau detection threshold
+    PLATEAU_THRESHOLD: float = _env_float("RINGRIFT_OPTIMIZATION_PLATEAU_THRESHOLD", 0.001)
+
+    # Minimum epochs between optimization runs
+    MIN_EPOCHS_BETWEEN: int = _env_int("RINGRIFT_OPTIMIZATION_MIN_EPOCHS", 20)
+
+    # Cooldown after optimization completes (seconds)
+    COOLDOWN_SECONDS: float = _env_float("RINGRIFT_OPTIMIZATION_COOLDOWN", 300.0)
+
+    # Maximum optimization history to retain
+    MAX_HISTORY: int = _env_int("RINGRIFT_OPTIMIZATION_MAX_HISTORY", 100)
+
+
+# =============================================================================
+# Task Lifecycle Defaults (December 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class TaskLifecycleDefaults:
+    """Default values for task lifecycle coordination.
+
+    Used by: app/coordination/task_lifecycle_coordinator.py
+    """
+    # Task heartbeat timeout - consider orphaned after (seconds)
+    HEARTBEAT_TIMEOUT: float = _env_float("RINGRIFT_TASK_HEARTBEAT_TIMEOUT", 60.0)
+
+    # Grace period for new tasks before orphan check (seconds)
+    ORPHAN_GRACE_PERIOD: float = _env_float("RINGRIFT_TASK_ORPHAN_GRACE", 30.0)
+
+    # Maximum tasks to track in history
+    MAX_HISTORY: int = _env_int("RINGRIFT_TASK_MAX_HISTORY", 1000)
+
+    # Task cleanup interval (seconds)
+    CLEANUP_INTERVAL: int = _env_int("RINGRIFT_TASK_CLEANUP_INTERVAL", 60)
+
+
+# =============================================================================
+# Metrics Analysis Defaults (December 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class MetricsAnalysisDefaults:
+    """Default values for metrics analysis and trend detection.
+
+    Used by: app/coordination/metrics_analysis_orchestrator.py
+    """
+    # Sliding window size for metric tracking
+    WINDOW_SIZE: int = _env_int("RINGRIFT_METRICS_WINDOW_SIZE", 100)
+
+    # Plateau detection threshold
+    PLATEAU_THRESHOLD: float = _env_float("RINGRIFT_METRICS_PLATEAU_THRESHOLD", 0.001)
+
+    # Plateau detection window (data points)
+    PLATEAU_WINDOW: int = _env_int("RINGRIFT_METRICS_PLATEAU_WINDOW", 10)
+
+    # Regression severity threshold (fraction)
+    REGRESSION_THRESHOLD: float = _env_float("RINGRIFT_METRICS_REGRESSION_THRESHOLD", 0.05)
+
+    # Anomaly detection threshold (standard deviations)
+    ANOMALY_THRESHOLD: float = _env_float("RINGRIFT_METRICS_ANOMALY_THRESHOLD", 3.0)
+
+
+# =============================================================================
+# Cache Coordination Defaults (December 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class CacheDefaults:
+    """Default values for cache coordination.
+
+    Used by: app/coordination/cache_coordination_orchestrator.py
+    """
+    # Default cache TTL (seconds)
+    DEFAULT_TTL: int = _env_int("RINGRIFT_CACHE_DEFAULT_TTL", 3600)
+
+    # Maximum cache entries per node
+    MAX_ENTRIES_PER_NODE: int = _env_int("RINGRIFT_CACHE_MAX_ENTRIES_PER_NODE", 100)
+
+    # Cache cleanup interval (seconds)
+    CLEANUP_INTERVAL: int = _env_int("RINGRIFT_CACHE_CLEANUP_INTERVAL", 300)
+
+    # Stale cache threshold (seconds since last access)
+    STALE_THRESHOLD: int = _env_int("RINGRIFT_CACHE_STALE_THRESHOLD", 7200)
+
+
+# =============================================================================
+# Sync Coordinator Extended Defaults (December 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class SyncCoordinatorDefaults:
+    """Default values for sync coordinator operations.
+
+    Used by: app/coordination/sync_coordinator.py
+    """
+    # Critical stale threshold for data freshness (seconds)
+    CRITICAL_STALE_THRESHOLD: int = _env_int("RINGRIFT_SYNC_CRITICAL_STALE", 3600)
+
+    # Freshness check interval (seconds)
+    FRESHNESS_CHECK_INTERVAL: int = _env_int("RINGRIFT_SYNC_FRESHNESS_INTERVAL", 60)
+
+    # Full sync interval (seconds)
+    FULL_SYNC_INTERVAL: int = _env_int("RINGRIFT_SYNC_FULL_INTERVAL", 3600)
+
+
 def get_circuit_breaker_configs() -> dict:
     """Get circuit breaker configs per transport type."""
     return {
@@ -595,6 +735,35 @@ def get_all_defaults() -> dict:
             "ki": PIDDefaults.KI,
             "kd": PIDDefaults.KD,
         },
+        "resource_monitoring": {
+            "backpressure_gpu_threshold": ResourceMonitoringDefaults.BACKPRESSURE_GPU_THRESHOLD,
+            "backpressure_memory_threshold": ResourceMonitoringDefaults.BACKPRESSURE_MEMORY_THRESHOLD,
+            "backpressure_disk_threshold": ResourceMonitoringDefaults.BACKPRESSURE_DISK_THRESHOLD,
+            "update_interval": ResourceMonitoringDefaults.UPDATE_INTERVAL,
+        },
+        "optimization": {
+            "plateau_window": OptimizationDefaults.PLATEAU_WINDOW,
+            "plateau_threshold": OptimizationDefaults.PLATEAU_THRESHOLD,
+            "cooldown_seconds": OptimizationDefaults.COOLDOWN_SECONDS,
+        },
+        "task_lifecycle": {
+            "heartbeat_timeout": TaskLifecycleDefaults.HEARTBEAT_TIMEOUT,
+            "orphan_grace_period": TaskLifecycleDefaults.ORPHAN_GRACE_PERIOD,
+        },
+        "metrics_analysis": {
+            "window_size": MetricsAnalysisDefaults.WINDOW_SIZE,
+            "plateau_threshold": MetricsAnalysisDefaults.PLATEAU_THRESHOLD,
+            "regression_threshold": MetricsAnalysisDefaults.REGRESSION_THRESHOLD,
+        },
+        "cache": {
+            "default_ttl": CacheDefaults.DEFAULT_TTL,
+            "max_entries_per_node": CacheDefaults.MAX_ENTRIES_PER_NODE,
+            "cleanup_interval": CacheDefaults.CLEANUP_INTERVAL,
+        },
+        "sync_coordinator": {
+            "critical_stale_threshold": SyncCoordinatorDefaults.CRITICAL_STALE_THRESHOLD,
+            "freshness_check_interval": SyncCoordinatorDefaults.FRESHNESS_CHECK_INTERVAL,
+        },
     }
 
 
@@ -616,6 +785,13 @@ __all__ = [
     "BandwidthDefaults",
     "ResourceLimitsDefaults",
     "PIDDefaults",
+    # December 2025 coordinator defaults
+    "ResourceMonitoringDefaults",
+    "OptimizationDefaults",
+    "TaskLifecycleDefaults",
+    "MetricsAnalysisDefaults",
+    "CacheDefaults",
+    "SyncCoordinatorDefaults",
     # Utilities
     "get_all_defaults",
     "get_circuit_breaker_configs",
