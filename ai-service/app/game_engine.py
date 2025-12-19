@@ -300,7 +300,7 @@ class GameEngine:
         return moves
 
     @staticmethod
-    def clear_cache():
+    def clear_cache() -> None:
         """Clear the move cache"""
         from .ai.move_cache import clear_move_cache
 

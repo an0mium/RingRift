@@ -1274,5 +1274,224 @@ class TestUnifiedSignalsIntegration:
         assert TrainingUrgency.NONE.value == "none"
 
 
+# =============================================================================
+# Checkpoint Utils Tests (December 2025)
+# =============================================================================
+
+class TestCheckpointUtils:
+    """Tests for app.training.checkpoint_utils (consolidated atomic save pattern)."""
+
+    def test_compute_file_hash(self):
+        """Test compute_file_hash function."""
+        import tempfile
+        from pathlib import Path
+        from app.training.checkpoint_utils import compute_file_hash
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write('test content')
+            temp_path = Path(f.name)
+
+        try:
+            hash_result = compute_file_hash(temp_path)
+            assert len(hash_result) == 64  # SHA256 hex length
+            assert hash_result.isalnum()
+        finally:
+            temp_path.unlink()
+
+    def test_atomic_save(self):
+        """Test atomic_save function."""
+        import tempfile
+        from pathlib import Path
+        from app.training.checkpoint_utils import atomic_save
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / 'test.txt'
+
+            hash_result = atomic_save(
+                save_func=lambda p: p.write_text('test content'),
+                file_path=test_file,
+                verify_hash=True,
+            )
+
+            assert test_file.exists()
+            assert test_file.read_text() == 'test content'
+            assert len(hash_result) == 64
+
+    def test_atomic_save_cleanup_on_failure(self):
+        """Test atomic_save cleans up temp file on failure."""
+        import tempfile
+        from pathlib import Path
+        from app.training.checkpoint_utils import atomic_save, TEMP_SUFFIX
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / 'test.txt'
+            temp_file = test_file.with_suffix(test_file.suffix + TEMP_SUFFIX)
+
+            def failing_save(p):
+                p.write_text('partial')
+                raise ValueError("Simulated failure")
+
+            try:
+                atomic_save(save_func=failing_save, file_path=test_file)
+            except RuntimeError:
+                pass
+
+            # Temp file should be cleaned up
+            assert not temp_file.exists()
+            # Final file should not exist
+            assert not test_file.exists()
+
+    def test_atomic_torch_save(self):
+        """Test atomic_torch_save function."""
+        import tempfile
+        from pathlib import Path
+        import torch
+        from app.training.checkpoint_utils import atomic_torch_save
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / 'test.pth'
+            data = {'key': torch.tensor([1, 2, 3]), 'epoch': 10}
+
+            hash_result = atomic_torch_save(data, test_file, verify_hash=True)
+
+            assert test_file.exists()
+            assert len(hash_result) == 64
+
+            # Verify data can be loaded
+            loaded = torch.load(test_file, weights_only=False)
+            assert torch.equal(loaded['key'], data['key'])
+            assert loaded['epoch'] == 10
+
+    def test_load_with_validation(self):
+        """Test load_with_validation function."""
+        import tempfile
+        from pathlib import Path
+        import torch
+        from app.training.checkpoint_utils import atomic_torch_save, load_with_validation
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / 'test.pth'
+            data = {'value': torch.tensor([4, 5, 6])}
+
+            expected_hash = atomic_torch_save(data, test_file, verify_hash=True)
+
+            # Load and validate
+            loaded, actual_hash = load_with_validation(test_file, expected_hash)
+
+            assert actual_hash == expected_hash
+            assert torch.equal(loaded['value'], data['value'])
+
+    def test_load_with_validation_hash_mismatch(self):
+        """Test load_with_validation raises on hash mismatch."""
+        import tempfile
+        from pathlib import Path
+        import torch
+        from app.training.checkpoint_utils import atomic_torch_save, load_with_validation
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / 'test.pth'
+            data = {'value': 42}
+            atomic_torch_save(data, test_file)
+
+            with pytest.raises(ValueError, match="hash mismatch"):
+                load_with_validation(test_file, expected_hash="wrong_hash")
+
+
+# =============================================================================
+# Metrics Registry Tests (December 2025)
+# =============================================================================
+
+class TestMetricsRegistry:
+    """Tests for app.metrics.registry (consolidated _safe_metric pattern)."""
+
+    def test_safe_metric_creates_counter(self):
+        """Test safe_metric creates a Counter."""
+        from app.metrics.registry import safe_metric
+        from prometheus_client import Counter
+
+        counter = safe_metric(Counter, 'test_registry_counter_1', 'Test counter')
+        assert counter is not None
+
+    def test_safe_metric_returns_existing(self):
+        """Test safe_metric returns existing metric instead of creating new."""
+        from app.metrics.registry import safe_metric
+        from prometheus_client import Counter
+
+        c1 = safe_metric(Counter, 'test_registry_counter_2', 'Test counter')
+        c2 = safe_metric(Counter, 'test_registry_counter_2', 'Test counter')
+        assert c1 is c2
+
+    def test_safe_counter_helper(self):
+        """Test safe_counter helper function."""
+        from app.metrics.registry import safe_counter
+
+        counter = safe_counter('test_registry_counter_3', 'Test counter', labelnames=['a'])
+        assert counter is not None
+
+    def test_safe_gauge_helper(self):
+        """Test safe_gauge helper function."""
+        from app.metrics.registry import safe_gauge
+
+        gauge = safe_gauge('test_registry_gauge_1', 'Test gauge')
+        assert gauge is not None
+
+    def test_safe_histogram_helper(self):
+        """Test safe_histogram helper function."""
+        from app.metrics.registry import safe_histogram
+
+        histogram = safe_histogram(
+            'test_registry_histogram_1',
+            'Test histogram',
+            buckets=[1, 5, 10, 50, 100],
+        )
+        assert histogram is not None
+
+    def test_is_metric_registered(self):
+        """Test is_metric_registered function."""
+        from app.metrics.registry import safe_counter, is_metric_registered
+
+        # Create a metric
+        safe_counter('test_registry_counter_4', 'Test counter')
+
+        # Should be registered
+        assert is_metric_registered('test_registry_counter_4')
+
+        # Non-existent should not be registered
+        assert not is_metric_registered('non_existent_metric_xyz')
+
+    def test_get_metric(self):
+        """Test get_metric function."""
+        from app.metrics.registry import safe_counter, get_metric
+
+        # Create a metric
+        original = safe_counter('test_registry_counter_5', 'Test counter')
+
+        # Should retrieve it
+        retrieved = get_metric('test_registry_counter_5')
+        assert retrieved is original
+
+        # Non-existent should return None
+        assert get_metric('non_existent_metric_abc') is None
+
+    def test_import_from_app_metrics(self):
+        """Test registry functions can be imported from app.metrics."""
+        from app.metrics import (
+            safe_metric,
+            safe_counter,
+            safe_gauge,
+            safe_histogram,
+            is_metric_registered,
+            get_metric,
+        )
+
+        # All should be importable
+        assert safe_metric is not None
+        assert safe_counter is not None
+        assert safe_gauge is not None
+        assert safe_histogram is not None
+        assert is_metric_registered is not None
+        assert get_metric is not None
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

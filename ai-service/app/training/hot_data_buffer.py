@@ -45,6 +45,21 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 # Event system integration (optional - graceful fallback if not available)
+# Prefer unified router for cross-system event routing (December 2025)
+try:
+    from app.coordination.event_router import (
+        get_router as get_event_router,
+        publish as router_publish,
+        publish_sync as router_publish_sync,
+    )
+    HAS_EVENT_ROUTER = True
+except ImportError:
+    HAS_EVENT_ROUTER = False
+    get_event_router = None
+    router_publish = None
+    router_publish_sync = None
+
+# Legacy event bus (fallback if router unavailable)
 try:
     from app.distributed.data_events import (
         DataEventType,
@@ -355,8 +370,26 @@ class HotDataBuffer:
         return self._validation_stats.copy()
 
     def _try_emit_event(self, event_type: DataEventType, payload: Dict[str, Any]) -> None:
-        """Try to emit an event (fire-and-forget from sync context)."""
+        """Try to emit an event (fire-and-forget from sync context).
+
+        Uses unified router if available, falls back to direct EventBus.
+        """
         if not self.enable_events:
+            return
+
+        source = f"hot_buffer:{self.buffer_name}"
+        event_type_str = event_type.value if hasattr(event_type, 'value') else str(event_type)
+
+        # Try unified router first (recommended path)
+        if HAS_EVENT_ROUTER and router_publish_sync is not None:
+            try:
+                router_publish_sync(event_type_str, payload, source)
+                return
+            except Exception as e:
+                logger.debug(f"Router emit failed, falling back to direct bus: {e}")
+
+        # Fallback to direct EventBus
+        if not HAS_EVENT_SYSTEM:
             return
 
         try:
@@ -364,7 +397,7 @@ class HotDataBuffer:
             event = DataEvent(
                 event_type=event_type,
                 payload=payload,
-                source=f"hot_buffer:{self.buffer_name}",
+                source=source,
             )
 
             # Try to schedule on an event loop if available
@@ -386,20 +419,38 @@ class HotDataBuffer:
                         )
                     else:
                         # Can't emit without a running loop - just log
-                        logger.debug(f"Event loop not running, skipping event: {event_type.value}")
+                        logger.debug(f"Event loop not running, skipping event: {event_type_str}")
         except Exception as e:
-            logger.debug(f"Failed to emit event {event_type.value}: {e}")
+            logger.debug(f"Failed to emit event {event_type_str}: {e}")
 
     async def emit_event_async(self, event_type: DataEventType, payload: Dict[str, Any]) -> None:
-        """Emit an event asynchronously."""
+        """Emit an event asynchronously.
+
+        Uses unified router if available, falls back to direct EventBus.
+        """
         if not self.enable_events:
+            return
+
+        source = f"hot_buffer:{self.buffer_name}"
+        event_type_str = event_type.value if hasattr(event_type, 'value') else str(event_type)
+
+        # Try unified router first (recommended path)
+        if HAS_EVENT_ROUTER and router_publish is not None:
+            try:
+                await router_publish(event_type_str, payload, source)
+                return
+            except Exception as e:
+                logger.debug(f"Router emit failed, falling back to direct bus: {e}")
+
+        # Fallback to direct EventBus
+        if not HAS_EVENT_SYSTEM:
             return
 
         bus = get_event_bus()
         event = DataEvent(
             event_type=event_type,
             payload=payload,
-            source=f"hot_buffer:{self.buffer_name}",
+            source=source,
         )
         await bus.publish(event)
 

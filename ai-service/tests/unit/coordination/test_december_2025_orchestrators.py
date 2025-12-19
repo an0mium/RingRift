@@ -575,6 +575,15 @@ class TestCoordinationBootstrap:
             enable_selfplay=False,
             enable_pipeline=False,
             enable_task=False,
+            enable_sync=False,
+            enable_training=False,
+            enable_recovery=False,
+            enable_transfer=False,
+            enable_ephemeral=False,
+            enable_queue=False,
+            enable_multi_provider=False,
+            enable_job_scheduler=False,
+            enable_global_task=False,
             register_with_registry=False,
         )
 

@@ -61,6 +61,19 @@ except ImportError:
     get_cluster_config = None
 
 # Event bus for status change notifications (Phase 10 consolidation)
+# Prefer unified router for cross-system event routing (December 2025)
+try:
+    from app.coordination.event_router import (
+        get_router as get_event_router,
+        publish as router_publish,
+    )
+    HAS_EVENT_ROUTER = True
+except ImportError:
+    HAS_EVENT_ROUTER = False
+    get_event_router = None
+    router_publish = None
+
+# Legacy event bus (fallback if router unavailable)
 try:
     from app.distributed.data_events import (
         DataEvent, DataEventType, get_event_bus
@@ -325,7 +338,7 @@ class UnifiedClusterMonitor:
         """Check if we should send an alert (respects cooldown)."""
         now = time.time()
         last_alert = self._last_alerts.get(key, 0)
-        if now - last_alert > self._alert_cooldown:
+        if now - last_alert >= self._alert_cooldown:
             self._last_alerts[key] = now
             return True
         return False
@@ -769,43 +782,73 @@ class UnifiedClusterMonitor:
 
             await asyncio.sleep(interval)
 
-    async def _emit_status_events(self, status: ClusterStatus) -> None:
-        """Emit events based on cluster status changes."""
+    async def _emit_event(
+        self,
+        event_type: "DataEventType",
+        payload: dict,
+    ) -> None:
+        """Emit an event via unified router or fallback to direct bus.
+
+        Uses unified router if available, falls back to direct EventBus.
+        """
+        source = "unified_cluster_monitor"
+        event_type_str = event_type.value if hasattr(event_type, 'value') else str(event_type)
+
+        # Try unified router first (recommended path)
+        if HAS_EVENT_ROUTER and router_publish is not None:
+            try:
+                await router_publish(event_type_str, payload, source)
+                return
+            except Exception as e:
+                logger.debug(f"Router emit failed, falling back to direct bus: {e}")
+
+        # Fallback to direct EventBus
         if not HAS_EVENT_BUS:
             return
 
         event_bus = get_event_bus()
+        await event_bus.publish(DataEvent(
+            event_type=event_type,
+            payload=payload,
+            source=source,
+        ))
+
+    async def _emit_status_events(self, status: ClusterStatus) -> None:
+        """Emit events based on cluster status changes.
+
+        Uses unified router if available, falls back to direct EventBus.
+        """
+        if not HAS_EVENT_ROUTER and not HAS_EVENT_BUS:
+            return
 
         # Detect overall health state change
         if status.healthy != self._last_healthy:
             self._last_healthy = status.healthy
 
-            await event_bus.publish(DataEvent(
-                event_type=DataEventType.CLUSTER_STATUS_CHANGED,
-                payload={
+            await self._emit_event(
+                DataEventType.CLUSTER_STATUS_CHANGED,
+                {
                     "healthy": status.healthy,
                     "healthy_nodes": status.healthy_nodes,
                     "node_count": status.node_count,
                     "alerts": status.alerts,
                 },
-                source="unified_cluster_monitor",
-            ))
+            )
 
             cluster_event_type = (
                 DataEventType.P2P_CLUSTER_HEALTHY
                 if status.healthy
                 else DataEventType.P2P_CLUSTER_UNHEALTHY
             )
-            await event_bus.publish(DataEvent(
-                event_type=cluster_event_type,
-                payload={
+            await self._emit_event(
+                cluster_event_type,
+                {
                     "healthy": status.healthy,
                     "healthy_nodes": status.healthy_nodes,
                     "node_count": status.node_count,
                     "alerts": status.alerts,
                 },
-                source="unified_cluster_monitor",
-            ))
+            )
 
         # Emit alerts as individual events
         for alert in status.alerts:
@@ -817,26 +860,24 @@ class UnifiedClusterMonitor:
             else:
                 event_type = DataEventType.HEALTH_ALERT
 
-            await event_bus.publish(DataEvent(
-                event_type=event_type,
-                payload={"alert": alert, "timestamp": status.timestamp},
-                source="unified_cluster_monitor",
-            ))
+            await self._emit_event(
+                event_type,
+                {"alert": alert, "timestamp": status.timestamp},
+            )
 
         # Emit node-specific events for unhealthy nodes
         for node in status.nodes:
             if not node.is_healthy:
-                await event_bus.publish(DataEvent(
-                    event_type=DataEventType.NODE_UNHEALTHY,
-                    payload={
+                await self._emit_event(
+                    DataEventType.NODE_UNHEALTHY,
+                    {
                         "node_name": node.name,
                         "node_ip": node.ip,
                         "error": node.error,
                         "gpu_utilization": node.gpu_utilization,
                         "disk_used_percent": node.disk_used_percent,
                     },
-                    source="unified_cluster_monitor",
-                ))
+                )
 
     def stop_monitoring(self) -> None:
         """Stop continuous monitoring."""

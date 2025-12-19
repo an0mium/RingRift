@@ -660,8 +660,10 @@ class TestTrainingPipelineIntegration:
 
         loader.close()
 
+    @patch("app.training.checkpointing.check_disk_space", return_value=True)
     def test_checkpoint_resume(
         self,
+        mock_disk_check,
         temp_dir,
         square_data_file,
         models_dir,

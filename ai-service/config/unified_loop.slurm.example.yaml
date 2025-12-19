@@ -24,7 +24,7 @@ slurm:
   shared_root: '/lambda/nfs/RingRift'
   repo_subdir: 'ai-service'
   venv_activate: '/lambda/nfs/RingRift/ai-service/venv/bin/activate'
-  venv_activate_arm64: '/lambda/nfs/RingRift/ai-service/venv-arm64/bin/activate'
+  venv_activate_arm64: '/home/ubuntu/venv-arm64-local/bin/activate'
   job_dir: 'data/slurm/jobs'
   log_dir: 'data/slurm/logs'
   setup_commands:

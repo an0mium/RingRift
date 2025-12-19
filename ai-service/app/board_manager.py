@@ -130,7 +130,7 @@ class BoardManager:
         return False
 
     @staticmethod
-    def get_marker(position: Position, board: BoardState):
+    def get_marker(position: Position, board: BoardState) -> Optional[MarkerInfo]:
         """Return the marker at ``position`` or ``None`` if no marker."""
         # Try multiple key formats for hex boards (data may use "x,y" or "x,y,z")
         for pos_key in _get_position_keys_for_lookup(position, board.type):
@@ -865,7 +865,7 @@ class BoardManager:
     @staticmethod
     def set_collapsed_space(
         position: Position, player_number: int, board: BoardState
-    ):
+    ) -> None:
         pos_key = position.to_key()
         board.collapsed_spaces[pos_key] = player_number
         # Remove any marker at this position (try multiple key formats for hex)
@@ -875,7 +875,7 @@ class BoardManager:
                 break
 
     @staticmethod
-    def remove_stack(position: Position, board: BoardState):
+    def remove_stack(position: Position, board: BoardState) -> None:
         # Try multiple key formats for hex boards
         for pos_key in _get_position_keys_for_lookup(position, board.type):
             if pos_key in board.stacks:
@@ -883,7 +883,7 @@ class BoardManager:
                 break
 
     @staticmethod
-    def set_stack(position: Position, stack: RingStack, board: BoardState):
+    def set_stack(position: Position, stack: RingStack, board: BoardState) -> None:
         pos_key = position.to_key()
         board.stacks[pos_key] = stack
 

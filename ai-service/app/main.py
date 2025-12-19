@@ -148,15 +148,34 @@ except ImportError:  # pragma: no cover
     get_daemon_manager = None  # type: ignore
     DaemonType = None  # type: ignore
 
+# Import event helpers for unified router configuration (December 2025)
+try:
+    from app.distributed.event_helpers import (
+        set_use_router_by_default,
+        has_event_router,
+    )
+    HAS_EVENT_HELPERS = True
+except ImportError:  # pragma: no cover
+    HAS_EVENT_HELPERS = False
+    set_use_router_by_default = None  # type: ignore
+    has_event_router = None  # type: ignore
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan context manager for startup/shutdown.
 
-    - On startup: Install signal handlers, start daemon manager
+    - On startup: Install signal handlers, start daemon manager, enable event router
     - On shutdown: Gracefully shutdown daemons, then coordinators
     """
     # Startup
+
+    # Enable unified event router for all event emissions (December 2025)
+    # This routes events through EventBus + StageEventBus + CrossProcessEventQueue
+    if HAS_EVENT_HELPERS and has_event_router():
+        set_use_router_by_default(True)
+        logger.info("Enabled unified event router for all event emissions")
+
     if HAS_COORDINATOR_REGISTRY:
         registry = get_coordinator_registry()
         # Install signal handlers (SIGTERM/SIGINT)

@@ -40,20 +40,13 @@ import time
 from contextlib import contextmanager
 from typing import Final, Generator, Optional
 
-from prometheus_client import Counter, Gauge, Histogram, Summary, REGISTRY
+from prometheus_client import Counter, Gauge, Histogram, Summary
 
 # =============================================================================
-# Safe Metric Registration
+# Safe Metric Registration (December 2025: Consolidated)
 # =============================================================================
-# Avoid "Duplicated timeseries" errors when metrics are registered multiple
-# times (e.g., during test collection or when importing from multiple paths).
-
-
-def _safe_metric(metric_class, name: str, doc: str, **kwargs):
-    """Create metric or return existing one to avoid duplicate registration."""
-    if name in REGISTRY._names_to_collectors:
-        return REGISTRY._names_to_collectors[name]
-    return metric_class(name, doc, **kwargs)
+# Use the centralized registry to avoid duplicate metric registration.
+from app.metrics.registry import safe_metric as _safe_metric
 
 
 # =============================================================================
@@ -846,3 +839,65 @@ def collect_quality_metrics_from_manifest(
         return True
     except Exception:
         return False
+
+
+# =============================================================================
+# Queue and Iteration Tracking (December 2025)
+# =============================================================================
+
+def update_selfplay_queue_size(
+    queue_size: int,
+    orchestrator: str = "unified_ai_loop",
+) -> None:
+    """Update the selfplay job queue size metric.
+
+    This wires the TODO at line 81 - tracks pending selfplay jobs.
+
+    Args:
+        queue_size: Current number of pending selfplay jobs/configs
+        orchestrator: Orchestrator identifier
+    """
+    SELFPLAY_QUEUE_SIZE.labels(orchestrator).set(queue_size)
+
+
+def record_pipeline_iteration(
+    orchestrator: str = "unified_ai_loop",
+) -> None:
+    """Record completion of a pipeline iteration.
+
+    This wires the TODO at line 198 - tracks main training loop iterations.
+
+    Args:
+        orchestrator: Orchestrator identifier
+    """
+    PIPELINE_ITERATIONS_TOTAL.labels(orchestrator).inc()
+
+
+def get_selfplay_queue_size(orchestrator: str = "unified_ai_loop") -> float:
+    """Get current selfplay queue size from metric.
+
+    Args:
+        orchestrator: Orchestrator identifier
+
+    Returns:
+        Current queue size value
+    """
+    try:
+        return SELFPLAY_QUEUE_SIZE.labels(orchestrator)._value.get()
+    except Exception:
+        return 0.0
+
+
+def get_pipeline_iterations(orchestrator: str = "unified_ai_loop") -> float:
+    """Get total pipeline iterations from metric.
+
+    Args:
+        orchestrator: Orchestrator identifier
+
+    Returns:
+        Total iteration count
+    """
+    try:
+        return PIPELINE_ITERATIONS_TOTAL.labels(orchestrator)._value.get()
+    except Exception:
+        return 0.0

@@ -23,20 +23,16 @@ import asyncio
 import logging
 from typing import Any, Dict, Final
 
-from prometheus_client import Counter, Gauge, REGISTRY
+from prometheus_client import Counter, Gauge
 
 logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# Safe Metric Registration
+# Safe Metric Registration (December 2025: Consolidated)
 # =============================================================================
-
-def _safe_metric(metric_class, name: str, doc: str, **kwargs):
-    """Create metric or return existing one to avoid duplicate registration."""
-    if name in REGISTRY._names_to_collectors:
-        return REGISTRY._names_to_collectors[name]
-    return metric_class(name, doc, **kwargs)
+# Use the centralized registry to avoid duplicate metric registration.
+from app.metrics.registry import safe_metric as _safe_metric
 
 
 # =============================================================================

@@ -23,6 +23,34 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+__all__ = [
+    # Data classes
+    "HostMemoryInfo",
+    "HostConfig",
+    # Host configuration
+    "load_remote_hosts",
+    "load_ready_hosts",
+    "filter_ready_hosts",
+    # Memory detection
+    "get_local_memory_gb",
+    "get_remote_memory_gb",
+    "detect_host_memory",
+    "detect_all_host_memory",
+    "clear_memory_cache",
+    # Host filtering
+    "get_eligible_hosts_for_board",
+    "get_high_memory_hosts",
+    # Host status
+    "get_host_status",
+    "is_host_ready",
+    # SSH utilities
+    "SSHExecutor",
+    "get_ssh_executor",
+    # Constants
+    "BOARD_MEMORY_REQUIREMENTS",
+    "DEFAULT_SSH_KEY",
+]
+
 logger = logging.getLogger(__name__)
 
 # Default paths relative to ai-service/

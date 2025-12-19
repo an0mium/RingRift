@@ -521,9 +521,10 @@ class TestABTestManager:
         )
         manager.start_test(config)
 
-        # analyze_test returns None when no Elo service
-        result = manager.analyze_test("test_1")
-        assert result is None
+        # Patch the elo_service property to return None
+        with patch.object(type(manager), 'elo_service', new_callable=lambda: property(lambda self: None)):
+            result = manager.analyze_test("test_1")
+            assert result is None
 
     def test_get_test_status_completed(self):
         """Should show completed test status."""
@@ -560,7 +561,8 @@ class TestConvenienceFunctions:
     def test_get_promotion_controller_with_criteria(self):
         """Should accept criteria."""
         criteria = PromotionCriteria(min_elo_improvement=100)
-        controller = get_promotion_controller(criteria=criteria)
+        # Use use_singleton=False to get a fresh instance with custom criteria
+        controller = get_promotion_controller(criteria=criteria, use_singleton=False)
         assert controller.criteria.min_elo_improvement == 100
 
     def test_get_rollback_monitor(self):

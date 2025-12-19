@@ -41,14 +41,6 @@ Usage:
 
 from __future__ import annotations
 
-import warnings
-warnings.warn(
-    "app.training.checkpointing is deprecated. "
-    "Use app.training.checkpoint_unified for new code.",
-    DeprecationWarning,
-    stacklevel=2,
-)
-
 import copy
 import logging
 import os

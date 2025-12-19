@@ -568,6 +568,9 @@ try:
         record_training_data_quality,
         update_quality_bridge_status,
         collect_quality_metrics_from_bridge,
+        # Queue and iteration tracking (December 2025)
+        update_selfplay_queue_size,
+        record_pipeline_iteration,
     )
     HAS_QUALITY_METRICS = True
 except ImportError:
@@ -575,6 +578,8 @@ except ImportError:
     record_training_data_quality = None
     update_quality_bridge_status = None
     collect_quality_metrics_from_bridge = None
+    update_selfplay_queue_size = None
+    record_pipeline_iteration = None
 
 # Import diverse tournament orchestrator for Elo calibration
 try:
@@ -3260,6 +3265,15 @@ class UnifiedAILoop:
         # Update cluster utilization metrics (feedback from P2P orchestrator)
         self._update_cluster_utilization_metrics()
 
+        # Update selfplay queue size (December 2025 - wires TODO in orchestrator.py:81)
+        if update_selfplay_queue_size is not None:
+            # Count configs that need more selfplay data
+            configs_needing_selfplay = sum(
+                1 for c in self.state.configs.values()
+                if c.games_since_training < 500  # Need more data
+            )
+            update_selfplay_queue_size(configs_needing_selfplay)
+
     def _update_cluster_utilization_metrics(self):
         """Update metrics from unified resource targets (P2P feedback loop).
 
@@ -5851,6 +5865,10 @@ class UnifiedAILoop:
                 if result:
                     print(f"[Training] Completed: {result}")
                     self.health_tracker.record_success("training_scheduler")
+
+                    # Record pipeline iteration (December 2025 - wires TODO in orchestrator.py:198)
+                    if record_pipeline_iteration is not None:
+                        record_pipeline_iteration()
 
                     # Run tier gating checks after training completes
                     promotions = await self.run_tier_gating_checks()

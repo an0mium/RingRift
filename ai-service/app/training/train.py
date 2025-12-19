@@ -59,15 +59,11 @@ import logging
 
 # Optional Prometheus metrics
 try:
-    from prometheus_client import Counter, Gauge, Histogram, REGISTRY
+    from prometheus_client import Counter, Gauge, Histogram
     HAS_PROMETHEUS = True
 
-    # Training metrics - avoid duplicate registration
-    def _safe_metric(metric_class, name, doc, **kwargs):
-        """Create metric or get existing one."""
-        if name in REGISTRY._names_to_collectors:
-            return REGISTRY._names_to_collectors[name]
-        return metric_class(name, doc, **kwargs)
+    # December 2025: Use centralized metric registry
+    from app.metrics.registry import safe_metric as _safe_metric
 
     TRAINING_EPOCHS = _safe_metric(Counter, 'ringrift_training_epochs_total', 'Total training epochs completed', labelnames=['config'])
     TRAINING_LOSS = _safe_metric(Gauge, 'ringrift_training_loss', 'Current training loss', labelnames=['config', 'loss_type'])

@@ -28,6 +28,23 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
+__all__ = [
+    # Core classes
+    "QualityCategory",
+    "GameQuality",
+    "QualityWeights",
+    "UnifiedQualityScorer",
+    # Singleton access
+    "get_quality_scorer",
+    # Convenience functions
+    "compute_game_quality",
+    "compute_sample_weight",
+    "compute_sync_priority",
+    "get_quality_category",
+    "compute_game_quality_from_params",
+    "compute_elo_weights_batch",
+]
+
 logger = logging.getLogger(__name__)
 
 # Event emission for quality updates (optional integration)

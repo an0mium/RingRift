@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 # Environment variable for model path
 EBMO_MODEL_PATH_ENV = "RINGRIFT_EBMO_MODEL_PATH"
-EBMO_DEFAULT_MODEL_PATH = "models/ebmo/ebmo_square8.pt"
+EBMO_DEFAULT_MODEL_PATH = "models/ebmo/ebmo_square8_best.pt"
 
 
 class EBMO_AI(BaseAI):
@@ -121,6 +121,13 @@ class EBMO_AI(BaseAI):
         # Inference statistics
         self._total_moves = 0
         self._total_optim_steps = 0
+
+        # Selfplay integration: temperature for exploration
+        self.temperature: float = 1.0
+
+        # Training feedback: last move's root value and policy
+        self.last_root_value: Optional[float] = None
+        self.last_root_policy: Optional[Dict[int, float]] = None
 
     def _load_config_from_ai_config(self, config: AIConfig) -> None:
         """Extract EBMO parameters from AIConfig.extra."""
@@ -509,9 +516,64 @@ class EBMO_AI(BaseAI):
     def reset_for_new_game(self, *, rng_seed: Optional[int] = None) -> None:
         """Reset for a new game."""
         super().reset_for_new_game(rng_seed=rng_seed)
+        # Reset training feedback
+        self.last_root_value = None
+        self.last_root_policy = None
         # Optionally reset stats per game
         # self._total_moves = 0
         # self._total_optim_steps = 0
+
+    def seed(self, seed_value: int) -> None:
+        """Set random seed for reproducibility.
+
+        Used by selfplay workers for deterministic game generation.
+
+        Args:
+            seed_value: Random seed value
+        """
+        self.rng = np.random.RandomState(seed_value)
+        # Also seed torch for any stochastic operations
+        torch.manual_seed(seed_value)
+
+    def get_policy_distribution(self, game_state: GameState) -> Dict[int, float]:
+        """Get policy distribution over moves for training.
+
+        Converts energy-based scores to probability distribution.
+        Lower energy = higher probability.
+
+        Args:
+            game_state: Current game state
+
+        Returns:
+            Dict mapping move indices to probabilities
+        """
+        valid_moves = self.get_valid_moves(game_state)
+
+        if not valid_moves:
+            return {}
+
+        with torch.no_grad():
+            state_embed = self.network.encode_state_from_game(
+                game_state,
+                self.player_number,
+                self.device,
+            )
+
+            move_embeddings = self._encode_legal_moves(valid_moves)
+            state_batch = state_embed.unsqueeze(0).expand(len(valid_moves), -1)
+            energies = self.network.compute_energy(state_batch, move_embeddings)
+
+            # Convert to probabilities: lower energy = higher prob
+            # Use temperature for sharpness control
+            logits = -energies / max(self.temperature, 0.01)
+            probs = F.softmax(logits, dim=0)
+
+        # Map to move indices (simplified: use sequential indices)
+        policy = {}
+        for i, prob in enumerate(probs.tolist()):
+            policy[i] = prob
+
+        return policy
 
 
 # =============================================================================

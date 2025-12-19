@@ -587,6 +587,13 @@ class DistributedNNGauntlet:
             # Use mcts_25 for fast gauntlet evaluation (25 simulations = ~0.15s/move)
             if task.model_id == "random_ai":
                 player_configs.append({"ai_type": "random", "difficulty": 1})
+            elif task.model_id.startswith("gmo"):
+                # GMO model - use GMO AI type
+                player_configs.append({
+                    "ai_type": "gmo",
+                    "difficulty": 5,
+                    "nn_model_id": task.model_id,
+                })
             else:
                 model_path = self.model_dir / f"{task.model_id}.pth"
                 if model_path.exists():
@@ -603,6 +610,13 @@ class DistributedNNGauntlet:
             # Baseline agent (player 1)
             if task.baseline_id == "random_ai":
                 player_configs.append({"ai_type": "random", "difficulty": 1})
+            elif task.baseline_id.startswith("gmo"):
+                # GMO baseline - use GMO AI type
+                player_configs.append({
+                    "ai_type": "gmo",
+                    "difficulty": 5,
+                    "nn_model_id": task.baseline_id,
+                })
             else:
                 baseline_path = self.model_dir / f"{task.baseline_id}.pth"
                 if baseline_path.exists():

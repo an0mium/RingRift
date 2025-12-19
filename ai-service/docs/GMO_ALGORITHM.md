@@ -483,6 +483,30 @@ print(f"Win rate vs Random: {results['win_rate']:.1%}")
 
 ---
 
+## Evaluation Results
+
+Evaluation on Square8 board type (December 2024):
+
+| Matchup             | GMO Win Rate | Games | Notes                 |
+| ------------------- | ------------ | ----- | --------------------- |
+| GMO vs Random AI    | **74%**      | 50    | Target was >60%       |
+| GMO vs Heuristic AI | **62.5%**    | 40    | Stronger than level 2 |
+
+**Position in Difficulty Ladder:**
+
+GMO's performance places it between Heuristic (level 2) and Policy-only (level 3):
+
+```
+Level 1: Random AI        <- GMO beats 74%
+Level 2: Heuristic AI     <- GMO beats 62.5%
+Level 3: Policy-only AI   <- GMO comparable
+Level 4+: Minimax, MCTS   <- Not evaluated
+```
+
+GMO is available via `AIFactory.create_for_tournament("gmo", player_number)` but is not part of the main difficulty ladder. It serves as an alternative approach demonstrating gradient-based inference.
+
+---
+
 ## Comparison to Other Approaches
 
 | Approach           | Move Selection        | Exploration     | Based On                   |
@@ -543,13 +567,96 @@ Rigorous comparisons vs MCTS, policy networks at equal compute budgets, with abl
 
 ## File Reference
 
-| File                        | Lines  | Description             |
-| --------------------------- | ------ | ----------------------- |
-| `app/ai/gmo_ai.py`          | ~400   | Main implementation     |
-| `app/training/train_gmo.py` | ~350   | Training script         |
-| `tests/test_gmo_ai.py`      | ~620   | Unit tests (28 tests)   |
-| `docs/GMO_ALGORITHM.md`     | This   | Documentation           |
-| `models/gmo/gmo_best.pt`    | ~1.5MB | Best trained checkpoint |
+| File                         | Lines  | Description             |
+| ---------------------------- | ------ | ----------------------- |
+| `app/ai/gmo_ai.py`           | ~400   | Main implementation     |
+| `app/training/train_gmo.py`  | ~350   | Training script         |
+| `tests/test_gmo_ai.py`       | ~620   | Unit tests (28 tests)   |
+| `docs/GMO_ALGORITHM.md`      | This   | Documentation           |
+| `models/gmo/gmo_best.pt`     | ~1.5MB | Best trained checkpoint |
+| `scripts/gmo_integration.py` | ~500   | Integration utilities   |
+
+---
+
+## Training Infrastructure Integration
+
+GMO is fully integrated into the RingRift training infrastructure:
+
+### Self-Play Generation
+
+GMO is available as an engine mode for self-play data generation:
+
+```bash
+# Generate self-play games using GMO
+python -m app.training.generate_data \
+    --engine gmo \
+    --num-games 1000 \
+    --board square8 \
+    --num-players 2
+```
+
+GMO can also be mixed with other engines:
+
+```python
+from app.training.selfplay_config import EngineMode
+
+# GMO is available as an engine mode
+config = SelfplayConfig(
+    engine_mode=EngineMode.GMO,
+    num_games=100,
+)
+```
+
+### Elo System Registration
+
+GMO can be registered as a participant in the unified Elo system:
+
+```bash
+# Register GMO in Elo database
+python scripts/gmo_integration.py register
+```
+
+This creates a participant entry with:
+
+- ID: `gmo_v1`
+- Type: `gmo`
+- Metadata: algorithm components and version
+
+### Gauntlet Evaluation
+
+GMO is automatically recognized in gauntlet evaluation:
+
+- Models with IDs starting with `gmo` use the GMO AI type
+- GMO can serve as both a candidate and a baseline
+- Supports distributed gauntlet evaluation
+
+### Self-Play Training Pipeline
+
+Full pipeline for iterative self-play training:
+
+```bash
+# Run complete pipeline: selfplay -> train -> evaluate
+python scripts/gmo_integration.py pipeline \
+    --num-games 500 \
+    --epochs 20 \
+    --iterations 3
+
+# Individual steps:
+python scripts/gmo_integration.py selfplay --num-games 100
+python scripts/gmo_integration.py train --epochs 10
+python scripts/gmo_integration.py evaluate --num-games 50
+```
+
+### Tournament Support
+
+GMO is available through the AIFactory for tournament play:
+
+```python
+from app.ai.factory import AIFactory
+
+# Create GMO for tournament
+gmo = AIFactory.create_for_tournament("gmo", player_number=1)
+```
 
 ---
 

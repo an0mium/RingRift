@@ -48,6 +48,26 @@ from enum import Enum
 from threading import RLock
 from typing import Any, Callable, Dict, Optional, TypeVar
 
+__all__ = [
+    # Core classes
+    "CircuitState",
+    "CircuitStatus",
+    "CircuitBreaker",
+    "CircuitOpenError",
+    # Registry and singletons
+    "CircuitBreakerRegistry",
+    "get_circuit_registry",
+    "get_host_breaker",
+    "get_training_breaker",
+    "get_operation_breaker",
+    "set_host_breaker_callback",
+    # Utilities
+    "format_circuit_status",
+    "get_adaptive_timeout",
+    "FallbackChain",
+    "with_circuit_breaker",
+]
+
 T = TypeVar("T")
 
 # Import centralized circuit breaker configurations (December 2025)

@@ -44,13 +44,10 @@ logger = logging.getLogger(__name__)
 
 # Optional Prometheus metrics
 try:
-    from prometheus_client import Counter, Histogram, Gauge, REGISTRY
+    from prometheus_client import Counter, Histogram, Gauge
 
-    def _safe_metric(metric_class, name, doc, **kwargs):
-        """Create metric or get existing one."""
-        if name in REGISTRY._names_to_collectors:
-            return REGISTRY._names_to_collectors[name]
-        return metric_class(name, doc, **kwargs)
+    # December 2025: Use centralized metric registry
+    from app.metrics.registry import safe_metric as _safe_metric
 
     AI_DECISIONS = _safe_metric(
         Counter,

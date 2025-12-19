@@ -574,7 +574,12 @@ class GMOAI(BaseAI):
 
     def load_checkpoint(self, checkpoint_path: Path) -> None:
         """Load trained model from checkpoint."""
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        # Allow GMOConfig in checkpoint (trusted source)
+        checkpoint = torch.load(
+            checkpoint_path,
+            map_location=self.device,
+            weights_only=False,  # Allow custom objects (our own checkpoint)
+        )
 
         self.state_encoder.load_state_dict(checkpoint["state_encoder"])
         self.move_encoder.load_state_dict(checkpoint["move_encoder"])

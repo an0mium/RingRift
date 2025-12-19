@@ -300,6 +300,204 @@ def _init_task_coordinator() -> CoordinatorStatus:
     return status
 
 
+def _init_sync_coordinator() -> CoordinatorStatus:
+    """Initialize SyncCoordinator (SyncScheduler)."""
+    status = CoordinatorStatus(name="sync_coordinator")
+    try:
+        from app.coordination.sync_coordinator import wire_sync_events
+
+        coordinator = wire_sync_events()
+        status.initialized = True
+        status.subscribed = getattr(coordinator, "_subscribed", True)
+        status.initialized_at = datetime.now()
+        logger.info("[Bootstrap] SyncCoordinator initialized")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] SyncCoordinator not available: {e}")
+    except Exception as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize SyncCoordinator: {e}")
+
+    return status
+
+
+def _init_training_coordinator() -> CoordinatorStatus:
+    """Initialize TrainingCoordinator."""
+    status = CoordinatorStatus(name="training_coordinator")
+    try:
+        from app.coordination.training_coordinator import wire_training_events
+
+        coordinator = wire_training_events()
+        status.initialized = True
+        status.subscribed = getattr(coordinator, "_subscribed", True)
+        status.initialized_at = datetime.now()
+        logger.info("[Bootstrap] TrainingCoordinator initialized")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] TrainingCoordinator not available: {e}")
+    except Exception as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize TrainingCoordinator: {e}")
+
+    return status
+
+
+def _init_recovery_manager() -> CoordinatorStatus:
+    """Initialize RecoveryManager."""
+    status = CoordinatorStatus(name="recovery_manager")
+    try:
+        from app.coordination.recovery_manager import wire_recovery_events
+
+        coordinator = wire_recovery_events()
+        status.initialized = True
+        status.subscribed = getattr(coordinator, "_subscribed", True)
+        status.initialized_at = datetime.now()
+        logger.info("[Bootstrap] RecoveryManager initialized")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] RecoveryManager not available: {e}")
+    except Exception as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize RecoveryManager: {e}")
+
+    return status
+
+
+def _init_transfer_verifier() -> CoordinatorStatus:
+    """Initialize TransferVerifier."""
+    status = CoordinatorStatus(name="transfer_verifier")
+    try:
+        from app.coordination.transfer_verification import wire_transfer_verifier_events
+
+        coordinator = wire_transfer_verifier_events()
+        status.initialized = True
+        status.subscribed = getattr(coordinator, "_subscribed", True)
+        status.initialized_at = datetime.now()
+        logger.info("[Bootstrap] TransferVerifier initialized")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] TransferVerifier not available: {e}")
+    except Exception as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize TransferVerifier: {e}")
+
+    return status
+
+
+def _init_ephemeral_guard() -> CoordinatorStatus:
+    """Initialize EphemeralDataGuard."""
+    status = CoordinatorStatus(name="ephemeral_guard")
+    try:
+        from app.coordination.ephemeral_data_guard import wire_ephemeral_guard_events
+
+        coordinator = wire_ephemeral_guard_events()
+        status.initialized = True
+        status.subscribed = getattr(coordinator, "_subscribed", True)
+        status.initialized_at = datetime.now()
+        logger.info("[Bootstrap] EphemeralDataGuard initialized")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] EphemeralDataGuard not available: {e}")
+    except Exception as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize EphemeralDataGuard: {e}")
+
+    return status
+
+
+def _init_queue_populator() -> CoordinatorStatus:
+    """Initialize QueuePopulator."""
+    status = CoordinatorStatus(name="queue_populator")
+    try:
+        from app.coordination.queue_populator import wire_queue_populator_events
+
+        coordinator = wire_queue_populator_events()
+        status.initialized = True
+        status.subscribed = getattr(coordinator, "_subscribed", True)
+        status.initialized_at = datetime.now()
+        logger.info("[Bootstrap] QueuePopulator initialized")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] QueuePopulator not available: {e}")
+    except Exception as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize QueuePopulator: {e}")
+
+    return status
+
+
+def _init_multi_provider() -> CoordinatorStatus:
+    """Initialize MultiProviderOrchestrator."""
+    status = CoordinatorStatus(name="multi_provider")
+    try:
+        from app.coordination.multi_provider_orchestrator import wire_orchestrator_events
+
+        coordinator = wire_orchestrator_events()
+        status.initialized = True
+        status.subscribed = getattr(coordinator, "_subscribed", True)
+        status.initialized_at = datetime.now()
+        logger.info("[Bootstrap] MultiProviderOrchestrator initialized")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] MultiProviderOrchestrator not available: {e}")
+    except Exception as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize MultiProviderOrchestrator: {e}")
+
+    return status
+
+
+def _init_job_scheduler() -> CoordinatorStatus:
+    """Initialize JobScheduler host-dead migration wiring."""
+    status = CoordinatorStatus(name="job_scheduler")
+    try:
+        from app.coordination.job_scheduler import wire_host_dead_to_job_migration
+
+        wire_host_dead_to_job_migration()
+        status.initialized = True
+        status.subscribed = True
+        status.initialized_at = datetime.now()
+        logger.info("[Bootstrap] JobScheduler host-dead migration wired")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] JobScheduler not available: {e}")
+    except Exception as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize JobScheduler: {e}")
+
+    return status
+
+
+def _init_global_task_coordinator() -> CoordinatorStatus:
+    """Initialize global TaskCoordinator (separate from TaskLifecycleCoordinator)."""
+    status = CoordinatorStatus(name="global_task_coordinator")
+    try:
+        from app.coordination.task_coordinator import wire_task_coordinator_events
+
+        coordinator = wire_task_coordinator_events()
+        status.initialized = True
+        status.subscribed = True  # wire function always subscribes
+        status.initialized_at = datetime.now()
+        logger.info("[Bootstrap] Global TaskCoordinator initialized")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] Global TaskCoordinator not available: {e}")
+    except Exception as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize global TaskCoordinator: {e}")
+
+    return status
+
+
 def _register_coordinators() -> bool:
     """Register all coordinators with OrchestratorRegistry."""
     try:
@@ -332,22 +530,40 @@ def bootstrap_coordination(
     enable_selfplay: bool = True,
     enable_pipeline: bool = True,
     enable_task: bool = True,
+    enable_sync: bool = True,
+    enable_training: bool = True,
+    enable_recovery: bool = True,
+    enable_transfer: bool = True,
+    enable_ephemeral: bool = True,
+    enable_queue: bool = True,
+    enable_multi_provider: bool = True,
+    enable_job_scheduler: bool = True,
+    enable_global_task: bool = True,
     pipeline_auto_trigger: bool = False,
     register_with_registry: bool = True,
 ) -> Dict[str, Any]:
     """Initialize all coordination components.
 
-    Initializes coordinators in the correct dependency order per coordinator_dependencies.py:
+    Initializes coordinators in the correct dependency order:
     1. Task lifecycle (foundational - no dependencies)
-    2. Resource monitoring (foundational - no dependencies)
-    3. Cache coordination (foundational - no dependencies)
-    4. Error recovery (infrastructure support)
-    5. Model lifecycle (depends on cache)
-    6. Selfplay orchestrator (depends on task_lifecycle, resources)
-    7. Pipeline orchestrator (depends on selfplay, cache)
-    8. Metrics analysis (depends on pipeline)
-    9. Optimization (depends on metrics)
-    10. Leadership (depends on all others)
+    2. Global task coordinator (foundational - task spawning limits)
+    3. Resource monitoring (foundational - no dependencies)
+    4. Cache coordination (foundational - no dependencies)
+    5. Error recovery (infrastructure support)
+    6. Recovery manager (infrastructure support)
+    7. Model lifecycle (depends on cache)
+    8. Sync coordinator (depends on resources)
+    9. Training coordinator (depends on cache, model)
+    10. Transfer verifier (depends on sync)
+    11. Ephemeral data guard (depends on sync, cache)
+    12. Queue populator (depends on cache)
+    13. Selfplay orchestrator (depends on task_lifecycle, resources)
+    14. Pipeline orchestrator (depends on selfplay, cache)
+    15. Multi-provider orchestrator (depends on pipeline)
+    16. Job scheduler (depends on selfplay, training)
+    17. Metrics analysis (depends on pipeline)
+    18. Optimization (depends on metrics)
+    19. Leadership (coordinates all others)
 
     Args:
         enable_resources: Initialize ResourceMonitoringCoordinator
@@ -360,6 +576,15 @@ def bootstrap_coordination(
         enable_selfplay: Initialize SelfplayOrchestrator
         enable_pipeline: Initialize DataPipelineOrchestrator
         enable_task: Initialize TaskLifecycleCoordinator
+        enable_sync: Initialize SyncCoordinator
+        enable_training: Initialize TrainingCoordinator
+        enable_recovery: Initialize RecoveryManager
+        enable_transfer: Initialize TransferVerifier
+        enable_ephemeral: Initialize EphemeralDataGuard
+        enable_queue: Initialize QueuePopulator
+        enable_multi_provider: Initialize MultiProviderOrchestrator
+        enable_job_scheduler: Initialize JobScheduler host-dead migration
+        enable_global_task: Initialize global TaskCoordinator
         pipeline_auto_trigger: Auto-trigger pipeline on events
         register_with_registry: Register coordinators with OrchestratorRegistry
 
@@ -377,20 +602,33 @@ def bootstrap_coordination(
 
     logger.info("[Bootstrap] Starting coordination bootstrap...")
 
-    # Initialize in dependency order per coordinator_dependencies.py
+    # Initialize in dependency order
     # Foundational coordinators first (no dependencies), then dependents
     init_order = [
         # Foundational layer (no dependencies)
         ("task_coordinator", enable_task, _init_task_coordinator),
+        ("global_task_coordinator", enable_global_task, _init_global_task_coordinator),
         ("resource_coordinator", enable_resources, _init_resource_coordinator),
         ("cache_orchestrator", enable_cache, _init_cache_orchestrator),
         # Infrastructure support layer
         ("error_coordinator", enable_error, _init_error_coordinator),
+        ("recovery_manager", enable_recovery, _init_recovery_manager),
         ("model_coordinator", enable_model, _init_model_coordinator),
+        # Sync and training layer
+        ("sync_coordinator", enable_sync, _init_sync_coordinator),
+        ("training_coordinator", enable_training, _init_training_coordinator),
+        # Data integrity layer
+        ("transfer_verifier", enable_transfer, _init_transfer_verifier),
+        ("ephemeral_guard", enable_ephemeral, _init_ephemeral_guard),
+        ("queue_populator", enable_queue, _init_queue_populator),
         # Selfplay layer (depends on task_lifecycle, resources)
         ("selfplay_orchestrator", enable_selfplay, _init_selfplay_orchestrator),
         # Pipeline layer (depends on selfplay, cache)
         ("pipeline_orchestrator", enable_pipeline, lambda: _init_pipeline_orchestrator(pipeline_auto_trigger)),
+        # Multi-provider layer
+        ("multi_provider", enable_multi_provider, _init_multi_provider),
+        # Job scheduler layer
+        ("job_scheduler", enable_job_scheduler, _init_job_scheduler),
         # Metrics layer (depends on pipeline)
         ("metrics_orchestrator", enable_metrics, _init_metrics_orchestrator),
         # Optimization layer (depends on metrics)
@@ -456,12 +694,21 @@ def shutdown_coordination() -> Dict[str, Any]:
         "leadership_coordinator",
         "optimization_coordinator",
         "metrics_orchestrator",
+        "job_scheduler",
+        "multi_provider",
         "pipeline_orchestrator",
         "selfplay_orchestrator",
+        "queue_populator",
+        "ephemeral_guard",
+        "transfer_verifier",
+        "training_coordinator",
+        "sync_coordinator",
         "model_coordinator",
+        "recovery_manager",
         "error_coordinator",
         "cache_orchestrator",
         "resource_coordinator",
+        "global_task_coordinator",
         "task_coordinator",
     ]
 
@@ -477,6 +724,7 @@ def shutdown_coordination() -> Dict[str, Any]:
 
         try:
             # Try to get coordinator and call shutdown if available
+            coordinator = None
             if name == "resource_coordinator":
                 from app.coordination.resource_monitoring_coordinator import get_resource_coordinator
                 coordinator = get_resource_coordinator()
@@ -507,8 +755,31 @@ def shutdown_coordination() -> Dict[str, Any]:
             elif name == "task_coordinator":
                 from app.coordination.task_lifecycle_coordinator import get_task_lifecycle_coordinator
                 coordinator = get_task_lifecycle_coordinator()
-            else:
-                coordinator = None
+            elif name == "sync_coordinator":
+                from app.coordination.sync_coordinator import get_sync_scheduler
+                coordinator = get_sync_scheduler()
+            elif name == "training_coordinator":
+                from app.coordination.training_coordinator import get_training_coordinator
+                coordinator = get_training_coordinator()
+            elif name == "recovery_manager":
+                from app.coordination.recovery_manager import get_recovery_manager
+                coordinator = get_recovery_manager()
+            elif name == "transfer_verifier":
+                from app.coordination.transfer_verification import get_transfer_verifier
+                coordinator = get_transfer_verifier()
+            elif name == "ephemeral_guard":
+                from app.coordination.ephemeral_data_guard import get_ephemeral_guard
+                coordinator = get_ephemeral_guard()
+            elif name == "queue_populator":
+                from app.coordination.queue_populator import get_queue_populator
+                coordinator = get_queue_populator()
+            elif name == "multi_provider":
+                from app.coordination.multi_provider_orchestrator import get_multi_provider_orchestrator
+                coordinator = get_multi_provider_orchestrator()
+            elif name == "global_task_coordinator":
+                from app.coordination.task_coordinator import get_coordinator
+                coordinator = get_coordinator()
+            # job_scheduler doesn't have a coordinator instance to shutdown
 
             # Call shutdown method if available
             if coordinator and hasattr(coordinator, "shutdown"):

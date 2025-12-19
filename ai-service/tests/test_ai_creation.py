@@ -97,7 +97,9 @@ def test_create_ai_instance(monkeypatch):
 
     # Patch NeuralNetAI used by DescentAI to a lightweight stub so that
     # constructing a DescentAI instance does not allocate large tensors.
-    import app.ai.descent_ai as descent_mod
+    # NeuralNetAI is lazily imported inside DescentAI.__init__, so we patch
+    # the source module (app.ai.neural_net) rather than descent_ai.
+    import app.ai.neural_net as neural_net_mod
 
     class DummyNeuralNetAI:
         def __init__(self, *args, **kwargs):
@@ -108,7 +110,7 @@ def test_create_ai_instance(monkeypatch):
             return self
 
     monkeypatch.setattr(
-        descent_mod,
+        neural_net_mod,
         "NeuralNetAI",
         DummyNeuralNetAI,
         raising=True,

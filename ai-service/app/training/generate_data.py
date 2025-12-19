@@ -19,6 +19,7 @@ from typing import Optional, List, Tuple
 import numpy as np
 
 from app.ai.descent_ai import DescentAI
+from app.ai.gmo_ai import GMOAI, GMOConfig
 from app.ai.mcts_ai import MCTSAI
 from app.ai.neural_net import INVALID_MOVE_INDEX, NeuralNetAI, encode_move_for_board
 from app.db import GameReplayDB, get_or_create_db, record_completed_game
@@ -776,8 +777,8 @@ def generate_dataset(
         instead of full loss (-1). For example, in a 4-player game:
         1st=+1.0, 2nd=+0.33, 3rd=-0.33, 4th=-1.0. Default: False.
     """
+    import torch  # Import at function start for GMO device detection
     if seed is not None:
-        import torch
         py_random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -804,8 +805,8 @@ def generate_dataset(
     # Validate engine parameters
     engine = engine.lower()
     engine_mix = engine_mix.lower()
-    if engine not in {"descent", "mcts"}:
-        raise ValueError(f"Unsupported engine '{engine}'. Expected 'descent' or 'mcts'.")
+    if engine not in {"descent", "mcts", "gmo"}:
+        raise ValueError(f"Unsupported engine '{engine}'. Expected 'descent', 'mcts', or 'gmo'.")
     if engine_mix not in {"single", "per_game", "per_player"}:
         raise ValueError(f"Unsupported engine_mix '{engine_mix}'. Expected 'single', 'per_game', or 'per_player'.")
     if not 0.0 <= engine_ratio <= 1.0:
@@ -842,6 +843,18 @@ def generate_dataset(
                 player_number=player_num,
                 config=ai_config,
             )
+        elif engine_type == "gmo":
+            # Load GMO model if available
+            gmo_config = GMOConfig(device="cuda" if torch.cuda.is_available() else "cpu")
+            ai = GMOAI(
+                player_number=player_num,
+                config=ai_config,  # AIConfig for BaseAI
+                gmo_config=gmo_config,  # GMOConfig for GMO-specific params
+            )
+            # Try to load trained checkpoint
+            gmo_checkpoint = Path("models/gmo/gmo_best.pt")
+            if gmo_checkpoint.exists():
+                ai.load_checkpoint(str(gmo_checkpoint))
         else:
             ai = MCTSAI(
                 player_number=player_num,

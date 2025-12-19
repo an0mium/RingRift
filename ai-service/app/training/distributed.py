@@ -60,15 +60,6 @@ Usage:
 
 from __future__ import annotations
 
-import warnings
-warnings.warn(
-    "app.training.distributed DistributedTrainer is deprecated. "
-    "Use app.training.distributed_unified.UnifiedDistributedTrainer for new code. "
-    "Helper functions (setup_distributed, is_main_process, etc.) remain canonical.",
-    DeprecationWarning,
-    stacklevel=2,
-)
-
 import logging
 import os
 import socket
@@ -127,7 +118,12 @@ class NodeInfo:
 
 
 class DistributedTrainer:
-    """Orchestrates distributed training across multiple GPUs/nodes."""
+    """Orchestrates distributed training across multiple GPUs/nodes.
+
+    .. deprecated:: 2025-12
+        Use :class:`app.training.distributed_unified.UnifiedDistributedTrainer`
+        for new code. This class remains for backward compatibility.
+    """
 
     def __init__(
         self,
@@ -135,6 +131,13 @@ class DistributedTrainer:
         config: DistributedConfig,
         optimizer: Optional["torch.optim.Optimizer"] = None,
     ):
+        import warnings
+        warnings.warn(
+            "DistributedTrainer is deprecated. "
+            "Use app.training.distributed_unified.UnifiedDistributedTrainer for new code.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if not HAS_TORCH_DISTRIBUTED:
             raise ImportError("PyTorch distributed not available")
 

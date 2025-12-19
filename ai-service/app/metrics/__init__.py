@@ -147,6 +147,11 @@ from app.metrics.orchestrator import (
     record_high_quality_sync,
     collect_quality_metrics_from_bridge,
     collect_quality_metrics_from_manifest,
+    # Queue and iteration tracking (December 2025)
+    update_selfplay_queue_size,
+    record_pipeline_iteration,
+    get_selfplay_queue_size,
+    get_pipeline_iterations,
     # State constants
     PIPELINE_IDLE,
     PIPELINE_SELFPLAY,
@@ -330,6 +335,11 @@ __all__ = [
     "record_high_quality_sync",
     "collect_quality_metrics_from_bridge",
     "collect_quality_metrics_from_manifest",
+    # Queue and iteration tracking (December 2025)
+    "update_selfplay_queue_size",
+    "record_pipeline_iteration",
+    "get_selfplay_queue_size",
+    "get_pipeline_iterations",
     # State constants
     "PIPELINE_IDLE",
     "PIPELINE_SELFPLAY",
@@ -348,6 +358,15 @@ __all__ = [
     "MetricType",
     "MetricInfo",
     "register_metric",
+    # Registry (December 2025: Consolidated _safe_metric pattern)
+    "safe_metric",
+    "safe_counter",
+    "safe_gauge",
+    "safe_histogram",
+    "safe_summary",
+    "get_metric",
+    "is_metric_registered",
+    "list_registered_metrics",
     # Coordinator metrics
     "COORDINATOR_STATUS",
     "COORDINATOR_UPTIME",
@@ -385,4 +404,16 @@ from app.metrics.catalog import (
     MetricType,
     MetricInfo,
     register_metric,
+)
+
+# Import registry (December 2025: Consolidated _safe_metric pattern)
+from app.metrics.registry import (
+    safe_metric,
+    safe_counter,
+    safe_gauge,
+    safe_histogram,
+    safe_summary,
+    get_metric,
+    is_metric_registered,
+    list_registered_metrics,
 )

@@ -39,6 +39,7 @@ class EngineMode(str, Enum):
     DESCENT_ONLY = "descent-only"
     MAXN = "maxn"
     BRS = "brs"
+    GMO = "gmo"  # Gradient Move Optimization
 
 
 class OutputFormat(str, Enum):
