@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import sys
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pytest
@@ -88,7 +87,7 @@ class _StubNN:
         self._idx = idx_by_move_id
         self.device = "cuda"
 
-    def evaluate_batch(self, game_states: list[GameState]):
+    def evaluate_batch(self, game_states: list[GameState], value_head: int | None = None):
         policy = np.array([self._probs], dtype=np.float32)
         values = [0.5 for _ in game_states]
         return values, policy
@@ -137,12 +136,10 @@ def test_async_prepare_finish_updates_tree(monkeypatch: pytest.MonkeyPatch) -> N
     root = MCTSNode(state)
     leaves = [(root, state, [])]
 
-    executor = ThreadPoolExecutor(max_workers=1)
-    batch, future = mcts._prepare_leaf_evaluation_legacy(leaves, executor)  # type: ignore[attr-defined]
+    batch, future = mcts._prepare_leaf_evaluation_legacy(leaves)  # type: ignore[attr-defined]
     mcts._finish_leaf_evaluation_legacy(batch, future)  # type: ignore[attr-defined]
 
     assert root.visits == 1
     assert root.wins == pytest.approx(0.5)
     assert root.policy_map[str(moves[1])] > root.policy_map[str(moves[0])]
     assert sum(root.policy_map.values()) == pytest.approx(1.0)
-
