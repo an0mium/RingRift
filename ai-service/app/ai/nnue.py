@@ -655,6 +655,52 @@ def get_nnue_model_path(
     return primary
 
 
+def _migrate_legacy_state_dict(
+    state_dict: Dict[str, torch.Tensor],
+    architecture_version: str,
+) -> Dict[str, torch.Tensor]:
+    """Migrate a legacy state dict to the current architecture.
+
+    Handles backwards compatibility for older model checkpoints.
+
+    Args:
+        state_dict: The legacy state dict
+        architecture_version: Version string from checkpoint
+
+    Returns:
+        Migrated state dict compatible with current RingRiftNNUE
+    """
+    # v1.0.0 and v1.1.0 used simple Sequential hidden layers:
+    # hidden.0.weight/bias (Linear), hidden.2.weight/bias (Linear)
+    # Current v1.3.0 uses ResidualBlocks: hidden_blocks.N.fc.weight/bias
+
+    if architecture_version.startswith("v1.0") or architecture_version.startswith("v1.1"):
+        new_state_dict = {}
+
+        for key, value in state_dict.items():
+            if key.startswith("hidden."):
+                # Map hidden.0 -> hidden_blocks.0.fc
+                # Map hidden.2 -> hidden_blocks.1.fc
+                parts = key.split(".")
+                if len(parts) == 3:
+                    layer_idx = int(parts[1])
+                    param_type = parts[2]  # weight or bias
+                    # hidden.0 -> block 0, hidden.2 -> block 1
+                    block_idx = layer_idx // 2
+                    new_key = f"hidden_blocks.{block_idx}.fc.{param_type}"
+                    new_state_dict[new_key] = value
+                else:
+                    new_state_dict[key] = value
+            else:
+                new_state_dict[key] = value
+
+        logger.info(f"Migrated legacy state dict from {architecture_version} to v1.3.0")
+        return new_state_dict
+
+    # No migration needed for current or unknown versions
+    return state_dict
+
+
 def load_nnue_model(
     board_type: BoardType,
     num_players: int = 2,
@@ -702,9 +748,17 @@ def load_nnue_model(
         try:
             checkpoint = torch.load(model_path, map_location=device)
             if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-                model.load_state_dict(checkpoint["model_state_dict"])
+                state_dict = checkpoint["model_state_dict"]
+                arch_version = checkpoint.get("architecture_version", "v1.0.0")
+
+                # Migrate legacy state dicts if needed
+                if arch_version != RingRiftNNUE.ARCHITECTURE_VERSION:
+                    state_dict = _migrate_legacy_state_dict(state_dict, arch_version)
+
+                # Use strict=False to allow for minor structural differences
+                model.load_state_dict(state_dict, strict=False)
             else:
-                model.load_state_dict(checkpoint)
+                model.load_state_dict(checkpoint, strict=False)
             loaded_checkpoint_path = str(model_path)
             logger.info(f"Loaded NNUE model from {model_path}")
         except Exception as e:

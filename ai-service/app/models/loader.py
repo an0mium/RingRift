@@ -304,17 +304,25 @@ class ModelLoader:
         # Find model path
         path = self._find_nnue_path(board_type, num_players, model_id, stage)
 
-        # Load model
-        from app.ai.nnue import NNUENetwork
+        # Load model using the proper loader function which handles version migration
+        from app.ai.nnue import load_nnue_model, BoardType
 
-        model = NNUENetwork(board_type, num_players)
-        state_dict = torch.load(path, map_location=self._device, weights_only=True)
+        # Convert string board_type to enum
+        board_type_enum = BoardType(board_type) if isinstance(board_type, str) else board_type
 
-        # Handle wrapped state dict
-        if "model_state_dict" in state_dict:
-            model.load_state_dict(state_dict["model_state_dict"])
-        else:
-            model.load_state_dict(state_dict)
+        # Use the unified loader which handles version compatibility
+        model = load_nnue_model(
+            board_type=board_type_enum,
+            num_players=num_players,
+            model_id=model_id,
+            device=self._device,
+            allow_fresh=False,  # Don't create fresh model if checkpoint missing
+        )
+
+        if model is None:
+            raise FileNotFoundError(
+                f"NNUE model not found or failed to load for {board_type}_{num_players}p"
+            )
 
         model.to(self._device)
         model.eval()
