@@ -432,6 +432,192 @@ class AutoScaler:
         }
 
 
+# =============================================================================
+# Monitoring→AutoScaler Event Integration (December 2025)
+# Connects UnifiedClusterMonitor alerts to AutoScaler for reactive scaling
+# =============================================================================
+
+
+class MonitoringAwareAutoScaler(AutoScaler):
+    """AutoScaler with event-driven monitoring integration.
+
+    Extends AutoScaler to react to monitoring alerts:
+    - RESOURCE_CONSTRAINT: Pause scale-up if resources are constrained
+    - NODE_UNHEALTHY: Track unhealthy nodes for scale-down decisions
+    - P2P_CLUSTER_UNHEALTHY: Conservative scaling during cluster issues
+    - HEALTH_ALERT: Log and track for scaling decisions
+
+    Usage:
+        from app.coordination.auto_scaler import MonitoringAwareAutoScaler
+
+        scaler = MonitoringAwareAutoScaler()
+        scaler.subscribe_to_monitoring_events()
+
+        # Now scaling decisions will incorporate cluster health
+        decision = await scaler.evaluate()
+    """
+
+    def __init__(
+        self,
+        config: Optional[ScalingConfig] = None,
+        vast_client: Optional[Any] = None,
+    ):
+        super().__init__(config, vast_client)
+
+        # Monitoring state (December 2025)
+        self._monitoring_alerts: Dict[str, float] = {}  # alert_key -> timestamp
+        self._unhealthy_nodes: Dict[str, float] = {}    # node_id -> timestamp
+        self._cluster_healthy: bool = True
+        self._resource_constrained: bool = False
+        self._event_subscribed: bool = False
+
+    def subscribe_to_monitoring_events(self) -> bool:
+        """Subscribe to monitoring events from UnifiedClusterMonitor.
+
+        Returns:
+            True if successfully subscribed
+        """
+        try:
+            from app.distributed.data_events import (
+                DataEventType,
+                get_event_bus,
+            )
+
+            bus = get_event_bus()
+
+            # Subscribe to relevant monitoring events
+            bus.subscribe(DataEventType.RESOURCE_CONSTRAINT, self._on_resource_constraint)
+            bus.subscribe(DataEventType.NODE_UNHEALTHY, self._on_node_unhealthy)
+            bus.subscribe(DataEventType.P2P_CLUSTER_UNHEALTHY, self._on_cluster_unhealthy)
+            bus.subscribe(DataEventType.P2P_CLUSTER_HEALTHY, self._on_cluster_healthy)
+            bus.subscribe(DataEventType.HEALTH_ALERT, self._on_health_alert)
+
+            self._event_subscribed = True
+            logger.info("[MonitoringAwareAutoScaler] Subscribed to monitoring events")
+            return True
+
+        except ImportError:
+            logger.warning("[MonitoringAwareAutoScaler] Event bus not available")
+            return False
+        except Exception as e:
+            logger.warning(f"[MonitoringAwareAutoScaler] Failed to subscribe: {e}")
+            return False
+
+    def _on_resource_constraint(self, event) -> None:
+        """Handle RESOURCE_CONSTRAINT event - pause scale-up."""
+        payload = event.payload if hasattr(event, 'payload') else {}
+        alert = payload.get("alert", "resource constraint")
+
+        self._resource_constrained = True
+        self._monitoring_alerts[f"resource:{alert}"] = time.time()
+
+        logger.warning(
+            f"[MonitoringAwareAutoScaler] Resource constraint detected: {alert}. "
+            f"Scale-up paused."
+        )
+
+    def _on_node_unhealthy(self, event) -> None:
+        """Handle NODE_UNHEALTHY event - track for scale-down."""
+        payload = event.payload if hasattr(event, 'payload') else {}
+        node_name = payload.get("node_name", "")
+
+        if node_name:
+            self._unhealthy_nodes[node_name] = time.time()
+            logger.warning(
+                f"[MonitoringAwareAutoScaler] Node {node_name} marked unhealthy. "
+                f"Total unhealthy: {len(self._unhealthy_nodes)}"
+            )
+
+    def _on_cluster_unhealthy(self, event) -> None:
+        """Handle P2P_CLUSTER_UNHEALTHY event - conservative scaling."""
+        self._cluster_healthy = False
+        logger.warning(
+            "[MonitoringAwareAutoScaler] Cluster unhealthy. "
+            "Entering conservative scaling mode."
+        )
+
+    def _on_cluster_healthy(self, event) -> None:
+        """Handle P2P_CLUSTER_HEALTHY event - resume normal scaling."""
+        self._cluster_healthy = True
+        self._resource_constrained = False
+
+        # Clear stale alerts (older than 5 minutes)
+        cutoff = time.time() - 300
+        self._monitoring_alerts = {
+            k: v for k, v in self._monitoring_alerts.items() if v > cutoff
+        }
+        self._unhealthy_nodes = {
+            k: v for k, v in self._unhealthy_nodes.items() if v > cutoff
+        }
+
+        logger.info(
+            "[MonitoringAwareAutoScaler] Cluster healthy. "
+            "Resuming normal scaling mode."
+        )
+
+    def _on_health_alert(self, event) -> None:
+        """Handle HEALTH_ALERT event - log and track."""
+        payload = event.payload if hasattr(event, 'payload') else {}
+        alert = payload.get("alert", "unknown")
+
+        self._monitoring_alerts[f"health:{alert}"] = time.time()
+        logger.debug(f"[MonitoringAwareAutoScaler] Health alert: {alert}")
+
+    async def evaluate(self) -> ScalingDecision:
+        """Evaluate scaling decision with monitoring awareness.
+
+        Incorporates cluster health and resource constraints into decisions.
+        """
+        # Check if resource constrained - block scale-up
+        if self._resource_constrained:
+            return ScalingDecision(
+                action=ScalingAction.NONE,
+                reason="resource_constrained_by_monitoring",
+            )
+
+        # Get base scaling decision
+        decision = await super().evaluate()
+
+        # If cluster is unhealthy, be conservative
+        if not self._cluster_healthy:
+            if decision.action == ScalingAction.SCALE_UP:
+                # Reduce scale-up during cluster issues
+                reduced_count = max(1, decision.count // 2)
+                return ScalingDecision(
+                    action=ScalingAction.SCALE_UP,
+                    count=reduced_count,
+                    reason=f"{decision.reason}_reduced_cluster_unhealthy",
+                    estimated_cost_change=decision.estimated_cost_change * (reduced_count / max(1, decision.count)),
+                )
+
+        # If we have unhealthy nodes, prioritize them for scale-down
+        if decision.action == ScalingAction.SCALE_DOWN and self._unhealthy_nodes:
+            unhealthy_list = list(self._unhealthy_nodes.keys())
+            overlap = [n for n in decision.node_ids if n in unhealthy_list]
+
+            if overlap:
+                # Prioritize unhealthy nodes
+                return ScalingDecision(
+                    action=ScalingAction.SCALE_DOWN,
+                    count=len(overlap),
+                    node_ids=overlap,
+                    reason=f"{decision.reason}_prioritizing_unhealthy",
+                    estimated_cost_change=decision.estimated_cost_change,
+                )
+
+        return decision
+
+    def get_monitoring_status(self) -> Dict[str, Any]:
+        """Get monitoring integration status."""
+        return {
+            "event_subscribed": self._event_subscribed,
+            "cluster_healthy": self._cluster_healthy,
+            "resource_constrained": self._resource_constrained,
+            "unhealthy_nodes": list(self._unhealthy_nodes.keys()),
+            "active_alerts": list(self._monitoring_alerts.keys()),
+        }
+
+
 def load_scaling_config_from_yaml(yaml_config: Dict[str, Any]) -> ScalingConfig:
     """Load ScalingConfig from YAML configuration dict."""
     auto_scaling = yaml_config.get("auto_scaling", {})
@@ -451,3 +637,26 @@ def load_scaling_config_from_yaml(yaml_config: Dict[str, Any]) -> ScalingConfig:
         predictive_scaling=auto_scaling.get("predictive_scaling", True),
         prediction_hours_ahead=auto_scaling.get("prediction_hours_ahead", 2),
     )
+
+
+def create_monitoring_aware_scaler(
+    config: Optional[ScalingConfig] = None,
+    vast_client: Optional[Any] = None,
+    subscribe_events: bool = True,
+) -> MonitoringAwareAutoScaler:
+    """Create an AutoScaler with monitoring event integration.
+
+    Args:
+        config: Scaling configuration
+        vast_client: Vast.ai client for instance management
+        subscribe_events: Whether to subscribe to monitoring events
+
+    Returns:
+        MonitoringAwareAutoScaler instance
+    """
+    scaler = MonitoringAwareAutoScaler(config, vast_client)
+
+    if subscribe_events:
+        scaler.subscribe_to_monitoring_events()
+
+    return scaler

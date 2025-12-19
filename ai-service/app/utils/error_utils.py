@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import os
 
+__all__ = [
+    "sanitize_error_detail",
+    "IS_PRODUCTION",
+]
+
 # Check if we're in production mode
 IS_PRODUCTION = os.getenv("RINGRIFT_ENV", "development").lower() == "production"
 

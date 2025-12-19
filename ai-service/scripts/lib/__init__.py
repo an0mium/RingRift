@@ -5,13 +5,18 @@ Shared utilities for cluster operations, data processing, and monitoring.
 
 Modules:
     alerts: Alert infrastructure for monitoring scripts
+    cli: CLI argument patterns and helpers
     cluster: Cluster node management and SSH operations
     config: Training configuration management
     database: Database connection and transaction utilities
     data_quality: Game quality scoring and filtering
+    file_formats: JSONL/JSON handling with gzip detection
+    health: System and service health monitoring
     logging_config: Structured logging setup
     paths: Standard project paths and utilities
+    process: Process management, signals, and singleton locks
     retry: Retry decorators with exponential backoff
+    transfer: File transfer utilities (SCP, rsync, checksums)
     validation: Data and model validation utilities
 
 Usage:
@@ -22,7 +27,12 @@ Usage:
     from scripts.lib.data_quality import GameQualityScorer, QualityFilter
     from scripts.lib.logging_config import setup_script_logging, get_logger
     from scripts.lib.paths import AI_SERVICE_ROOT, DATA_DIR, MODELS_DIR
+    from scripts.lib.process import SingletonLock, SignalHandler, run_command
     from scripts.lib.retry import retry, retry_on_exception, RetryConfig
+    from scripts.lib.transfer import TransferConfig, scp_push, rsync_pull
+    from scripts.lib.health import SystemHealth, check_system_health, check_http_health
+    from scripts.lib.cli import add_common_args, add_board_args, get_config_key
+    from scripts.lib.file_formats import load_json, save_json, read_jsonl_lines
     from scripts.lib.validation import validate_npz_file, DataValidator
 """
 
@@ -66,6 +76,19 @@ from scripts.lib.alerts import (
     check_disk_alert,
     check_memory_alert,
     check_cpu_alert,
+)
+
+from scripts.lib.data_quality import (
+    VictoryType,
+    VICTORY_TYPE_VALUE,
+    GameLengthConfig,
+    QualityScores,
+    GameQuality,
+    QualityWeights,
+    GameQualityScorer,
+    QualityFilter,
+    QualityStats,
+    compute_quality_stats,
 )
 
 from scripts.lib.cluster import (
@@ -126,6 +149,90 @@ from scripts.lib.paths import (
     ensure_parent_dir,
 )
 
+from scripts.lib.process import (
+    SingletonLock,
+    SignalHandler,
+    ProcessInfo,
+    CommandOutput,
+    is_process_running,
+    find_processes_by_pattern,
+    count_processes_by_pattern,
+    kill_process,
+    kill_processes_by_pattern,
+    run_command,
+    daemon_context,
+    wait_for_process_exit,
+    get_process_start_time,
+)
+
+from scripts.lib.transfer import (
+    TransferConfig,
+    TransferResult,
+    compute_checksum,
+    copy_local,
+    compress_file,
+    decompress_file,
+    scp_push,
+    scp_pull,
+    rsync_push,
+    rsync_pull,
+    verify_transfer,
+)
+
+from scripts.lib.health import (
+    DiskHealth,
+    MemoryHealth,
+    CPUHealth,
+    GPUInfo as HealthGPUInfo,
+    SystemHealth,
+    ServiceHealth,
+    check_disk_space,
+    check_memory,
+    check_cpu,
+    check_gpus,
+    check_system_health,
+    check_http_health,
+    check_port_open,
+    check_process_health,
+    wait_for_healthy,
+)
+
+from scripts.lib.cli import (
+    add_verbose_arg,
+    add_dry_run_arg,
+    add_config_arg,
+    add_node_arg,
+    add_board_args,
+    add_output_arg,
+    add_limit_arg,
+    add_parallel_arg,
+    add_timeout_arg,
+    add_common_args,
+    setup_cli_logging,
+    get_config_key,
+    parse_config_key,
+    validate_path_arg,
+    confirm_action,
+    BOARD_TYPES,
+    VALID_PLAYER_COUNTS,
+)
+
+from scripts.lib.file_formats import (
+    is_gzip_file,
+    open_jsonl_file,
+    read_jsonl_lines,
+    count_jsonl_lines,
+    write_jsonl_lines,
+    load_json,
+    load_json_strict,
+    load_json_if_exists,
+    save_json,
+    save_json_compact,
+    update_json,
+    get_file_size_mb,
+    get_uncompressed_size_estimate,
+)
+
 __all__ = [
     # logging_config
     "setup_logging",
@@ -161,6 +268,17 @@ __all__ = [
     "check_disk_alert",
     "check_memory_alert",
     "check_cpu_alert",
+    # data_quality
+    "VictoryType",
+    "VICTORY_TYPE_VALUE",
+    "GameLengthConfig",
+    "QualityScores",
+    "GameQuality",
+    "QualityWeights",
+    "GameQualityScorer",
+    "QualityFilter",
+    "QualityStats",
+    "compute_quality_stats",
     # cluster
     "ClusterManager",
     "ClusterNode",
@@ -211,4 +329,78 @@ __all__ = [
     "get_log_path",
     "ensure_dir",
     "ensure_parent_dir",
+    # process
+    "SingletonLock",
+    "SignalHandler",
+    "ProcessInfo",
+    "CommandOutput",
+    "is_process_running",
+    "find_processes_by_pattern",
+    "count_processes_by_pattern",
+    "kill_process",
+    "kill_processes_by_pattern",
+    "run_command",
+    "daemon_context",
+    "wait_for_process_exit",
+    "get_process_start_time",
+    # transfer
+    "TransferConfig",
+    "TransferResult",
+    "compute_checksum",
+    "copy_local",
+    "compress_file",
+    "decompress_file",
+    "scp_push",
+    "scp_pull",
+    "rsync_push",
+    "rsync_pull",
+    "verify_transfer",
+    # health
+    "DiskHealth",
+    "MemoryHealth",
+    "CPUHealth",
+    "HealthGPUInfo",
+    "SystemHealth",
+    "ServiceHealth",
+    "check_disk_space",
+    "check_memory",
+    "check_cpu",
+    "check_gpus",
+    "check_system_health",
+    "check_http_health",
+    "check_port_open",
+    "check_process_health",
+    "wait_for_healthy",
+    # cli
+    "add_verbose_arg",
+    "add_dry_run_arg",
+    "add_config_arg",
+    "add_node_arg",
+    "add_board_args",
+    "add_output_arg",
+    "add_limit_arg",
+    "add_parallel_arg",
+    "add_timeout_arg",
+    "add_common_args",
+    "setup_cli_logging",
+    "get_config_key",
+    "parse_config_key",
+    "validate_path_arg",
+    "confirm_action",
+    "BOARD_TYPES",
+    "VALID_PLAYER_COUNTS",
+    # file_formats
+    "is_gzip_file",
+    "open_jsonl_file",
+    "read_jsonl_lines",
+    "count_jsonl_lines",
+    "write_jsonl_lines",
+    "load_json",
+    "load_json_strict",
+    "load_json_if_exists",
+    "save_json",
+    "save_json_compact",
+    "update_json",
+    "get_file_size_mb",
+    "get_uncompressed_size_estimate",
 ]

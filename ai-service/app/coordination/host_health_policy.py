@@ -42,11 +42,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# Health check configuration
-DEFAULT_SSH_TIMEOUT = 5  # Quick timeout for health checks
-HEALTH_CACHE_TTL = 60  # Cache healthy results for 60 seconds
-UNHEALTHY_CACHE_TTL = 30  # Cache unhealthy results for 30 seconds
-MAX_CONCURRENT_CHECKS = 10  # Max parallel health checks
+# Use centralized defaults (December 2025)
+try:
+    from app.config.coordination_defaults import HealthDefaults
+    DEFAULT_SSH_TIMEOUT = HealthDefaults.SSH_TIMEOUT
+    HEALTH_CACHE_TTL = HealthDefaults.HEALTHY_CACHE_TTL
+    UNHEALTHY_CACHE_TTL = HealthDefaults.UNHEALTHY_CACHE_TTL
+    MAX_CONCURRENT_CHECKS = HealthDefaults.MAX_CONCURRENT_CHECKS
+except ImportError:
+    # Fallback defaults
+    DEFAULT_SSH_TIMEOUT = 5
+    HEALTH_CACHE_TTL = 60
+    UNHEALTHY_CACHE_TTL = 30
+    MAX_CONCURRENT_CHECKS = 10
 
 
 @dataclass
@@ -437,11 +445,18 @@ def pre_spawn_check(
 # =============================================================================
 
 # Default minimum healthy hosts for expensive operations
-DEFAULT_MIN_HEALTHY_HOSTS = 2
+# Use centralized defaults (December 2025)
+try:
+    DEFAULT_MIN_HEALTHY_HOSTS = HealthDefaults.MIN_HEALTHY_HOSTS
+    CLUSTER_HEALTH_CACHE_TTL = HealthDefaults.CLUSTER_HEALTH_CACHE_TTL
+except NameError:
+    # Fallback if HealthDefaults not imported
+    DEFAULT_MIN_HEALTHY_HOSTS = 2
+    CLUSTER_HEALTH_CACHE_TTL = 120
+
 # Cache for cluster health status
 _cluster_health_cache: Dict[str, Any] = {}
 _cluster_health_lock = threading.RLock()
-CLUSTER_HEALTH_CACHE_TTL = 120  # 2 minutes
 
 
 def check_cluster_health(

@@ -22,7 +22,7 @@ CANONICAL CONFIG KEY FORMAT:
 from __future__ import annotations
 
 import re
-from typing import Optional, Tuple
+from typing import Tuple
 
 from app.models import BoardType
 

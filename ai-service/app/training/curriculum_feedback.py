@@ -474,7 +474,7 @@ class EloToCurriculumWatcher:
         # Check cooldown
         if now - self._last_rebalance_time < self.rebalance_cooldown_seconds:
             logger.debug(
-                f"[EloToCurriculumWatcher] Rebalance cooldown active, skipping"
+                "[EloToCurriculumWatcher] Rebalance cooldown active, skipping"
             )
             return False
 

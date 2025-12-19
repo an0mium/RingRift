@@ -5175,20 +5175,33 @@ class NeuralNetAI(BaseAI):
 
         # NOTE: Many RingRiftCNN models output a multi-value head by default.
         # The NeuralNetAI wrapper (and most search AIs) currently consume a
-        # *single scalar* value per state. By default we return value_head=0,
-        # but callers may request a specific column via value_head (e.g. for
-        # multi-player value heads trained to predict per-player utilities).
+        # *single scalar* value per state. By default we return the value
+        # for the current player (from game_states), but callers may request
+        # a specific column via value_head (e.g. for training).
         values_np = values.detach().cpu().numpy()
         if values_np.ndim == 2:
-            head = 0
+            num_heads = values_np.shape[1]
             if value_head is not None:
+                # Explicit head requested - use single value for all
                 try:
                     head = int(value_head)
                 except Exception:
                     head = 0
-            if head < 0 or head >= values_np.shape[1]:
-                head = 0
-            scalar_values = values_np[:, head]
+                if head < 0 or head >= num_heads:
+                    head = 0
+                scalar_values = values_np[:, head]
+            elif game_states and num_heads > 1:
+                # Select per-state value based on current player
+                # Players are 1-indexed, array is 0-indexed
+                scalar_values = np.zeros(len(game_states), dtype=np.float32)
+                for i, state in enumerate(game_states):
+                    player_idx = state.current_player - 1  # Convert 1-indexed to 0-indexed
+                    if player_idx < 0 or player_idx >= num_heads:
+                        player_idx = 0
+                    scalar_values[i] = values_np[i, player_idx]
+            else:
+                # Fallback: use first head
+                scalar_values = values_np[:, 0]
         else:
             scalar_values = values_np.reshape(values_np.shape[0])
 

@@ -582,6 +582,67 @@ class TrainingState(Enum):
     FAILED = "failed"
 
 
+class PipelineStage(Enum):
+    """Unified training pipeline stages (December 2025).
+
+    The training pipeline follows this state machine:
+
+        IDLE → SELFPLAY → DATA_SYNC → TRAINING → EVALUATION → PROMOTION → IDLE
+                  ↓           ↓           ↓            ↓
+               FAILED      FAILED      FAILED       FAILED
+
+    State Transitions:
+        - IDLE → SELFPLAY: Games needed, resources available
+        - SELFPLAY → DATA_SYNC: Batch complete, threshold reached
+        - DATA_SYNC → TRAINING: Data synced, ready to train
+        - TRAINING → EVALUATION: Training complete, model ready
+        - EVALUATION → PROMOTION: Model beats baselines
+        - PROMOTION → IDLE: Model deployed, cycle complete
+        - ANY → FAILED: Unrecoverable error
+
+    Usage:
+        from app.training.fault_tolerance import PipelineStage
+
+        current_stage = PipelineStage.SELFPLAY
+
+        # Check valid transitions
+        if current_stage.can_transition_to(PipelineStage.DATA_SYNC):
+            current_stage = PipelineStage.DATA_SYNC
+    """
+    IDLE = "idle"
+    SELFPLAY = "selfplay"
+    DATA_SYNC = "data_sync"
+    TRAINING = "training"
+    EVALUATION = "evaluation"
+    PROMOTION = "promotion"
+    FAILED = "failed"
+
+    def can_transition_to(self, target: "PipelineStage") -> bool:
+        """Check if transition to target stage is valid."""
+        valid_transitions = {
+            PipelineStage.IDLE: {PipelineStage.SELFPLAY, PipelineStage.FAILED},
+            PipelineStage.SELFPLAY: {PipelineStage.DATA_SYNC, PipelineStage.FAILED},
+            PipelineStage.DATA_SYNC: {PipelineStage.TRAINING, PipelineStage.FAILED},
+            PipelineStage.TRAINING: {PipelineStage.EVALUATION, PipelineStage.FAILED},
+            PipelineStage.EVALUATION: {PipelineStage.PROMOTION, PipelineStage.IDLE, PipelineStage.FAILED},
+            PipelineStage.PROMOTION: {PipelineStage.IDLE, PipelineStage.FAILED},
+            PipelineStage.FAILED: {PipelineStage.IDLE},  # Can restart from failed
+        }
+        return target in valid_transitions.get(self, set())
+
+    def next_stage(self) -> "PipelineStage":
+        """Get the next stage in normal progression."""
+        progression = {
+            PipelineStage.IDLE: PipelineStage.SELFPLAY,
+            PipelineStage.SELFPLAY: PipelineStage.DATA_SYNC,
+            PipelineStage.DATA_SYNC: PipelineStage.TRAINING,
+            PipelineStage.TRAINING: PipelineStage.EVALUATION,
+            PipelineStage.EVALUATION: PipelineStage.PROMOTION,
+            PipelineStage.PROMOTION: PipelineStage.IDLE,
+        }
+        return progression.get(self, PipelineStage.IDLE)
+
+
 # Only define CheckpointMetadata and TrainingProgress if not imported from checkpoint_unified
 if not _HAS_UNIFIED_CHECKPOINT:
     @dataclass

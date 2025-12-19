@@ -16,6 +16,29 @@ Usage:
     @retry_async(max_attempts=3, backoff=2.0)
     async def async_flaky_operation():
         ...
+
+Migration Guide (December 2025):
+    When updating existing code with bare exception handling, prefer these decorators:
+
+    # BEFORE (bare exception handling):
+    def fetch_data():
+        for attempt in range(3):
+            try:
+                return do_fetch()
+            except IOError as e:
+                time.sleep(2 ** attempt)
+        raise RuntimeError("Failed after 3 attempts")
+
+    # AFTER (using retry decorator):
+    @retry(max_attempts=3, delay=1.0, backoff=2.0, exceptions=(IOError,))
+    def fetch_data():
+        return do_fetch()
+
+    Benefits:
+    - Consistent retry logic across codebase
+    - Circuit breaker integration via circuit_breaker_key parameter
+    - Automatic logging and metrics
+    - Jitter support to prevent thundering herd
 """
 
 from __future__ import annotations
@@ -23,6 +46,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+import random
 import time
 from typing import Any, Callable, Optional, Sequence, Type, TypeVar
 
@@ -43,16 +67,12 @@ EMERGENCY_HALT_FILE = DATA_DIR / "coordination" / "EMERGENCY_HALT"
 # Custom Exception Hierarchy - Imported from canonical source
 # ============================================================================
 
-# Import all error classes from the unified errors module
+# Import error classes from the unified errors module
 from app.errors import (
     RingRiftError,
     RetryableError,
-    NonRetryableError,
     FatalError,  # Alias for NonRetryableError
     EmergencyHaltError,
-    SSHError,
-    DatabaseError,
-    ConfigurationError,
 )
 
 
@@ -435,21 +455,32 @@ class RetryPolicy:
         )
 
 
-# Predefined retry policies for common use cases
+# =============================================================================
+# Predefined Retry Policies (December 2025 - uses centralized RetryDefaults)
+# =============================================================================
+
+# Import centralized retry defaults
+try:
+    from app.config.coordination_defaults import RetryDefaults
+    _retry_defaults = RetryDefaults()
+except ImportError:
+    _retry_defaults = None
+
+# Default policy - standard operations
 DEFAULT_RETRY_POLICY = RetryPolicy(
     strategy=RetryStrategy.EXPONENTIAL,
-    max_attempts=3,
-    initial_delay=1.0,
-    multiplier=2.0,
-    max_delay=60.0,
+    max_attempts=_retry_defaults.MAX_RETRIES if _retry_defaults else 3,
+    initial_delay=_retry_defaults.BASE_DELAY if _retry_defaults else 1.0,
+    multiplier=_retry_defaults.BACKOFF_MULTIPLIER if _retry_defaults else 2.0,
+    max_delay=_retry_defaults.MAX_DELAY if _retry_defaults else 60.0,
 )
 
 # For critical operations that need more attempts
 AGGRESSIVE_RETRY_POLICY = RetryPolicy(
     strategy=RetryStrategy.EXPONENTIAL_JITTER,
-    max_attempts=5,
-    initial_delay=0.5,
-    multiplier=2.0,
+    max_attempts=_retry_defaults.AGGRESSIVE_MAX_RETRIES if _retry_defaults else 5,
+    initial_delay=_retry_defaults.AGGRESSIVE_BASE_DELAY if _retry_defaults else 0.5,
+    multiplier=_retry_defaults.BACKOFF_MULTIPLIER if _retry_defaults else 2.0,
     max_delay=30.0,
     jitter_factor=0.2,
 )
@@ -457,29 +488,59 @@ AGGRESSIVE_RETRY_POLICY = RetryPolicy(
 # For less critical operations with longer delays
 CONSERVATIVE_RETRY_POLICY = RetryPolicy(
     strategy=RetryStrategy.EXPONENTIAL,
-    max_attempts=3,
+    max_attempts=_retry_defaults.MAX_RETRIES if _retry_defaults else 3,
     initial_delay=5.0,
-    multiplier=2.0,
+    multiplier=_retry_defaults.BACKOFF_MULTIPLIER if _retry_defaults else 2.0,
     max_delay=300.0,  # 5 minutes
 )
 
 # For quick network operations
 FAST_RETRY_POLICY = RetryPolicy(
     strategy=RetryStrategy.LINEAR,
-    max_attempts=3,
-    initial_delay=0.5,
+    max_attempts=_retry_defaults.FAST_MAX_RETRIES if _retry_defaults else 2,
+    initial_delay=_retry_defaults.FAST_BASE_DELAY if _retry_defaults else 0.5,
     multiplier=1.0,
-    max_delay=0.5,
+    max_delay=_retry_defaults.FAST_MAX_DELAY if _retry_defaults else 5.0,
 )
 
 # For sync/file operations that may need circuit breaker integration
 SYNC_RETRY_POLICY = RetryPolicy(
     strategy=RetryStrategy.EXPONENTIAL_JITTER,
-    max_attempts=3,
-    initial_delay=1.0,
-    multiplier=2.0,
-    max_delay=60.0,
+    max_attempts=_retry_defaults.SYNC_MAX_RETRIES if _retry_defaults else 3,
+    initial_delay=_retry_defaults.SYNC_BASE_DELAY if _retry_defaults else 2.0,
+    multiplier=_retry_defaults.BACKOFF_MULTIPLIER if _retry_defaults else 2.0,
+    max_delay=_retry_defaults.SYNC_MAX_DELAY if _retry_defaults else 30.0,
+    jitter_factor=_retry_defaults.JITTER_FACTOR if _retry_defaults else 0.1,
+)
+
+# HTTP-specific policy with jitter to prevent thundering herd
+HTTP_RETRY_POLICY = RetryPolicy(
+    strategy=RetryStrategy.EXPONENTIAL_JITTER,
+    max_attempts=_retry_defaults.MAX_RETRIES if _retry_defaults else 3,
+    initial_delay=_retry_defaults.BASE_DELAY if _retry_defaults else 1.0,
+    multiplier=_retry_defaults.BACKOFF_MULTIPLIER if _retry_defaults else 2.0,
+    max_delay=_retry_defaults.MAX_DELAY if _retry_defaults else 60.0,
+    jitter_factor=_retry_defaults.JITTER_FACTOR if _retry_defaults else 0.1,
+)
+
+# SSH operations - longer delays between retries
+SSH_RETRY_POLICY = RetryPolicy(
+    strategy=RetryStrategy.EXPONENTIAL_JITTER,
+    max_attempts=_retry_defaults.MAX_RETRIES if _retry_defaults else 3,
+    initial_delay=2.0,
+    multiplier=_retry_defaults.BACKOFF_MULTIPLIER if _retry_defaults else 2.0,
+    max_delay=_retry_defaults.MAX_DELAY if _retry_defaults else 60.0,
     jitter_factor=0.15,
+)
+
+# Database operations - quick retries for lock contention
+DATABASE_RETRY_POLICY = RetryPolicy(
+    strategy=RetryStrategy.EXPONENTIAL_JITTER,
+    max_attempts=_retry_defaults.AGGRESSIVE_MAX_RETRIES if _retry_defaults else 5,
+    initial_delay=0.1,  # Fast retry for SQLite lock contention
+    multiplier=2.0,
+    max_delay=5.0,
+    jitter_factor=0.2,
 )
 
 

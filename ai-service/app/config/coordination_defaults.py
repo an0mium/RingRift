@@ -209,6 +209,307 @@ class EphemeralDefaults:
 
 
 # =============================================================================
+# Circuit Breaker Defaults
+# =============================================================================
+
+@dataclass(frozen=True)
+class CircuitBreakerDefaults:
+    """Default values for circuit breaker pattern.
+
+    Used by: app/distributed/circuit_breaker.py
+    """
+    # Default failure threshold before circuit opens
+    FAILURE_THRESHOLD: int = _env_int("RINGRIFT_CB_FAILURE_THRESHOLD", 5)
+
+    # Default recovery timeout (seconds)
+    RECOVERY_TIMEOUT: float = _env_float("RINGRIFT_CB_RECOVERY_TIMEOUT", 60.0)
+
+    # Maximum backoff timeout (seconds)
+    MAX_BACKOFF: float = _env_float("RINGRIFT_CB_MAX_BACKOFF", 600.0)
+
+    # Half-open state max calls for testing recovery
+    HALF_OPEN_MAX_CALLS: int = _env_int("RINGRIFT_CB_HALF_OPEN_MAX_CALLS", 1)
+
+    # Per-transport type configs
+    SSH_FAILURE_THRESHOLD: int = 3
+    SSH_RECOVERY_TIMEOUT: float = 60.0
+
+    HTTP_FAILURE_THRESHOLD: int = 5
+    HTTP_RECOVERY_TIMEOUT: float = 30.0
+
+    P2P_FAILURE_THRESHOLD: int = 3
+    P2P_RECOVERY_TIMEOUT: float = 45.0
+
+    ARIA2_FAILURE_THRESHOLD: int = 2
+    ARIA2_RECOVERY_TIMEOUT: float = 120.0
+
+    RSYNC_FAILURE_THRESHOLD: int = 2
+    RSYNC_RECOVERY_TIMEOUT: float = 90.0
+
+
+# =============================================================================
+# Health Check Defaults (December 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class HealthDefaults:
+    """Default values for host health checking.
+
+    Used by: app/coordination/host_health_policy.py
+    """
+    # SSH timeout for health checks (seconds)
+    SSH_TIMEOUT: int = _env_int("RINGRIFT_HEALTH_SSH_TIMEOUT", 5)
+
+    # Cache TTL for healthy results (seconds)
+    HEALTHY_CACHE_TTL: int = _env_int("RINGRIFT_HEALTHY_CACHE_TTL", 60)
+
+    # Cache TTL for unhealthy results (seconds)
+    UNHEALTHY_CACHE_TTL: int = _env_int("RINGRIFT_UNHEALTHY_CACHE_TTL", 30)
+
+    # Maximum concurrent health checks
+    MAX_CONCURRENT_CHECKS: int = _env_int("RINGRIFT_MAX_HEALTH_CHECKS", 10)
+
+    # Minimum healthy hosts required
+    MIN_HEALTHY_HOSTS: int = _env_int("RINGRIFT_MIN_HEALTHY_HOSTS", 2)
+
+    # Cluster health cache TTL (seconds)
+    CLUSTER_HEALTH_CACHE_TTL: int = _env_int("RINGRIFT_CLUSTER_HEALTH_CACHE_TTL", 120)
+
+
+# =============================================================================
+# Utilization Target Defaults (December 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class UtilizationDefaults:
+    """Default values for resource utilization targets.
+
+    Used by: app/coordination/job_scheduler.py, resource_optimizer.py
+    """
+    # GPU utilization targets (%)
+    GPU_TARGET_MIN: int = _env_int("RINGRIFT_GPU_TARGET_MIN", 60)
+    GPU_TARGET_MAX: int = _env_int("RINGRIFT_GPU_TARGET_MAX", 80)
+
+    # CPU utilization targets (%)
+    CPU_TARGET_MIN: int = _env_int("RINGRIFT_CPU_TARGET_MIN", 60)
+    CPU_TARGET_MAX: int = _env_int("RINGRIFT_CPU_TARGET_MAX", 80)
+
+    # Memory thresholds
+    MIN_MEMORY_GB: int = _env_int("RINGRIFT_MIN_MEMORY_GB", 64)
+
+    # Utilization update interval (seconds)
+    UPDATE_INTERVAL: int = _env_int("RINGRIFT_UTILIZATION_UPDATE_INTERVAL", 10)
+
+    # Optimization interval (seconds)
+    OPTIMIZATION_INTERVAL: int = _env_int("RINGRIFT_OPTIMIZATION_INTERVAL", 30)
+
+
+# =============================================================================
+# Bandwidth Manager Defaults (December 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class BandwidthDefaults:
+    """Default values for bandwidth management.
+
+    Used by: app/coordination/bandwidth_manager.py
+    """
+    # Maximum concurrent transfers per host
+    MAX_CONCURRENT_TRANSFERS: int = _env_int("RINGRIFT_MAX_CONCURRENT_TRANSFERS", 3)
+
+    # Bandwidth measurement window (seconds)
+    MEASUREMENT_WINDOW: int = _env_int("RINGRIFT_BANDWIDTH_MEASUREMENT_WINDOW", 300)
+
+    # Default host bandwidth limits (MB/s)
+    DEFAULT_UPLOAD_MBPS: int = _env_int("RINGRIFT_DEFAULT_UPLOAD_MBPS", 100)
+    DEFAULT_DOWNLOAD_MBPS: int = _env_int("RINGRIFT_DEFAULT_DOWNLOAD_MBPS", 1000)
+
+
+# =============================================================================
+# Resource Limits Defaults (December 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class ResourceLimitsDefaults:
+    """Default values for per-tier resource limits.
+
+    Used by: app/coordination/resource_optimizer.py
+    """
+    # Maximum concurrent selfplay by GPU tier
+    CONSUMER_MAX: int = _env_int("RINGRIFT_CONSUMER_MAX_SELFPLAY", 16)
+    PROSUMER_MAX: int = _env_int("RINGRIFT_PROSUMER_MAX_SELFPLAY", 32)
+    DATACENTER_MAX: int = _env_int("RINGRIFT_DATACENTER_MAX_SELFPLAY", 64)
+    HIGH_CPU_MAX: int = _env_int("RINGRIFT_HIGH_CPU_MAX_SELFPLAY", 128)
+
+
+# =============================================================================
+# PID Controller Defaults (December 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class PIDDefaults:
+    """Default values for PID controller tuning.
+
+    Used by: app/coordination/resource_optimizer.py
+    """
+    # Proportional gain
+    KP: float = _env_float("RINGRIFT_PID_KP", 0.3)
+
+    # Integral gain
+    KI: float = _env_float("RINGRIFT_PID_KI", 0.05)
+
+    # Derivative gain
+    KD: float = _env_float("RINGRIFT_PID_KD", 0.1)
+
+
+def get_circuit_breaker_configs() -> dict:
+    """Get circuit breaker configs per transport type."""
+    return {
+        "ssh": {
+            "failure_threshold": CircuitBreakerDefaults.SSH_FAILURE_THRESHOLD,
+            "recovery_timeout": CircuitBreakerDefaults.SSH_RECOVERY_TIMEOUT,
+        },
+        "http": {
+            "failure_threshold": CircuitBreakerDefaults.HTTP_FAILURE_THRESHOLD,
+            "recovery_timeout": CircuitBreakerDefaults.HTTP_RECOVERY_TIMEOUT,
+        },
+        "p2p": {
+            "failure_threshold": CircuitBreakerDefaults.P2P_FAILURE_THRESHOLD,
+            "recovery_timeout": CircuitBreakerDefaults.P2P_RECOVERY_TIMEOUT,
+        },
+        "aria2": {
+            "failure_threshold": CircuitBreakerDefaults.ARIA2_FAILURE_THRESHOLD,
+            "recovery_timeout": CircuitBreakerDefaults.ARIA2_RECOVERY_TIMEOUT,
+        },
+        "rsync": {
+            "failure_threshold": CircuitBreakerDefaults.RSYNC_FAILURE_THRESHOLD,
+            "recovery_timeout": CircuitBreakerDefaults.RSYNC_RECOVERY_TIMEOUT,
+        },
+    }
+
+
+# =============================================================================
+# Operation Timeouts (December 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class OperationTimeouts:
+    """Centralized timeouts for various operations.
+
+    Use these instead of hardcoding timeout values in code.
+
+    Used by: multi_provider_orchestrator.py, data_sync.py, fault_tolerance.py
+    """
+    # Quick health check timeout (seconds)
+    HEALTH_CHECK: int = _env_int("RINGRIFT_HEALTH_CHECK_TIMEOUT", 5)
+
+    # URL fetch for quick operations (seconds)
+    URL_FETCH_QUICK: int = _env_int("RINGRIFT_URL_FETCH_QUICK_TIMEOUT", 5)
+
+    # URL fetch for data operations (seconds)
+    URL_FETCH: int = _env_int("RINGRIFT_URL_FETCH_TIMEOUT", 10)
+
+    # Rsync transfer timeout (seconds)
+    RSYNC: int = _env_int("RINGRIFT_RSYNC_TIMEOUT", 30)
+
+    # Async subprocess timeout (seconds)
+    ASYNC_SUBPROCESS: int = _env_int("RINGRIFT_ASYNC_SUBPROCESS_TIMEOUT", 180)
+
+    # Thread/process join timeout (seconds)
+    THREAD_JOIN: int = _env_int("RINGRIFT_THREAD_JOIN_TIMEOUT", 5)
+
+    # Future result timeout (seconds)
+    FUTURE_RESULT: int = _env_int("RINGRIFT_FUTURE_RESULT_TIMEOUT", 300)
+
+    # Checkpoint operation timeout (seconds)
+    CHECKPOINT: int = _env_int("RINGRIFT_CHECKPOINT_TIMEOUT", 120)
+
+    # Long-running job timeout - training (seconds) - 4 hours
+    TRAINING_JOB: int = _env_int("RINGRIFT_TRAINING_JOB_TIMEOUT", 14400)
+
+    # Resource wait timeout (seconds)
+    RESOURCE_WAIT: int = _env_int("RINGRIFT_RESOURCE_WAIT_TIMEOUT", 300)
+
+    # Batch operation timeout (seconds) - 30 minutes
+    BATCH_OPERATION: int = _env_int("RINGRIFT_BATCH_OPERATION_TIMEOUT", 1800)
+
+    # Per-file operation timeout (seconds)
+    PER_FILE: int = _env_int("RINGRIFT_PER_FILE_TIMEOUT", 120)
+
+
+@dataclass(frozen=True)
+class RetryDefaults:
+    """Default retry configuration values.
+
+    Use these for consistent retry behavior across the codebase.
+
+    Used by: error_handler.py, fault_tolerance.py, data_sync.py
+    """
+    # Default retry count for transient failures
+    MAX_RETRIES: int = _env_int("RINGRIFT_DEFAULT_MAX_RETRIES", 3)
+
+    # Base delay between retries (seconds)
+    BASE_DELAY: float = _env_float("RINGRIFT_RETRY_BASE_DELAY", 1.0)
+
+    # Maximum delay between retries (seconds)
+    MAX_DELAY: float = _env_float("RINGRIFT_RETRY_MAX_DELAY", 60.0)
+
+    # Exponential backoff multiplier
+    BACKOFF_MULTIPLIER: float = _env_float("RINGRIFT_RETRY_BACKOFF_MULTIPLIER", 2.0)
+
+    # Jitter factor (0-1) to add randomness to delays
+    JITTER_FACTOR: float = _env_float("RINGRIFT_RETRY_JITTER_FACTOR", 0.1)
+
+    # Aggressive retry for critical operations
+    AGGRESSIVE_MAX_RETRIES: int = 5
+    AGGRESSIVE_BASE_DELAY: float = 0.5
+
+    # Fast retry for quick operations
+    FAST_MAX_RETRIES: int = 2
+    FAST_BASE_DELAY: float = 0.5
+    FAST_MAX_DELAY: float = 5.0
+
+    # Sync-specific retry
+    SYNC_MAX_RETRIES: int = 3
+    SYNC_BASE_DELAY: float = 2.0
+    SYNC_MAX_DELAY: float = 30.0
+
+
+def get_timeout(operation: str) -> int:
+    """Get timeout for a specific operation type.
+
+    Args:
+        operation: Operation type ("http", "ssh", "health", "rsync", etc.)
+
+    Returns:
+        Timeout in seconds
+
+    Example:
+        timeout = get_timeout("health")  # Returns 5
+        timeout = get_timeout("ssh")     # Returns 30
+    """
+    timeouts = {
+        "http": TransportDefaults.HTTP_TIMEOUT,
+        "ssh": TransportDefaults.SSH_TIMEOUT,
+        "connect": TransportDefaults.CONNECT_TIMEOUT,
+        "operation": TransportDefaults.OPERATION_TIMEOUT,
+        "health": OperationTimeouts.HEALTH_CHECK,
+        "rsync": OperationTimeouts.RSYNC,
+        "subprocess": OperationTimeouts.ASYNC_SUBPROCESS,
+        "thread_join": OperationTimeouts.THREAD_JOIN,
+        "future": OperationTimeouts.FUTURE_RESULT,
+        "checkpoint": OperationTimeouts.CHECKPOINT,
+        "training": OperationTimeouts.TRAINING_JOB,
+        "resource": OperationTimeouts.RESOURCE_WAIT,
+        "batch": OperationTimeouts.BATCH_OPERATION,
+        "per_file": OperationTimeouts.PER_FILE,
+        "url_quick": OperationTimeouts.URL_FETCH_QUICK,
+        "url": OperationTimeouts.URL_FETCH,
+    }
+    return timeouts.get(operation, TransportDefaults.HTTP_TIMEOUT)
+
+
+# =============================================================================
 # Convenience Functions
 # =============================================================================
 
@@ -259,6 +560,41 @@ def get_all_defaults() -> dict:
             "checkpoint_interval": EphemeralDefaults.CHECKPOINT_INTERVAL,
             "heartbeat_timeout": EphemeralDefaults.HEARTBEAT_TIMEOUT,
         },
+        "circuit_breaker": {
+            "failure_threshold": CircuitBreakerDefaults.FAILURE_THRESHOLD,
+            "recovery_timeout": CircuitBreakerDefaults.RECOVERY_TIMEOUT,
+            "max_backoff": CircuitBreakerDefaults.MAX_BACKOFF,
+            "half_open_max_calls": CircuitBreakerDefaults.HALF_OPEN_MAX_CALLS,
+        },
+        # December 2025 additions
+        "health": {
+            "ssh_timeout": HealthDefaults.SSH_TIMEOUT,
+            "healthy_cache_ttl": HealthDefaults.HEALTHY_CACHE_TTL,
+            "unhealthy_cache_ttl": HealthDefaults.UNHEALTHY_CACHE_TTL,
+            "max_concurrent_checks": HealthDefaults.MAX_CONCURRENT_CHECKS,
+            "min_healthy_hosts": HealthDefaults.MIN_HEALTHY_HOSTS,
+        },
+        "utilization": {
+            "gpu_target_min": UtilizationDefaults.GPU_TARGET_MIN,
+            "gpu_target_max": UtilizationDefaults.GPU_TARGET_MAX,
+            "cpu_target_min": UtilizationDefaults.CPU_TARGET_MIN,
+            "cpu_target_max": UtilizationDefaults.CPU_TARGET_MAX,
+            "min_memory_gb": UtilizationDefaults.MIN_MEMORY_GB,
+        },
+        "bandwidth": {
+            "max_concurrent_transfers": BandwidthDefaults.MAX_CONCURRENT_TRANSFERS,
+            "measurement_window": BandwidthDefaults.MEASUREMENT_WINDOW,
+        },
+        "resource_limits": {
+            "consumer_max": ResourceLimitsDefaults.CONSUMER_MAX,
+            "prosumer_max": ResourceLimitsDefaults.PROSUMER_MAX,
+            "datacenter_max": ResourceLimitsDefaults.DATACENTER_MAX,
+        },
+        "pid": {
+            "kp": PIDDefaults.KP,
+            "ki": PIDDefaults.KI,
+            "kd": PIDDefaults.KD,
+        },
     }
 
 
@@ -271,6 +607,17 @@ __all__ = [
     "TrainingDefaults",
     "SchedulerDefaults",
     "EphemeralDefaults",
+    "CircuitBreakerDefaults",
+    "OperationTimeouts",
+    "RetryDefaults",
+    # December 2025 additions
+    "HealthDefaults",
+    "UtilizationDefaults",
+    "BandwidthDefaults",
+    "ResourceLimitsDefaults",
+    "PIDDefaults",
     # Utilities
     "get_all_defaults",
+    "get_circuit_breaker_configs",
+    "get_timeout",
 ]

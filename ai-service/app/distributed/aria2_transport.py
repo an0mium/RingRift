@@ -26,17 +26,13 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
-import hashlib
-import json
 import logging
-import os
 import shutil
-import subprocess
 import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +41,6 @@ try:
     from app.distributed.circuit_breaker import (
         get_operation_breaker,
         get_adaptive_timeout,
-        CircuitOpenError,
     )
     HAS_CIRCUIT_BREAKER = True
 except ImportError:

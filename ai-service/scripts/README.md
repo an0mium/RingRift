@@ -74,6 +74,11 @@ python scripts/cli.py health
   - Tailscale mesh status, Vast.ai CLI monitoring, Lambda node health
   - P2P orchestrator status, selfplay/gauntlet monitoring
   - Start: `./scripts/cluster_monitor_unified.sh --duration 10`
+- `unified_cluster_monitor.py` - **Python unified cluster monitor**
+  - HTTP health checks with SSH deep checks and leader API status
+  - Webhook alerting and JSON output modes
+  - Uses `config/distributed_hosts.yaml` for node inventory
+  - Start: `python scripts/unified_cluster_monitor.py --quick`
 - `cluster_monitoring.sh`, `cluster_monitor.sh`,
   `cluster_monitor_daemon.sh`, `cluster_health_monitor.sh`
   - **Deprecated** wrappers that print migration hints
@@ -82,8 +87,11 @@ python scripts/cli.py health
   - Auto-reconnect on network changes, IP change detection
   - Start: `python scripts/node_resilience.py --daemon`
 - `cluster_manager.py` - Cluster node management
+- `gpu_cluster_manager.py` - GPU cluster inventory and scaling helpers
+  - Uses `config/cluster.yaml` as the node source of truth
 - `cluster_worker.py` - Worker node implementation
 - `cluster_health_check.py` - Health monitoring
+- `setup_cluster_ssh.sh` - SSH agent/bootstrap helper + connectivity check
 
 ### Training
 
@@ -502,6 +510,122 @@ from scripts.lib.data_quality import (
 analyzer = DataQualityAnalyzer()
 metrics = analyzer.analyze_npz("data/training.npz")
 print(f"Samples: {metrics.total_samples}, Quality: {metrics.quality_score}")
+```
+
+### Database Utilities (`scripts.lib.database`)
+
+```python
+from scripts.lib.database import (
+    safe_transaction,
+    read_only_connection,
+    get_game_db_path,
+    check_integrity,
+)
+
+db_path = get_game_db_path("square8_2p")
+with safe_transaction(db_path) as conn:
+    conn.execute("INSERT INTO games VALUES (?, ?)", (1, "square8_2p"))
+
+is_ok, message = check_integrity(db_path)
+print(f"DB ok: {is_ok}, message: {message}")
+```
+
+### Paths (`scripts.lib.paths`)
+
+```python
+from scripts.lib.paths import AI_SERVICE_ROOT, DATA_DIR, LOGS_DIR, get_log_path
+
+print(f"Root: {AI_SERVICE_ROOT}")
+print(f"Data dir: {DATA_DIR}")
+log_path = get_log_path("my_script")
+```
+
+### Retry (`scripts.lib.retry`)
+
+```python
+from scripts.lib.retry import retry, retry_async, RetryConfig
+
+@retry(max_attempts=3, delay=1.0)
+def flaky_call():
+    return "ok"
+
+@retry_async(max_attempts=3, delay=1.0)
+async def flaky_async_call():
+    return "ok"
+
+config = RetryConfig(max_attempts=5, base_delay=0.5)
+for attempt in config.attempts():
+    try:
+        do_work()
+        break
+    except Exception:
+        if not attempt.should_retry:
+            raise
+        attempt.wait()
+```
+
+### Process Helpers (`scripts.lib.process`)
+
+```python
+from scripts.lib.process import SingletonLock, SignalHandler, run_command
+
+with SingletonLock("training-daemon") as lock:
+    if not lock.acquired:
+        raise SystemExit("Already running")
+
+handler = SignalHandler()
+while handler.running:
+    run_command(["echo", "tick"])
+```
+
+### Transfer Utilities (`scripts.lib.transfer`)
+
+```python
+from scripts.lib.transfer import TransferConfig, rsync_push, verify_transfer
+
+config = TransferConfig(timeout=60, retries=3)
+result = rsync_push("data/games.db", "user@host:/tmp/games.db", config=config)
+verify_transfer(result)
+```
+
+### Health Checks (`scripts.lib.health`)
+
+```python
+from scripts.lib.health import check_system_health, check_http_health
+
+health = check_system_health()
+print(f"CPU: {health.cpu.utilization_percent:.1f}%")
+
+service_ok = check_http_health("http://localhost:8001/health")
+print(f"Service healthy: {service_ok.healthy}")
+```
+
+### CLI Helpers (`scripts.lib.cli`)
+
+```python
+from scripts.lib.cli import add_common_args, add_board_args, setup_cli_logging
+import argparse
+
+parser = argparse.ArgumentParser()
+add_common_args(parser)
+add_board_args(parser)
+args = parser.parse_args()
+
+logger = setup_cli_logging("my_script", args)
+logger.info("CLI ready")
+```
+
+### File Formats (`scripts.lib.file_formats`)
+
+```python
+from scripts.lib.file_formats import open_jsonl_file, load_json, save_json
+
+with open_jsonl_file("data/games.jsonl.gz") as handle:
+    for line in handle:
+        pass
+
+config = load_json("config.json", default={})
+save_json("config.json", config, atomic=True)
 ```
 
 ## Module Dependencies

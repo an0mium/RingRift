@@ -49,26 +49,9 @@ from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 # Ensure ai-service root on path for scripts/lib imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-
-def is_gzip_file(filepath: Path) -> bool:
-    """Check if a file is gzip-compressed by reading magic bytes."""
-    try:
-        with open(filepath, "rb") as f:
-            magic = f.read(2)
-            return magic == b'\x1f\x8b'  # Gzip magic number
-    except (IOError, OSError):
-        return False
-
-
-def open_jsonl_file(filepath: Path):
-    """Open a JSONL file, automatically detecting gzip compression."""
-    if is_gzip_file(filepath):
-        return gzip.open(filepath, "rt", encoding="utf-8", errors="replace")
-    else:
-        return open(filepath, "r", encoding="utf-8", errors="replace")
-
-# Unified logging setup
+# Unified logging and file format utilities
 from scripts.lib.logging_config import setup_script_logging
+from scripts.lib.file_formats import is_gzip_file, open_jsonl_file
 
 logger = setup_script_logging("chunked_jsonl_converter")
 

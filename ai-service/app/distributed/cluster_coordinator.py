@@ -70,16 +70,15 @@ import signal
 import socket
 import sqlite3
 import sys
-import time
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 # Use centralized path constants
-from app.utils.paths import AI_SERVICE_ROOT, DATA_DIR
+from app.utils.paths import DATA_DIR
 
 COORDINATION_DIR = DATA_DIR / "coordination"
 LOCK_DIR = COORDINATION_DIR / "locks"
@@ -413,7 +412,7 @@ class ClusterCoordinator:
                         lock_file.unlink()
                         cleaned.append(str(lock_file))
                         print(f"[ClusterCoordinator] Cleaned stale lock: {lock_file.name} (dead PID {pid})")
-            except (ValueError, FileNotFoundError, PermissionError) as e:
+            except (ValueError, FileNotFoundError, PermissionError):
                 # Invalid PID or file issues - try to clean anyway
                 try:
                     lock_file.unlink()
@@ -440,7 +439,6 @@ class ClusterCoordinator:
                 )
 
         # Clean up tasks with no heartbeat in max_age_hours
-        cutoff = datetime.now(timezone.utc).isoformat()
         cursor.execute("""
             DELETE FROM tasks WHERE last_heartbeat < datetime('now', '-{} hours')
         """.format(int(max_age_hours)))
@@ -514,7 +512,7 @@ def check_and_abort_if_role_held(role: TaskRole) -> None:
     if coordinator.is_role_held(role):
         holder_pid = coordinator.get_role_holder_pid(role)
         print(f"ERROR: Role {role.value} is already held by PID {holder_pid}")
-        print(f"Kill that process first or wait for it to complete.")
+        print("Kill that process first or wait for it to complete.")
         sys.exit(1)
 
 

@@ -54,6 +54,85 @@ from app.utils.paths import DATA_DIR
 
 logger = logging.getLogger(__name__)
 
+
+# =============================================================================
+# Unified Lock Protocol (December 2025)
+# =============================================================================
+
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class LockProtocol(Protocol):
+    """Unified protocol for all lock types in the codebase.
+
+    This protocol abstracts over different lock implementations:
+    - DistributedLock (this module): Cross-node/cross-process coordination
+    - SyncMutex (sync_mutex.py): SQLite-based mutex
+    - LockManager (lock_manager.py): In-process async locks
+
+    Usage:
+        def with_lock(lock: LockProtocol, operation: Callable):
+            if lock.acquire(timeout=30):
+                try:
+                    return operation()
+                finally:
+                    lock.release()
+            raise TimeoutError("Could not acquire lock")
+
+        # Works with any lock type
+        with_lock(DistributedLock("my_lock"), my_operation)
+        with_lock(SyncMutex("my_mutex"), my_operation)
+    """
+
+    def acquire(self, timeout: int = 60, blocking: bool = True) -> bool:
+        """Acquire the lock.
+
+        Args:
+            timeout: Maximum wait time in seconds
+            blocking: If True, wait for lock
+
+        Returns:
+            True if lock acquired
+        """
+        ...
+
+    def release(self) -> None:
+        """Release the lock."""
+        ...
+
+    @property
+    def name(self) -> str:
+        """Get the lock name."""
+        ...
+
+
+def get_appropriate_lock(
+    name: str,
+    scope: str = "distributed",
+    timeout: int = 3600,
+) -> "DistributedLock":
+    """Factory function to get an appropriate lock based on scope.
+
+    Args:
+        name: Lock name
+        scope: Lock scope ("distributed", "local", "process")
+        timeout: Lock timeout in seconds
+
+    Returns:
+        Lock instance appropriate for the scope
+
+    Usage:
+        lock = get_appropriate_lock("training:config", scope="distributed")
+        with lock:
+            # Do work
+            pass
+    """
+    # Currently all locks are DistributedLock, but this factory allows
+    # future extension to different lock types based on scope
+    return DistributedLock(name, lock_timeout=timeout)
+
+
 # Import centralized defaults (December 2025)
 try:
     from app.config.coordination_defaults import LockDefaults

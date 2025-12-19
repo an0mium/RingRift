@@ -367,17 +367,36 @@ class SQLitePersistenceMixin:
     """
 
     _db_path: Optional[Path] = None
-    _db_local: Optional[threading.local] = None
+    _db_pool: Optional["ThreadLocalConnectionPool"] = None  # December 2025 - consolidated
 
-    def init_db(self, db_path: Path) -> None:
+    def init_db(
+        self,
+        db_path: Path,
+        profile: str = "standard",
+    ) -> None:
         """Initialize database with schema.
 
         Args:
             db_path: Path to SQLite database file
+            profile: PRAGMA profile ("standard", "extended", "quick")
+                     - standard: 10s busy_timeout, WAL, NORMAL sync
+                     - extended: 30s busy_timeout, extra cache (for cross-process)
+                     - quick: 5s busy_timeout (for registry lookups)
+
+        December 2025 - Now uses ThreadLocalConnectionPool with centralized
+        PRAGMA settings from app/config/thresholds.py
         """
+        # Import here to avoid circular imports
+        from app.distributed.db_utils import ThreadLocalConnectionPool
+
         self._db_path = db_path
-        self._db_local = threading.local()
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Use centralized connection pool (December 2025)
+        self._db_pool = ThreadLocalConnectionPool(
+            db_path=db_path,
+            profile=profile,
+        )
 
         # Initialize schema
         conn = self._get_connection()
@@ -390,24 +409,20 @@ class SQLitePersistenceMixin:
         """Get thread-local database connection.
 
         Returns:
-            SQLite connection configured for WAL mode
+            SQLite connection configured with centralized PRAGMAs
+
+        December 2025 - Delegates to ThreadLocalConnectionPool for consistent
+        PRAGMA configuration across all coordinators.
         """
-        if self._db_local is None:
+        if self._db_pool is None:
             raise RuntimeError("Database not initialized. Call init_db() first.")
 
-        if not hasattr(self._db_local, "conn") or self._db_local.conn is None:
-            self._db_local.conn = sqlite3.connect(str(self._db_path), timeout=30.0)
-            self._db_local.conn.row_factory = sqlite3.Row
-            self._db_local.conn.execute('PRAGMA journal_mode=WAL')
-            self._db_local.conn.execute('PRAGMA busy_timeout=10000')
-            self._db_local.conn.execute('PRAGMA synchronous=NORMAL')
-        return self._db_local.conn
+        return self._db_pool.get_connection()
 
     def _close_connection(self) -> None:
         """Close the thread-local database connection."""
-        if self._db_local and hasattr(self._db_local, "conn") and self._db_local.conn:
-            self._db_local.conn.close()
-            self._db_local.conn = None
+        if self._db_pool is not None:
+            self._db_pool.close_connection()
 
     def _get_schema(self) -> str:
         """Get database schema SQL.
@@ -543,6 +558,144 @@ class CallbackMixin:
                 logger.warning(f"Callback error for {event_type}: {e}")
                 results.append(None)
         return results
+
+
+class EventDrivenMonitorMixin:
+    """Mixin for converting polling-based monitors to event-driven.
+
+    This mixin provides a pattern for monitors that should react to events
+    instead of (or in addition to) polling.
+
+    Migration Guide (December 2025):
+        BEFORE (polling loop):
+            class MyMonitor:
+                async def run(self):
+                    while self._running:
+                        status = await self._check_status()
+                        if status.changed:
+                            await self._handle_change(status)
+                        await asyncio.sleep(60)  # Poll every minute
+
+        AFTER (event-driven):
+            class MyMonitor(CoordinatorBase, EventDrivenMonitorMixin):
+                async def _do_start(self):
+                    # Subscribe to relevant events
+                    await self.subscribe_to_events([
+                        "TRAINING_COMPLETED",
+                        "MODEL_PROMOTED",
+                    ])
+
+                async def _handle_event(self, event_type: str, payload: dict):
+                    if event_type == "TRAINING_COMPLETED":
+                        await self._on_training_complete(payload)
+
+    Benefits:
+        - Immediate reaction to events (no polling delay)
+        - Reduced CPU usage (no busy-waiting)
+        - Better coordination with other components
+        - Automatic deduplication of events
+
+    Usage:
+        class MyMonitor(CoordinatorBase, EventDrivenMonitorMixin):
+            async def _do_initialize(self):
+                await self.init_event_subscriptions()
+                self.register_event_handler("TRAINING_COMPLETED", self._on_training)
+
+            async def _on_training(self, payload: dict):
+                # Handle training completion
+                pass
+    """
+
+    _event_handlers: Dict[str, List[Callable]]
+    _event_subscriptions: List[str]
+    _event_bus_connected: bool
+
+    def init_event_subscriptions(self) -> None:
+        """Initialize event subscription tracking. Call in __init__ or _do_initialize."""
+        self._event_handlers = {}
+        self._event_subscriptions = []
+        self._event_bus_connected = False
+
+    def register_event_handler(
+        self,
+        event_type: str,
+        handler: Callable[[Dict[str, Any]], Any],
+    ) -> None:
+        """Register a handler for a specific event type.
+
+        Args:
+            event_type: Event type string (e.g., "TRAINING_COMPLETED")
+            handler: Async or sync function taking payload dict
+        """
+        if not hasattr(self, "_event_handlers"):
+            self._event_handlers = {}
+        if event_type not in self._event_handlers:
+            self._event_handlers[event_type] = []
+        self._event_handlers[event_type].append(handler)
+        logger.debug(f"Registered handler for event: {event_type}")
+
+    async def subscribe_to_events(self, event_types: List[str]) -> bool:
+        """Subscribe to events from the unified event coordinator.
+
+        Args:
+            event_types: List of event type strings to subscribe to
+
+        Returns:
+            True if subscription succeeded
+        """
+        try:
+            from app.coordination.unified_event_coordinator import get_event_coordinator
+
+            coordinator = get_event_coordinator()
+            for event_type in event_types:
+                coordinator.register_handler(event_type, self._dispatch_event)
+                if not hasattr(self, "_event_subscriptions"):
+                    self._event_subscriptions = []
+                self._event_subscriptions.append(event_type)
+
+            self._event_bus_connected = True
+            logger.info(f"Subscribed to events: {event_types}")
+            return True
+
+        except ImportError:
+            logger.warning("Event coordinator not available")
+            return False
+        except Exception as e:
+            logger.warning(f"Failed to subscribe to events: {e}")
+            return False
+
+    async def _dispatch_event(self, payload: Dict[str, Any]) -> None:
+        """Dispatch event to registered handlers.
+
+        Args:
+            payload: Event payload including 'event_type' key
+        """
+        event_type = payload.get("event_type", payload.get("type", ""))
+
+        if not hasattr(self, "_event_handlers"):
+            return
+
+        handlers = self._event_handlers.get(event_type, [])
+        for handler in handlers:
+            try:
+                if asyncio.iscoroutinefunction(handler):
+                    await handler(payload)
+                else:
+                    handler(payload)
+            except Exception as e:
+                logger.warning(f"Event handler error for {event_type}: {e}")
+
+    def get_event_status(self) -> Dict[str, Any]:
+        """Get status of event subscriptions.
+
+        Returns:
+            Dict with subscription status info
+        """
+        return {
+            "connected": getattr(self, "_event_bus_connected", False),
+            "subscriptions": getattr(self, "_event_subscriptions", []),
+            "handlers": list(getattr(self, "_event_handlers", {}).keys()),
+        }
 
 
 # Convenience function to check if something is a coordinator

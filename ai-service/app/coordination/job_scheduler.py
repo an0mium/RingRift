@@ -60,14 +60,27 @@ try:
     TARGET_CPU_UTILIZATION_MAX = CPU_CRITICAL_PERCENT
     ELO_UNDERSERVED_THRESHOLD = ELO_UNDERSERVED_THRESHOLD_CONFIG
 except ImportError:
-    # Fallback for testing/standalone use
-    TARGET_GPU_UTILIZATION_MIN = 60
-    TARGET_GPU_UTILIZATION_MAX = 80
-    TARGET_CPU_UTILIZATION_MIN = 60
-    TARGET_CPU_UTILIZATION_MAX = 80
+    # Try coordination_defaults as fallback (December 2025)
+    try:
+        from app.config.coordination_defaults import UtilizationDefaults
+        TARGET_GPU_UTILIZATION_MIN = UtilizationDefaults.GPU_TARGET_MIN
+        TARGET_GPU_UTILIZATION_MAX = UtilizationDefaults.GPU_TARGET_MAX
+        TARGET_CPU_UTILIZATION_MIN = UtilizationDefaults.CPU_TARGET_MIN
+        TARGET_CPU_UTILIZATION_MAX = UtilizationDefaults.CPU_TARGET_MAX
+    except ImportError:
+        # Hardcoded fallback for testing/standalone use
+        TARGET_GPU_UTILIZATION_MIN = 60
+        TARGET_GPU_UTILIZATION_MAX = 80
+        TARGET_CPU_UTILIZATION_MIN = 60
+        TARGET_CPU_UTILIZATION_MAX = 80
     ELO_UNDERSERVED_THRESHOLD = 100
 
-MIN_MEMORY_GB_FOR_TASKS = 64  # Skip nodes with less than this to avoid OOM
+# Use centralized defaults for memory threshold (December 2025)
+try:
+    from app.config.coordination_defaults import UtilizationDefaults as _UD
+    MIN_MEMORY_GB_FOR_TASKS = _UD.MIN_MEMORY_GB
+except ImportError:
+    MIN_MEMORY_GB_FOR_TASKS = 64  # Skip nodes with less than this to avoid OOM
 
 # Elo curriculum configuration
 ELO_CURRICULUM_ENABLED = True

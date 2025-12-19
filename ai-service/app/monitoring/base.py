@@ -294,3 +294,252 @@ class CompositeMonitor(HealthMonitor):
             alerts=all_alerts,
             details=all_details,
         )
+
+
+# =============================================================================
+# Monitor Registry (December 2025)
+# =============================================================================
+
+import threading
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class MonitorRegistry:
+    """Singleton registry for centralized monitor management.
+
+    Provides a single point of access for all monitors in the system,
+    enabling unified health checks and alert aggregation.
+
+    Usage:
+        from app.monitoring.base import MonitorRegistry, get_monitor_registry
+
+        # Get registry singleton
+        registry = get_monitor_registry()
+
+        # Register a monitor
+        registry.register(my_disk_monitor)
+        registry.register(my_gpu_monitor, category="resources")
+
+        # Run all health checks
+        result = registry.check_all()
+
+        # Get monitors by category
+        resource_monitors = registry.get_monitors(category="resources")
+
+        # Get all alerts
+        alerts = registry.get_all_alerts()
+
+    Benefits:
+        - Centralized monitor discovery
+        - Unified health endpoint
+        - Category-based filtering
+        - Event emission on health changes
+    """
+
+    _instance: Optional["MonitorRegistry"] = None
+    _lock = threading.RLock()
+
+    def __new__(cls) -> "MonitorRegistry":
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self):
+        if self._initialized:
+            return
+
+        self._initialized = True
+        self._monitors: Dict[str, HealthMonitor] = {}
+        self._categories: Dict[str, List[str]] = {}  # category -> monitor_names
+        self._composite: CompositeMonitor = CompositeMonitor("GlobalHealth")
+        self._last_overall_status: Optional[HealthStatus] = None
+
+    def register(
+        self,
+        monitor: HealthMonitor,
+        category: str = "default",
+    ) -> None:
+        """Register a monitor.
+
+        Args:
+            monitor: HealthMonitor instance to register
+            category: Category for grouping (e.g., "resources", "training", "cluster")
+        """
+        name = monitor.name
+        with self._lock:
+            self._monitors[name] = monitor
+            self._composite.add_monitor(monitor)
+
+            if category not in self._categories:
+                self._categories[category] = []
+            if name not in self._categories[category]:
+                self._categories[category].append(name)
+
+            logger.info(f"Registered monitor: {name} (category: {category})")
+
+    def unregister(self, monitor_name: str) -> Optional[HealthMonitor]:
+        """Unregister a monitor by name.
+
+        Args:
+            monitor_name: Name of monitor to remove
+
+        Returns:
+            The removed monitor or None if not found
+        """
+        with self._lock:
+            monitor = self._monitors.pop(monitor_name, None)
+            if monitor:
+                self._composite.remove_monitor(monitor)
+                for cat_monitors in self._categories.values():
+                    if monitor_name in cat_monitors:
+                        cat_monitors.remove(monitor_name)
+            return monitor
+
+    def get_monitor(self, name: str) -> Optional[HealthMonitor]:
+        """Get a monitor by name."""
+        return self._monitors.get(name)
+
+    def get_monitors(
+        self,
+        category: Optional[str] = None,
+    ) -> List[HealthMonitor]:
+        """Get monitors, optionally filtered by category.
+
+        Args:
+            category: If provided, only return monitors in this category
+
+        Returns:
+            List of HealthMonitor instances
+        """
+        if category:
+            names = self._categories.get(category, [])
+            return [self._monitors[n] for n in names if n in self._monitors]
+        return list(self._monitors.values())
+
+    def get_categories(self) -> List[str]:
+        """Get all registered categories."""
+        return list(self._categories.keys())
+
+    def check_all(self) -> MonitoringResult:
+        """Run health checks on all registered monitors.
+
+        Returns:
+            Aggregated MonitoringResult from all monitors
+        """
+        result = self._composite.run_check()
+
+        # Emit event if status changed
+        if self._last_overall_status != result.status:
+            self._emit_status_change(self._last_overall_status, result.status)
+            self._last_overall_status = result.status
+
+        return result
+
+    def check_category(self, category: str) -> MonitoringResult:
+        """Run health checks on monitors in a specific category.
+
+        Args:
+            category: Category to check
+
+        Returns:
+            Aggregated MonitoringResult for the category
+        """
+        monitors = self.get_monitors(category)
+        temp_composite = CompositeMonitor(f"Category_{category}")
+        for monitor in monitors:
+            temp_composite.add_monitor(monitor)
+        return temp_composite.run_check()
+
+    def get_all_alerts(self) -> List[Alert]:
+        """Get all current alerts from all monitors."""
+        alerts = []
+        for monitor in self._monitors.values():
+            if monitor._last_result and monitor._last_result.alerts:
+                alerts.extend(monitor._last_result.alerts)
+        return alerts
+
+    def get_summary(self) -> Dict[str, Any]:
+        """Get a summary of all monitors and their status.
+
+        Returns:
+            Dict with monitor statuses, counts, and categories
+        """
+        statuses = {}
+        for name, monitor in self._monitors.items():
+            if monitor._last_result:
+                statuses[name] = {
+                    "status": monitor._last_result.status.value,
+                    "last_check": monitor._last_check.isoformat() if monitor._last_check else None,
+                    "alert_count": len(monitor._last_result.alerts),
+                }
+            else:
+                statuses[name] = {"status": "not_checked", "last_check": None}
+
+        return {
+            "total_monitors": len(self._monitors),
+            "categories": {cat: len(names) for cat, names in self._categories.items()},
+            "monitors": statuses,
+        }
+
+    def _emit_status_change(
+        self,
+        old_status: Optional[HealthStatus],
+        new_status: HealthStatus,
+    ) -> None:
+        """Emit event on overall status change."""
+        try:
+            from app.distributed.data_events import DataEventType, DataEvent, get_event_bus
+
+            bus = get_event_bus()
+            event = DataEvent(
+                event_type=DataEventType.HEALTH_ALERT if new_status != HealthStatus.HEALTHY else DataEventType.CLUSTER_STATUS_CHANGED,
+                payload={
+                    "old_status": old_status.value if old_status else None,
+                    "new_status": new_status.value,
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+                source="monitor_registry",
+            )
+            # Fire and forget
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(bus.publish(event))
+            except RuntimeError:
+                pass
+
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.debug(f"Failed to emit status change event: {e}")
+
+
+# Module-level singleton access
+_registry: Optional[MonitorRegistry] = None
+
+
+def get_monitor_registry() -> MonitorRegistry:
+    """Get the singleton MonitorRegistry instance."""
+    global _registry
+    if _registry is None:
+        _registry = MonitorRegistry()
+    return _registry
+
+
+def register_monitor(
+    monitor: HealthMonitor,
+    category: str = "default",
+) -> None:
+    """Convenience function to register a monitor.
+
+    Args:
+        monitor: HealthMonitor to register
+        category: Category for grouping
+    """
+    get_monitor_registry().register(monitor, category)

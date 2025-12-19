@@ -55,6 +55,15 @@ except ImportError:
     URLOPEN_SHORT_TIMEOUT = 5
     URLOPEN_TIMEOUT = 10
 
+# Event bus integration for auto-promotion on Elo changes (December 2025)
+try:
+    from app.distributed.data_events import DataEventType, get_event_bus
+    HAS_EVENT_BUS = True
+except ImportError:
+    HAS_EVENT_BUS = False
+    DataEventType = None
+    get_event_bus = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -151,6 +160,9 @@ class PromotionController:
         self._tier_registry = None
         # Unified signal computer for regression detection
         self._signal_computer = get_signal_computer() if HAS_UNIFIED_SIGNALS else None
+        # Event subscription state (December 2025)
+        self._event_subscribed = False
+        self._pending_promotion_checks: Dict[str, float] = {}  # model_id -> elo_delta
 
     @property
     def elo_service(self):
@@ -187,6 +199,62 @@ class PromotionController:
             except ImportError:
                 logger.warning("ModelLifecycleManager not available")
         return self._lifecycle_manager
+
+    def setup_event_subscriptions(self) -> bool:
+        """Subscribe to ELO events for automatic promotion checks (December 2025).
+
+        When ELO_SIGNIFICANT_CHANGE is received, queues a promotion check
+        for the improved model.
+
+        Returns:
+            True if subscription was successful, False otherwise
+        """
+        if not HAS_EVENT_BUS:
+            logger.debug("Event bus not available for promotion controller")
+            return False
+
+        if self._event_subscribed:
+            return True
+
+        try:
+            bus = get_event_bus()
+
+            async def on_elo_significant_change(event):
+                """Handle significant Elo changes for auto-promotion evaluation."""
+                payload = event.payload if hasattr(event, 'payload') else {}
+                model_id = payload.get("model_id", "")
+                elo_delta = payload.get("elo_delta", 0.0)
+                new_elo = payload.get("new_elo", 0.0)
+
+                # Only consider positive Elo changes for promotion
+                if elo_delta >= self.criteria.min_elo_improvement:
+                    logger.info(
+                        f"[PromotionController] Significant Elo gain detected: "
+                        f"{model_id} +{elo_delta:.1f} (now {new_elo:.0f}), "
+                        f"queuing promotion check"
+                    )
+                    self._pending_promotion_checks[model_id] = elo_delta
+
+            bus.subscribe(DataEventType.ELO_SIGNIFICANT_CHANGE, on_elo_significant_change)
+            self._event_subscribed = True
+            logger.info("[PromotionController] Subscribed to ELO_SIGNIFICANT_CHANGE events")
+            return True
+
+        except Exception as e:
+            logger.warning(f"[PromotionController] Failed to subscribe to events: {e}")
+            return False
+
+    def get_pending_promotion_checks(self) -> Dict[str, float]:
+        """Get models with pending promotion checks from Elo events.
+
+        Returns:
+            Dict mapping model_id to elo_delta for models that need promotion evaluation
+        """
+        return dict(self._pending_promotion_checks)
+
+    def clear_pending_check(self, model_id: str) -> None:
+        """Clear a pending promotion check after evaluation."""
+        self._pending_promotion_checks.pop(model_id, None)
 
     def evaluate_promotion(
         self,

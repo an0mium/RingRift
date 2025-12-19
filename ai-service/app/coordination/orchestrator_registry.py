@@ -45,7 +45,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -1124,6 +1124,276 @@ def check_cluster_health() -> Dict[str, Any]:
 
 
 # ============================================
+# Coordinator Registration (December 2025)
+# ============================================
+
+# Registry of active coordinators (non-orchestrator singletons)
+_coordinator_registry: Dict[str, Dict[str, Any]] = {}
+_coordinator_lock = threading.Lock()
+
+
+def register_coordinator(
+    name: str,
+    coordinator: Any,
+    health_callback: Optional[Callable[[], bool]] = None,
+    shutdown_callback: Optional[Callable[[], None]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Register a coordinator (non-orchestrator singleton) for visibility.
+
+    This allows tracking coordinators that aren't role-based orchestrators but
+    still need lifecycle management and health monitoring.
+
+    Args:
+        name: Unique coordinator name
+        coordinator: Coordinator instance
+        health_callback: Optional callback to check health (returns bool)
+        shutdown_callback: Optional callback for graceful shutdown
+        metadata: Additional metadata
+
+    Returns:
+        True if registered successfully
+
+    Example:
+        from app.coordination.orchestrator_registry import register_coordinator
+
+        register_coordinator(
+            "data_coordinator",
+            data_coordinator_instance,
+            health_callback=lambda: data_coordinator_instance.is_healthy(),
+            shutdown_callback=data_coordinator_instance.shutdown,
+            metadata={"type": "training", "priority": "high"},
+        )
+    """
+    with _coordinator_lock:
+        _coordinator_registry[name] = {
+            "coordinator": coordinator,
+            "health_callback": health_callback,
+            "shutdown_callback": shutdown_callback,
+            "metadata": metadata or {},
+            "registered_at": time.time(),
+            "type": type(coordinator).__name__,
+        }
+    logger.debug(f"Registered coordinator: {name}")
+    return True
+
+
+def unregister_coordinator(name: str) -> bool:
+    """Unregister a coordinator.
+
+    Args:
+        name: Coordinator name
+
+    Returns:
+        True if unregistered
+    """
+    with _coordinator_lock:
+        if name in _coordinator_registry:
+            del _coordinator_registry[name]
+            return True
+    return False
+
+
+def get_coordinator(name: str) -> Optional[Any]:
+    """Get a registered coordinator by name."""
+    with _coordinator_lock:
+        entry = _coordinator_registry.get(name)
+        return entry["coordinator"] if entry else None
+
+
+def get_registered_coordinators() -> Dict[str, Dict[str, Any]]:
+    """Get all registered coordinators with their status.
+
+    Returns:
+        Dict mapping coordinator name to status info
+    """
+    result = {}
+    with _coordinator_lock:
+        for name, entry in _coordinator_registry.items():
+            is_healthy = True
+            if entry.get("health_callback"):
+                try:
+                    is_healthy = entry["health_callback"]()
+                except Exception:
+                    is_healthy = False
+
+            result[name] = {
+                "type": entry["type"],
+                "healthy": is_healthy,
+                "registered_at": entry["registered_at"],
+                "metadata": entry["metadata"],
+            }
+    return result
+
+
+def shutdown_all_coordinators() -> Dict[str, bool]:
+    """Shutdown all registered coordinators.
+
+    Returns:
+        Dict mapping coordinator name to shutdown success
+    """
+    results = {}
+    with _coordinator_lock:
+        for name, entry in list(_coordinator_registry.items()):
+            try:
+                if entry.get("shutdown_callback"):
+                    entry["shutdown_callback"]()
+                results[name] = True
+            except Exception as e:
+                logger.warning(f"Error shutting down coordinator {name}: {e}")
+                results[name] = False
+    return results
+
+
+def auto_register_known_coordinators() -> Dict[str, bool]:
+    """Auto-register known training/quality coordinators.
+
+    Discovers and registers common coordinator singletons that should be
+    tracked for health monitoring.
+
+    Returns:
+        Dict mapping coordinator name to registration success
+    """
+    results = {}
+
+    # Only include coordinators with singleton patterns
+    # Note: training_coordinator self-registers on first access
+    known_coordinators = [
+        # Core training coordinators
+        {
+            "name": "training_coordinator",
+            "module": "app.coordination.training_coordinator",
+            "getter": "get_training_coordinator",
+        },
+        {
+            "name": "training_data_coordinator",
+            "module": "app.training.data_coordinator",
+            "getter": "get_training_data_coordinator",
+        },
+        {
+            "name": "elo_service",
+            "module": "app.training.elo_service",
+            "getter": "get_elo_service",
+        },
+        {
+            "name": "background_evaluator",
+            "module": "app.training.background_eval",
+            "getter": "get_background_evaluator",
+        },
+        {
+            "name": "quality_orchestrator",
+            "module": "app.quality.data_quality_orchestrator",
+            "getter": "get_quality_orchestrator",
+        },
+        # December 2025 orchestrators
+        {
+            "name": "selfplay_orchestrator",
+            "module": "app.coordination.selfplay_orchestrator",
+            "getter": "get_selfplay_orchestrator",
+        },
+        {
+            "name": "pipeline_orchestrator",
+            "module": "app.coordination.data_pipeline_orchestrator",
+            "getter": "get_pipeline_orchestrator",
+        },
+        {
+            "name": "task_lifecycle_coordinator",
+            "module": "app.coordination.task_lifecycle_coordinator",
+            "getter": "get_task_lifecycle_coordinator",
+        },
+        {
+            "name": "optimization_coordinator",
+            "module": "app.coordination.optimization_coordinator",
+            "getter": "get_optimization_coordinator",
+        },
+        {
+            "name": "metrics_orchestrator",
+            "module": "app.coordination.metrics_analysis_orchestrator",
+            "getter": "get_metrics_orchestrator",
+        },
+        {
+            "name": "resource_coordinator",
+            "module": "app.coordination.resource_monitoring_coordinator",
+            "getter": "get_resource_coordinator",
+        },
+        {
+            "name": "cache_orchestrator",
+            "module": "app.coordination.cache_coordination_orchestrator",
+            "getter": "get_cache_orchestrator",
+        },
+        {
+            "name": "model_coordinator",
+            "module": "app.coordination.model_lifecycle_coordinator",
+            "getter": "get_model_coordinator",
+        },
+        {
+            "name": "error_coordinator",
+            "module": "app.coordination.error_recovery_coordinator",
+            "getter": "get_error_coordinator",
+        },
+        {
+            "name": "leadership_coordinator",
+            "module": "app.coordination.leadership_coordinator",
+            "getter": "get_leadership_coordinator",
+        },
+        {
+            "name": "sync_scheduler",
+            "module": "app.coordination.sync_coordinator",
+            "getter": "get_sync_coordinator",
+        },
+        {
+            "name": "event_coordinator",
+            "module": "app.coordination.unified_event_coordinator",
+            "getter": "get_event_coordinator",
+        },
+    ]
+
+    for coord_def in known_coordinators:
+        name = coord_def["name"]
+        try:
+            # Dynamic import
+            module = __import__(coord_def["module"], fromlist=[coord_def["getter"]])
+            getter = getattr(module, coord_def["getter"])
+            coordinator = getter()
+
+            if coordinator is not None:
+                # Get health method if available
+                health_cb = None
+                if hasattr(coordinator, "is_healthy"):
+                    health_cb = coordinator.is_healthy
+                elif hasattr(coordinator, "get_health"):
+                    health_cb = lambda c=coordinator: c.get_health().get("healthy", True)
+
+                # Get shutdown method if available
+                shutdown_cb = None
+                if hasattr(coordinator, "shutdown"):
+                    shutdown_cb = coordinator.shutdown
+                elif hasattr(coordinator, "stop"):
+                    shutdown_cb = coordinator.stop
+
+                register_coordinator(
+                    name,
+                    coordinator,
+                    health_callback=health_cb,
+                    shutdown_callback=shutdown_cb,
+                    metadata={"auto_registered": True},
+                )
+                results[name] = True
+            else:
+                results[name] = False  # Coordinator not initialized yet
+
+        except ImportError:
+            results[name] = False
+        except Exception as e:
+            logger.debug(f"Could not register {name}: {e}")
+            results[name] = False
+
+    registered = sum(1 for v in results.values() if v)
+    logger.info(f"Auto-registered {registered}/{len(known_coordinators)} coordinators")
+    return results
+
+
+# ============================================
 # Auto-discovery of Known Orchestrators (December 2025)
 # ============================================
 
@@ -1214,6 +1484,32 @@ def get_orchestrator_inventory() -> Dict[str, Any]:
         "health": check_cluster_health(),
         "timestamp": datetime.now().isoformat(),
     }
+
+
+# ============================================
+# Module Exports
+# ============================================
+
+__all__ = [
+    # Core classes
+    "OrchestratorRegistry",
+    "OrchestratorRole",
+    "OrchestratorInfo",
+    # Singleton access
+    "get_registry",
+    # Health and status
+    "check_cluster_health",
+    # Coordinator registration (December 2025)
+    "register_coordinator",
+    "unregister_coordinator",
+    "get_coordinator",
+    "get_registered_coordinators",
+    "shutdown_all_coordinators",
+    "auto_register_known_coordinators",
+    # Discovery
+    "discover_and_register_orchestrators",
+    "get_orchestrator_inventory",
+]
 
 
 # ============================================

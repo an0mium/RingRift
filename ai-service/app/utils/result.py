@@ -43,7 +43,6 @@ from typing import (
     Optional,
     TypeVar,
     Union,
-    overload,
 )
 
 T = TypeVar("T")  # Success type

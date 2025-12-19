@@ -119,6 +119,7 @@ def get_tier_calibrator():
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scripts.lib.logging_config import setup_script_logging
+from scripts.lib.file_formats import is_gzip_file, open_jsonl_file
 
 logger = setup_script_logging("p2p_orchestrator")
 
@@ -142,70 +143,6 @@ def db_connection(db_path: str | Path, timeout: float = 30.0) -> Generator[sqlit
                 conn.close()
             except Exception:
                 pass
-
-
-def is_gzip_file(filepath: Path) -> bool:
-    """Check if a file is gzip-compressed by reading magic bytes."""
-    try:
-        with open(filepath, "rb") as f:
-            magic = f.read(2)
-            return magic == b'\x1f\x8b'  # Gzip magic number
-    except (IOError, OSError):
-        return False
-
-
-def open_jsonl_file(filepath: Path):
-    """Open a JSONL file, automatically detecting gzip compression.
-
-    Returns a context manager that yields lines as strings.
-    """
-    if is_gzip_file(filepath):
-        return gzip.open(filepath, "rt", encoding="utf-8", errors="replace")
-    else:
-        return open(filepath, "r", encoding="utf-8", errors="replace")
-
-
-def retry_operation(
-    func,
-    max_retries: int = 3,
-    initial_delay: float = 1.0,
-    backoff_factor: float = 2.0,
-    exceptions: tuple = (Exception,),
-):
-    """Retry a function with exponential backoff.
-
-    Args:
-        func: Function to retry (should be a callable with no args)
-        max_retries: Maximum number of retry attempts
-        initial_delay: Initial delay between retries in seconds
-        backoff_factor: Multiplier for delay after each retry
-        exceptions: Tuple of exception types to catch and retry
-
-    Returns:
-        The result of the function call
-
-    Raises:
-        The last exception if all retries fail
-    """
-    delay = initial_delay
-    last_exception = None
-
-    for attempt in range(max_retries + 1):
-        try:
-            return func()
-        except exceptions as e:
-            last_exception = e
-            if attempt < max_retries:
-                logger.warning(
-                    f"Operation failed (attempt {attempt + 1}/{max_retries + 1}): {e}. "
-                    f"Retrying in {delay:.1f}s..."
-                )
-                time.sleep(delay)
-                delay *= backoff_factor
-            else:
-                logger.error(f"Operation failed after {max_retries + 1} attempts: {e}")
-
-    raise last_exception
 
 
 # Centralized ramdrive utilities for auto-detection

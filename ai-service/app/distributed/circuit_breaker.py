@@ -43,8 +43,7 @@ import asyncio
 import random
 import time
 from contextlib import asynccontextmanager, contextmanager
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from enum import Enum
 from threading import RLock
 from typing import Any, Callable, Dict, Optional, TypeVar
@@ -53,7 +52,15 @@ T = TypeVar("T")
 
 # Import centralized circuit breaker configurations (December 2025)
 try:
-    from app.config.thresholds import CIRCUIT_BREAKER_CONFIGS
+    from app.config.coordination_defaults import (
+        CircuitBreakerDefaults,
+        get_circuit_breaker_configs,
+    )
+    CIRCUIT_BREAKER_CONFIGS = get_circuit_breaker_configs()
+    DEFAULT_FAILURE_THRESHOLD = CircuitBreakerDefaults.FAILURE_THRESHOLD
+    DEFAULT_RECOVERY_TIMEOUT = CircuitBreakerDefaults.RECOVERY_TIMEOUT
+    DEFAULT_MAX_BACKOFF = CircuitBreakerDefaults.MAX_BACKOFF
+    DEFAULT_HALF_OPEN_MAX_CALLS = CircuitBreakerDefaults.HALF_OPEN_MAX_CALLS
 except ImportError:
     # Fallback defaults if central config not available
     CIRCUIT_BREAKER_CONFIGS = {
@@ -63,6 +70,10 @@ except ImportError:
         "aria2": {"failure_threshold": 2, "recovery_timeout": 120.0},
         "rsync": {"failure_threshold": 2, "recovery_timeout": 90.0},
     }
+    DEFAULT_FAILURE_THRESHOLD = 5
+    DEFAULT_RECOVERY_TIMEOUT = 60.0
+    DEFAULT_MAX_BACKOFF = 600.0
+    DEFAULT_HALF_OPEN_MAX_CALLS = 1
 
 # ============================================
 # Prometheus Metrics (optional)
@@ -204,14 +215,14 @@ class CircuitBreaker:
 
     def __init__(
         self,
-        failure_threshold: int = 5,
-        recovery_timeout: float = 60.0,
-        half_open_max_calls: int = 1,
+        failure_threshold: int = DEFAULT_FAILURE_THRESHOLD,
+        recovery_timeout: float = DEFAULT_RECOVERY_TIMEOUT,
+        half_open_max_calls: int = DEFAULT_HALF_OPEN_MAX_CALLS,
         success_threshold: int = 1,
         on_state_change: Optional[Callable[[str, CircuitState, CircuitState], None]] = None,
         operation_type: str = "default",  # For Prometheus metrics labeling
         backoff_multiplier: float = 2.0,
-        max_backoff: float = 600.0,
+        max_backoff: float = DEFAULT_MAX_BACKOFF,
         jitter_factor: float = 0.1,
     ):
         self.failure_threshold = failure_threshold
@@ -687,9 +698,9 @@ class CircuitBreakerRegistry:
             if operation_type not in self._breakers:
                 config = self._configs.get(operation_type, {})
                 self._breakers[operation_type] = CircuitBreaker(
-                    failure_threshold=config.get("failure_threshold", 3),
-                    recovery_timeout=config.get("recovery_timeout", 60.0),
-                    half_open_max_calls=1,
+                    failure_threshold=config.get("failure_threshold", DEFAULT_FAILURE_THRESHOLD),
+                    recovery_timeout=config.get("recovery_timeout", DEFAULT_RECOVERY_TIMEOUT),
+                    half_open_max_calls=DEFAULT_HALF_OPEN_MAX_CALLS,
                     success_threshold=1,
                 )
             return self._breakers[operation_type]
@@ -806,7 +817,7 @@ class FallbackChain:
             op_type = op["operation_type"]
             func = op["func"]
             base_timeout = op["timeout"]
-            name = op["name"]
+            # name = op["name"]  # Available but not currently used
 
             # Check remaining budget
             remaining = self.remaining_budget
@@ -849,6 +860,108 @@ class FallbackChain:
         raise CircuitOpenError(f"All circuits open for {host}")
 
 
+# =============================================================================
+# Circuit Breaker Decorator (December 2025)
+# =============================================================================
+
+def with_circuit_breaker(
+    operation_type: str,
+    host_param: str = "host",
+):
+    """Decorator to wrap functions with circuit breaker protection.
+
+    Automatically records success/failure and blocks calls when circuit is open.
+
+    Args:
+        operation_type: Circuit breaker type (e.g., "ssh", "http", "p2p")
+        host_param: Name of the host parameter in the function signature
+
+    Usage:
+        @with_circuit_breaker("ssh", host_param="hostname")
+        async def ssh_execute(hostname: str, cmd: str):
+            # Implementation
+            pass
+
+        @with_circuit_breaker("http")
+        async def http_request(host: str, url: str):
+            # Implementation
+            pass
+
+    The decorator will:
+    1. Check if circuit is open before calling
+    2. Raise CircuitOpenError if circuit is open
+    3. Record success on normal return
+    4. Record failure on exception
+    """
+    import functools
+
+    def decorator(func):
+        @functools.wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            # Get host from kwargs or positional args
+            host = kwargs.get(host_param)
+            if host is None and args:
+                # Try to get from first positional arg
+                import inspect
+                sig = inspect.signature(func)
+                params = list(sig.parameters.keys())
+                if host_param in params:
+                    idx = params.index(host_param)
+                    if idx < len(args):
+                        host = args[idx]
+
+            host = host or "default"
+            breaker = get_operation_breaker(operation_type)
+
+            if not breaker.can_execute(host):
+                raise CircuitOpenError(
+                    f"Circuit '{operation_type}' is open for host '{host}'"
+                )
+
+            try:
+                result = await func(*args, **kwargs)
+                breaker.record_success(host)
+                return result
+            except Exception as e:
+                breaker.record_failure(host)
+                raise
+
+        @functools.wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            host = kwargs.get(host_param)
+            if host is None and args:
+                import inspect
+                sig = inspect.signature(func)
+                params = list(sig.parameters.keys())
+                if host_param in params:
+                    idx = params.index(host_param)
+                    if idx < len(args):
+                        host = args[idx]
+
+            host = host or "default"
+            breaker = get_operation_breaker(operation_type)
+
+            if not breaker.can_execute(host):
+                raise CircuitOpenError(
+                    f"Circuit '{operation_type}' is open for host '{host}'"
+                )
+
+            try:
+                result = func(*args, **kwargs)
+                breaker.record_success(host)
+                return result
+            except Exception as e:
+                breaker.record_failure(host)
+                raise
+
+        import asyncio
+        if asyncio.iscoroutinefunction(func):
+            return async_wrapper
+        return sync_wrapper
+
+    return decorator
+
+
 if __name__ == "__main__":
     # Demo
     breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=5.0)
@@ -870,7 +983,7 @@ if __name__ == "__main__":
     print("\nWaiting 6 seconds for recovery timeout...")
     time.sleep(6)
 
-    print(f"\nAfter timeout:")
+    print("\nAfter timeout:")
     status = breaker.get_status("host1")
     print(f"  {format_circuit_status(status)}")
     print(f"  Can execute? {breaker.can_execute('host1')}")

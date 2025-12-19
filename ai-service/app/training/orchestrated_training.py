@@ -143,7 +143,7 @@ class TrainingOrchestrator:
             logger.warning(f"[TrainingOrchestrator] Could not load checkpoint_manager: {e}")
             self.state.errors.append(f"checkpoint_manager: {e}")
 
-        # Load rollback manager
+        # Load rollback manager and wire regression→rollback automation (December 2025)
         if self.config.enable_rollback:
             try:
                 from app.training.rollback_manager import (
@@ -151,7 +151,25 @@ class TrainingOrchestrator:
                     wire_regression_to_rollback,
                     get_auto_rollback_handler,
                 )
-                # Note: RollbackManager needs a registry, will be set up later
+                from app.training.model_registry import get_model_registry
+
+                # Get registry and create rollback manager
+                registry = get_model_registry()
+                self._rollback_manager = RollbackManager(registry)
+
+                # Wire regression detector to auto-rollback handler
+                # This enables automatic rollback on CRITICAL regressions
+                # and pending rollbacks requiring approval for SEVERE regressions
+                auto_handler = wire_regression_to_rollback(
+                    registry=registry,
+                    auto_rollback_enabled=self.config.auto_rollback,
+                    require_approval_for_severe=True,
+                    subscribe_to_events=True,
+                )
+                logger.info(
+                    f"[TrainingOrchestrator] Regression→Rollback wired "
+                    f"(auto={self.config.auto_rollback})"
+                )
                 managers_loaded.append("rollback_manager")
             except ImportError as e:
                 logger.warning(f"[TrainingOrchestrator] Could not load rollback_manager: {e}")

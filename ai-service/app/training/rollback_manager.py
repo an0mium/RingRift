@@ -603,8 +603,10 @@ class AutoRollbackHandler:
             bus.subscribe(DataEventType.REGRESSION_DETECTED, self._on_regression_event)
             bus.subscribe(DataEventType.REGRESSION_SEVERE, self._on_regression_event)
             bus.subscribe(DataEventType.REGRESSION_CRITICAL, self._on_regression_event)
+            # Also subscribe to ELO_SIGNIFICANT_CHANGE for early detection (December 2025)
+            bus.subscribe(DataEventType.ELO_SIGNIFICANT_CHANGE, self._on_elo_significant_change)
             self._event_subscribed = True
-            logger.info("[AutoRollbackHandler] Subscribed to REGRESSION_DETECTED events")
+            logger.info("[AutoRollbackHandler] Subscribed to regression and Elo events")
             return True
         except Exception as e:
             logger.warning(f"[AutoRollbackHandler] Failed to subscribe to events: {e}")
@@ -680,6 +682,35 @@ class AutoRollbackHandler:
         )
 
         self.on_regression(pseudo_event)
+
+    def _on_elo_significant_change(self, event) -> None:
+        """Handle ELO_SIGNIFICANT_CHANGE event for early regression detection (December 2025).
+
+        Large negative Elo changes may indicate a problem before formal regression
+        detection triggers. This allows earlier warnings.
+        """
+        payload = event.payload if hasattr(event, 'payload') else {}
+        model_id = payload.get("model_id", "")
+        elo_delta = payload.get("elo_delta", 0.0)
+
+        if not model_id:
+            return
+
+        # Only react to significant drops (>50 Elo loss)
+        if elo_delta < -50:
+            logger.warning(
+                f"[AutoRollbackHandler] Significant Elo drop detected: "
+                f"{model_id} {elo_delta:.1f} Elo, monitoring for regression"
+            )
+            # Track for potential rollback consideration
+            if model_id not in self._pending_rollbacks:
+                self._pending_rollbacks[model_id] = {
+                    "severity": "elo_drop",
+                    "reason": f"Significant Elo drop: {elo_delta:.1f}",
+                    "elo_delta": elo_delta,
+                    "detected_at": payload.get("timestamp", ""),
+                    "auto_approved": False,  # Requires confirmation for Elo-based rollback
+                }
 
     def _execute_rollback(self, model_id: str, reason: str, triggered_by: str) -> bool:
         """Execute a rollback via the RollbackManager."""

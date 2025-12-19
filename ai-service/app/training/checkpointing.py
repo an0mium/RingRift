@@ -38,6 +38,16 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
+# Use centralized executor pool (December 2025)
+try:
+    from app.coordination.async_bridge_manager import (
+        get_bridge_manager,
+        get_shared_executor,
+    )
+    HAS_BRIDGE_MANAGER = True
+except ImportError:
+    HAS_BRIDGE_MANAGER = False
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -213,17 +223,43 @@ class AsyncCheckpointer:
         checkpointer.shutdown()
     """
 
-    def __init__(self, max_pending: int = 2):
+    def __init__(self, max_pending: int = 2, use_shared_executor: bool = True):
         """
         Initialize the async checkpointer.
 
         Args:
             max_pending: Maximum number of pending checkpoint saves.
                 Older pending saves will be waited on before new ones start.
+            use_shared_executor: If True and AsyncBridgeManager is available,
+                use the shared executor pool. Otherwise create a private executor.
         """
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="checkpoint")
+        self._owns_executor = False
+        self._use_shared = use_shared_executor and HAS_BRIDGE_MANAGER
+
+        if self._use_shared:
+            # Use centralized executor pool (December 2025)
+            self._executor = get_shared_executor()
+            # Register with bridge manager for lifecycle coordination
+            try:
+                manager = get_bridge_manager()
+                manager.register_bridge(
+                    "async_checkpointer",
+                    self,
+                    self._on_bridge_shutdown,
+                )
+            except Exception as e:
+                logger.debug(f"Could not register with bridge manager: {e}")
+        else:
+            # Fallback to private executor
+            self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="checkpoint")
+            self._owns_executor = True
+
         self._pending: deque = deque(maxlen=max_pending)
         self._max_pending = max_pending
+
+    def _on_bridge_shutdown(self) -> None:
+        """Callback when bridge manager is shutting down."""
+        self.wait_for_pending()
 
     def save_async(
         self,
@@ -328,7 +364,16 @@ class AsyncCheckpointer:
     def shutdown(self) -> None:
         """Shutdown the executor and wait for pending saves."""
         self.wait_for_pending()
-        self._executor.shutdown(wait=True)
+        # Only shutdown if we own the executor (not using shared pool)
+        if self._owns_executor:
+            self._executor.shutdown(wait=True)
+        else:
+            # Unregister from bridge manager
+            try:
+                manager = get_bridge_manager()
+                manager.unregister_bridge("async_checkpointer")
+            except Exception:
+                pass
 
 
 class GracefulShutdownHandler:

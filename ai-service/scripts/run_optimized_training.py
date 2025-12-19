@@ -41,10 +41,12 @@ sys.path.insert(0, str(AI_SERVICE_ROOT))
 # Training coordination imports
 try:
     from app.coordination.distributed_lock import DistributedLock
+    from app.config.coordination_defaults import LockDefaults
     HAS_DISTRIBUTED_LOCK = True
 except ImportError:
     HAS_DISTRIBUTED_LOCK = False
     DistributedLock = None
+    LockDefaults = None
 
 try:
     from app.training.training_registry import register_trained_model
@@ -224,7 +226,8 @@ def run_training_job(job: TrainingJob, initial_model: Optional[Path] = None) -> 
     # Acquire distributed lock to prevent concurrent training on same config
     lock = None
     if HAS_DISTRIBUTED_LOCK:
-        lock = DistributedLock(f"training:{config_key}", lock_timeout=7200)
+        lock_timeout = LockDefaults.TRAINING_LOCK_TIMEOUT if LockDefaults else 7200
+        lock = DistributedLock(f"training:{config_key}", lock_timeout=lock_timeout)
         if not lock.acquire(timeout=60, blocking=True):
             print(f"[Training] Could not acquire lock for {config_key}, another training may be in progress")
             return False, "Lock contention"

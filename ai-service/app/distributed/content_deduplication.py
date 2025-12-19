@@ -26,9 +26,9 @@ import sqlite3
 import time
 
 from app.utils.checksum_utils import compute_string_checksum
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 logger = logging.getLogger(__name__)
 

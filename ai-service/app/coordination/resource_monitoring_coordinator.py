@@ -110,6 +110,9 @@ class BackpressureEvent:
     duration: float = 0.0  # Filled in when released
 
 
+ResourceAlert = BackpressureEvent
+
+
 @dataclass
 class ResourceStats:
     """Aggregate resource statistics."""
@@ -373,10 +376,139 @@ class ResourceMonitoringCoordinator:
             violations.append(f"Disk {node.disk_used_percent:.0f}%")
 
         if violations and not node.backpressure_active:
+            # Activate backpressure (December 2025)
+            reason = ", ".join(violations)
+            level = self._determine_backpressure_level(node)
+            self._activate_node_backpressure(node.node_id, level, reason)
             logger.debug(
                 f"[ResourceMonitoringCoordinator] Threshold violations on {node.node_id}: "
-                f"{', '.join(violations)}"
+                f"{reason}"
             )
+        elif not violations and node.backpressure_active:
+            # Release backpressure (December 2025)
+            self._release_node_backpressure(node.node_id)
+
+    def _determine_backpressure_level(self, node: NodeResourceState) -> BackpressureLevel:
+        """Determine backpressure level based on node metrics."""
+        max_util = max(node.gpu_utilization, node.memory_used_percent, node.disk_used_percent)
+        if max_util > 95:
+            return BackpressureLevel.CRITICAL
+        elif max_util > 90:
+            return BackpressureLevel.HIGH
+        elif max_util > 85:
+            return BackpressureLevel.MEDIUM
+        return BackpressureLevel.LOW
+
+    def _activate_node_backpressure(self, node_id: str, level: BackpressureLevel, reason: str) -> None:
+        """Activate backpressure for a node and emit event (December 2025)."""
+        bp_event = BackpressureEvent(
+            node_id=node_id,
+            activated=True,
+            level=level,
+            reason=reason,
+        )
+        self._active_backpressure[node_id] = bp_event
+        self._backpressure_history.append(bp_event)
+
+        if node_id in self._nodes:
+            self._nodes[node_id].backpressure_active = True
+            self._nodes[node_id].backpressure_level = level
+
+        self._recalculate_cluster_backpressure()
+
+        # Emit BACKPRESSURE_ACTIVATED event
+        self._emit_backpressure_event(node_id, True, level, reason)
+
+        # Notify callbacks
+        for callback in self._backpressure_callbacks:
+            try:
+                callback(node_id, True, level)
+            except Exception as e:
+                logger.error(f"[ResourceMonitoringCoordinator] Callback error: {e}")
+
+        logger.warning(f"[ResourceMonitoringCoordinator] Backpressure activated: {node_id} ({level.value})")
+
+    def _release_node_backpressure(self, node_id: str) -> None:
+        """Release backpressure for a node and emit event (December 2025)."""
+        if node_id in self._active_backpressure:
+            activation = self._active_backpressure.pop(node_id)
+            duration = time.time() - activation.timestamp
+
+            release_event = BackpressureEvent(
+                node_id=node_id,
+                activated=False,
+                level=BackpressureLevel.NONE,
+                reason="thresholds cleared",
+                duration=duration,
+            )
+            self._backpressure_history.append(release_event)
+
+        if node_id in self._nodes:
+            self._nodes[node_id].backpressure_active = False
+            self._nodes[node_id].backpressure_level = BackpressureLevel.NONE
+
+        self._recalculate_cluster_backpressure()
+
+        # Emit BACKPRESSURE_RELEASED event
+        self._emit_backpressure_event(node_id, False, BackpressureLevel.NONE, "thresholds cleared")
+
+        # Notify callbacks
+        for callback in self._backpressure_callbacks:
+            try:
+                callback(node_id, False, BackpressureLevel.NONE)
+            except Exception as e:
+                logger.error(f"[ResourceMonitoringCoordinator] Callback error: {e}")
+
+        logger.info(f"[ResourceMonitoringCoordinator] Backpressure released: {node_id}")
+
+    def _emit_backpressure_event(self, node_id: str, activated: bool, level: BackpressureLevel, reason: str) -> None:
+        """Emit BACKPRESSURE_ACTIVATED or BACKPRESSURE_RELEASED event (December 2025).
+
+        Uses centralized event_emitters for consistent event emission.
+        """
+        try:
+            import asyncio
+
+            if activated:
+                from app.coordination.event_emitters import emit_backpressure_activated
+
+                try:
+                    loop = asyncio.get_running_loop()
+                    asyncio.create_task(emit_backpressure_activated(
+                        node_id=node_id,
+                        level=level.value,
+                        reason=reason,
+                        resource_type="",
+                        utilization=0.0,
+                    ))
+                except RuntimeError:
+                    asyncio.run(emit_backpressure_activated(
+                        node_id=node_id,
+                        level=level.value,
+                        reason=reason,
+                        resource_type="",
+                        utilization=0.0,
+                    ))
+            else:
+                from app.coordination.event_emitters import emit_backpressure_released
+
+                try:
+                    loop = asyncio.get_running_loop()
+                    asyncio.create_task(emit_backpressure_released(
+                        node_id=node_id,
+                        previous_level=level.value,
+                    ))
+                except RuntimeError:
+                    asyncio.run(emit_backpressure_released(
+                        node_id=node_id,
+                        previous_level=level.value,
+                    ))
+
+            logger.debug(f"[ResourceMonitoringCoordinator] Emitted backpressure event for {node_id}")
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.debug(f"[ResourceMonitoringCoordinator] Failed to emit backpressure event: {e}")
 
     def _update_cluster_backpressure(self, utilization: float) -> None:
         """Update cluster backpressure based on utilization."""
@@ -591,6 +723,30 @@ def get_cluster_capacity() -> Dict[str, int]:
         "available": stats.available_task_slots,
     }
 
+def update_node_resources(
+    node_id: str,
+    gpu_utilization: Optional[float] = None,
+    cpu_utilization: Optional[float] = None,
+    memory_used_percent: Optional[float] = None,
+    disk_used_percent: Optional[float] = None,
+    task_slots_available: Optional[int] = None,
+    task_slots_total: Optional[int] = None,
+) -> NodeResourceState:
+    """Convenience function to update node resources."""
+    return get_resource_coordinator().update_node_resources(
+        node_id=node_id,
+        gpu_utilization=gpu_utilization,
+        cpu_utilization=cpu_utilization,
+        memory_used_percent=memory_used_percent,
+        disk_used_percent=disk_used_percent,
+        task_slots_available=task_slots_available,
+        task_slots_total=task_slots_total,
+    )
+
+def check_resource_thresholds(node_state: NodeResourceState) -> None:
+    """Convenience function to check resource thresholds for a node."""
+    get_resource_coordinator()._check_node_thresholds(node_state)
+
 
 __all__ = [
     "ResourceMonitoringCoordinator",
@@ -598,9 +754,12 @@ __all__ = [
     "BackpressureLevel",
     "NodeResourceState",
     "BackpressureEvent",
+    "ResourceAlert",
     "ResourceStats",
     "get_resource_coordinator",
     "wire_resource_events",
     "is_cluster_under_backpressure",
     "get_cluster_capacity",
+    "update_node_resources",
+    "check_resource_thresholds",
 ]

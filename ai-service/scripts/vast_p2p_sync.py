@@ -43,9 +43,9 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
-from scripts.lib.logging_config import setup_script_logging
+from scripts.lib.logging_config import setup_logging
 
-logger = setup_script_logging("vast_p2p_sync", log_file=str(LOG_FILE))
+logger = setup_logging(log_file=str(LOG_FILE))
 
 
 def _load_p2p_leader_from_config() -> str:

@@ -7,7 +7,7 @@ and enable additional capabilities beyond policy and value prediction.
 
 import math
 import logging
-from typing import Dict, List, Optional, Tuple, Any, Callable
+from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 from abc import ABC, abstractmethod
@@ -642,12 +642,9 @@ if TORCH_AVAILABLE:
                 if name not in grad_norms or name not in rel_inv_rates:
                     continue
 
-                # Target gradient norm
-                target_norm = avg_grad_norm * (rel_inv_rates[name] / avg_rate) ** self.alpha
-
-                # Loss for weight update
-                weight_loss = abs(grad_norms[name] * weights_dict[name] - target_norm)
-                weight_loss_tensor = torch.tensor(weight_loss, requires_grad=True)
+                # Target gradient norm (for GradNorm algorithm)
+                # Note: target used for weight normalization, not direct loss
+                _ = avg_grad_norm * (rel_inv_rates[name] / avg_rate) ** self.alpha
 
             # Normalize weights (use already-extracted values)
             weight_sum = sum(weights_dict.values())

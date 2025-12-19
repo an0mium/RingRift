@@ -109,6 +109,7 @@ class DataEventType(Enum):
     # Registry & metrics events
     REGISTRY_UPDATED = "registry_updated"
     METRICS_UPDATED = "metrics_updated"
+    CACHE_INVALIDATED = "cache_invalidated"
 
     # Regression detection events (from unified RegressionDetector)
     REGRESSION_DETECTED = "regression_detected"  # Any regression
@@ -184,6 +185,21 @@ class DataEventType(Enum):
     # Encoding/Processing events (December 2025)
     ENCODING_BATCH_COMPLETED = "encoding_batch_completed"
     CALIBRATION_COMPLETED = "calibration_completed"
+
+    # Error Recovery & Resilience events (December 2025)
+    TRAINING_ROLLBACK_NEEDED = "training_rollback_needed"  # Rollback to previous checkpoint
+    TRAINING_ROLLBACK_COMPLETED = "training_rollback_completed"
+    MODEL_CORRUPTED = "model_corrupted"  # Model file corruption detected
+    COORDINATOR_HEALTH_DEGRADED = "coordinator_health_degraded"  # Coordinator not fully healthy
+    COORDINATOR_SHUTDOWN = "coordinator_shutdown"  # Graceful coordinator shutdown
+    COORDINATOR_INIT_FAILED = "coordinator_init_failed"  # Coordinator failed to initialize
+    HANDLER_TIMEOUT = "handler_timeout"  # Event handler timed out
+    HANDLER_FAILED = "handler_failed"  # Event handler threw exception
+    TASK_ABANDONED = "task_abandoned"  # Task intentionally abandoned (not orphaned)
+    RESOURCE_CONSTRAINT_DETECTED = "resource_constraint_detected"  # Resource limit hit
+
+    # Coordinator heartbeat events (December 2025)
+    COORDINATOR_HEARTBEAT = "coordinator_heartbeat"  # Liveness signal from coordinator
 
 
 @dataclass
@@ -465,6 +481,7 @@ CROSS_PROCESS_EVENT_TYPES = {
     DataEventType.CMAES_TRIGGERED,
     DataEventType.NAS_TRIGGERED,
     DataEventType.TRAINING_THRESHOLD_REACHED,
+    DataEventType.CACHE_INVALIDATED,
     # Regression events - unified detection across all processes
     DataEventType.REGRESSION_DETECTED,
     DataEventType.REGRESSION_SEVERE,

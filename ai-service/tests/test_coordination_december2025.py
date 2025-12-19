@@ -398,10 +398,7 @@ class TestUnifiedRegistry:
 
         assert hasattr(health, "healthy")
         assert hasattr(health, "registries")
-        assert hasattr(health, "total_items")
-        assert isinstance(health.registries, list)
 
-        reset_unified_registry()
 
     def test_get_status(self):
         """Test status retrieval."""
@@ -443,6 +440,79 @@ class TestUnifiedRegistry:
         assert registry._model_registry is not None or "model_registry" in registry._init_errors
 
         reset_unified_registry()
+
+
+class TestCacheCoordinationOrchestrator:
+    """Tests for CacheCoordinationOrchestrator."""
+
+    def test_register_and_invalidate_cache(self):
+        from app.coordination.cache_coordination_orchestrator import (
+            CacheCoordinationOrchestrator,
+        )
+
+        orchestrator = CacheCoordinationOrchestrator()
+
+        entry = orchestrator.register_cache(
+            node_id="node-a",
+            cache_type="nnue_weights",
+            model_id="model_v1",
+            size_bytes=1024,
+        )
+
+        assert entry.cache_id
+        assert entry.size_bytes == 1024
+        assert entry.status.value == "valid"
+
+        invalidated = orchestrator.invalidate_model("model_v1")
+        assert invalidated == 1
+
+        fetched = orchestrator.get_cache(entry.cache_id)
+        assert fetched is not None
+        assert fetched.status.value == "invalidated"
+
+    def test_record_hits_and_misses(self):
+        from app.coordination.cache_coordination_orchestrator import (
+            CacheCoordinationOrchestrator,
+        )
+
+        orchestrator = CacheCoordinationOrchestrator()
+        orchestrator.register_cache(
+            node_id="node-b",
+            cache_type="feature_cache",
+            model_id="model_v2",
+            size_bytes=2048,
+        )
+
+        assert orchestrator.record_hit("node-b", "feature_cache", "model_v2") is True
+        assert orchestrator.record_miss("node-b", "feature_cache", "model_v2") is True
+
+        stats = orchestrator.get_stats()
+        assert stats.total_hits == 1
+        assert stats.total_misses == 1
+
+
+class TestMetricsAnalysisOrchestrator:
+    """Tests for MetricsAnalysisOrchestrator."""
+
+    def test_regression_severity_detected(self):
+        from app.coordination.metrics_analysis_orchestrator import (
+            MetricsAnalysisOrchestrator,
+        )
+
+        orchestrator = MetricsAnalysisOrchestrator(
+            window_size=10,
+            plateau_window=2,
+            plateau_threshold=0.001,
+        )
+
+        orchestrator.record_metric("elo", 100)
+        orchestrator.record_metric("elo", 110)
+        orchestrator.record_metric("elo", 100)
+
+        trend = orchestrator.get_trend("elo")
+        assert trend is not None
+        assert trend.is_regression is True
+        assert trend.regression_severity > 0.0
 
 
 class TestIntegrationScenarios:

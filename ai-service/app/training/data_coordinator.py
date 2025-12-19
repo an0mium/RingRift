@@ -606,6 +606,8 @@ class TrainingDataCoordinator:
         if self._event_bus_subscription:
             return True
 
+        subscribed = False
+
         try:
             from app.coordination.stage_events import (
                 StageEvent,
@@ -621,14 +623,48 @@ class TrainingDataCoordinator:
             bus.subscribe(StageEvent.PROMOTION_COMPLETE, on_promotion_complete)
             self._event_bus_subscription = on_promotion_complete
             logger.info("Subscribed to PROMOTION_COMPLETE events")
-            return True
+            subscribed = True
 
         except ImportError:
             logger.debug("Stage event bus not available")
-            return False
         except Exception as e:
             logger.warning(f"Failed to subscribe to promotion events: {e}")
-            return False
+
+        # Also subscribe to quality events (December 2025)
+        try:
+            from app.distributed.data_events import (
+                DataEventType,
+                get_event_bus as get_data_event_bus,
+            )
+
+            data_bus = get_data_event_bus()
+
+            async def on_low_quality_warning(event):
+                """Handle LOW_QUALITY_DATA_WARNING to deprioritize low-quality sources."""
+                payload = event.payload if hasattr(event, 'payload') else {}
+                config_key = payload.get("config", "")
+                quality_ratio = payload.get("quality_ratio", 0.0)
+
+                if config_key and quality_ratio > 0.3:
+                    logger.info(
+                        f"[DataCoordinator] Low quality warning for {config_key} "
+                        f"({quality_ratio:.1%}), deprioritizing data source"
+                    )
+                    # Track deprioritized sources
+                    if not hasattr(self, '_deprioritized_sources'):
+                        self._deprioritized_sources = set()
+                    self._deprioritized_sources.add(config_key)
+
+            data_bus.subscribe(DataEventType.LOW_QUALITY_DATA_WARNING, on_low_quality_warning)
+            logger.info("[DataCoordinator] Subscribed to LOW_QUALITY_DATA_WARNING events")
+            subscribed = True
+
+        except ImportError:
+            logger.debug("Data event bus not available")
+        except Exception as e:
+            logger.warning(f"[DataCoordinator] Failed to subscribe to quality events: {e}")
+
+        return subscribed
 
 
 # =============================================================================

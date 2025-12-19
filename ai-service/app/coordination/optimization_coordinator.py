@@ -234,7 +234,7 @@ class OptimizationCoordinator:
         return f"opt_{int(time.time())}_{self._run_id_counter}"
 
     async def _on_plateau_detected(self, event) -> None:
-        """Handle PLATEAU_DETECTED event."""
+        """Handle PLATEAU_DETECTED event - may auto-trigger CMAES."""
         payload = event.payload
 
         try:
@@ -264,6 +264,49 @@ class OptimizationCoordinator:
             f"[OptimizationCoordinator] Plateau detected: {plateau_type.value}, "
             f"metric={plateau.metric_name}, epochs={plateau.epochs_since_improvement}"
         )
+
+        # Auto-trigger CMAES if enabled and conditions met (December 2025)
+        if self._should_auto_trigger_cmaes(plateau):
+            logger.info(
+                f"[OptimizationCoordinator] Auto-triggering CMAES due to plateau: "
+                f"{plateau.metric_name} stalled for {plateau.epochs_since_improvement} epochs"
+            )
+            self.trigger_cmaes(
+                reason=f"auto_plateau_{plateau.plateau_type.value}",
+                parameters=["learning_rate", "weight_decay", "batch_size"],
+            )
+
+    def _should_auto_trigger_cmaes(self, plateau: "PlateauDetection") -> bool:
+        """Check if CMAES should be auto-triggered for this plateau.
+
+        Args:
+            plateau: The detected plateau
+
+        Returns:
+            True if CMAES should be triggered
+        """
+        # Don't trigger if optimization already running
+        if self._current_optimization is not None:
+            return False
+
+        # Don't trigger if we've done too many optimizations recently
+        recent_cutoff = time.time() - 3600  # 1 hour
+        recent_runs = [
+            r for r in self._optimization_history
+            if r.start_time > recent_cutoff
+        ]
+        if len(recent_runs) >= 3:
+            return False
+
+        # Trigger conditions:
+        # - Loss plateau with 15+ epochs stalled
+        # - ELO plateau with 10+ epochs stalled
+        if plateau.plateau_type == PlateauType.LOSS:
+            return plateau.epochs_since_improvement >= 15
+        elif plateau.plateau_type == PlateauType.ELO:
+            return plateau.epochs_since_improvement >= 10
+
+        return False
 
     async def _on_cmaes_triggered(self, event) -> None:
         """Handle CMAES_TRIGGERED event."""
@@ -423,6 +466,48 @@ class OptimizationCoordinator:
             except Exception as e:
                 logger.error(f"[OptimizationCoordinator] Optimization callback error: {e}")
 
+    def _emit_optimization_triggered(self, run: OptimizationRun) -> None:
+        """Emit CMAES_TRIGGERED or NAS_TRIGGERED event (December 2025).
+
+        Uses centralized event_emitters for consistent event emission.
+        """
+        try:
+            from app.coordination.event_emitters import emit_optimization_triggered
+            import asyncio
+
+            if run.optimization_type not in (OptimizationType.CMAES, OptimizationType.NAS):
+                return
+
+            optimization_type = run.optimization_type.value
+
+            try:
+                loop = asyncio.get_running_loop()
+                asyncio.create_task(emit_optimization_triggered(
+                    optimization_type=optimization_type,
+                    run_id=run.run_id,
+                    reason=run.trigger_reason,
+                    parameters_searched=len(run.parameters_searched),
+                    search_space=run.search_space,
+                    generations=run.generations,
+                    population_size=run.population_size,
+                ))
+            except RuntimeError:
+                asyncio.run(emit_optimization_triggered(
+                    optimization_type=optimization_type,
+                    run_id=run.run_id,
+                    reason=run.trigger_reason,
+                    parameters_searched=len(run.parameters_searched),
+                    search_space=run.search_space,
+                    generations=run.generations,
+                    population_size=run.population_size,
+                ))
+
+            logger.debug(f"[OptimizationCoordinator] Emitted optimization triggered event")
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.debug(f"[OptimizationCoordinator] Failed to emit event: {e}")
+
     def is_optimization_running(self) -> bool:
         """Check if an optimization is currently running."""
         return self._current_optimization is not None
@@ -505,6 +590,9 @@ class OptimizationCoordinator:
 
         self._current_optimization = run
 
+        # Emit CMAES_TRIGGERED event (December 2025)
+        self._emit_optimization_triggered(run)
+
         logger.info(f"[OptimizationCoordinator] Triggered CMA-ES: {run.run_id}")
         return run
 
@@ -535,6 +623,9 @@ class OptimizationCoordinator:
         )
 
         self._current_optimization = run
+
+        # Emit NAS_TRIGGERED event (December 2025)
+        self._emit_optimization_triggered(run)
 
         logger.info(f"[OptimizationCoordinator] Triggered NAS: {run.run_id}")
         return run
@@ -650,6 +741,18 @@ def is_optimization_running() -> bool:
     """Convenience function to check if optimization is running."""
     return get_optimization_coordinator().is_optimization_running()
 
+def get_optimization_stats() -> OptimizationStats:
+    """Convenience function to get optimization statistics."""
+    return get_optimization_coordinator().get_stats()
+
+def trigger_cmaes(reason: str = "manual") -> Optional[OptimizationRun]:
+    """Convenience function to trigger CMA-ES optimization."""
+    return get_optimization_coordinator().trigger_cmaes(reason)
+
+def trigger_nas(reason: str = "manual") -> Optional[OptimizationRun]:
+    """Convenience function to trigger NAS optimization."""
+    return get_optimization_coordinator().trigger_nas(reason)
+
 
 def trigger_hyperparameter_optimization(reason: str = "manual") -> Optional[OptimizationRun]:
     """Convenience function to trigger CMA-ES."""
@@ -667,5 +770,8 @@ __all__ = [
     "get_optimization_coordinator",
     "wire_optimization_events",
     "is_optimization_running",
+    "get_optimization_stats",
+    "trigger_cmaes",
+    "trigger_nas",
     "trigger_hyperparameter_optimization",
 ]

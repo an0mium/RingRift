@@ -87,10 +87,12 @@ except ImportError:
 
 try:
     from app.coordination.distributed_lock import DistributedLock
+    from app.config.coordination_defaults import LockDefaults
     HAS_DISTRIBUTED_LOCK = True
 except ImportError:
     HAS_DISTRIBUTED_LOCK = False
     DistributedLock = None
+    LockDefaults = None
 
 # Training enhancements
 try:
@@ -381,7 +383,8 @@ class OptimizedTrainingPipeline:
         if config_key in self._active_locks:
             return True  # Already have lock
 
-        lock = DistributedLock(f"training:{config_key}", lock_timeout=7200)
+        lock_timeout = LockDefaults.TRAINING_LOCK_TIMEOUT if LockDefaults else 7200
+        lock = DistributedLock(f"training:{config_key}", lock_timeout=lock_timeout)
         if lock.acquire(timeout=timeout, blocking=True):
             self._active_locks[config_key] = lock
             logger.info(f"Acquired training lock for {config_key}")

@@ -76,11 +76,15 @@ PRIORITY_BANDWIDTH_FACTOR = {
     "background": 0.1,  # 10% bandwidth
 }
 
-# Max concurrent transfers per host
-MAX_CONCURRENT_TRANSFERS = 3
-
-# Bandwidth measurement window (seconds)
-MEASUREMENT_WINDOW = 300  # 5 minutes
+# Use centralized defaults (December 2025)
+try:
+    from app.config.coordination_defaults import BandwidthDefaults
+    MAX_CONCURRENT_TRANSFERS = BandwidthDefaults.MAX_CONCURRENT_TRANSFERS
+    MEASUREMENT_WINDOW = BandwidthDefaults.MEASUREMENT_WINDOW
+except ImportError:
+    # Fallback defaults
+    MAX_CONCURRENT_TRANSFERS = 3
+    MEASUREMENT_WINDOW = 300  # 5 minutes
 
 
 class TransferPriority(Enum):

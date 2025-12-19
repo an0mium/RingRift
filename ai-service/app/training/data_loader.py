@@ -140,11 +140,11 @@ class FileHandle:
                     ], dtype=np.int64)
                     filtered_count = self._total_samples - len(self._valid_indices)
                     if filtered_count > 0:
-                        logger.info(f"HDF5 policy filtering: {filtered_count} empty policies filtered from {path}")
+                        logger.info(f"HDF5 policy filtering: {filtered_count} empty policies filtered from {self.path}")
                 except (KeyError, TypeError, IndexError) as e:
                     # If we can't filter, use all indices but log the issue
                     logger.warning(
-                        f"HDF5 policy filtering failed for {path}: {e}. "
+                        f"HDF5 policy filtering failed for {self.path}: {e}. "
                         f"Using all {self._total_samples} samples (may include empty policies)"
                     )
                     self._valid_indices = np.arange(

@@ -23,7 +23,7 @@ import os
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Generator, Optional, Union
+from typing import Generator, Optional, Union
 
 
 @contextmanager

@@ -27,7 +27,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union, TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -39,6 +39,10 @@ from .shadow_validation import (
     AsyncShadowValidator, create_async_shadow_validator,
     StateValidator, create_state_validator,
 )
+
+if TYPE_CHECKING:
+    from app.models import BoardType, GameState
+    from app.ai.nnue_policy import RingRiftNNUEWithPolicy
 
 logger = logging.getLogger(__name__)
 

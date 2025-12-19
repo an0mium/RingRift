@@ -500,7 +500,413 @@ from app.coordination.orchestrator_registry import (
     CrossCoordinatorHealthProtocol,
     get_cross_coordinator_health,
     check_cluster_health,
+    # Coordinator Registration (December 2025)
+    register_coordinator,
+    unregister_coordinator,
+    get_coordinator,
+    get_registered_coordinators,
+    shutdown_all_coordinators,
+    auto_register_known_coordinators,
 )
+
+# Async Bridge Manager (December 2025 - shared executor pool)
+from app.coordination.async_bridge_manager import (
+    AsyncBridgeManager,
+    get_bridge_manager,
+    reset_bridge_manager,
+    get_shared_executor,
+    run_in_bridge_pool,
+)
+
+# Task Decorators (December 2025 - lifecycle management)
+from app.coordination.task_decorators import (
+    TaskContext,
+    coordinate_task,
+    coordinate_async_task,
+    task_context,
+    get_current_task_context,
+)
+
+# Event Emitters (December 2025 - centralized event emission)
+from app.coordination.event_emitters import (
+    emit_training_started,
+    emit_training_complete,
+    emit_training_complete_sync,
+    emit_selfplay_complete,
+    emit_evaluation_complete,
+    emit_promotion_complete,
+    emit_sync_complete,
+    emit_quality_updated,
+    emit_task_complete,
+    # New emitters (December 2025)
+    emit_optimization_triggered,
+    emit_plateau_detected,
+    emit_regression_detected,
+    emit_backpressure_activated,
+    emit_backpressure_released,
+    emit_cache_invalidated,
+    emit_host_online,
+    emit_host_offline,
+    emit_node_recovered,
+)
+
+# Unified Registry (December 2025 - registry facade)
+from app.coordination.unified_registry import (
+    UnifiedRegistry,
+    ClusterHealth,
+    get_unified_registry,
+    reset_unified_registry,
+)
+
+# =============================================================================
+# Orchestrator Imports (December 2025 - event-driven coordination)
+# =============================================================================
+
+# SelfplayOrchestrator - unified selfplay event coordination
+from app.coordination.selfplay_orchestrator import (
+    SelfplayOrchestrator,
+    SelfplayType,
+    SelfplayTaskInfo,
+    SelfplayStats,
+    get_selfplay_orchestrator,
+    wire_selfplay_events,
+    emit_selfplay_completion,
+    get_selfplay_stats,
+)
+
+# DataPipelineOrchestrator - unified pipeline stage coordination
+from app.coordination.data_pipeline_orchestrator import (
+    DataPipelineOrchestrator,
+    PipelineStage,
+    StageTransition,
+    IterationRecord,
+    PipelineStats,
+    get_pipeline_orchestrator,
+    wire_pipeline_events,
+    get_pipeline_status,
+    get_current_pipeline_stage,
+)
+
+# TaskLifecycleCoordinator - unified task event monitoring
+from app.coordination.task_lifecycle_coordinator import (
+    TaskLifecycleCoordinator,
+    TaskStatus,
+    TrackedTask,
+    TaskLifecycleStats,
+    get_task_lifecycle_coordinator,
+    wire_task_events,
+    get_task_stats,
+    get_active_task_count,
+)
+
+# OptimizationCoordinator - unified optimization management
+from app.coordination.optimization_coordinator import (
+    OptimizationCoordinator,
+    OptimizationType,
+    OptimizationRun,
+    OptimizationStats,
+    get_optimization_coordinator,
+    wire_optimization_events,
+    trigger_cmaes,
+    trigger_nas,
+    get_optimization_stats,
+)
+
+# MetricsAnalysisOrchestrator - unified metrics analysis
+from app.coordination.metrics_analysis_orchestrator import (
+    MetricsAnalysisOrchestrator,
+    MetricType,
+    MetricTracker,
+    AnalysisResult,
+    get_metrics_orchestrator,
+    wire_metrics_events,
+    record_metric,
+    analyze_metrics,
+)
+
+# ResourceMonitoringCoordinator - unified resource monitoring
+from app.coordination.resource_monitoring_coordinator import (
+    ResourceMonitoringCoordinator,
+    NodeResourceState,
+    ResourceAlert,
+    ResourceStats,
+    get_resource_coordinator,
+    wire_resource_events,
+    update_node_resources,
+    check_resource_thresholds,
+)
+
+# CacheCoordinationOrchestrator - unified cache management
+from app.coordination.cache_coordination_orchestrator import (
+    CacheCoordinationOrchestrator,
+    CacheType,
+    CacheStatus,
+    CacheEntry,
+    NodeCacheState,
+    CacheStats,
+    get_cache_orchestrator,
+    wire_cache_events,
+    register_cache,
+    invalidate_model_caches,
+)
+
+# DaemonManager - unified lifecycle management for all background services (December 2025)
+from app.coordination.daemon_manager import (
+    DaemonManager,
+    DaemonType,
+    DaemonState,
+    DaemonInfo,
+    DaemonManagerConfig,
+    get_daemon_manager,
+    reset_daemon_manager,
+    setup_signal_handlers,
+)
+
+
+def _init_with_retry(
+    name: str,
+    init_func,
+    max_retries: int = 3,
+    base_delay: float = 0.5,
+    logger=None,
+) -> tuple:
+    """Initialize a coordinator with retry logic.
+
+    Args:
+        name: Coordinator name for logging
+        init_func: Function that returns (instance, subscribed_flag)
+        max_retries: Maximum retry attempts
+        base_delay: Base delay for exponential backoff
+        logger: Logger instance
+
+    Returns:
+        (instance, success, error_message)
+    """
+    import time as _time
+
+    last_error = None
+
+    for attempt in range(max_retries):
+        try:
+            instance, subscribed = init_func()
+
+            if not subscribed:
+                raise RuntimeError(f"{name} failed to subscribe to events")
+
+            if logger:
+                if attempt > 0:
+                    logger.info(f"[init_with_retry] {name} succeeded on attempt {attempt + 1}")
+                else:
+                    logger.info(f"[initialize_all_coordinators] {name} wired")
+
+            return (instance, True, None)
+
+        except Exception as e:
+            last_error = str(e)
+            if logger:
+                logger.warning(
+                    f"[init_with_retry] {name} attempt {attempt + 1}/{max_retries} failed: {e}"
+                )
+
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                _time.sleep(delay)
+
+    if logger:
+        logger.error(f"[initialize_all_coordinators] {name} failed after {max_retries} attempts")
+
+    return (None, False, last_error)
+
+
+def initialize_all_coordinators(
+    auto_trigger_pipeline: bool = False,
+    heartbeat_threshold: float = 60.0,
+    max_retries: int = 3,
+    retry_delay: float = 0.5,
+    wrap_handlers: bool = True,
+) -> dict:
+    """Initialize all orchestrators and coordinators with event wiring (December 2025).
+
+    This is the single entry point to bootstrap all coordination infrastructure.
+    It wires all event subscriptions and returns a status dictionary.
+
+    Features:
+    - Retry logic with exponential backoff for failed subscriptions
+    - Validation that subscriptions actually succeeded
+    - Emits COORDINATOR_INIT_FAILED for persistent failures
+    - Optionally wraps handlers with resilience (exception boundaries + timeouts)
+
+    Args:
+        auto_trigger_pipeline: If True, pipeline stages auto-trigger downstream
+        heartbeat_threshold: Seconds without heartbeat to mark tasks orphaned
+        max_retries: Maximum retry attempts per coordinator
+        retry_delay: Base delay for exponential backoff
+        wrap_handlers: If True, wrap handlers with resilience
+
+    Returns:
+        Dict with initialization status for each orchestrator
+    """
+    import asyncio
+    import logging
+    logger = logging.getLogger(__name__)
+
+    status = {
+        "selfplay": False,
+        "pipeline": False,
+        "task_lifecycle": False,
+        "optimization": False,
+        "metrics": False,
+        "resources": False,
+        "cache": False,
+        "event_coordinator": False,
+    }
+    errors = {}
+    instances = {}
+
+    # Define init functions that return (instance, subscribed)
+    def init_task_lifecycle():
+        coord = wire_task_events(heartbeat_threshold=heartbeat_threshold)
+        return (coord, coord._subscribed)
+
+    def init_resources():
+        coord = wire_resource_events()
+        return (coord, coord._subscribed)
+
+    def init_cache():
+        coord = wire_cache_events()
+        return (coord, coord._subscribed)
+
+    def init_selfplay():
+        coord = wire_selfplay_events()
+        return (coord, coord._subscribed)
+
+    def init_pipeline():
+        coord = wire_pipeline_events(auto_trigger=auto_trigger_pipeline)
+        return (coord, coord._subscribed)
+
+    def init_optimization():
+        coord = wire_optimization_events()
+        return (coord, coord._subscribed)
+
+    def init_metrics():
+        coord = wire_metrics_events()
+        return (coord, coord._subscribed)
+
+    # Initialize in dependency order (foundational first)
+    init_order = [
+        ("task_lifecycle", init_task_lifecycle),
+        ("resources", init_resources),
+        ("cache", init_cache),
+        ("selfplay", init_selfplay),
+        ("pipeline", init_pipeline),
+        ("optimization", init_optimization),
+        ("metrics", init_metrics),
+    ]
+
+    for name, init_func in init_order:
+        instance, success, error = _init_with_retry(
+            name,
+            init_func,
+            max_retries=max_retries,
+            base_delay=retry_delay,
+            logger=logger,
+        )
+        status[name] = success
+        if instance:
+            instances[name] = instance
+        if error:
+            errors[name] = error
+
+    # Wrap handlers with resilience if requested
+    if wrap_handlers:
+        try:
+            from app.coordination.handler_resilience import make_handlers_resilient
+
+            for name, instance in instances.items():
+                make_handlers_resilient(instance, name)
+            logger.debug("[initialize_all_coordinators] Wrapped handlers with resilience")
+        except ImportError:
+            logger.debug("[initialize_all_coordinators] handler_resilience not available")
+
+    # Start UnifiedEventCoordinator
+    try:
+        stats = get_event_coordinator_stats()
+        if not stats.get("is_running", False):
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(start_event_coordinator())
+                status["event_coordinator"] = True
+            except RuntimeError:
+                status["event_coordinator"] = asyncio.run(start_event_coordinator())
+        else:
+            status["event_coordinator"] = True
+        logger.info("[initialize_all_coordinators] UnifiedEventCoordinator started")
+    except Exception as e:
+        logger.error(f"[initialize_all_coordinators] UnifiedEventCoordinator failed: {e}")
+        errors["event_coordinator"] = str(e)
+
+    # Emit COORDINATOR_INIT_FAILED for any failures (best effort)
+    if errors:
+        try:
+            from app.distributed.data_events import DataEvent, DataEventType, get_event_bus
+            import time as _time
+
+            bus = get_event_bus()
+            for name, error in errors.items():
+                event = DataEvent(
+                    event_type=DataEventType.COORDINATOR_INIT_FAILED,
+                    payload={
+                        "coordinator_name": name,
+                        "error": error,
+                        "timestamp": _time.time(),
+                    },
+                    source="initialize_all_coordinators",
+                )
+                try:
+                    loop = asyncio.get_running_loop()
+                    asyncio.create_task(bus.publish(event))
+                except RuntimeError:
+                    asyncio.run(bus.publish(event))
+        except Exception:
+            pass
+
+    # Log summary
+    wired_count = sum(1 for k, v in status.items() if v and not k.startswith("_"))
+    total_count = len([k for k in status.keys() if not k.startswith("_")])
+
+    if wired_count == total_count:
+        logger.info(
+            f"[initialize_all_coordinators] All {total_count} orchestrators/coordinators initialized"
+        )
+    else:
+        logger.warning(
+            f"[initialize_all_coordinators] Initialized {wired_count}/{total_count} "
+            f"orchestrators/coordinators. Failed: {list(errors.keys())}"
+        )
+
+    status["_errors"] = errors
+    status["_instances"] = list(instances.keys())
+
+    return status
+
+
+def get_all_coordinator_status() -> dict:
+    """Get unified status from all orchestrators and coordinators.
+
+    Returns:
+        Dict with status from each orchestrator
+    """
+    return {
+        "selfplay": get_selfplay_orchestrator().get_status(),
+        "pipeline": get_pipeline_orchestrator().get_status(),
+        "task_lifecycle": get_task_lifecycle_coordinator().get_status(),
+        "optimization": get_optimization_coordinator().get_status(),
+        "metrics": get_metrics_orchestrator().get_status(),
+        "resources": get_resource_coordinator().get_status(),
+        "cache": get_cache_orchestrator().get_status(),
+        "event_coordinator": get_event_coordinator_stats(),
+    }
+
 
 __all__ = [
     # Task Coordinator (canonical)
@@ -846,4 +1252,130 @@ __all__ = [
     "CrossCoordinatorHealthProtocol",
     "get_cross_coordinator_health",
     "check_cluster_health",
+    # Coordinator Registration (December 2025)
+    "register_coordinator",
+    "unregister_coordinator",
+    "get_coordinator",
+    "get_registered_coordinators",
+    "shutdown_all_coordinators",
+    "auto_register_known_coordinators",
+    # Async Bridge Manager (December 2025)
+    "AsyncBridgeManager",
+    "get_bridge_manager",
+    "reset_bridge_manager",
+    "get_shared_executor",
+    "run_in_bridge_pool",
+    # Task Decorators (December 2025)
+    "TaskContext",
+    "coordinate_task",
+    "coordinate_async_task",
+    "task_context",
+    "get_current_task_context",
+    # Event Emitters (December 2025)
+    "emit_training_started",
+    "emit_training_complete",
+    "emit_training_complete_sync",
+    "emit_selfplay_complete",
+    "emit_evaluation_complete",
+    "emit_promotion_complete",
+    "emit_sync_complete",
+    "emit_quality_updated",
+    "emit_task_complete",
+    # New emitters (December 2025)
+    "emit_optimization_triggered",
+    "emit_plateau_detected",
+    "emit_regression_detected",
+    "emit_backpressure_activated",
+    "emit_backpressure_released",
+    "emit_cache_invalidated",
+    "emit_host_online",
+    "emit_host_offline",
+    "emit_node_recovered",
+    # Unified Registry (December 2025)
+    "UnifiedRegistry",
+    "ClusterHealth",
+    "get_unified_registry",
+    "reset_unified_registry",
+    # ==========================================================================
+    # Orchestrators (December 2025 - event-driven coordination)
+    # ==========================================================================
+    # SelfplayOrchestrator
+    "SelfplayOrchestrator",
+    "SelfplayType",
+    "SelfplayTaskInfo",
+    "SelfplayStats",
+    "get_selfplay_orchestrator",
+    "wire_selfplay_events",
+    "emit_selfplay_completion",
+    "get_selfplay_stats",
+    # DataPipelineOrchestrator
+    "DataPipelineOrchestrator",
+    "PipelineStage",
+    "StageTransition",
+    "IterationRecord",
+    "PipelineStats",
+    "get_pipeline_orchestrator",
+    "wire_pipeline_events",
+    "get_pipeline_status",
+    "get_current_pipeline_stage",
+    # TaskLifecycleCoordinator
+    "TaskLifecycleCoordinator",
+    "TaskStatus",
+    "TrackedTask",
+    "TaskLifecycleStats",
+    "get_task_lifecycle_coordinator",
+    "wire_task_events",
+    "get_task_stats",
+    "get_active_task_count",
+    # OptimizationCoordinator
+    "OptimizationCoordinator",
+    "OptimizationType",
+    "OptimizationRun",
+    "OptimizationStats",
+    "get_optimization_coordinator",
+    "wire_optimization_events",
+    "trigger_cmaes",
+    "trigger_nas",
+    "get_optimization_stats",
+    # MetricsAnalysisOrchestrator
+    "MetricsAnalysisOrchestrator",
+    "MetricType",
+    "MetricTracker",
+    "AnalysisResult",
+    "get_metrics_orchestrator",
+    "wire_metrics_events",
+    "record_metric",
+    "analyze_metrics",
+    # ResourceMonitoringCoordinator
+    "ResourceMonitoringCoordinator",
+    "NodeResourceState",
+    "ResourceAlert",
+    "ResourceStats",
+    "get_resource_coordinator",
+    "wire_resource_events",
+    "update_node_resources",
+    "check_resource_thresholds",
+    # CacheCoordinationOrchestrator
+    "CacheCoordinationOrchestrator",
+    "CacheType",
+    "CacheStatus",
+    "CacheEntry",
+    "NodeCacheState",
+    "CacheStats",
+    "get_cache_orchestrator",
+    "wire_cache_events",
+    "register_cache",
+    "invalidate_model_caches",
+    # DaemonManager (December 2025)
+    "DaemonManager",
+    "DaemonType",
+    "DaemonState",
+    "DaemonInfo",
+    "DaemonManagerConfig",
+    "get_daemon_manager",
+    "reset_daemon_manager",
+    "setup_signal_handlers",
+    # Unified Initialization (December 2025)
+    "initialize_all_coordinators",
+    "get_all_coordinator_status",
 ]

@@ -53,6 +53,14 @@ from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# Use centralized event emitters (December 2025)
+try:
+    from app.coordination.event_emitters import emit_selfplay_complete as _emit_selfplay_event
+    HAS_CENTRALIZED_EMITTERS = True
+except ImportError:
+    HAS_CENTRALIZED_EMITTERS = False
+    _emit_selfplay_event = None
+
 
 class SelfplayType(Enum):
     """Types of selfplay tasks."""
@@ -149,6 +157,11 @@ class SelfplayOrchestrator:
         # Callbacks for completion events
         self._completion_callbacks: List[Callable[[SelfplayTaskInfo], None]] = []
 
+        # Backpressure tracking (December 2025)
+        self._backpressure_nodes: Dict[str, str] = {}  # node_id -> backpressure level
+        self._paused_for_regression: bool = False
+        self._resource_constrained_nodes: Dict[str, float] = {}  # node_id -> timestamp
+
     def subscribe_to_events(self) -> bool:
         """Subscribe to selfplay-related events from the event bus.
 
@@ -168,8 +181,18 @@ class SelfplayOrchestrator:
             bus.subscribe(DataEventType.TASK_COMPLETED, self._on_task_completed)
             bus.subscribe(DataEventType.TASK_FAILED, self._on_task_failed)
 
+            # Subscribe to task cleanup events (December 2025)
+            bus.subscribe(DataEventType.TASK_ORPHANED, self._on_task_orphaned)
+            bus.subscribe(DataEventType.TASK_ABANDONED, self._on_task_abandoned)
+
+            # Subscribe to resource/backpressure events (December 2025)
+            bus.subscribe(DataEventType.BACKPRESSURE_ACTIVATED, self._on_backpressure_activated)
+            bus.subscribe(DataEventType.BACKPRESSURE_RELEASED, self._on_backpressure_released)
+            bus.subscribe(DataEventType.RESOURCE_CONSTRAINT, self._on_resource_constraint)
+            bus.subscribe(DataEventType.REGRESSION_DETECTED, self._on_regression_detected)
+
             self._subscribed = True
-            logger.info("[SelfplayOrchestrator] Subscribed to task lifecycle events")
+            logger.info("[SelfplayOrchestrator] Subscribed to task lifecycle and resource events")
             return True
 
         except ImportError:
@@ -309,6 +332,73 @@ class SelfplayOrchestrator:
             f"[SelfplayOrchestrator] Selfplay task {task_id} failed: {task.error}"
         )
 
+    async def _on_task_orphaned(self, event) -> None:
+        """Handle TASK_ORPHANED event - cleanup orphaned selfplay tasks.
+
+        This event is received when a task hasn't sent a heartbeat for too long,
+        indicating the worker may have crashed or become unresponsive.
+        """
+        payload = event.payload
+        task_id = payload.get("task_id", "")
+        task_type = payload.get("task_type", "")
+
+        # Only handle selfplay tasks
+        if not self._is_selfplay_task(task_type):
+            return
+
+        if task_id not in self._active_tasks:
+            return
+
+        task = self._active_tasks.pop(task_id)
+        task.success = False
+        task.end_time = time.time()
+        task.error = f"Task orphaned: {payload.get('reason', 'no heartbeat')}"
+
+        # Record as failed for statistics
+        self._record_completion(task, payload)
+
+        logger.warning(
+            f"[SelfplayOrchestrator] Selfplay task orphaned: {task_id} on {task.node_id} - "
+            f"cleaning up (partial games={task.games_generated})"
+        )
+
+    async def _on_task_abandoned(self, event) -> None:
+        """Handle TASK_ABANDONED event - cleanup intentionally abandoned tasks.
+
+        This event is received when a task is explicitly abandoned (e.g., due to
+        backpressure, resource constraints, or pipeline requirements).
+        """
+        payload = event.payload
+        task_id = payload.get("task_id", "")
+        task_type = payload.get("task_type", "")
+
+        # Only handle selfplay tasks
+        if not self._is_selfplay_task(task_type):
+            return
+
+        if task_id not in self._active_tasks:
+            return
+
+        task = self._active_tasks.pop(task_id)
+        task.success = False
+        task.end_time = time.time()
+        task.error = f"Task abandoned: {payload.get('reason', 'unknown')}"
+
+        # Record as failed for statistics
+        self._record_completion(task, payload)
+
+        # If games were generated before abandonment, they may still be usable
+        if task.games_generated > 0:
+            logger.info(
+                f"[SelfplayOrchestrator] Selfplay task abandoned with partial results: "
+                f"{task_id}, games={task.games_generated}"
+            )
+        else:
+            logger.warning(
+                f"[SelfplayOrchestrator] Selfplay task abandoned: {task_id} - "
+                f"reason: {payload.get('reason', 'unknown')}"
+            )
+
     def _record_completion(self, task: SelfplayTaskInfo, payload: Dict) -> None:
         """Record task completion in history and stats."""
         # Update statistics
@@ -337,7 +427,38 @@ class SelfplayOrchestrator:
         )
 
     async def _emit_selfplay_complete(self, task: SelfplayTaskInfo) -> bool:
-        """Emit SELFPLAY_COMPLETE stage event."""
+        """Emit SELFPLAY_COMPLETE stage event using centralized emitter."""
+        # Use centralized event emitter (December 2025)
+        if HAS_CENTRALIZED_EMITTERS and _emit_selfplay_event:
+            try:
+                # Map selfplay type to string for centralized emitter
+                selfplay_type_str = {
+                    SelfplayType.GPU_ACCELERATED: "gpu_accelerated",
+                    SelfplayType.CANONICAL: "canonical",
+                }.get(task.selfplay_type, "standard")
+
+                result = await _emit_selfplay_event(
+                    task_id=task.task_id,
+                    board_type=task.board_type,
+                    num_players=task.num_players,
+                    games_generated=task.games_generated,
+                    success=task.success,
+                    node_id=task.node_id,
+                    duration_seconds=task.duration,
+                    selfplay_type=selfplay_type_str,
+                    iteration=task.iteration,
+                    error=task.error if not task.success else None,
+                    games_per_second=task.games_per_second,
+                )
+                if result:
+                    logger.debug(f"[SelfplayOrchestrator] Emitted via centralized emitter")
+                return result
+
+            except Exception as e:
+                logger.debug(f"[SelfplayOrchestrator] Centralized emit failed: {e}")
+                # Fall through to legacy emit
+
+        # Legacy fallback
         try:
             from app.coordination.stage_events import (
                 StageCompletionResult,
@@ -346,7 +467,6 @@ class SelfplayOrchestrator:
             )
             from datetime import datetime
 
-            # Determine stage event type based on selfplay type
             if task.selfplay_type == SelfplayType.GPU_ACCELERATED:
                 event_type = StageEvent.GPU_SELFPLAY_COMPLETE
             elif task.selfplay_type == SelfplayType.CANONICAL:
@@ -405,6 +525,119 @@ class SelfplayOrchestrator:
             f"[SelfplayOrchestrator] Stage event: CANONICAL_SELFPLAY_COMPLETE "
             f"success={result.success}, games={result.games_generated}"
         )
+
+    # =========================================================================
+    # Resource/Backpressure Event Handlers (December 2025)
+    # =========================================================================
+
+    async def _on_backpressure_activated(self, event) -> None:
+        """Handle BACKPRESSURE_ACTIVATED - slow down selfplay on affected node."""
+        payload = event.payload
+        node_id = payload.get("node_id", "")
+        level = payload.get("level", "medium")
+
+        if not node_id:
+            return
+
+        self._backpressure_nodes[node_id] = level
+
+        # Log with different severity based on level
+        if level in ("critical", "high"):
+            logger.warning(
+                f"[SelfplayOrchestrator] Backpressure {level.upper()} on {node_id} - "
+                f"selfplay may be throttled"
+            )
+        else:
+            logger.info(
+                f"[SelfplayOrchestrator] Backpressure {level} activated on {node_id}"
+            )
+
+    async def _on_backpressure_released(self, event) -> None:
+        """Handle BACKPRESSURE_RELEASED - resume normal selfplay on node."""
+        payload = event.payload
+        node_id = payload.get("node_id", "")
+
+        if node_id and node_id in self._backpressure_nodes:
+            prev_level = self._backpressure_nodes.pop(node_id)
+            logger.info(
+                f"[SelfplayOrchestrator] Backpressure released on {node_id} "
+                f"(was {prev_level})"
+            )
+
+    async def _on_resource_constraint(self, event) -> None:
+        """Handle RESOURCE_CONSTRAINT_DETECTED - track constrained nodes."""
+        payload = event.payload
+        node_id = payload.get("node_id", "")
+        constraint_type = payload.get("constraint_type", "unknown")
+
+        if not node_id:
+            return
+
+        self._resource_constrained_nodes[node_id] = time.time()
+
+        logger.warning(
+            f"[SelfplayOrchestrator] Resource constraint ({constraint_type}) "
+            f"detected on {node_id} - consider reducing selfplay load"
+        )
+
+    async def _on_regression_detected(self, event) -> None:
+        """Handle REGRESSION_DETECTED - pause selfplay if model regressed."""
+        payload = event.payload
+        severity = payload.get("severity", "minor")
+        metric_name = payload.get("metric_name") or payload.get("metric", "")
+
+        if severity in ("severe", "critical"):
+            self._paused_for_regression = True
+            logger.warning(
+                f"[SelfplayOrchestrator] {severity.upper()} regression detected "
+                f"in {metric_name} - selfplay should pause until resolved"
+            )
+        else:
+            logger.info(
+                f"[SelfplayOrchestrator] Minor regression detected in {metric_name}"
+            )
+
+    def is_node_under_backpressure(self, node_id: str) -> bool:
+        """Check if a node is under backpressure.
+
+        Args:
+            node_id: Node to check
+
+        Returns:
+            True if node has active backpressure
+        """
+        return node_id in self._backpressure_nodes
+
+    def get_node_backpressure_level(self, node_id: str) -> Optional[str]:
+        """Get backpressure level for a node.
+
+        Args:
+            node_id: Node to check
+
+        Returns:
+            Backpressure level string or None if no backpressure
+        """
+        return self._backpressure_nodes.get(node_id)
+
+    def is_paused_for_regression(self) -> bool:
+        """Check if selfplay is paused due to model regression."""
+        return self._paused_for_regression
+
+    def clear_regression_pause(self) -> None:
+        """Clear the regression pause flag."""
+        if self._paused_for_regression:
+            self._paused_for_regression = False
+            logger.info("[SelfplayOrchestrator] Regression pause cleared")
+
+    def get_constrained_nodes(self) -> List[str]:
+        """Get list of nodes with recent resource constraints."""
+        # Return nodes with constraints in the last 5 minutes
+        cutoff = time.time() - 300.0
+        return [
+            node_id
+            for node_id, timestamp in self._resource_constrained_nodes.items()
+            if timestamp > cutoff
+        ]
 
     def register_task(
         self,
@@ -544,6 +777,11 @@ class SelfplayOrchestrator:
             "by_type": stats.by_type,
             "subscribed": self._subscribed,
             "history_size": len(self._completed_history),
+            # Backpressure tracking (December 2025)
+            "nodes_under_backpressure": list(self._backpressure_nodes.keys()),
+            "backpressure_levels": dict(self._backpressure_nodes),
+            "paused_for_regression": self._paused_for_regression,
+            "constrained_nodes": self.get_constrained_nodes(),
         }
 
     def clear_history(self) -> int:

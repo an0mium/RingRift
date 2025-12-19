@@ -64,6 +64,59 @@ from app.utils.time_constants import SECONDS_PER_DAY
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    # Limits and configuration
+    "ResourceLimits",
+    "LIMITS",
+    # Core check functions
+    "check_disk_space",
+    "check_disk_for_write",
+    "check_memory",
+    "check_cpu",
+    "check_gpu_memory",
+    "can_proceed",
+    "wait_for_resources",
+    # Usage info functions
+    "get_disk_usage",
+    "get_memory_usage",
+    "get_cpu_usage",
+    "get_gpu_memory_usage",
+    "get_resource_status",
+    # Memory pressure management
+    "MemoryPressureLevel",
+    "PRESSURE_THRESHOLDS",
+    "get_memory_pressure_level",
+    "get_psi_memory_pressure",
+    "trigger_memory_cleanup",
+    "check_memory_and_cleanup",
+    # Memory monitoring
+    "MemoryPressureMonitor",
+    "start_memory_monitor",
+    "stop_memory_monitor",
+    "register_oom_signal_handler",
+    "adjust_oom_score",
+    "get_oom_score",
+    # Disk pressure management
+    "DiskPressureLevel",
+    "DISK_PRESSURE_THRESHOLDS",
+    "get_disk_pressure_level",
+    "trigger_disk_cleanup",
+    "check_disk_and_cleanup",
+    # Disk monitoring
+    "DiskPressureMonitor",
+    "start_disk_monitor",
+    "stop_disk_monitor",
+    # Cleanup functions
+    "cleanup_old_logs",
+    "cleanup_old_checkpoints",
+    "cleanup_temp_files",
+    "cleanup_old_games",
+    # GPU utilities
+    "clear_gpu_memory",
+    # Utility
+    "get_ai_service_root",
+]
+
 # Initialize Prometheus metrics if available
 if HAS_PROMETHEUS:
     PROM_CPU_USAGE = Gauge(
@@ -1878,7 +1931,7 @@ if __name__ == "__main__":
     print(f"LOW priority operations: {'PAUSED' if level >= 2 else 'OK'}")
     print(f"NORMAL operations: {'PAUSED' if level >= 3 else 'OK'}")
     print(f"HIGH priority operations: {'PAUSED' if level >= 4 else 'OK'}")
-    print(f"CRITICAL operations: OK")
+    print("CRITICAL operations: OK")
 
     print("\nRecommended actions:")
     for action in get_recommended_actions():

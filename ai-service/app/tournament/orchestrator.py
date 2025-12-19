@@ -35,12 +35,25 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+# Event bus integration for training feedback (December 2025)
+try:
+    from app.distributed.data_events import (
+        DataEventType,
+        get_event_bus,
+        emit_elo_updated,
+    )
+    HAS_EVENT_BUS = True
+except ImportError:
+    HAS_EVENT_BUS = False
+    emit_elo_updated = None
 
 logger = logging.getLogger(__name__)
 
@@ -269,7 +282,51 @@ class TournamentOrchestrator:
             for eval_result in evaluation_results:
                 self._record_evaluation_metrics(eval_result)
 
+        # Emit evaluation events for training feedback (December 2025)
+        self._emit_evaluation_events(candidate_model, evaluation_results, summary)
+
         return summary, evaluation_results
+
+    def _emit_evaluation_events(
+        self,
+        candidate_id: str,
+        evaluation_results: List[EvaluationResult],
+        summary: TournamentSummary,
+    ) -> None:
+        """Emit events after evaluation for training feedback loop (December 2025).
+
+        Emits ELO_UPDATED for each evaluation result, which triggers:
+        - PromotionController to check for auto-promotion
+        - CurriculumFeedback to adjust training priorities
+        - RollbackManager to detect regressions
+        """
+        if not HAS_EVENT_BUS or not emit_elo_updated:
+            return
+
+        try:
+            for eval_result in evaluation_results:
+                # Emit Elo update for the candidate vs each baseline
+                try:
+                    asyncio.get_event_loop().create_task(
+                        emit_elo_updated(
+                            model_id=eval_result.candidate_id,
+                            new_elo=summary.final_ratings.get(eval_result.candidate_id, 1500),
+                            elo_delta=eval_result.elo_delta,
+                            games_played=eval_result.games_played,
+                            opponent_id=eval_result.baseline_id,
+                            source="tournament_orchestrator",
+                        )
+                    )
+                except RuntimeError:
+                    # No event loop running
+                    pass
+
+            logger.debug(
+                f"[TournamentOrchestrator] Emitted {len(evaluation_results)} "
+                f"evaluation events for {candidate_id}"
+            )
+        except Exception as e:
+            logger.warning(f"[TournamentOrchestrator] Failed to emit events: {e}")
 
     def run_shadow_eval(
         self,

@@ -35,13 +35,41 @@ import shutil
 import subprocess
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Callable, List, Tuple
 
 from app.utils.paths import AI_SERVICE_ROOT
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    # Configuration
+    "RamdriveConfig",
+    "RamdriveStatus",
+    "SystemResources",
+    # Constants
+    "RAMDRIVE_PATHS",
+    "RINGRIFT_SUBDIR",
+    # Core functions
+    "detect_ramdrive",
+    "get_data_directory",
+    "get_games_directory",
+    "get_logs_directory",
+    "get_models_directory",
+    "get_checkpoints_directory",
+    "is_ramdrive_available",
+    "get_ramdrive_path",
+    "should_use_ramdrive",
+    "get_auto_storage_path",
+    "get_system_resources",
+    "log_storage_recommendation",
+    # Syncer class
+    "RamdriveSyncer",
+    # Argument parsing helpers
+    "add_ramdrive_args",
+    "get_config_from_args",
+]
 
 # Standard ramdrive locations
 RAMDRIVE_PATHS = [

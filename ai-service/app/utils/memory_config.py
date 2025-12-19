@@ -5,6 +5,10 @@ import os
 
 import psutil
 
+__all__ = [
+    "MemoryConfig",
+]
+
 
 @dataclass
 class MemoryConfig:

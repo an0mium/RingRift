@@ -22,6 +22,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional, Tuple
 
+__all__ = [
+    "derive_victory_type",
+    "derive_stalemate_tiebreaker",
+    "validate_victory_type",
+    "validate_stalemate_tiebreaker",
+    "VICTORY_TYPES",
+    "STALEMATE_TIEBREAKERS",
+]
+
 if TYPE_CHECKING:
     from app.models import GameState
 

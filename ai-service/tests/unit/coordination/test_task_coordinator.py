@@ -13,9 +13,9 @@ from unittest.mock import MagicMock, patch
 from app.coordination.task_coordinator import (
     TaskType,
     ResourceType,
-    atomic_write_json,
-    safe_read_json,
 )
+# Use centralized JSON utilities (atomic write and safe read)
+from app.utils.json_utils import save_json as atomic_write_json, load_json as safe_read_json
 
 
 class TestTaskType:
@@ -154,16 +154,14 @@ class TestSafeReadJson:
         result = safe_read_json(filepath, default={"default": True})
         assert result == {"default": True}
 
-    def test_reads_backup_on_corruption(self, temp_dir):
-        """Should read backup file if main file is corrupt."""
+    def test_returns_default_on_corruption(self, temp_dir):
+        """Should return default for corrupt JSON (no backup fallback)."""
         filepath = temp_dir / "test.json"
-        backup = filepath.with_suffix(".json.bak")
-
         filepath.write_text("corrupt data")
-        backup.write_text('{"backup": true}')
 
-        result = safe_read_json(filepath, default=None)
-        assert result == {"backup": True}
+        # load_json returns default for corrupt files
+        result = safe_read_json(filepath, default={"fallback": True})
+        assert result == {"fallback": True}
 
     def test_empty_list_as_valid_json(self, temp_dir):
         """Should correctly read empty list."""

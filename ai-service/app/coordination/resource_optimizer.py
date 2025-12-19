@@ -74,14 +74,21 @@ except ImportError:
     SCALE_UP_THRESHOLD = float(os.environ.get("RINGRIFT_SCALE_UP_THRESHOLD", "55"))
     SCALE_DOWN_THRESHOLD = float(os.environ.get("RINGRIFT_SCALE_DOWN_THRESHOLD", "85"))
 
-# PID controller parameters for workload adjustment
-PID_KP = float(os.environ.get("RINGRIFT_PID_KP", "0.3"))  # Proportional gain
-PID_KI = float(os.environ.get("RINGRIFT_PID_KI", "0.05"))  # Integral gain
-PID_KD = float(os.environ.get("RINGRIFT_PID_KD", "0.1"))  # Derivative gain
-
-# Update intervals
-UTILIZATION_UPDATE_INTERVAL = 10  # seconds
-OPTIMIZATION_INTERVAL = 30  # seconds
+# PID controller parameters - use centralized defaults (December 2025)
+try:
+    from app.config.coordination_defaults import PIDDefaults, UtilizationDefaults
+    PID_KP = PIDDefaults.KP
+    PID_KI = PIDDefaults.KI
+    PID_KD = PIDDefaults.KD
+    UTILIZATION_UPDATE_INTERVAL = UtilizationDefaults.UPDATE_INTERVAL
+    OPTIMIZATION_INTERVAL = UtilizationDefaults.OPTIMIZATION_INTERVAL
+except ImportError:
+    # Fallback to env vars or defaults
+    PID_KP = float(os.environ.get("RINGRIFT_PID_KP", "0.3"))
+    PID_KI = float(os.environ.get("RINGRIFT_PID_KI", "0.05"))
+    PID_KD = float(os.environ.get("RINGRIFT_PID_KD", "0.1"))
+    UTILIZATION_UPDATE_INTERVAL = 10  # seconds
+    OPTIMIZATION_INTERVAL = 30  # seconds
 
 # Database path
 from app.utils.paths import DATA_DIR
@@ -2054,10 +2061,18 @@ def get_max_selfplay_for_node(
     # Limits calibrated from real workloads:
     # - GH200 with 64 cores runs 40-50 jobs at 60-80% GPU util
     # - Consumer GPUs need VRAM-aware limits
-    CONSUMER_MAX = 16  # Consumer GPUs (raised from 12 for high-CPU machines)
-    PROSUMER_MAX = 32  # High-end consumer (raised from 24)
-    DATACENTER_MAX = 64  # Datacenter GPUs (H100, GH200, A100)
-    HIGH_CPU_MAX = 128  # For machines with 100+ CPU cores
+    # Use centralized defaults (December 2025)
+    try:
+        from app.config.coordination_defaults import ResourceLimitsDefaults
+        CONSUMER_MAX = ResourceLimitsDefaults.CONSUMER_MAX
+        PROSUMER_MAX = ResourceLimitsDefaults.PROSUMER_MAX
+        DATACENTER_MAX = ResourceLimitsDefaults.DATACENTER_MAX
+        HIGH_CPU_MAX = ResourceLimitsDefaults.HIGH_CPU_MAX
+    except ImportError:
+        CONSUMER_MAX = 16  # Consumer GPUs
+        PROSUMER_MAX = 32  # High-end consumer
+        DATACENTER_MAX = 64  # Datacenter GPUs (H100, GH200, A100)
+        HIGH_CPU_MAX = 128  # For machines with 100+ CPU cores
 
     # High-CPU bonus: machines with 100+ cores can efficiently run more jobs
     # because they can handle more CPU-side work per GPU operation

@@ -159,6 +159,11 @@ class TaskLifecycleCoordinator:
         # Last orphan check time
         self._last_orphan_check = time.time()
 
+        # Node tracking (December 2025)
+        self._online_nodes: Set[str] = set()
+        self._offline_nodes: Dict[str, float] = {}  # node_id -> offline_since
+        self._node_recovery_callbacks: List[Callable[[str], None]] = []
+
     def subscribe_to_events(self) -> bool:
         """Subscribe to task lifecycle events.
 
@@ -180,8 +185,13 @@ class TaskLifecycleCoordinator:
             bus.subscribe(DataEventType.TASK_ORPHANED, self._on_task_orphaned)
             bus.subscribe(DataEventType.TASK_CANCELLED, self._on_task_cancelled)
 
+            # Subscribe to host/node events (December 2025)
+            bus.subscribe(DataEventType.HOST_ONLINE, self._on_host_online)
+            bus.subscribe(DataEventType.HOST_OFFLINE, self._on_host_offline)
+            bus.subscribe(DataEventType.NODE_RECOVERED, self._on_node_recovered)
+
             self._subscribed = True
-            logger.info("[TaskLifecycleCoordinator] Subscribed to task events")
+            logger.info("[TaskLifecycleCoordinator] Subscribed to task and host events")
             return True
 
         except ImportError:
@@ -327,6 +337,126 @@ class TaskLifecycleCoordinator:
 
             logger.info(f"[TaskLifecycleCoordinator] Task cancelled: {task_id}")
 
+    # =========================================================================
+    # Host/Node Event Handlers (December 2025)
+    # =========================================================================
+
+    async def _on_host_online(self, event) -> None:
+        """Handle HOST_ONLINE - track node availability."""
+        payload = event.payload
+        node_id = payload.get("node_id", "") or payload.get("host_id", "")
+
+        if not node_id:
+            return
+
+        self._online_nodes.add(node_id)
+
+        # Remove from offline tracking if present
+        if node_id in self._offline_nodes:
+            offline_duration = time.time() - self._offline_nodes.pop(node_id)
+            logger.info(
+                f"[TaskLifecycleCoordinator] Node {node_id} back online "
+                f"(was offline for {offline_duration:.0f}s)"
+            )
+        else:
+            logger.info(f"[TaskLifecycleCoordinator] Node {node_id} is online")
+
+    async def _on_host_offline(self, event) -> None:
+        """Handle HOST_OFFLINE - mark tasks on node as potentially orphaned."""
+        payload = event.payload
+        node_id = payload.get("node_id", "") or payload.get("host_id", "")
+
+        if not node_id:
+            return
+
+        self._online_nodes.discard(node_id)
+        self._offline_nodes[node_id] = time.time()
+
+        # Mark all tasks on this node as orphaned
+        orphaned_count = 0
+        task_ids_to_orphan = [
+            task_id
+            for task_id, task in self._active_tasks.items()
+            if task.node_id == node_id
+        ]
+
+        for task_id in task_ids_to_orphan:
+            task = self._active_tasks.pop(task_id)
+            task.status = TaskStatus.ORPHANED
+            self._orphaned_tasks[task_id] = task
+            orphaned_count += 1
+
+            # Notify callbacks
+            for callback in self._orphan_callbacks:
+                try:
+                    callback(task)
+                except Exception as e:
+                    logger.error(f"[TaskLifecycleCoordinator] Orphan callback error: {e}")
+
+        if orphaned_count > 0:
+            logger.warning(
+                f"[TaskLifecycleCoordinator] Node {node_id} offline - "
+                f"marked {orphaned_count} tasks as orphaned"
+            )
+        else:
+            logger.info(f"[TaskLifecycleCoordinator] Node {node_id} went offline")
+
+    async def _on_node_recovered(self, event) -> None:
+        """Handle NODE_RECOVERED - restore tasks from orphaned state."""
+        payload = event.payload
+        node_id = payload.get("node_id", "") or payload.get("host_id", "")
+
+        if not node_id:
+            return
+
+        # Mark node as online
+        self._online_nodes.add(node_id)
+        self._offline_nodes.pop(node_id, None)
+
+        # Restore orphaned tasks on this node
+        restored_count = 0
+        task_ids_to_restore = [
+            task_id
+            for task_id, task in self._orphaned_tasks.items()
+            if task.node_id == node_id
+        ]
+
+        for task_id in task_ids_to_restore:
+            task = self._orphaned_tasks.pop(task_id)
+            task.status = TaskStatus.RUNNING
+            task.last_heartbeat = time.time()  # Reset heartbeat
+            self._active_tasks[task_id] = task
+            restored_count += 1
+
+        if restored_count > 0:
+            logger.info(
+                f"[TaskLifecycleCoordinator] Node {node_id} recovered - "
+                f"restored {restored_count} tasks"
+            )
+
+        # Notify recovery callbacks
+        for callback in self._node_recovery_callbacks:
+            try:
+                callback(node_id)
+            except Exception as e:
+                logger.error(f"[TaskLifecycleCoordinator] Recovery callback error: {e}")
+
+    def on_node_recovery(self, callback: Callable[[str], None]) -> None:
+        """Register a callback for node recovery."""
+        self._node_recovery_callbacks.append(callback)
+
+    def get_online_nodes(self) -> Set[str]:
+        """Get set of known online nodes."""
+        return set(self._online_nodes)
+
+    def get_offline_nodes(self) -> Dict[str, float]:
+        """Get offline nodes with their offline timestamp."""
+        return dict(self._offline_nodes)
+
+    def is_node_online(self, node_id: str) -> bool:
+        """Check if a node is known to be online."""
+        return node_id in self._online_nodes
+
     def _record_completion(self, task: TrackedTask) -> None:
         """Record a completed task in history."""
         self._completed_tasks.append(task)
@@ -370,12 +500,50 @@ class TaskLifecycleCoordinator:
                 except Exception as e:
                     logger.error(f"[TaskLifecycleCoordinator] Orphan callback error: {e}")
 
+            # Emit TASK_ORPHANED event for cross-coordinator coordination (December 2025)
+            self._emit_orphan_event(task)
+
             logger.warning(
                 f"[TaskLifecycleCoordinator] Detected orphaned task: {task_id} "
                 f"(no heartbeat for {task.time_since_heartbeat:.0f}s)"
             )
 
         return newly_orphaned
+
+    def _emit_orphan_event(self, task: TrackedTask) -> None:
+        """Emit TASK_ORPHANED event for cross-coordinator coordination.
+
+        This enables other coordinators (e.g., SelfplayCoordinator) to react
+        to orphaned tasks for cleanup and resource reallocation.
+        """
+        try:
+            from app.coordination.event_emitters import emit_task_orphaned
+            import asyncio
+
+            try:
+                loop = asyncio.get_running_loop()
+                asyncio.create_task(emit_task_orphaned(
+                    task_id=task.task_id,
+                    task_type=task.task_type,
+                    node_id=task.node_id,
+                    last_heartbeat=task.last_heartbeat,
+                    reason=f"no heartbeat for {task.time_since_heartbeat:.0f}s",
+                ))
+            except RuntimeError:
+                # No event loop running
+                asyncio.run(emit_task_orphaned(
+                    task_id=task.task_id,
+                    task_type=task.task_type,
+                    node_id=task.node_id,
+                    last_heartbeat=task.last_heartbeat,
+                    reason=f"no heartbeat for {task.time_since_heartbeat:.0f}s",
+                ))
+
+            logger.debug(f"[TaskLifecycleCoordinator] Emitted TASK_ORPHANED for {task.task_id}")
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.debug(f"[TaskLifecycleCoordinator] Failed to emit orphan event: {e}")
 
     def register_task(
         self,
@@ -516,6 +684,10 @@ class TaskLifecycleCoordinator:
             "by_node": stats.by_node,
             "subscribed": self._subscribed,
             "heartbeat_threshold": self.heartbeat_threshold,
+            # Node tracking (December 2025)
+            "online_nodes": list(self._online_nodes),
+            "offline_nodes": list(self._offline_nodes.keys()),
+            "offline_node_count": len(self._offline_nodes),
         }
 
 

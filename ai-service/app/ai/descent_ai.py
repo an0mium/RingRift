@@ -176,6 +176,7 @@ class DescentAI(BaseAI):
         }
         if self.use_gpu_heuristic and GPU_HEURISTIC_AVAILABLE and not self.neural_net:
             try:
+                from .gpu_batch import get_device
                 self.gpu_heuristic = GPUHeuristicEvaluator(device=get_device())
                 logger.info("DescentAI initialized with GPU heuristic evaluator")
             except Exception:

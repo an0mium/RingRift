@@ -6,11 +6,16 @@ the RingRift AI service. Use these utilities to prevent data corruption
 from partial failures or concurrent access.
 
 Usage:
-    from app.distributed.db_utils import atomic_write, safe_transaction
+    from app.distributed.db_utils import (
+        get_db_connection,
+        safe_transaction,
+    )
 
-    # Atomic file write
-    with atomic_write("/path/to/file.json") as f:
-        json.dump(data, f)
+    # Standard connection with centralized timeout
+    conn = get_db_connection("/path/to/db.sqlite")
+
+    # Quick check with short timeout
+    conn = get_db_connection("/path/to/db.sqlite", quick=True)
 
     # Safe SQLite transaction
     with safe_transaction(db_path) as conn:
@@ -29,15 +34,306 @@ from typing import Any, Dict, Generator, Optional, Union
 
 from app.utils.file_utils import atomic_write
 
+# Import centralized timeout constants (December 2025)
+try:
+    from app.config.thresholds import (
+        SQLITE_TIMEOUT,
+        SQLITE_SHORT_TIMEOUT,
+        SQLITE_BUSY_TIMEOUT_MS,
+        SQLITE_BUSY_TIMEOUT_LONG_MS,
+        SQLITE_BUSY_TIMEOUT_SHORT_MS,
+        SQLITE_JOURNAL_MODE,
+        SQLITE_SYNCHRONOUS,
+        SQLITE_WAL_AUTOCHECKPOINT,
+        SQLITE_CACHE_SIZE_KB,
+    )
+except ImportError:
+    SQLITE_TIMEOUT = 30
+    SQLITE_SHORT_TIMEOUT = 10
+    SQLITE_BUSY_TIMEOUT_MS = 10000
+    SQLITE_BUSY_TIMEOUT_LONG_MS = 30000
+    SQLITE_BUSY_TIMEOUT_SHORT_MS = 5000
+    SQLITE_JOURNAL_MODE = "WAL"
+    SQLITE_SYNCHRONOUS = "NORMAL"
+    SQLITE_WAL_AUTOCHECKPOINT = 100
+    SQLITE_CACHE_SIZE_KB = -2000
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Thread-local storage for database connections
 _local = threading.local()
 
 
+# =============================================================================
+# PRAGMA Configuration Profiles (December 2025)
+# =============================================================================
+
+class PragmaProfile:
+    """PRAGMA configuration profiles for different use cases."""
+
+    # Standard profile - used by most coordinators
+    STANDARD = {
+        "journal_mode": SQLITE_JOURNAL_MODE,
+        "busy_timeout": SQLITE_BUSY_TIMEOUT_MS,
+        "synchronous": SQLITE_SYNCHRONOUS,
+    }
+
+    # Extended profile - for cross-process events, needs more cache
+    EXTENDED = {
+        "journal_mode": SQLITE_JOURNAL_MODE,
+        "busy_timeout": SQLITE_BUSY_TIMEOUT_LONG_MS,
+        "synchronous": SQLITE_SYNCHRONOUS,
+        "wal_autocheckpoint": SQLITE_WAL_AUTOCHECKPOINT,
+        "cache_size": SQLITE_CACHE_SIZE_KB,
+    }
+
+    # Quick profile - for fast registry lookups
+    QUICK = {
+        "journal_mode": SQLITE_JOURNAL_MODE,
+        "busy_timeout": SQLITE_BUSY_TIMEOUT_SHORT_MS,
+        "synchronous": SQLITE_SYNCHRONOUS,
+    }
+
+    # Minimal profile - basic settings only
+    MINIMAL = {
+        "journal_mode": SQLITE_JOURNAL_MODE,
+    }
+
+
+def apply_pragmas(
+    conn: sqlite3.Connection,
+    profile: str = "standard",
+    custom_pragmas: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Apply PRAGMA settings to a SQLite connection.
+
+    Args:
+        conn: SQLite connection
+        profile: Profile name ("standard", "extended", "quick", "minimal")
+        custom_pragmas: Additional or override PRAGMA settings
+
+    Example:
+        conn = sqlite3.connect("db.sqlite")
+        apply_pragmas(conn, profile="extended")
+
+        # Or with custom settings
+        apply_pragmas(conn, custom_pragmas={"busy_timeout": 60000})
+    """
+    # Get base profile
+    profiles = {
+        "standard": PragmaProfile.STANDARD,
+        "extended": PragmaProfile.EXTENDED,
+        "quick": PragmaProfile.QUICK,
+        "minimal": PragmaProfile.MINIMAL,
+    }
+    pragmas = dict(profiles.get(profile, PragmaProfile.STANDARD))
+
+    # Apply custom overrides
+    if custom_pragmas:
+        pragmas.update(custom_pragmas)
+
+    # Execute PRAGMAs
+    for pragma, value in pragmas.items():
+        try:
+            conn.execute(f"PRAGMA {pragma}={value}")
+        except sqlite3.OperationalError as e:
+            logger.debug(f"PRAGMA {pragma}={value} failed: {e}")
+
+
+class ThreadLocalConnectionPool:
+    """Thread-local SQLite connection pool with consistent PRAGMA configuration.
+
+    This class replaces scattered thread-local connection patterns across
+    coordinator modules. Use this to ensure consistent SQLite configuration.
+
+    Usage:
+        # In coordinator __init__:
+        self._pool = ThreadLocalConnectionPool(
+            db_path=self._db_path,
+            profile="standard",
+        )
+
+        # To get connection:
+        conn = self._pool.get_connection()
+
+        # Instead of manually managing thread-local + PRAGMAs
+
+    Replaces patterns in:
+        - coordinator_base.py:398-404
+        - sync_mutex.py:113-117
+        - training_coordinator.py:185-193
+        - queue_monitor.py:165-169
+        - duration_scheduler.py:122-126
+        - cross_process_events.py:112-123
+        - orchestrator_registry.py:178-180
+    """
+
+    def __init__(
+        self,
+        db_path: Union[str, Path],
+        timeout: Optional[float] = None,
+        profile: str = "standard",
+        row_factory: bool = True,
+        custom_pragmas: Optional[Dict[str, Any]] = None,
+    ):
+        """Initialize the connection pool.
+
+        Args:
+            db_path: Path to SQLite database
+            timeout: Connection timeout (defaults to SQLITE_TIMEOUT)
+            profile: PRAGMA profile ("standard", "extended", "quick", "minimal")
+            row_factory: Use sqlite3.Row for dict-like access
+            custom_pragmas: Additional PRAGMA settings
+        """
+        self._db_path = Path(db_path)
+        self._timeout = timeout if timeout is not None else SQLITE_TIMEOUT
+        self._profile = profile
+        self._row_factory = row_factory
+        self._custom_pragmas = custom_pragmas
+        self._local = threading.local()
+
+    def get_connection(self) -> sqlite3.Connection:
+        """Get thread-local database connection.
+
+        Returns:
+            SQLite connection configured with PRAGMAs
+
+        Raises:
+            sqlite3.OperationalError: If connection fails
+        """
+        if not hasattr(self._local, "conn") or self._local.conn is None:
+            self._local.conn = sqlite3.connect(
+                str(self._db_path),
+                timeout=self._timeout,
+            )
+            if self._row_factory:
+                self._local.conn.row_factory = sqlite3.Row
+
+            # Apply PRAGMAs consistently
+            apply_pragmas(
+                self._local.conn,
+                profile=self._profile,
+                custom_pragmas=self._custom_pragmas,
+            )
+
+        return self._local.conn
+
+    def close_connection(self) -> None:
+        """Close the thread-local connection."""
+        if hasattr(self._local, "conn") and self._local.conn is not None:
+            try:
+                self._local.conn.close()
+            except Exception:
+                pass
+            self._local.conn = None
+
+    def execute(self, query: str, params: tuple = ()) -> sqlite3.Cursor:
+        """Execute a query on the thread-local connection.
+
+        Args:
+            query: SQL query
+            params: Query parameters
+
+        Returns:
+            Cursor with results
+        """
+        return self.get_connection().execute(query, params)
+
+    def executemany(self, query: str, params_seq) -> sqlite3.Cursor:
+        """Execute a query with multiple parameter sets.
+
+        Args:
+            query: SQL query
+            params_seq: Sequence of parameter tuples
+
+        Returns:
+            Cursor
+        """
+        return self.get_connection().executemany(query, params_seq)
+
+    @property
+    def path(self) -> Path:
+        """Get the database path."""
+        return self._db_path
+
+
+def create_coordinator_pool(
+    db_path: Union[str, Path],
+    profile: str = "standard",
+) -> ThreadLocalConnectionPool:
+    """Create a connection pool for a coordinator module.
+
+    This is the recommended factory for coordinator modules migrating
+    from manual thread-local connection management.
+
+    Args:
+        db_path: Path to SQLite database
+        profile: PRAGMA profile ("standard", "extended", "quick")
+
+    Returns:
+        Configured ThreadLocalConnectionPool
+
+    Example:
+        # In coordinator __init__:
+        from app.distributed.db_utils import create_coordinator_pool
+
+        self._pool = create_coordinator_pool(self._db_path, profile="standard")
+
+        # In methods:
+        conn = self._pool.get_connection()
+        conn.execute("SELECT ...")
+    """
+    return ThreadLocalConnectionPool(
+        db_path=db_path,
+        profile=profile,
+        row_factory=True,
+    )
+
+
+def get_db_connection(
+    db_path: Union[str, Path],
+    quick: bool = False,
+    timeout: Optional[float] = None,
+    row_factory: bool = True,
+) -> sqlite3.Connection:
+    """Get a SQLite connection with standardized timeout.
+
+    Uses centralized timeout constants from app/config/thresholds.py.
+    This is the preferred way to create SQLite connections across the codebase.
+
+    Args:
+        db_path: Path to SQLite database
+        quick: If True, use short timeout for quick checks (10s default)
+        timeout: Override timeout (use sparingly, prefer quick=True/False)
+        row_factory: If True, set row_factory to sqlite3.Row for dict-like access
+
+    Returns:
+        SQLite connection with appropriate timeout
+
+    Example:
+        # Standard operation (30s timeout)
+        conn = get_db_connection("data.db")
+
+        # Quick check (10s timeout)
+        conn = get_db_connection("data.db", quick=True)
+
+    December 2025 - Standardization effort
+    """
+    if timeout is None:
+        timeout = SQLITE_SHORT_TIMEOUT if quick else SQLITE_TIMEOUT
+
+    conn = sqlite3.connect(str(db_path), timeout=timeout)
+    if row_factory:
+        conn.row_factory = sqlite3.Row
+    return conn
+
+
 @contextmanager
 def safe_transaction(
     db_path: Union[str, Path],
-    timeout: float = 30.0,
+    timeout: Optional[float] = None,
     isolation_level: Optional[str] = None,
 ) -> Generator[sqlite3.Connection, None, None]:
     """Execute a SQLite transaction with automatic rollback on error.
@@ -58,6 +354,9 @@ def safe_transaction(
             conn.execute("INSERT INTO games ...")
             conn.execute("UPDATE stats SET ...")
     """
+    if timeout is None:
+        timeout = SQLITE_TIMEOUT
+
     conn = sqlite3.connect(
         str(db_path),
         timeout=timeout,

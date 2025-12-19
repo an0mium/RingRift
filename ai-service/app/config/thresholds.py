@@ -215,6 +215,24 @@ SQLITE_TIMEOUT = 30
 # SQLite short operations timeout (seconds)
 SQLITE_SHORT_TIMEOUT = 10
 
+# SQLite PRAGMA settings (December 2025 - consolidated)
+# busy_timeout in milliseconds - how long to wait for locks
+SQLITE_BUSY_TIMEOUT_MS = 10000  # 10 seconds (standard)
+SQLITE_BUSY_TIMEOUT_LONG_MS = 30000  # 30 seconds (for cross-process events)
+SQLITE_BUSY_TIMEOUT_SHORT_MS = 5000  # 5 seconds (for quick registry ops)
+
+# Journal mode - WAL for better concurrency
+SQLITE_JOURNAL_MODE = "WAL"
+
+# Synchronous mode - NORMAL for performance with reasonable safety
+SQLITE_SYNCHRONOUS = "NORMAL"
+
+# WAL autocheckpoint - pages before automatic checkpoint
+SQLITE_WAL_AUTOCHECKPOINT = 100
+
+# Cache size in KB (negative = KB, positive = pages)
+SQLITE_CACHE_SIZE_KB = -2000  # 2MB cache
+
 # URL open timeout for quick health checks (seconds)
 URLOPEN_SHORT_TIMEOUT = 5
 

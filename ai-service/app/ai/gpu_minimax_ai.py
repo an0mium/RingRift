@@ -14,12 +14,15 @@ Integration: This is an ADDITION to the training system, not a replacement.
 Select via AIType.GPU_MINIMAX in the factory.
 """
 
-from typing import Optional, List, Dict, Tuple, Any
+from typing import Optional, List, Dict, Tuple, Any, TYPE_CHECKING
 import logging
 import os
 import time
 
 import torch
+
+if TYPE_CHECKING:
+    from .gpu_parallel_games import BatchGameState
 
 from .minimax_ai import MinimaxAI, MINIMAX_ZERO_SUM_EVAL
 from .heuristic_weights import BASE_V1_BALANCED_WEIGHTS, get_weights

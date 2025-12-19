@@ -20,9 +20,13 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
 
 from app.models import BoardType, GameState, Move
+
+if TYPE_CHECKING:
+    import numpy as np
+
 from app.rules.history_contract import validate_canonical_move
 
 logger = logging.getLogger(__name__)
@@ -1503,7 +1507,6 @@ class GameReplayDB:
             Updated game state with any necessary bookkeeping moves applied.
         """
         from app.game_engine import GameEngine, MoveType, Move, Position
-        from datetime import datetime
 
         # Limit iterations to prevent infinite loops
         max_iterations = 10

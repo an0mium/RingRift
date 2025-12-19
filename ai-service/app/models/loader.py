@@ -32,13 +32,10 @@ import os
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING, Union
+from typing import Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
-
-if TYPE_CHECKING:
-    from app.training.model_registry import ModelRecord, ModelStage
 
 # Import sidecar reading from unified discovery API
 try:

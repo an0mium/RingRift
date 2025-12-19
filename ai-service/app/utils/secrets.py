@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, Optional, Set, Union
 
 __all__ = [
     "mask_secret",

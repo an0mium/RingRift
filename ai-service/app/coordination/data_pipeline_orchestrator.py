@@ -156,6 +156,24 @@ class DataPipelineOrchestrator:
         # Callbacks for stage transitions
         self._stage_callbacks: Dict[PipelineStage, List[Callable]] = {}
 
+        # Quality distribution tracking (December 2025)
+        self._quality_distribution: Dict[str, float] = {}  # level -> percentage
+        self._last_quality_update: float = 0.0
+        self._cache_invalidation_count: int = 0
+        self._pending_cache_refresh: bool = False
+
+        # Optimization tracking (December 2025)
+        self._active_optimization: Optional[str] = None  # "cmaes" or "nas"
+        self._optimization_run_id: Optional[str] = None
+        self._optimization_start_time: float = 0.0
+
+        # Resource constraint tracking (December 2025)
+        self._paused: bool = False
+        self._pause_reason: Optional[str] = None
+        self._pause_time: float = 0.0
+        self._resource_constraints: Dict[str, Dict] = {}  # resource_type -> constraint_info
+        self._backpressure_active: bool = False
+
     def subscribe_to_events(self) -> bool:
         """Subscribe to pipeline stage events.
 
@@ -194,6 +212,61 @@ class DataPipelineOrchestrator:
             return False
         except Exception as e:
             logger.error(f"[DataPipelineOrchestrator] Failed to subscribe: {e}")
+            return False
+
+    def subscribe_to_data_events(self) -> bool:
+        """Subscribe to DataEventBus events (December 2025).
+
+        Returns:
+            True if successfully subscribed
+        """
+        try:
+            from app.distributed.data_events import DataEventType, get_event_bus
+
+            bus = get_event_bus()
+
+            # Subscribe to quality and cache events
+            bus.subscribe(
+                DataEventType.QUALITY_DISTRIBUTION_CHANGED,
+                self._on_quality_distribution_changed,
+            )
+            bus.subscribe(
+                DataEventType.CACHE_INVALIDATED,
+                self._on_cache_invalidated,
+            )
+
+            # Subscribe to optimization events (December 2025)
+            bus.subscribe(
+                DataEventType.CMAES_TRIGGERED,
+                self._on_optimization_triggered,
+            )
+            bus.subscribe(
+                DataEventType.NAS_TRIGGERED,
+                self._on_optimization_triggered,
+            )
+
+            # Subscribe to resource constraint events (December 2025)
+            bus.subscribe(
+                DataEventType.RESOURCE_CONSTRAINT_DETECTED,
+                self._on_resource_constraint_detected,
+            )
+            bus.subscribe(
+                DataEventType.BACKPRESSURE_ACTIVATED,
+                self._on_backpressure_activated,
+            )
+            bus.subscribe(
+                DataEventType.BACKPRESSURE_RELEASED,
+                self._on_backpressure_released,
+            )
+
+            logger.info("[DataPipelineOrchestrator] Subscribed to data events")
+            return True
+
+        except ImportError:
+            logger.warning("[DataPipelineOrchestrator] data_events not available")
+            return False
+        except Exception as e:
+            logger.error(f"[DataPipelineOrchestrator] Failed to subscribe to data events: {e}")
             return False
 
     def _transition_to(
@@ -425,6 +498,260 @@ class DataPipelineOrchestrator:
 
         self._transition_to(PipelineStage.IDLE, iteration + 1)
 
+    # =========================================================================
+    # Quality and Cache Event Handlers (December 2025)
+    # =========================================================================
+
+    async def _on_quality_distribution_changed(self, event) -> None:
+        """Handle QUALITY_DISTRIBUTION_CHANGED - track quality changes."""
+        payload = event.payload
+
+        # Update quality distribution
+        distribution = payload.get("distribution", {})
+        if distribution:
+            self._quality_distribution = distribution
+            self._last_quality_update = time.time()
+
+        high_quality = distribution.get("high", 0.0)
+        low_quality = distribution.get("low", 0.0)
+
+        logger.info(
+            f"[DataPipelineOrchestrator] Quality distribution updated: "
+            f"high={high_quality:.1%}, low={low_quality:.1%}"
+        )
+
+        # If quality distribution shifted significantly, may need to adjust training
+        if low_quality > 0.5:
+            logger.warning(
+                "[DataPipelineOrchestrator] Low quality data >50% - "
+                "consider curriculum adjustments"
+            )
+
+    async def _on_cache_invalidated(self, event) -> None:
+        """Handle CACHE_INVALIDATED - track cache changes for data pipeline."""
+        payload = event.payload
+
+        invalidation_type = payload.get("invalidation_type", "")
+        count = payload.get("count", 0)
+        target_id = payload.get("target_id", "")
+
+        self._cache_invalidation_count += count
+
+        # Check if this affects NPZ data caches
+        affected_types = ["npz_data", "feature_cache"]
+        if invalidation_type == "model":
+            # Model cache invalidation may require NPZ re-export
+            self._pending_cache_refresh = True
+            logger.info(
+                f"[DataPipelineOrchestrator] Cache invalidated for model {target_id}: "
+                f"{count} entries - NPZ data may need refresh"
+            )
+        else:
+            logger.debug(
+                f"[DataPipelineOrchestrator] Cache invalidated: "
+                f"{invalidation_type}={target_id}, count={count}"
+            )
+
+    async def _on_optimization_triggered(self, event) -> None:
+        """Handle CMAES_TRIGGERED or NAS_TRIGGERED - track optimization state."""
+        payload = event.payload
+        event_type = str(event.event_type.value).lower()
+
+        # Determine optimization type from event
+        if "cmaes" in event_type:
+            opt_type = "cmaes"
+        elif "nas" in event_type:
+            opt_type = "nas"
+        else:
+            opt_type = "unknown"
+
+        run_id = payload.get("run_id", "")
+        reason = payload.get("reason", "")
+
+        self._active_optimization = opt_type
+        self._optimization_run_id = run_id
+        self._optimization_start_time = time.time()
+
+        logger.info(
+            f"[DataPipelineOrchestrator] {opt_type.upper()} optimization triggered: "
+            f"run_id={run_id}, reason={reason}"
+        )
+
+        # Note: Pipeline can continue but training may be coordinated differently
+        # during optimization runs (e.g., different hyperparameters being tested)
+
+    # =========================================================================
+    # Resource Constraint Event Handlers (December 2025)
+    # =========================================================================
+
+    async def _on_resource_constraint_detected(self, event) -> None:
+        """Handle RESOURCE_CONSTRAINT_DETECTED - pause pipeline on critical constraints."""
+        payload = event.payload
+
+        resource_type = payload.get("resource_type", "unknown")
+        severity = payload.get("severity", "warning")
+        current_value = payload.get("current_value", 0)
+        threshold = payload.get("threshold", 0)
+        node_id = payload.get("node_id", "")
+
+        # Track the constraint
+        self._resource_constraints[resource_type] = {
+            "severity": severity,
+            "current_value": current_value,
+            "threshold": threshold,
+            "node_id": node_id,
+            "time": time.time(),
+        }
+
+        logger.warning(
+            f"[DataPipelineOrchestrator] Resource constraint detected: "
+            f"{resource_type}={current_value} (threshold={threshold}, severity={severity})"
+        )
+
+        # Pause on critical constraints during resource-intensive stages
+        critical_stages = {PipelineStage.TRAINING, PipelineStage.NPZ_EXPORT}
+        if severity == "critical" and self._current_stage in critical_stages:
+            await self._pause_pipeline(
+                reason=f"Critical {resource_type} constraint: {current_value}/{threshold}"
+            )
+
+    async def _on_backpressure_activated(self, event) -> None:
+        """Handle BACKPRESSURE_ACTIVATED - pause pipeline under heavy load."""
+        payload = event.payload
+
+        source = payload.get("source", "unknown")
+        level = payload.get("level", "unknown")
+
+        self._backpressure_active = True
+
+        logger.warning(
+            f"[DataPipelineOrchestrator] Backpressure activated: source={source}, level={level}"
+        )
+
+        # Pause if backpressure is severe
+        if level in ("high", "critical"):
+            await self._pause_pipeline(reason=f"Backpressure from {source}: {level}")
+
+    async def _on_backpressure_released(self, event) -> None:
+        """Handle BACKPRESSURE_RELEASED - potentially resume pipeline."""
+        payload = event.payload
+
+        source = payload.get("source", "unknown")
+
+        self._backpressure_active = False
+
+        logger.info(f"[DataPipelineOrchestrator] Backpressure released: source={source}")
+
+        # Auto-resume if paused due to backpressure and no other constraints
+        if self._paused and "Backpressure" in (self._pause_reason or ""):
+            if not self._has_critical_constraints():
+                await self._resume_pipeline()
+
+    async def _pause_pipeline(self, reason: str) -> None:
+        """Pause the pipeline due to resource constraints."""
+        if self._paused:
+            return  # Already paused
+
+        self._paused = True
+        self._pause_reason = reason
+        self._pause_time = time.time()
+
+        logger.warning(f"[DataPipelineOrchestrator] Pipeline PAUSED: {reason}")
+
+        # Emit event for other coordinators
+        try:
+            from app.coordination.event_emitters import emit_resource_constraint_detected
+
+            await emit_resource_constraint_detected(
+                resource_type="pipeline_pause",
+                severity="critical",
+                current_value=1,
+                threshold=0,
+                action_taken=f"pipeline_paused: {reason}",
+            )
+        except Exception:
+            pass
+
+    async def _resume_pipeline(self) -> None:
+        """Resume the pipeline after constraint resolution."""
+        if not self._paused:
+            return
+
+        pause_duration = time.time() - self._pause_time
+        logger.info(
+            f"[DataPipelineOrchestrator] Pipeline RESUMED after {pause_duration:.1f}s pause"
+        )
+
+        self._paused = False
+        self._pause_reason = None
+        self._pause_time = 0.0
+
+    def _has_critical_constraints(self) -> bool:
+        """Check if any critical resource constraints are active."""
+        now = time.time()
+        for resource_type, constraint in self._resource_constraints.items():
+            # Constraints older than 60s are considered stale
+            if now - constraint.get("time", 0) > 60:
+                continue
+            if constraint.get("severity") == "critical":
+                return True
+        return False
+
+    def is_paused(self) -> bool:
+        """Check if pipeline is currently paused."""
+        return self._paused
+
+    def get_pause_info(self) -> Optional[Dict[str, Any]]:
+        """Get information about current pause state."""
+        if not self._paused:
+            return None
+        return {
+            "paused": True,
+            "reason": self._pause_reason,
+            "duration_seconds": time.time() - self._pause_time,
+            "active_constraints": dict(self._resource_constraints),
+            "backpressure_active": self._backpressure_active,
+        }
+
+    def clear_resource_constraints(self) -> None:
+        """Clear all tracked resource constraints."""
+        self._resource_constraints.clear()
+        logger.info("[DataPipelineOrchestrator] Resource constraints cleared")
+
+    def clear_optimization_state(self) -> None:
+        """Clear active optimization tracking."""
+        if self._active_optimization:
+            duration = time.time() - self._optimization_start_time
+            logger.info(
+                f"[DataPipelineOrchestrator] Optimization {self._active_optimization} "
+                f"completed after {duration:.1f}s"
+            )
+        self._active_optimization = None
+        self._optimization_run_id = None
+        self._optimization_start_time = 0.0
+
+    def is_optimization_active(self) -> bool:
+        """Check if optimization is currently active."""
+        return self._active_optimization is not None
+
+    def get_active_optimization(self) -> Optional[str]:
+        """Get the type of active optimization, or None."""
+        return self._active_optimization
+
+    def get_quality_distribution(self) -> Dict[str, float]:
+        """Get current quality distribution."""
+        return dict(self._quality_distribution)
+
+    def needs_cache_refresh(self) -> bool:
+        """Check if pipeline needs cache refresh."""
+        return self._pending_cache_refresh
+
+    def clear_cache_refresh_flag(self) -> None:
+        """Clear the pending cache refresh flag."""
+        if self._pending_cache_refresh:
+            self._pending_cache_refresh = False
+            logger.info("[DataPipelineOrchestrator] Cache refresh flag cleared")
+
     def start_iteration(self, iteration: int) -> IterationRecord:
         """Manually start a new pipeline iteration.
 
@@ -533,6 +860,18 @@ class DataPipelineOrchestrator:
             },
             "subscribed": self._subscribed,
             "auto_trigger": self.auto_trigger,
+            # Quality and cache tracking (December 2025)
+            "quality_distribution": dict(self._quality_distribution),
+            "pending_cache_refresh": self._pending_cache_refresh,
+            "cache_invalidation_count": self._cache_invalidation_count,
+            # Optimization tracking (December 2025)
+            "active_optimization": self._active_optimization,
+            "optimization_run_id": self._optimization_run_id,
+            # Resource constraint tracking (December 2025)
+            "paused": self._paused,
+            "pause_reason": self._pause_reason,
+            "backpressure_active": self._backpressure_active,
+            "resource_constraints": dict(self._resource_constraints),
         }
 
     def format_pipeline_report(self) -> str:
@@ -591,6 +930,7 @@ def wire_pipeline_events(auto_trigger: bool = False) -> DataPipelineOrchestrator
     global _pipeline_orchestrator
     _pipeline_orchestrator = DataPipelineOrchestrator(auto_trigger=auto_trigger)
     _pipeline_orchestrator.subscribe_to_events()
+    _pipeline_orchestrator.subscribe_to_data_events()  # December 2025
     return _pipeline_orchestrator
 
 

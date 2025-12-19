@@ -48,16 +48,33 @@ from app.utils.paths import DATA_DIR
 
 logger = logging.getLogger(__name__)
 
+# Coordinator registration (December 2025)
+try:
+    from app.coordination.orchestrator_registry import register_coordinator
+    HAS_COORDINATOR_REGISTRY = True
+except ImportError:
+    HAS_COORDINATOR_REGISTRY = False
+    register_coordinator = None  # type: ignore
+
 # NFS path for cluster-wide coordination (Lambda GH200 nodes)
 NFS_COORDINATION_PATH = Path("/lambda/nfs/RingRift/coordination")
 LOCAL_COORDINATION_PATH = DATA_DIR / "coordination"
 
-# Training configuration
-MAX_CONCURRENT_TRAINING_SAME_CONFIG = 1  # Only 1 training per config
-MAX_TOTAL_CONCURRENT_TRAINING = 4  # Max total training jobs cluster-wide
-TRAINING_TIMEOUT_HOURS = 12  # Max training time before considered stale
-HEARTBEAT_INTERVAL_SECONDS = 60  # Heartbeat interval
-STALE_CHECK_INTERVAL_SECONDS = 300  # Check for stale jobs every 5 minutes
+# Training configuration - use centralized defaults (December 2025)
+try:
+    from app.config.coordination_defaults import TrainingDefaults, HeartbeatDefaults
+    MAX_CONCURRENT_TRAINING_SAME_CONFIG = TrainingDefaults.MAX_CONCURRENT_SAME_CONFIG
+    MAX_TOTAL_CONCURRENT_TRAINING = TrainingDefaults.MAX_CONCURRENT_TOTAL
+    TRAINING_TIMEOUT_HOURS = TrainingDefaults.TIMEOUT_HOURS
+    HEARTBEAT_INTERVAL_SECONDS = HeartbeatDefaults.INTERVAL
+    STALE_CHECK_INTERVAL_SECONDS = HeartbeatDefaults.STALE_CLEANUP_INTERVAL * 5  # 5 minutes
+except ImportError:
+    # Fallback values
+    MAX_CONCURRENT_TRAINING_SAME_CONFIG = 1
+    MAX_TOTAL_CONCURRENT_TRAINING = 4
+    TRAINING_TIMEOUT_HOURS = 12
+    HEARTBEAT_INTERVAL_SECONDS = 60
+    STALE_CHECK_INTERVAL_SECONDS = 300
 
 
 @dataclass
@@ -739,6 +756,19 @@ def get_training_coordinator(use_nfs: bool = True) -> TrainingCoordinator:
     with _coordinator_lock:
         if _coordinator is None:
             _coordinator = TrainingCoordinator(use_nfs=use_nfs)
+            # Register with orchestrator registry for visibility (December 2025)
+            if HAS_COORDINATOR_REGISTRY and register_coordinator:
+                try:
+                    register_coordinator(
+                        name="training_coordinator",
+                        coordinator=_coordinator,
+                        health_callback=lambda: True,  # Always healthy if exists
+                        shutdown_callback=_coordinator.close,
+                        metadata={"use_nfs": use_nfs},
+                    )
+                    logger.debug("Registered training_coordinator with orchestrator registry")
+                except Exception as e:
+                    logger.debug(f"Could not register with orchestrator registry: {e}")
         return _coordinator
 
 

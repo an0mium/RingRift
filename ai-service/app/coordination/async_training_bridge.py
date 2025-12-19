@@ -44,6 +44,9 @@ from app.coordination.stage_events import (
     get_event_bus,
 )
 
+# Use centralized event emitters (December 2025)
+from app.coordination.event_emitters import emit_training_complete
+
 # Use centralized executor pool (December 2025)
 from app.coordination.async_bridge_manager import (
     get_bridge_manager,
@@ -239,29 +242,17 @@ class AsyncTrainingBridge:
         )
 
         if success and self._emit_events:
-            # Emit TRAINING_COMPLETE event
-            result = StageCompletionResult(
-                event=StageEvent.TRAINING_COMPLETE,
-                success=(status == "completed"),
-                iteration=0,
-                timestamp=datetime.now().isoformat(),
+            # Use centralized event emitter (December 2025)
+            await emit_training_complete(
+                job_id=job_id,
                 board_type=board_type,
                 num_players=num_players,
+                success=(status == "completed"),
+                final_loss=final_val_loss,
+                final_elo=final_elo,
                 model_path=model_path,
-                val_loss=final_val_loss,
-                elo_delta=final_elo - 1500.0 if final_elo else None,
-                metadata={
-                    "job_id": job_id,
-                    "board_type": board_type,
-                    "num_players": num_players,
-                    "final_val_loss": final_val_loss,
-                    "final_elo": final_elo,
-                    "status": status,
-                },
+                status=status,
             )
-
-            event_bus = get_event_bus()
-            await event_bus.emit(result)
             logger.info(f"Emitted TRAINING_COMPLETE for {job_id}")
 
         return success

@@ -7,7 +7,7 @@ including hybrid CNN-Transformer models.
 
 import math
 import logging
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Optional, Tuple
 from dataclasses import dataclass
 
 
@@ -668,7 +668,6 @@ def main():
     batch_size = 8
     input_channels = 18
     board_size = (8, 8)
-    num_actions = 64
 
     x = torch.randn(batch_size, input_channels, *board_size)
 

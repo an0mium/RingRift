@@ -240,7 +240,7 @@ class LoadThrottler:
         """Check if execution was skipped due to overload."""
         return self._should_skip
 
-    def __enter__(self):
+    def __enter__(self) -> "LoadThrottler":
         if is_system_overloaded(verbose=self.verbose):
             if not wait_for_load_decrease(
                 max_wait_seconds=self.max_wait_seconds,
@@ -252,10 +252,10 @@ class LoadThrottler:
                 raise RuntimeError("System overloaded - cannot proceed")
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: type | None, exc_val: BaseException | None, exc_tb: object) -> bool:
         return False
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "LoadThrottler":
         if is_system_overloaded(verbose=self.verbose):
             if not await wait_for_load_decrease_async(
                 max_wait_seconds=self.max_wait_seconds,
@@ -267,5 +267,5 @@ class LoadThrottler:
                 raise RuntimeError("System overloaded - cannot proceed")
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: type | None, exc_val: BaseException | None, exc_tb: object) -> bool:
         return False

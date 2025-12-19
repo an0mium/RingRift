@@ -4,7 +4,7 @@ Mirrors TypeScript types from src/shared/types/game.ts
 """
 
 from pydantic import BaseModel, ConfigDict, Field
-from typing import Optional, List, Dict, Tuple, Any
+from typing import Optional, List, Dict, Tuple
 from enum import Enum
 from datetime import datetime
 

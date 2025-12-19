@@ -248,6 +248,154 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+# =============================================================================
+# NEW CONSOLIDATED COMMANDS (December 2025)
+# =============================================================================
+
+def cmd_sync(args: argparse.Namespace) -> int:
+    """Data sync operations."""
+    import asyncio
+
+    sync_type = args.sync_type
+
+    try:
+        from app.distributed.sync_coordinator import SyncCoordinator
+
+        async def do_sync():
+            coordinator = SyncCoordinator.get_instance()
+            if sync_type == "data":
+                return await coordinator.sync_games()
+            elif sync_type == "models":
+                return await coordinator.sync_models()
+            elif sync_type == "all":
+                return await coordinator.full_cluster_sync()
+            elif sync_type == "status":
+                return coordinator.get_status()
+            else:
+                print(f"Unknown sync type: {sync_type}")
+                return None
+
+        result = asyncio.run(do_sync())
+
+        if sync_type == "status":
+            import json
+            print(json.dumps(result, indent=2, default=str))
+            return 0
+        elif result:
+            print(f"Sync complete: {result.files_synced} files")
+            return 0
+        return 1
+
+    except Exception as e:
+        print(f"Sync error: {e}")
+        return 1
+
+
+def cmd_daemon(args: argparse.Namespace) -> int:
+    """Daemon management."""
+    import asyncio
+
+    action = args.daemon_action
+
+    try:
+        from app.coordination.daemon_manager import get_daemon_manager, DaemonType
+
+        async def do_action():
+            manager = get_daemon_manager()
+            if action == "start":
+                if args.name:
+                    dtype = DaemonType(args.name)
+                    return await manager.start(dtype)
+                return await manager.start_all()
+            elif action == "stop":
+                if args.name:
+                    dtype = DaemonType(args.name)
+                    return await manager.stop(dtype)
+                return await manager.stop_all()
+            elif action == "status":
+                return manager.get_status()
+
+        result = asyncio.run(do_action())
+
+        if action == "status":
+            import json
+            if args.json:
+                print(json.dumps(result, indent=2, default=str))
+            else:
+                summary = result.get("summary", {})
+                print(f"\nDaemons: {summary.get('running', 0)}/{summary.get('total', 0)} running")
+                for name, info in result.get("daemons", {}).items():
+                    print(f"  {name}: {info.get('state', 'unknown')}")
+            return 0
+        else:
+            print(f"Daemon {action} complete")
+            return 0
+
+    except Exception as e:
+        print(f"Daemon error: {e}")
+        return 1
+
+
+def cmd_cluster(args: argparse.Namespace) -> int:
+    """Cluster monitoring with unified_cluster_monitor."""
+    try:
+        from scripts.unified_cluster_monitor import ClusterConfig, UnifiedClusterMonitor
+
+        config = ClusterConfig()
+        if not config.nodes:
+            print("No cluster nodes found")
+            return 1
+
+        monitor = UnifiedClusterMonitor(
+            config=config,
+            webhook_url=getattr(args, 'webhook', None),
+            check_interval=getattr(args, 'interval', 60),
+            deep_checks=getattr(args, 'deep', False),
+        )
+
+        if getattr(args, 'continuous', False):
+            monitor.run_continuous(output_json=getattr(args, 'json', False))
+        else:
+            cluster = monitor.run_once(output_json=getattr(args, 'json', False))
+            if cluster.critical_alerts:
+                return 2
+            elif cluster.alerts:
+                return 1
+        return 0
+
+    except Exception as e:
+        print(f"Cluster monitor error: {e}")
+        return 1
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    """Show unified cluster status."""
+    import json as json_module
+
+    try:
+        from app.coordination import get_all_coordinator_status
+
+        status = get_all_coordinator_status()
+
+        if getattr(args, 'json', False):
+            print(json_module.dumps(status, indent=2, default=str))
+        else:
+            print("\n" + "=" * 50)
+            print("  RINGRIFT CLUSTER STATUS")
+            print("=" * 50)
+            for name, ok in status.items():
+                if name.startswith("_"):
+                    continue
+                state = "OK" if ok else "DOWN"
+                print(f"  {name}: {state}")
+            print("=" * 50)
+        return 0
+
+    except Exception as e:
+        print(f"Status error: {e}")
+        return 1
+
+
 def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -258,15 +406,21 @@ Commands:
   harvest   Harvest high-quality training data
   monitor   Monitor Elo ratings and training activity
   compare   Compare two models head-to-head
-  health    Check cluster health
+  health    Check cluster health (legacy)
   periodic  Run periodic automated tasks
+  sync      Data synchronization (data, models, all, status)
+  daemon    Daemon management (start, stop, status)
+  cluster   Unified cluster monitoring (--deep, --continuous)
+  status    Show coordinator status
 
 Examples:
   %(prog)s harvest --output data/harvested/local.jsonl
   %(prog)s monitor --json
   %(prog)s compare --model-a new.pt --model-b best.pt --quick
-  %(prog)s health
-  %(prog)s periodic --task harvest
+  %(prog)s sync data
+  %(prog)s daemon status
+  %(prog)s cluster --continuous --interval 30
+  %(prog)s status --json
         """,
     )
 
@@ -407,6 +561,35 @@ Examples:
     )
     add_common_args(periodic_parser)
 
+    # Sync command (December 2025)
+    sync_parser = subparsers.add_parser("sync", help="Data synchronization")
+    sync_parser.add_argument(
+        "sync_type", choices=["data", "models", "all", "status"],
+        help="Type of sync operation",
+    )
+    sync_parser.add_argument("--json", action="store_true", help="JSON output")
+
+    # Daemon command (December 2025)
+    daemon_parser = subparsers.add_parser("daemon", help="Daemon management")
+    daemon_parser.add_argument(
+        "daemon_action", choices=["start", "stop", "status"],
+        help="Daemon action",
+    )
+    daemon_parser.add_argument("--name", help="Specific daemon name")
+    daemon_parser.add_argument("--json", action="store_true", help="JSON output")
+
+    # Cluster command (December 2025)
+    cluster_parser = subparsers.add_parser("cluster", help="Cluster monitoring")
+    cluster_parser.add_argument("--deep", "-d", action="store_true", help="Deep SSH checks")
+    cluster_parser.add_argument("--continuous", "-c", action="store_true", help="Continuous monitoring")
+    cluster_parser.add_argument("--interval", "-i", type=int, default=60, help="Check interval")
+    cluster_parser.add_argument("--webhook", "-w", help="Alert webhook URL")
+    cluster_parser.add_argument("--json", action="store_true", help="JSON output")
+
+    # Status command (December 2025)
+    status_parser = subparsers.add_parser("status", help="Coordinator status")
+    status_parser.add_argument("--json", action="store_true", help="JSON output")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -419,6 +602,11 @@ Examples:
         "compare": cmd_compare,
         "health": cmd_health,
         "periodic": cmd_periodic,
+        # New consolidated commands (December 2025)
+        "sync": cmd_sync,
+        "daemon": cmd_daemon,
+        "cluster": cmd_cluster,
+        "status": cmd_status,
     }
 
     handler = commands.get(args.command)

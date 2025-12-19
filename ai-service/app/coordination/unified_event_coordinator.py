@@ -363,6 +363,12 @@ class UnifiedEventCoordinator:
             )
             self._stats.events_bridged_data_to_cross += 1
             self._stats.last_bridge_time = datetime.now().isoformat()
+            await self._dispatch_handlers(
+                event_type=cross_event_type,
+                payload=event.payload,
+                source=f"data_events:{event.source}",
+                origin="data_bus",
+            )
 
             # Track to avoid re-forwarding
             self._recently_bridged.add(event_key)
@@ -399,6 +405,12 @@ class UnifiedEventCoordinator:
             )
             self._stats.events_bridged_stage_to_cross += 1
             self._stats.last_bridge_time = datetime.now().isoformat()
+            await self._dispatch_handlers(
+                event_type=cross_event_type,
+                payload=result.to_dict(),
+                source=f"stage_events:{result.board_type}_{result.num_players}p",
+                origin="stage_bus",
+            )
 
             # Track to avoid re-forwarding
             self._recently_bridged.add(event_key)
@@ -456,6 +468,12 @@ class UnifiedEventCoordinator:
                     await self._data_bus.publish(data_event, bridge_cross_process=False)
                     self._stats.events_bridged_cross_to_data += 1
                     self._stats.last_bridge_time = datetime.now().isoformat()
+                    await self._dispatch_handlers(
+                        event_type=event.event_type,
+                        payload=event.payload,
+                        source=f"cross_process:{event.source}",
+                        origin="cross_process",
+                    )
 
                     logger.debug(f"Bridged cross-process to data: {event.event_type}")
 
@@ -492,6 +510,35 @@ class UnifiedEventCoordinator:
             self._event_handlers[event_type] = []
         self._event_handlers[event_type].append(handler)
 
+    async def _dispatch_handlers(
+        self,
+        event_type: str,
+        payload: Dict[str, Any],
+        source: str,
+        origin: str,
+    ) -> None:
+        """Dispatch custom handlers for a bridged event."""
+        handlers = self._event_handlers.get(event_type, [])
+        if not handlers:
+            return
+
+        if isinstance(payload, dict):
+            payload_with_context = dict(payload)
+        else:
+            payload_with_context = {"payload": payload}
+        payload_with_context.setdefault("event_type", event_type)
+        payload_with_context.setdefault("source", source)
+        payload_with_context.setdefault("origin", origin)
+
+        for handler in handlers:
+            try:
+                result = handler(payload_with_context)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception as e:
+                self._stats.errors.append(f"Handler error for {event_type}: {e}")
+                logger.debug(f"Handler error for {event_type}: {e}")
+
     async def emit_to_all(
         self,
         event_type: str,
@@ -526,6 +573,13 @@ class UnifiedEventCoordinator:
             except Exception:
                 pass
 
+        await self._dispatch_handlers(
+            event_type=event_type,
+            payload=payload,
+            source=source,
+            origin="emit",
+        )
+
 
 # =============================================================================
 # Convenience Functions
@@ -549,6 +603,223 @@ async def stop_coordinator() -> None:
 def get_coordinator_stats() -> CoordinatorStats:
     """Get coordinator statistics."""
     return get_event_coordinator().get_stats()
+
+
+# =============================================================================
+# Simple Event Emitters (December 2025)
+# Use these functions to emit events from anywhere in the codebase.
+# They automatically route to all event systems.
+# =============================================================================
+
+async def emit_training_started(
+    config_key: str,
+    node_name: str = "",
+    **extra_payload
+) -> None:
+    """Emit TRAINING_STARTED event to all systems.
+
+    Usage:
+        await emit_training_started("square8_2p", node_name="lambda-1")
+    """
+    coordinator = get_event_coordinator()
+    await coordinator.emit_to_all(
+        event_type="TRAINING_STARTED",
+        payload={
+            "config_key": config_key,
+            "node_name": node_name,
+            "timestamp": datetime.now().isoformat(),
+            **extra_payload,
+        },
+        source="training",
+    )
+
+
+async def emit_training_completed(
+    config_key: str,
+    model_id: str,
+    val_loss: float = 0.0,
+    epochs: int = 0,
+    **extra_payload
+) -> None:
+    """Emit TRAINING_COMPLETED event to all systems.
+
+    Usage:
+        await emit_training_completed(
+            "square8_2p", "model_v42", val_loss=0.123, epochs=50
+        )
+    """
+    coordinator = get_event_coordinator()
+    await coordinator.emit_to_all(
+        event_type="TRAINING_COMPLETED",
+        payload={
+            "config_key": config_key,
+            "model_id": model_id,
+            "val_loss": val_loss,
+            "epochs": epochs,
+            "timestamp": datetime.now().isoformat(),
+            **extra_payload,
+        },
+        source="training",
+    )
+
+
+async def emit_training_failed(
+    config_key: str,
+    error: str,
+    **extra_payload
+) -> None:
+    """Emit TRAINING_FAILED event to all systems."""
+    coordinator = get_event_coordinator()
+    await coordinator.emit_to_all(
+        event_type="TRAINING_FAILED",
+        payload={
+            "config_key": config_key,
+            "error": error,
+            "timestamp": datetime.now().isoformat(),
+            **extra_payload,
+        },
+        source="training",
+    )
+
+
+async def emit_evaluation_completed(
+    model_id: str,
+    elo: float,
+    win_rate: float = 0.0,
+    games_played: int = 0,
+    **extra_payload
+) -> None:
+    """Emit EVALUATION_COMPLETED event to all systems.
+
+    Usage:
+        await emit_evaluation_completed("model_v42", elo=1650, win_rate=0.58)
+    """
+    coordinator = get_event_coordinator()
+    await coordinator.emit_to_all(
+        event_type="EVALUATION_COMPLETED",
+        payload={
+            "model_id": model_id,
+            "elo": elo,
+            "win_rate": win_rate,
+            "games_played": games_played,
+            "timestamp": datetime.now().isoformat(),
+            **extra_payload,
+        },
+        source="evaluation",
+    )
+
+
+async def emit_sync_completed(
+    sync_type: str,
+    files_synced: int = 0,
+    bytes_transferred: int = 0,
+    **extra_payload
+) -> None:
+    """Emit DATA_SYNC_COMPLETED event to all systems.
+
+    Usage:
+        await emit_sync_completed("games", files_synced=150)
+    """
+    coordinator = get_event_coordinator()
+    await coordinator.emit_to_all(
+        event_type="DATA_SYNC_COMPLETED",
+        payload={
+            "sync_type": sync_type,
+            "files_synced": files_synced,
+            "bytes_transferred": bytes_transferred,
+            "timestamp": datetime.now().isoformat(),
+            **extra_payload,
+        },
+        source="sync",
+    )
+
+
+async def emit_model_promoted(
+    model_id: str,
+    tier: str = "production",
+    elo: float = 0.0,
+    **extra_payload
+) -> None:
+    """Emit MODEL_PROMOTED event to all systems.
+
+    Usage:
+        await emit_model_promoted("model_v42", tier="production", elo=1650)
+    """
+    coordinator = get_event_coordinator()
+    await coordinator.emit_to_all(
+        event_type="MODEL_PROMOTED",
+        payload={
+            "model_id": model_id,
+            "tier": tier,
+            "elo": elo,
+            "timestamp": datetime.now().isoformat(),
+            **extra_payload,
+        },
+        source="promotion",
+    )
+
+
+async def emit_selfplay_batch_completed(
+    config_key: str,
+    games_generated: int,
+    duration_seconds: float = 0.0,
+    **extra_payload
+) -> None:
+    """Emit SELFPLAY_BATCH_COMPLETE event to all systems.
+
+    Usage:
+        await emit_selfplay_batch_completed("square8_2p", games_generated=500)
+    """
+    coordinator = get_event_coordinator()
+    await coordinator.emit_to_all(
+        event_type="SELFPLAY_BATCH_COMPLETE",
+        payload={
+            "config_key": config_key,
+            "games_generated": games_generated,
+            "duration_seconds": duration_seconds,
+            "timestamp": datetime.now().isoformat(),
+            **extra_payload,
+        },
+        source="selfplay",
+    )
+
+
+def emit_training_started_sync(
+    config_key: str,
+    node_name: str = "",
+    **extra_payload
+) -> None:
+    """Sync version of emit_training_started for non-async contexts.
+
+    Creates an event loop if needed, or uses fire-and-forget.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(emit_training_started(config_key, node_name, **extra_payload))
+        else:
+            loop.run_until_complete(emit_training_started(config_key, node_name, **extra_payload))
+    except RuntimeError:
+        # No event loop, use new one
+        asyncio.run(emit_training_started(config_key, node_name, **extra_payload))
+
+
+def emit_training_completed_sync(
+    config_key: str,
+    model_id: str,
+    val_loss: float = 0.0,
+    epochs: int = 0,
+    **extra_payload
+) -> None:
+    """Sync version of emit_training_completed."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(emit_training_completed(config_key, model_id, val_loss, epochs, **extra_payload))
+        else:
+            loop.run_until_complete(emit_training_completed(config_key, model_id, val_loss, epochs, **extra_payload))
+    except RuntimeError:
+        asyncio.run(emit_training_completed(config_key, model_id, val_loss, epochs, **extra_payload))
 
 
 # =============================================================================

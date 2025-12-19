@@ -46,6 +46,12 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 import threading
 
+# Centralized database utilities (December 2025)
+try:
+    from app.distributed.db_utils import get_db_connection
+except ImportError:
+    get_db_connection = None
+
 # Import PromotionCriteria for unified thresholds (avoid circular import)
 if TYPE_CHECKING:
     from app.training.promotion_controller import PromotionCriteria
@@ -168,13 +174,20 @@ class RegistryDatabase:
     @property
     def conn(self) -> sqlite3.Connection:
         if not hasattr(self._local, 'conn'):
-            self._local.conn = sqlite3.connect(str(self.db_path))
-            self._local.conn.row_factory = sqlite3.Row
+            if get_db_connection is not None:
+                self._local.conn = get_db_connection(self.db_path)
+            else:
+                self._local.conn = sqlite3.connect(str(self.db_path), timeout=30)
+                self._local.conn.row_factory = sqlite3.Row
         return self._local.conn
 
     def _init_db(self):
         """Initialize database schema."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        if get_db_connection is not None:
+            conn = get_db_connection(self.db_path)
+        else:
+            conn = sqlite3.connect(str(self.db_path), timeout=30)
+        try:
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS models (
                     model_id TEXT PRIMARY KEY,
@@ -260,6 +273,9 @@ class RegistryDatabase:
                 CREATE INDEX IF NOT EXISTS idx_transitions_model ON stage_transitions(model_id, version);
                 CREATE INDEX IF NOT EXISTS idx_validations_status ON validations(status);
             """)
+            conn.commit()
+        finally:
+            conn.close()
 
     def create_model(self, model_id: str, name: str, model_type: ModelType,
                      description: str = "") -> None:
