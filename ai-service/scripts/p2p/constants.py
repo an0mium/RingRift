@@ -262,6 +262,29 @@ P2P_SYNC_BACKOFF_FACTOR = 1.5
 P2P_SYNC_SPEEDUP_FACTOR = 0.8
 
 # ============================================
+# Unified Inventory / Idle Detection
+# ============================================
+
+# Discovery interval - how often to run multi-CLI discovery (seconds)
+UNIFIED_DISCOVERY_INTERVAL = int(os.environ.get("RINGRIFT_DISCOVERY_INTERVAL", "60"))
+
+# Idle detection interval - how often to check for idle nodes (seconds)
+IDLE_CHECK_INTERVAL = int(os.environ.get("RINGRIFT_IDLE_CHECK_INTERVAL", "30"))
+
+# GPU utilization threshold below which a node is considered idle (%)
+IDLE_GPU_THRESHOLD = int(os.environ.get("RINGRIFT_IDLE_GPU_THRESHOLD", "10"))
+
+# Enable automatic work assignment to idle nodes
+AUTO_ASSIGN_ENABLED = os.environ.get("RINGRIFT_AUTO_ASSIGN_ENABLED", "true").lower() in ("true", "1", "yes")
+
+# Minimum time (seconds) a node must be idle before auto-assigning work
+# Prevents flapping when jobs are between runs
+IDLE_GRACE_PERIOD = int(os.environ.get("RINGRIFT_IDLE_GRACE_PERIOD", "60"))
+
+# Maximum number of work items to auto-generate when queue is empty
+AUTO_WORK_BATCH_SIZE = int(os.environ.get("RINGRIFT_AUTO_WORK_BATCH_SIZE", "10"))
+
+# ============================================
 # State Directory
 # ============================================
 

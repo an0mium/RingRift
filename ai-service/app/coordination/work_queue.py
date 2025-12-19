@@ -708,6 +708,108 @@ class WorkQueue:
             logger.error(f"Failed to get work history: {e}")
             return []
 
+    def get_pending_count(self) -> int:
+        """Get number of pending work items."""
+        with self.lock:
+            return sum(1 for item in self.items.values() if item.status == WorkStatus.PENDING)
+
+    def get_running_count(self) -> int:
+        """Get number of running work items."""
+        with self.lock:
+            return sum(
+                1 for item in self.items.values()
+                if item.status in (WorkStatus.CLAIMED, WorkStatus.RUNNING)
+            )
+
+    def ensure_work_available(self, num_idle_nodes: int, max_batch: int = 10) -> int:
+        """Ensure queue has enough work for idle nodes.
+
+        Auto-generates selfplay work based on curriculum weights when the queue
+        is empty. This ensures idle nodes always have work to do.
+
+        Args:
+            num_idle_nodes: Number of nodes that are currently idle
+            max_batch: Maximum work items to generate at once
+
+        Returns:
+            Number of work items generated
+        """
+        pending = self.get_pending_count()
+        if pending >= num_idle_nodes:
+            return 0  # Already have enough work
+
+        # Calculate how many items to generate
+        needed = min(max_batch, num_idle_nodes - pending)
+        if needed <= 0:
+            return 0
+
+        # Try to load curriculum weights for prioritized selfplay
+        curriculum_weights = self._load_curriculum_weights()
+
+        generated = 0
+        for board_type, weight in curriculum_weights.items():
+            if generated >= needed:
+                break
+
+            if weight <= 0:
+                continue
+
+            # Parse board type to extract num_players
+            # Formats: "square8_2p", "hexagonal_3p", etc.
+            parts = board_type.rsplit("_", 1)
+            if len(parts) == 2 and parts[1].endswith("p"):
+                board = parts[0]
+                try:
+                    num_players = int(parts[1].rstrip("p"))
+                except ValueError:
+                    num_players = 2
+            else:
+                board = board_type
+                num_players = 2
+
+            # Create selfplay work item
+            item = WorkItem(
+                work_type=WorkType.SELFPLAY,
+                priority=int(weight * 100),  # Higher weight = higher priority
+                config={
+                    "board_type": board,
+                    "num_players": num_players,
+                    "num_games": 500,
+                    "auto_generated": True,
+                },
+                timeout_seconds=3600.0,  # 1 hour
+            )
+
+            self.add_work(item)
+            generated += 1
+
+        if generated:
+            logger.info(f"Auto-generated {generated} selfplay work items for {num_idle_nodes} idle nodes")
+
+        return generated
+
+    def _load_curriculum_weights(self) -> Dict[str, float]:
+        """Load curriculum weights for selfplay prioritization.
+
+        Returns:
+            Dict mapping board_type_players to weight (0.0-1.0)
+        """
+        try:
+            # Try to load from curriculum module
+            from scripts.unified_loop.curriculum import load_curriculum_weights
+            return load_curriculum_weights()
+        except ImportError:
+            pass
+
+        # Fallback to default curriculum
+        return {
+            "square8_2p": 1.0,
+            "square8_3p": 0.7,
+            "square8_4p": 0.5,
+            "square19_2p": 0.8,
+            "hexagonal_2p": 0.6,
+        }
+
 
 # Singleton instance (created on demand by leader)
 _work_queue: Optional[WorkQueue] = None
