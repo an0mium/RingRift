@@ -333,7 +333,7 @@ SEED_LOADTEST_USERS=true \
 - Uses staging thresholds for k6 (`THRESHOLD_ENV=staging`) and applies stricter, production-level SLOs
   for AI latency/fallback at the SLO verification layer, as described in
   [`docs/PRODUCTION_READINESS_CHECKLIST.md`](PRODUCTION_READINESS_CHECKLIST.md:176) and
-  [`docs/SLO_VERIFICATION.md`](SLO_VERIFICATION.md:45).
+  [`docs/operations/SLO_VERIFICATION.md`](SLO_VERIFICATION.md:45).
 
 ### Where results and SLO reports are written
 
@@ -362,7 +362,7 @@ which writes `load_slo_summary.json` and prints a compact table of scenario stat
 ### Target Metrics During Load Testing
 
 See the canonical SLO catalogue and environment-specific thresholds in
-[`docs/SLO_VERIFICATION.md`](SLO_VERIFICATION.md:45) and the JSON configs under
+[`docs/operations/SLO_VERIFICATION.md`](SLO_VERIFICATION.md:45) and the JSON configs under
 `tests/load/configs/` and `tests/load/config/thresholds.json`. For quick reference:
 
 - **Baseline smoke (staging):** ≥20 concurrent games, ≥60 concurrent players.

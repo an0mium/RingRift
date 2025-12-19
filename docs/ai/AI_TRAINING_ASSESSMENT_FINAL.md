@@ -183,12 +183,12 @@ For a more detailed, end‑to‑end pre‑flight checklist (including environmen
 
 ## 4. Critical Bug Fixes
 
-| Bug                                         | Impact                     | Fix                                               | File                                                                   |
-| ------------------------------------------- | -------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------- |
-| **NaN loss from empty policy arrays**       | Training crash             | `valid_indices` filtering before softmax          | [`train.py`](../ai-service/app/training/train.py)                      |
-| **Unbounded MinimaxAI transposition table** | OOM after ~1000 games      | `BoundedTranspositionTable` with 100K max entries | [`minimax_ai.py`](../ai-service/app/ai/minimax_ai.py)                  |
-| **DescentAI search_log accumulation**       | Memory leak in inference   | `collect_training_data` flag, disabled by default | [`descent_ai.py`](../ai-service/app/ai/descent_ai.py)                  |
-| **RandomAI deterministic seeding**          | 50% baseline (should vary) | Per-game unique RNG seeds via `game_seed`         | [`evaluate_ai_models.py`](../ai-service/scripts/evaluate_ai_models.py) |
+| Bug                                         | Impact                     | Fix                                                                  | File                                                                   |
+| ------------------------------------------- | -------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| **NaN loss from empty policy arrays**       | Training crash             | Policy-loss masking with optional filtering (`allow_empty_policies`) | [`train.py`](../ai-service/app/training/train.py)                      |
+| **Unbounded MinimaxAI transposition table** | OOM after ~1000 games      | `BoundedTranspositionTable` with 100K max entries                    | [`minimax_ai.py`](../ai-service/app/ai/minimax_ai.py)                  |
+| **DescentAI search_log accumulation**       | Memory leak in inference   | `collect_training_data` flag, disabled by default                    | [`descent_ai.py`](../ai-service/app/ai/descent_ai.py)                  |
+| **RandomAI deterministic seeding**          | 50% baseline (should vary) | Per-game unique RNG seeds via `game_seed`                            | [`evaluate_ai_models.py`](../ai-service/scripts/evaluate_ai_models.py) |
 
 ---
 
