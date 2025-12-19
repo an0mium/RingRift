@@ -11,6 +11,25 @@ Unified module that consolidates and integrates all advanced training features:
 - Reanalysis (historical game re-evaluation)
 
 This module provides a single entry point for enabling/configuring all features.
+
+INTEGRATION STATUS (as of 2025-12):
+=====================================
+Feature                    | Status           | Notes
+---------------------------|------------------|----------------------------------
+get_batch_size()           | INTEGRATED       | Used in train.py for dynamic batch sizing
+compute_auxiliary_loss()   | INTEGRATED       | Used in train.py for multi-task learning
+update_step()              | INTEGRATED       | Used in train.py to sync step counter
+should_early_stop()        | INTEGRATED       | Used in train.py for Elo-based stopping
+get_current_elo()          | INTEGRATED       | Used in train.py for logging
+get_baseline_gating_status | INTEGRATED       | Used in train.py for quality monitoring
+---------------------------|------------------|----------------------------------
+augment_batch()            | NOT INTEGRATED   | Exists but never called in train.py
+compute_sample_weights()   | NOT INTEGRATED   | Exists but never called in train.py
+get_curriculum_parameters()| NOT INTEGRATED   | Values never used in training loop
+apply_gradient_surgery()   | NOT INTEGRATED   | Exists but never called in train.py
+
+To integrate the unused features, see the corresponding methods' docstrings
+for API details, then add calls in app/training/train.py at appropriate points.
 """
 
 from __future__ import annotations
