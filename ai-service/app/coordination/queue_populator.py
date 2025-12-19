@@ -566,7 +566,7 @@ class QueuePopulator:
         # Opportunistically queue hyperparameter sweeps for high-Elo models
         # Only 1 sweep per populate cycle to avoid hogging GPU resources
         sweep_added = 0
-        sweep_threshold = 1800  # Only sweep models above this Elo
+        sweep_threshold = 1600  # Lower threshold to help break plateaus
         for target in unmet:
             if target.current_best_elo >= sweep_threshold and target.best_model_id:
                 # Check if we already have a pending sweep for this config
