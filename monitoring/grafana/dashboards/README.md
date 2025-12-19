@@ -422,7 +422,7 @@ Each dashboard panel references specific runbooks for alert investigation:
 ## Related Documentation
 
 - Alert Rules: [`monitoring/prometheus/alerts.yml`](../prometheus/alerts.yml)
-- Alerting Thresholds: [`docs/ALERTING_THRESHOLDS.md`](../../docs/ALERTING_THRESHOLDS.md)
+- Alerting Thresholds: [`docs/operations/ALERTING_THRESHOLDS.md`](../../docs/operations/ALERTING_THRESHOLDS.md)
 - PASS21 Assessment: [`docs/PASS21_ASSESSMENT_REPORT.md`](../../docs/PASS21_ASSESSMENT_REPORT.md) (Section 2.1)
 - Metrics Service: [`src/server/services/MetricsService.ts`](../../src/server/services/MetricsService.ts)
 - Contract Vectors: [`docs/CONTRACT_VECTORS_DESIGN.md`](../../docs/CONTRACT_VECTORS_DESIGN.md)

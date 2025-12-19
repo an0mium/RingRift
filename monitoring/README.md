@@ -163,7 +163,7 @@ docker info
 - [Prometheus Documentation](https://prometheus.io/docs/)
 - [Alertmanager Documentation](https://prometheus.io/docs/alerting/latest/alertmanager/)
 - [PromQL Cheat Sheet](https://promlabs.com/promql-cheat-sheet/)
-- [RingRift Alerting Thresholds](../docs/ALERTING_THRESHOLDS.md)
+- [RingRift Alerting Thresholds](../docs/operations/ALERTING_THRESHOLDS.md)
 - [RingRift Runbooks](../docs/runbooks/)
 
 ---

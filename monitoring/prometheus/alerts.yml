@@ -901,7 +901,7 @@ groups:
             Many players are failing to reconnect within the defined window. This corresponds to
             the reconnection semantics in P18.3-1_DECISION_LIFECYCLE_SPEC and the
             WebSocket reconnect behaviour exercised by the websocket-stress and player-moves
-            k6 scenarios. See docs/ALERTING_THRESHOLDS.md#connection--session-lifecycle-alerts
+            k6 scenarios. See docs/operations/ALERTING_THRESHOLDS.md#connection--session-lifecycle-alerts
             for SLO context.
           runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/WEBSOCKET_ISSUES.md'
           impact: 'Players may be losing games due to reconnection timeouts rather than gameplay outcomes.'
@@ -927,7 +927,7 @@ groups:
           description: |
             More games are ending via abnormal paths (disconnect timeouts, internal errors,
             forced cleanup) rather than normal victory conditions. See
-            docs/ALERTING_THRESHOLDS.md#connection--session-lifecycle-alerts and
+            docs/operations/ALERTING_THRESHOLDS.md#connection--session-lifecycle-alerts and
             docs/P18.3-1_DECISION_LIFECYCLE_SPEC.md for lifecycle semantics.
           runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/GAME_HEALTH.md'
           impact: 'Players may experience unexpected game terminations caused by infrastructure or lifecycle bugs.'
@@ -948,7 +948,7 @@ groups:
           description: |
             There are live game sessions but none in active_turn or active_decision_phase states.
             This may indicate stuck timers, unresolved decision phases, or reconnection edge cases.
-            See docs/ALERTING_THRESHOLDS.md#connection--session-lifecycle-alerts and
+            See docs/operations/ALERTING_THRESHOLDS.md#connection--session-lifecycle-alerts and
             docs/P18.3-1_DECISION_LIFECYCLE_SPEC.md for the canonical session state machine.
           runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/GAME_HEALTH.md'
           impact: 'Games may be stalled in waiting/cleanup states even though players are connected.'
