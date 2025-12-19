@@ -62,6 +62,16 @@ class ModelStage(Enum):
     REJECTED = "rejected"            # Failed evaluation
 
 
+class ValidationStatus(Enum):
+    """Model validation status for automated validation loop."""
+    PENDING = "pending"              # Needs validation
+    QUEUED = "queued"                # Validation work item queued
+    RUNNING = "running"              # Validation in progress
+    PASSED = "passed"                # Validation successful
+    FAILED = "failed"                # Validation failed
+    SKIPPED = "skipped"              # Validation not required
+
+
 class ModelType(Enum):
     """Types of models in the registry."""
     POLICY_VALUE = "policy_value"    # Main game-playing model
@@ -227,10 +237,28 @@ class RegistryDatabase:
                     notes TEXT
                 );
 
+                CREATE TABLE IF NOT EXISTS validations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    model_id TEXT NOT NULL,
+                    version INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    work_id TEXT,
+                    baselines TEXT,
+                    games_per_matchup INTEGER DEFAULT 50,
+                    results_json TEXT,
+                    started_at TEXT,
+                    completed_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (model_id) REFERENCES models(model_id),
+                    UNIQUE(model_id, version)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_versions_model ON versions(model_id);
                 CREATE INDEX IF NOT EXISTS idx_versions_stage ON versions(stage);
                 CREATE INDEX IF NOT EXISTS idx_tags_model ON tags(model_id, version);
                 CREATE INDEX IF NOT EXISTS idx_transitions_model ON stage_transitions(model_id, version);
+                CREATE INDEX IF NOT EXISTS idx_validations_status ON validations(status);
             """)
 
     def create_model(self, model_id: str, name: str, model_type: ModelType,
@@ -465,6 +493,154 @@ class RegistryDatabase:
         """, (model_id, version))
         return [dict(row) for row in cursor.fetchall()]
 
+    # =========================================================================
+    # VALIDATION TRACKING
+    # =========================================================================
+
+    def create_validation(
+        self,
+        model_id: str,
+        version: int,
+        baselines: Optional[List[str]] = None,
+        games_per_matchup: int = 50,
+    ) -> None:
+        """Create a validation entry for a model version."""
+        now = datetime.now().isoformat()
+        baselines_str = json.dumps(baselines) if baselines else None
+        try:
+            self.conn.execute("""
+                INSERT INTO validations
+                (model_id, version, status, baselines, games_per_matchup, created_at, updated_at)
+                VALUES (?, ?, 'pending', ?, ?, ?, ?)
+            """, (model_id, version, baselines_str, games_per_matchup, now, now))
+            self.conn.commit()
+        except sqlite3.IntegrityError:
+            # Already exists, update instead
+            self.conn.execute("""
+                UPDATE validations
+                SET status = 'pending', baselines = ?, games_per_matchup = ?, updated_at = ?
+                WHERE model_id = ? AND version = ?
+            """, (baselines_str, games_per_matchup, now, model_id, version))
+            self.conn.commit()
+
+    def get_validation_status(self, model_id: str, version: int) -> Optional[str]:
+        """Get validation status for a model version."""
+        cursor = self.conn.execute(
+            "SELECT status FROM validations WHERE model_id = ? AND version = ?",
+            (model_id, version)
+        )
+        row = cursor.fetchone()
+        return row['status'] if row else None
+
+    def update_validation_status(
+        self,
+        model_id: str,
+        version: int,
+        status: str,
+        work_id: Optional[str] = None,
+        results: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Update validation status for a model version."""
+        now = datetime.now().isoformat()
+
+        updates = ["status = ?", "updated_at = ?"]
+        params = [status, now]
+
+        if work_id is not None:
+            updates.append("work_id = ?")
+            params.append(work_id)
+
+        if results is not None:
+            updates.append("results_json = ?")
+            params.append(json.dumps(results))
+
+        if status == "running":
+            updates.append("started_at = ?")
+            params.append(now)
+        elif status in ("passed", "failed"):
+            updates.append("completed_at = ?")
+            params.append(now)
+
+        params.extend([model_id, version])
+        self.conn.execute(f"""
+            UPDATE validations
+            SET {", ".join(updates)}
+            WHERE model_id = ? AND version = ?
+        """, params)
+        self.conn.commit()
+
+    def get_models_needing_validation(self) -> List[Dict[str, Any]]:
+        """Get all models that need validation (status = pending)."""
+        cursor = self.conn.execute("""
+            SELECT v.model_id, v.version, v.file_path, v.stage,
+                   val.status as validation_status, val.baselines, val.games_per_matchup,
+                   m.name, m.model_type
+            FROM versions v
+            JOIN models m ON v.model_id = m.model_id
+            LEFT JOIN validations val ON v.model_id = val.model_id AND v.version = val.version
+            WHERE val.status = 'pending'
+            ORDER BY v.updated_at DESC
+        """)
+        results = []
+        for row in cursor.fetchall():
+            results.append({
+                'model_id': row['model_id'],
+                'version': row['version'],
+                'file_path': row['file_path'],
+                'stage': row['stage'],
+                'name': row['name'],
+                'model_type': row['model_type'],
+                'validation_status': row['validation_status'],
+                'baselines': json.loads(row['baselines']) if row['baselines'] else [],
+                'games_per_matchup': row['games_per_matchup'],
+            })
+        return results
+
+    def get_models_without_validation(self) -> List[Dict[str, Any]]:
+        """Get all models that don't have a validation entry yet."""
+        cursor = self.conn.execute("""
+            SELECT v.model_id, v.version, v.file_path, v.stage, m.name, m.model_type
+            FROM versions v
+            JOIN models m ON v.model_id = m.model_id
+            LEFT JOIN validations val ON v.model_id = val.model_id AND v.version = val.version
+            WHERE val.id IS NULL
+            AND v.stage IN ('development', 'staging')
+            ORDER BY v.created_at DESC
+        """)
+        results = []
+        for row in cursor.fetchall():
+            results.append({
+                'model_id': row['model_id'],
+                'version': row['version'],
+                'file_path': row['file_path'],
+                'stage': row['stage'],
+                'name': row['name'],
+                'model_type': row['model_type'],
+            })
+        return results
+
+    def get_validation(self, model_id: str, version: int) -> Optional[Dict[str, Any]]:
+        """Get full validation record for a model version."""
+        cursor = self.conn.execute("""
+            SELECT * FROM validations WHERE model_id = ? AND version = ?
+        """, (model_id, version))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            'model_id': row['model_id'],
+            'version': row['version'],
+            'status': row['status'],
+            'work_id': row['work_id'],
+            'baselines': json.loads(row['baselines']) if row['baselines'] else [],
+            'games_per_matchup': row['games_per_matchup'],
+            'results': json.loads(row['results_json']) if row['results_json'] else None,
+            'started_at': row['started_at'],
+            'completed_at': row['completed_at'],
+            'created_at': row['created_at'],
+            'updated_at': row['updated_at'],
+        }
+
 
 class ModelRegistry:
     """
@@ -563,6 +739,11 @@ class ModelRegistry:
         if tags:
             for tag in tags:
                 self.db.add_tag(model_id, version, tag)
+
+        # Auto-create validation entry for trackable models
+        if model_type == ModelType.POLICY_VALUE and initial_stage in (ModelStage.DEVELOPMENT, ModelStage.STAGING):
+            self.db.create_validation(model_id, version)
+            logger.debug(f"Created validation entry for {model_id}:v{version}")
 
         logger.info(f"Registered {model_id}:v{version} ({model_type.value})")
         return model_id, version
@@ -786,6 +967,67 @@ class ModelRegistry:
             tags=tags,
             model_id=model_id
         )
+
+    # =========================================================================
+    # VALIDATION TRACKING CONVENIENCE METHODS
+    # =========================================================================
+
+    def get_models_needing_validation(self) -> List[Dict[str, Any]]:
+        """Get all models with pending validation status."""
+        return self.db.get_models_needing_validation()
+
+    def get_unvalidated_models(self) -> List[Dict[str, Any]]:
+        """Get all models without any validation entry."""
+        return self.db.get_models_without_validation()
+
+    def create_validation(
+        self,
+        model_id: str,
+        version: int,
+        baselines: Optional[List[str]] = None,
+        games_per_matchup: int = 50,
+    ) -> None:
+        """Create or reset a validation entry for a model."""
+        self.db.create_validation(model_id, version, baselines, games_per_matchup)
+
+    def set_validation_queued(
+        self,
+        model_id: str,
+        version: int,
+        work_id: str,
+    ) -> None:
+        """Mark a model's validation as queued with the work item ID."""
+        self.db.update_validation_status(model_id, version, "queued", work_id=work_id)
+
+    def set_validation_running(self, model_id: str, version: int) -> None:
+        """Mark a model's validation as currently running."""
+        self.db.update_validation_status(model_id, version, "running")
+
+    def set_validation_passed(
+        self,
+        model_id: str,
+        version: int,
+        results: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Mark a model's validation as passed."""
+        self.db.update_validation_status(model_id, version, "passed", results=results)
+
+    def set_validation_failed(
+        self,
+        model_id: str,
+        version: int,
+        results: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Mark a model's validation as failed."""
+        self.db.update_validation_status(model_id, version, "failed", results=results)
+
+    def get_validation(self, model_id: str, version: int) -> Optional[Dict[str, Any]]:
+        """Get the validation record for a model."""
+        return self.db.get_validation(model_id, version)
+
+    def get_validation_status(self, model_id: str, version: int) -> Optional[str]:
+        """Get just the validation status for a model."""
+        return self.db.get_validation_status(model_id, version)
 
 
 class AutoPromoter:

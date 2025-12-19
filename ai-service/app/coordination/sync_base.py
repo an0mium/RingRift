@@ -69,62 +69,24 @@ class SyncState:
         )
 
 
+# Use canonical circuit breaker from distributed module
+from app.distributed.circuit_breaker import CircuitBreaker as CanonicalCircuitBreaker
+
+
 @dataclass
 class CircuitBreakerConfig:
-    """Configuration for circuit breaker behavior."""
+    """Configuration for circuit breaker behavior.
+
+    Kept for backward compatibility - maps to canonical CircuitBreaker parameters.
+    """
     failure_threshold: int = 3
     recovery_timeout: float = 60.0
     half_open_max_calls: int = 1
 
 
-class SimpleCircuitBreaker:
-    """Lightweight circuit breaker for node fault tolerance.
-
-    States:
-    - CLOSED: Normal operation, requests pass through
-    - OPEN: Failures exceeded threshold, requests rejected
-    - HALF_OPEN: Testing if service recovered
-
-    Note: For advanced use cases with callbacks and async context manager,
-    use app.distributed.circuit_breaker.CircuitBreaker instead.
-    """
-
-    def __init__(self, config: Optional[CircuitBreakerConfig] = None):
-        self.config = config or CircuitBreakerConfig()
-        self._failure_count = 0
-        self._last_failure_time = 0.0
-        self._state = "closed"  # closed, open, half_open
-
-    @property
-    def is_open(self) -> bool:
-        """Check if circuit is open (blocking requests)."""
-        if self._state == "open":
-            if time.time() - self._last_failure_time > self.config.recovery_timeout:
-                self._state = "half_open"
-                return False
-            return True
-        return False
-
-    def record_success(self) -> None:
-        """Record a successful operation."""
-        self._failure_count = 0
-        self._state = "closed"
-
-    def record_failure(self) -> None:
-        """Record a failed operation."""
-        self._failure_count += 1
-        self._last_failure_time = time.time()
-        if self._failure_count >= self.config.failure_threshold:
-            self._state = "open"
-
-    def get_status(self) -> Dict[str, Any]:
-        """Get current circuit breaker status."""
-        return {
-            "state": self._state,
-            "failure_count": self._failure_count,
-            "last_failure_time": self._last_failure_time,
-            "is_open": self.is_open,
-        }
+# Alias for backward compatibility - use canonical CircuitBreaker directly
+# Old code using SimpleCircuitBreaker should migrate to CanonicalCircuitBreaker
+SimpleCircuitBreaker = CanonicalCircuitBreaker
 
 
 class SyncManagerBase(ABC):
@@ -163,17 +125,29 @@ class SyncManagerBase(ABC):
         self._sync_lock = asyncio.Lock()
         self._running = False
         self._state = SyncState()
-        self._circuit_breakers: Dict[str, SimpleCircuitBreaker] = {}
+        # Use single canonical circuit breaker (tracks targets internally)
+        self._circuit_breaker = CanonicalCircuitBreaker(
+            failure_threshold=self.circuit_breaker_config.failure_threshold,
+            recovery_timeout=self.circuit_breaker_config.recovery_timeout,
+            half_open_max_calls=self.circuit_breaker_config.half_open_max_calls,
+            operation_type="sync_manager",
+        )
 
         # Load persisted state if available
         if self.state_path and self.state_path.exists():
             self._load_state()
 
-    def _get_circuit_breaker(self, node: str) -> SimpleCircuitBreaker:
-        """Get or create circuit breaker for a node."""
-        if node not in self._circuit_breakers:
-            self._circuit_breakers[node] = SimpleCircuitBreaker(self.circuit_breaker_config)
-        return self._circuit_breakers[node]
+    def _can_sync_with_node(self, node: str) -> bool:
+        """Check if sync with node is allowed (circuit not open)."""
+        return self._circuit_breaker.can_execute(node)
+
+    def _record_sync_success(self, node: str) -> None:
+        """Record successful sync with node."""
+        self._circuit_breaker.record_success(node)
+
+    def _record_sync_failure(self, node: str, error: Optional[Exception] = None) -> None:
+        """Record failed sync with node."""
+        self._circuit_breaker.record_failure(node, error)
 
     def _load_state(self) -> None:
         """Load state from persistent storage."""
@@ -226,25 +200,23 @@ class SyncManagerBase(ABC):
         Returns:
             True if sync succeeded, False if failed or skipped
         """
-        breaker = self._get_circuit_breaker(node)
-
-        if breaker.is_open:
+        if not self._can_sync_with_node(node):
             logger.debug(f"Circuit breaker open for {node}, skipping sync")
             return False
 
         try:
             success = await self._do_sync(node)
             if success:
-                breaker.record_success()
+                self._record_sync_success(node)
                 self._state.synced_nodes.add(node)
                 self._state.failed_nodes.discard(node)
             else:
-                breaker.record_failure()
+                self._record_sync_failure(node)
                 self._state.failed_nodes.add(node)
             return success
         except Exception as e:
             logger.error(f"Sync error with {node}: {e}")
-            breaker.record_failure()
+            self._record_sync_failure(node, e)
             self._state.failed_nodes.add(node)
             self._state.last_error = str(e)
             return False

@@ -149,20 +149,36 @@ class BackgroundEvaluator:
             time.sleep(5.0)  # Check interval
 
     def _run_evaluation(self, step: int) -> EvalResult:
-        """Run a mini-gauntlet evaluation."""
+        """Run a mini-gauntlet evaluation.
+
+        WARNING: This is currently a PLACEHOLDER implementation that uses random
+        results instead of actual games. Real game-playing evaluation requires:
+        1. Extracting model weights mid-training
+        2. Creating AI instances with those weights
+        3. Running games without blocking training
+
+        For actual model validation, use:
+        - scripts/select_best_checkpoint_by_elo.py (post-training checkpoint selection)
+        - app/training/tier_eval_runner.py (tier gate evaluation)
+
+        TODO: Implement real game-playing by integrating with baseline_gauntlet.py
+        or the game-playing logic from select_best_checkpoint_by_elo.py.
+        """
         logger.info(f"[BackgroundEval] Running evaluation at step {step}")
 
-        # Get current model
+        # Get current model (currently unused - placeholder only)
         model = self.model_getter()
 
-        # Placeholder for actual gauntlet - would run games
-        # This would integrate with baseline_gauntlet.py
+        # PLACEHOLDER: Simulates games with random outcomes
+        # Real implementation would play actual games against baselines
+        # using the current model weights.
         baseline_results = {}
         total_wins = 0
         total_games = 0
 
         for baseline in self.config.baselines:
-            # Simulate games (replace with actual gauntlet)
+            # TODO: Replace with actual game-playing
+            # Current: Random binomial (55% expected win rate)
             wins = np.random.binomial(self.config.games_per_eval // len(self.config.baselines), 0.55)
             games = self.config.games_per_eval // len(self.config.baselines)
             baseline_results[baseline] = wins / games if games > 0 else 0.5

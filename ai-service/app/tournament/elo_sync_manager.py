@@ -54,55 +54,15 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Circuit breaker states
-CIRCUIT_CLOSED = "closed"
-CIRCUIT_OPEN = "open"
-CIRCUIT_HALF_OPEN = "half_open"
+# Use canonical circuit breaker from distributed module
+from app.distributed.circuit_breaker import (
+    CircuitBreaker as CanonicalCircuitBreaker,
+    CircuitState,
+)
 
 # Default paths
 DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "data" / "unified_elo.db"
 SYNC_STATE_PATH = Path(__file__).parent.parent.parent / "data" / "elo_sync_state.json"
-
-
-@dataclass
-class CircuitBreaker:
-    """Circuit breaker for fault-tolerant node communication."""
-    state: str = CIRCUIT_CLOSED
-    failure_count: int = 0
-    last_failure: float = 0
-    last_success: float = 0
-    failure_threshold: int = 3
-    recovery_timeout: float = 60.0  # Start with 60s, exponential backoff
-    max_recovery_timeout: float = 3600.0  # Max 1 hour
-
-    def record_success(self):
-        self.state = CIRCUIT_CLOSED
-        self.failure_count = 0
-        self.last_success = time.time()
-        self.recovery_timeout = 60.0  # Reset backoff
-
-    def record_failure(self):
-        self.failure_count += 1
-        self.last_failure = time.time()
-        if self.failure_count >= self.failure_threshold:
-            self.state = CIRCUIT_OPEN
-            # Exponential backoff
-            self.recovery_timeout = min(
-                self.recovery_timeout * 2,
-                self.max_recovery_timeout
-            )
-
-    def is_available(self) -> bool:
-        if self.state == CIRCUIT_CLOSED:
-            return True
-        if self.state == CIRCUIT_OPEN:
-            # Check if recovery timeout has passed
-            if time.time() - self.last_failure > self.recovery_timeout:
-                self.state = CIRCUIT_HALF_OPEN
-                return True
-            return False
-        # Half-open: allow one attempt
-        return True
 
 
 @dataclass
@@ -194,7 +154,14 @@ class EloSyncManager:
 
         self.state = SyncState()
         self.nodes: Dict[str, NodeInfo] = {}
-        self.circuit_breakers: Dict[str, CircuitBreaker] = defaultdict(CircuitBreaker)
+        # Use single canonical circuit breaker for all nodes (tracks targets internally)
+        self._circuit_breaker = CanonicalCircuitBreaker(
+            failure_threshold=3,
+            recovery_timeout=60.0,
+            backoff_multiplier=2.0,
+            max_backoff=3600.0,  # Max 1 hour
+            operation_type="elo_sync",
+        )
         self._sync_lock = asyncio.Lock()
         self._running = False
         self._sync_task: Optional[asyncio.Task] = None
@@ -398,9 +365,8 @@ class EloSyncManager:
 
             # Try each node with each transport method
             for node in nodes_to_try:
-                # Check circuit breaker
-                breaker = self.circuit_breakers[node.name]
-                if not breaker.is_available():
+                # Check circuit breaker (canonical version uses target-based tracking)
+                if not self._circuit_breaker.can_execute(node.name):
                     logger.debug(f"Skipping {node.name} - circuit open")
                     continue
 
@@ -408,7 +374,7 @@ class EloSyncManager:
                     try:
                         success = await method(node)
                         if success:
-                            breaker.record_success()
+                            self._circuit_breaker.record_success(node.name)
                             self.state.last_sync_timestamp = time.time()
                             self.state.synced_from = node.name
                             self.state.successful_syncs += 1
@@ -426,7 +392,7 @@ class EloSyncManager:
                         continue
 
                 # All methods failed for this node
-                breaker.record_failure()
+                self._circuit_breaker.record_failure(node.name)
 
             # All nodes failed
             logger.warning(f"All sync methods failed. Errors: {errors[:5]}")

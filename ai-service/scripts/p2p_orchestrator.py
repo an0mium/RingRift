@@ -16811,16 +16811,21 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                             idle_since.pop(peer.node_id, None)
                             continue
 
-                        # Check if node is idle: low GPU and no jobs running
+                        # Check if node is GPU-idle: low GPU utilization, regardless of CPU job count
+                        # A node with CPU-bound selfplay jobs but idle GPU should still get GPU work
                         gpu_pct = float(getattr(peer, "gpu_percent", 0) or 0)
                         selfplay_jobs = int(getattr(peer, "selfplay_jobs", 0) or 0)
                         training_jobs = int(getattr(peer, "training_jobs", 0) or 0)
                         has_external = getattr(peer, "has_external_work", lambda: False)()
+                        has_gpu = bool(getattr(peer, "gpu_name", "") or getattr(peer, "has_gpu", False))
 
+                        # GPU-idle: GPU is underutilized. Training jobs use GPU, so exclude those.
+                        # CPU selfplay jobs don't prevent GPU idleness - in fact, that's exactly
+                        # when we SHOULD start GPU work to utilize the idle GPU.
                         is_idle = (
-                            gpu_pct < IDLE_GPU_THRESHOLD
-                            and selfplay_jobs == 0
-                            and training_jobs == 0
+                            has_gpu
+                            and gpu_pct < IDLE_GPU_THRESHOLD
+                            and training_jobs == 0  # Training uses GPU, so node isn't GPU-idle
                             and not has_external
                         )
 
@@ -16904,29 +16909,51 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             url = self._url_for_peer(peer, "/selfplay/start")
             timeout = ClientTimeout(total=30)
 
-            async def send_selfplay_request(session, i):
+            # Mix of job types for quality + throughput:
+            # - Hybrid (CPU rules + GPU eval) for diverse, high-quality samples
+            # - GPU-only (heuristic) for pure throughput
+            # Half-and-half split to balance quality and quantity
+            job_configs = []
+            for i in range(num_processes):
+                if i < num_processes // 2:
+                    # Hybrid: CPU MCTS rules + GPU evaluation = quality/diversity
+                    job_configs.append({
+                        "board_type": "hex",
+                        "num_players": 2,
+                        "num_games": games_per_process,
+                        "engine_mode": "nnue-guided",  # CPU rules + GPU NNUE eval
+                        "auto_assigned": True,
+                        "reason": f"auto_idle_hybrid_{int(idle_duration)}s_proc{i}",
+                    })
+                else:
+                    # GPU-only: pure throughput
+                    job_configs.append({
+                        "board_type": "hex",
+                        "num_players": 2,
+                        "num_games": games_per_process,
+                        "engine_mode": "heuristic-only",  # GPU-accelerated heuristic
+                        "auto_assigned": True,
+                        "reason": f"auto_idle_gpu_{int(idle_duration)}s_proc{i}",
+                    })
+
+            async def send_selfplay_request(session, payload):
                 """Send a single selfplay start request."""
-                payload = {
-                    "board_type": "hex",  # Default to hex (good GPU utilization)
-                    "num_players": 2,
-                    "num_games": games_per_process,
-                    "engine_mode": "heuristic-only",  # GPU-accelerated heuristic
-                    "auto_assigned": True,
-                    "reason": f"auto_idle_{int(idle_duration)}s_proc{i}",
-                }
                 async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
                     if resp.status == 200:
                         return True
                     else:
                         body = await resp.text()
-                        logger.warning(f"Failed selfplay request {i} on {peer.node_id}: {resp.status} {body[:100]}")
+                        logger.warning(f"Failed selfplay request on {peer.node_id}: {resp.status} {body[:100]}")
                         return False
 
             async with get_client_session(timeout) as session:
-                tasks = [send_selfplay_request(session, i) for i in range(num_processes)]
+                tasks = [send_selfplay_request(session, cfg) for cfg in job_configs]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 started = sum(1 for r in results if r is True)
-                logger.info(f"Auto-started {started}/{num_processes} GPU selfplay processes on {peer.node_id}")
+                hybrid_count = num_processes // 2
+                gpu_count = num_processes - hybrid_count
+                logger.info(f"Auto-started {started}/{num_processes} selfplay processes on {peer.node_id} "
+                           f"({hybrid_count} hybrid + {gpu_count} GPU)")
 
         except Exception as e:
             logger.warning(f"Auto-start request failed for {peer.node_id}: {e}")
@@ -16968,14 +16995,66 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
                 if decision.action.value == "scale_up":
                     logger.info(f"Auto-scaling: scale_up {decision.count} instances ({decision.reason})")
-                    # TODO: Wire to vast_p2p_sync.py provision function
-                    # For now, just log the decision
-                    auto_scaler.record_scale_event(decision, success=True)
+                    try:
+                        from scripts.vast_p2p_sync import provision_instances_async
+                        created, instance_ids = await provision_instances_async(
+                            count=decision.count,
+                            max_total_hourly=auto_scaler.config.max_hourly_cost,
+                        )
+                        if created > 0:
+                            logger.info(f"Auto-scaling: provisioned {created} new instances")
+                            auto_scaler.record_scale_event(decision, success=True)
+                            # Notify via webhook
+                            await self.notifier.send(
+                                f"🚀 Auto-scaled UP: Provisioned {created} Vast.ai instances",
+                                severity="info",
+                                context={"reason": decision.reason, "instances": created}
+                            )
+                        else:
+                            logger.warning("Auto-scaling: scale_up requested but no instances created")
+                            auto_scaler.record_scale_event(decision, success=False, error="no_instances_created")
+                    except Exception as e:
+                        logger.error(f"Auto-scaling provision failed: {e}")
+                        auto_scaler.record_scale_event(decision, success=False, error=str(e))
 
                 elif decision.action.value == "scale_down":
                     logger.info(f"Auto-scaling: scale_down {len(decision.node_ids)} instances ({decision.reason})")
-                    # TODO: Wire to vast_p2p_sync.py deprovision function
-                    auto_scaler.record_scale_event(decision, success=True)
+                    try:
+                        # Get mapping from node_id to vast_instance_id
+                        from scripts.vast_p2p_sync import (
+                            get_node_to_vast_mapping_async,
+                            deprovision_instances_async,
+                        )
+                        node_to_vast = await get_node_to_vast_mapping_async()
+
+                        # Translate node_ids to vast_instance_ids
+                        vast_ids_to_remove = []
+                        for node_id in decision.node_ids:
+                            if node_id in node_to_vast:
+                                vast_ids_to_remove.append(node_to_vast[node_id])
+                            else:
+                                logger.warning(f"Auto-scaling: node {node_id} not found in Vast mapping")
+
+                        if vast_ids_to_remove:
+                            # Deprovision (stop, not destroy - safer for cost saving)
+                            removed = await deprovision_instances_async(
+                                vast_ids_to_remove,
+                                destroy=False,  # Stop instead of destroy for safety
+                            )
+                            logger.info(f"Auto-scaling: stopped {removed} instances")
+                            auto_scaler.record_scale_event(decision, success=True)
+                            # Notify via webhook
+                            await self.notifier.send(
+                                f"📉 Auto-scaled DOWN: Stopped {removed} idle Vast.ai instances",
+                                severity="info",
+                                context={"reason": decision.reason, "instances": removed}
+                            )
+                        else:
+                            logger.warning("Auto-scaling: scale_down requested but no Vast instances mapped")
+                            auto_scaler.record_scale_event(decision, success=False, error="no_vast_mapping")
+                    except Exception as e:
+                        logger.error(f"Auto-scaling deprovision failed: {e}")
+                        auto_scaler.record_scale_event(decision, success=False, error=str(e))
 
                 await asyncio.sleep(SCALING_INTERVAL)
 
@@ -25353,17 +25432,23 @@ print(json.dumps({{
                     is_high_end_gpu = any(tag in gpu_name for tag in ("H100", "H200", "GH200", "A100", "5090", "4090"))
                     is_apple_gpu = "MPS" in gpu_name or "APPLE" in gpu_name
 
-                    # GPU validation: if node claims GPU but utilization is 0% with jobs running,
-                    # GPU may not be available (driver issue, container misconfiguration, etc.)
+                    # GPU utilization check: if GPU is at 0% with jobs running, those jobs
+                    # are probably CPU-only. This is an opportunity to START GPU work, not avoid it.
+                    # Only consider GPU "unavailable" if there are existing GPU jobs AND utilization is 0%
+                    # (which would indicate driver/container issues)
                     gpu_percent = getattr(node, "gpu_percent", 0) or 0
+                    gpu_jobs_count = getattr(node, "gpu_selfplay_jobs", 0) or 0
                     gpu_seems_unavailable = (
                         node.has_gpu
                         and not is_apple_gpu
-                        and node.selfplay_jobs > 2
+                        and gpu_jobs_count > 2  # Only flag if GPU JOBS (not CPU jobs) are running
                         and gpu_percent < 1
                     )
                     if gpu_seems_unavailable:
-                        logger.info(f"WARNING: {node.node_id} has GPU but 0% utilization with {node.selfplay_jobs} jobs - falling back to CPU selfplay")
+                        logger.info(f"WARNING: {node.node_id} has GPU but 0% utilization with {gpu_jobs_count} GPU jobs - possible driver issue")
+                    elif node.has_gpu and gpu_percent < 10 and node.selfplay_jobs > 0:
+                        # GPU idle but has CPU jobs - this is normal, will prioritize GPU work
+                        logger.debug(f"Node {node.node_id} has {node.selfplay_jobs} CPU jobs but GPU idle ({gpu_percent:.0f}%) - will add GPU work")
 
                     # HYBRID MODE: Decide between GPU and CPU-only based on capacity
                     spawn_cpu_only = False

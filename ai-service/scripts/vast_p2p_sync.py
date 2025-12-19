@@ -510,6 +510,90 @@ def create_vast_instance(
         return None
 
 
+def destroy_vast_instance(instance_id: int) -> bool:
+    """Destroy a Vast.ai instance.
+
+    Args:
+        instance_id: The Vast instance ID to destroy
+
+    Returns:
+        True if destruction was successful, False otherwise
+    """
+    try:
+        result = subprocess.run(
+            ['vastai', 'destroy', 'instance', str(instance_id)],
+            capture_output=True, text=True, timeout=60
+        )
+
+        if result.returncode == 0:
+            logger.info(f"Destroyed instance {instance_id}: {result.stdout.strip()}")
+            return True
+        else:
+            logger.error(f"Failed to destroy instance {instance_id}: {result.stderr}")
+            return False
+    except subprocess.TimeoutExpired:
+        logger.error(f"Timeout destroying instance {instance_id}")
+        return False
+    except Exception as e:
+        logger.error(f"Failed to destroy instance {instance_id}: {e}")
+        return False
+
+
+def stop_vast_instance(instance_id: int) -> bool:
+    """Stop a Vast.ai instance (can be restarted later).
+
+    Args:
+        instance_id: The Vast instance ID to stop
+
+    Returns:
+        True if stop was successful, False otherwise
+    """
+    try:
+        result = subprocess.run(
+            ['vastai', 'stop', 'instance', str(instance_id)],
+            capture_output=True, text=True, timeout=60
+        )
+
+        if result.returncode == 0:
+            logger.info(f"Stopped instance {instance_id}: {result.stdout.strip()}")
+            return True
+        else:
+            logger.error(f"Failed to stop instance {instance_id}: {result.stderr}")
+            return False
+    except subprocess.TimeoutExpired:
+        logger.error(f"Timeout stopping instance {instance_id}")
+        return False
+    except Exception as e:
+        logger.error(f"Failed to stop instance {instance_id}: {e}")
+        return False
+
+
+def deprovision_instances(instance_ids: List[int], destroy: bool = True) -> int:
+    """Deprovision multiple Vast.ai instances.
+
+    Args:
+        instance_ids: List of Vast instance IDs to deprovision
+        destroy: If True, destroy instances (permanent). If False, just stop them.
+
+    Returns:
+        Number of instances successfully deprovisioned
+    """
+    logger.info(f"Deprovisioning {len(instance_ids)} instances (destroy={destroy})...")
+
+    deprovisioned = 0
+    for instance_id in instance_ids:
+        if destroy:
+            success = destroy_vast_instance(instance_id)
+        else:
+            success = stop_vast_instance(instance_id)
+
+        if success:
+            deprovisioned += 1
+
+    logger.info(f"Deprovisioned {deprovisioned}/{len(instance_ids)} instances")
+    return deprovisioned
+
+
 def provision_instances(count: int = 1, max_total_hourly: float = 0.50) -> int:
     """Provision new Vast instances based on preferred GPU list."""
     logger.info(f"Provisioning up to {count} new instances (max ${max_total_hourly}/hr total)...")
@@ -567,6 +651,124 @@ def sync_code_to_instance(instance: VastInstance) -> bool:
     except Exception as e:
         logger.debug(f"Failed to sync code on {instance.id}: {e}")
     return False
+
+
+# =========================================================================
+# ASYNC API FOR ORCHESTRATOR INTEGRATION
+# These functions run subprocess calls in an executor for async compatibility
+# =========================================================================
+
+async def provision_instances_async(
+    count: int = 1,
+    max_total_hourly: float = 0.50,
+) -> Tuple[int, List[str]]:
+    """Async wrapper for provision_instances.
+
+    Args:
+        count: Number of instances to provision
+        max_total_hourly: Max hourly budget for all new instances
+
+    Returns:
+        Tuple of (created_count, list_of_instance_ids)
+    """
+    import asyncio
+
+    loop = asyncio.get_event_loop()
+    created = await loop.run_in_executor(
+        None,
+        lambda: provision_instances(count, max_total_hourly)
+    )
+
+    # Get the newly created instance IDs by fetching current instances
+    instances = await loop.run_in_executor(None, get_vast_instances)
+    instance_ids = [str(inst.id) for inst in instances]
+
+    return created, instance_ids
+
+
+async def deprovision_instances_async(
+    instance_ids: List[int],
+    destroy: bool = True,
+) -> int:
+    """Async wrapper for deprovision_instances.
+
+    Args:
+        instance_ids: List of Vast instance IDs to deprovision
+        destroy: If True, destroy instances permanently. If False, just stop them.
+
+    Returns:
+        Number of instances successfully deprovisioned
+    """
+    import asyncio
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None,
+        lambda: deprovision_instances(instance_ids, destroy)
+    )
+
+
+async def get_vast_instances_async() -> List[VastInstance]:
+    """Async wrapper for get_vast_instances."""
+    import asyncio
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, get_vast_instances)
+
+
+async def get_p2p_nodes_async() -> List[P2PNode]:
+    """Async wrapper for get_p2p_nodes."""
+    import asyncio
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, get_p2p_nodes)
+
+
+def get_node_to_vast_mapping() -> Dict[str, int]:
+    """Get mapping from P2P node_id to Vast instance_id.
+
+    This is needed for deprovisioning by node_id (as the orchestrator knows
+    node_ids, not Vast instance IDs).
+
+    Returns:
+        Dict mapping node_id to vast_instance_id
+    """
+    vast_instances = get_vast_instances()
+    p2p_nodes = get_p2p_nodes()
+    matches = match_vast_to_p2p(vast_instances, p2p_nodes)
+
+    # Reverse the mapping: matches is vast_id -> P2PNode, we need node_id -> vast_id
+    result = {}
+    for vast_id, p2p_node in matches.items():
+        result[p2p_node.node_id] = vast_id
+
+    return result
+
+
+async def get_node_to_vast_mapping_async() -> Dict[str, int]:
+    """Async wrapper for get_node_to_vast_mapping."""
+    import asyncio
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, get_node_to_vast_mapping)
+
+
+def get_vast_instance_costs() -> Dict[int, float]:
+    """Get hourly costs for all Vast instances.
+
+    Returns:
+        Dict mapping vast_instance_id to hourly cost
+    """
+    instances = get_vast_instances()
+    return {inst.id: inst.hourly_cost for inst in instances}
+
+
+async def get_vast_instance_costs_async() -> Dict[int, float]:
+    """Async wrapper for get_vast_instance_costs."""
+    import asyncio
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, get_vast_instance_costs)
 
 
 def main():

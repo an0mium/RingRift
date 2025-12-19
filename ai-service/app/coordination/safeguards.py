@@ -87,83 +87,11 @@ class SafeguardConfig:
     critical_delay: float = 5.0
 
 
-class CircuitState(Enum):
-    """Circuit breaker states."""
-    CLOSED = "closed"      # Normal operation
-    OPEN = "open"          # Blocking all calls
-    HALF_OPEN = "half_open"  # Testing if recovered
-
-
-# ============================================
-# Circuit Breaker
-# ============================================
-
-@dataclass
-class CircuitBreaker:
-    """
-    Circuit breaker for a specific spawn target.
-
-    Prevents repeated failures by temporarily blocking spawns
-    after too many failures.
-    """
-    name: str
-    state: CircuitState = CircuitState.CLOSED
-    failure_count: int = 0
-    success_count: int = 0
-    last_failure_time: float = 0.0
-    last_transition_time: float = 0.0
-    config: SafeguardConfig = field(default_factory=SafeguardConfig)
-
-    def record_success(self) -> None:
-        """Record a successful spawn."""
-        if self.state == CircuitState.HALF_OPEN:
-            self.success_count += 1
-            if self.success_count >= self.config.half_open_max_calls:
-                self._transition(CircuitState.CLOSED)
-                self.failure_count = 0
-        elif self.state == CircuitState.CLOSED:
-            # Decay failure count on success
-            self.failure_count = max(0, self.failure_count - 1)
-
-    def record_failure(self, reason: str = "") -> None:
-        """Record a failed spawn."""
-        self.failure_count += 1
-        self.last_failure_time = time.time()
-
-        if self.state == CircuitState.HALF_OPEN:
-            self._transition(CircuitState.OPEN)
-        elif self.state == CircuitState.CLOSED:
-            if self.failure_count >= self.config.failure_threshold:
-                logger.warning(
-                    f"Circuit breaker {self.name} opened after {self.failure_count} failures"
-                )
-                self._transition(CircuitState.OPEN)
-
-    def allow_call(self) -> bool:
-        """Check if a call is allowed."""
-        if self.state == CircuitState.CLOSED:
-            return True
-
-        if self.state == CircuitState.OPEN:
-            # Check if recovery timeout has passed
-            if time.time() - self.last_transition_time >= self.config.recovery_timeout:
-                self._transition(CircuitState.HALF_OPEN)
-                return True
-            return False
-
-        if self.state == CircuitState.HALF_OPEN:
-            return self.success_count < self.config.half_open_max_calls
-
-        return False
-
-    def _transition(self, new_state: CircuitState) -> None:
-        """Transition to a new state."""
-        old_state = self.state
-        self.state = new_state
-        self.last_transition_time = time.time()
-        self.success_count = 0
-
-        logger.info(f"Circuit {self.name}: {old_state.value} -> {new_state.value}")
+# Use canonical circuit breaker from distributed module
+from app.distributed.circuit_breaker import (
+    CircuitBreaker as CanonicalCircuitBreaker,
+    CircuitState,
+)
 
 
 # ============================================
@@ -336,8 +264,13 @@ class Safeguards:
     def __init__(self, config: Optional[SafeguardConfig] = None):
         self.config = config or SafeguardConfig()
 
-        # Circuit breakers by target (node_id or task_type)
-        self._circuit_breakers: Dict[str, CircuitBreaker] = {}
+        # Canonical circuit breaker (tracks all targets internally)
+        self._circuit_breaker = CanonicalCircuitBreaker(
+            failure_threshold=self.config.failure_threshold,
+            recovery_timeout=self.config.recovery_timeout,
+            half_open_max_calls=self.config.half_open_max_calls,
+            operation_type="safeguards",
+        )
         self._cb_lock = threading.RLock()
 
         # Spawn rate tracking
@@ -382,14 +315,12 @@ class Safeguards:
             self._last_block_reason = "Emergency halt active"
             return False
 
-        # Check circuit breakers
-        cb = self._get_circuit_breaker(node_id)
-        if not cb.allow_call():
+        # Check circuit breakers (canonical version uses target-based tracking)
+        if not self._circuit_breaker.can_execute(node_id):
             self._last_block_reason = f"Circuit breaker open for {node_id}"
             return False
 
-        cb_type = self._get_circuit_breaker(f"type:{task_type}")
-        if not cb_type.allow_call():
+        if not self._circuit_breaker.can_execute(f"type:{task_type}"):
             self._last_block_reason = f"Circuit breaker open for {task_type}"
             return False
 
@@ -422,9 +353,9 @@ class Safeguards:
         self._global_tracker.record_spawn()
         self._get_node_tracker(node_id).record_spawn()
 
-        # Update circuit breakers
-        self._get_circuit_breaker(node_id).record_success()
-        self._get_circuit_breaker(f"type:{task_type}").record_success()
+        # Update circuit breakers (canonical version uses target parameter)
+        self._circuit_breaker.record_success(node_id)
+        self._circuit_breaker.record_success(f"type:{task_type}")
 
         # Update task counts
         with self._counts_lock:
@@ -444,8 +375,9 @@ class Safeguards:
 
     def record_failure(self, task_type: str, node_id: str, reason: str = "") -> None:
         """Record a spawn failure."""
-        self._get_circuit_breaker(node_id).record_failure(reason)
-        self._get_circuit_breaker(f"type:{task_type}").record_failure(reason)
+        # Canonical circuit breaker uses target as first arg
+        self._circuit_breaker.record_failure(node_id)
+        self._circuit_breaker.record_failure(f"type:{task_type}")
 
         logger.warning(f"Spawn failure: {task_type} on {node_id}: {reason}")
 
