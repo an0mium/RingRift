@@ -482,7 +482,7 @@ class DataPipelineController:
         """Lazy-load the data validator."""
         if self._validator is None:
             try:
-                from app.training.data_validation import (
+                from app.training.unified_data_validator import (
                     DataValidator,
                     DataValidatorConfig,
                 )
@@ -516,7 +516,7 @@ class DataPipelineController:
             return {"valid": False, "error": "File not found"}
 
         try:
-            from app.training.data_validation import record_validation_metrics
+            from app.training.unified_data_validator import record_validation_metrics
 
             result = validator.validate_npz(Path(source_path))
 

@@ -150,9 +150,9 @@ from app.training.seed_utils import seed_all
 from app.training.fault_tolerance import HeartbeatMonitor  # noqa: E402
 from app.training.value_calibration import CalibrationTracker  # noqa: E402
 
-# Data validation (2025-12)
+# Data validation (2025-12) - use unified module
 try:
-    from app.training.data_validation import (
+    from app.training.unified_data_validator import (
         DataValidator,
         DataValidatorConfig,
         validate_npz_file,
@@ -547,7 +547,16 @@ def run_cmaes_heuristic_optimization(
 # The EnhancedEarlyStopping class provides backwards compatibility via __call__ method
 from app.training.training_enhancements import EarlyStopping, EnhancedEarlyStopping
 
-# Checkpointing utilities extracted to dedicated module (2025-12)
+# Checkpointing utilities - use unified module (2025-12)
+try:
+    from app.training.checkpoint_unified import (
+        UnifiedCheckpointManager,
+    )
+    HAS_UNIFIED_CHECKPOINT = True
+except ImportError:
+    HAS_UNIFIED_CHECKPOINT = False
+
+# Legacy checkpointing functions (still available for backward compatibility)
 from app.training.checkpointing import (
     save_checkpoint,
     load_checkpoint,

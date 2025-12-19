@@ -85,7 +85,7 @@ except ImportError:
 
 # Data validation integration (optional - graceful fallback if not available)
 try:
-    from app.training.data_validation import (
+    from app.training.unified_data_validator import (
         DataValidator,
         DataValidatorConfig,
         ValidationResult,
