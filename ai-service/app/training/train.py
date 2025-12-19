@@ -2942,7 +2942,18 @@ def train_model(
                     policy_targets = (1 - eps) * policy_targets + eps * uniform
 
                 # Gradient accumulation: only zero grad at start of accumulation window
-                accumulation_steps = getattr(config, 'gradient_accumulation_steps', 1)
+                # Dynamic batch scheduling: calculate accumulation steps from batch scheduler
+                base_accumulation = getattr(config, 'gradient_accumulation_steps', 1)
+                if enhancements_manager is not None and enhancements_manager._batch_scheduler is not None:
+                    # Get target batch size from scheduler
+                    target_batch_size = enhancements_manager.get_batch_size()
+                    actual_batch_size = config.batch_size
+                    # Calculate accumulation steps to achieve target effective batch size
+                    # accumulation_steps = target / actual (minimum 1)
+                    scheduler_accumulation = max(1, target_batch_size // actual_batch_size)
+                    accumulation_steps = max(base_accumulation, scheduler_accumulation)
+                else:
+                    accumulation_steps = base_accumulation
                 if i % accumulation_steps == 0:
                     optimizer.zero_grad()
 

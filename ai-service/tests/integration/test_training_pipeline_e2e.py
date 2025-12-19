@@ -1649,6 +1649,104 @@ class TestRealModelIntegration:
 
         loader.close()
 
+    def test_integrated_enhancements_smoke(
+        self,
+        temp_dir,
+        square_data_file,
+    ):
+        """
+        Smoke test for IntegratedTrainingManager with all enhancements enabled.
+
+        Verifies that:
+        - IntegratedEnhancementsConfig initializes correctly
+        - IntegratedTrainingManager starts/stops background services
+        - Auxiliary task loss computation works
+        - Batch scheduling integration works
+        """
+        try:
+            from app.training.integrated_enhancements import (
+                IntegratedTrainingManager,
+                IntegratedEnhancementsConfig,
+            )
+        except ImportError:
+            pytest.skip("IntegratedTrainingManager not available")
+
+        # Create config with all enhancements enabled
+        config = IntegratedEnhancementsConfig(
+            auxiliary_tasks_enabled=True,
+            batch_scheduling_enabled=True,
+            curriculum_enabled=True,
+            augmentation_enabled=True,
+            # Background eval disabled for unit test (requires AI instances)
+            background_eval_enabled=False,
+        )
+
+        # Create manager
+        manager = IntegratedTrainingManager(
+            config=config,
+            model=None,  # No model needed for basic tests
+            board_type="square8",
+        )
+
+        # Verify initialization
+        assert manager.config is not None
+        assert manager.config.auxiliary_tasks_enabled
+        assert manager.config.batch_scheduling_enabled
+
+        # Test step updates
+        initial_step = manager._step
+        manager.update_step()
+        assert manager._step == initial_step + 1
+
+        # Test batch size scheduling
+        batch_size = manager.get_batch_size()
+        assert batch_size > 0, "Batch scheduler should return positive batch size"
+
+        # Test early stopping (should be False with background eval disabled)
+        assert not manager.should_early_stop()
+
+        # Test background services lifecycle (no-op when disabled)
+        manager.start_background_services()
+        manager.stop_background_services()
+
+        # Test auxiliary task loss with fake features
+        if manager._auxiliary_module is not None:
+            fake_features = torch.randn(4, 256)
+            fake_targets = {
+                "outcome": torch.randint(0, 3, (4,)),
+            }
+            aux_loss, breakdown = manager.compute_auxiliary_loss(
+                fake_features, fake_targets
+            )
+            assert isinstance(aux_loss, torch.Tensor)
+            assert "outcome" in breakdown or "total_aux" in breakdown
+
+    def test_parallel_selfplay_import(self):
+        """
+        Verify parallel selfplay module is importable and has expected exports.
+        """
+        try:
+            from app.training.parallel_selfplay import (
+                generate_dataset_parallel,
+                SelfplayConfig,
+                GameResult,
+            )
+        except ImportError:
+            pytest.skip("parallel_selfplay module not available")
+
+        # Verify config has expected fields
+        config = SelfplayConfig()
+        assert hasattr(config, 'board_type')
+        assert hasattr(config, 'engine')
+        assert hasattr(config, 'num_players')
+
+        # Verify GameResult has auxiliary task fields
+        assert hasattr(GameResult, '__dataclass_fields__')
+        fields = GameResult.__dataclass_fields__
+        assert 'game_lengths' in fields
+        assert 'piece_counts' in fields
+        assert 'outcomes' in fields
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
