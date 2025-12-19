@@ -1820,6 +1820,60 @@ def train_model(
         )
         return loss_terms.sum(dim=1).mean()
 
+    def build_rank_targets(
+        values_mp: torch.Tensor,
+        num_players: Union[int, torch.Tensor],
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Build per-player rank distributions from value vectors.
+
+        Returns (rank_targets, active_mask) where:
+        - rank_targets: [B, P, P] distribution over ranks per player
+        - active_mask: [B, P] True for active player slots
+        """
+        batch_size, max_players = values_mp.shape
+        if isinstance(num_players, int):
+            num_players_tensor = torch.full(
+                (batch_size,),
+                int(num_players),
+                device=values_mp.device,
+                dtype=torch.long,
+            )
+        else:
+            num_players_tensor = num_players.to(
+                device=values_mp.device,
+                dtype=torch.long,
+            )
+            if num_players_tensor.ndim == 0:
+                num_players_tensor = num_players_tensor.repeat(batch_size)
+
+        rank_targets = torch.zeros(
+            (batch_size, max_players, max_players),
+            device=values_mp.device,
+            dtype=values_mp.dtype,
+        )
+        active_mask = torch.zeros(
+            (batch_size, max_players),
+            device=values_mp.device,
+            dtype=torch.bool,
+        )
+
+        for b in range(batch_size):
+            n = int(num_players_tensor[b].item())
+            n = max(1, min(n, max_players))
+            vals = values_mp[b, :n]
+            active_mask[b, :n] = True
+            for p in range(n):
+                v = vals[p]
+                higher = int((vals > v).sum().item())
+                tie = int((vals == v).sum().item())
+                if tie <= 0:
+                    continue
+                start = higher
+                end = higher + tie
+                rank_targets[b, p, start:end] = 1.0 / float(tie)
+
+        return rank_targets, active_mask
+
     optimizer = optim.Adam(
         model.parameters(),
         lr=config.learning_rate,
