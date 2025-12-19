@@ -8526,6 +8526,23 @@ class P2POrchestrator:
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
+    async def handle_admin_restart(self, request: web.Request) -> web.Response:
+        """Force restart the orchestrator process.
+
+        Useful after code updates when /git/update shows "already up to date"
+        but the running process hasn't picked up the changes.
+        """
+        try:
+            logger.info("Admin restart requested via API")
+            # Schedule restart (gives time to return response)
+            asyncio.create_task(self._restart_orchestrator())
+            return web.json_response({
+                "success": True,
+                "message": "Restart scheduled, process will restart in 2 seconds",
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
     # ============================================
     # Phase 2: Distributed Data Manifest Handlers
     # ============================================
@@ -27149,6 +27166,7 @@ print(json.dumps({{
         app.router.add_get('/admin/purge_retired', self.handle_purge_retired_peers)  # Purge retired peers (GET for auth bypass)
         app.router.add_get('/admin/purge_stale', self.handle_purge_stale_peers)      # Purge stale peers by heartbeat age
         app.router.add_post('/admin/unretire', self.handle_admin_unretire)           # Unretire specific node
+        app.router.add_post('/admin/restart', self.handle_admin_restart)             # Force restart orchestrator
 
         # Phase 3: Training pipeline routes
         app.router.add_post('/training/start', self.handle_training_start)
