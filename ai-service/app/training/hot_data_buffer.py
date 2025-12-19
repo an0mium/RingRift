@@ -56,6 +56,18 @@ except ImportError:
     HAS_EVENT_SYSTEM = False
     logger.debug("Event system not available - HotDataBuffer running standalone")
 
+# Data validation integration (optional - graceful fallback if not available)
+try:
+    from app.training.data_validation import (
+        DataValidator,
+        DataValidatorConfig,
+        ValidationResult,
+    )
+    HAS_VALIDATION = True
+except ImportError:
+    HAS_VALIDATION = False
+    logger.debug("Data validation not available - HotDataBuffer skipping validation")
+
 
 @dataclass
 class GameRecord:
@@ -105,6 +117,8 @@ class HotDataBuffer:
         enable_events: bool = True,
         training_threshold: int = 100,
         batch_notification_size: int = 50,
+        enable_validation: bool = True,
+        skip_invalid_games: bool = False,
     ):
         """Initialize the hot data buffer.
 
@@ -115,6 +129,8 @@ class HotDataBuffer:
             enable_events: Whether to emit events
             training_threshold: Games needed before emitting TRAINING_THRESHOLD_REACHED
             batch_notification_size: Emit NEW_GAMES_AVAILABLE every N games
+            enable_validation: Whether to validate games before flush
+            skip_invalid_games: If True, skip invalid games during flush; if False, log warning but include
         """
         self.max_size = max_size
         self.max_memory_mb = max_memory_mb
@@ -122,6 +138,8 @@ class HotDataBuffer:
         self.enable_events = enable_events and HAS_EVENT_SYSTEM
         self.training_threshold = training_threshold
         self.batch_notification_size = batch_notification_size
+        self.enable_validation = enable_validation and HAS_VALIDATION
+        self.skip_invalid_games = skip_invalid_games
 
         self._buffer: OrderedDict[str, GameRecord] = OrderedDict()
         self._lock = threading.RLock()
@@ -134,6 +152,67 @@ class HotDataBuffer:
         self._games_since_notification = 0
         self._training_threshold_emitted = False
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+
+        # Validation
+        self._validator: Optional[DataValidator] = None
+        if self.enable_validation:
+            self._validator = DataValidator(DataValidatorConfig(
+                sample_rate=1.0,  # Validate all samples
+                max_issues_to_report=10,  # Don't flood logs
+            ))
+        self._validation_stats = {
+            "games_validated": 0,
+            "games_with_issues": 0,
+            "games_skipped": 0,
+        }
+
+    def _validate_game(self, game: GameRecord) -> Tuple[bool, Optional[ValidationResult]]:
+        """Validate a game record's training samples.
+
+        Args:
+            game: GameRecord to validate
+
+        Returns:
+            Tuple of (is_valid, validation_result)
+        """
+        if not self.enable_validation or self._validator is None:
+            return True, None
+
+        samples = game.to_training_samples()
+        if not samples:
+            # Empty samples - treat as valid (may be a game-level record)
+            return True, None
+
+        # Convert samples to arrays for validation
+        try:
+            features = np.array([s[0] for s in samples])
+            policies = np.array([s[1] for s in samples])
+            values = np.array([s[2] for s in samples])
+
+            data = {
+                'features': features,
+                'policy': policies,
+                'values': values,
+            }
+
+            result = self._validator.validate_arrays(data)
+            self._validation_stats["games_validated"] += 1
+
+            if not result.valid:
+                self._validation_stats["games_with_issues"] += 1
+                logger.warning(
+                    f"Validation issues in game {game.game_id}: {result.summary()}"
+                )
+
+            return result.valid, result
+
+        except Exception as e:
+            logger.warning(f"Validation error for game {game.game_id}: {e}")
+            return False, None
+
+    def get_validation_stats(self) -> Dict[str, int]:
+        """Get validation statistics."""
+        return self._validation_stats.copy()
 
     def _try_emit_event(self, event_type: DataEventType, payload: Dict[str, Any]) -> None:
         """Try to emit an event (fire-and-forget from sync context)."""
@@ -421,9 +500,11 @@ class HotDataBuffer:
             return len(to_remove)
 
     def flush_to_jsonl(self, path: Path) -> int:
-        """Flush unflushed games to JSONL file.
+        """Flush unflushed games to JSONL file with optional validation.
 
         Returns number of games written. Emits DATA_SYNC_COMPLETED on success.
+        Invalid games are either skipped or included with warnings depending on
+        the skip_invalid_games setting.
         """
         games = self.get_unflushed_games()
         if not games:
@@ -433,8 +514,20 @@ class HotDataBuffer:
         start_time = time.time()
 
         written = 0
+        skipped = 0
+        flushed_ids = []
+
         with open(path, "a", encoding="utf-8") as f:
             for game in games:
+                # Validate game before flushing
+                is_valid, _ = self._validate_game(game)
+                if not is_valid and self.skip_invalid_games:
+                    skipped += 1
+                    self._validation_stats["games_skipped"] += 1
+                    logger.info(f"Skipping invalid game {game.game_id}")
+                    flushed_ids.append(game.game_id)  # Still mark as flushed to avoid re-processing
+                    continue
+
                 record = {
                     "game_id": game.game_id,
                     "board_type": game.board_type,
@@ -450,24 +543,30 @@ class HotDataBuffer:
                 }
                 f.write(json.dumps(record) + "\n")
                 written += 1
+                flushed_ids.append(game.game_id)
 
-        self.mark_flushed([g.game_id for g in games])
+        self.mark_flushed(flushed_ids)
 
-        # Emit flush completed event
+        # Emit flush completed event with validation stats
         duration = time.time() - start_time
         self._try_emit_event(DataEventType.DATA_SYNC_COMPLETED, {
             "buffer_name": self.buffer_name,
             "games_flushed": written,
+            "games_skipped": skipped,
             "target_path": str(path),
             "duration_seconds": duration,
             "source": "hot_buffer",
+            "validation_stats": self._validation_stats.copy(),
         })
-        logger.debug(f"Flushed {written} games from '{self.buffer_name}' to {path} in {duration:.2f}s")
+        if skipped > 0:
+            logger.info(f"Flushed {written} games, skipped {skipped} invalid from '{self.buffer_name}' to {path}")
+        else:
+            logger.debug(f"Flushed {written} games from '{self.buffer_name}' to {path} in {duration:.2f}s")
 
         return written
 
     async def flush_to_jsonl_async(self, path: Path) -> int:
-        """Async version of flush_to_jsonl with proper event emission."""
+        """Async version of flush_to_jsonl with proper event emission and validation."""
         games = self.get_unflushed_games()
         if not games:
             return 0
@@ -476,8 +575,19 @@ class HotDataBuffer:
         start_time = time.time()
 
         written = 0
+        skipped = 0
+        flushed_ids = []
+
         with open(path, "a", encoding="utf-8") as f:
             for game in games:
+                # Validate game before flushing
+                is_valid, _ = self._validate_game(game)
+                if not is_valid and self.skip_invalid_games:
+                    skipped += 1
+                    self._validation_stats["games_skipped"] += 1
+                    flushed_ids.append(game.game_id)
+                    continue
+
                 record = {
                     "game_id": game.game_id,
                     "board_type": game.board_type,
@@ -493,19 +603,25 @@ class HotDataBuffer:
                 }
                 f.write(json.dumps(record) + "\n")
                 written += 1
+                flushed_ids.append(game.game_id)
 
-        self.mark_flushed([g.game_id for g in games])
+        self.mark_flushed(flushed_ids)
 
-        # Emit flush completed event asynchronously
+        # Emit flush completed event asynchronously with validation stats
         duration = time.time() - start_time
         await self.emit_event_async(DataEventType.DATA_SYNC_COMPLETED, {
             "buffer_name": self.buffer_name,
             "games_flushed": written,
+            "games_skipped": skipped,
             "target_path": str(path),
             "duration_seconds": duration,
             "source": "hot_buffer",
+            "validation_stats": self._validation_stats.copy(),
         })
-        logger.debug(f"Flushed {written} games from '{self.buffer_name}' to {path} in {duration:.2f}s")
+        if skipped > 0:
+            logger.info(f"Flushed {written} games, skipped {skipped} invalid from '{self.buffer_name}' to {path}")
+        else:
+            logger.debug(f"Flushed {written} games from '{self.buffer_name}' to {path} in {duration:.2f}s")
 
         return written
 
@@ -533,6 +649,9 @@ class HotDataBuffer:
                 "min_priority": float(np.min(priorities)),
                 "avg_elo": float(np.mean(avg_elos)),
                 "promoted_model_games": promoted_count,
+                # Validation stats
+                "validation_enabled": self.enable_validation,
+                **self._validation_stats,
             }
 
     # -------------------------------------------------------------------------
