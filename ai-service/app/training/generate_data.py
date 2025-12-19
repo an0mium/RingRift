@@ -851,9 +851,8 @@ def generate_dataset(
             else:
                 ai_players[player_num] = _make_ai(player_num, engine)
 
-    # Keep legacy references for 2-player backward compatibility (only valid for single mode)
+    # Primary AI reference for fallback when player not in ai_players
     ai_p1 = ai_players.get(1)
-    _ai_p2 = ai_players.get(2, ai_p1)  # Reserved for backward-compatible 2P logic
 
     # Track engine statistics for logging
     engine_stats = {"descent": 0, "mcts": 0}
@@ -945,18 +944,14 @@ def generate_dataset(
             for pn in range(1, num_players + 1):
                 ai_players[pn] = _make_ai(pn, game_engine_type)
                 player_engines[pn] = game_engine_type
-            # Update legacy reference (players accessed via ai_players dict)
             ai_p1 = ai_players[1]
-            _ = ai_players.get(2, ai_p1)  # P2 accessed via ai_players[pn]
         elif engine_mix == "per_player":
             # Select engine type independently for each player
             for pn in range(1, num_players + 1):
                 p_engine = _select_engine_for_player(pn, engine)
                 ai_players[pn] = _make_ai(pn, p_engine)
                 player_engines[pn] = p_engine
-            # Update legacy reference (players accessed via ai_players dict)
             ai_p1 = ai_players[1]
-            _ = ai_players.get(2, ai_p1)  # P2 accessed via ai_players[pn]
             game_engine_type = "mixed"  # Sentinel for logging
         else:
             # Single mode: all players use the same engine (already initialized)
