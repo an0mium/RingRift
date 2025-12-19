@@ -580,6 +580,16 @@ class IntegratedTrainingManager:
             return self._background_evaluator.should_early_stop()
         return False
 
+    def get_current_elo(self) -> Optional[float]:
+        """Get current Elo estimate from background evaluator.
+
+        Returns:
+            Current Elo rating, or None if background evaluator is not available.
+        """
+        if self._background_evaluator is not None:
+            return self._background_evaluator.get_current_elo()
+        return None
+
     # =========================================================================
     # Lifecycle Management
     # =========================================================================
