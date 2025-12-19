@@ -643,6 +643,15 @@ class PromotionController:
         return False
 
 
+class GraduatedResponseAction(str, Enum):
+    """Graduated response actions for rollback scenarios."""
+    NOTIFY = "notify"              # Just notify, allow rollback
+    SLOW_DOWN = "slow_down"        # Increase cooldown, allow rollback
+    INVESTIGATE = "investigate"     # Trigger investigation, allow rollback
+    PAUSE_TRAINING = "pause_training"  # Pause training, allow rollback
+    ESCALATE_HUMAN = "escalate_human"  # Require human intervention
+
+
 @dataclass
 class RollbackCriteria:
     """Criteria for automatic rollback decisions."""
@@ -660,6 +669,10 @@ class RollbackCriteria:
     cooldown_seconds: int = 3600  # 1 hour default
     # Maximum rollbacks per day before requiring manual intervention
     max_rollbacks_per_day: int = 3
+    # Enable graduated response based on rollback count
+    graduated_response_enabled: bool = True
+    # Cooldown multiplier for "slow_down" response
+    slow_down_multiplier: float = 2.0
 
 
 class NotificationHook:
@@ -859,6 +872,13 @@ class RollbackMonitor:
     Monitors model performance after promotion and triggers automatic
     rollback if significant regression is detected.
 
+    Features graduated response levels based on rollback count:
+    - 1st rollback: notify only
+    - 2nd rollback: 2x cooldown (slow_down)
+    - 3rd rollback: trigger investigation
+    - 5th rollback: pause training, alert
+    - 7th+ rollback: require human intervention
+
     Usage:
         from app.training.promotion_controller import RollbackMonitor, RollbackCriteria
 
@@ -877,6 +897,16 @@ class RollbackMonitor:
         if should_rollback:
             success = monitor.execute_rollback(event)
     """
+
+    # Graduated response levels: (rollback_count_threshold, action)
+    # Actions escalate as rollback count increases
+    RESPONSE_LEVELS = [
+        (1, GraduatedResponseAction.NOTIFY),           # 1st: just notify
+        (2, GraduatedResponseAction.SLOW_DOWN),        # 2nd: 2x cooldown
+        (3, GraduatedResponseAction.INVESTIGATE),      # 3rd: root cause analysis
+        (5, GraduatedResponseAction.PAUSE_TRAINING),   # 5th: pause training, alert
+        (7, GraduatedResponseAction.ESCALATE_HUMAN),   # 7th+: require human
+    ]
 
     def __init__(
         self,
@@ -898,6 +928,205 @@ class RollbackMonitor:
         self._last_rollback_time: Dict[str, datetime] = {}
         # Track cooldown bypass state (for manual overrides)
         self._cooldown_bypass: bool = False
+        # Track whether training is paused due to rollback escalation
+        self._training_paused: bool = False
+        # Track investigation tasks triggered
+        self._pending_investigations: List[str] = []
+
+    # =========================================================================
+    # GRADUATED RESPONSE METHODS
+    # =========================================================================
+
+    def get_response_action(self, rollback_count: Optional[int] = None) -> GraduatedResponseAction:
+        """Get the appropriate response action based on rollback count.
+
+        Args:
+            rollback_count: Override count (if None, uses daily count)
+
+        Returns:
+            The appropriate GraduatedResponseAction for this rollback count
+        """
+        if not self.criteria.graduated_response_enabled:
+            return GraduatedResponseAction.NOTIFY
+
+        count = rollback_count if rollback_count is not None else self.get_daily_rollback_count()
+
+        # Find the appropriate response level
+        action = GraduatedResponseAction.NOTIFY  # Default
+        for threshold, response_action in self.RESPONSE_LEVELS:
+            if count >= threshold:
+                action = response_action
+            else:
+                break
+
+        return action
+
+    def get_effective_cooldown(self) -> int:
+        """Get the effective cooldown based on current response level.
+
+        Returns:
+            Cooldown in seconds (may be multiplied for slow_down response)
+        """
+        action = self.get_response_action()
+        base_cooldown = self.criteria.cooldown_seconds
+
+        if action == GraduatedResponseAction.SLOW_DOWN:
+            return int(base_cooldown * self.criteria.slow_down_multiplier)
+        elif action in (GraduatedResponseAction.INVESTIGATE,
+                       GraduatedResponseAction.PAUSE_TRAINING):
+            # Even longer cooldown during investigation/pause
+            return int(base_cooldown * self.criteria.slow_down_multiplier * 2)
+
+        return base_cooldown
+
+    def should_block_rollback(self) -> Tuple[bool, str]:
+        """Check if rollback should be blocked due to escalation.
+
+        Returns:
+            Tuple of (should_block, reason)
+        """
+        action = self.get_response_action()
+
+        if action == GraduatedResponseAction.ESCALATE_HUMAN:
+            return True, "Human intervention required - too many rollbacks"
+
+        return False, ""
+
+    def is_training_paused(self) -> bool:
+        """Check if training is currently paused due to rollback escalation."""
+        return self._training_paused
+
+    def pause_training(self, reason: str = "Rollback escalation") -> None:
+        """Pause training due to rollback escalation."""
+        if self._training_paused:
+            return
+
+        self._training_paused = True
+        logger.warning(f"TRAINING PAUSED: {reason}")
+
+        # Notify all hooks about pause
+        for hook in self._hooks:
+            try:
+                if hasattr(hook, 'on_training_paused'):
+                    hook.on_training_paused(reason)
+            except Exception as e:
+                logger.warning(f"Notification hook error on pause: {e}")
+
+    def resume_training(self, reason: str = "Manual resume") -> None:
+        """Resume training after pause."""
+        if not self._training_paused:
+            return
+
+        self._training_paused = False
+        logger.info(f"TRAINING RESUMED: {reason}")
+
+        # Notify all hooks about resume
+        for hook in self._hooks:
+            try:
+                if hasattr(hook, 'on_training_resumed'):
+                    hook.on_training_resumed(reason)
+            except Exception as e:
+                logger.warning(f"Notification hook error on resume: {e}")
+
+    def trigger_investigation(self, model_id: str, event: "RollbackEvent") -> str:
+        """Trigger a root cause investigation for repeated rollbacks.
+
+        Args:
+            model_id: Model experiencing rollbacks
+            event: The rollback event that triggered investigation
+
+        Returns:
+            Investigation ID for tracking
+        """
+        investigation_id = f"inv_{model_id}_{int(datetime.now().timestamp())}"
+
+        investigation_data = {
+            "id": investigation_id,
+            "model_id": model_id,
+            "triggered_at": datetime.now().isoformat(),
+            "rollback_count": self.get_daily_rollback_count(),
+            "event": event.to_dict(),
+            "status": "pending",
+        }
+
+        self._pending_investigations.append(investigation_id)
+        logger.warning(
+            f"INVESTIGATION TRIGGERED: {investigation_id} for model {model_id} "
+            f"(rollback #{self.get_daily_rollback_count()})"
+        )
+
+        # Notify hooks about investigation
+        for hook in self._hooks:
+            try:
+                if hasattr(hook, 'on_investigation_triggered'):
+                    hook.on_investigation_triggered(investigation_data)
+            except Exception as e:
+                logger.warning(f"Notification hook error on investigation: {e}")
+
+        return investigation_id
+
+    def apply_graduated_response(self, event: "RollbackEvent") -> GraduatedResponseAction:
+        """Apply the graduated response for the current rollback situation.
+
+        Args:
+            event: The rollback event
+
+        Returns:
+            The action that was applied
+        """
+        action = self.get_response_action()
+
+        logger.info(
+            f"Graduated response: {action.value} (rollback #{self.get_daily_rollback_count()})"
+        )
+
+        if action == GraduatedResponseAction.SLOW_DOWN:
+            # Cooldown is automatically handled via get_effective_cooldown()
+            logger.info(
+                f"Applying slow-down response: cooldown increased to "
+                f"{self.get_effective_cooldown()}s"
+            )
+
+        elif action == GraduatedResponseAction.INVESTIGATE:
+            self.trigger_investigation(event.current_model_id, event)
+
+        elif action == GraduatedResponseAction.PAUSE_TRAINING:
+            self.pause_training(
+                f"Too many rollbacks ({self.get_daily_rollback_count()}) - "
+                f"pausing training for investigation"
+            )
+            self.trigger_investigation(event.current_model_id, event)
+
+        elif action == GraduatedResponseAction.ESCALATE_HUMAN:
+            # This should have been blocked earlier, but log just in case
+            logger.critical(
+                f"HUMAN ESCALATION REQUIRED: {self.get_daily_rollback_count()} rollbacks "
+                f"in 24 hours - automatic rollback disabled"
+            )
+
+        return action
+
+    def get_graduated_response_status(self) -> Dict[str, Any]:
+        """Get current graduated response status for monitoring.
+
+        Returns:
+            Dict with current response level info
+        """
+        daily_count = self.get_daily_rollback_count()
+        action = self.get_response_action()
+
+        return {
+            "enabled": self.criteria.graduated_response_enabled,
+            "daily_rollback_count": daily_count,
+            "current_action": action.value,
+            "effective_cooldown_seconds": self.get_effective_cooldown(),
+            "training_paused": self._training_paused,
+            "pending_investigations": len(self._pending_investigations),
+            "response_levels": [
+                {"threshold": t, "action": a.value}
+                for t, a in self.RESPONSE_LEVELS
+            ],
+        }
 
     def add_notification_hook(self, hook: NotificationHook) -> None:
         """Add a notification hook."""
@@ -948,6 +1177,8 @@ class RollbackMonitor:
     def is_cooldown_active(self, board_type: str, num_players: int) -> Tuple[bool, Optional[int]]:
         """Check if rollback cooldown is active for this config.
 
+        Uses effective cooldown which may be multiplied based on graduated response.
+
         Args:
             board_type: Board type
             num_players: Number of players
@@ -963,9 +1194,11 @@ class RollbackMonitor:
         if not last_time:
             return False, None
 
+        # Use effective cooldown (may be multiplied by graduated response)
+        effective_cooldown = self.get_effective_cooldown()
         elapsed = (datetime.now() - last_time).total_seconds()
-        if elapsed < self.criteria.cooldown_seconds:
-            remaining = int(self.criteria.cooldown_seconds - elapsed)
+        if elapsed < effective_cooldown:
+            remaining = int(effective_cooldown - elapsed)
             return True, remaining
         return False, None
 
@@ -1357,7 +1590,7 @@ class RollbackMonitor:
         event: RollbackEvent,
         dry_run: bool = False,
     ) -> bool:
-        """Execute an automatic rollback.
+        """Execute an automatic rollback with graduated response.
 
         Args:
             event: The rollback event to execute
@@ -1366,6 +1599,22 @@ class RollbackMonitor:
         Returns:
             True if rollback was successful
         """
+        # Check for graduated response blocking
+        blocked, block_reason = self.should_block_rollback()
+        if blocked and not self._cooldown_bypass:
+            logger.critical(
+                f"ROLLBACK BLOCKED: {block_reason} for "
+                f"{event.current_model_id} -> {event.rollback_model_id}"
+            )
+            # Notify hooks about blocked rollback
+            for hook in self._hooks:
+                try:
+                    if hasattr(hook, 'on_rollback_blocked'):
+                        hook.on_rollback_blocked(event, block_reason)
+                except Exception as e:
+                    logger.warning(f"Notification hook error on block: {e}")
+            return False
+
         logger.warning(
             f"{'[DRY RUN] ' if dry_run else ''}Executing automatic rollback: "
             f"{event.current_model_id} -> {event.rollback_model_id} "
@@ -1376,12 +1625,16 @@ class RollbackMonitor:
             self._emit_rollback_metrics(event, success=True, dry_run=True)
             return True
 
+        # Apply graduated response (may trigger investigation, pause training, etc.)
+        response_action = self.apply_graduated_response(event)
+
         # Create rollback decision
         decision = PromotionDecision(
             model_id=event.rollback_model_id,
             promotion_type=PromotionType.ROLLBACK,
             should_promote=True,
-            reason=f"Auto-rollback from {event.current_model_id}: {event.reason}",
+            reason=f"Auto-rollback from {event.current_model_id}: {event.reason} "
+                   f"[response: {response_action.value}]",
             elo_improvement=event.elo_regression,
             games_played=event.games_played,
             win_rate=event.win_rate,
@@ -1395,7 +1648,7 @@ class RollbackMonitor:
             # Clear regression history for the model we rolled back from
             if event.current_model_id in self._regression_history:
                 del self._regression_history[event.current_model_id]
-            # Record rollback time for cooldown tracking
+            # Record rollback time for cooldown tracking (using effective cooldown)
             self._record_rollback_time(event.board_type, event.num_players)
 
         # Notify hooks about rollback completion

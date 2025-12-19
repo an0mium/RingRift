@@ -17203,6 +17203,99 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 logger.error(f"Self-healing loop error: {e}")
                 await asyncio.sleep(HEALING_INTERVAL)
 
+    async def _validation_loop(self):
+        """Background loop for automatic model validation.
+
+        Finds newly trained models that need validation and queues validation
+        work items for them. Only runs on the leader node.
+        """
+        VALIDATION_INTERVAL = 300  # 5 minutes
+        await asyncio.sleep(120)  # Initial delay
+
+        logger.info("Validation loop started")
+
+        while self.running:
+            try:
+                # Only leader performs validation scheduling
+                if self.role != NodeRole.LEADER:
+                    await asyncio.sleep(VALIDATION_INTERVAL)
+                    continue
+
+                # Get model registry
+                try:
+                    from app.training.model_registry import ModelRegistry
+                    registry = ModelRegistry()
+                except Exception as e:
+                    logger.debug(f"Model registry not available: {e}")
+                    await asyncio.sleep(VALIDATION_INTERVAL)
+                    continue
+
+                # Get work queue
+                wq = get_work_queue()
+                if wq is None:
+                    await asyncio.sleep(VALIDATION_INTERVAL)
+                    continue
+
+                # Find models needing validation
+                models_pending = registry.get_models_needing_validation()
+                logger.debug(f"Found {len(models_pending)} models pending validation")
+
+                for model_info in models_pending[:3]:  # Process up to 3 per cycle
+                    model_id = model_info['model_id']
+                    version = model_info['version']
+                    baselines = model_info.get('baselines', [])
+                    games_per = model_info.get('games_per_matchup', 50)
+
+                    # Default baselines if none specified
+                    if not baselines:
+                        baselines = ["mcts_500"]
+
+                    # Create validation work item
+                    from app.coordination.work_queue import WorkItem, WorkType
+                    work_id = f"validation_{model_id}_v{version}_{int(time.time())}"
+
+                    work_item = WorkItem(
+                        work_id=work_id,
+                        work_type=WorkType.VALIDATION,
+                        priority=80,  # High priority
+                        config={
+                            "model_id": model_id,
+                            "version": version,
+                            "baselines": baselines,
+                            "games_per_matchup": games_per,
+                            "file_path": model_info.get('file_path'),
+                        },
+                    )
+
+                    try:
+                        wq.add_work(work_item)
+                        registry.set_validation_queued(model_id, version, work_id)
+                        logger.info(f"Queued validation for {model_id}:v{version} ({work_id})")
+
+                        # Notify via webhook
+                        await self.notifier.send(
+                            f"🔬 Model validation queued: {model_id}:v{version}",
+                            severity="info",
+                            context={"baselines": baselines, "games_per_matchup": games_per}
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to queue validation for {model_id}:v{version}: {e}")
+
+                # Also check for models without validation entries
+                unvalidated = registry.get_unvalidated_models()
+                for model_info in unvalidated[:2]:  # Process up to 2 per cycle
+                    model_id = model_info['model_id']
+                    version = model_info['version']
+                    # Create validation entry (will be picked up next cycle)
+                    registry.create_validation(model_id, version)
+                    logger.info(f"Created validation entry for {model_id}:v{version}")
+
+                await asyncio.sleep(VALIDATION_INTERVAL)
+
+            except Exception as e:
+                logger.error(f"Validation loop error: {e}")
+                await asyncio.sleep(VALIDATION_INTERVAL)
+
     async def handle_games_analytics(self, request: web.Request) -> web.Response:
         """GET /games/analytics - Game statistics for dashboards.
 
@@ -26991,6 +27084,9 @@ print(json.dumps({{
 
         # Self-healing loop: recover stuck jobs and unhealthy nodes
         tasks.append(asyncio.create_task(self._self_healing_loop()))
+
+        # Validation loop: auto-queue validation for newly trained models
+        tasks.append(asyncio.create_task(self._validation_loop()))
 
         # Best-effort bootstrap from seed peers before running elections. This
         # helps newly started cloud nodes quickly learn about the full cluster.
