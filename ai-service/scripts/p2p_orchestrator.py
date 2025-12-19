@@ -13482,8 +13482,8 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 pass
 
             # Work Queue Metrics (leader only)
-            if self.is_leader and hasattr(self, 'work_queue') and self.work_queue:
-                wq = self.work_queue
+            wq = get_work_queue()
+            if self.is_leader and wq:
                 lines.append("# HELP ringrift_work_queue_pending Work items pending in queue")
                 lines.append("# TYPE ringrift_work_queue_pending gauge")
                 lines.append("# HELP ringrift_work_queue_running Work items currently running")
