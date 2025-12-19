@@ -77,21 +77,43 @@ class EvalResult:
 
 
 class BackgroundEvaluator:
-    """Runs continuous evaluation in a background thread."""
+    """Runs continuous evaluation in a background thread.
+
+    Can operate in two modes:
+    1. Placeholder mode (default): Uses random results for fast testing
+    2. Real game mode: Actually plays games against baselines
+
+    To enable real game mode, provide board_type and set use_real_games=True.
+    """
 
     def __init__(
         self,
         model_getter: Callable[[], Any],  # Function to get current model
         config: Optional[EvalConfig] = None,
+        board_type: Optional[Any] = None,  # BoardType for real games
+        use_real_games: bool = False,  # Whether to play real games
     ):
         """Initialize background evaluator.
 
         Args:
-            model_getter: Callable that returns current model state
+            model_getter: Callable that returns current model state (must return
+                         a dict with 'state_dict' and optionally 'path')
             config: Evaluation configuration
+            board_type: Board type for real game evaluation
+            use_real_games: If True, play actual games instead of simulation
         """
         self.model_getter = model_getter
         self.config = config or EvalConfig()
+        self.board_type = board_type
+        self.use_real_games = use_real_games
+
+        # Validate real games configuration
+        if use_real_games and board_type is None:
+            logger.warning(
+                "[BackgroundEval] use_real_games=True but board_type not provided. "
+                "Falling back to placeholder mode."
+            )
+            self.use_real_games = False
 
         # State
         self.current_step = 0
@@ -106,9 +128,10 @@ class BackgroundEvaluator:
         self._eval_thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
 
-        # Checkpointing
+        # Checkpointing - for saving temp models during evaluation
         self.checkpoint_dir = Path(config.checkpoint_dir) if config else Path("data/eval_checkpoints")
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        self._temp_model_path = self.checkpoint_dir / "temp_eval_model.pth"
 
     def start(self):
         """Start background evaluation thread."""
@@ -151,34 +174,126 @@ class BackgroundEvaluator:
     def _run_evaluation(self, step: int) -> EvalResult:
         """Run a mini-gauntlet evaluation.
 
-        WARNING: This is currently a PLACEHOLDER implementation that uses random
-        results instead of actual games. Real game-playing evaluation requires:
-        1. Extracting model weights mid-training
-        2. Creating AI instances with those weights
-        3. Running games without blocking training
-
-        For actual model validation, use:
-        - scripts/select_best_checkpoint_by_elo.py (post-training checkpoint selection)
-        - app/training/tier_eval_runner.py (tier gate evaluation)
-
-        TODO: Implement real game-playing by integrating with baseline_gauntlet.py
-        or the game-playing logic from select_best_checkpoint_by_elo.py.
+        If use_real_games=True, plays actual games against baselines using
+        the game_gauntlet module. Otherwise uses placeholder random results.
         """
         logger.info(f"[BackgroundEval] Running evaluation at step {step}")
 
-        # Get current model (currently unused - placeholder only)
-        model = self.model_getter()
+        # Get current model info
+        model_info = self.model_getter()
 
+        if self.use_real_games:
+            return self._run_real_evaluation(step, model_info)
+        else:
+            return self._run_placeholder_evaluation(step)
+
+    def _run_real_evaluation(self, step: int, model_info: Any) -> EvalResult:
+        """Run actual games using game_gauntlet module."""
+        from app.training.game_gauntlet import (
+            run_baseline_gauntlet,
+            BaselineOpponent,
+        )
+
+        # Save model weights to temp file for evaluation
+        model_path = self._save_temp_model(model_info)
+        if model_path is None:
+            logger.warning("[BackgroundEval] Could not save model for evaluation, using placeholder")
+            return self._run_placeholder_evaluation(step)
+
+        # Map config baselines to BaselineOpponent enums
+        opponents = []
+        for baseline_name in self.config.baselines:
+            try:
+                opponents.append(BaselineOpponent(baseline_name))
+            except ValueError:
+                logger.warning(f"[BackgroundEval] Unknown baseline: {baseline_name}")
+
+        if not opponents:
+            opponents = [BaselineOpponent.RANDOM, BaselineOpponent.HEURISTIC]
+
+        games_per = self.config.games_per_eval // len(opponents)
+
+        try:
+            logger.info(f"[BackgroundEval] Playing {games_per} games per opponent (real mode)")
+            gauntlet_result = run_baseline_gauntlet(
+                model_path=model_path,
+                board_type=self.board_type,
+                opponents=opponents,
+                games_per_opponent=games_per,
+                check_baseline_gating=True,
+                verbose=False,
+            )
+
+            # Convert to EvalResult format
+            baseline_results = {
+                name: stats["win_rate"]
+                for name, stats in gauntlet_result.opponent_results.items()
+            }
+
+            return EvalResult(
+                step=step,
+                timestamp=time.time(),
+                elo_estimate=gauntlet_result.estimated_elo,
+                elo_std=100.0 / np.sqrt(gauntlet_result.total_games + 1),
+                games_played=gauntlet_result.total_games,
+                win_rate=gauntlet_result.win_rate,
+                baseline_results=baseline_results,
+                passes_baseline_gating=gauntlet_result.passes_baseline_gating,
+                failed_baselines=gauntlet_result.failed_baselines,
+            )
+
+        except Exception as e:
+            logger.error(f"[BackgroundEval] Real evaluation failed: {e}, using placeholder")
+            return self._run_placeholder_evaluation(step)
+
+    def _save_temp_model(self, model_info: Any) -> Optional[Path]:
+        """Save model weights to temp file for evaluation.
+
+        Args:
+            model_info: Either a path string, a dict with 'state_dict', or nn.Module
+
+        Returns:
+            Path to saved model, or None if save failed
+        """
+        try:
+            import torch
+
+            # If model_info is already a path, use it directly
+            if isinstance(model_info, (str, Path)):
+                return Path(model_info)
+
+            # If model_info is a dict with state_dict
+            if isinstance(model_info, dict):
+                if 'path' in model_info and model_info['path']:
+                    return Path(model_info['path'])
+                if 'state_dict' in model_info:
+                    torch.save(model_info['state_dict'], self._temp_model_path)
+                    return self._temp_model_path
+
+            # If model_info is an nn.Module
+            if hasattr(model_info, 'state_dict'):
+                torch.save(model_info.state_dict(), self._temp_model_path)
+                return self._temp_model_path
+
+            logger.warning(f"[BackgroundEval] Unknown model_info type: {type(model_info)}")
+            return None
+
+        except Exception as e:
+            logger.error(f"[BackgroundEval] Failed to save temp model: {e}")
+            return None
+
+    def _run_placeholder_evaluation(self, step: int) -> EvalResult:
+        """Run placeholder evaluation with random results.
+
+        Used when real game-playing is not configured or fails.
+        """
         # PLACEHOLDER: Simulates games with random outcomes
-        # Real implementation would play actual games against baselines
-        # using the current model weights.
         baseline_results = {}
         total_wins = 0
         total_games = 0
 
         for baseline in self.config.baselines:
-            # TODO: Replace with actual game-playing
-            # Current: Random binomial (55% expected win rate)
+            # Random binomial (55% expected win rate)
             wins = np.random.binomial(self.config.games_per_eval // len(self.config.baselines), 0.55)
             games = self.config.games_per_eval // len(self.config.baselines)
             baseline_results[baseline] = wins / games if games > 0 else 0.5

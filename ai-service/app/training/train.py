@@ -1641,6 +1641,8 @@ def train_model(
     anomaly_spike_threshold: float = 3.0,
     anomaly_gradient_threshold: float = 100.0,
     enable_graceful_shutdown: bool = True,
+    # Regularization (2025-12)
+    dropout: float = 0.08,
 ):
     """
     Train the RingRift neural network model.
@@ -2174,7 +2176,7 @@ def train_model(
             num_res_blocks=v4_blocks,
             num_filters=v4_filters,
             num_attention_heads=4,  # NAS optimal
-            dropout=0.08,  # NAS optimal
+            dropout=dropout,  # Configurable, default NAS optimal 0.08
             initial_kernel_size=5,  # NAS optimal
         )
         if not distributed or is_main_process():
@@ -2949,6 +2951,12 @@ def train_model(
                 train_data_iter = iter(train_loader)
 
             for i, batch_data in enumerate(train_data_iter):
+                # Circuit breaker check: skip batches if circuit is open (2025-12)
+                if training_breaker and not training_breaker.can_execute("batch_processing"):
+                    if i % 100 == 0:  # Log every 100th skipped batch
+                        logger.debug(f"Batch {i} skipped: circuit breaker open for batch_processing")
+                    continue
+
                 # Handle streaming, streaming with multi-player, and legacy batch formats
                 batch_num_players = None  # Per-sample num_players or None
                 if use_streaming:
@@ -3129,7 +3137,27 @@ def train_model(
                     if accumulation_steps > 1:
                         loss = loss / accumulation_steps
 
-                scaler.scale(loss).backward()
+                # Circuit breaker protection for backward pass (2025-12)
+                # Catches CUDA errors, OOM, and other runtime exceptions
+                try:
+                    scaler.scale(loss).backward()
+                except (RuntimeError, torch.cuda.OutOfMemoryError) as e:
+                    error_msg = str(e).lower()
+                    is_cuda_error = (
+                        'cuda' in error_msg or 'out of memory' in error_msg or
+                        'cublas' in error_msg or 'cudnn' in error_msg
+                    )
+                    if is_cuda_error:
+                        logger.warning(f"CUDA error in batch {i}: {e}")
+                        if training_breaker:
+                            training_breaker.record_failure("batch_processing", e)
+                        # Clear gradients and memory
+                        optimizer.zero_grad(set_to_none=True)
+                        if device.type == 'cuda':
+                            torch.cuda.empty_cache()
+                        continue  # Skip to next batch
+                    else:
+                        raise  # Re-raise non-CUDA errors
 
                 # Only step optimizer after accumulating gradients
                 if (i + 1) % accumulation_steps == 0 or (i + 1) == len(train_data_iter):
@@ -3143,8 +3171,29 @@ def train_model(
                             max_norm=fixed_clip_norm,
                         )
 
-                    scaler.step(optimizer)
-                    scaler.update()
+                    # Circuit breaker protection for optimizer step (2025-12)
+                    try:
+                        scaler.step(optimizer)
+                        scaler.update()
+                        # Record successful batch processing
+                        if training_breaker:
+                            training_breaker.record_success("batch_processing")
+                    except (RuntimeError, torch.cuda.OutOfMemoryError) as e:
+                        error_msg = str(e).lower()
+                        is_cuda_error = (
+                            'cuda' in error_msg or 'out of memory' in error_msg or
+                            'cublas' in error_msg or 'cudnn' in error_msg
+                        )
+                        if is_cuda_error:
+                            logger.warning(f"CUDA error in optimizer step at batch {i}: {e}")
+                            if training_breaker:
+                                training_breaker.record_failure("batch_processing", e)
+                            optimizer.zero_grad(set_to_none=True)
+                            if device.type == 'cuda':
+                                torch.cuda.empty_cache()
+                            continue
+                        else:
+                            raise
 
                     # Update gradient metrics (every 100 batches to minimize overhead)
                     if i % 100 == 0 and HAS_PROMETHEUS and (not distributed or is_main_process()):
@@ -3982,6 +4031,20 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help='T_mult for CosineAnnealingWarmRestarts (period multiplier)'
     )
 
+    # Regularization
+    parser.add_argument(
+        '--dropout', type=float, default=0.08,
+        help='Dropout rate for model (default: 0.08, increase to 0.2-0.3 for overfitting)'
+    )
+    parser.add_argument(
+        '--weight-decay', type=float, default=1e-4,
+        help='Weight decay for optimizer (default: 1e-4, increase to 1e-3 for overfitting)'
+    )
+    parser.add_argument(
+        '--label-smoothing', type=float, default=0.0,
+        help='Policy label smoothing (default: 0, try 0.05-0.1 for regularization)'
+    )
+
     # Resume training
     parser.add_argument(
         '--resume', type=str, default=None,
@@ -4410,6 +4473,10 @@ def main():
         config.seed = args.seed
     if args.policy_label_smoothing > 0:
         config.policy_label_smoothing = args.policy_label_smoothing
+    if hasattr(args, 'weight_decay') and args.weight_decay is not None:
+        config.weight_decay = args.weight_decay
+    if hasattr(args, 'label_smoothing') and args.label_smoothing > 0:
+        config.policy_label_smoothing = args.label_smoothing
     if args.board_type is not None:
         board_type_map = {
             'square8': BoardType.SQUARE8,
@@ -4483,6 +4550,8 @@ def main():
         anomaly_spike_threshold=getattr(args, 'anomaly_spike_threshold', 3.0),
         anomaly_gradient_threshold=getattr(args, 'anomaly_gradient_threshold', 100.0),
         enable_graceful_shutdown=not getattr(args, 'disable_graceful_shutdown', False),
+        # Regularization (2025-12)
+        dropout=getattr(args, 'dropout', 0.08),
     )
 
 
