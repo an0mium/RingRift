@@ -17571,16 +17571,29 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         """Background loop for self-healing: recover stuck jobs and unhealthy nodes.
 
         Detects jobs that have exceeded their expected timeout and automatically
-        terminates and reschedules them. Only runs on the leader node.
+        terminates and reschedules them. Stuck job recovery only runs on the leader,
+        but stale process cleanup runs on all nodes.
         """
         HEALING_INTERVAL = 60  # 1 minute
         await asyncio.sleep(45)  # Initial delay
 
         logger.info("Self-healing loop started")
+        last_stale_check = 0
 
         while self.running:
             try:
-                # Only leader performs healing
+                # Stale process cleanup runs on ALL nodes (not just leader)
+                now = time.time()
+                if now - last_stale_check >= STALE_PROCESS_CHECK_INTERVAL:
+                    try:
+                        killed = self._cleanup_stale_processes()
+                        if killed > 0:
+                            logger.info(f"Cleaned up {killed} stale processes")
+                    except Exception as e:
+                        logger.debug(f"Stale process cleanup error: {e}")
+                    last_stale_check = now
+
+                # Only leader performs job recovery
                 if self.role != NodeRole.LEADER:
                     await asyncio.sleep(HEALING_INTERVAL)
                     continue
