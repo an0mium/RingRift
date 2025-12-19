@@ -40,7 +40,7 @@ import time
 from contextlib import contextmanager
 from typing import Final, Generator, Optional
 
-from prometheus_client import Counter, Gauge, Histogram, Summary
+from prometheus_client import Counter, Gauge, Histogram
 
 # =============================================================================
 # Safe Metric Registration (December 2025: Consolidated)

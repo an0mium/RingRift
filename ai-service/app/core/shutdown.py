@@ -49,13 +49,12 @@ import asyncio
 import atexit
 import logging
 import signal
-import sys
 import threading
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Coroutine, Dict, List, Optional, Set, Union
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 

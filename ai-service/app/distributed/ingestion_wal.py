@@ -241,6 +241,7 @@ class _LegacyIngestionWAL:
             entry_id = cursor.lastrowid
             conn.commit()
             conn.close()
+            assert entry_id is not None, "INSERT should always set lastrowid"
 
             self._entries_since_checkpoint += 1
 

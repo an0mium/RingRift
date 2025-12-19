@@ -33,7 +33,7 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -42,7 +42,6 @@ logger = logging.getLogger(__name__)
 # Try to import torch
 try:
     import torch
-    import torch.nn as nn
     import torch.nn.functional as F
     HAS_TORCH = True
 except ImportError:

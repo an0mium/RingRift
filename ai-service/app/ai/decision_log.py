@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 # Optional Prometheus metrics
 try:
-    from prometheus_client import Counter, Histogram, Gauge
+    from prometheus_client import Counter, Histogram
 
     # December 2025: Use centralized metric registry
     from app.metrics.registry import safe_metric as _safe_metric

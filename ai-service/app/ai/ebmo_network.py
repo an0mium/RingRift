@@ -32,8 +32,8 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Union
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -46,7 +46,6 @@ from ..models import (
     GameState,
     Move,
     MoveType,
-    Position,
 )
 
 logger = logging.getLogger(__name__)

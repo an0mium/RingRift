@@ -38,28 +38,22 @@ See also:
 from __future__ import annotations
 
 import asyncio
-import functools
 import logging
 import threading
 import time
-import weakref
-from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager, contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import (
     Any,
     AsyncGenerator,
-    Callable,
     Dict,
     Generator,
-    Generic,
     List,
     Optional,
     Protocol,
     Set,
     Tuple,
-    Type,
     TypeVar,
     Union,
     runtime_checkable,

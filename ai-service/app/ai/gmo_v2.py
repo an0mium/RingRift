@@ -14,7 +14,6 @@ to achieve stronger play.
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -26,7 +25,7 @@ import torch.nn.functional as F
 
 from ..models import AIConfig, GameState, Move, MoveType
 from .base import BaseAI
-from .gmo_ai import MoveEncoder, NoveltyTracker
+from .gmo_ai import NoveltyTracker
 
 logger = logging.getLogger(__name__)
 

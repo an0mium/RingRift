@@ -38,10 +38,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, Type, TypeVar
+from typing import Any, Callable, Dict, List, Optional, Set, Type
 
 logger = logging.getLogger(__name__)
 
@@ -376,8 +377,6 @@ class InitializationRegistry:
         Raises:
             InitializationError: If initialization fails and stop_on_failure=True
         """
-        import time
-
         order = self.compute_order()
         self._results = []
 
