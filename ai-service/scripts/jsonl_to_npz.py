@@ -894,9 +894,10 @@ def process_jsonl_file(
                         # Stop at first error - state is now desynced
                         break
 
-                if moves_succeeded < 10:
-                    # Need at least 10 successful moves to have meaningful data
-                    raise ValueError(f"Only {moves_succeeded}/{len(moves)} moves succeeded")
+                min_moves_threshold = int(os.environ.get("RINGRIFT_MIN_MOVES", "6"))
+                if moves_succeeded < min_moves_threshold:
+                    # Need at least min_moves_threshold successful moves to have meaningful data
+                    raise ValueError(f"Only {moves_succeeded}/{len(moves)} moves succeeded (min={min_moves_threshold})")
 
                 # Precompute multi-player values
                 values_vec = np.array(

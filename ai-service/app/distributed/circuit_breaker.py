@@ -280,16 +280,19 @@ class CircuitBreaker:
 
             new_state = circuit.state
 
-        # Emit Prometheus metrics
+        # Emit Prometheus metrics (wrapped in try/except to not crash training)
         if HAS_PROMETHEUS:
-            PROM_CIRCUIT_SUCCESSES.labels(
-                operation_type=self.operation_type, target=target
-            ).inc()
-            # Update state gauge
-            state_value = {"closed": 0, "open": 1, "half_open": 2}.get(new_state.value, 0)
-            PROM_CIRCUIT_STATE.labels(
-                operation_type=self.operation_type, target=target
-            ).set(state_value)
+            try:
+                PROM_CIRCUIT_SUCCESSES.labels(
+                    operation_type=self.operation_type, target=target
+                ).inc()
+                # Update state gauge
+                state_value = {"closed": 0, "open": 1, "half_open": 2}.get(new_state.value, 0)
+                PROM_CIRCUIT_STATE.labels(
+                    operation_type=self.operation_type, target=target
+                ).set(state_value)
+            except (ValueError, TypeError):
+                pass  # Label mismatch - metric was registered with different labels
 
         # Notify state change outside lock
         if old_state is not None and new_state is not None:
@@ -322,20 +325,23 @@ class CircuitBreaker:
 
             new_state = circuit.state
 
-        # Emit Prometheus metrics
+        # Emit Prometheus metrics (wrapped in try/except to not crash training)
         if HAS_PROMETHEUS:
-            PROM_CIRCUIT_FAILURES.labels(
-                operation_type=self.operation_type, target=target
-            ).inc()
-            if opened_circuit:
-                PROM_CIRCUIT_OPENS.labels(
+            try:
+                PROM_CIRCUIT_FAILURES.labels(
                     operation_type=self.operation_type, target=target
                 ).inc()
-            # Update state gauge
-            state_value = {"closed": 0, "open": 1, "half_open": 2}.get(new_state.value, 0)
-            PROM_CIRCUIT_STATE.labels(
-                operation_type=self.operation_type, target=target
-            ).set(state_value)
+                if opened_circuit:
+                    PROM_CIRCUIT_OPENS.labels(
+                        operation_type=self.operation_type, target=target
+                    ).inc()
+                # Update state gauge
+                state_value = {"closed": 0, "open": 1, "half_open": 2}.get(new_state.value, 0)
+                PROM_CIRCUIT_STATE.labels(
+                    operation_type=self.operation_type, target=target
+                ).set(state_value)
+            except (ValueError, TypeError):
+                pass  # Label mismatch - metric was registered with different labels
 
         # Notify state change outside lock
         if old_state is not None and new_state is not None:
@@ -556,8 +562,8 @@ def get_training_breaker() -> CircuitBreaker:
     global _training_breaker
     if _training_breaker is None:
         _training_breaker = CircuitBreaker(
-            failure_threshold=2,
-            recovery_timeout=300.0,  # 5 minutes
+            failure_threshold=5,
+            recovery_timeout=600.0,  # 10 minutes
             half_open_max_calls=1,
             success_threshold=1,
         )

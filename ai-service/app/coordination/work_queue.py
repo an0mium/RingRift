@@ -128,6 +128,7 @@ class WorkType(str, Enum):
     SELFPLAY = "selfplay"
     DATA_MERGE = "data_merge"
     DATA_SYNC = "data_sync"
+    VALIDATION = "validation"  # Model validation against baselines
 
 
 class WorkStatus(str, Enum):

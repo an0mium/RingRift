@@ -68,6 +68,18 @@ except ImportError:
     HAS_VALIDATION = False
     logger.debug("Data validation not available - HotDataBuffer skipping validation")
 
+# Encoder protocol - any encoder with encode_state method works
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class StateEncoder(Protocol):
+    """Protocol for state encoders compatible with HotDataBuffer."""
+
+    def encode_state(self, state: Any) -> Tuple[np.ndarray, np.ndarray]:
+        """Encode a game state to (board_features, global_features)."""
+        ...
+
 
 @dataclass
 class GameRecord:
@@ -85,9 +97,54 @@ class GameRecord:
     priority: float = 1.0  # Base priority (can be updated by TD error)
     from_promoted_model: bool = False  # Was this from a model that got promoted?
 
-    def to_training_samples(self) -> List[Tuple[np.ndarray, np.ndarray, float]]:
-        """Convert game to training samples (state, policy, value)."""
-        # This is a placeholder - actual implementation depends on encoder
+    def to_training_samples(
+        self,
+        encoder: Optional[StateEncoder] = None,
+    ) -> List[Tuple[np.ndarray, np.ndarray, np.ndarray, float]]:
+        """Convert game to training samples.
+
+        Args:
+            encoder: Optional state encoder for raw game states.
+                    If not provided, uses pre-computed features from moves.
+
+        Returns:
+            List of (board_features, global_features, policy, value) tuples.
+            If encoder is None and no pre-computed features, returns samples
+            with board_features only (global_features will be empty).
+        """
+        samples = []
+        for move in self.moves:
+            # Try pre-computed features first
+            state_features = move.get("state_features")
+            global_features = move.get("global_features")
+            policy = move.get("policy_target")
+            value = move.get("value_target")
+
+            # If we have a raw state and an encoder, encode it
+            raw_state = move.get("raw_state")
+            if raw_state is not None and encoder is not None:
+                try:
+                    board_feats, global_feats = encoder.encode_state(raw_state)
+                    state_features = board_feats
+                    global_features = global_feats
+                except Exception as e:
+                    logger.warning(f"Failed to encode state in game {self.game_id}: {e}")
+                    continue
+
+            if state_features is not None and policy is not None and value is not None:
+                board_arr = np.array(state_features, dtype=np.float32)
+                global_arr = np.array(global_features, dtype=np.float32) if global_features is not None else np.array([], dtype=np.float32)
+                policy_arr = np.array(policy, dtype=np.float32)
+                samples.append((
+                    board_arr,
+                    global_arr,
+                    policy_arr,
+                    float(value),
+                ))
+        return samples
+
+    def to_training_samples_legacy(self) -> List[Tuple[np.ndarray, np.ndarray, float]]:
+        """Legacy method for backward compatibility (board_features, policy, value)."""
         samples = []
         for move in self.moves:
             state = move.get("state_features")
@@ -119,6 +176,7 @@ class HotDataBuffer:
         batch_notification_size: int = 50,
         enable_validation: bool = True,
         skip_invalid_games: bool = False,
+        encoder: Optional[StateEncoder] = None,
     ):
         """Initialize the hot data buffer.
 
@@ -131,6 +189,7 @@ class HotDataBuffer:
             batch_notification_size: Emit NEW_GAMES_AVAILABLE every N games
             enable_validation: Whether to validate games before flush
             skip_invalid_games: If True, skip invalid games during flush; if False, log warning but include
+            encoder: Optional state encoder for games with raw_state data
         """
         self.max_size = max_size
         self.max_memory_mb = max_memory_mb
@@ -140,10 +199,11 @@ class HotDataBuffer:
         self.batch_notification_size = batch_notification_size
         self.enable_validation = enable_validation and HAS_VALIDATION
         self.skip_invalid_games = skip_invalid_games
+        self._encoder = encoder
 
         self._buffer: OrderedDict[str, GameRecord] = OrderedDict()
         self._lock = threading.RLock()
-        self._sample_cache: List[Tuple[np.ndarray, np.ndarray, float]] = []
+        self._sample_cache: List[Tuple[np.ndarray, np.ndarray, np.ndarray, float]] = []
         self._cache_dirty = True
         self._total_samples = 0
         self._flushed_game_ids: set = set()
@@ -166,6 +226,15 @@ class HotDataBuffer:
             "games_skipped": 0,
         }
 
+    def set_encoder(self, encoder: StateEncoder) -> None:
+        """Set or update the state encoder.
+
+        Args:
+            encoder: State encoder for games with raw_state data
+        """
+        self._encoder = encoder
+        self._cache_dirty = True  # Invalidate cache to re-encode with new encoder
+
     def _validate_game(self, game: GameRecord) -> Tuple[bool, Optional[ValidationResult]]:
         """Validate a game record's training samples.
 
@@ -178,16 +247,17 @@ class HotDataBuffer:
         if not self.enable_validation or self._validator is None:
             return True, None
 
-        samples = game.to_training_samples()
+        samples = game.to_training_samples(encoder=self._encoder)
         if not samples:
             # Empty samples - treat as valid (may be a game-level record)
             return True, None
 
         # Convert samples to arrays for validation
+        # Samples are now (board_features, global_features, policy, value)
         try:
             features = np.array([s[0] for s in samples])
-            policies = np.array([s[1] for s in samples])
-            values = np.array([s[2] for s in samples])
+            policies = np.array([s[2] for s in samples])  # index 2 is policy
+            values = np.array([s[3] for s in samples])    # index 3 is value
 
             data = {
                 'features': features,
@@ -371,7 +441,7 @@ class HotDataBuffer:
         """Rebuild the flattened sample cache from all games."""
         samples = []
         for game in self._buffer.values():
-            samples.extend(game.to_training_samples())
+            samples.extend(game.to_training_samples(encoder=self._encoder))
         self._sample_cache = samples
         self._total_samples = len(samples)
         self._cache_dirty = False
@@ -380,7 +450,7 @@ class HotDataBuffer:
         self,
         batch_size: int = 256,
         shuffle: bool = True,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Get a batch of training samples.
 
         Args:
@@ -388,7 +458,7 @@ class HotDataBuffer:
             shuffle: Whether to randomly sample (vs sequential)
 
         Returns:
-            Tuple of (states, policies, values) as numpy arrays
+            Tuple of (board_features, global_features, policies, values) as numpy arrays
         """
         with self._lock:
             if self._cache_dirty:
@@ -397,6 +467,7 @@ class HotDataBuffer:
             if not self._sample_cache:
                 # Return empty arrays with correct shapes
                 return (
+                    np.zeros((0,), dtype=np.float32),
                     np.zeros((0,), dtype=np.float32),
                     np.zeros((0,), dtype=np.float32),
                     np.zeros((0,), dtype=np.float32),
@@ -411,18 +482,21 @@ class HotDataBuffer:
             else:
                 indices = list(range(min(batch_size, len(self._sample_cache))))
 
-            states = []
+            board_features = []
+            global_features = []
             policies = []
             values = []
 
             for idx in indices:
-                s, p, v = self._sample_cache[idx]
-                states.append(s)
+                bf, gf, p, v = self._sample_cache[idx]
+                board_features.append(bf)
+                global_features.append(gf)
                 policies.append(p)
                 values.append(v)
 
             return (
-                np.array(states, dtype=np.float32),
+                np.array(board_features, dtype=np.float32),
+                np.array(global_features, dtype=np.float32),
                 np.array(policies, dtype=np.float32),
                 np.array(values, dtype=np.float32),
             )
@@ -431,10 +505,10 @@ class HotDataBuffer:
         self,
         batch_size: int = 256,
         epochs: int = 1,
-    ) -> Iterator[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    ) -> Iterator[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
         """Iterator over training samples for multiple epochs.
 
-        Yields batches of (states, policies, values).
+        Yields batches of (board_features, global_features, policies, values).
         """
         with self._lock:
             if self._cache_dirty:
@@ -449,18 +523,21 @@ class HotDataBuffer:
 
                 for i in range(0, len(indices), batch_size):
                     batch_indices = indices[i:i + batch_size]
-                    states = []
+                    board_features = []
+                    global_features = []
                     policies = []
                     values = []
 
                     for idx in batch_indices:
-                        s, p, v = self._sample_cache[idx]
-                        states.append(s)
+                        bf, gf, p, v = self._sample_cache[idx]
+                        board_features.append(bf)
+                        global_features.append(gf)
                         policies.append(p)
                         values.append(v)
 
                     yield (
-                        np.array(states, dtype=np.float32),
+                        np.array(board_features, dtype=np.float32),
+                        np.array(global_features, dtype=np.float32),
                         np.array(policies, dtype=np.float32),
                         np.array(values, dtype=np.float32),
                     )

@@ -529,3 +529,75 @@ model_pruning:
   evaluation_timeout_seconds: 7200 # 2 hour timeout for full evaluation
   dry_run: false # If true, log what would be pruned but don't act
   use_elo_based_culling: true # Use fast ELO-based culling (uses existing ratings)
+
+# ============================================================================
+# AUTOMATION CONFIGURATION (2024-12)
+# These sections enable hands-free cluster operation
+# ============================================================================
+
+# Auto-scaling - Provision/deprovision Vast.ai instances based on queue depth
+auto_scaling:
+  enabled: true
+  queue_depth_scale_up: 10 # Scale up if > N pending work items
+  queue_depth_scale_down: 2 # Scale down if < N pending items
+  gpu_idle_minutes: 15 # Consider node idle after N minutes < 10% util
+  min_instances: 2 # Always keep at least N instances
+  max_instances: 20 # Cap for cost control
+  max_hourly_cost: 2.00 # Budget cap in $/hour
+  scale_cooldown_seconds: 600 # 10 min between scale operations
+  max_scale_up_per_cycle: 3 # Max instances to add per cycle
+  max_scale_down_per_cycle: 2 # Max instances to remove per cycle
+  predictive_scaling: true # Enable demand prediction
+  prediction_hours_ahead: 2 # Hours ahead to predict
+
+# Self-healing - Auto-recover from failures without manual intervention
+self_healing:
+  enabled: true
+  stuck_job_timeout_multiplier: 1.5 # Kill jobs at N * expected timeout
+  max_recovery_attempts_per_node: 3 # Max attempts before escalation
+  max_recovery_attempts_per_job: 2 # Max retry per job
+  recovery_attempt_cooldown: 300 # 5 min between attempts per node
+  consecutive_failures_for_escalation: 3 # Escalate after N failures
+  escalation_cooldown: 3600 # 1 hour between escalations
+  graduated_rollback_response: true # Use graduated response vs hard limit
+
+# Proactive monitoring - Alert before problems occur
+proactive_monitoring:
+  enabled: true
+  disk_prediction_hours: 4 # Alert N hours before disk full
+  disk_critical_threshold: 90.0 # Critical at 90%
+  memory_prediction_hours: 2 # Alert N hours before OOM
+  memory_critical_threshold: 95.0 # Critical at 95%
+  elo_trend_window_hours: 6 # Window for Elo trend analysis
+  elo_degradation_threshold: -5.0 # Alert if losing > 5 Elo/hour
+  queue_backlog_threshold: 50 # Alert if > 50 pending items
+  queue_growth_rate_threshold: 10.0 # Alert if growing > 10/hour
+  training_stall_hours: 6 # Alert if no training in N hours
+  alert_throttle_minutes: 30 # Min time between same alert
+  max_alerts_per_hour: 20 # Rate limit alerts
+
+# Tier calibration - Automated A/B testing for tier thresholds
+tier_calibration:
+  auto_calibrate: true # Enable automatic calibration
+  min_games_for_significance: 200 # Games needed for statistical significance
+  significance_threshold: 0.95 # 95% confidence required
+  max_concurrent_calibrations: 2 # Max parallel calibration tests
+  min_elo_threshold: 800 # Minimum tier threshold
+  max_elo_threshold: 2400 # Maximum tier threshold
+  max_threshold_change_percent: 10.0 # Max 10% change per calibration
+  calibration_timeout_hours: 72 # 3 days max per test
+  min_time_between_calibrations_hours: 24 # Min gap between calibrations
+  trigger_on_promotion_failure_rate: 0.3 # Trigger if > 30% fail gate
+  trigger_on_win_rate_deviation: 0.15 # Trigger if win rate off by > 15%
+
+# Model validation - Auto-validate new models against baselines
+model_validation:
+  enabled: true
+  validation_interval_seconds: 300 # Check for unvalidated models every 5 min
+  games_per_baseline: 50 # Games per baseline matchup
+  baselines:
+    - mcts_500
+    - predecessor_model
+  validation_timeout_seconds: 7200 # 2 hour timeout per validation
+  auto_promote_on_pass: true # Auto-promote if validation passes
+  min_elo_improvement: 25 # Required Elo improvement to pass

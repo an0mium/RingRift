@@ -1980,13 +1980,13 @@ class TrainingAnomalyDetector:
 
     def __init__(
         self,
-        loss_spike_threshold: float = 3.0,
+        loss_spike_threshold: float = 4.0,
         gradient_norm_threshold: float = 100.0,
         loss_window_size: int = 100,
         halt_on_nan: bool = True,
         halt_on_spike: bool = False,
         halt_on_gradient_explosion: bool = False,
-        max_consecutive_anomalies: int = 5,
+        max_consecutive_anomalies: int = 20,
     ):
         """
         Args:
@@ -2509,6 +2509,7 @@ class EnhancedEarlyStopping:
         elo_min_improvement: float = 5.0,
         mode: str = 'min',
         restore_best: bool = True,
+        min_epochs: int = 3,
     ):
         """
         Args:
@@ -2518,6 +2519,7 @@ class EnhancedEarlyStopping:
             elo_min_improvement: Minimum Elo improvement to reset counter
             mode: 'min' for loss, 'max' for accuracy
             restore_best: Whether to restore best model on stop
+            min_epochs: Minimum epochs before early stopping can trigger
         """
         self.patience = patience
         self.min_delta = min_delta
@@ -2525,6 +2527,7 @@ class EnhancedEarlyStopping:
         self.elo_min_improvement = elo_min_improvement
         self.mode = mode
         self.restore_best = restore_best
+        self.min_epochs = min_epochs
 
         self.best_loss = float('inf') if mode == 'min' else float('-inf')
         self.best_elo = float('-inf')
@@ -2553,6 +2556,11 @@ class EnhancedEarlyStopping:
         Returns:
             True if training should stop
         """
+        # Don't allow early stopping before min_epochs
+        if epoch < self.min_epochs:
+            self._stopped = False
+            return False
+
         improved = False
 
         # Check loss improvement

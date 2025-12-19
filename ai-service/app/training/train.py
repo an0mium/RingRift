@@ -15,6 +15,7 @@ import copy
 import argparse
 import glob
 import math
+import time
 import contextlib
 import json
 import signal
@@ -3363,6 +3364,15 @@ def train_model(
                     f"Train Loss: {avg_train_loss:.4f}, "
                     f"Val Loss: {avg_val_loss:.4f}"
                 )
+
+            # Overfitting detection: warn if validation diverges significantly from train
+            if avg_train_loss > 0 and epoch >= 3:
+                overfitting_ratio = (avg_val_loss - avg_train_loss) / avg_train_loss
+                if overfitting_ratio > 0.25 and (not distributed or is_main_process()):
+                    logger.warning(
+                        f"Overfitting detected: {overfitting_ratio*100:.1f}% divergence "
+                        f"(train={avg_train_loss:.4f}, val={avg_val_loss:.4f})"
+                    )
 
             # Record per-epoch losses for downstream analysis
             epochs_completed = epoch + 1
