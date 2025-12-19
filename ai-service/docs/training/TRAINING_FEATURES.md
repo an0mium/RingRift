@@ -1,6 +1,6 @@
 # RingRift Training Features Reference
 
-> **Last Updated**: 2025-12-17 (Consolidated Training Modules - unified checkpoint, distributed, orchestrator)
+> **Last Updated**: 2025-12-18 (Fault Tolerance Features - circuit breaker, anomaly detection, graceful shutdown)
 > **Status**: Active
 
 This document provides a comprehensive reference for all training features, parameters, and techniques available in the RingRift AI training pipeline.
@@ -2460,6 +2460,15 @@ calibrated_pred = original_pred ** (1 / optimal_temperature)
 | `ringrift_resource_gpu_used_percent`    | Gauge | -      | GPU utilization            |
 | `ringrift_resource_degradation_level`   | Gauge | -      | Resource degradation (0-2) |
 
+### Fault Tolerance Metrics (2025-12)
+
+| Metric                              | Type    | Labels            | Description                              |
+| ----------------------------------- | ------- | ----------------- | ---------------------------------------- |
+| `ringrift_circuit_breaker_state`    | Gauge   | config, operation | Circuit breaker state (0=closed, 1=open) |
+| `ringrift_training_anomalies_total` | Counter | config, type      | Anomaly detections by type (nan, spike)  |
+| `ringrift_gradient_clip_norm`       | Gauge   | config            | Adaptive gradient clipping threshold     |
+| `ringrift_gradient_norm`            | Gauge   | config            | Recent gradient norm magnitude           |
+
 ### Grafana Dashboard
 
 Import the provided dashboard for real-time monitoring:
@@ -2783,6 +2792,90 @@ enhancements['seed_manager'].set_global_seed()
 | `max_consecutive_anomalies`    | int   | 5        | Max anomalies before halt          |
 | `freshness_decay_hours`        | float | 24.0     | Freshness score half-life          |
 | `freshness_weight`             | float | 0.2      | Freshness weight in quality score  |
+
+---
+
+## Fault Tolerance Features (2025-12-18)
+
+The training loop includes comprehensive fault tolerance features to handle failures gracefully.
+
+### Circuit Breaker Pattern
+
+Prevents cascading failures by tracking success/failure rates:
+
+```python
+# Automatic circuit breaker check at each epoch
+if training_breaker and not training_breaker.can_execute("training_epoch"):
+    logger.warning("Training circuit OPEN - skipping epoch")
+    time.sleep(10.0)  # Brief pause before retry
+    continue
+
+# Automatic success/failure recording
+training_breaker.record_success("training_epoch")  # After successful epoch
+training_breaker.record_failure("training_epoch")  # On anomaly detection
+```
+
+**States:**
+
+- **CLOSED** (0): Normal operation, training proceeds
+- **OPEN** (1): Too many failures, training pauses for recovery
+- **HALF-OPEN** (2): Testing if system has recovered
+
+### Anomaly Detection
+
+Real-time detection of training anomalies:
+
+```python
+# Automatic NaN/Inf detection in loss
+if anomaly_detector.check_loss(loss_val, step):
+    # Records failure with circuit breaker
+    # Skips corrupted batch
+    continue
+```
+
+**Detected Anomalies:**
+
+- NaN/Inf in loss values
+- Loss spikes (configurable threshold)
+- Gradient explosions
+
+### Adaptive Gradient Clipping
+
+Dynamic gradient clipping based on recent gradient history:
+
+```python
+# Automatically adjusts clip threshold
+if adaptive_clipper is not None:
+    grad_norm = adaptive_clipper.update_and_clip(model.parameters())
+```
+
+**Configuration:**
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `initial_max_norm` | 1.0 | Starting clip threshold |
+| `percentile` | 90.0 | Percentile of history to use |
+| `history_size` | 100 | Rolling window size |
+| `min_clip` | 0.1 | Minimum threshold |
+| `max_clip` | 10.0 | Maximum threshold |
+
+### Graceful Shutdown
+
+Emergency checkpoint saving on SIGTERM/SIGINT:
+
+```python
+# Automatic signal handler setup
+shutdown_handler = GracefulShutdownHandler()
+shutdown_handler.setup(emergency_checkpoint_callback)
+
+# On signal: saves checkpoint, then allows termination
+# Checkpoint path: checkpoint_emergency_epoch_{N}.pth
+```
+
+**Benefits:**
+
+- Prevents loss of training progress on interruption
+- Safe for container/Kubernetes deployments
+- Allows clean cluster node shutdown
 
 ---
 
