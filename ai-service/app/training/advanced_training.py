@@ -36,6 +36,14 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
+# Import unified sampler base class (2025-12)
+try:
+    from app.training.elo_weighting import WeightedSamplerBase
+    HAS_WEIGHTED_SAMPLER_BASE = True
+except ImportError:
+    HAS_WEIGHTED_SAMPLER_BASE = False
+    WeightedSamplerBase = object  # Fallback to object as base
+
 logger = logging.getLogger(__name__)
 
 
@@ -3527,11 +3535,13 @@ class UncertaintySampler:
         self._cache.clear()
 
 
-class UncertaintyWeightedSampler:
+class UncertaintyWeightedSampler(WeightedSamplerBase):
     """Weighted sampler that prioritizes uncertain samples.
 
     Uses uncertainty scores to create a sampling distribution that
     oversamples difficult/uncertain examples.
+
+    Inherits from WeightedSamplerBase (2025-12) for common sampling interface.
     """
 
     def __init__(
@@ -3551,12 +3561,12 @@ class UncertaintyWeightedSampler:
         self.config = config or UncertaintyConfig()
 
         if uncertainty_scores is not None:
-            self.update_weights(uncertainty_scores)
+            self.update_uncertainty_scores(uncertainty_scores)
         else:
             # Uniform weights initially
             self.weights = np.ones(dataset_size) / dataset_size
 
-    def update_weights(self, uncertainty_scores: np.ndarray):
+    def update_uncertainty_scores(self, uncertainty_scores: np.ndarray):
         """Update sampling weights from uncertainty scores.
 
         Args:
@@ -3583,25 +3593,10 @@ class UncertaintyWeightedSampler:
         weights = self.config.weight_min + normalized * (self.config.weight_max - self.config.weight_min)
         self.weights = weights / weights.sum()
 
-    def sample(self, n_samples: int) -> np.ndarray:
-        """Sample indices with replacement according to weights.
+    # Backwards compatibility alias
+    update_weights = update_uncertainty_scores
 
-        Args:
-            n_samples: Number of samples to draw
-
-        Returns:
-            Array of sampled indices
-        """
-        return np.random.choice(
-            self.dataset_size,
-            size=n_samples,
-            replace=True,
-            p=self.weights,
-        )
-
-    def get_weight(self, idx: int) -> float:
-        """Get weight for a specific sample."""
-        return self.weights[idx]
+    # sample() and get_weight() inherited from WeightedSamplerBase
 
 
 def create_uncertainty_sampler(

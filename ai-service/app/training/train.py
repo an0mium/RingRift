@@ -1,7 +1,27 @@
-"""
-Training script for RingRift Neural Network AI
+"""Training script for RingRift Neural Network AI.
+
 Includes validation split, checkpointing, early stopping, LR warmup,
 and distributed training support via PyTorch DDP.
+
+Recommended Usage (December 2025):
+    For unified data management and training coordination, consider using:
+    - TrainingDataCoordinator: app.training.data_coordinator
+    - TrainingOrchestrator: app.training.orchestrated_training
+
+    Example:
+        from app.training.data_coordinator import get_data_coordinator
+        from app.training.orchestrated_training import get_training_orchestrator
+
+        # Use data coordinator for quality-aware data loading
+        coordinator = get_data_coordinator()
+        await coordinator.prepare_for_training(board_type="square8", num_players=2)
+
+        # Use training orchestrator for unified lifecycle management
+        orchestrator = get_training_orchestrator()
+        await orchestrator.initialize()
+        async with orchestrator.training_context():
+            # Run training...
+            pass
 """
 
 import torch

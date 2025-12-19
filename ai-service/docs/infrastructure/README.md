@@ -15,6 +15,7 @@ Cluster setup, operations, and cloud infrastructure.
 | [VAST_LIFECYCLE](VAST_LIFECYCLE.md)                                         | Vast.ai instance lifecycle |
 | [P2P_ORCHESTRATOR_AUTH](P2P_ORCHESTRATOR_AUTH.md)                           | P2P authentication         |
 | [ORCHESTRATOR_SELECTION](ORCHESTRATOR_SELECTION.md)                         | Orchestrator selection     |
+| [SLURM_BACKEND_DESIGN](SLURM_BACKEND_DESIGN.md)                             | Slurm backend design       |
 | [UNIFIED_AI_LOOP_DEPLOYMENT](UNIFIED_AI_LOOP_DEPLOYMENT.md)                 | Deployment guide           |
 | [PIPELINE_ORCHESTRATOR](PIPELINE_ORCHESTRATOR.md)                           | Pipeline orchestration     |
 | [BOTTLENECK_ANALYSIS](BOTTLENECK_ANALYSIS.md)                               | Performance bottlenecks    |

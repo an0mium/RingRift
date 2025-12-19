@@ -6,6 +6,7 @@
 | --------------------- | ------------------------------- | ------------------------------------------------- |
 | **Full AI Loop**      | `unified_ai_loop.py`            | Production deployment, continuous improvement     |
 | **P2P Cluster**       | `p2p_orchestrator.py`           | Multi-node P2P coordination, distributed selfplay |
+| **Slurm HPC**         | `unified_ai_loop.py`            | Stable Slurm cluster with shared filesystem       |
 | **Multi-Board Train** | `multi_config_training_loop.py` | Train across hex8/square8/square19 configs        |
 | **Elo Tournament**    | `auto_elo_tournament.py`        | Automated Elo evaluation with Slack alerts        |
 | **Model Promotion**   | `model_promotion_manager.py`    | Manual promotion, Elo testing, rollback           |
@@ -85,6 +86,22 @@ curl http://localhost:8770/status
 
 ---
 
+### Slurm Backend (Optional)
+
+**Purpose**: Run the unified AI loop on a stable Slurm-managed HPC cluster.
+
+**When to use**:
+
+- You have a shared filesystem mounted on all nodes.
+- You want queue-based scheduling, accounting, and fair-share.
+
+**Notes**:
+
+- Use `unified_ai_loop.py` with a Slurm backend configuration.
+- See `docs/infrastructure/SLURM_BACKEND_DESIGN.md` for details.
+
+---
+
 ### ~~pipeline_orchestrator.py~~ (DEPRECATED)
 
 > ⚠️ **Deprecated**: This script has been archived. Use `unified_ai_loop.py` instead.
@@ -159,6 +176,7 @@ python scripts/model_promotion_manager.py --rollback
 ```
 Do you need continuous AI improvement?
 ├─ Yes → unified_ai_loop.py
+│        ├─ Have a stable Slurm cluster? → Use Slurm backend
 │        └─ Need distributed across 3+ nodes? → Also use p2p_orchestrator.py
 │
 ├─ No, just need model promotion

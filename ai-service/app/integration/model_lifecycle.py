@@ -46,6 +46,29 @@ except ImportError:
     get_min_elo_improvement = lambda: 25.0  # Fallback default
     get_training_threshold = lambda: 500  # Fallback default
 
+# Import centralized thresholds (single source of truth)
+try:
+    from app.config.thresholds import (
+        ELO_IMPROVEMENT_PROMOTE,
+        MIN_GAMES_PROMOTE,
+        MIN_WIN_RATE_PROMOTE,
+        TRAINING_TRIGGER_GAMES,
+        TRAINING_STALENESS_HOURS,
+        ELO_DROP_ROLLBACK,
+        MIN_GAMES_REGRESSION,
+    )
+    HAS_THRESHOLDS = True
+except ImportError:
+    HAS_THRESHOLDS = False
+    # Fallback defaults matching thresholds.py
+    ELO_IMPROVEMENT_PROMOTE = 20
+    MIN_GAMES_PROMOTE = 100
+    MIN_WIN_RATE_PROMOTE = 0.45
+    TRAINING_TRIGGER_GAMES = 500
+    TRAINING_STALENESS_HOURS = 6.0
+    ELO_DROP_ROLLBACK = 50
+    MIN_GAMES_REGRESSION = 50
+
 # Import PromotionCriteria for unified thresholds
 try:
     from app.training.promotion_controller import PromotionCriteria as UnifiedCriteria

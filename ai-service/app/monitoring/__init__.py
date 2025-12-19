@@ -73,6 +73,19 @@ from app.monitoring.unified_health import (
     system_is_healthy,
 )
 
+# Unified cluster monitor (consolidates scripts)
+from app.monitoring.unified_cluster_monitor import (
+    UnifiedClusterMonitor,
+    ClusterStatus,
+    ClusterNodeStatus,
+    TrainingStatus,
+    EloStatus,
+    DataQualityStatus,
+    get_cluster_monitor,
+    get_cluster_status,
+    print_cluster_status,
+)
+
 __all__ = [
     # Thresholds
     "THRESHOLDS",
@@ -102,4 +115,14 @@ __all__ = [
     "get_health_orchestrator",
     "check_system_health",
     "system_is_healthy",
+    # Unified cluster monitor
+    "UnifiedClusterMonitor",
+    "ClusterStatus",
+    "ClusterNodeStatus",
+    "TrainingStatus",
+    "EloStatus",
+    "DataQualityStatus",
+    "get_cluster_monitor",
+    "get_cluster_status",
+    "print_cluster_status",
 ]

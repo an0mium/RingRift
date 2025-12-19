@@ -54,7 +54,67 @@ class EloWeightConfig:
     normalize_weights: bool = True  # Normalize to mean=1
 
 
-class EloWeightedSampler:
+# =============================================================================
+# Unified Sampler Base Class (2025-12)
+# =============================================================================
+
+
+class WeightedSamplerBase:
+    """Base class for weighted training samplers.
+
+    Provides a common interface for samplers that weight training samples
+    based on various criteria (Elo, uncertainty, quality, etc.).
+
+    Subclasses should:
+    1. Initialize `self.weights` as a numpy array of sampling probabilities
+    2. Optionally override `_compute_weights()` for custom weight computation
+
+    Interface:
+        - `weights`: np.ndarray - Normalized sampling probabilities
+        - `sample(n_samples)`: Draw weighted random samples
+        - `get_weight(idx)`: Get weight for a specific sample
+        - `update_weights(new_weights)`: Update weights from new scores
+    """
+
+    weights: np.ndarray
+
+    def sample(self, n_samples: int) -> np.ndarray:
+        """Sample indices with replacement according to weights.
+
+        Args:
+            n_samples: Number of samples to draw
+
+        Returns:
+            Array of sampled indices
+        """
+        return np.random.choice(
+            len(self.weights),
+            size=n_samples,
+            replace=True,
+            p=self.weights / self.weights.sum(),  # Ensure normalized
+        )
+
+    def get_weight(self, idx: int) -> float:
+        """Get weight for a specific sample.
+
+        Args:
+            idx: Sample index
+
+        Returns:
+            Weight value for the sample
+        """
+        return float(self.weights[idx])
+
+    def update_weights(self, new_weights: np.ndarray) -> None:
+        """Update sampling weights.
+
+        Args:
+            new_weights: New weight array (will be normalized internally)
+        """
+        self.weights = new_weights.astype(np.float64)
+
+
+class EloWeightedSampler(WeightedSamplerBase):
     """Weights training samples based on opponent Elo rating."""
 
     def __init__(
@@ -100,14 +160,7 @@ class EloWeightedSampler:
         self.model_elo = new_elo
         self.weights = self._compute_weights()
 
-    def sample(self, n_samples: int) -> np.ndarray:
-        """Sample indices weighted by Elo."""
-        probs = self.weights / self.weights.sum()
-        return np.random.choice(len(self.weights), size=n_samples, replace=True, p=probs)
-
-    def get_weight(self, idx: int) -> float:
-        """Get weight for a specific sample."""
-        return self.weights[idx]
+    # sample() and get_weight() inherited from WeightedSamplerBase
 
 
 class EloWeightedDataset:

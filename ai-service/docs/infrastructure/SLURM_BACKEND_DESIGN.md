@@ -1,0 +1,186 @@
+# Slurm Backend Design (Draft)
+
+## Summary
+
+This document proposes an optional Slurm execution backend for the RingRift AI
+training loop. The goal is to support users with stable Slurm-managed HPC
+clusters without changing the default P2P/SSH workflows.
+
+The design targets a minimal, high-ROI integration:
+
+- Add a Slurm backend to the existing `OrchestratorBackend` abstraction.
+- Use shared filesystem paths for datasets, models, and logs.
+- Keep P2P/SSH as the default for elastic cloud clusters.
+
+## Goals
+
+- Provide first-class support for Slurm HPC clusters.
+- Enable training, selfplay, and tournaments to run via `sbatch`.
+- Reuse existing scripts (`run_self_play_soak.py`, `run_nn_training_baseline.py`,
+  `run_unified_tournament.py`) without rewriting core logic.
+- Prefer shared filesystem paths over rsync where possible.
+
+## Non-Goals
+
+- Replace P2P orchestration for elastic cloud fleets.
+- Implement cluster provisioning or Slurm installation automation.
+- Support non-shared-filesystem deployments in the initial version.
+
+## Proposed Architecture
+
+### Integration Point
+
+Extend `ai-service/app/execution/backends.py`:
+
+- Add `BackendType.SLURM`.
+- Add `SlurmBackend(OrchestratorBackend)` implementing:
+  - `run_selfplay(...)`
+  - `run_training(...)`
+  - `run_tournament(...)`
+  - `get_available_workers(...)` (optional: uses `sinfo`/`squeue`)
+  - `sync_models(...)` and `sync_data(...)` as no-ops when shared FS is present.
+
+This keeps the unified loop API stable and allows the rest of the codebase to
+select Slurm execution via config.
+
+### Job Submission Flow
+
+1. Build a job spec for the task (resources, time, partition).
+2. Write a small wrapper script to a shared location (example:
+   `data/slurm/jobs/<job_id>.sh`).
+3. Submit with `sbatch --parsable` and capture the job ID.
+4. Track completion via:
+   - `squeue` for running/pending state.
+   - `sacct` for exit code and final state.
+5. Gather logs from `data/slurm/logs/<job_id>.out|err`.
+
+### Resource Mapping by Work Type
+
+Default resource expectations, with per-task overrides:
+
+| Work Type  | GPUs | CPUs | RAM  | Walltime | Notes                      |
+| ---------- | ---- | ---- | ---- | -------- | -------------------------- |
+| training   | 1-4  | 8-32 | 64G+ | 4-12h    | Prefers GPU partitions     |
+| selfplay   | 0-1  | 4-16 | 16G  | 1-4h     | Use job arrays for scale   |
+| tournament | 0-1  | 4-8  | 16G  | 1-2h     | CPU OK unless GPU required |
+
+### Slurm Command Usage
+
+- Submit: `sbatch --parsable <script>`
+- Status: `squeue -j <job_id> -h -o "%T"`
+- Accounting: `sacct -j <job_id> --format=State,ExitCode -n`
+- Cancel: `scancel <job_id>`
+
+### Shared Filesystem Assumptions
+
+Assume a shared filesystem mounted on all nodes:
+
+- `data/games`, `data/training`, `models`, `logs`, `runs`
+- No rsync required for shared paths.
+- Local scratch can be used for temporary files, but outputs should sync to the
+  shared root.
+
+### Configuration (Proposed)
+
+Add a `slurm` config block to `config/unified_loop.yaml` and a `SlurmConfig`
+dataclass in `app/config/unified_config.py`:
+
+```yaml
+slurm:
+  enabled: false
+  partition_training: 'gpu-train'
+  partition_selfplay: 'gpu-selfplay'
+  partition_tournament: 'cpu-eval'
+  account: 'ringrift'
+  qos: 'normal'
+  default_time_training: '08:00:00'
+  default_time_selfplay: '02:00:00'
+  default_time_tournament: '02:00:00'
+  gpus_training: 1
+  cpus_training: 16
+  mem_training: '64G'
+  gpus_selfplay: 0
+  cpus_selfplay: 8
+  mem_selfplay: '16G'
+  job_dir: 'data/slurm/jobs'
+  log_dir: 'data/slurm/logs'
+  shared_root: '/shared/ringrift'
+```
+
+### Job Wrapper Template (Draft)
+
+Each Slurm job runs a minimal wrapper that:
+
+- Activates the venv or module.
+- Changes to the repo root on the shared filesystem.
+- Runs the canonical script with explicit args.
+
+Example:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+source /shared/ringrift/ai-service/venv/bin/activate
+cd /shared/ringrift/ai-service
+python scripts/run_nn_training_baseline.py \
+  --run-dir runs/sq8_2p_12345 \
+  --data-path data/training/canonical_square8.square8.2p.hl3.fv2.npz \
+  --board square8 \
+  --num-players 2 \
+  --epochs 100
+```
+
+### Failure Handling
+
+- Treat `FAILED`, `CANCELLED`, or non-zero `ExitCode` as job failure.
+- Retry logic should remain in the unified loop, not inside Slurm.
+- Timeouts should map to Slurm `--time` and/or local monitoring with `scancel`.
+
+## Lambda Nodes: Transition to a Stable HPC Cluster
+
+Lambda nodes with a shared filesystem are not an HPC cluster by default. They
+become HPC-like once you add a scheduler and enforce stable allocations.
+
+### Required Components
+
+1. **Shared filesystem**: NFS/FSx/Lustre mounted on all nodes.
+2. **Slurm controller**: One stable head node (slurmctld).
+3. **Slurm compute nodes**: slurmd on every Lambda node.
+4. **GPU resource config**: `gres.conf` per node.
+5. **Accounting (optional but recommended)**: slurmdbd for usage tracking.
+
+### Steps to Transition
+
+1. Standardize OS, CUDA, and driver versions across nodes.
+2. Mount the shared filesystem to the same path on every node.
+3. Deploy Slurm controller on the primary Lambda node.
+4. Add all Lambda nodes to `slurm.conf` with stable hostnames.
+5. Create partitions for:
+   - training (GPU-heavy)
+   - selfplay (GPU/CPU mixed)
+   - evaluation (CPU)
+6. Configure `gres.conf` for GPU visibility and enforce cgroups.
+7. Update RingRift config to use Slurm backend and shared root paths.
+8. Validate with:
+   - `sinfo`, `squeue`, `sacct`
+   - A small training job submission
+
+### Recommended Partition Strategy
+
+- `gpu-train`: H100/GH200 nodes, longer walltime.
+- `gpu-selfplay`: mid-tier GPUs, short walltime, job arrays.
+- `cpu-eval`: CPU-rich nodes, tournaments and data merges.
+
+## Adoption Plan (Phased)
+
+1. **Phase 1**: Training only via Slurm backend.
+2. **Phase 2**: Add tournaments via Slurm.
+3. **Phase 3**: Selfplay via Slurm job arrays.
+4. **Phase 4**: Optional model sync and monitoring integration.
+
+## Open Questions
+
+- Partition names, account, and QoS defaults for public docs.
+- Shared filesystem path conventions for different providers.
+- Whether to support multi-node `torchrun` in the first version.
+- Preferred log retention and job history policy.

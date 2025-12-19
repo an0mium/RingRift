@@ -32,6 +32,8 @@ Architecture Overview (December 2025)
      * curriculum.py: Progressive difficulty staging
    - unified_orchestrator.py: UnifiedTrainingOrchestrator
      (combines all components with context manager interface)
+   - orchestrated_training.py: TrainingOrchestrator
+     (unified lifecycle manager for training services)
 
 4. SCHEDULING & CONTROL
    - temperature_scheduling.py: CANONICAL scheduler module
@@ -179,6 +181,18 @@ try:
 except ImportError:
     HAS_ORCHESTRATOR = False
 
+# Import training orchestrator (December 2025)
+try:
+    from app.training.orchestrated_training import (
+        TrainingOrchestrator,
+        TrainingOrchestratorConfig,
+        TrainingOrchestratorState,
+        get_training_orchestrator,
+    )
+    HAS_TRAINING_ORCHESTRATOR = True
+except ImportError:
+    HAS_TRAINING_ORCHESTRATOR = False
+
 __all__ = [
     "HAS_PROMOTION_CONTROLLER",
     "HAS_INTEGRATED_ENHANCEMENTS",
@@ -187,6 +201,7 @@ __all__ = [
     "HAS_DISTRIBUTED_HELPERS",
     "HAS_TEMPERATURE_SCHEDULING",
     "HAS_ORCHESTRATOR",
+    "HAS_TRAINING_ORCHESTRATOR",
 ]
 
 if HAS_PROMOTION_CONTROLLER:
@@ -253,6 +268,14 @@ if HAS_ORCHESTRATOR:
     __all__.extend([
         "UnifiedTrainingOrchestrator",
         "OrchestratorConfig",
+    ])
+
+if HAS_TRAINING_ORCHESTRATOR:
+    __all__.extend([
+        "TrainingOrchestrator",
+        "TrainingOrchestratorConfig",
+        "TrainingOrchestratorState",
+        "get_training_orchestrator",
     ])
 
 # Import consolidated regression detector (December 2025)
