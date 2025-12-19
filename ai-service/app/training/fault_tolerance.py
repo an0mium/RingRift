@@ -255,6 +255,15 @@ class RetryPolicy:
     - STANDARD: Default balanced retry policy
     - CONSERVATIVE: Slow retries for heavy operations
     - NETWORK: Network-optimized with longer delays
+
+    NOTE (December 2025): For training-specific operations, prefer using:
+        from app.training.exception_integration import TrainingRetryPolicies
+
+    TrainingRetryPolicies provides specialized policies for:
+    - CHECKPOINT_SAVE/LOAD: Optimized for I/O operations
+    - TRAINING_STEP: Quick retries for GPU errors
+    - EVALUATION/SELFPLAY: Longer delays for game-playing
+    - PROMOTION/REMOTE_SYNC: Critical operations
     """
 
     # Pre-configured policies
@@ -1534,6 +1543,40 @@ def main():
         best = trainer.checkpoint_manager.get_best_checkpoint('loss')
         if best:
             print(f"\nBest checkpoint: {best.checkpoint_id} (loss={best.metrics.get('loss', 'N/A')})")
+
+
+# =============================================================================
+# Consolidated Exports (December 2025)
+# =============================================================================
+# Re-export training-specific exception handling from exception_integration
+# for convenient access through fault_tolerance module
+
+try:
+    from app.training.exception_integration import (
+        # Training-specific retry policies
+        TrainingRetryPolicies,
+        # Decorators
+        retry_checkpoint_save,
+        retry_checkpoint_load,
+        retry_data_load,
+        retry_evaluation,
+        retry_selfplay,
+        retry_training_step,
+        # Safe execution wrappers
+        safe_training_step,
+        safe_checkpoint_save,
+        safe_evaluation,
+        # Error aggregation
+        TrainingErrorAggregator,
+        # Context managers
+        training_error_context,
+        checkpoint_error_context,
+        evaluation_error_context,
+    )
+    _HAS_EXCEPTION_INTEGRATION = True
+except ImportError:
+    _HAS_EXCEPTION_INTEGRATION = False
+    TrainingRetryPolicies = None  # type: ignore
 
 
 if __name__ == "__main__":

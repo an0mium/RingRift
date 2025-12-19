@@ -13,9 +13,12 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from app.core.thread_spawner import SpawnedThread
 
 # Import canonical threshold constants
 try:
@@ -131,10 +134,11 @@ class BackgroundEvaluator:
         self.elo_history: List[Tuple[int, float]] = []
         self.eval_results: List[EvalResult] = []
 
-        # Threading
+        # Threading - use ThreadSpawner for supervised execution
         self._running = False
-        self._eval_thread: Optional[threading.Thread] = None
+        self._eval_thread: Optional["SpawnedThread"] = None
         self._lock = threading.Lock()
+        self._use_thread_spawner = True  # Use supervised threading
 
         # Checkpointing - for saving temp models during evaluation
         self.checkpoint_dir = Path(config.checkpoint_dir) if config else Path("data/eval_checkpoints")
@@ -142,21 +146,60 @@ class BackgroundEvaluator:
         self._temp_model_path = self.checkpoint_dir / "temp_eval_model.pth"
 
     def start(self):
-        """Start background evaluation thread."""
+        """Start background evaluation thread.
+
+        Uses ThreadSpawner for supervised execution with automatic restart on failure.
+        Falls back to raw threading if ThreadSpawner is not available.
+        """
         if self._running:
             return
 
         self._running = True
-        self._eval_thread = threading.Thread(target=self._eval_loop, daemon=True)
+
+        if self._use_thread_spawner:
+            try:
+                from app.training.thread_integration import spawn_eval_thread, RestartPolicy
+
+                self._eval_thread = spawn_eval_thread(
+                    target=self._eval_loop,
+                    name="background_eval",
+                    restart_policy=RestartPolicy.ON_FAILURE,
+                    max_restarts=5,
+                )
+                logger.info("[BackgroundEval] Started supervised evaluation thread")
+                return
+            except ImportError:
+                logger.debug("[BackgroundEval] ThreadSpawner not available, using raw threading")
+            except Exception as e:
+                logger.warning(f"[BackgroundEval] Failed to use ThreadSpawner: {e}")
+
+        # Fallback to raw threading
+        self._eval_thread = threading.Thread(target=self._eval_loop, daemon=True)  # type: ignore
         self._eval_thread.start()
-        logger.info("[BackgroundEval] Started evaluation thread")
+        logger.info("[BackgroundEval] Started evaluation thread (raw threading)")
 
     def stop(self):
-        """Stop background evaluation."""
+        """Stop background evaluation.
+
+        For SpawnedThread, uses the stop() method which signals the thread to exit.
+        For raw threading.Thread, sets _running=False and joins.
+        """
         self._running = False
-        if self._eval_thread:
+
+        if self._eval_thread is None:
+            return
+
+        # Check if it's a SpawnedThread (has stop and join methods separately)
+        if hasattr(self._eval_thread, 'should_stop'):
+            self._eval_thread.stop()  # Signal stop
+            self._eval_thread.join(timeout=5.0)  # Wait for completion
+            logger.info("[BackgroundEval] Stopped supervised evaluation thread")
+        else:
+            # Raw threading.Thread
             self._eval_thread.join(timeout=5.0)
-        logger.info("[BackgroundEval] Stopped evaluation thread")
+            logger.info("[BackgroundEval] Stopped evaluation thread")
+
+        self._eval_thread = None
 
     def update_step(self, step: int):
         """Update current training step."""
@@ -244,9 +287,28 @@ class BackgroundEvaluator:
             self.start()
             return False
 
+    def _should_continue(self) -> bool:
+        """Check if the evaluation loop should continue.
+
+        Checks both the _running flag and SpawnedThread.should_stop() for
+        graceful shutdown support.
+        """
+        if not self._running:
+            return False
+
+        # If using SpawnedThread, check its stop signal
+        if self._eval_thread and hasattr(self._eval_thread, 'should_stop'):
+            return not self._eval_thread.should_stop()
+
+        return True
+
     def _eval_loop(self):
-        """Background evaluation loop."""
-        while self._running:
+        """Background evaluation loop.
+
+        Runs until stop() is called. When using ThreadSpawner, the thread
+        will be automatically restarted on failure (up to max_restarts).
+        """
+        while self._should_continue():
             with self._lock:
                 step = self.current_step
                 should_eval = (step - self.last_eval_step) >= self.config.eval_interval_steps
@@ -486,6 +548,39 @@ class BackgroundEvaluator:
         """Get Elo history [(step, elo), ...]."""
         with self._lock:
             return self.elo_history.copy()
+
+    def get_thread_health(self) -> Dict[str, Any]:
+        """Get thread health status.
+
+        Returns:
+            Dict with thread health information:
+            - running: Whether the evaluator is running
+            - thread_alive: Whether the thread is alive
+            - thread_type: "spawned" or "raw"
+            - restart_count: Number of restarts (SpawnedThread only)
+            - state: Thread state (SpawnedThread only)
+        """
+        health: Dict[str, Any] = {
+            "running": self._running,
+            "thread_alive": False,
+            "thread_type": "none",
+        }
+
+        if self._eval_thread is None:
+            return health
+
+        # Check if it's a SpawnedThread (has state property)
+        if hasattr(self._eval_thread, 'state'):
+            health["thread_type"] = "spawned"
+            health["thread_alive"] = self._eval_thread.is_alive  # Property, not method
+            health["state"] = str(self._eval_thread.state)
+            health["restart_count"] = getattr(self._eval_thread, 'restarts', 0)
+        else:
+            # Raw threading.Thread
+            health["thread_type"] = "raw"
+            health["thread_alive"] = self._eval_thread.is_alive()  # Method
+
+        return health
 
     def should_early_stop(self) -> bool:
         """Check if training should early stop due to Elo drop."""
