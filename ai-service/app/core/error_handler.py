@@ -272,6 +272,195 @@ def retry_async(
 
 
 # ============================================================================
+# Unified Retry Policy (December 2025)
+# ============================================================================
+
+from dataclasses import dataclass
+from enum import Enum
+from typing import Tuple
+import random
+
+
+class RetryStrategy(Enum):
+    """Retry delay strategies."""
+    LINEAR = "linear"  # Constant delay
+    EXPONENTIAL = "exponential"  # Delay doubles each attempt
+    EXPONENTIAL_JITTER = "exponential_jitter"  # Exponential with random jitter
+
+
+@dataclass
+class RetryPolicy:
+    """Unified retry policy configuration.
+
+    Use this class to define consistent retry behavior across the codebase.
+    Prefer using predefined policies (DEFAULT, AGGRESSIVE, CONSERVATIVE) or
+    create custom policies for specific use cases.
+
+    Usage:
+        from app.core.error_handler import RetryPolicy, DEFAULT_RETRY_POLICY
+
+        # Use default policy
+        @retry(**DEFAULT_RETRY_POLICY.to_retry_kwargs())
+        def my_function():
+            ...
+
+        # Create custom policy
+        policy = RetryPolicy(
+            strategy=RetryStrategy.EXPONENTIAL_JITTER,
+            max_attempts=5,
+            initial_delay=0.5,
+            max_delay=30.0,
+        )
+
+        @retry(**policy.to_retry_kwargs())
+        def my_function():
+            ...
+
+        # Or use the policy directly for manual retry loops
+        for attempt in range(policy.max_attempts):
+            try:
+                return do_work()
+            except Exception:
+                if attempt < policy.max_attempts - 1:
+                    time.sleep(policy.get_delay(attempt))
+    """
+    strategy: RetryStrategy = RetryStrategy.EXPONENTIAL
+    max_attempts: int = 3
+    initial_delay: float = 1.0
+    multiplier: float = 2.0
+    max_delay: float = 60.0
+    jitter_factor: float = 0.1  # For EXPONENTIAL_JITTER: random factor (0-1)
+
+    def get_delay(self, attempt: int) -> float:
+        """Calculate delay for a given attempt number (0-indexed).
+
+        Args:
+            attempt: Current attempt number (0 = first retry)
+
+        Returns:
+            Delay in seconds before next attempt
+        """
+        if self.strategy == RetryStrategy.LINEAR:
+            delay = self.initial_delay
+        elif self.strategy == RetryStrategy.EXPONENTIAL:
+            delay = self.initial_delay * (self.multiplier ** attempt)
+        elif self.strategy == RetryStrategy.EXPONENTIAL_JITTER:
+            base_delay = self.initial_delay * (self.multiplier ** attempt)
+            jitter = random.uniform(-self.jitter_factor, self.jitter_factor)
+            delay = base_delay * (1 + jitter)
+        else:
+            delay = self.initial_delay
+
+        return min(delay, self.max_delay)
+
+    def to_retry_kwargs(self) -> dict:
+        """Convert policy to kwargs for the @retry decorator.
+
+        Returns:
+            Dict that can be unpacked as **kwargs to retry()
+        """
+        return {
+            "max_attempts": self.max_attempts,
+            "delay": self.initial_delay,
+            "backoff": self.multiplier if self.strategy != RetryStrategy.LINEAR else 1.0,
+            "max_delay": self.max_delay,
+        }
+
+    @classmethod
+    def from_config(cls, config: dict) -> "RetryPolicy":
+        """Create policy from configuration dict.
+
+        Args:
+            config: Dict with policy parameters
+
+        Returns:
+            RetryPolicy instance
+        """
+        strategy = config.get("strategy", "exponential")
+        if isinstance(strategy, str):
+            strategy = RetryStrategy(strategy)
+
+        return cls(
+            strategy=strategy,
+            max_attempts=config.get("max_attempts", 3),
+            initial_delay=config.get("initial_delay", 1.0),
+            multiplier=config.get("multiplier", 2.0),
+            max_delay=config.get("max_delay", 60.0),
+            jitter_factor=config.get("jitter_factor", 0.1),
+        )
+
+
+# Predefined retry policies for common use cases
+DEFAULT_RETRY_POLICY = RetryPolicy(
+    strategy=RetryStrategy.EXPONENTIAL,
+    max_attempts=3,
+    initial_delay=1.0,
+    multiplier=2.0,
+    max_delay=60.0,
+)
+
+# For critical operations that need more attempts
+AGGRESSIVE_RETRY_POLICY = RetryPolicy(
+    strategy=RetryStrategy.EXPONENTIAL_JITTER,
+    max_attempts=5,
+    initial_delay=0.5,
+    multiplier=2.0,
+    max_delay=30.0,
+    jitter_factor=0.2,
+)
+
+# For less critical operations with longer delays
+CONSERVATIVE_RETRY_POLICY = RetryPolicy(
+    strategy=RetryStrategy.EXPONENTIAL,
+    max_attempts=3,
+    initial_delay=5.0,
+    multiplier=2.0,
+    max_delay=300.0,  # 5 minutes
+)
+
+# For quick network operations
+FAST_RETRY_POLICY = RetryPolicy(
+    strategy=RetryStrategy.LINEAR,
+    max_attempts=3,
+    initial_delay=0.5,
+    multiplier=1.0,
+    max_delay=0.5,
+)
+
+# For sync/file operations that may need circuit breaker integration
+SYNC_RETRY_POLICY = RetryPolicy(
+    strategy=RetryStrategy.EXPONENTIAL_JITTER,
+    max_attempts=3,
+    initial_delay=1.0,
+    multiplier=2.0,
+    max_delay=60.0,
+    jitter_factor=0.15,
+)
+
+
+def with_retry_policy(policy: RetryPolicy) -> Callable[[F], F]:
+    """Decorator factory that applies a RetryPolicy.
+
+    Args:
+        policy: RetryPolicy to use
+
+    Returns:
+        Decorator function
+
+    Example:
+        @with_retry_policy(AGGRESSIVE_RETRY_POLICY)
+        def my_function():
+            ...
+    """
+    return retry(**policy.to_retry_kwargs())
+
+
+def with_retry_policy_async(policy: RetryPolicy) -> Callable[[AF], AF]:
+    """Async version of with_retry_policy."""
+    return retry_async(**policy.to_retry_kwargs())
+
+
+# ============================================================================
 # Error Recovery Helpers
 # ============================================================================
 

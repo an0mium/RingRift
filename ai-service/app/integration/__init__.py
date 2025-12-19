@@ -10,6 +10,8 @@ Modules:
 - pipeline_feedback: Feedback loops for the pipeline orchestrator
 - model_lifecycle: Model lifecycle management
 - p2p_integration: P2P cluster integration
+- evaluation_curriculum_bridge: Evaluation → curriculum feedback loop
+- auto_elo_integration: Automatic Elo evaluation for new models
 """
 
 from typing import TYPE_CHECKING
@@ -50,6 +52,17 @@ __all__ = [
     "P2PIntegrationManager",
     "P2PIntegrationConfig",
     "connect_to_cluster",
+    "integrate_lifecycle_with_p2p",
+    "integrate_feedback_with_selfplay",
+
+    # Evaluation → Curriculum bridge
+    "EvaluationCurriculumBridge",
+    "create_evaluation_bridge",
+    "integrate_evaluation_with_curriculum",
+
+    # Auto Elo integration
+    "ModelEloIntegration",
+    "register_model_for_elo",
 ]
 
 
@@ -105,3 +118,45 @@ async def connect_to_cluster(base_url="http://localhost:8770", auth_token=None):
     """Connect to P2P cluster and return integration manager."""
     from .p2p_integration import connect_to_cluster as _connect
     return await _connect(base_url, auth_token)
+
+
+def integrate_lifecycle_with_p2p(lifecycle_manager, p2p_manager):
+    """Integrate lifecycle manager with P2P cluster."""
+    from .p2p_integration import integrate_lifecycle_with_p2p as _integrate
+    return _integrate(lifecycle_manager, p2p_manager)
+
+
+def integrate_feedback_with_selfplay(feedback_router, selfplay_coordinator):
+    """Integrate feedback signals with selfplay coordinator."""
+    from .p2p_integration import integrate_feedback_with_selfplay as _integrate
+    return _integrate(feedback_router, selfplay_coordinator)
+
+
+def get_evaluation_curriculum_bridge():
+    """Get EvaluationCurriculumBridge class."""
+    from .evaluation_curriculum_bridge import EvaluationCurriculumBridge
+    return EvaluationCurriculumBridge
+
+
+def create_evaluation_bridge(feedback_controller=None, feedback_router=None, selfplay_coordinator=None):
+    """Create evaluation-curriculum bridge."""
+    from .evaluation_curriculum_bridge import create_evaluation_bridge as _create
+    return _create(feedback_controller, feedback_router, selfplay_coordinator)
+
+
+def integrate_evaluation_with_curriculum(feedback_controller, selfplay_coordinator):
+    """One-line evaluation → curriculum integration."""
+    from .evaluation_curriculum_bridge import integrate_evaluation_with_curriculum as _integrate
+    return _integrate(feedback_controller, selfplay_coordinator)
+
+
+def get_auto_elo_integration():
+    """Get ModelEloIntegration class."""
+    from .auto_elo_integration import ModelEloIntegration
+    return ModelEloIntegration
+
+
+def register_model_for_elo(model_path):
+    """Register a model for automatic Elo evaluation."""
+    from .auto_elo_integration import register_model_for_elo as _register
+    return _register(model_path)

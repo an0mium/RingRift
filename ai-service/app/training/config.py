@@ -593,14 +593,20 @@ def get_model_version_for_board(board_type: BoardType) -> str:
 class SelfPlayConfig:
     """Configuration for self-play data generation in training pipelines.
 
+    .. deprecated:: 2025-12
+        Use :class:`app.training.selfplay_config.SelfplayConfig` instead.
+        This simplified config is retained for backwards compatibility with
+        existing pipeline code. New code should use the canonical version.
+
     Controls how training games are generated during the self-play phase
-    of the training pipeline. This is a simplified config for pipeline use.
+    of the training pipeline.
 
-    For standalone selfplay scripts with full argument parsing support, use:
+    Migration::
+
+        # Old:
+        from app.training.config import SelfPlayConfig
+        # New:
         from app.training.selfplay_config import SelfplayConfig
-
-    Note: The canonical SelfplayConfig in selfplay_config.py has more options
-    including engine modes, output formats, and recording options.
     """
     # Number of games to generate per iteration
     games_per_iteration: int = 500
