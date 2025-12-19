@@ -39,6 +39,85 @@ logger = logging.getLogger(__name__)
 DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "data" / "work_queue.db"
 
 
+class SlackWorkQueueNotifier:
+    """Simple Slack notifier for work queue events."""
+
+    def __init__(self, webhook_url: Optional[str] = None):
+        self.webhook_url = webhook_url or os.environ.get("SLACK_WEBHOOK_URL")
+        self.enabled = bool(self.webhook_url)
+        if self.enabled:
+            logger.info("Slack work queue notifications enabled")
+
+    def _send(self, text: str, color: str = "#36a64f") -> bool:
+        """Send a Slack message."""
+        if not self.enabled:
+            return False
+
+        try:
+            import urllib.request
+            payload = json.dumps({
+                "attachments": [{
+                    "color": color,
+                    "text": text,
+                    "footer": "RingRift Work Queue",
+                    "ts": int(time.time())
+                }]
+            }).encode("utf-8")
+
+            req = urllib.request.Request(
+                self.webhook_url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            urllib.request.urlopen(req, timeout=10)
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to send Slack notification: {e}")
+            return False
+
+    def on_work_added(self, item: "WorkItem") -> None:
+        """Notify on high-priority work added."""
+        if item.priority >= 90:
+            self._send(
+                f":inbox_tray: *High-priority work added*\n"
+                f"Type: `{item.work_type.value}` | Priority: {item.priority}\n"
+                f"ID: `{item.work_id}` | Config: {json.dumps(item.config)}",
+                color="#f2c744"
+            )
+
+    def on_work_completed(self, item: "WorkItem") -> None:
+        """Notify on work completion (high-priority only to reduce noise)."""
+        if item.priority < 80:
+            return  # Skip low-priority completions
+        duration = item.completed_at - item.created_at if item.completed_at and item.created_at else 0
+        self._send(
+            f":white_check_mark: *Work completed*\n"
+            f"Type: `{item.work_type.value}` | ID: `{item.work_id}`\n"
+            f"Node: `{item.claimed_by}` | Duration: {duration:.1f}s",
+            color="#36a64f"
+        )
+
+    def on_work_failed(self, item: "WorkItem", permanent: bool = False) -> None:
+        """Notify on work failure."""
+        status = "permanently failed" if permanent else f"failed (attempt {item.attempts}/{item.max_attempts})"
+        self._send(
+            f":x: *Work {status}*\n"
+            f"Type: `{item.work_type.value}` | ID: `{item.work_id}`\n"
+            f"Node: `{item.claimed_by}` | Error: {item.error or 'unknown'}",
+            color="#e01e5a" if permanent else "#f2c744"
+        )
+
+    def on_work_timeout(self, item: "WorkItem", permanent: bool = False) -> None:
+        """Notify on work timeout."""
+        status = "permanently timed out" if permanent else f"timed out (attempt {item.attempts}/{item.max_attempts})"
+        self._send(
+            f":hourglass: *Work {status}*\n"
+            f"Type: `{item.work_type.value}` | ID: `{item.work_id}`\n"
+            f"Node: `{item.claimed_by}` | Timeout: {item.timeout_seconds}s",
+            color="#e01e5a" if permanent else "#f2c744"
+        )
+
+
 class WorkType(str, Enum):
     """Types of work that can be queued."""
     TRAINING = "training"
@@ -129,7 +208,7 @@ class WorkQueue:
     - SQLite persistence for durability across leader changes
     """
 
-    def __init__(self, policy_manager=None, db_path: Optional[Path] = None):
+    def __init__(self, policy_manager=None, db_path: Optional[Path] = None, slack_webhook: Optional[str] = None):
         self.items: Dict[str, WorkItem] = {}  # work_id -> WorkItem
         self.lock = threading.RLock()
         self.db_path = db_path or DEFAULT_DB_PATH
@@ -143,6 +222,9 @@ class WorkQueue:
                 self.policy_manager = policy_manager
         except ImportError:
             self.policy_manager = None
+
+        # Slack notifier
+        self.notifier = SlackWorkQueueNotifier(webhook_url=slack_webhook)
 
         # Statistics
         self.stats = {
@@ -325,6 +407,8 @@ class WorkQueue:
             self._save_item(item)
             self._save_stats()
             logger.info(f"Added work {item.work_id}: {item.work_type.value} (priority: {item.priority})")
+        # Notify (outside lock to avoid blocking)
+        self.notifier.on_work_added(item)
         return item.work_id
 
     def add_training(self, board_type: str, num_players: int, priority: int = 100) -> str:
@@ -433,10 +517,14 @@ class WorkQueue:
             self._save_stats()
 
             logger.info(f"Work {work_id} completed by {item.claimed_by}")
-            return True
+
+        # Notify (outside lock)
+        self.notifier.on_work_completed(item)
+        return True
 
     def fail_work(self, work_id: str, error: str = "") -> bool:
         """Mark work as failed. May be retried if attempts < max_attempts."""
+        permanent = False
         with self.lock:
             item = self.items.get(work_id)
             if not item:
@@ -452,6 +540,7 @@ class WorkQueue:
                 logger.warning(f"Work {work_id} failed (attempt {item.attempts}), will retry: {error}")
             else:
                 # Permanently failed
+                permanent = True
                 item.status = WorkStatus.FAILED
                 item.completed_at = time.time()
                 item.error = error
@@ -460,7 +549,9 @@ class WorkQueue:
                 self._save_stats()
                 logger.error(f"Work {work_id} permanently failed: {error}")
 
-            return True
+        # Notify (outside lock)
+        self.notifier.on_work_failed(item, permanent=permanent)
+        return True
 
     def cancel_work(self, work_id: str) -> bool:
         """Cancel pending or claimed work."""
@@ -478,6 +569,7 @@ class WorkQueue:
     def check_timeouts(self) -> List[str]:
         """Check for timed out work and reset for retry. Returns list of timed out work_ids."""
         timed_out = []
+        to_notify = []  # (item, permanent)
         with self.lock:
             for item in self.items.values():
                 if item.is_timed_out():
@@ -488,6 +580,7 @@ class WorkQueue:
                         item.claimed_at = 0.0
                         item.error = "timeout"
                         self._save_item(item)
+                        to_notify.append((item, False))
                         logger.warning(f"Work {item.work_id} timed out, will retry")
                     else:
                         item.status = WorkStatus.TIMEOUT
@@ -495,7 +588,12 @@ class WorkQueue:
                         self.stats["total_timeout"] += 1
                         self._save_item(item)
                         self._save_stats()
+                        to_notify.append((item, True))
                         logger.error(f"Work {item.work_id} timed out permanently")
+
+        # Notify (outside lock)
+        for item, permanent in to_notify:
+            self.notifier.on_work_timeout(item, permanent=permanent)
 
         return timed_out
 
