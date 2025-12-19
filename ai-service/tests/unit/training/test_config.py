@@ -29,7 +29,7 @@ class TestGpuScalingConfig:
         assert config.large_policy_threshold == 50000
         assert config.medium_policy_threshold == 10000
         assert config.reserved_memory_gb == 8.0
-        assert config.max_batch_size == 8192
+        assert config.max_batch_size == 16384
 
     def test_gpu_tier_thresholds(self):
         """Should have correct GPU tier thresholds."""
@@ -42,16 +42,16 @@ class TestGpuScalingConfig:
     def test_batch_multipliers(self):
         """Should have correct batch multipliers per GPU tier."""
         config = GpuScalingConfig()
-        assert config.gh200_batch_multiplier == 32
-        assert config.h100_batch_multiplier == 16
-        assert config.a100_batch_multiplier == 8
-        assert config.rtx_batch_multiplier == 4
-        assert config.consumer_batch_multiplier == 2
+        assert config.gh200_batch_multiplier == 64
+        assert config.h100_batch_multiplier == 32
+        assert config.a100_batch_multiplier == 16
+        assert config.rtx_batch_multiplier == 8
+        assert config.consumer_batch_multiplier == 4
 
     def test_from_env_no_overrides(self):
         """Should return defaults when no env vars set."""
         config = GpuScalingConfig.from_env()
-        assert config.max_batch_size == 8192
+        assert config.max_batch_size == 16384
         assert config.reserved_memory_gb == 8.0
 
     def test_from_env_with_int_override(self):
@@ -70,7 +70,7 @@ class TestGpuScalingConfig:
         """Should ignore invalid environment values."""
         with patch.dict(os.environ, {"RINGRIFT_GPU_MAX_BATCH_SIZE": "invalid"}):
             config = GpuScalingConfig.from_env()
-            assert config.max_batch_size == 8192  # Default
+            assert config.max_batch_size == 16384  # Default
 
     def test_from_env_multiplier_overrides(self):
         """Should override batch multipliers from environment."""
@@ -95,7 +95,7 @@ class TestGetSetGpuScalingConfig:
         """Should return default config on first call."""
         config = get_gpu_scaling_config()
         assert isinstance(config, GpuScalingConfig)
-        assert config.max_batch_size == 8192
+        assert config.max_batch_size == 16384
 
     def test_get_caches_config(self):
         """Should cache and return same config on subsequent calls."""
