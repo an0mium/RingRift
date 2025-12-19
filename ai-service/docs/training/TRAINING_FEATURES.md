@@ -2799,6 +2799,37 @@ enhancements['seed_manager'].set_global_seed()
 
 The training loop includes comprehensive fault tolerance features to handle failures gracefully.
 
+### CLI Arguments
+
+| Argument                       | Type   | Default  | Description                                |
+| ------------------------------ | ------ | -------- | ------------------------------------------ |
+| `--disable-circuit-breaker`    | flag   | false    | Disable training circuit breaker           |
+| `--disable-anomaly-detection`  | flag   | false    | Disable NaN/Inf and spike detection        |
+| `--gradient-clip-mode`         | choice | adaptive | `adaptive` (dynamic) or `fixed` (constant) |
+| `--gradient-clip-max-norm`     | float  | 1.0      | Max gradient norm for fixed mode           |
+| `--anomaly-spike-threshold`    | float  | 3.0      | Std devs for spike detection               |
+| `--anomaly-gradient-threshold` | float  | 100.0    | Gradient explosion threshold               |
+| `--disable-graceful-shutdown`  | flag   | false    | Disable emergency checkpoints              |
+
+**Example Usage:**
+
+```bash
+# Default: all fault tolerance enabled
+python -m app.training.train --data-path data/training/dataset.npz
+
+# Disable circuit breaker for debugging
+python -m app.training.train --data-path data/training/dataset.npz \
+    --disable-circuit-breaker
+
+# Use fixed gradient clipping with higher threshold
+python -m app.training.train --data-path data/training/dataset.npz \
+    --gradient-clip-mode fixed --gradient-clip-max-norm 2.0
+
+# More sensitive anomaly detection
+python -m app.training.train --data-path data/training/dataset.npz \
+    --anomaly-spike-threshold 2.0
+```
+
 ### Circuit Breaker Pattern
 
 Prevents cascading failures by tracking success/failure rates:
@@ -2876,6 +2907,41 @@ shutdown_handler.setup(emergency_checkpoint_callback)
 - Prevents loss of training progress on interruption
 - Safe for container/Kubernetes deployments
 - Allows clean cluster node shutdown
+
+### Per-Sample Loss Tracking
+
+Track individual sample losses for debugging and curriculum learning:
+
+```python
+from app.training.training_enhancements import (
+    compute_per_sample_loss,
+    PerSampleLossTracker,
+)
+
+# Compute per-sample losses
+losses = compute_per_sample_loss(
+    policy_logits=model_policy,
+    policy_targets=target_policy,
+    value_pred=model_value,
+    value_targets=target_value,
+    policy_weight=1.0,
+)  # Returns tensor of shape (batch_size,)
+
+# Track across training
+tracker = PerSampleLossTracker(max_samples=10000)
+tracker.record_batch(batch_indices, losses, epoch=0)
+
+# Analyze results
+stats = tracker.get_statistics()
+hardest = tracker.get_hardest_samples(n=100)
+```
+
+**Use Cases:**
+
+- Identify consistently hard examples for focused training
+- Detect potential data quality issues (samples with very high loss)
+- Curriculum learning adjustments based on difficulty
+- Training stability monitoring
 
 ---
 
