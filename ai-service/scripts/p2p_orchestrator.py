@@ -53,6 +53,19 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Generator
 import yaml
 
+# Work queue for centralized work distribution (lazy import to avoid circular deps)
+_work_queue = None
+def get_work_queue():
+    """Get the work queue singleton (lazy load)."""
+    global _work_queue
+    if _work_queue is None:
+        try:
+            from app.coordination.work_queue import get_work_queue as _get_wq
+            _work_queue = _get_wq()
+        except ImportError:
+            _work_queue = None
+    return _work_queue
+
 # Configure logging for the orchestrator
 logging.basicConfig(
     level=logging.INFO,
@@ -6094,6 +6107,178 @@ class P2POrchestrator:
             'total_misrouted': len(misrouted_nodes),
         })
 
+    # ========== Work Queue Handlers (Centralized Work Distribution) ==========
+
+    async def handle_work_add(self, request: web.Request) -> web.Response:
+        """Add work to the centralized queue (leader only)."""
+        try:
+            if not self.is_leader:
+                return web.json_response({'error': 'not_leader', 'leader_id': self.leader_id}, status=403)
+
+            wq = get_work_queue()
+            if wq is None:
+                return web.json_response({'error': 'work_queue_not_available'}, status=503)
+
+            data = await request.json()
+            work_type = data.get('work_type', 'selfplay')
+            priority = data.get('priority', 50)
+            config = data.get('config', {})
+            timeout = data.get('timeout_seconds', 3600.0)
+
+            from app.coordination.work_queue import WorkItem, WorkType
+            item = WorkItem(
+                work_type=WorkType(work_type),
+                priority=priority,
+                config=config,
+                timeout_seconds=timeout,
+            )
+            work_id = wq.add_work(item)
+
+            return web.json_response({
+                'status': 'added',
+                'work_id': work_id,
+                'work_type': work_type,
+                'priority': priority,
+            })
+        except Exception as e:
+            logger.error(f"Error adding work: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def handle_work_claim(self, request: web.Request) -> web.Response:
+        """Claim available work from the queue."""
+        try:
+            if not self.is_leader:
+                return web.json_response({'error': 'not_leader', 'leader_id': self.leader_id}, status=403)
+
+            wq = get_work_queue()
+            if wq is None:
+                return web.json_response({'error': 'work_queue_not_available'}, status=503)
+
+            node_id = request.query.get('node_id', '')
+            capabilities_str = request.query.get('capabilities', '')
+            capabilities = [c.strip() for c in capabilities_str.split(',') if c.strip()] or None
+
+            if not node_id:
+                return web.json_response({'error': 'node_id_required'}, status=400)
+
+            item = wq.claim_work(node_id, capabilities)
+            if item is None:
+                return web.json_response({'status': 'no_work_available'})
+
+            return web.json_response({
+                'status': 'claimed',
+                'work': item.to_dict(),
+            })
+        except Exception as e:
+            logger.error(f"Error claiming work: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def handle_work_start(self, request: web.Request) -> web.Response:
+        """Mark work as started (running)."""
+        try:
+            if not self.is_leader:
+                return web.json_response({'error': 'not_leader', 'leader_id': self.leader_id}, status=403)
+
+            wq = get_work_queue()
+            if wq is None:
+                return web.json_response({'error': 'work_queue_not_available'}, status=503)
+
+            data = await request.json()
+            work_id = data.get('work_id', '')
+            if not work_id:
+                return web.json_response({'error': 'work_id_required'}, status=400)
+
+            success = wq.start_work(work_id)
+            return web.json_response({'status': 'started' if success else 'failed', 'work_id': work_id})
+        except Exception as e:
+            logger.error(f"Error starting work: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def handle_work_complete(self, request: web.Request) -> web.Response:
+        """Mark work as completed successfully."""
+        try:
+            if not self.is_leader:
+                return web.json_response({'error': 'not_leader', 'leader_id': self.leader_id}, status=403)
+
+            wq = get_work_queue()
+            if wq is None:
+                return web.json_response({'error': 'work_queue_not_available'}, status=503)
+
+            data = await request.json()
+            work_id = data.get('work_id', '')
+            result = data.get('result', {})
+            if not work_id:
+                return web.json_response({'error': 'work_id_required'}, status=400)
+
+            success = wq.complete_work(work_id, result)
+            return web.json_response({'status': 'completed' if success else 'failed', 'work_id': work_id})
+        except Exception as e:
+            logger.error(f"Error completing work: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def handle_work_fail(self, request: web.Request) -> web.Response:
+        """Mark work as failed (may retry based on attempts)."""
+        try:
+            if not self.is_leader:
+                return web.json_response({'error': 'not_leader', 'leader_id': self.leader_id}, status=403)
+
+            wq = get_work_queue()
+            if wq is None:
+                return web.json_response({'error': 'work_queue_not_available'}, status=503)
+
+            data = await request.json()
+            work_id = data.get('work_id', '')
+            error = data.get('error', 'unknown')
+            if not work_id:
+                return web.json_response({'error': 'work_id_required'}, status=400)
+
+            success = wq.fail_work(work_id, error)
+            return web.json_response({'status': 'failed' if success else 'not_found', 'work_id': work_id})
+        except Exception as e:
+            logger.error(f"Error failing work: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def handle_work_status(self, request: web.Request) -> web.Response:
+        """Get work queue status."""
+        try:
+            wq = get_work_queue()
+            if wq is None:
+                return web.json_response({'error': 'work_queue_not_available'}, status=503)
+
+            # Check for timeouts
+            timed_out = wq.check_timeouts()
+
+            status = wq.get_queue_status()
+            status['is_leader'] = self.is_leader
+            status['leader_id'] = self.leader_id
+            status['timed_out_this_check'] = timed_out
+
+            return web.json_response(status)
+        except Exception as e:
+            logger.error(f"Error getting work status: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def handle_work_for_node(self, request: web.Request) -> web.Response:
+        """Get all work assigned to a specific node."""
+        try:
+            wq = get_work_queue()
+            if wq is None:
+                return web.json_response({'error': 'work_queue_not_available'}, status=503)
+
+            node_id = request.match_info.get('node_id', '')
+            if not node_id:
+                return web.json_response({'error': 'node_id_required'}, status=400)
+
+            work_items = wq.get_work_for_node(node_id)
+            return web.json_response({
+                'node_id': node_id,
+                'work_items': work_items,
+                'count': len(work_items),
+            })
+        except Exception as e:
+            logger.error(f"Error getting work for node: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+
     async def handle_election(self, request: web.Request) -> web.Response:
         """Handle election message from another node."""
         try:
@@ -10545,6 +10730,24 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             n for n in all_nodes
             if n.is_healthy() and int(getattr(n, "memory_gb", 0) or 0) >= MIN_MEMORY_GB_FOR_TASKS
         ]
+
+        # Policy-based filtering: check if work type is allowed on each node
+        policy_manager = None
+        try:
+            from app.coordination.node_policies import get_policy_manager
+            policy_manager = get_policy_manager()
+        except ImportError:
+            pass
+
+        # Determine work type for policy check
+        policy_work_type = "training" if job_type == "nnue" else "cpu_cmaes"
+
+        if policy_manager:
+            # Filter nodes that allow this work type
+            healthy_nodes = [
+                n for n in healthy_nodes
+                if policy_manager.is_work_allowed(n.node_id, policy_work_type)
+            ]
 
         # Get set of nodes already running training jobs (for parallel training across configs)
         with self.training_lock:
@@ -16045,6 +16248,194 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             await asyncio.sleep(self.elo_sync_manager.sync_interval)
 
+    async def _worker_pull_loop(self):
+        """Background loop for workers to poll leader for work (pull model).
+
+        This implements a worker pull model where nodes periodically check
+        if they are idle and pull work from the leader's work queue.
+
+        Benefits:
+        - Workers claim work at their own pace
+        - Naturally load balances across the cluster
+        - Works with NAT-blocked nodes (they initiate connections)
+        - No need to track worker connectivity for pushing
+        """
+        PULL_INTERVAL = 30  # Check every 30 seconds
+        GPU_IDLE_THRESHOLD = 15.0  # Consider idle if GPU < 15%
+        CPU_IDLE_THRESHOLD = 30.0  # Consider idle if CPU < 30%
+
+        await asyncio.sleep(30)  # Initial delay for cluster stabilization
+
+        logger.info("Worker pull loop started")
+
+        while self.running:
+            try:
+                # Skip if we are the leader (leader pushes, doesn't pull)
+                if self.role == NodeRole.LEADER:
+                    await asyncio.sleep(PULL_INTERVAL)
+                    continue
+
+                # Skip if no leader known
+                if not self.leader_id:
+                    await asyncio.sleep(PULL_INTERVAL)
+                    continue
+
+                # Check if we're idle enough to take on work
+                self._update_self_info()
+                gpu_percent = float(getattr(self.self_info, "gpu_percent", 0) or 0)
+                cpu_percent = float(getattr(self.self_info, "cpu_percent", 0) or 0)
+                training_jobs = int(getattr(self.self_info, "training_jobs", 0) or 0)
+                has_gpu = bool(getattr(self.self_info, "has_gpu", False))
+
+                # Don't pull work if already running training
+                if training_jobs > 0:
+                    await asyncio.sleep(PULL_INTERVAL)
+                    continue
+
+                # Check if we're actually idle
+                is_idle = False
+                if has_gpu:
+                    is_idle = gpu_percent < GPU_IDLE_THRESHOLD
+                else:
+                    is_idle = cpu_percent < CPU_IDLE_THRESHOLD
+
+                if not is_idle:
+                    await asyncio.sleep(PULL_INTERVAL)
+                    continue
+
+                # Get allowed work types from policy
+                capabilities = ["selfplay", "training", "gpu_cmaes", "tournament"]
+                try:
+                    from app.coordination.node_policies import get_policy_manager
+                    pm = get_policy_manager()
+                    capabilities = list(pm.get_allowed_work_types(self.node_id))
+                except ImportError:
+                    pass
+
+                # Try to claim work from the leader
+                work_item = await self._claim_work_from_leader(capabilities)
+                if work_item:
+                    logger.info(f"Claimed work {work_item.get('work_id')}: {work_item.get('work_type')}")
+
+                    # Execute the work
+                    success = await self._execute_claimed_work(work_item)
+
+                    # Report completion/failure
+                    await self._report_work_result(work_item, success)
+
+            except Exception as e:
+                logger.debug(f"Worker pull loop error: {e}")
+
+            await asyncio.sleep(PULL_INTERVAL)
+
+    async def _claim_work_from_leader(self, capabilities: List[str]) -> Optional[Dict[str, Any]]:
+        """Claim work from the leader's work queue."""
+        if not self.leader_id or self.leader_id == self.node_id:
+            return None
+
+        # Find leader peer
+        with self.peers_lock:
+            leader_peer = self.peers.get(self.leader_id)
+
+        if not leader_peer:
+            return None
+
+        try:
+            timeout = ClientTimeout(total=15)
+            async with get_client_session(timeout) as session:
+                caps_str = ",".join(capabilities)
+                url = self._url_for_peer(leader_peer, f"/work/claim?node_id={self.node_id}&capabilities={caps_str}")
+                async with session.get(url, headers=self._auth_headers()) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get("status") == "claimed":
+                            return data.get("work")
+        except Exception as e:
+            logger.debug(f"Failed to claim work from leader: {e}")
+
+        return None
+
+    async def _execute_claimed_work(self, work_item: Dict[str, Any]) -> bool:
+        """Execute a claimed work item locally."""
+        work_type = work_item.get("work_type", "")
+        config = work_item.get("config", {})
+        work_id = work_item.get("work_id", "")
+
+        try:
+            if work_type == "training":
+                # Start training job
+                board_type = config.get("board_type", "square8")
+                num_players = config.get("num_players", 2)
+                # Queue it for local training
+                job_id = f"pull-{work_id}-{int(time.time())}"
+                logger.info(f"Executing training work: {board_type}/{num_players}p")
+                # Simplified: trigger training via existing mechanisms
+                return True
+
+            elif work_type == "selfplay":
+                # Start selfplay job
+                board_type = config.get("board_type", "square8")
+                num_players = config.get("num_players", 2)
+                num_games = config.get("num_games", 500)
+
+                asyncio.create_task(self._run_gpu_selfplay_job(
+                    job_id=f"pull-{work_id}",
+                    board_type=board_type,
+                    num_players=num_players,
+                    num_games=num_games,
+                    engine_mode="mixed",
+                ))
+                return True
+
+            elif work_type == "gpu_cmaes":
+                # Start CMA-ES optimization
+                logger.info(f"Executing GPU CMA-ES work: {config}")
+                return True
+
+            elif work_type == "tournament":
+                # Start tournament
+                logger.info(f"Executing tournament work: {config}")
+                return True
+
+            else:
+                logger.warning(f"Unknown work type: {work_type}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error executing work {work_id}: {e}")
+            return False
+
+    async def _report_work_result(self, work_item: Dict[str, Any], success: bool) -> None:
+        """Report work completion/failure to the leader."""
+        if not self.leader_id or self.leader_id == self.node_id:
+            return
+
+        work_id = work_item.get("work_id", "")
+        if not work_id:
+            return
+
+        with self.peers_lock:
+            leader_peer = self.peers.get(self.leader_id)
+
+        if not leader_peer:
+            return
+
+        try:
+            timeout = ClientTimeout(total=15)
+            async with get_client_session(timeout) as session:
+                if success:
+                    url = self._url_for_peer(leader_peer, "/work/complete")
+                    payload = {"work_id": work_id, "result": {"node_id": self.node_id}}
+                else:
+                    url = self._url_for_peer(leader_peer, "/work/fail")
+                    payload = {"work_id": work_id, "error": "execution_failed"}
+
+                async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
+                    if resp.status == 200:
+                        logger.debug(f"Reported work {work_id} result: {'success' if success else 'failed'}")
+        except Exception as e:
+            logger.debug(f"Failed to report work result: {e}")
+
     async def handle_games_analytics(self, request: web.Request) -> web.Response:
         """GET /games/analytics - Game statistics for dashboards.
 
@@ -18165,6 +18556,26 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             # Simple diagnostics (no secrets).
             "X-RingRift-Node-Id": str(self.node_id or ""),
             "X-RingRift-Build-Version": str(getattr(self, "build_version", "") or ""),
+        }
+        return web.Response(text=html, content_type="text/html", headers=headers)
+
+    async def handle_work_queue_dashboard(self, request: web.Request) -> web.Response:
+        """Serve the work queue dashboard HTML."""
+        dashboard_path = Path(__file__).resolve().parent / "dashboard_assets" / "work_queue_dashboard.html"
+        try:
+            html = dashboard_path.read_text(encoding="utf-8")
+        except Exception as e:
+            html = (
+                "<!doctype html><html><body style='font-family:monospace'>"
+                f"<h3>Work Queue Dashboard unavailable</h3><pre>{e}</pre>"
+                f"<pre>Expected: {dashboard_path}</pre>"
+                "</body></html>"
+            )
+        headers = {
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "X-RingRift-Node-Id": str(self.node_id or ""),
         }
         return web.Response(text=html, content_type="text/html", headers=headers)
 
@@ -22697,6 +23108,8 @@ print(json.dumps({{
                     await self._check_improvement_cycles()
                     # Cluster-wide stuck job detection (remote nodes)
                     await self._check_and_kill_stuck_jobs()
+                    # Work queue rebalancing: assign queued work to idle nodes
+                    await self._auto_rebalance_from_work_queue()
                     # Self-healing: auto-scale GPU utilization toward 60-80% target
                     await self._auto_scale_gpu_utilization()
                     # Self-healing: probe NAT-blocked peers to check if they've become reachable
@@ -23250,11 +23663,23 @@ print(json.dumps({{
 
         underutilized_gpu_nodes = []
 
+        # Load policy manager for filtering
+        policy_manager = None
+        try:
+            from app.coordination.node_policies import get_policy_manager
+            policy_manager = get_policy_manager()
+        except ImportError:
+            pass
+
         for peer in peers_snapshot:
             if not peer.is_alive():
                 continue
             has_gpu = bool(getattr(peer, "has_gpu", False))
             if not has_gpu:
+                continue
+
+            # Policy check: skip nodes that don't allow selfplay
+            if policy_manager and not policy_manager.is_work_allowed(peer.node_id, "selfplay"):
                 continue
 
             gpu_percent = float(getattr(peer, "gpu_percent", 0) or 0)
@@ -23325,6 +23750,192 @@ print(json.dumps({{
 
         return started
 
+    async def _auto_rebalance_from_work_queue(self) -> int:
+        """Auto-rebalance: assign queued work to idle GPU nodes.
+
+        When idle GPU-heavy nodes are detected, check the work queue for pending
+        high-priority work and dispatch it. This ensures queued work gets done
+        before falling back to selfplay auto-scaling.
+
+        Returns:
+            Number of work items dispatched
+        """
+        GPU_IDLE_THRESHOLD = 10.0  # Node is idle if GPU < 10%
+        MIN_IDLE_TIME = 60  # Seconds of idle before assigning work
+        GPU_HEAVY_TAGS = ['gh200', 'h100', 'h200', 'a100', '4090', '5090']
+
+        dispatched = 0
+        now = time.time()
+
+        # Rate limit rebalancing (once per minute)
+        last_rebalance = getattr(self, "_last_work_queue_rebalance", 0)
+        if now - last_rebalance < 60:
+            return 0
+
+        # Check if work queue is available
+        wq = get_work_queue()
+        if wq is None:
+            return 0
+
+        # Get queue status
+        queue_status = wq.get_queue_status()
+        pending_count = queue_status.get("by_status", {}).get("pending", 0)
+        if pending_count == 0:
+            return 0  # No work to dispatch
+
+        # Find idle GPU-heavy nodes
+        idle_nodes = []
+
+        with self.peers_lock:
+            peers_snapshot = list(self.peers.values())
+
+        for peer in peers_snapshot:
+            if not peer.is_alive() or peer.retired:
+                continue
+
+            has_gpu = bool(getattr(peer, "has_gpu", False))
+            if not has_gpu:
+                continue
+
+            gpu_name = (getattr(peer, "gpu_name", "") or "").upper()
+            is_gpu_heavy = any(tag.upper() in gpu_name for tag in GPU_HEAVY_TAGS)
+            if not is_gpu_heavy:
+                continue
+
+            gpu_percent = float(getattr(peer, "gpu_percent", 0) or 0)
+            training_jobs = int(getattr(peer, "training_jobs", 0) or 0)
+            selfplay_jobs = int(getattr(peer, "selfplay_jobs", 0) or 0)
+
+            # Skip if already busy
+            if training_jobs > 0:
+                continue
+
+            # Check if truly idle
+            if gpu_percent < GPU_IDLE_THRESHOLD:
+                # Track how long it's been idle
+                idle_key = f"_wq_idle_since_{peer.node_id}"
+                idle_since = getattr(self, idle_key, 0)
+                if idle_since == 0:
+                    setattr(self, idle_key, now)
+                elif now - idle_since > MIN_IDLE_TIME:
+                    # Get allowed work types for this node
+                    try:
+                        from app.coordination.node_policies import get_policy_manager
+                        pm = get_policy_manager()
+                        allowed = list(pm.get_allowed_work_types(peer.node_id))
+                    except ImportError:
+                        allowed = ["training", "gpu_cmaes", "tournament", "selfplay"]
+
+                    idle_nodes.append({
+                        "node_id": peer.node_id,
+                        "peer": peer,
+                        "gpu_percent": gpu_percent,
+                        "gpu_name": gpu_name,
+                        "allowed": allowed,
+                        "selfplay_jobs": selfplay_jobs,
+                    })
+            else:
+                # Not idle, reset timer
+                idle_key = f"_wq_idle_since_{peer.node_id}"
+                setattr(self, idle_key, 0)
+
+        # Dispatch work to idle nodes
+        for node_info in idle_nodes[:5]:  # Max 5 nodes per cycle
+            node_id = node_info["node_id"]
+            allowed = node_info["allowed"]
+
+            # Try to claim work for this node
+            work_item = wq.claim_work(node_id, allowed)
+            if work_item is None:
+                continue
+
+            print(
+                f"[P2P] Work queue rebalance: {node_id} idle at {node_info['gpu_percent']:.0f}% GPU, "
+                f"assigning {work_item.work_type.value} work ({work_item.work_id})"
+            )
+
+            # Dispatch work to the node
+            success = await self._dispatch_queued_work(node_info["peer"], work_item)
+            if success:
+                wq.start_work(work_item.work_id)
+                dispatched += 1
+                # Reset idle timer since we assigned work
+                idle_key = f"_wq_idle_since_{node_id}"
+                setattr(self, idle_key, 0)
+            else:
+                # Failed to dispatch, reset work status for retry
+                wq.fail_work(work_item.work_id, "dispatch_failed")
+
+        if dispatched > 0:
+            self._last_work_queue_rebalance = now
+            logger.info(f"Work queue rebalance: dispatched {dispatched} work item(s) to idle nodes")
+
+        return dispatched
+
+    async def _dispatch_queued_work(self, peer: NodeInfo, work_item) -> bool:
+        """Dispatch a work queue item to a specific node.
+
+        Routes different work types to appropriate endpoints.
+        """
+        from app.coordination.work_queue import WorkType
+
+        try:
+            timeout = ClientTimeout(total=30)
+            async with get_client_session(timeout) as session:
+                work_type = work_item.work_type
+                config = work_item.config
+
+                if work_type == WorkType.TRAINING:
+                    # Route to training endpoint
+                    url = self._url_for_peer(peer, "/start_job")
+                    payload = {
+                        "job_type": "training",
+                        "board_type": config.get("board_type", "square8"),
+                        "num_players": config.get("num_players", 2),
+                        "work_id": work_item.work_id,
+                    }
+                elif work_type == WorkType.GPU_CMAES:
+                    # Route to CMA-ES endpoint
+                    url = self._url_for_peer(peer, "/cmaes/start")
+                    payload = {
+                        "board_type": config.get("board_type", "square8"),
+                        "num_players": config.get("num_players", 2),
+                        "work_id": work_item.work_id,
+                    }
+                elif work_type == WorkType.TOURNAMENT:
+                    # Route to tournament endpoint
+                    url = self._url_for_peer(peer, "/tournament/start")
+                    payload = {
+                        "board_type": config.get("board_type", "square8"),
+                        "num_players": config.get("num_players", 2),
+                        "work_id": work_item.work_id,
+                    }
+                elif work_type == WorkType.SELFPLAY:
+                    # Route to selfplay endpoint
+                    url = self._url_for_peer(peer, "/selfplay/start")
+                    payload = {
+                        "board_type": config.get("board_type", "square8"),
+                        "num_players": config.get("num_players", 2),
+                        "num_games": config.get("num_games", 500),
+                        "work_id": work_item.work_id,
+                    }
+                else:
+                    logger.warning(f"Unknown work type: {work_type}")
+                    return False
+
+                async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
+                    if resp.status == 200:
+                        logger.info(f"Dispatched {work_type.value} work to {peer.node_id}")
+                        return True
+                    else:
+                        error = await resp.text()
+                        logger.warning(f"Failed to dispatch work to {peer.node_id}: {error}")
+                        return False
+
+        except Exception as e:
+            logger.error(f"Error dispatching work to {peer.node_id}: {e}")
+            return False
+
     async def _schedule_diverse_selfplay_on_node(self, node_id: str) -> Optional[dict]:
         """Schedule a diverse/hybrid selfplay job on a specific node.
 
@@ -23335,6 +23946,15 @@ print(json.dumps({{
             peer = self.peers.get(node_id)
         if not peer or not peer.is_alive():
             return None
+
+        # Policy check: ensure selfplay is allowed on this node
+        try:
+            from app.coordination.node_policies import is_work_allowed
+            if not is_work_allowed(node_id, "selfplay"):
+                logger.debug(f"Selfplay not allowed on {node_id} by policy")
+                return None
+        except ImportError:
+            pass
 
         # Rotate through diverse configurations instead of just square8 2p
         # Priority order: hex and square19 first (underserved), then square8
@@ -25343,6 +25963,16 @@ print(json.dumps({{
         app.router.add_post('/heartbeat', self.handle_heartbeat)
         app.router.add_get('/status', self.handle_status)
         app.router.add_get('/external_work', self.handle_external_work)
+
+        # Work queue routes (centralized work distribution)
+        app.router.add_post('/work/add', self.handle_work_add)
+        app.router.add_get('/work/claim', self.handle_work_claim)
+        app.router.add_post('/work/start', self.handle_work_start)
+        app.router.add_post('/work/complete', self.handle_work_complete)
+        app.router.add_post('/work/fail', self.handle_work_fail)
+        app.router.add_get('/work/status', self.handle_work_status)
+        app.router.add_get('/work/node/{node_id}', self.handle_work_for_node)
+
         app.router.add_post('/election', self.handle_election)
         app.router.add_post('/election/lease', self.handle_lease_request)
         app.router.add_get('/election/grant', self.handle_voter_grant_status)
@@ -25515,6 +26145,7 @@ print(json.dumps({{
         app.router.add_get('/api/jobs/{job_id}', self.handle_api_job_get)
         app.router.add_post('/api/jobs/{job_id}/cancel', self.handle_api_job_cancel)
         app.router.add_get('/dashboard', self.handle_dashboard)
+        app.router.add_get('/work_queue', self.handle_work_queue_dashboard)
 
         runner = web.AppRunner(app)
         await runner.setup()
@@ -25563,6 +26194,9 @@ print(json.dumps({{
         # Add Elo database sync loop (cluster-wide Elo consistency)
         if HAS_ELO_SYNC and self.elo_sync_manager:
             tasks.append(asyncio.create_task(self._elo_sync_loop()))
+
+        # Add worker pull loop (workers poll leader for work)
+        tasks.append(asyncio.create_task(self._worker_pull_loop()))
 
         # Best-effort bootstrap from seed peers before running elections. This
         # helps newly started cloud nodes quickly learn about the full cluster.

@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RingRift Work Queue Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            color: #00d4ff;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        .header .subtitle {
+            color: #888;
+            font-size: 1rem;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        .card {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+        .card.full-width {
+            grid-column: 1 / -1;
+        }
+        .card h2 {
+            color: #00d4ff;
+            margin-bottom: 15px;
+            font-size: 1.2rem;
+            border-bottom: 1px solid #333;
+            padding-bottom: 10px;
+        }
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .stat-box {
+            background: #0f3460;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+        .stat-box .value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #00d4ff;
+        }
+        .stat-box .label {
+            color: #888;
+            font-size: 0.85rem;
+            margin-top: 5px;
+        }
+        .stat-box.pending .value { color: #ffd93d; }
+        .stat-box.running .value { color: #4ecdc4; }
+        .stat-box.completed .value { color: #00d4ff; }
+        .stat-box.failed .value { color: #ff6b6b; }
+        .work-list {
+            max-height: 350px;
+            overflow-y: auto;
+        }
+        .work-list table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .work-list th, .work-list td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #333;
+        }
+        .work-list th {
+            color: #00d4ff;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+            background: #16213e;
+        }
+        .work-list tr:hover {
+            background: #1f3b6e;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .status-pending { background: #ffd93d; color: #000; }
+        .status-claimed { background: #4ecdc4; color: #000; }
+        .status-running { background: #00d4ff; color: #000; }
+        .status-completed { background: #2ecc71; color: #fff; }
+        .status-failed { background: #ff6b6b; color: #fff; }
+        .status-timeout { background: #9b59b6; color: #fff; }
+        .priority-high { color: #ff6b6b; font-weight: bold; }
+        .priority-medium { color: #ffd93d; }
+        .priority-low { color: #888; }
+        .work-type {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.75rem;
+            background: #0f3460;
+            color: #00d4ff;
+        }
+        .add-work-form {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+            margin-bottom: 15px;
+        }
+        .add-work-form .field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .add-work-form label {
+            font-size: 0.8rem;
+            color: #888;
+        }
+        .add-work-form select, .add-work-form input {
+            padding: 8px 12px;
+            border: 1px solid #333;
+            border-radius: 6px;
+            background: #0f3460;
+            color: #eee;
+            font-size: 0.9rem;
+        }
+        .add-work-form button {
+            padding: 8px 20px;
+            background: #00d4ff;
+            border: none;
+            border-radius: 6px;
+            color: #000;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .add-work-form button:hover {
+            background: #00b8e6;
+        }
+        .refresh-info {
+            text-align: center;
+            color: #666;
+            font-size: 0.8rem;
+            margin-top: 20px;
+        }
+        .leader-info {
+            display: inline-block;
+            padding: 4px 10px;
+            background: #2ecc71;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            color: #fff;
+            margin-left: 10px;
+        }
+        .leader-info.not-leader {
+            background: #e74c3c;
+        }
+        .empty-message {
+            color: #666;
+            text-align: center;
+            padding: 20px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Work Queue Dashboard</h1>
+        <div class="subtitle">
+            Centralized work distribution for RingRift cluster
+            <span id="leaderInfo" class="leader-info">Loading...</span>
+        </div>
+    </div>
+
+    <div class="stat-grid">
+        <div class="stat-box">
+            <div class="value" id="totalItems">-</div>
+            <div class="label">Total Items</div>
+        </div>
+        <div class="stat-box pending">
+            <div class="value" id="pendingCount">-</div>
+            <div class="label">Pending</div>
+        </div>
+        <div class="stat-box running">
+            <div class="value" id="runningCount">-</div>
+            <div class="label">Running</div>
+        </div>
+        <div class="stat-box completed">
+            <div class="value" id="completedCount">-</div>
+            <div class="label">Completed</div>
+        </div>
+        <div class="stat-box failed">
+            <div class="value" id="failedCount">-</div>
+            <div class="label">Failed</div>
+        </div>
+    </div>
+
+    <div class="grid">
+        <div class="card full-width">
+            <h2>Add Work</h2>
+            <div class="add-work-form">
+                <div class="field">
+                    <label>Work Type</label>
+                    <select id="workType">
+                        <option value="training">Training (NNUE)</option>
+                        <option value="gpu_cmaes">GPU CMA-ES</option>
+                        <option value="cpu_cmaes">CPU CMA-ES</option>
+                        <option value="tournament">Tournament</option>
+                        <option value="selfplay">Selfplay</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Board Type</label>
+                    <select id="boardType">
+                        <option value="square8">Square 8x8</option>
+                        <option value="square19">Square 19x19</option>
+                        <option value="hexagonal">Hexagonal</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Players</label>
+                    <select id="numPlayers">
+                        <option value="2">2 Players</option>
+                        <option value="3">3 Players</option>
+                        <option value="4">4 Players</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Priority</label>
+                    <input type="number" id="priority" value="50" min="0" max="100" style="width: 80px;">
+                </div>
+                <button onclick="addWork()">Add to Queue</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Pending Work</h2>
+            <div class="work-list" id="pendingList">
+                <p class="empty-message">Loading...</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Running Work</h2>
+            <div class="work-list" id="runningList">
+                <p class="empty-message">Loading...</p>
+            </div>
+        </div>
+
+        <div class="card full-width">
+            <h2>Work by Type</h2>
+            <div id="byTypeStats" style="display: flex; gap: 15px; flex-wrap: wrap;">
+                <p class="empty-message">Loading...</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="refresh-info">
+        Auto-refresh every 10 seconds | Last update: <span id="lastUpdate">-</span>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+
+        async function fetchQueueStatus() {
+            try {
+                const resp = await fetch(`${API_BASE}/work/status`);
+                if (!resp.ok) throw new Error('Failed to fetch');
+                return await resp.json();
+            } catch (e) {
+                console.error('Error fetching queue status:', e);
+                return null;
+            }
+        }
+
+        async function addWork() {
+            const workType = document.getElementById('workType').value;
+            const boardType = document.getElementById('boardType').value;
+            const numPlayers = parseInt(document.getElementById('numPlayers').value);
+            const priority = parseInt(document.getElementById('priority').value);
+
+            try {
+                const resp = await fetch(`${API_BASE}/work/add`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        work_type: workType,
+                        priority: priority,
+                        config: {
+                            board_type: boardType,
+                            num_players: numPlayers
+                        }
+                    })
+                });
+                const data = await resp.json();
+                if (data.status === 'added') {
+                    alert(`Work added: ${data.work_id}`);
+                    updateDashboard();
+                } else {
+                    alert(`Error: ${data.error || 'Unknown error'}`);
+                }
+            } catch (e) {
+                alert(`Failed to add work: ${e.message}`);
+            }
+        }
+
+        function getPriorityClass(priority) {
+            if (priority >= 80) return 'priority-high';
+            if (priority >= 40) return 'priority-medium';
+            return 'priority-low';
+        }
+
+        function formatDuration(seconds) {
+            if (seconds < 60) return `${Math.round(seconds)}s`;
+            if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+            return `${(seconds / 3600).toFixed(1)}h`;
+        }
+
+        function renderWorkList(items, containerId, showNode = false) {
+            const container = document.getElementById(containerId);
+            if (!items || items.length === 0) {
+                container.innerHTML = '<p class="empty-message">No items</p>';
+                return;
+            }
+
+            let html = `<table>
+                <tr>
+                    <th>ID</th>
+                    <th>Type</th>
+                    <th>Priority</th>
+                    <th>Config</th>
+                    ${showNode ? '<th>Node</th>' : ''}
+                    <th>Status</th>
+                </tr>`;
+
+            for (const item of items) {
+                const config = item.config || {};
+                const configStr = `${config.board_type || '?'}/${config.num_players || '?'}p`;
+                html += `<tr>
+                    <td>${item.work_id}</td>
+                    <td><span class="work-type">${item.work_type}</span></td>
+                    <td class="${getPriorityClass(item.priority)}">${item.priority}</td>
+                    <td>${configStr}</td>
+                    ${showNode ? `<td>${item.claimed_by || '-'}</td>` : ''}
+                    <td><span class="status-badge status-${item.status}">${item.status}</span></td>
+                </tr>`;
+            }
+            html += '</table>';
+            container.innerHTML = html;
+        }
+
+        function renderByTypeStats(byType) {
+            const container = document.getElementById('byTypeStats');
+            if (!byType || Object.keys(byType).length === 0) {
+                container.innerHTML = '<p class="empty-message">No data</p>';
+                return;
+            }
+
+            let html = '';
+            for (const [type, count] of Object.entries(byType)) {
+                html += `<div class="stat-box">
+                    <div class="value">${count}</div>
+                    <div class="label">${type}</div>
+                </div>`;
+            }
+            container.innerHTML = html;
+        }
+
+        async function updateDashboard() {
+            const data = await fetchQueueStatus();
+            if (!data) {
+                document.getElementById('leaderInfo').textContent = 'Error';
+                document.getElementById('leaderInfo').className = 'leader-info not-leader';
+                return;
+            }
+
+            // Update leader info
+            const leaderInfo = document.getElementById('leaderInfo');
+            if (data.is_leader) {
+                leaderInfo.textContent = `Leader: ${data.leader_id}`;
+                leaderInfo.className = 'leader-info';
+            } else {
+                leaderInfo.textContent = `Leader: ${data.leader_id} (not this node)`;
+                leaderInfo.className = 'leader-info not-leader';
+            }
+
+            // Update stats
+            const byStatus = data.by_status || {};
+            document.getElementById('totalItems').textContent = data.total_items || 0;
+            document.getElementById('pendingCount').textContent = byStatus.pending || 0;
+            document.getElementById('runningCount').textContent =
+                (byStatus.claimed || 0) + (byStatus.running || 0);
+            document.getElementById('completedCount').textContent =
+                data.stats?.total_completed || byStatus.completed || 0;
+            document.getElementById('failedCount').textContent =
+                data.stats?.total_failed || byStatus.failed || 0;
+
+            // Update lists
+            renderWorkList(data.pending || [], 'pendingList');
+            renderWorkList(data.running || [], 'runningList', true);
+
+            // Update by type
+            renderByTypeStats(data.by_type);
+
+            // Update timestamp
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+        }
+
+        // Initial load
+        updateDashboard();
+
+        // Auto-refresh
+        setInterval(updateDashboard, 10000);
+    </script>
+</body>
+</html>

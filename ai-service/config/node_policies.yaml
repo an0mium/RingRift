@@ -1,0 +1,137 @@
+# RingRift Node Work Assignment Policies
+#
+# This file configures which work types are allowed on each node type.
+# Prevents misrouting (e.g., CPU-bound work on GPU-heavy nodes).
+#
+# Work types:
+#   - training: NNUE/model training (GPU-intensive)
+#   - gpu_cmaes: GPU-accelerated CMA-ES optimization
+#   - cpu_cmaes: CPU-based CMA-ES optimization
+#   - tournament: ELO tournaments (can be CPU or GPU)
+#   - gauntlet: Baseline gauntlets (CPU-intensive)
+#   - selfplay: Selfplay games (CPU for MCTS, light GPU for NN eval)
+#   - data_merge: Data aggregation/export (CPU + I/O)
+#
+# Priority: Higher number = prefer this work type
+
+# Default policy for nodes not matching any pattern
+default:
+  allowed: [training, gpu_cmaes, tournament, selfplay]
+  denied: []
+  priorities:
+    training: 100
+    gpu_cmaes: 90
+    tournament: 80
+    selfplay: 70
+
+# GPU-heavy nodes (GH200, H100, A100) - prioritize GPU work
+gpu_heavy:
+  patterns:
+    - 'lambda-gh200-*'
+    - 'lambda-h100*'
+    - 'lambda-*h100*'
+    - '*-gh200-*'
+    - '*-h100*'
+    - '*-a100*'
+  allowed:
+    - training
+    - gpu_cmaes
+    - tournament
+    - selfplay
+  denied:
+    - cpu_cmaes # Never run CPU CMA-ES on GPU-heavy nodes
+    - gauntlet # Gauntlets should run on CPU nodes
+    - data_merge # Data work should run on CPU nodes
+  priorities:
+    training: 100 # Highest priority
+    gpu_cmaes: 95
+    tournament: 80
+    selfplay: 60
+
+# GPU-medium nodes (A10, consumer GPUs)
+gpu_medium:
+  patterns:
+    - 'lambda-a10*'
+    - '*-3090*'
+    - '*-4080*'
+    - '*-4090*'
+  allowed:
+    - training
+    - gpu_cmaes
+    - tournament
+    - selfplay
+    - gauntlet # Can run gauntlets if needed
+  denied:
+    - cpu_cmaes # Still prefer CPU nodes for this
+  priorities:
+    training: 90
+    gpu_cmaes: 85
+    tournament: 80
+    gauntlet: 70
+    selfplay: 60
+
+# Apple Silicon (MPS) - limited GPU capabilities
+apple_silicon:
+  patterns:
+    - 'macbook-*'
+    - 'mac-*'
+    - 'mbp-*'
+  allowed:
+    - selfplay
+    - training # Small-batch training OK
+    - gauntlet
+    - cpu_cmaes
+  denied:
+    - gpu_cmaes # MPS doesn't work well with CMA-ES
+  priorities:
+    selfplay: 90
+    training: 80
+    gauntlet: 70
+    cpu_cmaes: 60
+
+# CPU-only nodes (AWS, Vast CPU instances)
+cpu_only:
+  patterns:
+    - 'aws-*'
+    - 'vast-cpu-*'
+    - '*-cpu-*'
+  allowed:
+    - cpu_cmaes
+    - selfplay
+    - gauntlet
+    - data_merge
+  denied:
+    - training # No GPU for training
+    - gpu_cmaes # No GPU
+    - tournament # Tournaments need GPU eval
+  priorities:
+    cpu_cmaes: 100 # Primary work for CPU nodes
+    gauntlet: 90
+    data_merge: 80
+    selfplay: 70
+
+# Vast.ai GPU instances
+vast_gpu:
+  patterns:
+    - 'vast-*'
+    - '192-*'
+  allowed:
+    - training
+    - gpu_cmaes
+    - selfplay
+    - tournament
+  denied:
+    - cpu_cmaes # Use Vast GPUs for GPU work
+    - gauntlet # Don't waste Vast GPU money on CPU work
+  priorities:
+    training: 100
+    gpu_cmaes: 95
+    tournament: 85
+    selfplay: 75
+
+# Override for specific nodes
+overrides:
+  # Example: Force specific node to only do training
+  # lambda-gh200-a:
+  #   allowed: [training]
+  #   denied: [cpu_cmaes, gauntlet, selfplay]
