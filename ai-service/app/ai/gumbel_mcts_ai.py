@@ -488,12 +488,25 @@ class GumbelMCTSAI(BaseAI):
         requests: List[Tuple[int, GameState, bool]],
         batch_values: List[float],
     ) -> None:
-        """Validate batch results against sequential evaluation (5% sample).
+        """Validate batch NN results against sequential evaluation (5% sample).
 
-        This helps catch divergence between batch and sequential neural network
-        evaluation to ensure GPU acceleration doesn't change game outcomes.
+        This validates that batching neural network calls produces identical results
+        to sequential calls. This catches:
+        - Numerical precision differences between batch and sequential inference
+        - Any bugs in batch aggregation logic
+
+        Note: Rules parity is maintained by construction since both paths use
+        the canonical rules engine (MutableGameState.from_immutable, make_move).
+        This validation focuses on NN evaluation consistency.
+
+        Args:
+            requests: List of (action_idx, game_state, needs_flip) tuples
+            batch_values: Values returned from batched NN evaluation
         """
         import random
+
+        if self.neural_net is None:
+            return
 
         sample_rate = 0.05  # Check 5% of batch
         for i, (action_idx, state, needs_flip) in enumerate(requests):
@@ -505,22 +518,55 @@ class GumbelMCTSAI(BaseAI):
             # Get batch result
             batch_value = batch_values[i] if i < len(batch_values) else 0.0
 
-            # Compute sequential result
+            # Compute sequential result using identical code path
             try:
                 seq_values, _ = self.neural_net.evaluate_batch([state])
                 seq_value = seq_values[0] if seq_values else 0.0
-            except Exception:
+            except Exception as e:
+                logger.debug(f"GumbelMCTSAI: Shadow validation NN call failed: {e}")
                 continue
 
-            # Check for divergence (> 1% relative difference)
-            if abs(seq_value) > 0.01:
-                divergence = abs(batch_value - seq_value) / abs(seq_value)
-                if divergence > 0.01:  # 1% tolerance
-                    self._shadow_divergence_count += 1
+            # Check for divergence using both absolute and relative thresholds
+            abs_diff = abs(batch_value - seq_value)
+
+            # For values near zero, use absolute threshold
+            # For larger values, use relative threshold
+            is_divergent = False
+            divergence_str = ""
+            if abs(seq_value) < 0.01:
+                # Near-zero values: use absolute threshold of 0.001
+                if abs_diff > 0.001:
+                    is_divergent = True
+                    divergence_str = f"abs_diff={abs_diff:.6f}"
+            else:
+                # Larger values: use 1% relative threshold
+                rel_diff = abs_diff / abs(seq_value)
+                if rel_diff > 0.01:
+                    is_divergent = True
+                    divergence_str = f"rel_diff={rel_diff:.1%}"
+
+            if is_divergent:
+                self._shadow_divergence_count += 1
+                logger.warning(
+                    f"GumbelMCTSAI: Batch/sequential NN divergence ({divergence_str}): "
+                    f"batch={batch_value:.6f}, seq={seq_value:.6f}, "
+                    f"action_idx={action_idx}, needs_flip={needs_flip}"
+                )
+
+                # Log detailed state info for debugging (first 3 divergences only)
+                if self._shadow_divergence_count <= 3:
                     logger.warning(
-                        f"GumbelMCTSAI: Batch/sequential divergence: "
-                        f"batch={batch_value:.4f}, seq={seq_value:.4f} ({divergence:.1%})"
+                        f"  State: player={state.current_player}, "
+                        f"status={state.game_status}, move_count={state.move_count}"
                     )
+
+        # Periodic stats logging
+        if self._shadow_total_checks > 0 and self._shadow_total_checks % 100 == 0:
+            rate = self._shadow_divergence_count / self._shadow_total_checks
+            logger.info(
+                f"GumbelMCTSAI: Shadow validation stats: "
+                f"{self._shadow_divergence_count}/{self._shadow_total_checks} divergences ({rate:.2%})"
+            )
 
     def _sequential_halving(
         self,
