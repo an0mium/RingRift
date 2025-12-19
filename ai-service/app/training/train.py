@@ -170,6 +170,18 @@ except ImportError:
     HAS_CIRCUIT_BREAKER = False
     HAS_EVENT_BUS = False
 
+# Regression detection for training quality monitoring (2025-12)
+try:
+    from app.training.regression_detector import (
+        get_regression_detector,
+        RegressionSeverity,
+    )
+    HAS_REGRESSION_DETECTOR = True
+except ImportError:
+    get_regression_detector = None
+    RegressionSeverity = None
+    HAS_REGRESSION_DETECTOR = False
+
 # Training anomaly detection and enhancements (2025-12)
 try:
     from app.training.training_enhancements import (
@@ -3415,6 +3427,42 @@ def train_model(
                         f"Overfitting detected: {overfitting_ratio*100:.1f}% divergence "
                         f"(train={avg_train_loss:.4f}, val={avg_val_loss:.4f})"
                     )
+
+            # Regression detection: check if validation loss has regressed (2025-12)
+            # Uses unified RegressionDetector for consistent detection across modules
+            if HAS_REGRESSION_DETECTOR and get_regression_detector is not None and epoch >= 2:
+                if not distributed or is_main_process():
+                    try:
+                        regression_detector = get_regression_detector(connect_event_bus=True)
+                        model_id = f"{config.board_type.value}_{num_players}p"
+
+                        # Set baseline on first check
+                        if epoch == 2:
+                            regression_detector.set_baseline(
+                                model_id=model_id,
+                                elo=best_val_loss * -1000,  # Convert loss to pseudo-Elo
+                            )
+
+                        # Check for regression (using inverted loss as pseudo-Elo)
+                        regression_event = regression_detector.check_regression(
+                            model_id=model_id,
+                            current_elo=avg_val_loss * -1000,
+                            games_played=epoch + 1,
+                        )
+
+                        if regression_event is not None:
+                            logger.warning(
+                                f"[RegressionDetector] {regression_event.severity.value.upper()} regression: "
+                                f"val_loss {avg_val_loss:.4f} vs best {best_val_loss:.4f} "
+                                f"({regression_event.reason})"
+                            )
+                            # Record in epoch record
+                            epoch_record_extra = {
+                                'regression_severity': regression_event.severity.value,
+                                'regression_consecutive': regression_event.consecutive_count,
+                            }
+                    except Exception as e:
+                        logger.debug(f"Regression detection error: {e}")
 
             # Record per-epoch losses for downstream analysis
             epochs_completed = epoch + 1
