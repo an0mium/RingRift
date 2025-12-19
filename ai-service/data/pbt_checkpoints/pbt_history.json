@@ -1,0 +1,282 @@
+[
+  {
+    "step": 100,
+    "timestamp": 1766103828.303956,
+    "replacements": [
+      {
+        "bottom_id": 3,
+        "top_id": 0,
+        "old_performance": 0.0,
+        "top_performance": 70.0658532527417,
+        "new_hyperparameters": {
+          "learning_rate": 4.7063832433239974e-5,
+          "weight_decay": 0.00670751379769501,
+          "batch_size": 89,
+          "value_loss_weight": 0.23979437214865185,
+          "policy_loss_weight": 0.45916046018189094,
+          "gradient_clip": 0.3842934987469358
+        }
+      }
+    ],
+    "rankings": [
+      {
+        "id": 0,
+        "perf": 70.0658532527417,
+        "hp": {
+          "learning_rate": 0.0003196857497797222,
+          "weight_decay": 0.0035660066528266175,
+          "batch_size": 51,
+          "value_loss_weight": 1.112421032843192,
+          "policy_loss_weight": 1.2851531000515504,
+          "gradient_clip": 0.33293396838416944
+        }
+      },
+      {
+        "id": 2,
+        "perf": 65.88483147940246,
+        "hp": {
+          "learning_rate": 6.432860673599525e-5,
+          "weight_decay": 0.00027791981846132666,
+          "batch_size": 367,
+          "value_loss_weight": 0.3993336058676864,
+          "policy_loss_weight": 0.778516120937091,
+          "gradient_clip": 0.34300869448165466
+        }
+      },
+      {
+        "id": 1,
+        "perf": 62.92475555055523,
+        "hp": {
+          "learning_rate": 0.008033388127128801,
+          "weight_decay": 0.004346803754145457,
+          "batch_size": 166,
+          "value_loss_weight": 0.8025546978613698,
+          "policy_loss_weight": 1.7569429692148564,
+          "gradient_clip": 5.433408338795087
+        }
+      },
+      {
+        "id": 3,
+        "perf": 0.0,
+        "hp": {
+          "learning_rate": 4.7063832433239974e-5,
+          "weight_decay": 0.00670751379769501,
+          "batch_size": 89,
+          "value_loss_weight": 0.23979437214865185,
+          "policy_loss_weight": 0.45916046018189094,
+          "gradient_clip": 0.3842934987469358
+        }
+      }
+    ]
+  },
+  {
+    "step": 200,
+    "timestamp": 1766103828.305084,
+    "replacements": [
+      {
+        "bottom_id": 3,
+        "top_id": 0,
+        "old_performance": 0.0,
+        "top_performance": 72.11075685965169,
+        "new_hyperparameters": {
+          "learning_rate": 0.000385391786906791,
+          "weight_decay": 0.0051919386570051336,
+          "batch_size": 33,
+          "value_loss_weight": 0.4311866649087165,
+          "policy_loss_weight": 1.516986702000289,
+          "gradient_clip": 0.1
+        }
+      }
+    ],
+    "rankings": [
+      {
+        "id": 0,
+        "perf": 72.11075685965169,
+        "hp": {
+          "learning_rate": 0.0003196857497797222,
+          "weight_decay": 0.0035660066528266175,
+          "batch_size": 51,
+          "value_loss_weight": 1.112421032843192,
+          "policy_loss_weight": 1.2851531000515504,
+          "gradient_clip": 0.33293396838416944
+        }
+      },
+      {
+        "id": 2,
+        "perf": 64.39408426792761,
+        "hp": {
+          "learning_rate": 6.432860673599525e-5,
+          "weight_decay": 0.00027791981846132666,
+          "batch_size": 367,
+          "value_loss_weight": 0.3993336058676864,
+          "policy_loss_weight": 0.778516120937091,
+          "gradient_clip": 0.34300869448165466
+        }
+      },
+      {
+        "id": 1,
+        "perf": 61.38798709426203,
+        "hp": {
+          "learning_rate": 0.008033388127128801,
+          "weight_decay": 0.004346803754145457,
+          "batch_size": 166,
+          "value_loss_weight": 0.8025546978613698,
+          "policy_loss_weight": 1.7569429692148564,
+          "gradient_clip": 5.433408338795087
+        }
+      },
+      {
+        "id": 3,
+        "perf": 0.0,
+        "hp": {
+          "learning_rate": 0.000385391786906791,
+          "weight_decay": 0.0051919386570051336,
+          "batch_size": 33,
+          "value_loss_weight": 0.4311866649087165,
+          "policy_loss_weight": 1.516986702000289,
+          "gradient_clip": 0.1
+        }
+      }
+    ]
+  },
+  {
+    "step": 300,
+    "timestamp": 1766103828.30612,
+    "replacements": [
+      {
+        "bottom_id": 1,
+        "top_id": 0,
+        "old_performance": 0.0,
+        "top_performance": 74.72791843498888,
+        "new_hyperparameters": {
+          "learning_rate": 9.256175872742142e-5,
+          "weight_decay": 0.00019306188896803367,
+          "batch_size": 51,
+          "value_loss_weight": 0.8930603305001571,
+          "policy_loss_weight": 1.1154358594678393,
+          "gradient_clip": 0.8768055990690711
+        }
+      }
+    ],
+    "rankings": [
+      {
+        "id": 0,
+        "perf": 74.72791843498888,
+        "hp": {
+          "learning_rate": 0.0003196857497797222,
+          "weight_decay": 0.0035660066528266175,
+          "batch_size": 51,
+          "value_loss_weight": 1.112421032843192,
+          "policy_loss_weight": 1.2851531000515504,
+          "gradient_clip": 0.33293396838416944
+        }
+      },
+      {
+        "id": 3,
+        "perf": 70.65089766230089,
+        "hp": {
+          "learning_rate": 0.000385391786906791,
+          "weight_decay": 0.0051919386570051336,
+          "batch_size": 33,
+          "value_loss_weight": 0.4311866649087165,
+          "policy_loss_weight": 1.516986702000289,
+          "gradient_clip": 0.1
+        }
+      },
+      {
+        "id": 2,
+        "perf": 65.36730699623482,
+        "hp": {
+          "learning_rate": 6.432860673599525e-5,
+          "weight_decay": 0.00027791981846132666,
+          "batch_size": 367,
+          "value_loss_weight": 0.3993336058676864,
+          "policy_loss_weight": 0.778516120937091,
+          "gradient_clip": 0.34300869448165466
+        }
+      },
+      {
+        "id": 1,
+        "perf": 0.0,
+        "hp": {
+          "learning_rate": 9.256175872742142e-5,
+          "weight_decay": 0.00019306188896803367,
+          "batch_size": 51,
+          "value_loss_weight": 0.8930603305001571,
+          "policy_loss_weight": 1.1154358594678393,
+          "gradient_clip": 0.8768055990690711
+        }
+      }
+    ]
+  },
+  {
+    "step": 400,
+    "timestamp": 1766103828.307266,
+    "replacements": [
+      {
+        "bottom_id": 2,
+        "top_id": 0,
+        "old_performance": 0.0,
+        "top_performance": 76.12603223319672,
+        "new_hyperparameters": {
+          "learning_rate": 3.497800335829863e-5,
+          "weight_decay": 1.5540143927903416e-6,
+          "batch_size": 32,
+          "value_loss_weight": 0.7740803322594874,
+          "policy_loss_weight": 1.2552871106422363,
+          "gradient_clip": 0.11556985673830217
+        }
+      }
+    ],
+    "rankings": [
+      {
+        "id": 0,
+        "perf": 76.12603223319672,
+        "hp": {
+          "learning_rate": 0.0003196857497797222,
+          "weight_decay": 0.0035660066528266175,
+          "batch_size": 51,
+          "value_loss_weight": 1.112421032843192,
+          "policy_loss_weight": 1.2851531000515504,
+          "gradient_clip": 0.33293396838416944
+        }
+      },
+      {
+        "id": 3,
+        "perf": 72.30070450972144,
+        "hp": {
+          "learning_rate": 0.000385391786906791,
+          "weight_decay": 0.0051919386570051336,
+          "batch_size": 33,
+          "value_loss_weight": 0.4311866649087165,
+          "policy_loss_weight": 1.516986702000289,
+          "gradient_clip": 0.1
+        }
+      },
+      {
+        "id": 1,
+        "perf": 71.81511317276693,
+        "hp": {
+          "learning_rate": 9.256175872742142e-5,
+          "weight_decay": 0.00019306188896803367,
+          "batch_size": 51,
+          "value_loss_weight": 0.8930603305001571,
+          "policy_loss_weight": 1.1154358594678393,
+          "gradient_clip": 0.8768055990690711
+        }
+      },
+      {
+        "id": 2,
+        "perf": 0.0,
+        "hp": {
+          "learning_rate": 3.497800335829863e-5,
+          "weight_decay": 1.5540143927903416e-6,
+          "batch_size": 32,
+          "value_loss_weight": 0.7740803322594874,
+          "policy_loss_weight": 1.2552871106422363,
+          "gradient_clip": 0.11556985673830217
+        }
+      }
+    ]
+  }
+]

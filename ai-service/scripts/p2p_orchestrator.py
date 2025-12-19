@@ -6145,6 +6145,7 @@ class P2POrchestrator:
             priority = data.get('priority', 50)
             config = data.get('config', {})
             timeout = data.get('timeout_seconds', 3600.0)
+            depends_on = data.get('depends_on', [])
 
             from app.coordination.work_queue import WorkItem, WorkType
             item = WorkItem(
@@ -6152,6 +6153,7 @@ class P2POrchestrator:
                 priority=priority,
                 config=config,
                 timeout_seconds=timeout,
+                depends_on=depends_on,
             )
             work_id = wq.add_work(item)
 
@@ -6212,12 +6214,14 @@ class P2POrchestrator:
                     priority = item_data.get('priority', 50)
                     config = item_data.get('config', {})
                     timeout = item_data.get('timeout_seconds', 3600.0)
+                    depends_on = item_data.get('depends_on', [])
 
                     item = WorkItem(
                         work_type=WorkType(work_type),
                         priority=priority,
                         config=config,
                         timeout_seconds=timeout,
+                        depends_on=depends_on,
                     )
                     work_id = wq.add_work(item)
                     work_ids.append(work_id)

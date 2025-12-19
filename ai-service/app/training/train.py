@@ -1554,6 +1554,8 @@ def train_model(
     data_path: Union[str, List[str]],
     save_path: str,
     early_stopping_patience: int = 10,
+    elo_early_stopping_patience: int = 10,
+    elo_min_improvement: float = 5.0,
     checkpoint_dir: str = 'checkpoints',
     checkpoint_interval: int = 5,
     save_all_epochs: bool = True,  # Save every epoch for Elo-based selection
@@ -1628,8 +1630,13 @@ def train_model(
         config: Training configuration
         data_path: Path(s) to training data (.npz file or list of files)
         save_path: Path to save the best model weights
-        early_stopping_patience: Number of epochs without improvement before
+        early_stopping_patience: Number of epochs without loss improvement before
             stopping (0 to disable early stopping)
+        elo_early_stopping_patience: Number of epochs without Elo improvement
+            before stopping (works in conjunction with loss patience when both
+            are tracked; 0 to disable Elo-based early stopping)
+        elo_min_improvement: Minimum Elo improvement (default 5.0) to reset
+            the Elo patience counter
         checkpoint_dir: Directory for saving periodic checkpoints
         checkpoint_interval: Save checkpoint every N epochs
         warmup_epochs: Number of epochs for LR warmup (0 to disable)
@@ -2269,12 +2276,14 @@ def train_model(
         optimizer, mode='min', factor=0.5, patience=2
     ) if epoch_scheduler is None else None
 
-    # Early stopping
+    # Early stopping (supports both loss-based and Elo-based criteria)
     early_stopper: Optional[EarlyStopping] = None
-    if early_stopping_patience > 0:
+    if early_stopping_patience > 0 or elo_early_stopping_patience > 0:
         early_stopper = EarlyStopping(
-            patience=early_stopping_patience,
+            patience=early_stopping_patience if early_stopping_patience > 0 else 999999,
             min_delta=0.0001,
+            elo_patience=elo_early_stopping_patience if elo_early_stopping_patience > 0 else None,
+            elo_min_improvement=elo_min_improvement,
         )
 
     # Track starting epoch for resume
@@ -2657,9 +2666,12 @@ def train_model(
                 f"Distributed training with {get_world_size()} processes"
             )
         if early_stopper is not None:
+            elo_info = ""
+            if elo_early_stopping_patience > 0:
+                elo_info = f", Elo patience: {elo_early_stopping_patience} (min improvement: {elo_min_improvement})"
             logger.info(
-                f"Early stopping enabled with patience: "
-                f"{early_stopping_patience}"
+                f"Early stopping enabled with loss patience: "
+                f"{early_stopping_patience}{elo_info}"
             )
         if warmup_epochs > 0:
             logger.info(f"LR warmup enabled for {warmup_epochs} epochs")
@@ -3363,12 +3375,24 @@ def train_model(
                 break
 
             if early_stopper is not None:
-                should_stop = early_stopper(avg_val_loss, model_to_save)
+                # Get current Elo from enhancements manager if available
+                current_elo = None
+                if enhancements_manager is not None:
+                    current_elo = enhancements_manager.get_current_elo()
+
+                # Use should_stop() with Elo support instead of __call__
+                should_stop = early_stopper.should_stop(
+                    val_loss=avg_val_loss,
+                    current_elo=current_elo,
+                    model=model_to_save,
+                    epoch=epoch,
+                )
                 if should_stop:
                     if not distributed or is_main_process():
+                        elo_info = f", best Elo: {early_stopper.best_elo:.1f}" if early_stopper.best_elo > float('-inf') else ""
                         logger.info(
                             f"Early stopping triggered at epoch {epoch+1} "
-                            f"(best loss: {early_stopper.best_loss:.4f})"
+                            f"(best loss: {early_stopper.best_loss:.4f}{elo_info})"
                         )
                         # Restore best weights
                         early_stopper.restore_best_weights(model_to_save)

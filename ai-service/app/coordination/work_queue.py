@@ -166,6 +166,9 @@ class WorkItem:
     result: Dict[str, Any] = field(default_factory=dict)
     error: str = ""
 
+    # Dependencies - list of work_ids that must complete before this can run
+    depends_on: List[str] = field(default_factory=list)
+
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
         d["work_type"] = self.work_type.value
@@ -177,15 +180,35 @@ class WorkItem:
         d = d.copy()
         d["work_type"] = WorkType(d.get("work_type", "selfplay"))
         d["status"] = WorkStatus(d.get("status", "pending"))
+        # Handle depends_on - ensure it's a list
+        if "depends_on" in d and isinstance(d["depends_on"], str):
+            import json
+            try:
+                d["depends_on"] = json.loads(d["depends_on"]) if d["depends_on"] else []
+            except:
+                d["depends_on"] = []
         return cls(**d)
 
     def is_claimable(self) -> bool:
-        """Check if this work can be claimed."""
+        """Check if this work can be claimed (doesn't check dependencies)."""
         if self.status != WorkStatus.PENDING:
             return False
         if self.attempts >= self.max_attempts:
             return False
         return True
+
+    def has_pending_dependencies(self, completed_ids: set) -> bool:
+        """Check if any dependencies are not yet completed.
+
+        Args:
+            completed_ids: Set of work_ids that are completed
+
+        Returns:
+            True if there are unmet dependencies, False if all deps are met
+        """
+        if not self.depends_on:
+            return False
+        return any(dep_id not in completed_ids for dep_id in self.depends_on)
 
     def is_timed_out(self) -> bool:
         """Check if this work has timed out."""
@@ -262,9 +285,16 @@ class WorkQueue:
                     max_attempts INTEGER NOT NULL DEFAULT 3,
                     timeout_seconds REAL NOT NULL DEFAULT 3600.0,
                     result TEXT NOT NULL DEFAULT '{}',
-                    error TEXT NOT NULL DEFAULT ''
+                    error TEXT NOT NULL DEFAULT '',
+                    depends_on TEXT NOT NULL DEFAULT '[]'
                 )
             """)
+
+            # Add depends_on column if missing (migration for existing databases)
+            try:
+                cursor.execute("SELECT depends_on FROM work_items LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute("ALTER TABLE work_items ADD COLUMN depends_on TEXT NOT NULL DEFAULT '[]'")
 
             # Stats table
             cursor.execute("""
@@ -346,8 +376,8 @@ class WorkQueue:
                 INSERT OR REPLACE INTO work_items
                 (work_id, work_type, priority, config, created_at, claimed_at,
                  started_at, completed_at, status, claimed_by, attempts,
-                 max_attempts, timeout_seconds, result, error)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 max_attempts, timeout_seconds, result, error, depends_on)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 item.work_id,
                 item.work_type.value,
@@ -364,6 +394,7 @@ class WorkQueue:
                 item.timeout_seconds,
                 json.dumps(item.result),
                 item.error,
+                json.dumps(item.depends_on),
             ))
 
             conn.commit()
@@ -442,7 +473,7 @@ class WorkQueue:
         return self.add_work(item)
 
     def claim_work(self, node_id: str, capabilities: Optional[List[str]] = None) -> Optional[WorkItem]:
-        """Claim work for a node based on capabilities and policies.
+        """Claim work for a node based on capabilities, policies, and dependencies.
 
         Args:
             node_id: The node claiming work
@@ -452,10 +483,16 @@ class WorkQueue:
             WorkItem if work was claimed, None otherwise
         """
         with self.lock:
+            # Get set of completed work_ids for dependency checking
+            completed_ids = {
+                item.work_id for item in self.items.values()
+                if item.status == WorkStatus.COMPLETED
+            }
+
             # Get claimable items sorted by priority (highest first)
             claimable = [
                 item for item in self.items.values()
-                if item.is_claimable()
+                if item.is_claimable() and not item.has_pending_dependencies(completed_ids)
             ]
 
             if not claimable:

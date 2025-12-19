@@ -490,12 +490,16 @@
                 return;
             }
 
+            // Check if any item has dependencies
+            const hasDeps = items.some(item => item.depends_on && item.depends_on.length > 0);
+
             let html = `<table>
                 <tr>
                     <th>ID</th>
                     <th>Type</th>
                     <th>Priority</th>
                     <th>Config</th>
+                    ${hasDeps ? '<th>Deps</th>' : ''}
                     ${showNode ? '<th>Node</th>' : ''}
                     <th>Status</th>
                 </tr>`;
@@ -503,11 +507,14 @@
             for (const item of items) {
                 const config = item.config || {};
                 const configStr = `${config.board_type || '?'}/${config.num_players || '?'}p`;
+                const deps = item.depends_on || [];
+                const depsStr = deps.length > 0 ? `<span title="${deps.join(', ')}">${deps.length} dep${deps.length > 1 ? 's' : ''}</span>` : '-';
                 html += `<tr>
                     <td>${item.work_id}</td>
                     <td><span class="work-type">${item.work_type}</span></td>
                     <td class="${getPriorityClass(item.priority)}">${item.priority}</td>
                     <td>${configStr}</td>
+                    ${hasDeps ? `<td>${depsStr}</td>` : ''}
                     ${showNode ? `<td>${item.claimed_by || '-'}</td>` : ''}
                     <td><span class="status-badge status-${item.status}">${item.status}</span></td>
                 </tr>`;
