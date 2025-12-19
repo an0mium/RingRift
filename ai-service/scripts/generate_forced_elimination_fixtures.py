@@ -406,7 +406,7 @@ def main():
     parser.add_argument("--output-dir", type=str, default=None, help="Output directory for fixtures")
     args = parser.parse_args()
 
-    root = repo_root()
+    root = REPO_ROOT
     output_dir = Path(args.output_dir) if args.output_dir else root / "ai-service" / "parity_fixtures"
     output_dir.mkdir(parents=True, exist_ok=True)
 
