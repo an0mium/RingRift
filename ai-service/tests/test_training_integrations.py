@@ -383,5 +383,218 @@ class TestIntegrationImports(unittest.TestCase):
         self.assertIs(EarlyStopping, EnhancedEarlyStopping)
 
 
+class TestIntegratedEnhancements(unittest.TestCase):
+    """Tests for IntegratedTrainingManager integrations (2025-12)."""
+
+    def setUp(self):
+        """Import integrated enhancements components."""
+        try:
+            from app.training.integrated_enhancements import (
+                IntegratedTrainingManager,
+                IntegratedEnhancementsConfig,
+            )
+            self.IntegratedTrainingManager = IntegratedTrainingManager
+            self.IntegratedEnhancementsConfig = IntegratedEnhancementsConfig
+            self.has_integrated = True
+        except ImportError:
+            self.has_integrated = False
+
+    def test_config_initialization(self) -> None:
+        """Test IntegratedEnhancementsConfig default values."""
+        if not self.has_integrated:
+            self.skipTest("IntegratedTrainingManager not available")
+
+        config = self.IntegratedEnhancementsConfig()
+
+        # Check key flags (some may default to True for production use)
+        self.assertFalse(config.auxiliary_tasks_enabled)
+        self.assertFalse(config.batch_scheduling_enabled)
+        self.assertFalse(config.background_eval_enabled)
+        # curriculum_enabled may default to True in production config
+        self.assertIsInstance(config.curriculum_enabled, bool)
+        self.assertIsInstance(config.augmentation_enabled, bool)
+
+    def test_config_auxiliary_tasks_enabled(self) -> None:
+        """Test enabling auxiliary tasks via config."""
+        if not self.has_integrated:
+            self.skipTest("IntegratedTrainingManager not available")
+
+        config = self.IntegratedEnhancementsConfig(
+            auxiliary_tasks_enabled=True,
+            aux_game_length_weight=0.2,
+            aux_piece_count_weight=0.15,
+        )
+
+        self.assertTrue(config.auxiliary_tasks_enabled)
+        self.assertEqual(config.aux_game_length_weight, 0.2)
+        self.assertEqual(config.aux_piece_count_weight, 0.15)
+
+    def test_config_batch_scheduling_enabled(self) -> None:
+        """Test enabling batch scheduling via config."""
+        if not self.has_integrated:
+            self.skipTest("IntegratedTrainingManager not available")
+
+        config = self.IntegratedEnhancementsConfig(
+            batch_scheduling_enabled=True,
+            batch_initial_size=64,
+            batch_final_size=256,
+        )
+
+        self.assertTrue(config.batch_scheduling_enabled)
+        self.assertEqual(config.batch_initial_size, 64)
+        self.assertEqual(config.batch_final_size, 256)
+
+    def test_config_background_eval_enabled(self) -> None:
+        """Test enabling background evaluation via config."""
+        if not self.has_integrated:
+            self.skipTest("IntegratedTrainingManager not available")
+
+        config = self.IntegratedEnhancementsConfig(
+            background_eval_enabled=True,
+            eval_interval_steps=500,
+            eval_games_per_check=10,
+        )
+
+        self.assertTrue(config.background_eval_enabled)
+        self.assertEqual(config.eval_interval_steps, 500)
+        self.assertEqual(config.eval_games_per_check, 10)
+
+    def test_manager_initialization(self) -> None:
+        """Test IntegratedTrainingManager initialization."""
+        if not self.has_integrated:
+            self.skipTest("IntegratedTrainingManager not available")
+
+        config = self.IntegratedEnhancementsConfig()
+        manager = self.IntegratedTrainingManager(config=config)
+
+        self.assertIsNotNone(manager.config)
+        self.assertIsNone(manager._auxiliary_module)
+        self.assertIsNone(manager._batch_scheduler)
+        self.assertIsNone(manager._background_evaluator)
+
+    def test_manager_update_step(self) -> None:
+        """Test that update_step increments internal counter."""
+        if not self.has_integrated:
+            self.skipTest("IntegratedTrainingManager not available")
+
+        config = self.IntegratedEnhancementsConfig()
+        manager = self.IntegratedTrainingManager(config=config)
+
+        initial_step = manager._step
+        manager.update_step()
+        self.assertEqual(manager._step, initial_step + 1)
+
+    def test_manager_get_batch_size_default(self) -> None:
+        """Test get_batch_size returns initial size when scheduler disabled."""
+        if not self.has_integrated:
+            self.skipTest("IntegratedTrainingManager not available")
+
+        config = self.IntegratedEnhancementsConfig(
+            batch_scheduling_enabled=False,
+            batch_initial_size=128,
+        )
+        manager = self.IntegratedTrainingManager(config=config)
+
+        batch_size = manager.get_batch_size()
+        self.assertEqual(batch_size, 128)
+
+    def test_manager_should_early_stop_default(self) -> None:
+        """Test should_early_stop returns False when background eval disabled."""
+        if not self.has_integrated:
+            self.skipTest("IntegratedTrainingManager not available")
+
+        config = self.IntegratedEnhancementsConfig(background_eval_enabled=False)
+        manager = self.IntegratedTrainingManager(config=config)
+
+        self.assertFalse(manager.should_early_stop())
+
+
+class TestAuxiliaryTasks(unittest.TestCase):
+    """Tests for auxiliary task module integration."""
+
+    def setUp(self):
+        """Import auxiliary task components."""
+        try:
+            from app.training.auxiliary_tasks import (
+                AuxiliaryTaskModule,
+                AuxTaskConfig,
+            )
+            self.AuxiliaryTaskModule = AuxiliaryTaskModule
+            self.AuxTaskConfig = AuxTaskConfig
+            self.has_aux = True
+        except ImportError:
+            self.has_aux = False
+
+    def test_aux_config_defaults(self) -> None:
+        """Test AuxTaskConfig default values."""
+        if not self.has_aux:
+            self.skipTest("AuxiliaryTaskModule not available")
+
+        config = self.AuxTaskConfig()
+
+        self.assertTrue(config.enabled)
+        self.assertEqual(config.game_length_weight, 0.1)
+        self.assertEqual(config.piece_count_weight, 0.1)
+        self.assertEqual(config.outcome_weight, 0.05)
+
+    def test_aux_module_initialization(self) -> None:
+        """Test AuxiliaryTaskModule initialization."""
+        if not self.has_aux:
+            self.skipTest("AuxiliaryTaskModule not available")
+
+        config = self.AuxTaskConfig()
+        module = self.AuxiliaryTaskModule(input_dim=256, config=config)
+
+        self.assertIsNotNone(module.game_length_head)
+        self.assertIsNotNone(module.piece_count_head)
+        self.assertIsNotNone(module.outcome_head)
+
+    def test_aux_module_forward(self) -> None:
+        """Test AuxiliaryTaskModule forward pass."""
+        if not self.has_aux:
+            self.skipTest("AuxiliaryTaskModule not available")
+
+        config = self.AuxTaskConfig()
+        module = self.AuxiliaryTaskModule(input_dim=256, config=config)
+
+        # Create fake features
+        features = torch.randn(4, 256)
+        predictions = module(features)
+
+        self.assertIn("game_length", predictions)
+        self.assertIn("piece_count", predictions)
+        self.assertIn("outcome", predictions)
+        self.assertEqual(predictions["game_length"].shape, (4,))
+        self.assertEqual(predictions["piece_count"].shape, (4,))
+        self.assertEqual(predictions["outcome"].shape, (4, 3))  # 3 classes
+
+    def test_aux_module_compute_loss(self) -> None:
+        """Test AuxiliaryTaskModule loss computation."""
+        if not self.has_aux:
+            self.skipTest("AuxiliaryTaskModule not available")
+
+        config = self.AuxTaskConfig()
+        module = self.AuxiliaryTaskModule(input_dim=256, config=config)
+
+        # Forward pass
+        features = torch.randn(4, 256)
+        predictions = module(features)
+
+        # Create targets
+        targets = {
+            "game_length": torch.randn(4),
+            "piece_count": torch.randn(4),
+            "outcome": torch.randint(0, 3, (4,)),
+        }
+
+        loss, breakdown = module.compute_loss(predictions, targets)
+
+        self.assertIsInstance(loss, torch.Tensor)
+        self.assertIn("game_length", breakdown)
+        self.assertIn("piece_count", breakdown)
+        self.assertIn("outcome", breakdown)
+        self.assertIn("total_aux", breakdown)
+
+
 if __name__ == "__main__":
     unittest.main()
