@@ -8,7 +8,7 @@
 
 Service Level Objectives (SLOs) define the targets for system performance and reliability. The SLO verification framework validates these targets during load testing, providing actionable reports for production readiness assessment.
 
-> **Current status (2025-12-08):** Baseline and target-scale k6 JSON results are checked in under `tests/load/results/`. SLO verification consumes the **raw k6 JSON output** from these runs. Analyzer summaries (for example `*_summary.json`) are used for human-readable capacity reporting (for example in `docs/BASELINE_CAPACITY.md`), not as inputs to the SLO verifier.
+> **Current status (2025-12-08):** Baseline and target-scale k6 JSON results are checked in under `tests/load/results/`. SLO verification consumes the **raw k6 JSON output** from these runs. Analyzer summaries (for example `*_summary.json`) are used for human-readable capacity reporting (for example in `docs/testing/BASELINE_CAPACITY.md`), not as inputs to the SLO verifier.
 >
 > For a quick smoke run against a local dev server, start the app, then run:
 >
@@ -366,8 +366,8 @@ export default function () {
 - [`PROJECT_GOALS.md`](../PROJECT_GOALS.md) - Project SLO targets (§4.1)
 - [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md) - Phase-based SLO roadmap
 - [`tests/load/config/thresholds.json`](../tests/load/config/thresholds.json) - Detailed thresholds
-- [`docs/ALERTING_THRESHOLDS.md`](ALERTING_THRESHOLDS.md) - Production alerting thresholds
-- [`docs/BASELINE_CAPACITY.md`](BASELINE_CAPACITY.md) - Baseline capacity documentation
+- [`docs/operations/ALERTING_THRESHOLDS.md`](ALERTING_THRESHOLDS.md) - Production alerting thresholds
+- [`docs/testing/BASELINE_CAPACITY.md`](../testing/BASELINE_CAPACITY.md) - Baseline capacity documentation
 
 ## Troubleshooting
 

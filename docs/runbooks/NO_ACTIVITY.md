@@ -124,7 +124,7 @@ You should treat this alert as:
 - Confirm that the environment/time window reasonably explains the lack of games (e.g. internal-only staging, off-peak hours).
 - Optionally:
   - Document the rationale in your incident or ops log.
-  - Revisit `docs/ALERTING_THRESHOLDS.md` and `alerts.yml` later with product/ops to tune thresholds or notification channels if `NoActiveGames` is too noisy for this environment.
+  - Revisit `docs/operations/ALERTING_THRESHOLDS.md` and `alerts.yml` later with product/ops to tune thresholds or notification channels if `NoActiveGames` is too noisy for this environment.
 
 ### 3.2 If users **should** be playing but are not
 

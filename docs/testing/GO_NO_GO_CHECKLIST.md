@@ -8,7 +8,7 @@
 >   - [`PROJECT_GOALS.md`](../PROJECT_GOALS.md:1) – v1.0 goals, SLOs, and environment & rollout success criteria.
 >   - [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:1) – phased execution plan and performance / scale SLO roadmap (including P‑01 load SLOs and pre‑launch performance gate).
 >   - [`CURRENT_STATE_ASSESSMENT.md`](../CURRENT_STATE_ASSESSMENT.md:1) – factual implementation and test status (test counts, completed waves, health labels).
->   - [`ALERTING_THRESHOLDS.md`](./ALERTING_THRESHOLDS.md:1) – canonical Prometheus alert rules, thresholds, and how they map to P‑01 SLOs and k6 scenarios.
+>   - [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md:1) – canonical Prometheus alert rules, thresholds, and how they map to P‑01 SLOs and k6 scenarios.
 > - **SSoT tooling:**
 >   - `npm run ssot-check` → [`scripts/ssot/ssot-check.ts`](../scripts/ssot/ssot-check.ts:1) must be green for the candidate build; this guards docs/config SSoTs (including the docs banner and link checks this checklist relies on).
 
@@ -151,7 +151,7 @@ These gates ensure AI behaviour under normal conditions and under degradation ma
   - **Automation / commands**
     - Staging **AI degradation drill** successfully completed in the last N days using:
       - [`docs/runbooks/AI_SERVICE_DEGRADATION_DRILL.md`](./runbooks/AI_SERVICE_DEGRADATION_DRILL.md:1)
-      - Validates alerts `AIServiceDown`, `AIFallbackRateHigh`, `AIFallbackRateCritical`, `AIRequestHighLatency`, `AIErrorsIncreasing` defined in [`ALERTING_THRESHOLDS.md`](./ALERTING_THRESHOLDS.md:417) and [`monitoring/prometheus/alerts.yml`](../monitoring/prometheus/alerts.yml:1).
+      - Validates alerts `AIServiceDown`, `AIFallbackRateHigh`, `AIFallbackRateCritical`, `AIRequestHighLatency`, `AIErrorsIncreasing` defined in [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md:417) and [`monitoring/prometheus/alerts.yml`](../monitoring/prometheus/alerts.yml:1).
       - Optionally capture structured drill reports via:
         - `./node_modules/.bin/ts-node scripts/run-ai-degradation-drill.ts --env staging --phase baseline`
         - `./node_modules/.bin/ts-node scripts/run-ai-degradation-drill.ts --env staging --phase degraded`
@@ -161,7 +161,7 @@ These gates ensure AI behaviour under normal conditions and under degradation ma
     - Drill notes (date, environment, findings) linked from the release ticket or ops log.
   - **References**
     - AI incidents guide: [`docs/incidents/AI_SERVICE.md`](./incidents/AI_SERVICE.md:1).
-    - Alert behaviour for AI service: [`ALERTING_THRESHOLDS.md`](./ALERTING_THRESHOLDS.md:417).
+    - Alert behaviour for AI service: [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md:417).
 
 ---
 
@@ -207,7 +207,7 @@ This gate ties the overall automated test surface and coverage targets to a sing
 These gates connect the P‑01 k6 load scenarios, SLO documentation, and alerting thresholds into a single pre‑launch decision point, as described in:
 
 - [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:257) (§“Performance & Scalability (P‑01)”, including HTTP, WebSocket, AI, and availability SLOs, plus §5.1 “Pre‑launch performance gate”).
-- [`ALERTING_THRESHOLDS.md`](./ALERTING_THRESHOLDS.md:925) (§“Load Test SLO Mapping”).
+- [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md:925) (§“Load Test SLO Mapping”).
 - Baseline results: [`LOAD_TEST_BASELINE.md`](./LOAD_TEST_BASELINE.md:1), [`LOAD_TEST_BASELINE_REPORT.md`](./LOAD_TEST_BASELINE_REPORT.md:1).
 
 ### Required
@@ -228,7 +228,7 @@ These gates connect the P‑01 k6 load scenarios, SLO documentation, and alertin
     - Latest baseline report updated in:
       - [`LOAD_TEST_BASELINE_REPORT.md`](./LOAD_TEST_BASELINE_REPORT.md:1) and optionally referenced from release notes.
   - **References**
-    - P‑01 scenarios and SLOs: [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:413), [`ALERTING_THRESHOLDS.md`](./ALERTING_THRESHOLDS.md:925).
+    - P‑01 scenarios and SLOs: [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:413), [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md:925).
     - Baseline ranges and interpretation: [`LOAD_TEST_BASELINE.md`](./LOAD_TEST_BASELINE.md:1), [`LOAD_TEST_BASELINE_REPORT.md`](./LOAD_TEST_BASELINE_REPORT.md:1).
 
 - [ ] **Baseline, target-scale, and AI-heavy k6 runs executed with SLO verification and recorded**
@@ -239,21 +239,21 @@ These gates connect the P‑01 k6 load scenarios, SLO documentation, and alertin
     - Each script auto-runs `tests/load/scripts/verify-slos.js` against the configured `THRESHOLD_ENV`; rerun the verifier manually for WS companion outputs if applicable.
   - **Evidence**
     - Result + summary JSON (and WS companion if run) stored under `tests/load/results/` for this candidate.
-    - `docs/BASELINE_CAPACITY.md` updated with date, scenario ID, env, notes, and result paths for the baseline, target-scale, and AI-heavy runs (including SLO pass/fail).
+    - `docs/testing/BASELINE_CAPACITY.md` updated with date, scenario ID, env, notes, and result paths for the baseline, target-scale, and AI-heavy runs (including SLO pass/fail).
   - **References**
-    - Run parameters and recording template: [`docs/BASELINE_CAPACITY.md`](../docs/BASELINE_CAPACITY.md:1).
+    - Run parameters and recording template: [`docs/testing/BASELINE_CAPACITY.md`](./BASELINE_CAPACITY.md:1).
     - SLO verifier: [`tests/load/scripts/verify-slos.js`](../tests/load/scripts/verify-slos.js:1).
 
 - [ ] **No core SLO violations under P‑01 load**
   - **Automation / commands**
     - During or immediately after the load runs above, confirm that:
-      - All relevant Prometheus alerts defined in [`ALERTING_THRESHOLDS.md`](./ALERTING_THRESHOLDS.md:925) (HTTP error/latency, WebSocket stalls, AI SLOs, availability) remain **green**.
+      - All relevant Prometheus alerts defined in [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md:925) (HTTP error/latency, WebSocket stalls, AI SLOs, availability) remain **green**.
   - **Evidence**
     - Grafana dashboards (“Game Performance”, “System Health”, “Rules/Orchestrator”) show:
       - SLO metrics within thresholds and with sufficient headroom (per §2 of [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:296)).
     - No persistent critical alerts during the steady‑state portion of the P‑01 runs.
   - **References**
-    - SLO definitions and interpretation guidance in [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:296-397) and [`ALERTING_THRESHOLDS.md`](./ALERTING_THRESHOLDS.md:925-1077).
+    - SLO definitions and interpretation guidance in [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:296-397) and [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md:925-1077).
 
 ---
 
@@ -340,9 +340,9 @@ These gates ensure the monitoring / alerting surface and deployment configuratio
         - Validates Prometheus and Alertmanager configs (including `monitoring/prometheus/alerts.yml`).
   - **Evidence**
     - Successful `npm run validate:monitoring` output for the candidate configuration.
-    - Confirmed presence of dashboards and alert rules referenced in [`ALERTING_THRESHOLDS.md`](./ALERTING_THRESHOLDS.md:1).
+    - Confirmed presence of dashboards and alert rules referenced in [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md:1).
   - **References**
-    - Alerts & thresholds: [`ALERTING_THRESHOLDS.md`](./ALERTING_THRESHOLDS.md:1).
+    - Alerts & thresholds: [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md:1).
     - Prometheus config: [`monitoring/prometheus/alerts.yml`](../monitoring/prometheus/alerts.yml:1), [`monitoring/prometheus/prometheus.yml`](../monitoring/prometheus/prometheus.yml:1).
 
 - [ ] **Monitoring stack is live and wired to real notification channels for the target environment**
@@ -353,7 +353,7 @@ These gates ensure the monitoring / alerting surface and deployment configuratio
     - Documented notification endpoints for the target environment (Slack channel, email group, PagerDuty service, etc.).
     - A recent “test alert” entry in the alerting channel or ops log.
   - **References**
-    - Alert routing and escalation: [`ALERTING_THRESHOLDS.md`](./ALERTING_THRESHOLDS.md:1146).
+    - Alert routing and escalation: [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md:1146).
 
 ---
 
@@ -390,7 +390,7 @@ These gates ensure the security‑critical and operational drills that underpin 
     - Run the staging **AI service degradation drill** using:
       - [`docs/runbooks/AI_SERVICE_DEGRADATION_DRILL.md`](./runbooks/AI_SERVICE_DEGRADATION_DRILL.md:1).
     - Validate that:
-      - Alerts `AIServiceDown`, `AIFallbackRateHigh`, `AIFallbackRateCritical`, and `ServiceDegraded` fire and clear as expected (see [`ALERTING_THRESHOLDS.md`](./ALERTING_THRESHOLDS.md:417)).
+      - Alerts `AIServiceDown`, `AIFallbackRateHigh`, `AIFallbackRateCritical`, and `ServiceDegraded` fire and clear as expected (see [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md:417)).
       - Fallback behaviour matches [`docs/incidents/AI_SERVICE.md`](./incidents/AI_SERVICE.md:1) and AI fallbacks behave as in automated tests.
     - Optionally capture structured drill reports via:
       - `./node_modules/.bin/ts-node scripts/run-ai-degradation-drill.ts --env staging --phase baseline`

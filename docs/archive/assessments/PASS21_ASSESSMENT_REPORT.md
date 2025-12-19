@@ -22,7 +22,7 @@ RingRift has successfully completed major architectural work (orchestrator migra
 While the project has:
 
 - ✅ **Comprehensive alert definitions** (742 lines in `monitoring/prometheus/alerts.yml`)
-- ✅ **Detailed alerting documentation** (`docs/ALERTING_THRESHOLDS.md`)
+- ✅ **Detailed alerting documentation** (`docs/operations/ALERTING_THRESHOLDS.md`)
 - ✅ **Monitoring architecture defined** (`monitoring/prometheus/prometheus.yml`)
 
 It **completely lacks**:
@@ -253,13 +253,13 @@ Deploying RingRift to production at the documented target scale (100+ concurrent
 
 ### 4.2 Documents with Inaccuracies
 
-| Document                        | Issue                                                                 | Severity  | Recommended Fix                               |
-| :------------------------------ | :-------------------------------------------------------------------- | :-------- | :-------------------------------------------- |
-| **docs/DOCUMENTATION_INDEX.md** | **File does not exist**                                               | 🔴 HIGH   | Create comprehensive index linking major docs |
-| **docs/ALERTING_THRESHOLDS.md** | References dashboards that don't exist (lines 833-895)                | 🔴 HIGH   | Either create dashboards or mark as "Planned" |
-| **monitoring/README.md**        | Claims 616+ alert rules exist, actual count ~170                      | 🟡 MEDIUM | Update count or clarify what's included       |
-| **STRATEGIC_ROADMAP.md**        | Load testing scenarios defined but not implemented                    | 🟡 MEDIUM | Mark as "Planned" or implement                |
-| **docker-compose.yml**          | Line 19: `RINGRIFT_RULES_MODE=shadow` (should be `ts` for production) | 🟡 MEDIUM | Update default to `ts`                        |
+| Document                                   | Issue                                                                 | Severity  | Recommended Fix                               |
+| :----------------------------------------- | :-------------------------------------------------------------------- | :-------- | :-------------------------------------------- |
+| **docs/DOCUMENTATION_INDEX.md**            | **File does not exist**                                               | 🔴 HIGH   | Create comprehensive index linking major docs |
+| **docs/operations/ALERTING_THRESHOLDS.md** | References dashboards that don't exist (lines 833-895)                | 🔴 HIGH   | Either create dashboards or mark as "Planned" |
+| **monitoring/README.md**                   | Claims 616+ alert rules exist, actual count ~170                      | 🟡 MEDIUM | Update count or clarify what's included       |
+| **STRATEGIC_ROADMAP.md**                   | Load testing scenarios defined but not implemented                    | 🟡 MEDIUM | Mark as "Planned" or implement                |
+| **docker-compose.yml**                     | Line 19: `RINGRIFT_RULES_MODE=shadow` (should be `ts` for production) | 🟡 MEDIUM | Update default to `ts`                        |
 
 ### 4.3 Environment Variable Accuracy
 
@@ -834,7 +834,7 @@ For detailed per-scenario PASS24.1 baselines and their relationship to P22.10, s
 
 **Operations:**
 
-- [`docs/ALERTING_THRESHOLDS.md`](ALERTING_THRESHOLDS.md) - Alert definitions
+- [`docs/operations/ALERTING_THRESHOLDS.md`](ALERTING_THRESHOLDS.md) - Alert definitions
 - [`docs/DEPLOYMENT_REQUIREMENTS.md`](DEPLOYMENT_REQUIREMENTS.md) - Deployment guide
 - [`docs/SECURITY_THREAT_MODEL.md`](SECURITY_THREAT_MODEL.md) - Security analysis
 - [`monitoring/prometheus/alerts.yml`](../monitoring/prometheus/alerts.yml) - Alert rules

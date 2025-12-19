@@ -218,7 +218,7 @@ If, after fixing leaks, handle counts are still consistently high but stable, yo
 - Re-evaluate what a “reasonable” handle count is given the number of concurrent games and connections.
 - Adjust alert thresholds in `alerts.yml` **only after** verifying that high handle counts are expected, controlled, and do not lead to memory or latency issues.
 
-Threshold adjustments should be treated as configuration changes, tested in staging, and documented in `docs/ALERTING_THRESHOLDS.md`.
+Threshold adjustments should be treated as configuration changes, tested in staging, and documented in `docs/operations/ALERTING_THRESHOLDS.md`.
 
 ---
 
@@ -245,7 +245,7 @@ Before considering a resource-leak incident resolved, confirm:
 
 - [ ] Identified leaks in connection, timer, or diagnostic code have been fixed with appropriate tests.
 - [ ] Any long-lived connections are now clearly owned by lifecycle-managed components (e.g. global DB pool, Redis client) and not created per-request.
-- [ ] If alert thresholds were adjusted, the changes are reflected in `monitoring/prometheus/alerts.yml` and `docs/ALERTING_THRESHOLDS.md` with rationale.
+- [ ] If alert thresholds were adjusted, the changes are reflected in `monitoring/prometheus/alerts.yml` and `docs/operations/ALERTING_THRESHOLDS.md` with rationale.
 
 ---
 
@@ -255,7 +255,7 @@ Before considering a resource-leak incident resolved, confirm:
   - `monitoring/prometheus/alerts.yml`
   - `monitoring/prometheus/prometheus.yml`
   - `monitoring/README.md`
-  - `docs/ALERTING_THRESHOLDS.md`
+  - `docs/operations/ALERTING_THRESHOLDS.md`
 
 - **Lifecycle & connection management:**
   - `src/server/websocket/server.ts`

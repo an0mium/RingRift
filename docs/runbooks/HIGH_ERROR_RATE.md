@@ -329,7 +329,7 @@ You are done when **all** of the following hold:
 After stabilizing, schedule a short follow-up within 24–48 hours:
 
 - [ ] Capture a brief incident summary using `docs/incidents/POST_MORTEM_TEMPLATE.md`.
-- [ ] Identify whether monitoring thresholds in `docs/ALERTING_THRESHOLDS.md` are appropriate.
+- [ ] Identify whether monitoring thresholds in `docs/operations/ALERTING_THRESHOLDS.md` are appropriate.
 - [ ] Add or refine tests around the affected routes (unit/integration/e2e) so similar regressions trip earlier.
 - [ ] If dependencies were the cause, verify capacity / configuration against `docs/DEPLOYMENT_REQUIREMENTS.md` and `docs/OPERATIONS_DB.md`.
 
@@ -349,7 +349,7 @@ After stabilizing, schedule a short follow-up within 24–48 hours:
   - `docs/runbooks/DEPLOYMENT_ROUTINE.md`
   - `docs/runbooks/DEPLOYMENT_ROLLBACK.md`
 - Ops / config SSoT
-  - `docs/ALERTING_THRESHOLDS.md`
+  - `docs/operations/ALERTING_THRESHOLDS.md`
   - `docs/DEPLOYMENT_REQUIREMENTS.md`
   - `docs/OPERATIONS_DB.md`
   - `docs/ENVIRONMENT_VARIABLES.md`

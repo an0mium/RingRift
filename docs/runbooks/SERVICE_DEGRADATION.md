@@ -209,7 +209,7 @@ Before declaring the incident resolved:
 
 These items should be filled in and kept up to date **per environment** (staging, production, etc.):
 
-- [ ] Document the exact mapping between `ringrift_degradation_level` numeric values and `DegradationLevel` enum, linking to `docs/ALERTING_THRESHOLDS.md` and the relevant sections in `ServiceStatusManager`.
+- [ ] Document the exact mapping between `ringrift_degradation_level` numeric values and `DegradationLevel` enum, linking to `docs/operations/ALERTING_THRESHOLDS.md` and the relevant sections in `ServiceStatusManager`.
 - [ ] List which **features / endpoints** are intentionally disabled or restricted at each level (`DEGRADED`, `MINIMAL`, `OFFLINE`) for your environment.
 - [ ] Capture any **operator controls** used to influence degradation behavior (feature flags, admin endpoints, maintenance toggles) and where they are configured.
 - [ ] Note any environment-specific dashboards (Grafana, etc.) used to visualize degradation and dependency health for quick triage.

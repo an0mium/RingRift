@@ -521,7 +521,7 @@ Although not a hard gate for orchestrator rollout, Python strict‑invariant hea
 
 - **Metric / alerts:**
   - `ringrift_python_invariant_violations_total{invariant_id, type}` exported by the AI self‑play soak harness (`run_self_play_soak.py` under `RINGRIFT_STRICT_NO_MOVE_INVARIANT=1`).
-  - `PythonInvariantViolations` alert in [`monitoring/prometheus/alerts.yml`](../monitoring/prometheus/alerts.yml:580) and described in [`docs/ALERTING_THRESHOLDS.md`](docs/ALERTING_THRESHOLDS.md:640).
+  - `PythonInvariantViolations` alert in [`monitoring/prometheus/alerts.yml`](../monitoring/prometheus/alerts.yml:580) and described in [`docs/operations/ALERTING_THRESHOLDS.md`](docs/operations/ALERTING_THRESHOLDS.md:640).
 - **CI / workflows:**
   - `python-ai-healthcheck` job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml:1) – runs `python scripts/run_self_play_soak.py --profile ai-healthcheck --max-moves 200 --fail-on-anomaly` across `square8`, `square19`, and `hexagonal`, emitting invariant violations keyed by `INV-*` IDs (see [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](docs/INVARIANTS_AND_PARITY_FRAMEWORK.md:1)).
   - `AI Self-Play Healthcheck (Nightly)` workflow in [`.github/workflows/ai-healthcheck-nightly.yml`](../.github/workflows/ai-healthcheck-nightly.yml:1) – deeper variant with increased `RINGRIFT_AI_HEALTHCHECK_GAMES` and a higher `--max-moves` cap.

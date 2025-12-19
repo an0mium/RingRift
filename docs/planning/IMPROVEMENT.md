@@ -70,8 +70,8 @@ The project is approaching production readiness but has key gaps that need addre
 
 **Key Deliverables:**
 
-- [`docs/LOAD_TEST_BASELINE_REPORT.md`](docs/LOAD_TEST_BASELINE_REPORT.md) - Comprehensive load test results and lessons learned
-- [`docs/GO_NO_GO_CHECKLIST.md`](docs/GO_NO_GO_CHECKLIST.md) - Production readiness checklist
+- [`docs/testing/LOAD_TEST_BASELINE_REPORT.md`](docs/testing/LOAD_TEST_BASELINE_REPORT.md) - Comprehensive load test results and lessons learned
+- [`docs/testing/GO_NO_GO_CHECKLIST.md`](docs/testing/GO_NO_GO_CHECKLIST.md) - Production readiness checklist
 - [`monitoring/alertmanager/alertmanager.local.yml`](monitoring/alertmanager/alertmanager.local.yml) - Local development alertmanager config
 
 ### 7.1 Load Test Execution ✅ COMPLETE (Dec 3, 2025)
@@ -85,7 +85,7 @@ The project is approaching production readiness but has key gaps that need addre
 
 **Issue Fixed:** Rebuilt Docker container with updated `GameIdParamSchema` that accepts both UUID and CUID formats.
 
-**Report:** [`docs/LOAD_TEST_BASELINE_REPORT.md`](docs/LOAD_TEST_BASELINE_REPORT.md)
+**Report:** [`docs/testing/LOAD_TEST_BASELINE_REPORT.md`](docs/testing/LOAD_TEST_BASELINE_REPORT.md)
 
 ### 7.2 Baseline Metrics Establishment ✅ COMPLETE (Dec 3, 2025)
 
@@ -114,12 +114,12 @@ The project is approaching production readiness but has key gaps that need addre
 - [x] Execute secrets rotation drill – Token invalidation verified, ~30s recovery
 - [x] Execute backup/restore drill – 11MB backup, full integrity verified (40K games)
 - [x] Simulate incident response scenarios – AI service outage, detection <75s
-- [x] Document lessons learned → Added to [`docs/LOAD_TEST_BASELINE_REPORT.md`](docs/LOAD_TEST_BASELINE_REPORT.md)
+- [x] Document lessons learned → Added to [`docs/testing/LOAD_TEST_BASELINE_REPORT.md`](docs/testing/LOAD_TEST_BASELINE_REPORT.md)
 
 ### 7.5 Go/No-Go Validation ✅ COMPLETE (Dec 3, 2025)
 
 - [x] Validate monitoring infrastructure (Prometheus, Grafana, Alertmanager)
-- [x] Execute go/no-go checklist → [`docs/GO_NO_GO_CHECKLIST.md`](docs/GO_NO_GO_CHECKLIST.md)
+- [x] Execute go/no-go checklist → [`docs/testing/GO_NO_GO_CHECKLIST.md`](docs/testing/GO_NO_GO_CHECKLIST.md)
 - [x] **Verdict: ✅ GO (with caveats)** - System ready for soft launch
 
 **Lessons Learned:**

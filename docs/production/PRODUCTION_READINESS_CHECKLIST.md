@@ -86,12 +86,12 @@ This checklist documents all requirements for launching RingRift v1.0 to product
 
 ### 2.1 Capacity
 
-| Item                                                    | Status | Target                               | Evidence                                                                                                                                                          |
-| ------------------------------------------------------- | ------ | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| System tested at target scale (100 games / 300 players) | ✅     | 100 concurrent games                 | 2025-12-10: 30min test, 300 VUs, p95=53ms, p99=59ms, 7.5% CPU. Server stable. Rate limiting + token expiration caused expected errors. See `BASELINE_CAPACITY.md` |
-| Baseline capacity documented                            | ✅     | Documented in `BASELINE_CAPACITY.md` | Smoke-scale (2025-12-08) + target-scale (2025-12-10) both documented with raw + summary + analysis                                                                |
-| Breaking point identified via stress testing            | ⬜     | Beyond 300 VUs                       | `load:stress:breaking` scenario ready; server showed 92% idle at 300 VUs suggesting significant headroom                                                          |
-| Horizontal scaling verified                             | ⬜     | Single-instance for v1.0             | Post-v1.0 scope                                                                                                                                                   |
+| Item                                                    | Status | Target                                            | Evidence                                                                                                                                                                       |
+| ------------------------------------------------------- | ------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| System tested at target scale (100 games / 300 players) | ✅     | 100 concurrent games                              | 2025-12-10: 30min test, 300 VUs, p95=53ms, p99=59ms, 7.5% CPU. Server stable. Rate limiting + token expiration caused expected errors. See `docs/testing/BASELINE_CAPACITY.md` |
+| Baseline capacity documented                            | ✅     | Documented in `docs/testing/BASELINE_CAPACITY.md` | Smoke-scale (2025-12-08) + target-scale (2025-12-10) both documented with raw + summary + analysis                                                                             |
+| Breaking point identified via stress testing            | ⬜     | Beyond 300 VUs                                    | `load:stress:breaking` scenario ready; server showed 92% idle at 300 VUs suggesting significant headroom                                                                       |
+| Horizontal scaling verified                             | ⬜     | Single-instance for v1.0                          | Post-v1.0 scope                                                                                                                                                                |
 
 ### 2.2 Latency SLOs
 
@@ -123,7 +123,7 @@ This checklist documents all requirements for launching RingRift v1.0 to product
   - Which load-test scenarios must be executed before launch.
   - Which SLOs and thresholds must be green for a production go decision.
   - How existing load-test tooling and reports are interpreted for go/no-go.
-- Subordinate docs such as [`docs/SLO_VERIFICATION.md`](SLO_VERIFICATION.md:1), [`docs/BASELINE_CAPACITY.md`](BASELINE_CAPACITY.md:1), [`docs/testing/LOAD_TEST_BASELINE.md`](testing/LOAD_TEST_BASELINE.md:1), and [`docs/testing/LOAD_TEST_BASELINE_REPORT.md`](testing/LOAD_TEST_BASELINE_REPORT.md:1) must **not** introduce conflicting SLO targets or go/no-go rules. When SLO thresholds or required scenarios change:
+- Subordinate docs such as [`docs/operations/SLO_VERIFICATION.md`](../operations/SLO_VERIFICATION.md:1), [`docs/testing/BASELINE_CAPACITY.md`](../testing/BASELINE_CAPACITY.md:1), [`docs/testing/LOAD_TEST_BASELINE.md`](../testing/LOAD_TEST_BASELINE.md:1), and [`docs/testing/LOAD_TEST_BASELINE_REPORT.md`](../testing/LOAD_TEST_BASELINE_REPORT.md:1) must **not** introduce conflicting SLO targets or go/no-go rules. When SLO thresholds or required scenarios change:
   - Update [`PROJECT_GOALS.md`](../PROJECT_GOALS.md:143) §4.1 and this section first.
   - Then update SLO configs (for example [`tests/load/configs/slo-definitions.json`](../tests/load/configs/slo-definitions.json:1) and [`tests/load/config/thresholds.json`](../tests/load/config/thresholds.json:1)) and subordinate docs to match.
 
@@ -137,7 +137,7 @@ All three scenarios below are required for v1.0. A release is **not production-r
 | **Target-scale production validation** | `BCAP_SQ8_3P_TARGET_100G_300P`  | Validate that the system meets v1.0 SLOs at target scale (≈100 concurrent games, ≈300 players) on square8                        | [`tests/load/scripts/run-target-scale.sh`](../tests/load/scripts/run-target-scale.sh:1) + k6 target-scale config in [`tests/load/configs/target-scale.json`](../tests/load/configs/target-scale.json:1) |
 | **AI-heavy validation**                | `BCAP_SQ8_4P_AI_HEAVY_75G_300P` | Validate AI latency, fallback behaviour, and degradation posture under AI-heavy load                                             | [`tests/load/scripts/run-ai-heavy.sh`](../tests/load/scripts/run-ai-heavy.sh:1) + AI-heavy profile under [`tests/load/configs/`](../tests/load/configs:1)                                               |
 
-> **Note:** Exact k6 scenario composition (board-type mix, player counts, AI settings) is defined in the JSON configs under [`tests/load/configs/`](../tests/load/configs:1) and documented in [`docs/BASELINE_CAPACITY.md`](BASELINE_CAPACITY.md:1) and [`docs/testing/LOAD_TEST_BASELINE.md`](testing/LOAD_TEST_BASELINE.md:1). This contract records the **intent and gating rules**, not every per-scenario k6 option.
+> **Note:** Exact k6 scenario composition (board-type mix, player counts, AI settings) is defined in the JSON configs under [`tests/load/configs/`](../tests/load/configs:1) and documented in [`docs/testing/BASELINE_CAPACITY.md`](../testing/BASELINE_CAPACITY.md:1) and [`docs/testing/LOAD_TEST_BASELINE.md`](../testing/LOAD_TEST_BASELINE.md:1). This contract records the **intent and gating rules**, not every per-scenario k6 option.
 
 ##### Baseline smoke: 20 games / 60 players (staging)
 
@@ -149,9 +149,9 @@ All three scenarios below are required for v1.0. A release is **not production-r
 - **AI / human mix:**
   - At least some games must include AI seats so that basic AI request/response metrics are exercised.
   - Exact AI fraction is taken from the baseline config; AI-heavy behaviour is validated separately by the AI-heavy scenario.
-- **Duration and ramp:** Approximately 10 minutes total (warmup, ramp, steady state, ramp down) per [`docs/BASELINE_CAPACITY.md`](BASELINE_CAPACITY.md:80).
+- **Duration and ramp:** Approximately 10 minutes total (warmup, ramp, steady state, ramp down) per [`docs/testing/BASELINE_CAPACITY.md`](../testing/BASELINE_CAPACITY.md:80).
 - **SLO focus (staging thresholds):**
-  - All **Critical** and **High** priority SLOs from [`docs/SLO_VERIFICATION.md`](SLO_VERIFICATION.md:45) must pass with `--env staging` against the baseline run’s raw k6 JSON (for example `baseline_staging_*.json`).
+  - All **Critical** and **High** priority SLOs from [`docs/operations/SLO_VERIFICATION.md`](../operations/SLO_VERIFICATION.md:45) must pass with `--env staging` against the baseline run’s raw k6 JSON (for example `baseline_staging_*.json`).
   - This includes, at minimum:
     - Service availability, error rate, contract failures, lifecycle mismatches (Critical).
     - HTTP p95 latency, move latency p95 (if emitted), WebSocket connect p95 (if WS companion enabled), AI response p95, and staging capacity targets `concurrent_games ≥ 20`, `concurrent_players ≥ 60` (High).
@@ -174,7 +174,7 @@ All three scenarios below are required for v1.0. A release is **not production-r
 - **Duration and ramp:**
   - Long enough to reach and hold target concurrency in steady state (typically ≥10–15 minutes of steady state as encoded in `target-scale.json`).
 - **SLO focus (production thresholds):**
-  - All **Critical** and **High** priority SLOs from [`docs/SLO_VERIFICATION.md`](SLO_VERIFICATION.md:49) must pass with `--env production` against the target-scale raw k6 JSON and any WebSocket companion results.
+  - All **Critical** and **High** priority SLOs from [`docs/operations/SLO_VERIFICATION.md`](../operations/SLO_VERIFICATION.md:49) must pass with `--env production` against the target-scale raw k6 JSON and any WebSocket companion results.
   - This includes, at minimum:
     - Service availability ≥99.9%, error rate ≤0.5%, 0 contract failures, 0 lifecycle mismatches.
     - HTTP API p95 latency <500ms, move latency p95 <500ms, AI response p95 <1000ms.
@@ -190,7 +190,7 @@ All three scenarios below are required for v1.0. A release is **not production-r
 
 - **Environment:** staging stack with AI service enabled.
 - **Concurrency target:**
-  - ≈75 concurrent games, ≈300 concurrent seats (4-player games, 3 AI seats each) as described in [`docs/BASELINE_CAPACITY.md`](BASELINE_CAPACITY.md:169).
+  - ≈75 concurrent games, ≈300 concurrent seats (4-player games, 3 AI seats each) as described in [`docs/testing/BASELINE_CAPACITY.md`](../testing/BASELINE_CAPACITY.md:169).
 - **Board types / player counts:**
   - 4-player games on square8 (`SQ8_4P`).
 - **AI / human mix (canonical for v1.0):**
@@ -198,7 +198,7 @@ All three scenarios below are required for v1.0. A release is **not production-r
 - **Duration and ramp:**
   - Similar to target-scale profile but with 75 VUs steady state (see AI-heavy config under [`tests/load/configs/`](../tests/load/configs:1)).
 - **SLO focus (AI-heavy, staging thresholds):**
-  - All **Critical** SLOs from [`docs/SLO_VERIFICATION.md`](SLO_VERIFICATION.md:49) must pass with `--env staging`.
+  - All **Critical** SLOs from [`docs/operations/SLO_VERIFICATION.md`](../operations/SLO_VERIFICATION.md:49) must pass with `--env staging`.
   - AI-specific SLOs must also pass:
     - AI response p95 <1000ms and p99 <2000ms.
     - AI fallback rate ≤1%.
@@ -214,7 +214,7 @@ This contract uses three result classes at both scenario and overall-run level:
 
 - **PASS**
   - All three required scenarios have been executed against a healthy staging or perf stack within a recent window agreed by the release owner.
-  - For each scenario, all **Critical** SLOs and all **High** priority SLOs (including capacity SLOs) defined in [`docs/SLO_VERIFICATION.md`](SLO_VERIFICATION.md:49) pass for the appropriate environment (`staging` for baseline and AI-heavy, `production` for target-scale).
+  - For each scenario, all **Critical** SLOs and all **High** priority SLOs (including capacity SLOs) defined in [`docs/operations/SLO_VERIFICATION.md`](../operations/SLO_VERIFICATION.md:49) pass for the appropriate environment (`staging` for baseline and AI-heavy, `production` for target-scale).
   - No unexpected regressions are observed in Medium-priority SLOs (p99 latencies, AI fallback rate, game creation p95); any minor deviations are understood and accepted by the owners and tracked in [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:1) or equivalent.
 
 - **CONDITIONAL**
@@ -233,7 +233,7 @@ For v1.0, the **only acceptable state for a full public production launch is PAS
 
 This subsection makes the **scenario 9 tooling 9 SLO** mapping explicit. It binds the three BCAP scenario IDs from §2.4.2 to concrete runner scripts, k6 scenarios, JSON configs, and SLO environments.
 
-| Contract scenario                        | Scenario ID                     | Runner 9 k6 scenario                                                                                                                                                                                                                                                                                               | Scenario configs 9 registry                                                                                                                                                                                                                                                                      | SLO verification env (`--env` for [`verify-slos.js`](../tests/load/scripts/verify-slos.js:1))                                                   | k6 thresholds env (`THRESHOLD_ENV`)                                                                                | Key SLO focus (from [`docs/SLO_VERIFICATION.md`](SLO_VERIFICATION.md:45) and [`tests/load/configs/slo-definitions.json`](../tests/load/configs/slo-definitions.json:1))                                                                                                                 |
+| Contract scenario                        | Scenario ID                     | Runner 9 k6 scenario                                                                                                                                                                                                                                                                                               | Scenario configs 9 registry                                                                                                                                                                                                                                                                      | SLO verification env (`--env` for [`verify-slos.js`](../tests/load/scripts/verify-slos.js:1))                                                   | k6 thresholds env (`THRESHOLD_ENV`)                                                                                | Key SLO focus (from [`docs/operations/SLO_VERIFICATION.md`](../operations/SLO_VERIFICATION.md:45) and [`tests/load/configs/slo-definitions.json`](../tests/load/configs/slo-definitions.json:1))                                                                                        |
 | ---------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Baseline smoke**                       | `BCAP_STAGING_BASELINE_20G_60P` | [`tests/load/scripts/run-baseline.sh`](../tests/load/scripts/run-baseline.sh:1) 9 [`tests/load/scenarios/concurrent-games.js`](../tests/load/scenarios/concurrent-games.js:1) (+ optional WebSocket companion [`tests/load/scenarios/websocket-stress.js`](../tests/load/scenarios/websocket-stress.js:1))         | BCAP entry in [`tests/load/configs/bcap-scenarios.json`](../tests/load/configs/bcap-scenarios.json:8) (scenario `BCAP_STAGING_BASELINE_20G_60P`); baseline profile and capacity targets in [`tests/load/configs/baseline.json`](../tests/load/configs/baseline.json:1)                           | `staging`                                                                                                                                       | `staging` (set by runner for both `--local` and `--staging`)                                                       | Critical SLOs (availability, error_rate, contract_failures, lifecycle_mismatches) and High SLOs for API p95 latency, game creation, move latency, WebSocket connect (if WS companion enabled), AI p95 latency, and capacity targets `concurrent_games ≥ 20`, `concurrent_players ≥ 60`. |
 | **Target-scale production validation**   | `BCAP_SQ8_3P_TARGET_100G_300P`  | [`tests/load/scripts/run-target-scale.sh`](../tests/load/scripts/run-target-scale.sh:1) 9 [`tests/load/scenarios/concurrent-games.js`](../tests/load/scenarios/concurrent-games.js:1) (+ optional WebSocket companion [`tests/load/scenarios/websocket-stress.js`](../tests/load/scenarios/websocket-stress.js:1)) | BCAP entry in [`tests/load/configs/bcap-scenarios.json`](../tests/load/configs/bcap-scenarios.json:55) (scenario `BCAP_SQ8_3P_TARGET_100G_300P`); target-scale phases and capacity targets in [`tests/load/configs/target-scale.json`](../tests/load/configs/target-scale.json:1)                | `production`                                                                                                                                    | `production` when run with `--staging` (see runner); `staging` only for local dry-runs                             | Same Critical SLOs as baseline, plus High SLOs at **production** targets for API p95, move latency, AI p95 latency, WebSocket connect 9 success, and capacity SLOs `concurrent_games ≥ 100`, `concurrent_players ≥ 300`.                                                                |
@@ -263,9 +263,9 @@ All three scenarios share the same SLO catalogue and metric mappings defined in 
   - BCAP scenario shapes and capacities are recorded in [`tests/load/configs/bcap-scenarios.json`](../tests/load/configs/bcap-scenarios.json:1); additional historical profiles live in [`tests/load/configs/baseline.json`](../tests/load/configs/baseline.json:1) and [`tests/load/configs/target-scale.json`](../tests/load/configs/target-scale.json:1).
 - **SLO verification**
   - SLO definitions, priorities, and metric mappings are encoded in [`tests/load/configs/slo-definitions.json`](../tests/load/configs/slo-definitions.json:1) and [`tests/load/config/thresholds.json`](../tests/load/config/thresholds.json:1) and enforced by [`tests/load/scripts/verify-slos.js`](../tests/load/scripts/verify-slos.js:1).
-  - npm scripts such as `npm run slo:check`, `npm run slo:verify`, and `npm run slo:dashboard` (see [`docs/SLO_VERIFICATION.md`](SLO_VERIFICATION.md:24)) wrap [`verify-slos.js`](../tests/load/scripts/verify-slos.js:1) and dashboard generation for common cases.
+  - npm scripts such as `npm run slo:check`, `npm run slo:verify`, and `npm run slo:dashboard` (see [`docs/operations/SLO_VERIFICATION.md`](../operations/SLO_VERIFICATION.md:24)) wrap [`verify-slos.js`](../tests/load/scripts/verify-slos.js:1) and dashboard generation for common cases.
 - **Aggregated go/no-go artifact**
-  - When per-scenario k6 runs emit compact `.summary.json` files via the shared `handleSummary` helper (see [`docs/testing/LOAD_TEST_BASELINE_REPORT.md`](testing/LOAD_TEST_BASELINE_REPORT.md:86)), [`scripts/analyze-load-slos.ts`](../scripts/analyze-load-slos.ts:1) aggregates them into a single `load_slo_summary.json` file and prints a summary table.
+  - When per-scenario k6 runs emit compact `.summary.json` files via the shared `handleSummary` helper (see [`docs/testing/LOAD_TEST_BASELINE_REPORT.md`](../testing/LOAD_TEST_BASELINE_REPORT.md:86)), [`scripts/analyze-load-slos.ts`](../scripts/analyze-load-slos.ts:1) aggregates them into a single `load_slo_summary.json` file and prints a summary table.
   - Each entry in `scenarios[*]` of `load_slo_summary.json` corresponds to **one summary file**; for BCAP runs, the `sourceFile` field will contain the BCAP scenario ID (for example `BCAP_STAGING_BASELINE_20G_60P`), even when multiple entries share the same k6 `scenario` name such as `concurrent-games`.
   - For production validation, this aggregated result must reflect PASS per §2.4.3 **and** must include at least one scenario entry whose `sourceFile` contains each of the required BCAP scenario IDs from §2.4.2.
 - **Production preview harness**
@@ -382,7 +382,7 @@ The following items are intentionally left as **future PV tasks** and must be re
   - The concurrency targets encoded in the BCAP scenario IDs (20G/60P baseline, 100G/300P target-scale, 75G/300P AI-heavy) are derived from the v1.0 performance SLOs in [`PROJECT_GOALS.md`](../PROJECT_GOALS.md:143) and mirrored in [`tests/load/configs/bcap-scenarios.json`](../tests/load/configs/bcap-scenarios.json:1).
   - Any future change to these canonical targets (for example raising target-scale above 100G/300P or relaxing the AI-heavy 75G/300P probe) must:
     - First update the performance SLOs in [`PROJECT_GOALS.md`](../PROJECT_GOALS.md:143) and this contract (§2.4.2 9 §2.4.3).
-    - Then update the BCAP registry ([`tests/load/configs/bcap-scenarios.json`](../tests/load/configs/bcap-scenarios.json:1)), k6 configs such as [`tests/load/configs/target-scale.json`](../tests/load/configs/target-scale.json:1) or the `ai_heavy` profile in [`tests/load/config/scenarios.json`](../tests/load/config/scenarios.json:228), and any subordinate docs (for example [`docs/BASELINE_CAPACITY.md`](BASELINE_CAPACITY.md:15)).
+    - Then update the BCAP registry ([`tests/load/configs/bcap-scenarios.json`](../tests/load/configs/bcap-scenarios.json:1)), k6 configs such as [`tests/load/configs/target-scale.json`](../tests/load/configs/target-scale.json:1) or the `ai_heavy` profile in [`tests/load/config/scenarios.json`](../tests/load/config/scenarios.json:228), and any subordinate docs (for example [`docs/testing/BASELINE_CAPACITY.md`](../testing/BASELINE_CAPACITY.md:15)).
     - Finally, adjust alerting 9 observability targets only after the SLO 9 PV contract changes are in place.
   - PV-3+ tasks should codify this flow so that concurrency/SLO target changes cannot accidentally bypass the SSoT in [`PROJECT_GOALS.md`](../PROJECT_GOALS.md:143).
 
@@ -471,15 +471,15 @@ These items should be resolved by the project owner before or during PV-2–PV-7
 
 ### 4.4 Monitoring
 
-| Item                          | Status | Evidence                            |
-| ----------------------------- | ------ | ----------------------------------- |
-| Prometheus metrics exposed    | ✅     | `/metrics` endpoint, MetricsService |
-| Grafana dashboards configured | ✅     | 3 dashboards, 22 panels             |
-| Alertmanager rules defined    | ✅     | `monitoring/prometheus/alerts.yml`  |
-| Key SLO metrics tracked       | ✅     | Latency, error rate, AI fallback    |
-| Alert thresholds documented   | ✅     | `docs/ALERTING_THRESHOLDS.md`       |
-| Alert webhook endpoint        | ✅     | `/api/internal/alert-webhook`       |
-| Alert receivers configured    | ⏳     | Slack webhook URL needed (see §8.2) |
+| Item                          | Status | Evidence                                 |
+| ----------------------------- | ------ | ---------------------------------------- |
+| Prometheus metrics exposed    | ✅     | `/metrics` endpoint, MetricsService      |
+| Grafana dashboards configured | ✅     | 3 dashboards, 22 panels                  |
+| Alertmanager rules defined    | ✅     | `monitoring/prometheus/alerts.yml`       |
+| Key SLO metrics tracked       | ✅     | Latency, error rate, AI fallback         |
+| Alert thresholds documented   | ✅     | `docs/operations/ALERTING_THRESHOLDS.md` |
+| Alert webhook endpoint        | ✅     | `/api/internal/alert-webhook`            |
+| Alert receivers configured    | ⏳     | Slack webhook URL needed (see §8.2)      |
 
 ---
 
@@ -518,9 +518,9 @@ These items should be resolved by the project owner before or during PV-2–PV-7
 | Item                                   | Status | Evidence                                                                                                                                          |
 | -------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Baseline load test complete            | ✅     | Staging smoke-scale baseline (`BCAP_STAGING_BASELINE_20G_60P`, 2025-12-08); rerunnable via `npm run load:baseline:staging`                        |
-| Target scale test complete (100 games) | ✅     | **2025-12-10:** 30min test with 300 VUs, p95=53ms, p99=59ms, 7.5% CPU. Server stable. See `BASELINE_CAPACITY.md`                                  |
+| Target scale test complete (100 games) | ✅     | **2025-12-10:** 30min test with 300 VUs, p95=53ms, p99=59ms, 7.5% CPU. Server stable. See `docs/testing/BASELINE_CAPACITY.md`                     |
 | SLO verification passing               | ✅     | All latency SLOs passing with 89-97% margin under targets. Errors in test due to rate limiting + token expiration (expected), not capacity issues |
-| Load test results documented           | ✅     | Baseline + target-scale JSON, analyzer summaries, and SLO summaries under `tests/load/results/`; `BASELINE_CAPACITY.md` updated                   |
+| Load test results documented           | ✅     | Baseline + target-scale JSON, analyzer summaries, and SLO summaries under `tests/load/results/`; `docs/testing/BASELINE_CAPACITY.md` updated      |
 
 ### 5.4.1 Code Coverage Analysis (2025-12-11, Updated)
 
@@ -641,7 +641,7 @@ Issues that **must be resolved** before production launch:
 | ----------------------------------------- | -------- | ------- | ----- | ------------------------------------------------------- |
 | Target scale load test not completed      | P0       | ✅ Done | -     | 2025-12-10: 300 VUs, p95=53ms (see §5.4)                |
 | SLO verification at scale not done        | P0       | ✅ Done | -     | All SLOs passing with 89-97% margin                     |
-| Baseline capacity not documented          | P1       | ✅ Done | -     | `BASELINE_CAPACITY.md` updated                          |
+| Baseline capacity not documented          | P1       | ✅ Done | -     | `docs/testing/BASELINE_CAPACITY.md` updated             |
 | TLS/HTTPS not configured                  | P1       | ✅ Done | -     | Let's Encrypt cert active for ringrift.ai, www, staging |
 | Production secrets not in secrets manager | P1       | ✅ Done | -     | AWS Secrets Manager configured (ringrift/production)    |
 
@@ -797,7 +797,7 @@ Based on the current checklist status, the recommended action sequence:
 
 ### Medium Priority (Launch Week)
 
-8. ~~**W3-7: Capacity documentation**~~ ✅ `BASELINE_CAPACITY.md` complete
+8. ~~**W3-7: Capacity documentation**~~ ✅ `docs/testing/BASELINE_CAPACITY.md` complete
 9. **On-call rotation** - Establish coverage ⬜
 10. **Communication channels** - Set up #incidents ⬜
 
@@ -818,9 +818,9 @@ Based on the current checklist status, the recommended action sequence:
 | [`WAVE3_ASSESSMENT_REPORT.md`](archive/assessments/WAVE3_ASSESSMENT_REPORT.md) | Current assessment and remediation plan |
 | [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md)                                        | Active bugs and gaps                    |
 | [`TODO.md`](../TODO.md)                                                        | Task tracking                           |
-| [`docs/SLO_VERIFICATION.md`](SLO_VERIFICATION.md)                              | SLO framework                           |
+| [`docs/operations/SLO_VERIFICATION.md`](../operations/SLO_VERIFICATION.md)     | SLO framework                           |
 | [`docs/STAGING_ENVIRONMENT.md`](STAGING_ENVIRONMENT.md)                        | Staging deployment                      |
-| [`docs/BASELINE_CAPACITY.md`](BASELINE_CAPACITY.md)                            | Capacity testing                        |
+| [`docs/testing/BASELINE_CAPACITY.md`](../testing/BASELINE_CAPACITY.md)         | Capacity testing                        |
 | [`docs/runbooks/INDEX.md`](runbooks/INDEX.md)                                  | Operational runbooks                    |
 | [`docs/incidents/INDEX.md`](incidents/INDEX.md)                                | Incident response                       |
 

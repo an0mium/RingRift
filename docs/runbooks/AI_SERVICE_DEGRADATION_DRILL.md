@@ -6,10 +6,10 @@
 > **SSoT alignment:** This runbook is **derived operational guidance** over:
 >
 > - **Incidents and alerts:** `docs/incidents/AI_SERVICE.md`, `docs/incidents/LATENCY.md`, `docs/incidents/AVAILABILITY.md`, and alert rules in `monitoring/prometheus/alerts.yml` (especially `AIServiceDown`, `AIFallbackRateHigh`, `AIFallbackRateCritical`, `AIRequestHighLatency`, `AIErrorsIncreasing`, and `ServiceDegraded`).
-> - **Metrics and SLO documentation:** `docs/ALERTING_THRESHOLDS.md` (AI service alerts and thresholds) and the Grafana dashboards under `monitoring/grafana/dashboards/` (Game Performance & System Health dashboards for AI latency/fallbacks and overall health).
+> - **Metrics and SLO documentation:** `docs/operations/ALERTING_THRESHOLDS.md` (AI service alerts and thresholds) and the Grafana dashboards under `monitoring/grafana/dashboards/` (Game Performance & System Health dashboards for AI latency/fallbacks and overall health).
 > - **AI integration & fallbacks:** `AIServiceClient` and `AIEngine` (`src/server/services/AIServiceClient.ts`, `src/server/game/ai/AIEngine.ts`), including concurrency caps, circuit breaker, and local heuristic fallback logic plus counters such as `ringrift_ai_requests_total` and `ringrift_ai_fallback_total`.
 > - **Environment and deployment:** `docs/ENVIRONMENT_VARIABLES.md` (AI- and load-related env vars such as `AI_SERVICE_URL`, `AI_SERVICE_REQUEST_TIMEOUT_MS`, `AI_MAX_CONCURRENT_REQUESTS`, `ENABLE_HTTP_MOVE_HARNESS`) and `docs/DEPLOYMENT_REQUIREMENTS.md` (monitoring stack expectations).
-> - **Load / gameplay harnesses:** `tests/load/scenarios/player-moves.js` and its thresholds as mapped in `docs/ALERTING_THRESHOLDS.md` §“AI turn SLOs (service and end‑to‑end turn latency)”.
+> - **Load / gameplay harnesses:** `tests/load/scenarios/player-moves.js` and its thresholds as mapped in `docs/operations/ALERTING_THRESHOLDS.md` §“AI turn SLOs (service and end‑to‑end turn latency)”.
 > - **Existing drills:** `docs/runbooks/SECRETS_ROTATION_DRILL.md`, `docs/runbooks/DATABASE_BACKUP_AND_RESTORE_DRILL.md`, and the summary in `docs/runbooks/OPERATIONAL_DRILLS_RESULTS_2025_12_03.md` (Drill 7.3.3 AI outage simulation).
 
 > **Precedence:** Alert rules, metrics, backend/AI code, and tests are authoritative for **what counts as AI degradation** and how fallbacks behave. This runbook defines a **repeatable drill** for staging; if any step disagrees with code, configs, or tests, **code + configs + tests win** and this document must be updated.
@@ -198,7 +198,7 @@ All shell commands below assume you are on the staging host in the RingRift depl
 
    In Grafana:
    - Open the **Game Performance** dashboard:
-     - Confirm there are panels for **AI Request Latency** and **AI Request Outcomes & Fallbacks** (as described in `docs/ALERTING_THRESHOLDS.md` under “AI turn SLOs”).
+     - Confirm there are panels for **AI Request Latency** and **AI Request Outcomes & Fallbacks** (as described in `docs/operations/ALERTING_THRESHOLDS.md` under “AI turn SLOs”).
    - Open **System Health**:
      - Confirm HTTP error and latency panels are healthy (no sustained 5xx or high P99).
 
@@ -223,7 +223,7 @@ All shell commands below assume you are on the staging host in the RingRift depl
    ls tests/load/scenarios/player-moves.js
    ```
 
-   If this file is missing, stop here and review `tests/load/README.md` and `docs/ALERTING_THRESHOLDS.md` for the current load harness.
+   If this file is missing, stop here and review `tests/load/README.md` and `docs/operations/ALERTING_THRESHOLDS.md` for the current load harness.
 
 ### 3.3 Induce AI service degradation (canonical: stop the AI container)
 
@@ -302,10 +302,10 @@ With the AI service stopped, generate traffic that **would normally call the Pyt
      - Logs in via `/api/auth/login` (using a helper).
      - Creates AI games via `POST /api/games` with `aiOpponents` configured (AI vs human).
      - Optionally submits moves via the **HTTP move harness** when `MOVE_HTTP_ENDPOINT_ENABLED=true` and `ENABLE_HTTP_MOVE_HARNESS=true`.
-   - Thresholds for this scenario are wired to the AI and WebSocket SLOs described in `docs/ALERTING_THRESHOLDS.md` (HTTP & game move latency, stall rate, etc.).
+   - Thresholds for this scenario are wired to the AI and WebSocket SLOs described in `docs/operations/ALERTING_THRESHOLDS.md` (HTTP & game move latency, stall rate, etc.).
 
 2. **Keep the scenario running for at least one full alert window**
-   - The AI alerts use windows on the order of **5–10 minutes** (see `monitoring/prometheus/alerts.yml`, `docs/ALERTING_THRESHOLDS.md`).
+   - The AI alerts use windows on the order of **5–10 minutes** (see `monitoring/prometheus/alerts.yml`, `docs/operations/ALERTING_THRESHOLDS.md`).
    - Allow the k6 run to proceed long enough for:
      - `AIFallbackRateHigh` (and possibly `AIFallbackRateCritical`) to fire.
      - `AIServiceDown` to remain active throughout.
@@ -361,7 +361,7 @@ While `ai-service` is stopped and `player-moves.js` is running:
    - Open the **System Health** dashboard (`monitoring/grafana/dashboards/system-health.json`).
    - Confirm:
      - HTTP request rate and error share remain acceptable (no large 5xx spike purely due to AI failures).
-     - General latency panels (`HighP99Latency`, `HighP95Latency` surfaces) only degrade within the tolerance described in `docs/ALERTING_THRESHOLDS.md`.
+     - General latency panels (`HighP99Latency`, `HighP95Latency` surfaces) only degrade within the tolerance described in `docs/operations/ALERTING_THRESHOLDS.md`.
 
 4. **Alertmanager**
 
@@ -550,7 +550,7 @@ In particular:
 
 This document remains **non‑SSoT operational guidance** and defers to:
 
-- `monitoring/prometheus/alerts.yml` and `docs/ALERTING_THRESHOLDS.md` for alerting rules and thresholds.
+- `monitoring/prometheus/alerts.yml` and `docs/operations/ALERTING_THRESHOLDS.md` for alerting rules and thresholds.
 - `docs/ENVIRONMENT_VARIABLES.md` for authoritative environment variable definitions.
 - `src/server/services/AIServiceClient.ts`, `src/server/game/ai/AIEngine.ts`, and the associated `tests/unit/*.test.ts` files for AI integration and fallback semantics.
 - `docs/incidents/AI_SERVICE.md` and `docs/runbooks/SERVICE_DEGRADATION.md` for broader incident handling and service-wide degradation semantics.

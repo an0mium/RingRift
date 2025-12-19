@@ -405,7 +405,7 @@ sum(rate(ringrift_ai_requests_total[10m]))
 - **Ops / config SSoT:**
   - `monitoring/prometheus/alerts.yml`
   - `monitoring/prometheus/prometheus.yml`
-  - `docs/ALERTING_THRESHOLDS.md`
+  - `docs/operations/ALERTING_THRESHOLDS.md`
   - `docs/DEPLOYMENT_REQUIREMENTS.md`
   - `docs/ENVIRONMENT_VARIABLES.md`
   - `docs/OPERATIONS_DB.md`

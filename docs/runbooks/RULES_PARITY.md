@@ -386,7 +386,7 @@ Before considering a rules-parity incident resolved:
   - `monitoring/prometheus/alerts.yml`
   - `monitoring/prometheus/prometheus.yml`
   - `monitoring/README.md`
-  - `docs/ALERTING_THRESHOLDS.md`
+  - `docs/operations/ALERTING_THRESHOLDS.md`
   - `docs/OPERATIONS_DB.md`
 
 - **AI / training context (where Python rules are heavily exercised):**

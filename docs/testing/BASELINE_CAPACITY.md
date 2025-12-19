@@ -100,7 +100,7 @@ Target-scale run tracking:
 - Server infrastructure **can handle 300 concurrent VUs** with excellent latency
 - Rate limiting **working as designed** to protect system stability
 - High error rate is **test infrastructure limitation**, not server capacity issue
-- **Recommended**: Run 10-15 min tests within token TTL, or enhance k6 auth helper for token refresh
+- **Recommended**: Auth refresh is now wired into the k6 harness (2025-12-19); rerun full target-scale/AI-heavy tests to confirm error rates without token-expiry noise.
 
 Latest staging baseline run for pipeline validation (smoke-level only, not target scale): see
 `tests/load/results/baseline_staging_20251208_144949.json` and the corresponding
@@ -119,7 +119,7 @@ Latest staging baseline run for pipeline validation (smoke-level only, not targe
 | WebSocket Success  | >99%    | ~100%            | ⏳     | WS companion included in baseline; pending full run           |
 | Contract Failures  | 0       | 1\*              | ⚠️     | \*Token expiration, not true contract violation               |
 
-**Note (2025-12-10):** The high error rate in target-scale test reflects expected protective behaviors (rate limiting) and test infrastructure limitations (token expiration), not server capacity issues. Server demonstrated ability to handle 300 VUs with excellent latency.
+**Note (2025-12-10):** The high error rate in target-scale test reflects expected protective behaviors (rate limiting) and test infrastructure limitations (token expiration), not server capacity issues. Server demonstrated ability to handle 300 VUs with excellent latency. Auth refresh handling was added on 2025-12-19; rerun to capture clean error budgets.
 
 ### Staging Targets (from thresholds.json)
 
@@ -149,6 +149,7 @@ The improvement plan marks production validation as complete, but this doc still
    - Skip prompt for CI/non-interactive: add `SKIP_CONFIRM=true`
    - Verify: `node tests/load/scripts/verify-slos.js <target_results.json> console --env production`
    - WS verify: `node tests/load/scripts/verify-slos.js <target_ws_results.json> console --env production`
+   - Auth refresh is now built into `concurrent-games.js`; aim for a clean error-rate pass without token-expiry noise.
    - Add a row to the Target-scale table with date, scenario ID, notes, and paths.
 
 3. **AI-Heavy Probe (75G/300P, 3 AI seats per game)**

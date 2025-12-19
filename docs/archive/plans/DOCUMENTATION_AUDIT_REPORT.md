@@ -364,7 +364,7 @@ Following the recommendations above will result in:
 
 #### 4. Ops & Infrastructure Vertical (1 file modified)
 
-- **[`docs/ALERTING_THRESHOLDS.md`](docs/ALERTING_THRESHOLDS.md):**
+- **[`docs/operations/ALERTING_THRESHOLDS.md`](docs/operations/ALERTING_THRESHOLDS.md):**
   - Added 5 missing alerts from `monitoring/prometheus/alerts.yml`:
     - `NoHTTPTraffic`, `HighActiveHandles`, `LongRunningGames`
     - `DatabaseResponseTimeSlow`, `RedisResponseTimeSlow`

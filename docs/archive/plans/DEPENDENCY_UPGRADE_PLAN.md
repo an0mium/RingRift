@@ -322,7 +322,7 @@ Wave 2 introduces real behavioural risk. Guardrails must span:
    - `tests/unit/securityHeaders.test.ts`.
    - `tests/unit/degradationHeaders.test.ts`.
    - `tests/unit/metricsMiddleware.test.ts`.
-   - Runbooks & metrics expectations: `docs/runbooks/RATE_LIMITING.md`, `docs/ALERTING_THRESHOLDS.md` (for operator behaviour; these should be manually reviewed for obvious mismatches after changes).
+   - Runbooks & metrics expectations: `docs/runbooks/RATE_LIMITING.md`, `docs/operations/ALERTING_THRESHOLDS.md` (for operator behaviour; these should be manually reviewed for obvious mismatches after changes).
 
 3. **Rules & engine invariants (regression net):**
    - Representative `.shared` suites:
@@ -509,7 +509,7 @@ npx jest tests/unit/rateLimiter.test.ts \
 - `logs/jest/wave2.rate-limiter-unit.log` shows **4/4 suites passing (95 tests)**.
 - Console output confirms that degraded/no‑Redis semantics, CORS/security headers, and
   metrics integration still match the behaviour described in `docs/runbooks/RATE_LIMITING.md`
-  and `docs/ALERTING_THRESHOLDS.md`.
+  and `docs/operations/ALERTING_THRESHOLDS.md`.
 
 #### 4.4.4 Wave 2 Playwright E2E Subset (Chromium)
 

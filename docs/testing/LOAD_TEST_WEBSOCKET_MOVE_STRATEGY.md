@@ -8,7 +8,7 @@
 >
 > - [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:1)
 > - [`PLAYER_MOVE_TRANSPORT_DECISION.md`](docs/PLAYER_MOVE_TRANSPORT_DECISION.md:1)
-> - [`LOAD_TEST_BASELINE_REPORT.md`](docs/LOAD_TEST_BASELINE_REPORT.md:1)
+> - [`LOAD_TEST_BASELINE_REPORT.md`](docs/testing/LOAD_TEST_BASELINE_REPORT.md:1)
 > - [`API_REFERENCE.md`](docs/API_REFERENCE.md:1)
 > - [`websocket-stress.js`](tests/load/scenarios/websocket-stress.js:1)
 > - [`player-moves.js`](tests/load/scenarios/player-moves.js:1)
@@ -504,7 +504,7 @@ This section outlines key risks and trade-offs for WebSocket gameplay load testi
 
 ### 6.1 Dev environment rate limiting and capacity
 
-- As observed in the HTTP harness runs in [`LOAD_TEST_BASELINE_REPORT.md`](docs/LOAD_TEST_BASELINE_REPORT.md:1), the local/dev environment can hit adaptive rate limits (for example, on `POST /api/games`) and even transient connection failures under aggressive k6 patterns.
+- As observed in the HTTP harness runs in [`LOAD_TEST_BASELINE_REPORT.md`](docs/testing/LOAD_TEST_BASELINE_REPORT.md:1), the local/dev environment can hit adaptive rate limits (for example, on `POST /api/games`) and even transient connection failures under aggressive k6 patterns.
 - Running S2-style throughput scenarios in dev risks producing misleading failures (rate limiting, connection refused) that are environment artefacts rather than true server-side bottlenecks.
 
 **Mitigations**

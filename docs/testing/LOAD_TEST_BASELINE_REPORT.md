@@ -1,5 +1,7 @@
 # RingRift Load Test Baseline Report
 
+> **Status:** Historical snapshot (2025-12-04). Superseded by `docs/testing/BASELINE_CAPACITY.md` and `docs/testing/LOAD_TEST_BASELINE.md` for current baselines.
+
 ## Wave 3.1 – Staging Baseline Attempt (2025-12-04)
 
 **Environment (intended):**
@@ -7,7 +9,7 @@
 - Topology: single-node staging stack via `docker compose -f docker-compose.yml -f docker-compose.staging.yml up --build` as described in [`QUICKSTART.md`](QUICKSTART.md:637).
 - Target base URL: `http://localhost:3000` (Node backend + built client, API + WebSocket on the `app` service).
 - Threshold environment: `THRESHOLD_ENV=staging`, mapping to the `staging` block in [`thresholds.json`](tests/load/config/thresholds.json:8).
-- SLO sources (unchanged): [`PROJECT_GOALS.md`](PROJECT_GOALS.md:150), [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:257), and [`docs/ALERTING_THRESHOLDS.md`](docs/ALERTING_THRESHOLDS.md:10).
+- SLO sources (unchanged): [`PROJECT_GOALS.md`](PROJECT_GOALS.md:150), [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:257), and [`docs/operations/ALERTING_THRESHOLDS.md`](docs/operations/ALERTING_THRESHOLDS.md:10).
 
 **k6 execution status (Wave 3.1 attempt):**
 
@@ -52,8 +54,8 @@ Values below are from [`results/load/game-creation.staging.summary.json`](result
 
 - No new healthy latency or error-rate ranges can be established from this attempted run, since there was effectively **no traffic** beyond failing pre-flight checks.
 - Until a successful staging run is recorded:
-  - Continue to treat the local/Docker baseline in [`docs/LOAD_TEST_BASELINE.md`](docs/LOAD_TEST_BASELINE.md:18) as the reference for “healthy” behaviour.
-  - Use the SLO values and alert thresholds in [`PROJECT_GOALS.md`](PROJECT_GOALS.md:150), [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:257), and [`docs/ALERTING_THRESHOLDS.md`](docs/ALERTING_THRESHOLDS.md:10) as the authoritative SSoTs.
+  - Continue to treat the local/Docker baseline in [`docs/testing/LOAD_TEST_BASELINE.md`](docs/testing/LOAD_TEST_BASELINE.md:18) as the reference for “healthy” behaviour.
+  - Use the SLO values and alert thresholds in [`PROJECT_GOALS.md`](PROJECT_GOALS.md:150), [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:257), and [`docs/operations/ALERTING_THRESHOLDS.md`](docs/operations/ALERTING_THRESHOLDS.md:10) as the authoritative SSoTs.
 
 **Planned commands for a complete Wave 3.1 staging baseline (once environment is healthy):**
 
@@ -224,7 +226,7 @@ Overall load test SLO result: GO (all scenarios passed)
 The underlying SLO targets and semantics remain defined in:
 
 - [`tests/load/config/thresholds.json`](tests/load/config/thresholds.json:1)
-- SLO strategy docs: [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:257), [`PROJECT_GOALS.md`](PROJECT_GOALS.md:150), and (where present) [`docs/ALERTING_THRESHOLDS.md`](docs/ALERTING_THRESHOLDS.md:10).
+- SLO strategy docs: [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:257), [`PROJECT_GOALS.md`](PROJECT_GOALS.md:150), and (where present) [`docs/operations/ALERTING_THRESHOLDS.md`](docs/operations/ALERTING_THRESHOLDS.md:10).
 
 The harness described here simply makes those SLOs executable for discrete load runs and exposes clear, scriptable go/no‑go signals.
 
@@ -487,9 +489,9 @@ Based on baseline measurements, recommended alert thresholds:
 | http_req_failed rate         | >0.5%   | >1%      |
 
 These values represent an **aggressive, baseline-driven configuration** (≈10–25×
-above the p95/p99 latencies in `docs/LOAD_TEST_BASELINE.md`). The **canonical**
+above the p95/p99 latencies in `docs/testing/LOAD_TEST_BASELINE.md`). The **canonical**
 Prometheus alert thresholds and severities are defined in
-`docs/ALERTING_THRESHOLDS.md` and `monitoring/prometheus/alerts.yml` and
+`docs/operations/ALERTING_THRESHOLDS.md` and `monitoring/prometheus/alerts.yml` and
 currently allow more headroom (for example `HighP95Latency` at 1s and
 `HighP99Latency` at 2s/5s). Use this table when considering future tightening of
 those alerts toward the baseline ranges.

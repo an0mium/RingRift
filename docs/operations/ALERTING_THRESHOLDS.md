@@ -924,7 +924,7 @@ Grafana dashboards that monitor the same behaviours under steady‑state
 traffic.
 
 For detailed baseline numbers from the most recent local/staging runs, see
-[`docs/LOAD_TEST_BASELINE.md`](./LOAD_TEST_BASELINE.md:1). That document is the
+[`docs/testing/LOAD_TEST_BASELINE.md`](../testing/LOAD_TEST_BASELINE.md:1). That document is the
 working record of “healthy ranges” observed under load; this section records
 how those ranges are enforced and visualised.
 
@@ -1047,7 +1047,7 @@ When updating SLO numbers or adding new scenarios:
    and the individual k6 scenario thresholds to match.
 3. Ensure the corresponding Prometheus alerts and Grafana panels continue to
    observe the same metrics and label sets, avoiding forks in metric naming.
-4. Record new baseline ranges in [`docs/LOAD_TEST_BASELINE.md`](./LOAD_TEST_BASELINE.md:1).
+4. Record new baseline ranges in [`docs/testing/LOAD_TEST_BASELINE.md`](../testing/LOAD_TEST_BASELINE.md:1).
 
 ## Threshold Rationale Summary
 

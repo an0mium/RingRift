@@ -1053,7 +1053,7 @@ and referenced from the rollout and alerting docs:
   - checked in CI by `orchestrator-soak-smoke` /
     `orchestrator-short-soak` (`SLO-CI-ORCH-SHORT-SOAK`), and
   - monitored in staging/production via alert thresholds described in
-    `docs/ALERTING_THRESHOLDS.md`. Dashboards and alert queries should
+    `docs/operations/ALERTING_THRESHOLDS.md`. Dashboards and alert queries should
     generally group by `invariant_id` rather than raw `type` strings.
 
 - **Rules-parity mismatches (TS ↔ Python):**  
@@ -1073,7 +1073,7 @@ for rules semantics. Changes to their meaning or emission points must remain
 aligned with:
 
 - `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` §6.6 (metrics and SLOs),
-- `docs/ALERTING_THRESHOLDS.md` (alert expressions and thresholds), and
+- `docs/operations/ALERTING_THRESHOLDS.md` (alert expressions and thresholds), and
 - the invariant‑soak profiles in `docs/STRICT_INVARIANT_SOAKS.md`.
 
 #### 3.9.2 Worked example: `PendingDecision → PlayerChoice → WebSocket → Move`

@@ -12,7 +12,7 @@
 >   - Game orchestration and state machines in `src/server/game/**` and `src/shared/stateMachines/**`.
 >   - WebSocket server and handlers in `src/server/websocket/server.ts` and `src/server/game/WebSocketInteractionHandler.ts`.
 >   - Database and cache clients in `src/server/database/connection.ts` and `src/server/cache/redis.ts`.
-> - **Performance & resource docs:** `monitoring/README.md`, `docs/ALERTING_THRESHOLDS.md`, and related incident docs under `docs/incidents/LATENCY.md` and `docs/incidents/RESOURCES.md`.
+> - **Performance & resource docs:** `monitoring/README.md`, `docs/operations/ALERTING_THRESHOLDS.md`, and related incident docs under `docs/incidents/LATENCY.md` and `docs/incidents/RESOURCES.md`.
 >
 > **Precedence:**
 >
@@ -273,7 +273,7 @@ Before considering an event-loop-lag incident resolved, confirm:
   - `monitoring/prometheus/alerts.yml`
   - `monitoring/prometheus/prometheus.yml`
   - `monitoring/README.md`
-  - `docs/ALERTING_THRESHOLDS.md`
+  - `docs/operations/ALERTING_THRESHOLDS.md`
 
 - **Resources & performance:**
   - `HIGH_MEMORY.md` — for memory pressure that can exacerbate lag.

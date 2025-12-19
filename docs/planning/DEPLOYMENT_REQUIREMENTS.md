@@ -6,7 +6,7 @@
 >
 > **Not a semantics SSoT:** This document does not define game rules or lifecycle semantics. Rules semantics are owned by the shared TypeScript rules engine under `src/shared/engine/**` plus contracts and vectors (see `RULES_CANONICAL_SPEC.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`). Lifecycle semantics are owned by `docs/CANONICAL_ENGINE_API.md` together with shared types/schemas in `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
 >
-> **Related docs:** `docs/ENVIRONMENT_VARIABLES.md`, `docs/SECRETS_MANAGEMENT.md`, `docs/OPERATIONS_DB.md`, `docs/SECURITY_THREAT_MODEL.md`, `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`, `docs/ALERTING_THRESHOLDS.md`, and `DOCUMENTATION_INDEX.md`.
+> **Related docs:** `docs/ENVIRONMENT_VARIABLES.md`, `docs/SECRETS_MANAGEMENT.md`, `docs/OPERATIONS_DB.md`, `docs/SECURITY_THREAT_MODEL.md`, `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`, `docs/operations/ALERTING_THRESHOLDS.md`, and `DOCUMENTATION_INDEX.md`.
 
 This document outlines the requirements and configuration for deploying RingRift in different environments.
 

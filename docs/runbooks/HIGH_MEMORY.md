@@ -271,7 +271,7 @@ Before considering a high-memory incident resolved, confirm:
   - `monitoring/prometheus/alerts.yml`
   - `monitoring/prometheus/prometheus.yml`
   - `monitoring/README.md`
-  - `docs/ALERTING_THRESHOLDS.md`
+  - `docs/operations/ALERTING_THRESHOLDS.md`
 
 - **Lifecycle & data retention:**
   - `src/server/game/GameSession.ts`

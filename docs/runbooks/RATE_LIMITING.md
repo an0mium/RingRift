@@ -11,7 +11,7 @@
 >   - Core rate limiting logic and middleware in `src/server/middleware/rateLimiter.ts`.
 >   - Environment-driven configuration for per-endpoint and per-user quotas (`RATE_LIMIT_*` env vars), as documented in `docs/ENVIRONMENT_VARIABLES.md`.
 >   - Redis-backed vs in-memory limiters, and the fallback limiter semantics.
-> - **Monitoring & operations docs:** `monitoring/README.md`, `docs/ALERTING_THRESHOLDS.md`, `docs/incidents/RESOURCES.md`.
+> - **Monitoring & operations docs:** `monitoring/README.md`, `docs/operations/ALERTING_THRESHOLDS.md`, `docs/incidents/RESOURCES.md`.
 >
 > **Precedence:**
 >
@@ -302,7 +302,7 @@ Before considering a rate-limiting incident resolved, verify:
   - `monitoring/prometheus/alerts.yml`
   - `monitoring/prometheus/prometheus.yml`
   - `monitoring/README.md`
-  - `docs/ALERTING_THRESHOLDS.md`
+  - `docs/operations/ALERTING_THRESHOLDS.md`
 
 - **Rate limiting implementation & configuration:**
   - `src/server/middleware/rateLimiter.ts`

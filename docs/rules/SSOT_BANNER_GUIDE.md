@@ -186,7 +186,7 @@ Other AI docs should make the same relationship explicit and clearly mark themse
 - `docs/DATA_LIFECYCLE_AND_PRIVACY.md`
 - `docs/DEPLOYMENT_REQUIREMENTS.md`
 - `docs/OPERATIONS_DB.md`
-- `docs/ALERTING_THRESHOLDS.md`
+- `docs/operations/ALERTING_THRESHOLDS.md`
 
 **Required snippet (for the CI/security doc already wired into checks):** `Operational SSoT`
 

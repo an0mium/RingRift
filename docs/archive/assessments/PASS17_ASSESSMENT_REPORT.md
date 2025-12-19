@@ -65,7 +65,7 @@
       `ringrift_python_invariant_violations_total{invariant_id,type}` for strict
       anomalies (including `INV-S-MONOTONIC` and `INV-ACTIVE-NO-MOVES`).
     - `PythonInvariantViolations` in `monitoring/prometheus/alerts.yml` and
-      `docs/ALERTING_THRESHOLDS.md` promotes these to a warning‑level AI/Rules
+      `docs/operations/ALERTING_THRESHOLDS.md` promotes these to a warning‑level AI/Rules
       signal.
     - `docs/INVARIANTS_AND_PARITY_FRAMEWORK.md` and
       `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` now treat Python AI healthchecks as a
@@ -218,7 +218,7 @@ drift and make the rollout/invariants story fully coherent:
     - TS orchestrator soaks map cleanly to
       `ringrift_orchestrator_invariant_violations_total{type,invariant_id}` and
       `OrchestratorInvariantViolations*`.
-- `docs/ALERTING_THRESHOLDS.md` and `monitoring/prometheus/alerts.yml`
+- `docs/operations/ALERTING_THRESHOLDS.md` and `monitoring/prometheus/alerts.yml`
   - Confirmed and documented alert wiring for orchestrator invariants,
     Python invariants, and rules parity, closing prior “no metrics/alerts yet”
     gaps.

@@ -437,7 +437,7 @@ When adjusting these profiles, keep them:
 - **Ops / config SSoT:**
   - `monitoring/prometheus/alerts.yml`
   - `monitoring/prometheus/prometheus.yml`
-  - `docs/ALERTING_THRESHOLDS.md`
+  - `docs/operations/ALERTING_THRESHOLDS.md`
   - `docs/DEPLOYMENT_REQUIREMENTS.md`
   - `docs/ENVIRONMENT_VARIABLES.md`
 - **Orchestrator rollout:**

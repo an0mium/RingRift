@@ -332,7 +332,7 @@ enforced across hosts and CI/rollout.
   and feed into shared observability surfaces:
   - Metrics from `MetricsService.ts` (`ringrift_orchestrator_invariant_violations_total`,
     error/circuit‑breaker/rollout metrics).
-  - Alerts and dashboards described in `docs/ALERTING_THRESHOLDS.md`.
+  - Alerts and dashboards described in `docs/operations/ALERTING_THRESHOLDS.md`.
 
 When adding new rules that affect markers, collapsed spaces, or eliminated rings,
 update `computeProgressSnapshot` and its tests first, then ensure:

@@ -60,7 +60,7 @@ Goal: Decide whether this is **benign zero traffic** or a **reachability inciden
 
 If this appears **expected**, you can:
 
-- Acknowledge the alert and consider adjusting thresholds or silencing during known idle windows (see `docs/ALERTING_THRESHOLDS.md`).
+- Acknowledge the alert and consider adjusting thresholds or silencing during known idle windows (see `docs/operations/ALERTING_THRESHOLDS.md`).
 
 If this is **not expected**, continue.
 
@@ -230,7 +230,7 @@ If you confirm that **zero traffic is acceptable** (e.g. staging environment at 
    - Tuning `for:` duration in `alerts.yml` for `NoHTTPTraffic`.
    - Restricting the alert to specific environments (e.g. production-only using label filters).
    - Adding a maintenance/quiet-hours silence.
-3. Update `docs/ALERTING_THRESHOLDS.md` to record the rationale for any changes.
+3. Update `docs/operations/ALERTING_THRESHOLDS.md` to record the rationale for any changes.
 
 ---
 
@@ -303,7 +303,7 @@ You are done when **all** of the following hold:
   - `docs/runbooks/DEPLOYMENT_ROUTINE.md`
   - `docs/runbooks/DEPLOYMENT_ROLLBACK.md`
 - Ops / config SSoT
-  - `docs/ALERTING_THRESHOLDS.md`
+  - `docs/operations/ALERTING_THRESHOLDS.md`
   - `docs/DEPLOYMENT_REQUIREMENTS.md`
   - `docs/OPERATIONS_DB.md`
   - `docs/ENVIRONMENT_VARIABLES.md`

@@ -344,7 +344,7 @@ Run this checklist **before** promoting a new build to staging or production.
 
 4. **Monitoring and alert configuration**
    - Ensure the following alerts are defined and routed correctly (see
-     `monitoring/prometheus/alerts.yml` and `docs/ALERTING_THRESHOLDS.md`):
+     `monitoring/prometheus/alerts.yml` and `docs/operations/ALERTING_THRESHOLDS.md`):
      - `OrchestratorCircuitBreakerOpen`
      - `OrchestratorErrorRateWarning`
      - `OrchestratorShadowMismatches`
