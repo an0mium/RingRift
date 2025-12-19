@@ -3,6 +3,8 @@ Centralized recovery coordination for self-healing cluster operations.
 
 This module provides automatic recovery from stuck jobs, unhealthy nodes,
 and other failure conditions without requiring manual intervention.
+
+Extends CoordinatorBase for standardized lifecycle management and stats.
 """
 
 import asyncio
@@ -11,6 +13,8 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+
+from app.coordination.coordinator_base import CoordinatorBase, CoordinatorStatus
 
 if TYPE_CHECKING:
     from app.coordination.work_queue import WorkItem, WorkQueue
@@ -93,14 +97,23 @@ class JobRecoveryState:
     last_attempt_time: float = 0.0
 
 
-class RecoveryManager:
+class RecoveryManager(CoordinatorBase):
     """
     Centralized recovery coordination for self-healing operations.
+
+    Extends CoordinatorBase for standardized lifecycle management.
 
     Handles:
     - Stuck job detection and recovery
     - Unhealthy node recovery
     - Escalation to human operators when auto-recovery fails
+
+    Dependencies (set via set_dependency or legacy setters):
+    - work_queue: WorkQueue instance
+    - notifier: Notification service
+    - kill_job_callback: Callable for killing jobs
+    - restart_services_callback: Callable for restarting node services
+    - reboot_node_callback: Callable for rebooting nodes
     """
 
     def __init__(
@@ -108,41 +121,62 @@ class RecoveryManager:
         config: Optional[RecoveryConfig] = None,
         notifier: Optional[Any] = None,
     ):
+        super().__init__(name="RecoveryManager")
         self.config = config or RecoveryConfig()
-        self._notifier = notifier
 
         # State tracking
         self._node_states: Dict[str, NodeRecoveryState] = {}
         self._job_states: Dict[str, JobRecoveryState] = {}
         self._recovery_history: List[RecoveryEvent] = []
 
-        # Work queue reference (set by orchestrator)
-        self._work_queue: Optional["WorkQueue"] = None
+        # Set initial dependencies if provided
+        if notifier:
+            self.set_dependency("notifier", notifier)
 
-        # Callbacks for orchestrator integration
-        self._kill_job_callback: Optional[Callable] = None
-        self._restart_services_callback: Optional[Callable] = None
-        self._reboot_node_callback: Optional[Callable] = None
+        # Mark as ready immediately (no async init needed)
+        self._status = CoordinatorStatus.READY
 
+    # Legacy setters - delegate to dependency injection
     def set_work_queue(self, work_queue: "WorkQueue") -> None:
         """Set the work queue reference."""
-        self._work_queue = work_queue
+        self.set_dependency("work_queue", work_queue)
 
     def set_notifier(self, notifier: Any) -> None:
         """Set the notification service."""
-        self._notifier = notifier
+        self.set_dependency("notifier", notifier)
 
     def set_kill_job_callback(self, callback: Callable) -> None:
         """Set callback for killing jobs."""
-        self._kill_job_callback = callback
+        self.set_dependency("kill_job_callback", callback)
 
     def set_restart_services_callback(self, callback: Callable) -> None:
         """Set callback for restarting node services."""
-        self._restart_services_callback = callback
+        self.set_dependency("restart_services_callback", callback)
 
     def set_reboot_node_callback(self, callback: Callable) -> None:
         """Set callback for rebooting nodes."""
-        self._reboot_node_callback = callback
+        self.set_dependency("reboot_node_callback", callback)
+
+    # Property accessors for dependencies
+    @property
+    def _work_queue(self) -> Optional["WorkQueue"]:
+        return self.get_dependency("work_queue")
+
+    @property
+    def _notifier(self) -> Optional[Any]:
+        return self.get_dependency("notifier")
+
+    @property
+    def _kill_job_callback(self) -> Optional[Callable]:
+        return self.get_dependency("kill_job_callback")
+
+    @property
+    def _restart_services_callback(self) -> Optional[Callable]:
+        return self.get_dependency("restart_services_callback")
+
+    @property
+    def _reboot_node_callback(self) -> Optional[Callable]:
+        return self.get_dependency("reboot_node_callback")
 
     def _get_node_state(self, node_id: str) -> NodeRecoveryState:
         """Get or create node recovery state."""
@@ -426,8 +460,57 @@ class RecoveryManager:
         if work_id in self._job_states:
             del self._job_states[work_id]
 
+    async def get_stats(self) -> Dict[str, Any]:
+        """Get recovery statistics for monitoring.
+
+        Implements CoordinatorBase.get_stats() interface.
+        """
+        # Get base stats from CoordinatorBase
+        base_stats = await super().get_stats()
+
+        recent_events = [e for e in self._recovery_history if time.time() - e.timestamp < 3600]
+
+        success_count = sum(1 for e in recent_events if e.result == RecoveryResult.SUCCESS)
+        failed_count = sum(1 for e in recent_events if e.result == RecoveryResult.FAILED)
+        escalated_count = sum(1 for e in recent_events if e.result == RecoveryResult.ESCALATED)
+
+        escalated_nodes = [
+            node_id for node_id, state in self._node_states.items()
+            if state.is_escalated
+        ]
+
+        # Merge with recovery-specific stats
+        base_stats.update({
+            "enabled": self.config.enabled,
+            "recoveries_last_hour": {
+                "success": success_count,
+                "failed": failed_count,
+                "escalated": escalated_count,
+            },
+            "nodes_tracked": len(self._node_states),
+            "jobs_tracked": len(self._job_states),
+            "escalated_nodes": escalated_nodes,
+            "total_events": len(self._recovery_history),
+        })
+        return base_stats
+
     def get_recovery_stats(self) -> Dict[str, Any]:
-        """Get recovery statistics for monitoring."""
+        """Legacy sync wrapper for get_stats().
+
+        Deprecated: Use await get_stats() instead.
+        """
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            # If there's a running loop, we can't use run_until_complete
+            # Return a simplified version
+            return self._get_recovery_stats_sync()
+        except RuntimeError:
+            # No running loop, safe to create one
+            return asyncio.run(self.get_stats())
+
+    def _get_recovery_stats_sync(self) -> Dict[str, Any]:
+        """Synchronous version of recovery stats (no base stats)."""
         recent_events = [e for e in self._recovery_history if time.time() - e.timestamp < 3600]
 
         success_count = sum(1 for e in recent_events if e.result == RecoveryResult.SUCCESS)
@@ -440,6 +523,8 @@ class RecoveryManager:
         ]
 
         return {
+            "name": self.name,
+            "status": self.status.value,
             "enabled": self.config.enabled,
             "recoveries_last_hour": {
                 "success": success_count,

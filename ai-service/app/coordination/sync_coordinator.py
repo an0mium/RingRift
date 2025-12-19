@@ -57,6 +57,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+from app.coordination.coordinator_base import (
+    CoordinatorBase,
+    CoordinatorStatus,
+    SQLitePersistenceMixin,
+)
+
 logger = logging.getLogger(__name__)
 
 # Default paths
@@ -256,8 +262,11 @@ class ClusterDataStatus:
         }
 
 
-class SyncCoordinator:
+class SyncCoordinator(CoordinatorBase, SQLitePersistenceMixin):
     """Centralized coordinator for cluster-wide data synchronization.
+
+    Extends CoordinatorBase for standardized lifecycle and SQLitePersistenceMixin
+    for thread-safe database access.
 
     This class provides:
     1. Unified view of data state across all hosts
@@ -267,24 +276,29 @@ class SyncCoordinator:
     """
 
     _instance: Optional["SyncCoordinator"] = None
-    _lock = threading.RLock()
+    _singleton_lock = threading.RLock()
 
     def __init__(self, db_path: Optional[Path] = None):
-        self.db_path = db_path or DEFAULT_COORDINATOR_DB
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._local = threading.local()
+        CoordinatorBase.__init__(self, name="SyncCoordinator")
         self._host_states: Dict[str, HostDataState] = {}
         self._sync_queue: List[SyncRecommendation] = []
         self._callbacks: List[Callable[[SyncRecommendation], None]] = []
         self._last_full_sync_time: float = 0.0
-        self._init_db()
+
+        # Initialize SQLite persistence
+        db_path = db_path or DEFAULT_COORDINATOR_DB
+        self.init_db(db_path)
+
         self._load_host_config()
         self._load_state()
+
+        # Mark as ready
+        self._status = CoordinatorStatus.READY
 
     @classmethod
     def get_instance(cls, db_path: Optional[Path] = None) -> "SyncCoordinator":
         """Get or create singleton instance."""
-        with cls._lock:
+        with cls._singleton_lock:
             if cls._instance is None:
                 cls._instance = cls(db_path)
             return cls._instance
@@ -292,33 +306,19 @@ class SyncCoordinator:
     @classmethod
     def reset_instance(cls) -> None:
         """Reset singleton for testing."""
-        with cls._lock:
+        with cls._singleton_lock:
             if cls._instance is not None:
                 cls._instance._save_state()
             cls._instance = None
 
     # =========================================================================
-    # Database Management
+    # Database Management (via SQLitePersistenceMixin)
     # =========================================================================
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """Get thread-local database connection."""
-        if not hasattr(self._local, "conn") or self._local.conn is None:
-            self._local.conn = sqlite3.connect(
-                str(self.db_path),
-                timeout=10,
-                check_same_thread=False
-            )
-            self._local.conn.row_factory = sqlite3.Row
-        return self._local.conn
-
-    def _init_db(self) -> None:
-        """Initialize database schema."""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-
-        # Host state table
-        cursor.execute("""
+    def _get_schema(self) -> str:
+        """Get database schema SQL."""
+        return """
+            -- Host state table
             CREATE TABLE IF NOT EXISTS host_state (
                 host TEXT PRIMARY KEY,
                 host_type TEXT NOT NULL,
@@ -331,11 +331,9 @@ class SyncCoordinator:
                 sync_failures_24h INTEGER DEFAULT 0,
                 last_error TEXT DEFAULT '',
                 metadata TEXT DEFAULT '{}'
-            )
-        """)
+            );
 
-        # Sync history table
-        cursor.execute("""
+            -- Sync history table
             CREATE TABLE IF NOT EXISTS sync_history (
                 sync_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 host TEXT NOT NULL,
@@ -346,25 +344,19 @@ class SyncCoordinator:
                 success INTEGER DEFAULT 0,
                 error_message TEXT DEFAULT '',
                 duration_seconds REAL DEFAULT 0
-            )
-        """)
+            );
 
-        # Create indexes
-        cursor.execute("""
+            -- Create indexes
             CREATE INDEX IF NOT EXISTS idx_sync_history_host
-            ON sync_history(host, started_at DESC)
-        """)
+            ON sync_history(host, started_at DESC);
 
-        # Coordinator state table
-        cursor.execute("""
+            -- Coordinator state table
             CREATE TABLE IF NOT EXISTS coordinator_state (
                 key TEXT PRIMARY KEY,
                 value TEXT,
                 updated_at REAL
-            )
-        """)
-
-        conn.commit()
+            );
+        """
 
     def _load_state(self) -> None:
         """Load state from database."""
@@ -644,6 +636,52 @@ class SyncCoordinator:
     def get_host_state(self, host: str) -> Optional[HostDataState]:
         """Get the data state for a specific host."""
         return self._host_states.get(host)
+
+    async def get_stats(self) -> Dict[str, Any]:
+        """Get sync coordinator statistics.
+
+        Implements CoordinatorBase.get_stats() interface.
+        """
+        # Get base stats from CoordinatorBase
+        base_stats = await super().get_stats()
+
+        # Get cluster status
+        status = self.get_cluster_status()
+
+        # Merge with sync-specific stats
+        base_stats.update({
+            "total_hosts": status.total_hosts,
+            "healthy_hosts": status.healthy_hosts,
+            "stale_hosts": len(status.stale_hosts),
+            "critical_hosts": len(status.critical_hosts),
+            "syncing_hosts": len(status.syncing_hosts),
+            "unreachable_hosts": len(status.unreachable_hosts),
+            "total_games_cluster": status.total_games_cluster,
+            "estimated_unsynced_games": status.estimated_unsynced_games,
+            "cluster_health_score": round(status.cluster_health_score, 1),
+            "last_full_sync_time": status.last_full_sync_time,
+            "pending_recommendations": len(status.recommendations),
+        })
+        return base_stats
+
+    def get_stats_sync(self) -> Dict[str, Any]:
+        """Synchronous version of get_stats for non-async contexts."""
+        status = self.get_cluster_status()
+        return {
+            "name": self.name,
+            "status": self.status.value,
+            "total_hosts": status.total_hosts,
+            "healthy_hosts": status.healthy_hosts,
+            "stale_hosts": len(status.stale_hosts),
+            "critical_hosts": len(status.critical_hosts),
+            "syncing_hosts": len(status.syncing_hosts),
+            "unreachable_hosts": len(status.unreachable_hosts),
+            "total_games_cluster": status.total_games_cluster,
+            "estimated_unsynced_games": status.estimated_unsynced_games,
+            "cluster_health_score": round(status.cluster_health_score, 1),
+            "last_full_sync_time": status.last_full_sync_time,
+            "pending_recommendations": len(status.recommendations),
+        }
 
     # =========================================================================
     # Sync Scheduling

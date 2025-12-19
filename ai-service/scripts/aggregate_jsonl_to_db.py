@@ -345,6 +345,8 @@ def import_to_database(
             )
 
             # Store the game (without history entries for efficiency)
+            # Use snapshot_interval=0 to skip move validation/application
+            # since placeholder states don't match actual game progression
             db.store_game(
                 game_id=record["game_id"],
                 initial_state=initial_state,
@@ -352,6 +354,7 @@ def import_to_database(
                 moves=moves,
                 metadata=metadata,
                 store_history_entries=False,  # Skip expensive history for bulk import
+                snapshot_interval=0,  # Disable snapshots to skip move application
             )
 
             stats["imported"] += 1

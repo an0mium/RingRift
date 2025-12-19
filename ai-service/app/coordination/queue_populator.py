@@ -41,6 +41,8 @@ class ConfigTarget:
     games_played: int = 0
     training_runs: int = 0
     last_updated: float = field(default_factory=time.time)
+    # Elo history for velocity tracking: list of (timestamp, elo) tuples
+    elo_history: List[tuple] = field(default_factory=list)
 
     @property
     def target_met(self) -> bool:
@@ -53,6 +55,66 @@ class ConfigTarget:
     @property
     def config_key(self) -> str:
         return f"{self.board_type}_{self.num_players}p"
+
+    @property
+    def elo_velocity(self) -> float:
+        """Calculate Elo velocity in points per day.
+
+        Uses linear regression on recent history (last 7 days).
+        Returns 0 if insufficient data.
+        """
+        if len(self.elo_history) < 2:
+            return 0.0
+
+        # Filter to last 7 days
+        now = time.time()
+        week_ago = now - (7 * 24 * 3600)
+        recent = [(t, e) for t, e in self.elo_history if t >= week_ago]
+
+        if len(recent) < 2:
+            return 0.0
+
+        # Simple linear regression for velocity
+        times = [t for t, _ in recent]
+        elos = [e for _, e in recent]
+
+        n = len(times)
+        sum_t = sum(times)
+        sum_e = sum(elos)
+        sum_te = sum(t * e for t, e in recent)
+        sum_t2 = sum(t * t for t in times)
+
+        denom = n * sum_t2 - sum_t * sum_t
+        if abs(denom) < 1e-10:
+            return 0.0
+
+        # Slope is Elo per second, convert to per day
+        slope = (n * sum_te - sum_t * sum_e) / denom
+        return slope * 86400  # points per day
+
+    @property
+    def days_to_target(self) -> Optional[float]:
+        """Estimate days to reach target at current velocity.
+
+        Returns None if target already met or velocity is zero/negative.
+        """
+        if self.target_met:
+            return 0.0
+
+        velocity = self.elo_velocity
+        if velocity <= 0:
+            return None  # Not progressing
+
+        return self.elo_gap / velocity
+
+    def record_elo(self, elo: float, timestamp: Optional[float] = None) -> None:
+        """Record an Elo measurement for velocity tracking."""
+        ts = timestamp or time.time()
+        self.elo_history.append((ts, elo))
+
+        # Keep only last 30 days of history to prevent unbounded growth
+        cutoff = ts - (30 * 24 * 3600)
+        self.elo_history = [(t, e) for t, e in self.elo_history if t >= cutoff]
 
 
 @dataclass
@@ -195,9 +257,12 @@ class QueuePopulator:
                 board_type, num_players, best_elo, model_id, games = row
                 key = f"{board_type}_{num_players}p"
                 if key in self._targets:
-                    self._targets[key].current_best_elo = best_elo
-                    self._targets[key].best_model_id = model_id
-                    self._targets[key].games_played = games or 0
+                    target = self._targets[key]
+                    target.current_best_elo = best_elo
+                    target.best_model_id = model_id
+                    target.games_played = games or 0
+                    # Seed velocity tracking with initial measurement
+                    target.record_elo(best_elo)
                     logger.info(
                         f"Loaded existing Elo for {key}: {best_elo:.1f} "
                         f"(model: {model_id}, games: {games})"
@@ -232,9 +297,18 @@ class QueuePopulator:
                 target.current_best_elo = elo
                 target.best_model_id = model_id
                 target.last_updated = time.time()
+
+                # Record for velocity tracking
+                target.record_elo(elo)
+
+                # Log with velocity info
+                velocity = target.elo_velocity
+                eta = target.days_to_target
+                eta_str = f"{eta:.1f} days" if eta else "N/A"
                 logger.info(
                     f"Updated {key} best Elo: {elo:.1f} "
-                    f"(gap: {target.elo_gap:.1f}, model: {model_id})"
+                    f"(gap: {target.elo_gap:.1f}, velocity: {velocity:+.1f}/day, "
+                    f"ETA: {eta_str}, model: {model_id})"
                 )
 
     def increment_games(self, board_type: str, num_players: int, count: int = 1) -> None:
@@ -268,8 +342,9 @@ class QueuePopulator:
         if not unmet:
             return None
 
-        # Sort by Elo gap (largest first), then by games (fewest first)
-        unmet.sort(key=lambda t: (-t.elo_gap, t.games_played))
+        # Sort by Elo gap (smallest first) to prioritize configs closest to target
+        # This gets us to 2000 Elo faster by focusing resources
+        unmet.sort(key=lambda t: (t.elo_gap, -t.games_played))
         return unmet[0]
 
     def get_current_queue_depth(self) -> int:
@@ -292,20 +367,42 @@ class QueuePopulator:
         board_type: str,
         num_players: int,
     ) -> Dict[str, Any]:
-        """Create a selfplay work item."""
+        """Create a selfplay work item.
+
+        Uses the best model for this config if available (1700+ Elo preferred).
+        This ensures selfplay generates high-quality training data.
+        """
         from app.coordination.work_queue import WorkItem, WorkType
 
         work_id = f"selfplay_{board_type}_{num_players}p_{int(time.time() * 1000)}"
+
+        # Get best model for this config
+        key = f"{board_type}_{num_players}p"
+        target = self._targets.get(key)
+        best_model = target.best_model_id if target else None
+        model_elo = target.current_best_elo if target else 1500.0
+
+        # Only use NN-guided selfplay if we have a decent model (1600+ Elo)
+        engine_mode = "nnue-guided" if model_elo >= 1600 and best_model else "gpu_heuristic"
+
+        config = {
+            "board_type": board_type,
+            "num_players": num_players,
+            "games": self.config.selfplay_games_per_item,
+            "source": "queue_populator",
+            "engine_mode": engine_mode,
+        }
+
+        # Include model info for NN-guided selfplay
+        if best_model and model_elo >= 1600:
+            config["model_id"] = best_model
+            config["model_elo"] = model_elo
+
         return WorkItem(
             work_id=work_id,
             work_type=WorkType.SELFPLAY,
             priority=self.config.selfplay_priority,
-            config={
-                "board_type": board_type,
-                "num_players": num_players,
-                "games": self.config.selfplay_games_per_item,
-                "source": "queue_populator",
-            },
+            config=config,
         )
 
     def _create_training_item(
@@ -313,10 +410,15 @@ class QueuePopulator:
         board_type: str,
         num_players: int,
     ) -> Dict[str, Any]:
-        """Create a training work item."""
+        """Create a training work item with symmetry augmentation enabled."""
         from app.coordination.work_queue import WorkItem, WorkType
 
         work_id = f"training_{board_type}_{num_players}p_{int(time.time() * 1000)}"
+
+        # Determine symmetry type based on board
+        # D4 for square boards (8 transforms), D6 for hex (12 transforms)
+        is_hex = board_type.startswith("hex")
+
         return WorkItem(
             work_id=work_id,
             work_type=WorkType.TRAINING,
@@ -325,6 +427,10 @@ class QueuePopulator:
                 "board_type": board_type,
                 "num_players": num_players,
                 "source": "queue_populator",
+                # Enable symmetry augmentation for 8-12x data multiplier
+                "enable_augmentation": True,
+                "use_integrated_enhancements": True,
+                "augment_hex_symmetry": is_hex,
             },
         )
 
@@ -346,6 +452,48 @@ class QueuePopulator:
                 "num_players": num_players,
                 "games": self.config.tournament_games,
                 "source": "queue_populator",
+            },
+        )
+
+    def _create_sweep_item(
+        self,
+        board_type: str,
+        num_players: int,
+        base_model_id: str,
+        base_elo: float,
+    ) -> "WorkItem":
+        """Create a hyperparameter sweep work item for fine-tuning a high-Elo model.
+
+        Triggers automated hyperparameter search to push models past plateaus.
+        Only used for models at 1800+ Elo where fine-tuning can yield gains.
+        """
+        from app.coordination.work_queue import WorkItem, WorkType
+
+        work_id = f"sweep_{board_type}_{num_players}p_{int(time.time() * 1000)}"
+
+        # Determine sweep strategy based on current Elo
+        # Higher Elo = more focused search (smaller ranges)
+        if base_elo >= 1900:
+            strategy = "bayesian"  # Efficient for fine-tuning
+            trials = 20
+        else:
+            strategy = "random"  # Broader exploration
+            trials = 30
+
+        return WorkItem(
+            work_id=work_id,
+            work_type=WorkType.HYPERPARAM_SWEEP,
+            priority=60,  # Lower than training, runs opportunistically
+            config={
+                "board_type": board_type,
+                "num_players": num_players,
+                "base_model_id": base_model_id,
+                "base_elo": base_elo,
+                "strategy": strategy,
+                "trials": trials,
+                "source": "queue_populator",
+                # Focus on learning rate and batch size for fine-tuning
+                "search_params": ["learning_rate", "batch_size", "weight_decay"],
             },
         )
 
@@ -415,10 +563,42 @@ class QueuePopulator:
             except Exception as e:
                 logger.error(f"Failed to add tournament item: {e}")
 
+        # Opportunistically queue hyperparameter sweeps for high-Elo models
+        # Only 1 sweep per populate cycle to avoid hogging GPU resources
+        sweep_added = 0
+        sweep_threshold = 1800  # Only sweep models above this Elo
+        for target in unmet:
+            if target.current_best_elo >= sweep_threshold and target.best_model_id:
+                # Check if we already have a pending sweep for this config
+                sweep_key = f"sweep_{target.board_type}_{target.num_players}p_"
+                has_pending_sweep = any(
+                    wid.startswith(sweep_key) for wid in self._queued_work_ids
+                )
+                if not has_pending_sweep:
+                    try:
+                        item = self._create_sweep_item(
+                            target.board_type,
+                            target.num_players,
+                            target.best_model_id,
+                            target.current_best_elo,
+                        )
+                        self._work_queue.add_work(item)
+                        self._queued_work_ids.add(item.work_id)
+                        added += 1
+                        sweep_added += 1
+                        logger.info(
+                            f"Queued hyperparameter sweep for {target.board_type}_{target.num_players}p "
+                            f"(model: {target.best_model_id}, Elo: {target.current_best_elo:.0f})"
+                        )
+                        break  # Only one sweep per cycle
+                    except Exception as e:
+                        logger.error(f"Failed to add sweep item: {e}")
+
         self._last_populate_time = time.time()
         logger.info(
             f"Populated queue with {added} items "
-            f"(selfplay={selfplay_count}, training={training_count}, tournament={tournament_count})"
+            f"(selfplay={selfplay_count}, training={training_count}, "
+            f"tournament={tournament_count}, sweeps={sweep_added})"
         )
 
         return added
@@ -427,6 +607,10 @@ class QueuePopulator:
         """Get populator status for monitoring."""
         unmet = self.get_unmet_targets()
         met = [t for t in self._targets.values() if t.target_met]
+
+        # Calculate aggregate velocity metrics
+        velocities = [t.elo_velocity for t in unmet if t.elo_velocity > 0]
+        avg_velocity = sum(velocities) / len(velocities) if velocities else 0.0
 
         return {
             "enabled": self.config.enabled,
@@ -437,11 +621,14 @@ class QueuePopulator:
             "configs_met": len(met),
             "configs_unmet": len(unmet),
             "all_targets_met": self.all_targets_met(),
+            "avg_velocity": avg_velocity,
             "unmet_configs": [
                 {
                     "config": t.config_key,
                     "current_elo": t.current_best_elo,
                     "gap": t.elo_gap,
+                    "velocity": t.elo_velocity,
+                    "days_to_target": t.days_to_target,
                     "games": t.games_played,
                     "training_runs": t.training_runs,
                 }

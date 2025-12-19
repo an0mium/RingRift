@@ -4,6 +4,9 @@
 This module manages network bandwidth allocation for data sync operations.
 It prevents network congestion by coordinating transfers across hosts.
 
+Extends CoordinatorBase for standardized lifecycle management and SQLitePersistenceMixin
+for thread-safe database access.
+
 Features:
 - Per-host bandwidth tracking and limits
 - Transfer scheduling during low-usage periods
@@ -45,6 +48,12 @@ from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple
+
+from app.coordination.coordinator_base import (
+    CoordinatorBase,
+    CoordinatorStatus,
+    SQLitePersistenceMixin,
+)
 
 # Default database location
 DEFAULT_BANDWIDTH_DB = Path("/tmp/ringrift_coordination/bandwidth.db")
@@ -131,34 +140,31 @@ class TransferRecord:
         return (self.bytes_transferred * 8) / (self.duration_seconds * 1_000_000)
 
 
-class BandwidthManager:
-    """Manages bandwidth allocation for data transfers."""
+class BandwidthManager(CoordinatorBase, SQLitePersistenceMixin):
+    """Manages bandwidth allocation for data transfers.
+
+    Extends CoordinatorBase for standardized lifecycle and SQLitePersistenceMixin
+    for thread-safe database access.
+    """
 
     def __init__(
         self,
         db_path: Optional[Path] = None,
         host_limits: Optional[Dict[str, int]] = None,
     ):
-        self.db_path = db_path or DEFAULT_BANDWIDTH_DB
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        CoordinatorBase.__init__(self, name="BandwidthManager")
         self.host_limits = host_limits or DEFAULT_HOST_BANDWIDTH
-        self._local = threading.local()
-        self._init_db()
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """Get thread-local database connection."""
-        if not hasattr(self._local, "conn") or self._local.conn is None:
-            self._local.conn = sqlite3.connect(str(self.db_path), timeout=30.0)
-            self._local.conn.row_factory = sqlite3.Row
-            self._local.conn.execute('PRAGMA journal_mode=WAL')
-            self._local.conn.execute('PRAGMA busy_timeout=10000')
-            self._local.conn.execute('PRAGMA synchronous=NORMAL')
-        return self._local.conn
+        # Initialize SQLite persistence
+        db_path = db_path or DEFAULT_BANDWIDTH_DB
+        self.init_db(db_path)
 
-    def _init_db(self) -> None:
-        """Initialize database schema."""
-        conn = self._get_connection()
-        conn.executescript('''
+        # Mark as ready (no async init needed)
+        self._status = CoordinatorStatus.READY
+
+    def _get_schema(self) -> str:
+        """Get database schema SQL."""
+        return '''
             -- Active bandwidth allocations
             CREATE TABLE IF NOT EXISTS allocations (
                 allocation_id TEXT PRIMARY KEY,
@@ -196,8 +202,7 @@ class BandwidthManager:
             CREATE INDEX IF NOT EXISTS idx_history_host ON transfer_history(host);
             CREATE INDEX IF NOT EXISTS idx_history_hour ON transfer_history(hour_of_day);
             CREATE INDEX IF NOT EXISTS idx_usage_host ON bandwidth_usage(host);
-        ''')
-        conn.commit()
+        '''
 
     def _get_host_limit_mbps(self, host: str) -> int:
         """Get bandwidth limit for a host in Mbps."""
@@ -445,8 +450,14 @@ class BandwidthManager:
         optimal = now + timedelta(hours=hours_until_best)
         return optimal, f"Hour {best_hour}:00 historically fastest"
 
-    def get_stats(self) -> Dict[str, Any]:
-        """Get bandwidth management statistics."""
+    async def get_stats(self) -> Dict[str, Any]:
+        """Get bandwidth management statistics.
+
+        Implements CoordinatorBase.get_stats() interface.
+        """
+        # Get base stats from CoordinatorBase
+        base_stats = await super().get_stats()
+
         conn = self._get_connection()
 
         # Get all active allocations
@@ -474,7 +485,44 @@ class BandwidthManager:
             for row in cursor.fetchall()
         }
 
+        # Merge with bandwidth-specific stats
+        base_stats.update({
+            "active_allocations": active_by_host,
+            "history_24h": history_by_host,
+            "host_limits": self.host_limits,
+        })
+        return base_stats
+
+    def get_stats_sync(self) -> Dict[str, Any]:
+        """Synchronous version of get_stats for CLI usage."""
+        conn = self._get_connection()
+
+        cursor = conn.execute('SELECT host, COUNT(*) as count FROM allocations GROUP BY host')
+        active_by_host = {row["host"]: row["count"] for row in cursor.fetchall()}
+
+        cursor = conn.execute(
+            '''SELECT host,
+                      COUNT(*) as transfer_count,
+                      SUM(bytes_transferred) / 1e9 as total_gb,
+                      AVG(bytes_transferred / duration_seconds) / 1e6 as avg_mbps
+               FROM transfer_history
+               WHERE completed_at > ?
+               GROUP BY host''',
+            (time.time() - 24 * 3600,)
+        )
+
+        history_by_host = {
+            row["host"]: {
+                "transfers": row["transfer_count"],
+                "total_gb": round(row["total_gb"] or 0, 2),
+                "avg_mbps": round((row["avg_mbps"] or 0) * 8, 1),
+            }
+            for row in cursor.fetchall()
+        }
+
         return {
+            "name": self.name,
+            "status": self.status.value,
             "active_allocations": active_by_host,
             "history_24h": history_by_host,
             "host_limits": self.host_limits,
@@ -490,9 +538,7 @@ class BandwidthManager:
 
     def close(self) -> None:
         """Close database connection."""
-        if hasattr(self._local, "conn") and self._local.conn:
-            self._local.conn.close()
-            self._local.conn = None
+        self._close_connection()
 
 
 # Global singleton
@@ -553,8 +599,8 @@ def get_optimal_transfer_time(
 
 
 def get_bandwidth_stats() -> Dict[str, Any]:
-    """Get bandwidth management statistics."""
-    return get_bandwidth_manager().get_stats()
+    """Get bandwidth management statistics (sync version)."""
+    return get_bandwidth_manager().get_stats_sync()
 
 
 @contextmanager
@@ -603,7 +649,7 @@ if __name__ == "__main__":
         print(json.dumps(manager.get_host_status(args.status), indent=2))
 
     elif args.stats:
-        print(json.dumps(manager.get_stats(), indent=2))
+        print(json.dumps(manager.get_stats_sync(), indent=2))
 
     elif args.request:
         host, mb = args.request

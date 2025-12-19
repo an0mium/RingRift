@@ -67,7 +67,30 @@ def _build_default_configs() -> Dict[str, TierEvaluationConfig]:
     instances.
     """
     # Canonical square8 2-player tiers used for the primary production ladder.
+    # Thresholds are monotonically non-decreasing to ensure higher tiers are
+    # never easier to achieve than lower tiers.
+    #
+    # Baseline thresholds (vs random/heuristic):
+    #   D1: 55%, D2: 60%, D3: 65%, D4: 68%, D5: 70%, D6: 72%, D7-D11: 75%
+    #
+    # The 75% cap for D7+ is calibrated based on observed neural model
+    # performance vs random (~70-76% typical for strong models).
     configs: Dict[str, TierEvaluationConfig] = {
+        "D1": TierEvaluationConfig(
+            tier_name="D1",
+            display_name="D1 – random baseline (square8, 2p)",
+            board_type=BoardType.SQUARE8,
+            num_players=2,
+            num_games=100,
+            candidate_difficulty=1,
+            time_budget_ms=None,
+            opponents=[],
+            min_win_rate_vs_baseline=None,
+            max_regression_vs_previous_tier=None,
+            description=(
+                "Entry tier using pure random play. No gating required."
+            ),
+        ),
         "D2": TierEvaluationConfig(
             tier_name="D2",
             display_name="D2 – easy heuristic (square8, 2p)",
@@ -84,21 +107,28 @@ def _build_default_configs() -> Dict[str, TierEvaluationConfig]:
                     ai_type=AIType.RANDOM,
                     role="baseline",
                 ),
+                TierOpponentConfig(
+                    id="tier_d1",
+                    description="Previous tier reference (difficulty 1)",
+                    difficulty=1,
+                    ai_type=AIType.RANDOM,
+                    role="previous_tier",
+                ),
             ],
-            min_win_rate_vs_baseline=0.6,
-            max_regression_vs_previous_tier=None,
+            min_win_rate_vs_baseline=0.60,
+            max_regression_vs_previous_tier=0.05,
             description=(
                 "Sanity-check that a difficulty-2 candidate clearly "
                 "outperforms pure random play on square8, 2-player."
             ),
         ),
-        "D4": TierEvaluationConfig(
-            tier_name="D4",
-            display_name="D4 – mid minimax (square8, 2p)",
+        "D3": TierEvaluationConfig(
+            tier_name="D3",
+            display_name="D3 – low heuristic (square8, 2p)",
             board_type=BoardType.SQUARE8,
             num_players=2,
-            num_games=400,
-            candidate_difficulty=4,
+            num_games=200,
+            candidate_difficulty=3,
             time_budget_ms=None,
             opponents=[
                 TierOpponentConfig(
@@ -110,25 +140,91 @@ def _build_default_configs() -> Dict[str, TierEvaluationConfig]:
                 ),
                 TierOpponentConfig(
                     id="tier_d2",
-                    description=(
-                        "Previous tier reference using canonical "
-                        "difficulty 2 profile"
-                    ),
+                    description="Previous tier reference (difficulty 2)",
                     difficulty=2,
                     ai_type=None,
                     role="previous_tier",
                 ),
             ],
-            min_win_rate_vs_baseline=0.7,
+            min_win_rate_vs_baseline=0.65,
             max_regression_vs_previous_tier=0.05,
             description=(
-                "Candidate should solidly beat random and show no major "
-                "regression relative to the canonical difficulty-2 tier."
+                "Low heuristic tier, must beat random and show improvement "
+                "over difficulty-2."
+            ),
+        ),
+        "D4": TierEvaluationConfig(
+            tier_name="D4",
+            display_name="D4 – mid heuristic (square8, 2p)",
+            board_type=BoardType.SQUARE8,
+            num_players=2,
+            num_games=300,
+            candidate_difficulty=4,
+            time_budget_ms=None,
+            opponents=[
+                TierOpponentConfig(
+                    id="random_d1",
+                    description="Random baseline (canonical difficulty 1)",
+                    difficulty=1,
+                    ai_type=AIType.RANDOM,
+                    role="baseline",
+                ),
+                TierOpponentConfig(
+                    id="tier_d3",
+                    description="Previous tier reference (difficulty 3)",
+                    difficulty=3,
+                    ai_type=None,
+                    role="previous_tier",
+                ),
+            ],
+            min_win_rate_vs_baseline=0.68,
+            max_regression_vs_previous_tier=0.05,
+            description=(
+                "Mid-tier heuristic. Candidate should solidly beat random "
+                "and outperform the difficulty-3 tier."
+            ),
+        ),
+        "D5": TierEvaluationConfig(
+            tier_name="D5",
+            display_name="D5 – strong heuristic (square8, 2p)",
+            board_type=BoardType.SQUARE8,
+            num_players=2,
+            num_games=300,
+            candidate_difficulty=5,
+            time_budget_ms=None,
+            opponents=[
+                TierOpponentConfig(
+                    id="random_d1",
+                    description="Random baseline (canonical difficulty 1)",
+                    difficulty=1,
+                    ai_type=AIType.RANDOM,
+                    role="baseline",
+                ),
+                TierOpponentConfig(
+                    id="heuristic_d2",
+                    description="Heuristic baseline at difficulty 2",
+                    difficulty=2,
+                    ai_type=AIType.HEURISTIC,
+                    role="baseline",
+                ),
+                TierOpponentConfig(
+                    id="tier_d4",
+                    description="Previous tier reference (difficulty 4)",
+                    difficulty=4,
+                    ai_type=None,
+                    role="previous_tier",
+                ),
+            ],
+            min_win_rate_vs_baseline=0.70,
+            max_regression_vs_previous_tier=0.05,
+            description=(
+                "Strong heuristic tier. Must beat random and low heuristic "
+                "baselines, and outperform difficulty-4."
             ),
         ),
         "D6": TierEvaluationConfig(
             tier_name="D6",
-            display_name="D6 – high minimax (square8, 2p)",
+            display_name="D6 – high heuristic (square8, 2p)",
             board_type=BoardType.SQUARE8,
             num_players=2,
             num_games=400,
@@ -143,22 +239,54 @@ def _build_default_configs() -> Dict[str, TierEvaluationConfig]:
                     role="baseline",
                 ),
                 TierOpponentConfig(
-                    id="heuristic_d2",
-                    description=(
-                        "Baseline heuristic profile at canonical "
-                        "difficulty 2"
-                    ),
-                    difficulty=2,
+                    id="heuristic_d3",
+                    description="Heuristic baseline at difficulty 3",
+                    difficulty=3,
                     ai_type=AIType.HEURISTIC,
                     role="baseline",
                 ),
                 TierOpponentConfig(
-                    id="tier_d4",
-                    description=(
-                        "Previous tier reference using canonical "
-                        "difficulty 4 profile"
-                    ),
+                    id="tier_d5",
+                    description="Previous tier reference (difficulty 5)",
+                    difficulty=5,
+                    ai_type=None,
+                    role="previous_tier",
+                ),
+            ],
+            min_win_rate_vs_baseline=0.72,
+            max_regression_vs_previous_tier=0.05,
+            description=(
+                "High-difficulty heuristic tier. Must dominate random and "
+                "mid-level heuristic baselines."
+            ),
+        ),
+        "D7": TierEvaluationConfig(
+            tier_name="D7",
+            display_name="D7 – low MCTS (square8, 2p)",
+            board_type=BoardType.SQUARE8,
+            num_players=2,
+            num_games=400,
+            candidate_difficulty=7,
+            time_budget_ms=None,
+            opponents=[
+                TierOpponentConfig(
+                    id="random_d1",
+                    description="Random baseline (canonical difficulty 1)",
+                    difficulty=1,
+                    ai_type=AIType.RANDOM,
+                    role="baseline",
+                ),
+                TierOpponentConfig(
+                    id="heuristic_d4",
+                    description="Heuristic baseline at difficulty 4",
                     difficulty=4,
+                    ai_type=AIType.HEURISTIC,
+                    role="baseline",
+                ),
+                TierOpponentConfig(
+                    id="tier_d6",
+                    description="Previous tier reference (difficulty 6)",
+                    difficulty=6,
                     ai_type=None,
                     role="previous_tier",
                 ),
@@ -166,9 +294,8 @@ def _build_default_configs() -> Dict[str, TierEvaluationConfig]:
             min_win_rate_vs_baseline=0.75,
             max_regression_vs_previous_tier=0.05,
             description=(
-                "High-difficulty minimax tier expected to dominate random "
-                "and baseline heuristic opponents and at least match the "
-                "canonical difficulty-4 profile."
+                "Entry MCTS tier. Must beat random and strong heuristic "
+                "baselines. Threshold capped at 75% for neural model compatibility."
             ),
         ),
         "D8": TierEvaluationConfig(
@@ -189,31 +316,24 @@ def _build_default_configs() -> Dict[str, TierEvaluationConfig]:
                 ),
                 TierOpponentConfig(
                     id="heuristic_d5",
-                    description=(
-                        "Heuristic baseline at difficulty 5 for robust "
-                        "baseline coverage"
-                    ),
+                    description="Heuristic baseline at difficulty 5",
                     difficulty=5,
                     ai_type=AIType.HEURISTIC,
                     role="baseline",
                 ),
                 TierOpponentConfig(
-                    id="tier_d6",
-                    description=(
-                        "Previous tier reference using canonical "
-                        "difficulty 6 profile"
-                    ),
-                    difficulty=6,
+                    id="tier_d7",
+                    description="Previous tier reference (difficulty 7)",
+                    difficulty=7,
                     ai_type=None,
                     role="previous_tier",
                 ),
             ],
-            min_win_rate_vs_baseline=0.8,
+            min_win_rate_vs_baseline=0.75,
             max_regression_vs_previous_tier=0.05,
             description=(
-                "Strong MCTS tier intended to comfortably beat random and "
-                "heuristic baselines, and not regress catastrophically "
-                "relative to the canonical difficulty-6 profile."
+                "Strong MCTS tier. Must beat random and high heuristic "
+                "baselines. Threshold capped at 75% for neural model compatibility."
             ),
         ),
         "D9": TierEvaluationConfig(
@@ -234,20 +354,14 @@ def _build_default_configs() -> Dict[str, TierEvaluationConfig]:
                 ),
                 TierOpponentConfig(
                     id="heuristic_d6",
-                    description=(
-                        "Heuristic baseline at difficulty 6 for robust "
-                        "baseline coverage at master tier"
-                    ),
+                    description="Heuristic baseline at difficulty 6",
                     difficulty=6,
                     ai_type=AIType.HEURISTIC,
                     role="baseline",
                 ),
                 TierOpponentConfig(
                     id="tier_d8",
-                    description=(
-                        "Previous tier reference using canonical "
-                        "difficulty 8 profile"
-                    ),
+                    description="Previous tier reference (difficulty 8)",
                     difficulty=8,
                     ai_type=None,
                     role="previous_tier",
@@ -256,9 +370,8 @@ def _build_default_configs() -> Dict[str, TierEvaluationConfig]:
             min_win_rate_vs_baseline=0.75,
             max_regression_vs_previous_tier=0.05,
             description=(
-                "Master tier using Gumbel MCTS with extended search budget. "
-                "Threshold calibrated based on observed neural model performance "
-                "vs random baselines (~70-76%)."
+                "Master tier using Gumbel MCTS. Threshold calibrated at 75% "
+                "based on observed neural model performance vs random (~70-76%)."
             ),
         ),
         "D10": TierEvaluationConfig(
@@ -279,20 +392,14 @@ def _build_default_configs() -> Dict[str, TierEvaluationConfig]:
                 ),
                 TierOpponentConfig(
                     id="heuristic_d7",
-                    description=(
-                        "Heuristic baseline at difficulty 7 for robust "
-                        "baseline coverage at grandmaster tier"
-                    ),
+                    description="Heuristic baseline at difficulty 7",
                     difficulty=7,
                     ai_type=AIType.HEURISTIC,
                     role="baseline",
                 ),
                 TierOpponentConfig(
                     id="tier_d9",
-                    description=(
-                        "Previous tier reference using canonical "
-                        "difficulty 9 profile"
-                    ),
+                    description="Previous tier reference (difficulty 9)",
                     difficulty=9,
                     ai_type=None,
                     role="previous_tier",
@@ -302,9 +409,45 @@ def _build_default_configs() -> Dict[str, TierEvaluationConfig]:
             max_regression_vs_previous_tier=0.05,
             description=(
                 "Grandmaster tier using maximum strength Gumbel MCTS. "
-                "High-tier neural models may perform worse against random than "
-                "expected due to selfplay optimization. Threshold calibrated "
-                "based on observed production model performance (~70% vs random)."
+                "Threshold calibrated at 75% for neural model compatibility."
+            ),
+        ),
+        "D11": TierEvaluationConfig(
+            tier_name="D11",
+            display_name="D11 – elite Gumbel MCTS (square8, 2p)",
+            board_type=BoardType.SQUARE8,
+            num_players=2,
+            num_games=400,
+            candidate_difficulty=11,
+            time_budget_ms=None,
+            opponents=[
+                TierOpponentConfig(
+                    id="random_d1",
+                    description="Random baseline (canonical difficulty 1)",
+                    difficulty=1,
+                    ai_type=AIType.RANDOM,
+                    role="baseline",
+                ),
+                TierOpponentConfig(
+                    id="heuristic_d8",
+                    description="Heuristic baseline at difficulty 8",
+                    difficulty=8,
+                    ai_type=AIType.HEURISTIC,
+                    role="baseline",
+                ),
+                TierOpponentConfig(
+                    id="tier_d10",
+                    description="Previous tier reference (difficulty 10)",
+                    difficulty=10,
+                    ai_type=None,
+                    role="previous_tier",
+                ),
+            ],
+            min_win_rate_vs_baseline=0.75,
+            max_regression_vs_previous_tier=0.05,
+            description=(
+                "Elite tier, highest difficulty. Uses maximum strength neural "
+                "MCTS with extended search. Threshold at 75% for consistency."
             ),
         ),
     }

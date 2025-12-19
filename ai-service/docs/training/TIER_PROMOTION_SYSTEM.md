@@ -310,18 +310,28 @@ Models are tested against two baseline opponents using the `game_gauntlet` modul
 
 ### Tier-Specific Thresholds
 
-Minimum win rates required against baselines (from `tier_eval_config.py`):
+All 11 difficulty tiers (D1-D11) have promotion configs. Thresholds are monotonically non-decreasing:
 
-| Tier | vs Baseline | Baselines Tested       | vs Previous Tier | Notes              |
-| ---- | ----------- | ---------------------- | ---------------- | ------------------ |
-| D2   | 60%         | Random only            | N/A              | Entry tier         |
-| D4   | 70%         | Random                 | >50%             | vs D2              |
-| D6   | 75%         | Random + Heuristic(D2) | >50%             | vs D4              |
-| D8   | 80%         | Random + Heuristic(D5) | >50%             | vs D6              |
-| D9   | 75%         | Random + Heuristic(D6) | >50%             | vs D8 (calibrated) |
-| D10  | 75%         | Random + Heuristic(D7) | >50%             | vs D9 (calibrated) |
+| Tier | vs Baseline | Baselines Tested       | vs Previous Tier | Notes               |
+| ---- | ----------- | ---------------------- | ---------------- | ------------------- |
+| D1   | N/A         | None                   | N/A              | Entry tier (random) |
+| D2   | 60%         | Random                 | >50%             | vs D1               |
+| D3   | 65%         | Random                 | >50%             | vs D2               |
+| D4   | 68%         | Random                 | >50%             | vs D3               |
+| D5   | 70%         | Random + Heuristic(D2) | >50%             | vs D4               |
+| D6   | 72%         | Random + Heuristic(D3) | >50%             | vs D5               |
+| D7   | 75%         | Random + Heuristic(D4) | >50%             | vs D6 (MCTS entry)  |
+| D8   | 75%         | Random + Heuristic(D5) | >50%             | vs D7               |
+| D9   | 75%         | Random + Heuristic(D6) | >50%             | vs D8 (Gumbel MCTS) |
+| D10  | 75%         | Random + Heuristic(D7) | >50%             | vs D9               |
+| D11  | 75%         | Random + Heuristic(D8) | >50%             | vs D10 (elite)      |
 
-**Note:** D9/D10 baseline thresholds were reduced from 80%+ to 75% based on empirical data showing neural models achieve ~70-76% vs random due to selfplay optimization bias.
+**Design notes:**
+
+- Thresholds increase from 60% (D2) to 75% (D7+), then plateau
+- D7-D11 capped at 75% based on neural model empirical performance (~70-76% vs random)
+- Each tier must achieve >50% win rate vs the previous tier
+- Heuristic baselines added at D5+ for stronger validation
 
 ### Configuration
 

@@ -129,6 +129,7 @@ class WorkType(str, Enum):
     DATA_MERGE = "data_merge"
     DATA_SYNC = "data_sync"
     VALIDATION = "validation"  # Model validation against baselines
+    HYPERPARAM_SWEEP = "hyperparam_sweep"  # Hyperparameter tuning trials
 
 
 class WorkStatus(str, Enum):
