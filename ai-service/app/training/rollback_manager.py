@@ -31,9 +31,12 @@ import logging
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from app.utils.paths import DATA_DIR
+
+if TYPE_CHECKING:
+    from app.training.regression_detector import RegressionEvent
 
 logger = logging.getLogger(__name__)
 

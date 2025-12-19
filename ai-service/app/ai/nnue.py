@@ -1033,7 +1033,7 @@ class BatchNNUEEvaluator:
         self.device = device or torch.device("cpu")
 
         # Load NNUE model
-        self.model: Optional[NNUEModel] = None
+        self.model: Optional[RingRiftNNUE] = None
         self.available = False
 
         if model_path is None:
@@ -1041,8 +1041,8 @@ class BatchNNUEEvaluator:
 
         if model_path and Path(model_path).exists():
             try:
-                self.model = NNUEModel(
-                    input_dim=get_feature_dim(board_type),
+                self.model = RingRiftNNUE(
+                    board_type=board_type,
                     hidden_dim=256,
                     num_hidden_layers=2,
                 )

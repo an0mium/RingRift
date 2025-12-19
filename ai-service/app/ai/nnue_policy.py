@@ -16,7 +16,7 @@ Training:
 """
 
 import math
-from typing import Dict, List, Optional, Tuple, Callable
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Callable
 
 import numpy as np
 import torch
@@ -26,6 +26,10 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.swa_utils import AveragedModel, SWALR
 
 from ..models import BoardType, Position
+
+if TYPE_CHECKING:
+    from torch.utils.data import DataLoader
+    from ..models import GameState, Move
 from .nnue import (
     ClippedReLU,
     RingRiftNNUE,

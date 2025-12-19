@@ -255,6 +255,16 @@ class EventBus:
         self._published_event_types: Dict[DataEventType, int] = {}  # type -> count
         self._warned_event_types: set = set()  # Types we've already warned about
 
+        # Observability metrics (December 2025)
+        self._start_time = time.time()
+        self._total_events_published = 0
+        self._total_callbacks_invoked = 0
+        self._total_callback_errors = 0
+        self._callback_latencies: List[float] = []  # Recent latencies in ms
+        self._max_latency_samples = 1000
+        self._errors_by_type: Dict[DataEventType, int] = {}
+        self._last_event_time: float = 0.0
+
     def subscribe(
         self,
         event_type: Optional[DataEventType],
@@ -336,14 +346,30 @@ class EventBus:
                 f"but has no subscribers. Consider adding a handler."
             )
 
-        # Invoke each callback
+        # Invoke each callback with latency tracking (December 2025)
         for callback in callbacks:
+            self._total_callbacks_invoked += 1
+            callback_start = time.time()
             try:
                 result = callback(event)
                 if asyncio.iscoroutine(result):
                     await result
             except Exception as e:
+                self._total_callback_errors += 1
+                self._errors_by_type[event.event_type] = (
+                    self._errors_by_type.get(event.event_type, 0) + 1
+                )
                 print(f"[EventBus] Error in subscriber for {event.event_type.value}: {e}")
+            finally:
+                # Track callback latency
+                latency_ms = (time.time() - callback_start) * 1000
+                self._callback_latencies.append(latency_ms)
+                if len(self._callback_latencies) > self._max_latency_samples:
+                    self._callback_latencies = self._callback_latencies[-self._max_latency_samples:]
+
+        # Update event metrics
+        self._total_events_published += 1
+        self._last_event_time = time.time()
 
     def publish_sync(self, event: DataEvent, bridge_cross_process: bool = True) -> None:
         """Publish an event synchronously (non-async context).
@@ -432,6 +458,130 @@ class EventBus:
             "warned_types": [t.value for t in self._warned_event_types],
             "total_events_published": sum(self._published_event_types.values()),
         }
+
+    # =========================================================================
+    # Observability Metrics (December 2025)
+    # =========================================================================
+
+    def get_observability_metrics(self) -> Dict[str, Any]:
+        """Get comprehensive observability metrics for the event bus.
+
+        Returns:
+            Dict with metrics including:
+            - Throughput (events/callbacks per second)
+            - Latency statistics (mean, p50, p95, p99)
+            - Error rates
+            - Uptime and activity
+        """
+        import statistics as stats
+
+        uptime = time.time() - self._start_time
+        events_per_second = self._total_events_published / uptime if uptime > 0 else 0.0
+
+        # Calculate latency percentiles
+        latency_stats = {
+            "mean_ms": 0.0,
+            "p50_ms": 0.0,
+            "p95_ms": 0.0,
+            "p99_ms": 0.0,
+            "max_ms": 0.0,
+        }
+        if self._callback_latencies:
+            sorted_latencies = sorted(self._callback_latencies)
+            n = len(sorted_latencies)
+            latency_stats = {
+                "mean_ms": round(stats.mean(sorted_latencies), 2),
+                "p50_ms": round(sorted_latencies[int(n * 0.5)], 2),
+                "p95_ms": round(sorted_latencies[int(n * 0.95)], 2),
+                "p99_ms": round(sorted_latencies[int(n * 0.99)], 2),
+                "max_ms": round(max(sorted_latencies), 2),
+            }
+
+        # Error rate
+        error_rate = (
+            self._total_callback_errors / self._total_callbacks_invoked
+            if self._total_callbacks_invoked > 0 else 0.0
+        )
+
+        return {
+            "uptime_seconds": round(uptime, 1),
+            "total_events_published": self._total_events_published,
+            "total_callbacks_invoked": self._total_callbacks_invoked,
+            "total_callback_errors": self._total_callback_errors,
+            "error_rate": round(error_rate, 4),
+            "events_per_second": round(events_per_second, 2),
+            "latency": latency_stats,
+            "errors_by_type": {t.value: c for t, c in self._errors_by_type.items()},
+            "last_event_time": self._last_event_time,
+            "seconds_since_last_event": round(time.time() - self._last_event_time, 1) if self._last_event_time else None,
+            "subscriber_counts": {
+                t.value: len(subs) for t, subs in self._subscribers.items()
+            },
+            "history_size": len(self._event_history),
+        }
+
+    def get_health_status(self) -> Dict[str, Any]:
+        """Get health status of the event bus.
+
+        Returns:
+            Dict with health indicators
+        """
+        metrics = self.get_observability_metrics()
+
+        # Determine health score
+        health_score = 1.0
+        issues = []
+
+        # Check error rate
+        if metrics["error_rate"] > 0.1:
+            health_score -= 0.3
+            issues.append(f"High error rate: {metrics['error_rate']:.1%}")
+        elif metrics["error_rate"] > 0.05:
+            health_score -= 0.1
+            issues.append(f"Elevated error rate: {metrics['error_rate']:.1%}")
+
+        # Check latency
+        if metrics["latency"]["p95_ms"] > 1000:
+            health_score -= 0.2
+            issues.append(f"High p95 latency: {metrics['latency']['p95_ms']}ms")
+        elif metrics["latency"]["p95_ms"] > 500:
+            health_score -= 0.1
+            issues.append(f"Elevated p95 latency: {metrics['latency']['p95_ms']}ms")
+
+        # Check for stale bus
+        if metrics["seconds_since_last_event"] and metrics["seconds_since_last_event"] > 300:
+            health_score -= 0.1
+            issues.append(f"No events for {metrics['seconds_since_last_event']}s")
+
+        # Determine status
+        if health_score >= 0.9:
+            status = "healthy"
+        elif health_score >= 0.7:
+            status = "degraded"
+        else:
+            status = "unhealthy"
+
+        return {
+            "status": status,
+            "health_score": round(health_score, 2),
+            "issues": issues,
+            "metrics_summary": {
+                "events_published": metrics["total_events_published"],
+                "error_rate": metrics["error_rate"],
+                "p95_latency_ms": metrics["latency"]["p95_ms"],
+                "events_per_second": metrics["events_per_second"],
+            },
+        }
+
+    def reset_metrics(self) -> None:
+        """Reset observability metrics (for testing)."""
+        self._total_events_published = 0
+        self._total_callbacks_invoked = 0
+        self._total_callback_errors = 0
+        self._callback_latencies.clear()
+        self._errors_by_type.clear()
+        self._last_event_time = 0.0
+        self._start_time = time.time()
 
     def has_subscribers(self, event_type: DataEventType) -> bool:
         """Check if an event type has any subscribers (specific or global)."""
@@ -1574,7 +1724,7 @@ async def emit_encoding_batch_completed(
     source: str = "parallel_encoding",
 ) -> None:
     """Emit an ENCODING_BATCH_COMPLETED event."""
-    await _emit_event(DataEvent(
+    await get_event_bus().publish(DataEvent(
         event_type=DataEventType.ENCODING_BATCH_COMPLETED,
         payload={
             "games_count": games_count,
@@ -1596,7 +1746,7 @@ async def emit_calibration_completed(
     source: str = "tier_calibrator",
 ) -> None:
     """Emit a CALIBRATION_COMPLETED event."""
-    await _emit_event(DataEvent(
+    await get_event_bus().publish(DataEvent(
         event_type=DataEventType.CALIBRATION_COMPLETED,
         payload={
             "config_key": config_key,

@@ -33,12 +33,80 @@ from typing import Any, Dict, List, Optional, Sequence, Union
 
 from scripts.lib.logging_config import setup_script_logging
 
+# Import BoardType for type hints and mapping
+try:
+    from app.models import BoardType
+    _HAS_BOARD_TYPE = True
+except ImportError:
+    _HAS_BOARD_TYPE = False
+    BoardType = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 
 # Standard board configurations
-BOARD_TYPES = ["square8", "square19", "hexagonal", "hex8", "hex7"]
+BOARD_TYPES = ["square8", "square19", "hexagonal", "hex8"]
 VALID_PLAYER_COUNTS = [2, 3, 4]
+
+# Canonical mapping from string names to BoardType enum
+# Includes all common aliases used across scripts
+if _HAS_BOARD_TYPE:
+    BOARD_TYPE_MAP: Dict[str, "BoardType"] = {
+        # Standard names
+        "square8": BoardType.SQUARE8,
+        "square19": BoardType.SQUARE19,
+        "hexagonal": BoardType.HEXAGONAL,
+        "hex8": BoardType.HEX8,
+        # Aliases
+        "8": BoardType.SQUARE8,
+        "19": BoardType.SQUARE19,
+        "hex": BoardType.HEXAGONAL,
+        "s8": BoardType.SQUARE8,
+        "s19": BoardType.SQUARE19,
+    }
+else:
+    BOARD_TYPE_MAP = {}
+
+
+def parse_board_type(value: str) -> "BoardType":
+    """Parse a board type string to BoardType enum.
+
+    Handles common aliases and is case-insensitive.
+
+    Args:
+        value: Board type string (e.g., "square8", "hex8", "19")
+
+    Returns:
+        BoardType enum value
+
+    Raises:
+        ValueError: If board type string is not recognized
+
+    Example:
+        board_type = parse_board_type("square8")
+        board_type = parse_board_type("19")  # Returns BoardType.SQUARE19
+    """
+    if not _HAS_BOARD_TYPE:
+        raise ImportError("BoardType not available - app.models not importable")
+
+    normalized = value.lower().strip()
+    if normalized in BOARD_TYPE_MAP:
+        return BOARD_TYPE_MAP[normalized]
+
+    # Try to match by enum name directly
+    try:
+        return BoardType(normalized)
+    except ValueError:
+        pass
+
+    # Try uppercase enum name
+    try:
+        return BoardType[normalized.upper()]
+    except KeyError:
+        pass
+
+    valid = ", ".join(sorted(BOARD_TYPE_MAP.keys()))
+    raise ValueError(f"Unknown board type: {value}. Valid options: {valid}")
 
 
 def add_verbose_arg(

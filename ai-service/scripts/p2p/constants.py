@@ -287,6 +287,30 @@ IDLE_GRACE_PERIOD = int(os.environ.get("RINGRIFT_IDLE_GRACE_PERIOD", "60"))
 AUTO_WORK_BATCH_SIZE = int(os.environ.get("RINGRIFT_AUTO_WORK_BATCH_SIZE", "10"))
 
 # ============================================
+# Stale Process Cleanup
+# ============================================
+
+# Maximum runtime for various job types (in seconds)
+# Jobs running longer than this are considered stuck and will be killed
+MAX_SELFPLAY_RUNTIME = int(os.environ.get("RINGRIFT_MAX_SELFPLAY_RUNTIME", str(6 * 3600)))  # 6 hours
+MAX_TRAINING_RUNTIME = int(os.environ.get("RINGRIFT_MAX_TRAINING_RUNTIME", str(12 * 3600)))  # 12 hours
+MAX_GAUNTLET_RUNTIME = int(os.environ.get("RINGRIFT_MAX_GAUNTLET_RUNTIME", str(8 * 3600)))  # 8 hours
+MAX_TOURNAMENT_RUNTIME = int(os.environ.get("RINGRIFT_MAX_TOURNAMENT_RUNTIME", str(4 * 3600)))  # 4 hours
+
+# How often to check for stale processes (seconds)
+STALE_PROCESS_CHECK_INTERVAL = int(os.environ.get("RINGRIFT_STALE_CHECK_INTERVAL", "300"))  # 5 minutes
+
+# Patterns to identify stale processes that should be cleaned up
+STALE_PROCESS_PATTERNS = [
+    "run_model_elo_tournament.py",
+    "run_gauntlet.py",
+    "run_self_play_soak.py",
+    "run_gpu_selfplay.py",
+    "run_hybrid_selfplay.py",
+    "run_diverse_selfplay.py",
+]
+
+# ============================================
 # State Directory
 # ============================================
 

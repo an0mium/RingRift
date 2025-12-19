@@ -20,12 +20,12 @@ import pstats
 import sys
 import time
 from collections import defaultdict
-from contextlib import contextmanager
-from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from scripts.lib.metrics import TimingStats
 
 from datetime import datetime
 
@@ -114,36 +114,6 @@ def create_game_state(
     )
 
 
-@dataclass
-class TimingStats:
-    """Accumulated timing statistics for a code section."""
-
-    total_time: float = 0.0
-    call_count: int = 0
-    min_time: float = float("inf")
-    max_time: float = 0.0
-
-    def record(self, elapsed: float) -> None:
-        self.total_time += elapsed
-        self.call_count += 1
-        self.min_time = min(self.min_time, elapsed)
-        self.max_time = max(self.max_time, elapsed)
-
-    @property
-    def avg_time(self) -> float:
-        return self.total_time / self.call_count if self.call_count > 0 else 0.0
-
-    def __str__(self) -> str:
-        if self.call_count == 0:
-            return "no calls"
-        return (
-            f"{self.total_time*1000:.1f}ms total, "
-            f"{self.call_count} calls, "
-            f"{self.avg_time*1000:.3f}ms avg, "
-            f"[{self.min_time*1000:.3f}-{self.max_time*1000:.3f}]ms range"
-        )
-
-
 class SelfPlayProfiler:
     """Profiles self-play performance with detailed timing breakdown."""
 
@@ -152,15 +122,9 @@ class SelfPlayProfiler:
         self.move_counts: List[int] = []
         self.game_times: List[float] = []
 
-    @contextmanager
     def time_section(self, name: str):
         """Context manager to time a code section."""
-        start = time.perf_counter()
-        try:
-            yield
-        finally:
-            elapsed = time.perf_counter() - start
-            self.timings[name].record(elapsed)
+        return self.timings[name].time()
 
     def play_profiled_game(
         self,
@@ -253,9 +217,9 @@ class SelfPlayProfiler:
             pct = (stats.total_time / total_time) * 100 if total_time > 0 else 0
             print(
                 f"{name:<30} "
-                f"{stats.total_time*1000:>8.1f}ms  "
-                f"{stats.call_count:>8}  "
-                f"{stats.avg_time*1000:>8.3f}ms  "
+                f"{stats.total_time_ms:>8.1f}ms  "
+                f"{stats.count:>8}  "
+                f"{stats.avg_time_ms:>8.3f}ms  "
                 f"{pct:>8.1f}%"
             )
 

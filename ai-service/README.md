@@ -263,6 +263,15 @@ BitTorrent mode enables peer-to-peer model sharing, reducing bandwidth on the mo
 
 Use the `.example` templates to create your own configuration.
 
+Programmatic loading uses `app.config.loader` (auto-detects JSON/YAML, supports env overrides,
+and converts to dataclasses). Example:
+
+```python
+from app.config.loader import load_config
+
+config = load_config("config/distributed_hosts.yaml", env_prefix="RINGRIFT_")
+```
+
 ## Heuristic Training
 
 The service includes tools for optimizing the heuristic evaluation weights using CMA-ES:

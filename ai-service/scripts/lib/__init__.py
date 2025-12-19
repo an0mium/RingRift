@@ -10,7 +10,10 @@ Modules:
     config: Training configuration management
     database: Database connection and transaction utilities
     data_quality: Game quality scoring and filtering
+    datetime_utils: Timestamp generation, parsing, and file age operations
     file_formats: JSONL/JSON handling with gzip detection
+    metrics: Statistics collection, timing, rates, and progress tracking
+    state_manager: Persistent state loading/saving for daemon scripts
     health: System and service health monitoring
     logging_config: Structured logging setup
     paths: Standard project paths and utilities
@@ -34,6 +37,8 @@ Usage:
     from scripts.lib.cli import add_common_args, add_board_args, get_config_key
     from scripts.lib.file_formats import load_json, save_json, read_jsonl_lines
     from scripts.lib.validation import validate_npz_file, DataValidator
+    from scripts.lib.datetime_utils import format_elapsed_time, timestamp_id, ElapsedTimer
+    from scripts.lib.metrics import TimingStats, RateCalculator, ProgressTracker
 """
 
 from scripts.lib.logging_config import (
@@ -108,16 +113,12 @@ from scripts.lib.cluster import (
 from scripts.lib.database import (
     safe_transaction,
     read_only_connection,
-    get_game_db_path,
     get_elo_db_path,
     count_games,
     table_exists,
     get_db_size_mb,
     vacuum_database,
     check_integrity,
-    DATA_DIR,
-    GAMES_DIR,
-    UNIFIED_ELO_DB,
 )
 
 from scripts.lib.retry import (
@@ -213,7 +214,9 @@ from scripts.lib.cli import (
     parse_config_key,
     validate_path_arg,
     confirm_action,
+    parse_board_type,
     BOARD_TYPES,
+    BOARD_TYPE_MAP,
     VALID_PLAYER_COUNTS,
 )
 
@@ -231,6 +234,43 @@ from scripts.lib.file_formats import (
     update_json,
     get_file_size_mb,
     get_uncompressed_size_estimate,
+)
+
+from scripts.lib.datetime_utils import (
+    get_file_age,
+    get_file_age_hours,
+    get_file_age_days,
+    is_file_older_than,
+    find_files_older_than,
+    iter_files_by_age,
+    format_elapsed_time,
+    format_elapsed_time_short,
+    ElapsedTimer,
+    timestamp_id,
+    timestamp_id_ms,
+    timestamp_for_log,
+    timestamp_iso,
+    timestamp_iso_utc,
+    parse_timestamp,
+    parse_timestamp_safe,
+    timestamp_age,
+)
+
+from scripts.lib.metrics import (
+    TimingStats,
+    RateCalculator,
+    Counter,
+    WinLossCounter,
+    ProgressTracker,
+    RunningStats,
+    MetricsCollection,
+)
+
+from scripts.lib.state_manager import (
+    StateManager,
+    StatePersistence,
+    load_json_state,
+    save_json_state,
 )
 
 __all__ = [
@@ -387,7 +427,9 @@ __all__ = [
     "parse_config_key",
     "validate_path_arg",
     "confirm_action",
+    "parse_board_type",
     "BOARD_TYPES",
+    "BOARD_TYPE_MAP",
     "VALID_PLAYER_COUNTS",
     # file_formats
     "is_gzip_file",
@@ -403,4 +445,35 @@ __all__ = [
     "update_json",
     "get_file_size_mb",
     "get_uncompressed_size_estimate",
+    # datetime_utils
+    "get_file_age",
+    "get_file_age_hours",
+    "get_file_age_days",
+    "is_file_older_than",
+    "find_files_older_than",
+    "iter_files_by_age",
+    "format_elapsed_time",
+    "format_elapsed_time_short",
+    "ElapsedTimer",
+    "timestamp_id",
+    "timestamp_id_ms",
+    "timestamp_for_log",
+    "timestamp_iso",
+    "timestamp_iso_utc",
+    "parse_timestamp",
+    "parse_timestamp_safe",
+    "timestamp_age",
+    # metrics
+    "TimingStats",
+    "RateCalculator",
+    "Counter",
+    "WinLossCounter",
+    "ProgressTracker",
+    "RunningStats",
+    "MetricsCollection",
+    # state_manager
+    "StateManager",
+    "StatePersistence",
+    "load_json_state",
+    "save_json_state",
 ]

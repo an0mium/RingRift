@@ -343,4 +343,21 @@ __all__ = [
     "is_metrics_server_running",
     # Training logger
     "create_training_logger",
+    # Catalog (December 2025)
+    "MetricCatalog",
+    "get_metric_catalog",
+    "MetricCategory",
+    "MetricType",
+    "MetricInfo",
+    "register_metric",
 ]
+
+# Import catalog (December 2025)
+from app.metrics.catalog import (
+    MetricCatalog,
+    get_metric_catalog,
+    MetricCategory,
+    MetricType,
+    MetricInfo,
+    register_metric,
+)

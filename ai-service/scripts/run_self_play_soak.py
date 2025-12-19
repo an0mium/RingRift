@@ -67,6 +67,7 @@ import sys
 import gc
 import time
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 # Ensure `app.*` imports resolve when run from ai-service/
@@ -87,6 +88,7 @@ from app.models import (  # type: ignore  # noqa: E402
     GameStatus,
     Move,
     MoveType,
+    Position,
 )
 from app.training.env import (  # type: ignore  # noqa: E402
     TrainingEnvConfig,

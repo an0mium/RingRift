@@ -305,6 +305,13 @@ from scripts.p2p.constants import (
     AUTO_ASSIGN_ENABLED,
     IDLE_GRACE_PERIOD,
     AUTO_WORK_BATCH_SIZE,
+    # Stale process cleanup
+    MAX_SELFPLAY_RUNTIME,
+    MAX_TRAINING_RUNTIME,
+    MAX_GAUNTLET_RUNTIME,
+    MAX_TOURNAMENT_RUNTIME,
+    STALE_PROCESS_CHECK_INTERVAL,
+    STALE_PROCESS_PATTERNS,
     # State directory
     STATE_DIR,
 )
@@ -326,6 +333,11 @@ from scripts.p2p.network import (
 from scripts.p2p.utils import (
     systemd_notify_watchdog,
     systemd_notify_ready,
+)
+from scripts.p2p.cluster_config import (
+    get_cluster_config,
+    get_webhook_urls,
+    ClusterConfig,
 )
 
 # Shared database integrity utilities
@@ -655,8 +667,21 @@ class WebhookNotifier:
     LEVELS = {"debug": 0, "info": 1, "warning": 2, "error": 3}
 
     def __init__(self):
+        # Try environment variables first, then fall back to cluster.yaml
         self.slack_webhook = os.environ.get("RINGRIFT_SLACK_WEBHOOK", "")
         self.discord_webhook = os.environ.get("RINGRIFT_DISCORD_WEBHOOK", "")
+
+        # Fall back to cluster.yaml config if env vars not set
+        if not self.slack_webhook or not self.discord_webhook:
+            try:
+                yaml_webhooks = get_webhook_urls()
+                if not self.slack_webhook and "slack" in yaml_webhooks:
+                    self.slack_webhook = yaml_webhooks["slack"]
+                if not self.discord_webhook and "discord" in yaml_webhooks:
+                    self.discord_webhook = yaml_webhooks["discord"]
+            except Exception:
+                pass  # Ignore config loading errors
+
         self.min_level = self.LEVELS.get(
             os.environ.get("RINGRIFT_ALERT_LEVEL", "warning").lower(), 2
         )
@@ -2861,9 +2886,10 @@ class P2POrchestrator:
             return False
 
     def _get_tailscale_ip_for_peer(self, node_id: str) -> str:
-        """Look up a peer's Tailscale IP from the dynamic registry.
+        """Look up a peer's Tailscale IP from the dynamic registry or cluster.yaml.
 
         This enables automatic fallback to Tailscale mesh when public IPs fail.
+        Falls back to static config in cluster.yaml if dynamic registry unavailable.
 
         Args:
             node_id: The peer's node identifier
@@ -2871,16 +2897,28 @@ class P2POrchestrator:
         Returns:
             Tailscale IP (100.x.x.x) if available, else empty string
         """
-        if not HAS_DYNAMIC_REGISTRY or get_registry is None:
-            return ""
+        # Try dynamic registry first
+        if HAS_DYNAMIC_REGISTRY and get_registry is not None:
+            try:
+                registry = get_registry()
+                with registry._lock:
+                    if node_id in registry._nodes:
+                        ts_ip = registry._nodes[node_id].tailscale_ip or ""
+                        if ts_ip:
+                            return ts_ip
+            except Exception:
+                pass
+
+        # Fall back to static cluster.yaml config
         try:
-            registry = get_registry()
-            with registry._lock:
-                if node_id in registry._nodes:
-                    return registry._nodes[node_id].tailscale_ip or ""
-            return ""
+            cluster_config = get_cluster_config()
+            ts_ip = cluster_config.get_tailscale_ip(node_id)
+            if ts_ip:
+                return ts_ip
         except Exception:
-            return ""
+            pass
+
+        return ""
 
     def _detect_network_partition(self) -> bool:
         """Detect if we're in a network partition (>50% peers unreachable via primary IP).
@@ -3256,6 +3294,99 @@ class P2POrchestrator:
             pass
 
         return len(selfplay_pids), len(training_pids)
+
+    def _cleanup_stale_processes(self) -> int:
+        """Kill processes that have been running too long.
+
+        Scans for known process patterns (tournaments, gauntlets, selfplay)
+        and kills any that exceed their maximum runtime threshold.
+
+        Returns:
+            Number of processes killed.
+        """
+        import shutil
+
+        if not shutil.which("pgrep") or not shutil.which("ps"):
+            return 0
+
+        killed_count = 0
+        now = time.time()
+
+        # Map patterns to their max runtimes
+        pattern_max_runtime = {
+            "run_model_elo_tournament.py": MAX_TOURNAMENT_RUNTIME,
+            "run_gauntlet.py": MAX_GAUNTLET_RUNTIME,
+            "run_self_play_soak.py": MAX_SELFPLAY_RUNTIME,
+            "run_gpu_selfplay.py": MAX_SELFPLAY_RUNTIME,
+            "run_hybrid_selfplay.py": MAX_SELFPLAY_RUNTIME,
+            "run_diverse_selfplay.py": MAX_SELFPLAY_RUNTIME,
+            "train_nnue.py": MAX_TRAINING_RUNTIME,
+            "train.py": MAX_TRAINING_RUNTIME,
+        }
+
+        for pattern, max_runtime in pattern_max_runtime.items():
+            try:
+                # Get PIDs matching the pattern
+                pgrep_result = subprocess.run(
+                    ["pgrep", "-f", pattern],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if pgrep_result.returncode != 0 or not pgrep_result.stdout.strip():
+                    continue
+
+                pids = [p.strip() for p in pgrep_result.stdout.strip().split() if p.strip()]
+
+                for pid in pids:
+                    try:
+                        # Get process start time using ps
+                        ps_result = subprocess.run(
+                            ["ps", "-o", "etimes=", "-p", pid],
+                            capture_output=True,
+                            text=True,
+                            timeout=5,
+                        )
+                        if ps_result.returncode != 0:
+                            continue
+
+                        elapsed_seconds = int(ps_result.stdout.strip())
+
+                        if elapsed_seconds > max_runtime:
+                            # Process has exceeded max runtime - kill it
+                            logger.warning(
+                                f"Killing stale process {pid} ({pattern}): "
+                                f"running for {elapsed_seconds/3600:.1f}h, max={max_runtime/3600:.1f}h"
+                            )
+                            subprocess.run(
+                                ["kill", "-9", pid],
+                                capture_output=True,
+                                timeout=5,
+                            )
+                            killed_count += 1
+
+                            # Send alert
+                            if hasattr(self, 'notifier') and self.notifier:
+                                asyncio.create_task(
+                                    self.notifier.send(
+                                        title="Stale Process Killed",
+                                        message=f"Killed {pattern} (PID {pid}) after {elapsed_seconds/3600:.1f} hours",
+                                        level="warning",
+                                        node_id=self.node_id,
+                                    )
+                                )
+
+                    except (ValueError, subprocess.TimeoutExpired):
+                        continue
+
+            except Exception as e:
+                logger.debug(f"Error checking pattern {pattern}: {e}")
+                continue
+
+        if killed_count > 0:
+            logger.info(f"Stale process cleanup: killed {killed_count} processes")
+
+        return killed_count
 
     # ============================================
     # Phase 2: Distributed Data Sync Methods

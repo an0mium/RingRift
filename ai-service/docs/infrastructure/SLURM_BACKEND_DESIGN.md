@@ -183,9 +183,18 @@ become HPC-like once you add a scheduler and enforce stable allocations.
 
 ### Recommended Partition Strategy
 
-- `gpu-train`: H100/GH200 nodes, longer walltime.
-- `gpu-selfplay`: mid-tier GPUs, short walltime, job arrays.
-- `cpu-eval`: CPU-rich nodes, tournaments and data merges.
+- `gpu-train`: x86_64 H100-class nodes (longer walltime).
+- `gpu-selfplay`: mid-tier GPUs (A10/H100), short walltime, job arrays.
+- `cpu-eval`: CPU-rich x86 nodes, tournaments and data merges.
+- `gpu-gh200` (optional): ARM64 GH200 nodes kept separate until the runtime
+  environment is validated for aarch64.
+
+### Mixed-Architecture Caveat (GH200)
+
+GH200 nodes are aarch64. The shared NFS venv built on x86_64 nodes cannot run on
+ARM. Until a compatible aarch64 stack is available (container or source-built
+PyTorch), keep GH200 nodes in a separate partition (`gpu-gh200`) and avoid
+scheduling training/selfplay jobs there.
 
 ## Adoption Plan (Phased)
 

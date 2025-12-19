@@ -28,11 +28,9 @@ Usage:
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set
 
 from scripts.lib.logging_config import get_logger
 
@@ -245,12 +243,12 @@ def _validate_game_record(game: Dict[str, Any], result: ValidationResult) -> Non
     required_fields = ["board_type", "num_players", "moves"]
     recommended_fields = ["game_id", "winner", "victory_type"]
 
-    for field in required_fields:
-        if field not in game:
-            result.add_warning(f"Game missing required field: {field}")
+    for field_name in required_fields:
+        if field_name not in game:
+            result.add_warning(f"Game missing required field: {field_name}")
 
-    for field in recommended_fields:
-        if field not in game:
+    for field_name in recommended_fields:
+        if field_name not in game:
             pass  # Don't warn for recommended fields
 
     # Validate moves if present

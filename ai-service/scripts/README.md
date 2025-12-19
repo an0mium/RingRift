@@ -628,6 +628,29 @@ config = load_json("config.json", default={})
 save_json("config.json", config, atomic=True)
 ```
 
+### Datetime Utilities (`scripts.lib.datetime_utils`)
+
+```python
+from scripts.lib.datetime_utils import format_elapsed_time, timestamp_id, get_file_age_hours
+
+job_id = f"job_{timestamp_id()}"
+print(format_elapsed_time(125.5))
+print(get_file_age_hours("data/selfplay/latest.jsonl"))
+```
+
+### Metrics (`scripts.lib.metrics`)
+
+```python
+from scripts.lib.metrics import RateCalculator, ProgressTracker
+
+rate = RateCalculator()
+rate.mark(items=100)
+print(rate.items_per_second)
+
+tracker = ProgressTracker(total=1000, label="selfplay")
+tracker.update(250)
+```
+
 ## Module Dependencies
 
 ### Canonical Service Interfaces

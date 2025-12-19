@@ -676,6 +676,55 @@ from app.coordination.daemon_manager import (
     setup_signal_handlers,
 )
 
+# Coordinator Persistence Layer (December 2025 - state snapshots and recovery)
+from app.coordination.coordinator_persistence import (
+    StateSerializer,
+    StateSnapshot,
+    StatePersistable,
+    StatePersistenceMixin,
+    SnapshotCoordinator,
+    get_snapshot_coordinator,
+    reset_snapshot_coordinator,
+)
+
+# Coordinator Configuration (December 2025 - centralized config)
+from app.coordination.coordinator_config import (
+    TaskLifecycleConfig,
+    SelfplayConfig,
+    PipelineConfig,
+    OptimizationConfig,
+    MetricsConfig,
+    ResourceConfig,
+    CacheConfig,
+    HandlerResilienceConfig,
+    HeartbeatConfig,
+    EventBusConfig,
+    CoordinatorConfig,
+    get_config,
+    set_config,
+    reset_config,
+    update_config,
+    validate_config,
+)
+
+# Dynamic Threshold Adjustment (December 2025 - adaptive thresholds)
+from app.coordination.dynamic_thresholds import (
+    DynamicThreshold,
+    ThresholdObservation,
+    AdjustmentStrategy,
+    ThresholdManager,
+    get_threshold_manager,
+    reset_threshold_manager,
+)
+
+# Coordination Utilities (December 2025 - reusable base classes)
+from app.coordination.utils import (
+    BoundedHistory,
+    HistoryEntry,
+    MetricsAccumulator,
+    CallbackRegistry,
+)
+
 
 def _init_with_retry(
     name: str,
@@ -920,6 +969,429 @@ def get_all_coordinator_status() -> dict:
         "cache": get_cache_orchestrator().get_status(),
         "event_coordinator": get_event_coordinator_stats(),
     }
+
+
+def get_system_health() -> dict:
+    """Get aggregated system health from all coordinators (December 2025).
+
+    This function provides a comprehensive health assessment of the entire
+    coordination system, including:
+    - Overall health score (0.0-1.0)
+    - Per-coordinator health status
+    - Critical issues that need attention
+    - Handler health from resilience mixin
+
+    Returns:
+        Dict with health information:
+        {
+            "overall_health": 0.95,
+            "status": "healthy" | "degraded" | "unhealthy",
+            "coordinators": {...per-coordinator health...},
+            "issues": [...list of critical issues...],
+            "handler_health": {...handler metrics...},
+        }
+    """
+    import time as _time
+
+    issues = []
+    coordinator_health = {}
+    total_score = 0.0
+    coordinator_count = 0
+
+    def _get_health_score(name: str, status: dict) -> float:
+        """Calculate health score for a coordinator."""
+        score = 1.0
+        nonlocal issues
+
+        # Check subscription status
+        if not status.get("subscribed", True):
+            score -= 0.3
+            issues.append(f"{name}: not subscribed to events")
+
+        # Check for paused state (pipeline)
+        if status.get("paused", False):
+            score -= 0.2
+            issues.append(f"{name}: paused ({status.get('pause_reason', 'unknown')})")
+
+        # Check for resource constraints
+        if status.get("resource_constraints"):
+            for constraint_type, constraint in status.get("resource_constraints", {}).items():
+                if isinstance(constraint, dict) and constraint.get("severity") == "critical":
+                    score -= 0.2
+                    issues.append(f"{name}: critical {constraint_type} constraint")
+
+        # Check for backpressure
+        if status.get("backpressure_active"):
+            score -= 0.1
+            issues.append(f"{name}: backpressure active")
+
+        # Check for plateaus/regressions (metrics)
+        if status.get("plateaus"):
+            score -= 0.1 * min(len(status["plateaus"]), 3)
+            for metric in status["plateaus"][:3]:
+                issues.append(f"{name}: plateau detected in {metric}")
+
+        if status.get("regressions"):
+            score -= 0.2 * min(len(status["regressions"]), 2)
+            for metric in status["regressions"][:2]:
+                issues.append(f"{name}: regression detected in {metric}")
+
+        # Check for orphaned tasks
+        if status.get("orphaned", 0) > 0:
+            orphan_count = status["orphaned"]
+            score -= 0.1 * min(orphan_count, 5)
+            issues.append(f"{name}: {orphan_count} orphaned tasks")
+
+        # Check for failed tasks
+        if status.get("failed_tasks", 0) > 10:
+            score -= 0.1
+            issues.append(f"{name}: high failure count ({status['failed_tasks']})")
+
+        return max(0.0, score)
+
+    # Gather coordinator statuses with error handling
+    coordinators = [
+        ("selfplay", get_selfplay_orchestrator),
+        ("pipeline", get_pipeline_orchestrator),
+        ("task_lifecycle", get_task_lifecycle_coordinator),
+        ("optimization", get_optimization_coordinator),
+        ("metrics", get_metrics_orchestrator),
+        ("resources", get_resource_coordinator),
+        ("cache", get_cache_orchestrator),
+    ]
+
+    for name, getter in coordinators:
+        try:
+            status = getter().get_status()
+            coordinator_health[name] = _get_health_score(name, status)
+            coordinator_count += 1
+            total_score += coordinator_health[name]
+        except Exception as e:
+            coordinator_health[name] = 0.0
+            issues.append(f"{name}: failed to get status ({e})")
+
+    # Calculate overall health
+    overall_health = total_score / coordinator_count if coordinator_count > 0 else 0.0
+
+    # Determine status string
+    if overall_health >= 0.9:
+        status_str = "healthy"
+    elif overall_health >= 0.7:
+        status_str = "degraded"
+    else:
+        status_str = "unhealthy"
+
+    # Get handler health from resilience module
+    handler_health = {}
+    try:
+        from app.coordination.handler_resilience import get_all_handler_metrics
+
+        all_metrics = get_all_handler_metrics()
+        total_invocations = sum(m.invocation_count for m in all_metrics.values())
+        total_failures = sum(m.failure_count for m in all_metrics.values())
+        total_timeouts = sum(m.timeout_count for m in all_metrics.values())
+
+        handler_health = {
+            "total_handlers": len(all_metrics),
+            "total_invocations": total_invocations,
+            "total_failures": total_failures,
+            "total_timeouts": total_timeouts,
+            "success_rate": (
+                (total_invocations - total_failures - total_timeouts) / total_invocations
+                if total_invocations > 0 else 1.0
+            ),
+            "unhealthy_handlers": [
+                name for name, m in all_metrics.items()
+                if m.consecutive_failures >= 3
+            ],
+        }
+
+        if handler_health["unhealthy_handlers"]:
+            for handler in handler_health["unhealthy_handlers"]:
+                issues.append(f"handler: {handler} has consecutive failures")
+    except Exception:
+        pass
+
+    return {
+        "overall_health": round(overall_health, 3),
+        "status": status_str,
+        "coordinators": coordinator_health,
+        "issues": issues[:20],  # Limit to top 20 issues
+        "handler_health": handler_health,
+        "timestamp": _time.time(),
+    }
+
+
+async def shutdown_all_coordinators(
+    timeout_seconds: float = 30.0,
+    emit_events: bool = True,
+) -> dict:
+    """Gracefully shutdown all coordinators (December 2025).
+
+    This function performs coordinated shutdown of all coordinators:
+    1. Emits COORDINATOR_SHUTDOWN events to notify subscribers
+    2. Drains active operations (respecting timeout)
+    3. Stops coordinators in reverse dependency order
+    4. Cleans up resources
+
+    Args:
+        timeout_seconds: Maximum time to wait for graceful shutdown
+        emit_events: Whether to emit shutdown events
+
+    Returns:
+        Dict with shutdown status for each coordinator
+    """
+    import asyncio
+    import logging
+    import time as _time
+
+    logger = logging.getLogger(__name__)
+    logger.info("[shutdown_all_coordinators] Starting graceful shutdown...")
+
+    status = {}
+    start_time = _time.time()
+
+    # Emit shutdown events for each coordinator
+    if emit_events:
+        try:
+            from app.coordination.event_emitters import emit_coordinator_shutdown
+
+            coordinators = [
+                "optimization", "metrics", "pipeline", "selfplay",
+                "cache", "resources", "task_lifecycle",
+            ]
+            for coord_name in coordinators:
+                try:
+                    await emit_coordinator_shutdown(
+                        coordinator_name=coord_name,
+                        reason="system_shutdown",
+                    )
+                except Exception:
+                    pass
+        except ImportError:
+            pass
+
+    # Shutdown in reverse dependency order
+    # (High-level coordinators first, foundational last)
+    shutdown_order = [
+        ("optimization", get_optimization_coordinator),
+        ("metrics", get_metrics_orchestrator),
+        ("pipeline", get_pipeline_orchestrator),
+        ("selfplay", get_selfplay_orchestrator),
+        ("cache", get_cache_orchestrator),
+        ("resources", get_resource_coordinator),
+        ("task_lifecycle", get_task_lifecycle_coordinator),
+    ]
+
+    async def _shutdown_coordinator(name: str, getter) -> tuple:
+        """Shutdown a single coordinator with timeout."""
+        try:
+            coord = getter()
+
+            # Check if coordinator has shutdown method
+            if hasattr(coord, 'shutdown') and asyncio.iscoroutinefunction(coord.shutdown):
+                remaining = timeout_seconds - (_time.time() - start_time)
+                if remaining > 0:
+                    await asyncio.wait_for(coord.shutdown(), timeout=remaining)
+                    return (name, True, None)
+                return (name, False, "timeout exceeded")
+
+            # If no shutdown method, try stop
+            elif hasattr(coord, 'stop') and asyncio.iscoroutinefunction(coord.stop):
+                remaining = timeout_seconds - (_time.time() - start_time)
+                if remaining > 0:
+                    await asyncio.wait_for(coord.stop(), timeout=remaining)
+                    return (name, True, None)
+                return (name, False, "timeout exceeded")
+
+            # Coordinator has no lifecycle methods - just mark as done
+            return (name, True, "no lifecycle methods")
+
+        except asyncio.TimeoutError:
+            return (name, False, "shutdown timed out")
+        except Exception as e:
+            return (name, False, str(e))
+
+    # Shutdown each coordinator
+    for name, getter in shutdown_order:
+        result = await _shutdown_coordinator(name, getter)
+        status[result[0]] = {
+            "success": result[1],
+            "error": result[2],
+        }
+
+        if result[1]:
+            logger.info(f"[shutdown_all_coordinators] {name} shutdown complete")
+        else:
+            logger.warning(f"[shutdown_all_coordinators] {name} shutdown failed: {result[2]}")
+
+    # Cleanup global singletons
+    try:
+        global _selfplay_orchestrator, _pipeline_orchestrator, _task_lifecycle_coordinator
+        global _optimization_coordinator, _metrics_orchestrator, _resource_coordinator
+        global _cache_orchestrator, _event_coordinator
+
+        _selfplay_orchestrator = None
+        _pipeline_orchestrator = None
+        _task_lifecycle_coordinator = None
+        _optimization_coordinator = None
+        _metrics_orchestrator = None
+        _resource_coordinator = None
+        _cache_orchestrator = None
+        _event_coordinator = None
+    except NameError:
+        pass
+
+    # Reset handler metrics
+    try:
+        from app.coordination.handler_resilience import reset_handler_metrics
+        reset_handler_metrics()
+    except ImportError:
+        pass
+
+    # Reset dependency graph
+    try:
+        from app.coordination.coordinator_dependencies import reset_dependency_graph
+        reset_dependency_graph()
+    except ImportError:
+        pass
+
+    total_time = _time.time() - start_time
+    success_count = sum(1 for s in status.values() if s["success"])
+
+    logger.info(
+        f"[shutdown_all_coordinators] Shutdown complete: {success_count}/{len(status)} "
+        f"coordinators in {total_time:.2f}s"
+    )
+
+    return {
+        "status": status,
+        "total_time_seconds": round(total_time, 2),
+        "success_count": success_count,
+        "total_count": len(status),
+    }
+
+
+# =============================================================================
+# Coordinator Heartbeat System (December 2025)
+# =============================================================================
+
+_heartbeat_task = None
+_heartbeat_running = False
+
+
+async def _emit_coordinator_heartbeats(interval_seconds: float = 30.0) -> None:
+    """Background task to emit heartbeats from all coordinators.
+
+    Emits COORDINATOR_HEARTBEAT events periodically to indicate
+    each coordinator is alive and functioning.
+    """
+    import asyncio
+    import logging
+    import time as _time
+
+    logger = logging.getLogger(__name__)
+    global _heartbeat_running
+
+    _heartbeat_running = True
+    logger.info(f"[HeartbeatManager] Started with {interval_seconds}s interval")
+
+    while _heartbeat_running:
+        try:
+            from app.coordination.event_emitters import emit_coordinator_heartbeat
+
+            # Gather health from each coordinator
+            coordinators = [
+                ("selfplay", get_selfplay_orchestrator),
+                ("pipeline", get_pipeline_orchestrator),
+                ("task_lifecycle", get_task_lifecycle_coordinator),
+                ("optimization", get_optimization_coordinator),
+                ("metrics", get_metrics_orchestrator),
+                ("resources", get_resource_coordinator),
+                ("cache", get_cache_orchestrator),
+            ]
+
+            for name, getter in coordinators:
+                try:
+                    coord = getter()
+                    status = coord.get_status()
+
+                    # Extract health indicators
+                    health_score = 1.0
+                    if not status.get("subscribed", True):
+                        health_score = 0.5
+                    if status.get("paused", False):
+                        health_score = 0.7
+                    if status.get("backpressure_active", False):
+                        health_score = 0.6
+
+                    await emit_coordinator_heartbeat(
+                        coordinator_name=name,
+                        health_score=health_score,
+                        active_handlers=status.get("metrics_tracked", 0)
+                        if name == "metrics" else status.get("active_tasks", 0),
+                        events_processed=status.get("total_invocations", 0)
+                        if "total_invocations" in status else 0,
+                    )
+                except Exception as e:
+                    logger.debug(f"[HeartbeatManager] Failed to emit heartbeat for {name}: {e}")
+
+        except ImportError:
+            logger.debug("[HeartbeatManager] event_emitters not available")
+        except Exception as e:
+            logger.debug(f"[HeartbeatManager] Error in heartbeat loop: {e}")
+
+        # Wait for next interval
+        try:
+            await asyncio.sleep(interval_seconds)
+        except asyncio.CancelledError:
+            break
+
+    logger.info("[HeartbeatManager] Stopped")
+
+
+def start_coordinator_heartbeats(interval_seconds: float = 30.0) -> bool:
+    """Start the coordinator heartbeat background task.
+
+    Args:
+        interval_seconds: Interval between heartbeat emissions
+
+    Returns:
+        True if started successfully
+    """
+    import asyncio
+
+    global _heartbeat_task, _heartbeat_running
+
+    if _heartbeat_task is not None and not _heartbeat_task.done():
+        return True  # Already running
+
+    try:
+        loop = asyncio.get_running_loop()
+        _heartbeat_task = loop.create_task(
+            _emit_coordinator_heartbeats(interval_seconds)
+        )
+        return True
+    except RuntimeError:
+        # No event loop running
+        return False
+
+
+def stop_coordinator_heartbeats() -> None:
+    """Stop the coordinator heartbeat background task."""
+    global _heartbeat_task, _heartbeat_running
+
+    _heartbeat_running = False
+
+    if _heartbeat_task is not None:
+        _heartbeat_task.cancel()
+        _heartbeat_task = None
+
+
+def is_heartbeat_running() -> bool:
+    """Check if heartbeat manager is running."""
+    global _heartbeat_task
+    return _heartbeat_task is not None and not _heartbeat_task.done()
 
 
 __all__ = [
@@ -1244,6 +1716,16 @@ __all__ = [
     "start_event_coordinator",
     "stop_event_coordinator",
     "get_event_coordinator_stats",
+    # Unified Event Router (December 2025)
+    "UnifiedEventRouter",
+    "RouterEvent",
+    "EventSource",
+    "get_event_router",
+    "reset_event_router",
+    "publish_event",
+    "publish_event_sync",
+    "subscribe_event",
+    "unsubscribe_event",
     # Distributed Tracing (December 2025)
     "TraceContext",
     "TraceSpan",
@@ -1392,4 +1874,47 @@ __all__ = [
     # Unified Initialization (December 2025)
     "initialize_all_coordinators",
     "get_all_coordinator_status",
+    "get_system_health",
+    "shutdown_all_coordinators",
+    # Coordinator Heartbeats (December 2025)
+    "start_coordinator_heartbeats",
+    "stop_coordinator_heartbeats",
+    "is_heartbeat_running",
+    # Coordinator Persistence Layer (December 2025)
+    "StateSerializer",
+    "StateSnapshot",
+    "StatePersistable",
+    "StatePersistenceMixin",
+    "SnapshotCoordinator",
+    "get_snapshot_coordinator",
+    "reset_snapshot_coordinator",
+    # Coordinator Configuration (December 2025)
+    "TaskLifecycleConfig",
+    "SelfplayConfig",
+    "PipelineConfig",
+    "OptimizationConfig",
+    "MetricsConfig",
+    "ResourceConfig",
+    "CacheConfig",
+    "HandlerResilienceConfig",
+    "HeartbeatConfig",
+    "EventBusConfig",
+    "CoordinatorConfig",
+    "get_config",
+    "set_config",
+    "reset_config",
+    "update_config",
+    "validate_config",
+    # Dynamic Threshold Adjustment (December 2025)
+    "DynamicThreshold",
+    "ThresholdObservation",
+    "AdjustmentStrategy",
+    "ThresholdManager",
+    "get_threshold_manager",
+    "reset_threshold_manager",
+    # Coordination Utilities (December 2025)
+    "BoundedHistory",
+    "HistoryEntry",
+    "MetricsAccumulator",
+    "CallbackRegistry",
 ]

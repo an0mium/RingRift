@@ -33,7 +33,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # Add ai-service to path for imports
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]

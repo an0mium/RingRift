@@ -22,6 +22,7 @@ import argparse
 import glob
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time

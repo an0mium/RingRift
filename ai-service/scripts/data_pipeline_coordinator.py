@@ -53,6 +53,16 @@ SSH_KEY = os.path.expanduser("~/.ssh/id_cluster")
 REMOTE_DATA_PATH = "/workspace/ringrift/ai-service/data/gumbel_selfplay"
 REMOTE_LOG_PATH = "/workspace/ringrift/ai-service/logs/gumbel_gen_a40.log"
 
+# Canonical data file and promotion settings
+CANONICAL_DATA_FILE = DATA_DIR / "sq8_gumbel_kl_canonical.jsonl"
+PRODUCTION_MODEL = MODELS_DIR / "nnue_policy_square8_2p.pt"
+AB_TEST_GAMES = 20
+AB_TEST_THINK_TIME = 200
+MIN_WIN_RATE_FOR_PROMOTION = 0.55  # Must beat production by at least 55%
+
+# Training thresholds (games)
+TRAINING_THRESHOLDS = [1000, 1500, 2000, 3000, 5000]
+
 
 @dataclass
 class NodeStatus:
@@ -375,6 +385,148 @@ def trigger_training(
         return False, {"error": str(e)}
 
 
+def run_ab_test(
+    model_a: Path,
+    model_b: Path,
+    num_games: int = AB_TEST_GAMES,
+    think_time: int = AB_TEST_THINK_TIME,
+) -> Tuple[int, int, int, float]:
+    """Run A/B test between two models.
+
+    Returns: (a_wins, b_wins, draws, win_rate_a)
+    """
+    logger.info(f"Running A/B test: {model_a.name} vs {model_b.name} ({num_games} games)")
+
+    cmd = [
+        "python", str(PROJECT_ROOT / "scripts" / "ab_test_policy_models.py"),
+        "--model-a", str(model_a),
+        "--model-b", str(model_b),
+        "--num-games", str(num_games),
+        "--think-time", str(think_time),
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=3600,
+            cwd=PROJECT_ROOT,
+        )
+
+        if result.returncode != 0:
+            logger.error(f"A/B test failed: {result.stderr[-300:]}")
+            return 0, 0, 0, 0.0
+
+        # Parse results from output
+        a_wins, b_wins, draws = 0, 0, 0
+        for line in result.stdout.split("\n"):
+            if "Model A wins:" in line:
+                a_wins = int(line.split(":")[1].split("(")[0].strip())
+            elif "Model B wins:" in line:
+                b_wins = int(line.split(":")[1].split("(")[0].strip())
+            elif "Draws:" in line:
+                draws = int(line.split(":")[1].split("(")[0].strip())
+
+        total = a_wins + b_wins + draws
+        win_rate = a_wins / total if total > 0 else 0.0
+
+        logger.info(f"A/B test results: A={a_wins}, B={b_wins}, D={draws}, WR={win_rate:.1%}")
+        return a_wins, b_wins, draws, win_rate
+
+    except subprocess.TimeoutExpired:
+        logger.error("A/B test timeout")
+        return 0, 0, 0, 0.0
+    except Exception as e:
+        logger.error(f"A/B test error: {e}")
+        return 0, 0, 0, 0.0
+
+
+def promote_model(
+    new_model: Path,
+    production_model: Path = PRODUCTION_MODEL,
+) -> bool:
+    """Promote a new model to production with backup."""
+    try:
+        # Backup current production
+        if production_model.exists():
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = production_model.parent / f"{production_model.stem}_backup_{timestamp}.pt"
+            import shutil
+            shutil.copy2(production_model, backup_path)
+            logger.info(f"Backed up production model to {backup_path.name}")
+
+        # Copy new model to production
+        import shutil
+        shutil.copy2(new_model, production_model)
+        logger.info(f"Promoted {new_model.name} to production")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to promote model: {e}")
+        return False
+
+
+def train_and_evaluate(
+    data_dir: Path,
+    output_dir: Path,
+    min_games: int,
+    run_ab_test_flag: bool = True,
+) -> Tuple[bool, Dict]:
+    """Train a new model and optionally A/B test against production.
+
+    Returns: (promoted, result_dict)
+    """
+    # Train new model
+    success, result = trigger_training(data_dir, output_dir, min_games=min_games, epochs=100)
+
+    if not success:
+        return False, result
+
+    new_model = output_dir / f"{result['model_name']}.pt"
+
+    if not run_ab_test_flag:
+        logger.info("Skipping A/B test (disabled)")
+        return False, result
+
+    if not PRODUCTION_MODEL.exists():
+        logger.info("No production model exists, promoting directly")
+        if promote_model(new_model):
+            result["promoted"] = True
+            return True, result
+        return False, result
+
+    # Run A/B test
+    a_wins, b_wins, draws, win_rate = run_ab_test(new_model, PRODUCTION_MODEL)
+    result["ab_test"] = {
+        "new_wins": a_wins,
+        "production_wins": b_wins,
+        "draws": draws,
+        "win_rate": win_rate,
+    }
+
+    # Promote if better than threshold
+    if win_rate >= MIN_WIN_RATE_FOR_PROMOTION:
+        logger.info(f"New model wins {win_rate:.1%} >= {MIN_WIN_RATE_FOR_PROMOTION:.1%}, promoting!")
+        if promote_model(new_model):
+            result["promoted"] = True
+            return True, result
+    else:
+        logger.info(f"New model wins {win_rate:.1%} < {MIN_WIN_RATE_FOR_PROMOTION:.1%}, not promoting")
+        result["promoted"] = False
+
+    return False, result
+
+
+def get_next_training_threshold(current_games: int) -> Optional[int]:
+    """Get the next training threshold based on current game count."""
+    for threshold in TRAINING_THRESHOLDS:
+        if current_games >= threshold:
+            continue
+        return threshold
+    return None
+
+
 def print_status(state: PipelineState, node_statuses: List[NodeStatus]):
     """Print current pipeline status."""
     print("\n" + "=" * 70)
@@ -505,6 +657,12 @@ def main():
     daemon_parser.add_argument("--interval", type=int, default=300, help="Check interval in seconds")
     daemon_parser.add_argument("--min-games", type=int, default=500, help="Min games to trigger training")
 
+    # Auto command (collect + train + A/B test + promote)
+    auto_parser = subparsers.add_parser("auto", help="Full automated pipeline with A/B gate")
+    auto_parser.add_argument("--min-games", type=int, default=1000, help="Min games for training")
+    auto_parser.add_argument("--skip-ab", action="store_true", help="Skip A/B testing")
+    auto_parser.add_argument("--skip-collect", action="store_true", help="Skip collection")
+
     args = parser.parse_args()
     state = PipelineState.load()
 
@@ -579,6 +737,63 @@ def main():
                 state.training_history.append(result)
 
         state.save()
+
+    elif args.command == "auto":
+        logger.info("=" * 60)
+        logger.info("AUTOMATED PIPELINE: Collect → Train → A/B Test → Promote")
+        logger.info("=" * 60)
+
+        # Step 1: Collect (optional)
+        if not args.skip_collect:
+            logger.info("\n[Step 1/4] Collecting data from cluster...")
+            nodes = get_cluster_nodes()
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+            for instance_id, gpu_model, host, port in nodes:
+                status = check_node_status(instance_id, host, port)
+                if status.is_reachable and status.games_completed > 0:
+                    collect_data_from_node(instance_id, host, port, DATA_DIR)
+
+            state.total_games_collected = count_local_games(DATA_DIR, aligned_only=True)
+            state.last_collection_time = datetime.now().isoformat()
+            logger.info(f"Collection complete: {state.total_games_collected} aligned games")
+        else:
+            state.total_games_collected = count_local_games(DATA_DIR, aligned_only=True)
+            logger.info(f"[Step 1/4] Skipped collection. Local games: {state.total_games_collected}")
+
+        # Check threshold
+        if state.total_games_collected < args.min_games:
+            logger.info(f"Insufficient data: {state.total_games_collected} < {args.min_games}")
+            state.save()
+            sys.exit(0)
+
+        # Step 2-4: Train + A/B Test + Promote
+        logger.info(f"\n[Step 2-4] Training with {state.total_games_collected} games...")
+        promoted, result = train_and_evaluate(
+            DATA_DIR,
+            MODELS_DIR,
+            min_games=args.min_games,
+            run_ab_test_flag=not args.skip_ab,
+        )
+
+        state.last_training_time = datetime.now().isoformat()
+        state.last_training_games = state.total_games_collected
+        state.current_model_version = result.get("model_name", "")
+        state.training_history.append(result)
+        state.save()
+
+        # Summary
+        logger.info("\n" + "=" * 60)
+        logger.info("PIPELINE SUMMARY")
+        logger.info("=" * 60)
+        logger.info(f"Model: {result.get('model_name', 'N/A')}")
+        logger.info(f"Val Loss: {result.get('val_loss', 'N/A')}")
+        logger.info(f"Accuracy: {result.get('accuracy', 'N/A')}")
+        if "ab_test" in result:
+            ab = result["ab_test"]
+            logger.info(f"A/B Test: {ab['new_wins']}-{ab['production_wins']} ({ab['win_rate']:.1%})")
+        logger.info(f"Promoted: {result.get('promoted', False)}")
+        logger.info("=" * 60)
 
     elif args.command == "daemon":
         run_daemon(args.interval, args.min_games)

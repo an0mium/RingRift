@@ -41,7 +41,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Callable, Dict, List, Optional, Protocol, runtime_checkable, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.distributed.db_utils import ThreadLocalConnectionPool
 
 logger = logging.getLogger(__name__)
 

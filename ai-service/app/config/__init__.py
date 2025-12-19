@@ -31,6 +31,18 @@ from app.config.config_validator import (
     validate_startup,
 )
 
+# Unified config loader (December 2025)
+from app.config.loader import (
+    load_config,
+    save_config,
+    ConfigLoader,
+    ConfigSource,
+    env_override,
+    merge_configs,
+    validate_config,
+    ConfigLoadError,
+)
+
 # Unified configuration (December 2025)
 try:
     from app.config.unified_config import (
@@ -49,14 +61,25 @@ except ImportError:
     QualityConfig = None
 
 __all__ = [
+    # Training configs
     "CMAESConfig",
     "NeuralNetConfig",
     "SelfPlayConfig",
+    # Validation
     "ConfigValidator",
     "ValidationResult",
     "validate_all_configs",
     "validate_startup",
     "HAS_UNIFIED_CONFIG",
+    # Config loader (December 2025)
+    "load_config",
+    "save_config",
+    "ConfigLoader",
+    "ConfigSource",
+    "env_override",
+    "merge_configs",
+    "validate_config",
+    "ConfigLoadError",
 ]
 
 if HAS_UNIFIED_CONFIG:

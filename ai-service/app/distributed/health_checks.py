@@ -20,6 +20,7 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import os
 import psutil
 import sqlite3
@@ -28,6 +29,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 # Path setup
 from app.utils.paths import AI_SERVICE_ROOT

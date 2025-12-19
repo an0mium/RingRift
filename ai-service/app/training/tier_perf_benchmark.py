@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from time import perf_counter
 from typing import List
 
+from app.game_engine import GameEngine
 from app.models import BoardType, GameStatus
 from app.training.env import TrainingEnvConfig, make_env
 from app.training.tier_eval_config import (

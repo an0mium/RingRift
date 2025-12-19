@@ -35,6 +35,7 @@ from ..rules.mutable_state import MutableGameState
 if TYPE_CHECKING:
     import torch
     from .nnue import NNUEEvaluator
+    from .nnue_policy import RingRiftNNUEWithPolicy
 
 # Environment variable to enable zero-sum evaluation for minimax.
 # When enabled, evaluation computes (my_eval - opponent_eval) / 2 which
