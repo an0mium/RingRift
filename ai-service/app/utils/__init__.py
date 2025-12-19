@@ -25,6 +25,15 @@ from .canonical_naming import (
     normalize_database_filename,
     CANONICAL_CONFIG_KEYS,
 )
+from .secrets import (
+    mask_secret,
+    mask_secret_prefix,
+    sanitize_for_log,
+    SecretString,
+    load_secret_from_env,
+    get_env_masked,
+    is_sensitive_key,
+)
 
 __all__ = [
     "MemoryConfig",
@@ -48,4 +57,12 @@ __all__ = [
     "get_all_config_keys",
     "normalize_database_filename",
     "CANONICAL_CONFIG_KEYS",
+    # Secrets handling
+    "mask_secret",
+    "mask_secret_prefix",
+    "sanitize_for_log",
+    "SecretString",
+    "load_secret_from_env",
+    "get_env_masked",
+    "is_sensitive_key",
 ]
