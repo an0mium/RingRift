@@ -8,16 +8,19 @@ This script:
 3. Unretires nodes that match active Vast instances
 4. Starts P2P orchestrator on nodes missing it
 5. Updates distributed_hosts.yaml with current IPs
-6. Can provision new instances based on demand
+6. Can provision/deprovision instances based on demand
 7. Can be run via cron for continuous sync
 
 Usage:
     python scripts/vast_p2p_sync.py --check      # Check status only
     python scripts/vast_p2p_sync.py --sync       # Sync and unretire active instances
     python scripts/vast_p2p_sync.py --start-p2p  # Start P2P on instances missing it
-    python scripts/vast_p2p_sync.py --full       # Full sync (check + sync + start)
+    python scripts/vast_p2p_sync.py --full       # Full sync (check + sync + start + config)
     python scripts/vast_p2p_sync.py --update-config  # Update distributed_hosts.yaml
     python scripts/vast_p2p_sync.py --provision N    # Provision N new instances
+    python scripts/vast_p2p_sync.py --deprovision 123,456  # Destroy specific instances
+    python scripts/vast_p2p_sync.py --sync-code  # Sync git code to all instances
+    python scripts/vast_p2p_sync.py --dry-run --full  # Preview what --full would do
 """
 
 import argparse
@@ -883,12 +886,18 @@ def main():
     parser.add_argument('--full', action='store_true', help='Full sync (check + sync + start + config)')
     parser.add_argument('--update-config', action='store_true', help='Update distributed_hosts.yaml')
     parser.add_argument('--provision', type=int, metavar='N', help='Provision N new instances')
+    parser.add_argument('--deprovision', type=str, metavar='IDS', help='Deprovision instances (comma-separated IDs)')
     parser.add_argument('--max-hourly', type=float, default=0.50, help='Max hourly budget for provisioning')
     parser.add_argument('--sync-code', action='store_true', help='Sync git code to all instances')
+    parser.add_argument('--dry-run', action='store_true', help='Show what would be done without making changes')
     args = parser.parse_args()
 
-    if not any([args.check, args.sync, args.start_p2p, args.full, args.update_config, args.provision, args.sync_code]):
+    if not any([args.check, args.sync, args.start_p2p, args.full, args.update_config, args.provision, args.sync_code, args.deprovision]):
         args.check = True  # Default to check
+
+    dry_run = args.dry_run
+    if dry_run:
+        logger.info("[DRY-RUN] No changes will be made")
 
     # Get Vast instances
     logger.info("Getting Vast instances...")
@@ -940,17 +949,25 @@ def main():
         logger.info("Syncing retired nodes...")
         for inst_id, node in matches.items():
             if node.retired:
-                logger.info(f"Unretiring {node.node_id} (Vast instance {inst_id})")
-                if unretire_node_via_api(node.node_id):
-                    logger.info(f"  -> Unretired successfully")
+                if dry_run:
+                    logger.info(f"[DRY-RUN] Would unretire {node.node_id} (Vast instance {inst_id})")
                 else:
-                    logger.warning(f"  -> Failed to unretire via API")
+                    logger.info(f"Unretiring {node.node_id} (Vast instance {inst_id})")
+                    if unretire_node_via_api(node.node_id):
+                        logger.info(f"  -> Unretired successfully")
+                    else:
+                        logger.warning(f"  -> Failed to unretire via API")
 
     # Update config
     if args.update_config or args.full:
-        logger.info("Updating distributed_hosts.yaml...")
-        updated = update_distributed_hosts_yaml(vast_instances)
-        logger.info(f"Updated {updated} entries in config")
+        if dry_run:
+            logger.info("[DRY-RUN] Would update distributed_hosts.yaml with current Vast instances")
+            for inst in vast_instances:
+                logger.info(f"  [DRY-RUN] Would update/add vast-{inst.id}: {inst.gpu_name}")
+        else:
+            logger.info("Updating distributed_hosts.yaml...")
+            updated = update_distributed_hosts_yaml(vast_instances)
+            logger.info(f"Updated {updated} entries in config")
 
     # Start P2P actions
     if args.start_p2p or args.full:
@@ -958,21 +975,46 @@ def main():
         for inst in vast_instances:
             running, _ = check_p2p_running(inst)
             if not running:
-                logger.info(f"Starting P2P on instance {inst.id} ({inst.gpu_name})")
-                start_p2p_on_instance(inst)
+                if dry_run:
+                    logger.info(f"[DRY-RUN] Would start P2P on instance {inst.id} ({inst.gpu_name})")
+                else:
+                    logger.info(f"Starting P2P on instance {inst.id} ({inst.gpu_name})")
+                    start_p2p_on_instance(inst)
 
     # Sync code
     if args.sync_code:
-        logger.info("Syncing code to all instances...")
-        synced = 0
-        for inst in vast_instances:
-            if sync_code_to_instance(inst):
-                synced += 1
-        logger.info(f"Synced code to {synced}/{len(vast_instances)} instances")
+        if dry_run:
+            logger.info(f"[DRY-RUN] Would sync code to {len(vast_instances)} instances")
+            for inst in vast_instances:
+                logger.info(f"  [DRY-RUN] Would sync code to instance {inst.id}")
+        else:
+            logger.info("Syncing code to all instances...")
+            synced = 0
+            for inst in vast_instances:
+                if sync_code_to_instance(inst):
+                    synced += 1
+            logger.info(f"Synced code to {synced}/{len(vast_instances)} instances")
 
     # Provision new instances
     if args.provision:
-        provision_instances(count=args.provision, max_total_hourly=args.max_hourly)
+        if dry_run:
+            logger.info(f"[DRY-RUN] Would provision {args.provision} new instances (max ${args.max_hourly}/hr)")
+            for gpu_pref in PREFERRED_GPUS[:args.provision]:
+                logger.info(f"  [DRY-RUN] Would search for: {gpu_pref['name']} @ max ${gpu_pref['max_price']}/hr")
+        else:
+            provision_instances(count=args.provision, max_total_hourly=args.max_hourly)
+
+    # Deprovision instances
+    if args.deprovision:
+        instance_ids = [int(x.strip()) for x in args.deprovision.split(',') if x.strip().isdigit()]
+        if not instance_ids:
+            logger.error("No valid instance IDs provided for --deprovision")
+        elif dry_run:
+            logger.info(f"[DRY-RUN] Would deprovision {len(instance_ids)} instances:")
+            for inst_id in instance_ids:
+                logger.info(f"  [DRY-RUN] Would destroy instance {inst_id}")
+        else:
+            deprovision_instances(instance_ids, destroy=True)
 
 
 if __name__ == "__main__":

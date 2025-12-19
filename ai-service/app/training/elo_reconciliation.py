@@ -45,17 +45,15 @@ Usage:
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import sqlite3
 import subprocess
-import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional
 
 
 class ConflictResolution(Enum):

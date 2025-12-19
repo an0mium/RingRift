@@ -2,6 +2,23 @@
 """
 Distributed Data Synchronization Module
 
+.. deprecated:: 2025-12-18
+    This module is deprecated in favor of :class:`UnifiedDataSyncService` from
+    :mod:`app.distributed.unified_data_sync`, which provides a consolidated sync
+    implementation with:
+    - Multi-transport failover (SSH/rsync → P2P HTTP → aria2)
+    - Write-ahead log for crash safety
+    - Content deduplication
+    - Manifest replication for fault tolerance
+    - Circuit breaker integration
+
+    **Note**: This module remains functional during the transition period.
+    The high-level methods (`sync_best_models()`, `collect_training_data()`)
+    have different API patterns in `UnifiedDataSyncService`. Scripts using
+    `DataSyncManager` will continue to work but will show deprecation warnings.
+
+    For new code, prefer `UnifiedDataSyncService` for its reliability features.
+
 Provides multiple transport methods for synchronizing training data and models
 across cluster nodes, handling hard-to-reach instances via:
 - Tailscale mesh network (direct P2P)

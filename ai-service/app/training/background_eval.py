@@ -8,7 +8,6 @@ See: app.config.thresholds for canonical threshold constants.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import threading
 import time

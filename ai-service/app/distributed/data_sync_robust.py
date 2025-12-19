@@ -1,5 +1,20 @@
 """Robust Data Sync - Enhanced data synchronization with fault tolerance.
 
+.. deprecated:: 2025-12-18
+    This module is deprecated. Use :class:`UnifiedDataSyncService` from
+    :mod:`app.distributed.unified_data_sync` instead, which consolidates
+    all sync functionality with better fault tolerance, multi-transport
+    fallback (SSH → P2P HTTP → aria2), and integrated WAL support.
+
+    Migration:
+        # OLD
+        from app.distributed.data_sync_robust import RobustDataSync
+        sync = RobustDataSync(hosts, config)
+
+        # NEW
+        from app.distributed.unified_data_sync import UnifiedDataSyncService
+        sync = UnifiedDataSyncService(config)
+
 This module provides robust, efficient data synchronization across distributed hosts:
 
 1. Aggressive sync for ephemeral hosts (Vast.ai with RAM storage) - 15s interval

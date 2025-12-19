@@ -7054,44 +7054,71 @@ class P2POrchestrator:
     async def _run_gpu_selfplay_job(
         self, job_id: str, board_type: str, num_players: int, num_games: int, engine_mode: str
     ):
-        """Run GPU selfplay job using run_gpu_selfplay.py (true GPU acceleration)."""
+        """Run selfplay job with appropriate script based on engine mode.
+
+        For simple modes (random, heuristic, nnue-guided): use run_gpu_selfplay.py (GPU-optimized)
+        For search modes (maxn, brs, mcts, gumbel-mcts): use run_hybrid_selfplay.py (supports search)
+        """
         import sys
         from pathlib import Path
 
-        # Use run_gpu_selfplay.py for actual GPU acceleration (not run_hybrid_selfplay.py which is CPU-bound)
-        script_path = os.path.join(self.ringrift_path, "ai-service", "scripts", "run_gpu_selfplay.py")
-        if not os.path.exists(script_path):
-            logger.warning(f"GPU selfplay script not found: {script_path}")
-            return
+        # Engine modes that require search (need run_hybrid_selfplay.py)
+        SEARCH_ENGINE_MODES = {"maxn", "brs", "mcts", "gumbel-mcts", "policy-only", "nn-descent", "nn-minimax"}
 
-        # Set up output directory with database recording
         board_norm = board_type.replace("hexagonal", "hex")
         output_dir = Path(self.ringrift_path) / "ai-service" / "data" / "selfplay" / "p2p_gpu" / f"{board_norm}_{num_players}p" / job_id
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Map engine modes: run_gpu_selfplay.py uses different mode names
-        # Options: random-only, heuristic-only, nnue-guided
-        mode_map = {
-            "mixed": "heuristic-only",
-            "gpu": "heuristic-only",
-            "descent-only": "heuristic-only",
-            "heuristic-only": "heuristic-only",
-            "nnue-guided": "nnue-guided",
-            "random-only": "random-only",
-        }
-        gpu_engine_mode = mode_map.get(engine_mode or "heuristic-only", "heuristic-only")
+        effective_mode = engine_mode or "heuristic-only"
 
-        cmd = [
-            sys.executable,
-            script_path,
-            "--board", board_norm,  # Note: --board not --board-type
-            "--num-players", str(num_players),
-            "--num-games", str(num_games),
-            "--output-dir", str(output_dir),
-            "--output-db", str(output_dir / "games.db"),
-            "--engine-mode", gpu_engine_mode,
-            "--seed", str(int(time.time() * 1000) % 2**31),
-        ]
+        if effective_mode in SEARCH_ENGINE_MODES:
+            # Use run_hybrid_selfplay.py for search-based modes (maxn, brs, mcts, etc.)
+            script_path = os.path.join(self.ringrift_path, "ai-service", "scripts", "run_hybrid_selfplay.py")
+            if not os.path.exists(script_path):
+                logger.warning(f"Hybrid selfplay script not found: {script_path}")
+                return
+
+            cmd = [
+                sys.executable,
+                script_path,
+                "--board-type", board_norm,
+                "--num-players", str(num_players),
+                "--num-games", str(num_games),
+                "--output-dir", str(output_dir),
+                "--record-db", str(output_dir / "games.db"),
+                "--lean-db",
+                "--engine-mode", effective_mode,
+                "--seed", str(int(time.time() * 1000) % 2**31),
+            ]
+        else:
+            # Use run_gpu_selfplay.py for GPU-optimized modes (random, heuristic, nnue-guided)
+            script_path = os.path.join(self.ringrift_path, "ai-service", "scripts", "run_gpu_selfplay.py")
+            if not os.path.exists(script_path):
+                logger.warning(f"GPU selfplay script not found: {script_path}")
+                return
+
+            # Map engine modes: run_gpu_selfplay.py only supports: random-only, heuristic-only, nnue-guided
+            mode_map = {
+                "mixed": "heuristic-only",
+                "gpu": "heuristic-only",
+                "descent-only": "heuristic-only",
+                "heuristic-only": "heuristic-only",
+                "nnue-guided": "nnue-guided",
+                "random-only": "random-only",
+            }
+            gpu_engine_mode = mode_map.get(effective_mode, "heuristic-only")
+
+            cmd = [
+                sys.executable,
+                script_path,
+                "--board", board_norm,  # Note: --board not --board-type
+                "--num-players", str(num_players),
+                "--num-games", str(num_games),
+                "--output-dir", str(output_dir),
+                "--output-db", str(output_dir / "games.db"),
+                "--engine-mode", gpu_engine_mode,
+                "--seed", str(int(time.time() * 1000) % 2**31),
+            ]
 
         env = os.environ.copy()
         env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")

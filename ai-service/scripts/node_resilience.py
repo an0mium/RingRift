@@ -21,6 +21,7 @@ import fcntl
 import json
 import logging
 import os
+import random
 import signal
 import socket
 import subprocess
@@ -32,6 +33,30 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+
+# Diverse selfplay profiles for high-quality training data
+# Based on benchmark results: MaxN >> Descent in 3P/4P, Gumbel >> all in 2P
+DIVERSE_ENGINE_PROFILES = [
+    # Neural-guided (50%)
+    {"engine_mode": "gumbel-mcts", "board_type": "hex", "num_players": 2, "weight": 0.18},
+    {"engine_mode": "policy-only", "board_type": "hex", "num_players": 2, "weight": 0.12},
+    {"engine_mode": "nnue-guided", "board_type": "square8", "num_players": 2, "weight": 0.08},
+    {"engine_mode": "gumbel-mcts", "board_type": "square8", "num_players": 3, "weight": 0.06},
+    {"engine_mode": "mcts", "board_type": "hex", "num_players": 2, "weight": 0.06},
+    # MaxN/BRS multiplayer (15%) - best for 3P/4P games
+    {"engine_mode": "maxn", "board_type": "hex", "num_players": 3, "weight": 0.05},
+    {"engine_mode": "maxn", "board_type": "square8", "num_players": 4, "weight": 0.04},
+    {"engine_mode": "brs", "board_type": "hex", "num_players": 3, "weight": 0.03},
+    {"engine_mode": "brs", "board_type": "square8", "num_players": 4, "weight": 0.03},
+    # Heuristic throughput (22%)
+    {"engine_mode": "heuristic-only", "board_type": "hex", "num_players": 2, "weight": 0.10},
+    {"engine_mode": "heuristic-only", "board_type": "square8", "num_players": 2, "weight": 0.07},
+    {"engine_mode": "heuristic-only", "board_type": "hex", "num_players": 4, "weight": 0.05},
+    # Exploration (13%)
+    {"engine_mode": "mixed", "board_type": "square19", "num_players": 2, "weight": 0.04},
+    {"engine_mode": "nnue-guided", "board_type": "hex", "num_players": 3, "weight": 0.04},
+    {"engine_mode": "policy-only", "board_type": "square8", "num_players": 4, "weight": 0.05},
+]
 
 # Unified logging setup
 try:
@@ -707,12 +732,21 @@ class NodeResilience:
         return False
 
     def _start_gpu_fallback_selfplay(self, num_to_start: int) -> None:
-        """Start GPU fallback selfplay workers."""
+        """Start GPU fallback selfplay workers with diverse profiles.
+
+        Uses weighted random selection from DIVERSE_ENGINE_PROFILES to ensure
+        high-quality, diverse training data including MaxN/BRS for multiplayer.
+        """
         if self.config.num_gpus <= 0 or num_to_start <= 0:
             return
 
-        logger.info(f"Starting {num_to_start} GPU fallback selfplay workers")
-        for i in range(num_to_start):
+        logger.info(f"Starting {num_to_start} GPU fallback selfplay workers with diverse profiles")
+
+        # Select diverse profiles for each worker
+        weights = [p["weight"] for p in DIVERSE_ENGINE_PROFILES]
+        selected_profiles = random.choices(DIVERSE_ENGINE_PROFILES, weights=weights, k=num_to_start)
+
+        for i, profile in enumerate(selected_profiles):
             gpu_id = (len(self.local_selfplay_pids) + i) % max(self.config.num_gpus, 1)
             try:
                 env = os.environ.copy()
@@ -722,11 +756,16 @@ class NodeResilience:
                 env["RINGRIFT_JOB_ORIGIN"] = "resilience_fallback"
 
                 ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+                # Include engine mode in output dir for easier tracking
+                engine_mode = profile["engine_mode"]
+                board_type = profile["board_type"]
+                num_players = profile["num_players"]
                 output_dir = os.path.join(
                     self.config.ai_service_dir,
                     "data/selfplay/fallback",
                     self.config.node_id,
                     f"gpu{gpu_id}",
+                    f"{engine_mode}_{board_type}_{num_players}p",
                     ts,
                 )
 
@@ -738,8 +777,8 @@ class NodeResilience:
                     cmd = [
                         sys.executable,
                         script_path,
-                        "--board", self.config.fallback_board,
-                        "--num-players", str(self.config.fallback_num_players),
+                        "--board", board_type,
+                        "--num-players", str(num_players),
                         "--num-games", str(self.config.fallback_num_games_gpu),
                         "--batch-size", str(self.config.fallback_batch_size_gpu),
                         "--max-moves", "10000",  # Avoid draws due to move limit
@@ -747,16 +786,16 @@ class NodeResilience:
                         "--seed", str(int(time.time()) + gpu_id),
                     ]
                 else:
-                    # Default: hybrid selfplay (CPU rules + GPU eval).
+                    # Default: hybrid selfplay (CPU rules + GPU eval) with diverse engine mode
                     cmd = [
                         sys.executable,
                         script_path,
-                        "--board-type", self.config.fallback_board,
-                        "--num-players", str(self.config.fallback_num_players),
+                        "--board-type", board_type,
+                        "--num-players", str(num_players),
                         "--num-games", str(self.config.fallback_num_games_gpu),
                         "--max-moves", "10000",  # Avoid draws due to move limit
                         "--output-dir", output_dir,
-                        "--engine-mode", "nnue-guided",  # Use neural network for quality training data
+                        "--engine-mode", engine_mode,
                         "--seed", str(int(time.time()) + gpu_id),
                     ]
 
@@ -768,7 +807,7 @@ class NodeResilience:
                     stderr=subprocess.DEVNULL,
                 )
                 self.local_selfplay_pids.append(proc.pid)
-                logger.info(f"Started GPU fallback selfplay on GPU {gpu_id} (PID {proc.pid})")
+                logger.info(f"Started GPU fallback selfplay on GPU {gpu_id}: {engine_mode} {board_type} {num_players}P (PID {proc.pid})")
             except Exception as e:
                 logger.error(f"Failed to start GPU fallback selfplay on GPU {gpu_id}: {e}")
 

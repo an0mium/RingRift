@@ -33,9 +33,7 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import logging
-import math
 import os
 import sqlite3
 import threading
@@ -44,7 +42,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 # Import canonical Elo constants
 try:
@@ -54,10 +52,9 @@ except ImportError:
 
 # Import unified signals for cross-system consistency
 from .unified_signals import (
-    get_signal_computer,
-    TrainingUrgency,
     TrainingSignals,
-    UnifiedSignalComputer,
+    TrainingUrgency,
+    get_signal_computer,
 )
 
 logger = logging.getLogger(__name__)
