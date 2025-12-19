@@ -353,6 +353,9 @@ class TrainConfig:
     batch_size: int = 32  # Will be auto-scaled in __post_init__ if GPU available
     weight_decay: float = 1e-4
     history_length: int = 3
+    # Feature encoding version. v1 matches legacy encoders; v2 adds
+    # chain/forced-elimination signals for hex encoders.
+    feature_version: int = 2
     seed: int = 42
     max_moves_per_game: int = 10000
     k_elo: int = 32

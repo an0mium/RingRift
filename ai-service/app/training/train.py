@@ -2605,58 +2605,60 @@ def train_model(
                             policy_targets, (0, pad_size), value=0.0
                         )
 
-                    # For DDP, forward through the wrapped model
-                    out = model(features, globals_vec)
-                    if isinstance(out, tuple) and len(out) == 3:
-                        value_pred, policy_pred, rank_dist_pred = out
-                    else:
-                        value_pred, policy_pred = out
-                        rank_dist_pred = None
-
-                    policy_log_probs = torch.log_softmax(policy_pred, dim=1)
-
-                    # Use multi-player value loss for validation too
-                    if use_multi_player_loss:
-                        effective_val_num_players = (
-                            val_batch_num_players if val_batch_num_players is not None
-                            else num_players
-                        )
-                        v_loss = multi_player_value_loss(
-                            value_pred, value_targets, effective_val_num_players
-                        )
-                    else:
-                        if value_pred.ndim == 2:
-                            value_pred_scalar = value_pred[:, 0]
+                    # Autocast for mixed precision validation (matches training)
+                    with torch.amp.autocast('cuda', enabled=amp_enabled, dtype=amp_torch_dtype):
+                        # For DDP, forward through the wrapped model
+                        out = model(features, globals_vec)
+                        if isinstance(out, tuple) and len(out) == 3:
+                            value_pred, policy_pred, rank_dist_pred = out
                         else:
-                            value_pred_scalar = value_pred
-                        v_loss = value_criterion(
-                            value_pred_scalar.reshape(-1),
-                            value_targets.reshape(-1),
-                        )
-                    p_loss = masked_policy_kl(
-                        policy_log_probs, policy_targets
-                    )
-                    loss = v_loss + (config.policy_weight * p_loss)
+                            value_pred, policy_pred = out
+                            rank_dist_pred = None
 
-                    # Rank distribution loss (V3+ multi-player head)
-                    if (
-                        rank_dist_pred is not None
-                        and use_multi_player_loss
-                        and value_targets.ndim == 2
-                    ):
-                        rank_targets, rank_mask = build_rank_targets(
-                            value_targets,
-                            effective_val_num_players,
+                        policy_log_probs = torch.log_softmax(policy_pred, dim=1)
+
+                        # Use multi-player value loss for validation too
+                        if use_multi_player_loss:
+                            effective_val_num_players = (
+                                val_batch_num_players if val_batch_num_players is not None
+                                else num_players
+                            )
+                            v_loss = multi_player_value_loss(
+                                value_pred, value_targets, effective_val_num_players
+                            )
+                        else:
+                            if value_pred.ndim == 2:
+                                value_pred_scalar = value_pred[:, 0]
+                            else:
+                                value_pred_scalar = value_pred
+                            v_loss = value_criterion(
+                                value_pred_scalar.reshape(-1),
+                                value_targets.reshape(-1),
+                            )
+                        p_loss = masked_policy_kl(
+                            policy_log_probs, policy_targets
                         )
-                        rank_log_probs = torch.log(
-                            rank_dist_pred.clamp_min(1e-8)
-                        )
-                        per_player_loss = -(
-                            rank_targets * rank_log_probs
-                        ).sum(dim=-1)
-                        if torch.any(rank_mask):
-                            rank_loss = per_player_loss[rank_mask].mean()
-                            loss = loss + (config.rank_dist_weight * rank_loss)
+                        loss = v_loss + (config.policy_weight * p_loss)
+
+                        # Rank distribution loss (V3+ multi-player head)
+                        if (
+                            rank_dist_pred is not None
+                            and use_multi_player_loss
+                            and value_targets.ndim == 2
+                        ):
+                            rank_targets, rank_mask = build_rank_targets(
+                                value_targets,
+                                effective_val_num_players,
+                            )
+                            rank_log_probs = torch.log(
+                                rank_dist_pred.clamp_min(1e-8)
+                            )
+                            per_player_loss = -(
+                                rank_targets * rank_log_probs
+                            ).sum(dim=-1)
+                            if torch.any(rank_mask):
+                                rank_loss = per_player_loss[rank_mask].mean()
+                                loss = loss + (config.rank_dist_weight * rank_loss)
                     # Accumulate on GPU without .item() sync
                     val_loss += loss.detach()
                     val_batches += 1

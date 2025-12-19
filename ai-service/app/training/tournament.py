@@ -124,32 +124,22 @@ class Tournament:
     def _create_ai(self, player_number: int, model_path: str) -> DescentAI:
         """Create an AI instance with specific model weights.
 
-        The checkpoint basename (without .pth) is treated as the nn_model_id so
-        that NeuralNetAI can load it via AIConfig.nn_model_id. We keep the
-        manual load as a fallback in case older DescentAI/NeuralNetAI versions
-        ignore nn_model_id.
+        Uses the full model path as nn_model_id so NeuralNetAI loads and caches
+        the model through the standard model_cache infrastructure. This ensures
+        models are shared efficiently across games and properly released.
+
+        Note: NeuralNetAI supports .pth paths directly as nn_model_id (see
+        neural_net.py line 3653-3673).
         """
-        model_id = os.path.splitext(os.path.basename(model_path))[0]
+        # Pass full path - NeuralNetAI detects .pth suffix and loads directly
         config = AIConfig(
             difficulty=10,
             randomness=0.1,
             think_time=500,
             rngSeed=None,
-            nn_model_id=model_id,
+            nn_model_id=model_path,  # Full path supported since 2025-12
         )
-        ai = DescentAI(player_number, config)
-
-        # Fallback/manual load for robustness with legacy implementations.
-        if ai.neural_net and os.path.exists(model_path):
-            try:
-                ai.neural_net.model.load_state_dict(
-                    torch.load(model_path, weights_only=True)
-                )
-                ai.neural_net.model.eval()
-            except Exception as e:
-                logger.error(f"Failed to load model {model_path}: {e}")
-
-        return ai
+        return DescentAI(player_number, config)
 
     def run(self) -> Dict[str, int]:
         """Run the tournament.
@@ -247,6 +237,12 @@ class Tournament:
             self.ratings["A"],
             self.ratings["B"],
         )
+
+        # Clear model cache after tournament to release GPU/MPS memory
+        if HAS_MODEL_CACHE and clear_model_cache is not None:
+            clear_model_cache()
+            logger.debug("Cleared model cache after tournament")
+
         return self.results
 
     def _play_game(

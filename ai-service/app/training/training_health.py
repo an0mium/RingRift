@@ -7,6 +7,9 @@ Provides real-time monitoring of training pipeline health:
 - Expose Prometheus metrics for alerting
 - Generate health reports
 
+This module integrates with the unified monitoring framework in app.monitoring.base,
+allowing training health to be aggregated with cluster and data quality monitors.
+
 Usage:
     from app.training.training_health import TrainingHealthMonitor
 
@@ -16,9 +19,9 @@ Usage:
     monitor.record_training_start("square8_2p")
     monitor.record_training_complete("square8_2p", success=True, metrics={...})
 
-    # Check health
-    health = monitor.get_health_status()
-    print(f"Overall health: {health.status}")
+    # Check health (implements HealthMonitor interface)
+    result = monitor.check_health()
+    print(f"Overall health: {result.status}")
 
     # Get alerts
     alerts = monitor.get_active_alerts()
@@ -35,6 +38,24 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# Import base monitoring framework for integration (2025-12)
+try:
+    from app.monitoring.base import (
+        HealthMonitor as BaseHealthMonitor,
+        HealthStatus,
+        Alert as BaseAlert,
+        MonitoringResult,
+    )
+    from app.monitoring.thresholds import AlertLevel
+    HAS_MONITORING_FRAMEWORK = True
+except ImportError:
+    HAS_MONITORING_FRAMEWORK = False
+    BaseHealthMonitor = object  # type: ignore
+    # Define fallbacks for standalone use
+    class AlertLevel(Enum):  # type: ignore
+        WARNING = "warning"
+        CRITICAL = "critical"
 
 logger = logging.getLogger(__name__)
 

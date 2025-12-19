@@ -1023,8 +1023,11 @@ class UnifiedDataSyncService:
                 logger.debug(
                     f"{host.name}: Skipping sync - both nodes have shared NFS storage"
                 )
-                # Still need to update state to reflect games available on NFS
-                # The games are already accessible via the shared filesystem
+                # Still update state to reflect availability via shared storage.
+                state.last_sync_time = time.time()
+                state.consecutive_failures = 0
+                state.last_error = ""
+                self.manifest.save_host_state(state)
                 return 0
 
         # Circuit breaker check
