@@ -484,3 +484,231 @@ class TestChoices:
         assert len(retrieved) == 1
         assert retrieved[0]["choice_type"] == "line_reward"
         assert retrieved[0]["selected"]["id"] == "opt1"
+
+
+class TestNNUEFeaturesCaching:
+    """Tests for NNUE features caching in GameReplayDB."""
+
+    @pytest.fixture
+    def db(self, tmp_path):
+        """Create a test database."""
+        db_path = tmp_path / "test_nnue.db"
+        db = GameReplayDB(str(db_path))
+        yield db
+
+    def _create_game(self, db, game_id: str):
+        """Helper to create a game record (required for foreign key)."""
+        state = create_test_state(game_id=game_id)
+        final_state = state.model_copy(
+            update={"game_status": GameStatus.COMPLETED, "winner": 1}
+        )
+        db.store_game(
+            game_id=game_id,
+            initial_state=state,
+            final_state=final_state,
+            moves=[create_test_move(1, 0)],
+        )
+
+    def test_store_and_retrieve_single_feature(self, db):
+        """Test storing and retrieving a single NNUE feature vector."""
+        import numpy as np
+
+        game_id = "test-game-1"
+        self._create_game(db, game_id)
+
+        move_number = 0
+        player_perspective = 1
+        features = np.random.randn(512).astype(np.float32)
+        value = 1.0
+        board_type = "square8"
+
+        # Store features
+        db.store_nnue_features(
+            game_id=game_id,
+            move_number=move_number,
+            player_perspective=player_perspective,
+            features=features,
+            value=value,
+            board_type=board_type,
+        )
+
+        # Retrieve features
+        results = db.get_nnue_features(game_id)
+        assert len(results) == 1
+
+        ret_move, ret_player, ret_features, ret_value = results[0]
+        assert ret_move == move_number
+        assert ret_player == player_perspective
+        assert ret_value == value
+        assert np.allclose(ret_features, features)
+
+    def test_store_features_batch(self, db):
+        """Test batch storing of NNUE features."""
+        import numpy as np
+
+        game_id = "test-game-batch"
+        self._create_game(db, game_id)
+
+        records = []
+        for move_num in range(10):
+            for player in [1, 2]:
+                features = np.random.randn(256).astype(np.float32)
+                records.append((
+                    game_id,
+                    move_num,
+                    player,
+                    features,
+                    1.0 if player == 1 else -1.0,
+                    "square8",
+                ))
+
+        # Store batch
+        count = db.store_nnue_features_batch(records)
+        assert count == 20
+
+        # Retrieve all
+        results = db.get_nnue_features(game_id)
+        assert len(results) == 20
+
+    def test_get_features_by_move_number(self, db):
+        """Test filtering by move number."""
+        import numpy as np
+
+        game_id = "test-game-filter"
+        self._create_game(db, game_id)
+
+        # Store features for 3 moves
+        for move_num in range(3):
+            db.store_nnue_features(
+                game_id=game_id,
+                move_number=move_num,
+                player_perspective=1,
+                features=np.ones(128, dtype=np.float32) * move_num,
+                value=0.0,
+                board_type="square8",
+            )
+
+        # Get specific move
+        results = db.get_nnue_features(game_id, move_number=1)
+        assert len(results) == 1
+        assert results[0][0] == 1  # move_number
+        assert np.allclose(results[0][2], np.ones(128) * 1)
+
+    def test_get_features_by_player_perspective(self, db):
+        """Test filtering by player perspective."""
+        import numpy as np
+
+        game_id = "test-game-player"
+        self._create_game(db, game_id)
+
+        # Store features for 2 players
+        for player in [1, 2]:
+            db.store_nnue_features(
+                game_id=game_id,
+                move_number=0,
+                player_perspective=player,
+                features=np.ones(64, dtype=np.float32) * player,
+                value=1.0 if player == 1 else -1.0,
+                board_type="square8",
+            )
+
+        # Get specific player
+        results = db.get_nnue_features(game_id, move_number=0, player_perspective=2)
+        assert len(results) == 1
+        assert results[0][1] == 2  # player_perspective
+        assert results[0][3] == -1.0  # value
+
+    def test_compression_round_trip(self, db):
+        """Test that feature compression/decompression preserves values exactly."""
+        import numpy as np
+
+        game_id = "test-compression"
+        self._create_game(db, game_id)
+
+        # Create features with specific values that could be affected by compression issues
+        features = np.array([
+            0.0, 1.0, -1.0, 0.5, -0.5,
+            1e-6, -1e-6, 1e6, -1e6,
+            np.finfo(np.float32).max,
+            np.finfo(np.float32).min,
+        ], dtype=np.float32)
+
+        db.store_nnue_features(
+            game_id=game_id,
+            move_number=0,
+            player_perspective=1,
+            features=features,
+            value=0.0,
+            board_type="hex21",
+        )
+
+        results = db.get_nnue_features(game_id)
+        assert len(results) == 1
+        np.testing.assert_array_equal(results[0][2], features)
+
+    def test_update_existing_features(self, db):
+        """Test that storing features for same position updates existing record."""
+        import numpy as np
+
+        game_id = "test-update"
+        self._create_game(db, game_id)
+
+        move_number = 0
+        player_perspective = 1
+
+        # Store initial features
+        features1 = np.ones(32, dtype=np.float32)
+        db.store_nnue_features(
+            game_id=game_id,
+            move_number=move_number,
+            player_perspective=player_perspective,
+            features=features1,
+            value=1.0,
+            board_type="square8",
+        )
+
+        # Store updated features (same position)
+        features2 = np.zeros(32, dtype=np.float32)
+        db.store_nnue_features(
+            game_id=game_id,
+            move_number=move_number,
+            player_perspective=player_perspective,
+            features=features2,
+            value=-1.0,
+            board_type="square8",
+        )
+
+        # Should only have one record with updated values
+        results = db.get_nnue_features(game_id)
+        assert len(results) == 1
+        assert np.allclose(results[0][2], features2)
+        assert results[0][3] == -1.0
+
+    def test_empty_batch(self, db):
+        """Test that empty batch returns 0."""
+        count = db.store_nnue_features_batch([])
+        assert count == 0
+
+    def test_large_feature_vector(self, db):
+        """Test storing large feature vectors (typical NNUE size)."""
+        import numpy as np
+
+        game_id = "test-large"
+        self._create_game(db, game_id)
+
+        # NNUE typically uses ~40k features
+        features = np.random.randn(40960).astype(np.float32)
+
+        db.store_nnue_features(
+            game_id=game_id,
+            move_number=0,
+            player_perspective=1,
+            features=features,
+            value=0.5,
+            board_type="hex21",
+        )
+
+        results = db.get_nnue_features(game_id)
+        assert len(results) == 1
+        assert len(results[0][2]) == 40960
+        assert np.allclose(results[0][2], features)
