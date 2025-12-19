@@ -22,12 +22,14 @@
 
 ### Automated (Recommended)
 
-1. **Enable unified work orchestrator** on each node:
+1. **Enable resource-aware work router** on each node:
 
    ```bash
    # Add to cron (runs every 2 minutes)
-   */2 * * * * cd ~/ringrift/ai-service && python3 scripts/unified_work_orchestrator.py --node-id $(hostname) --once >> /tmp/work_orchestrator.log 2>&1
+   */2 * * * * cd ~/ringrift/ai-service && python3 scripts/resource_aware_router.py --rebalance >> /tmp/work_rebalance.log 2>&1
    ```
+
+   Legacy note: `scripts/unified_work_orchestrator.py` is deprecated and now wraps `resource_aware_router.py`.
 
 2. **Enable auto-training trigger** (already deployed):
    ```bash

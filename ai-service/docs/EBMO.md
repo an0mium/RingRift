@@ -1,23 +1,48 @@
 # Energy-Based Move Optimization (EBMO)
 
-A novel game-playing AI algorithm that uses gradient descent on continuous action embeddings at inference time to find optimal moves.
+An energy-based approach to game move selection that applies SPEN-style test-time optimization to board game AI, using continuous action embeddings with projection to legal discrete moves.
 
 ## Overview
 
-Unlike traditional approaches (policy networks, MCTS, minimax), EBMO navigates a continuous action manifold using gradient descent, then projects to the nearest legal discrete move.
+EBMO applies structured prediction energy networks (SPENs) to game move selection: learn an energy function E(s, a) over (state, action) pairs, then use gradient descent to find low-energy actions at inference time, projecting to the nearest legal discrete move.
 
-| Approach       | Selection Method           | EBMO Difference                  |
-| -------------- | -------------------------- | -------------------------------- |
-| Policy Network | Softmax → argmax/sample    | Gradient descent on action space |
-| MCTS           | Tree search → visit counts | Continuous optimization, no tree |
-| Minimax        | Depth-limited search       | No explicit game tree traversal  |
-| Q-Learning     | Q(s,a) lookup → argmax     | Optimizes embeddings, not lookup |
+| Approach       | Selection Method            | EBMO Approach                          |
+| -------------- | --------------------------- | -------------------------------------- |
+| Policy Network | Softmax -> argmax/sample    | Gradient descent in action space       |
+| MCTS           | Tree search -> visit counts | Continuous optimization, no tree       |
+| Minimax        | Depth-limited search        | No explicit game tree traversal        |
+| Q-Learning     | Q(s,a) lookup -> argmax     | Optimizes embeddings, not table lookup |
+
+## Related Work
+
+EBMO builds on several established research areas:
+
+### Structured Prediction Energy Networks (SPENs)
+
+The core inference approach--optimizing over continuous relaxations of structured outputs, then rounding--follows the SPEN pattern introduced by Belanger & McCallum (2016). EBMO applies this to game move selection.
+
+### Action Embeddings for Large Discrete Spaces
+
+The "continuous embedding -> nearest discrete action" projection is similar to Wolpertinger-style architectures (Dulac-Arnold et al., 2015) used for RL with large discrete action spaces.
+
+### Energy-Based Policies
+
+Energy-based policy formulations where action selection is cast as inference (sampling/optimization from a Boltzmann distribution) are well-established in RL (Haarnoja et al., 2017; Levine, 2018).
+
+## What EBMO Provides
+
+Rather than claiming fundamental novelty, EBMO offers:
+
+1. **Application to board game move selection**: SPEN-style inference applied to legal move selection with game-specific projections
+2. **Temperature-weighted soft projection**: Differentiable projection to legal moves using softmax over embedding distances
+3. **Game outcome-weighted training**: Contrastive loss weighted by game outcomes for better credit assignment
+4. **Practical implementation**: A working, tested codebase for energy-based game AI
 
 ## Algorithm
 
 ```
-Standard Policy:  state → NN → logits → softmax → move
-EBMO:            state → optimize(action_embedding) via ∇E → project → move
+Standard Policy:  state -> NN -> logits -> softmax -> move
+EBMO:            state -> optimize(action_embedding) via gradE -> project -> move
 ```
 
 ### Inference Steps
@@ -25,9 +50,22 @@ EBMO:            state → optimize(action_embedding) via ∇E → project → m
 1. **Encode state** once using CNN backbone
 2. **Multi-restart optimization** (default: 5 restarts):
    - Initialize action embedding from random legal move
-   - Run gradient descent (50 steps): `a' = a - lr * ∇_a E(s, a)`
-   - Periodically project to legal move manifold
+   - Run gradient descent (50 steps): `a' = a - lr * grad_a E(s, a)`
+   - Periodically project to legal move manifold via temperature-weighted soft projection
 3. **Select best move** with lowest final energy
+
+### Projection Method
+
+The projection to legal moves uses a **temperature-weighted soft projection**:
+
+```python
+# Not simple nearest-neighbor, but soft weighted combination
+distances = torch.cdist(action_embed, legal_embeddings)
+weights = F.softmax(-distances / temperature, dim=-1)
+projected = weights @ legal_embeddings
+```
+
+This allows gradients to flow through the projection and provides smoother optimization dynamics than hard kNN projection.
 
 ### Training
 
@@ -90,18 +128,26 @@ python scripts/train_ebmo.py \
   --device cuda
 ```
 
-### Self-Play Data Generation
+### Expert Data Generation
 
-```python
-from app.training.parallel_selfplay import generate_dataset_parallel
-from app.models import BoardType
+```bash
+# Generate training data from strong AI play
+python scripts/generate_ebmo_expert_data.py \
+  --num-games 500 \
+  --engine heuristic \
+  --depth 5 \
+  --output data/training/ebmo_expert.npz
+```
 
-generate_dataset_parallel(
-    num_games=1000,
-    output_file="data/ebmo_selfplay.npz",
-    board_type=BoardType.SQUARE8,
-    engine="ebmo",  # Use EBMO for self-play
-)
+### Expert Data Training
+
+```bash
+# Train directly on the expert NPZ format
+python scripts/train_ebmo_expert.py \
+  --data data/training/ebmo_expert.npz \
+  --epochs 50 \
+  --batch-size 256 \
+  --output-dir models/ebmo
 ```
 
 ## Architecture
@@ -109,29 +155,29 @@ generate_dataset_parallel(
 ### Network Components
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    EBMO Network                              │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  State Encoder (CNN):                                        │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐                │
-│  │ 56×8×8   │ → │ ResBlocks│ → │ 256-dim  │ = s_embed      │
-│  │ features │   │ (6 SE)   │   │ state    │                │
-│  └──────────┘   └──────────┘   └──────────┘                │
-│                                                              │
-│  Action Encoder:                                             │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐                │
-│  │ 14-dim   │ → │ MLP      │ → │ 128-dim  │ = a_embed      │
-│  │ features │   │ (3 layer)│   │ action   │                │
-│  └──────────┘   └──────────┘   └──────────┘                │
-│                                                              │
-│  Energy Head:                                                │
-│  ┌────────────────┐   ┌──────────┐   ┌────────┐            │
-│  │ concat(s,a)    │ → │ MLP      │ → │ scalar │ = E(s,a)   │
-│  │ 384-dim        │   │ (3 layer)│   │ energy │            │
-│  └────────────────┘   └──────────┘   └────────┘            │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------+
+|                    EBMO Network                              |
++-------------------------------------------------------------+
+|                                                              |
+|  State Encoder (CNN):                                        |
+|  +----------+   +----------+   +----------+                |
+|  | 56x8x8   | -> | ResBlocks| -> | 256-dim  | = s_embed      |
+|  | features |   | (6 SE)   |   | state    |                |
+|  +----------+   +----------+   +----------+                |
+|                                                              |
+|  Action Encoder:                                             |
+|  +----------+   +----------+   +----------+                |
+|  | 14-dim   | -> | MLP      | -> | 128-dim  | = a_embed      |
+|  | features |   | (3 layer)|   | action   |                |
+|  +----------+   +----------+   +----------+                |
+|                                                              |
+|  Energy Head:                                                |
+|  +----------------+   +----------+   +--------+            |
+|  | concat(s,a)    | -> | MLP      | -> | scalar | = E(s,a)   |
+|  | 384-dim        |   | (3 layer)|   | energy |            |
+|  +----------------+   +----------+   +--------+            |
+|                                                              |
++-------------------------------------------------------------+
 ```
 
 ### Action Embedding (14 dimensions)
@@ -171,7 +217,7 @@ class EBMOConfig:
 
     # Board
     board_size: int = 8
-    num_input_channels: int = 56  # 14 planes × 4 history frames
+    num_input_channels: int = 56  # 14 planes x 4 history frames
 ```
 
 ### AIConfig Integration
@@ -193,43 +239,66 @@ config = AIConfig(
 
 ### Benchmark Results (Dec 2025)
 
-| Opponent            | EBMO Win Rate    | Notes                    |
-| ------------------- | ---------------- | ------------------------ |
-| RandomAI            | **100%** (15/15) | After 25 epochs training |
-| HeuristicAI         | 0% (0/10)        | Needs more training      |
-| MinimaxAI (depth=2) | 0% (0/10)        | Needs more training      |
+| Opponent            | EBMO Win Rate    | Notes                |
+| ------------------- | ---------------- | -------------------- |
+| RandomAI            | **100%** (15/15) | Self-play trained    |
+| HeuristicAI         | **20%** (2/10)   | Expert-trained model |
+| MinimaxAI (depth=2) | 0% (0/10)        | Needs more training  |
+
+**Status**: Early prototype. Expert training on HeuristicAI games shows improvement (0% -> 20% vs HeuristicAI). More training data and hyperparameter tuning needed.
 
 ### Inference Speed
 
 - ~148ms per move on GH200 GPU
 - ~113ms per move on Apple M-series (MPS)
-- Scales with `optim_steps × num_restarts`
+- Scales with `optim_steps x num_restarts`
 
 ## Files
 
-| File                           | Description                          |
-| ------------------------------ | ------------------------------------ |
-| `app/ai/ebmo_network.py`       | Network architecture, loss functions |
-| `app/ai/ebmo_ai.py`            | AI agent implementation              |
-| `app/training/ebmo_dataset.py` | Dataset with contrastive sampling    |
-| `app/training/ebmo_trainer.py` | Training loop                        |
-| `scripts/train_ebmo.py`        | Training script                      |
+| File                                   | Description                          |
+| -------------------------------------- | ------------------------------------ |
+| `app/ai/ebmo_network.py`               | Network architecture, loss functions |
+| `app/ai/ebmo_ai.py`                    | AI agent implementation              |
+| `app/training/ebmo_dataset.py`         | Dataset with contrastive sampling    |
+| `app/training/ebmo_trainer.py`         | Training loop                        |
+| `scripts/train_ebmo.py`                | Training script                      |
+| `scripts/generate_ebmo_expert_data.py` | Expert data generation               |
 
-## Theoretical Advantages
+## Potential Advantages
 
-1. **Continuous exploration**: Can search between discrete move options
-2. **Gradient guidance**: More directed than random sampling (MCTS rollouts)
-3. **Amortized search**: Energy landscape encodes search knowledge
-4. **Scalability**: O(optimization_steps) vs O(tree_size) for MCTS
+1. **Continuous exploration**: Gradient descent can explore between discrete options
+2. **Gradient guidance**: More directed than random sampling (e.g., MCTS rollouts)
+3. **Amortized search**: Energy landscape encodes search knowledge in parameters
+4. **Differentiable projection**: Soft projection allows end-to-end training
 
-## Potential Limitations
+## Known Limitations
 
 1. **Local minima**: Gradient descent may get stuck (mitigated by restarts)
-2. **Projection quality**: Continuous → discrete mapping
-3. **Training stability**: Energy-based models can be sensitive
+2. **Projection quality**: Continuous -> discrete mapping can lose information
+3. **Training stability**: Energy-based models can be sensitive to hyperparameters
+4. **Compute cost**: Multiple optimization steps per move vs. single forward pass
 
 ## References
 
-- Energy-Based Models: LeCun et al., "A Tutorial on Energy-Based Learning"
-- Contrastive Learning: InfoNCE loss from CPC (van den Oord et al.)
-- Game AI: AlphaZero (Silver et al.), Gumbel MuZero (Danihelka et al.)
+### Core Methods
+
+- **SPENs**: Belanger & McCallum, "Structured Prediction Energy Networks" (2016)
+- **EBMs**: LeCun et al., "A Tutorial on Energy-Based Learning" (2006)
+
+### Action Embeddings
+
+- **Wolpertinger**: Dulac-Arnold et al., "Deep Reinforcement Learning in Large Discrete Action Spaces" (2015)
+
+### Energy-Based RL
+
+- **Soft Actor-Critic**: Haarnoja et al., "Soft Actor-Critic" (2018)
+- **MaxEnt RL**: Levine, "Reinforcement Learning and Control as Probabilistic Inference" (2018)
+
+### Game AI
+
+- **AlphaZero**: Silver et al., "A general reinforcement learning algorithm that masters chess, shogi, and Go" (2018)
+- **Gumbel MuZero**: Danihelka et al., "Policy improvement by planning with Gumbel" (2022)
+
+### Contrastive Learning
+
+- **InfoNCE**: van den Oord et al., "Representation Learning with Contrastive Predictive Coding" (2018)
