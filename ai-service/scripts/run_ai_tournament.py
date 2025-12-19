@@ -442,7 +442,8 @@ def main():
             import socket
             node_id = socket.gethostname()
             config = f"{args.p1}_vs_{args.p2}_{args.board}"
-            record_task_completion("tournament", config, node_id, coord_start_time, time.time())
+            # Args: task_type, host, started_at, completed_at, success, config
+            record_task_completion("tournament", node_id, coord_start_time, time.time(), True, config)
             print(f"[Coordination] Recorded task completion")
         except Exception as e:
             print(f"[Coordination] Warning: Failed to record task completion: {e}")

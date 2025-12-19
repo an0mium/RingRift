@@ -297,7 +297,8 @@ def main():
             import socket
             node_id = socket.gethostname()
             config = f"{args.board_type}_{args.num_players}p"
-            record_task_completion("selfplay", config, node_id, coord_start_time, time.time())
+            # Args: task_type, host, started_at, completed_at, success, config
+            record_task_completion("selfplay", node_id, coord_start_time, time.time(), True, config)
             print(f"[Coordination] Recorded task completion")
         except Exception as e:
             print(f"[Coordination] Warning: Failed to record task completion: {e}")

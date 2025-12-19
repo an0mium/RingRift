@@ -1568,7 +1568,8 @@ def main():
                     import socket
                     node_id = socket.gethostname()
                     config = f"{args.board_type}_{args.num_players}p"
-                    record_task_completion("hybrid_selfplay", config, node_id, start_time, time.time())
+                    # Args: task_type, host, started_at, completed_at, success, config
+                    record_task_completion("hybrid_selfplay", node_id, start_time, time.time(), True, config)
                     logger.info(f"Recorded task completion for duration learning")
                 except Exception as e:
                     logger.warning(f"Failed to record task completion: {e}")

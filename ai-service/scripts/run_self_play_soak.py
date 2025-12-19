@@ -3702,7 +3702,8 @@ def main() -> None:  # pragma: no cover - CLI entrypoint
                 import socket
                 node_id = socket.gethostname()
                 config = f"gpu_{board_type}_{num_players}p"
-                record_task_completion("selfplay", config, node_id, coord_start_time, time.time())
+                # Args: task_type, host, started_at, completed_at, success, config
+                record_task_completion("selfplay", node_id, coord_start_time, time.time(), True, config)
                 logger.info("[Coordination] Recorded task completion (GPU)")
             except Exception as e:
                 logger.warning(f"[Coordination] Warning: Failed to record task completion: {e}")
@@ -3824,7 +3825,8 @@ def main() -> None:  # pragma: no cover - CLI entrypoint
             board_type = getattr(args, "board_type", "square8")
             num_players = getattr(args, "num_players", 2)
             config = f"{board_type}_{num_players}p"
-            record_task_completion("selfplay", config, node_id, coord_start_time, time.time())
+            # Args: task_type, host, started_at, completed_at, success, config
+            record_task_completion("selfplay", node_id, coord_start_time, time.time(), True, config)
             logger.info("[Coordination] Recorded task completion")
         except Exception as e:
             logger.warning(f"[Coordination] Warning: Failed to record task completion: {e}")
