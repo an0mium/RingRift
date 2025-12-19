@@ -5,7 +5,7 @@ This module provides shared utilities for file synchronization operations:
 - Remote file discovery
 
 Used by:
-- scripts/simple_game_sync.py
+- scripts/unified_data_sync.py
 - scripts/external_drive_sync_daemon.py
 - Other data sync scripts
 """

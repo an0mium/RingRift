@@ -17,19 +17,9 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.db.game_replay import GameReplayDB
+from app.main import sanitize_error_detail  # Consolidated error utility
 
 logger = logging.getLogger(__name__)
-
-# Error sanitization for production - prevent stack trace leakage
-IS_PRODUCTION = os.getenv("RINGRIFT_ENV", "development").lower() == "production"
-
-
-def sanitize_error_detail(error: Exception, fallback: str = "Internal server error") -> str:
-    """Return sanitized error message for HTTP responses."""
-    if IS_PRODUCTION:
-        return fallback
-    return str(error)
-
 
 # Default database path - can be overridden via environment variable
 DEFAULT_DB_PATH = os.getenv(
