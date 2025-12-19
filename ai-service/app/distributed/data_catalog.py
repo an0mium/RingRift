@@ -44,9 +44,15 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 logger = logging.getLogger(__name__)
 
 # Path setup
-AI_SERVICE_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_SYNC_DIR = AI_SERVICE_ROOT / "data" / "games" / "synced"
-DEFAULT_MANIFEST_PATH = AI_SERVICE_ROOT / "data" / "data_manifest.db"
+from app.utils.paths import DATA_DIR, GAMES_DIR
+
+try:
+    from app.distributed.storage_provider import get_storage_provider
+    HAS_STORAGE_PROVIDER = True
+except ImportError:
+    HAS_STORAGE_PROVIDER = False
+DEFAULT_SYNC_DIR = GAMES_DIR / "synced"
+DEFAULT_MANIFEST_PATH = DATA_DIR / "data_manifest.db"
 
 # Try to import unified manifest
 try:
@@ -115,9 +121,30 @@ class DataCatalog:
             local_game_dirs: Additional local directories to scan for games
             node_id: Identifier for this node (default: hostname)
         """
-        self.sync_dir = sync_dir or DEFAULT_SYNC_DIR
+        self._provider = get_storage_provider() if HAS_STORAGE_PROVIDER else None
+
+        if sync_dir is None:
+            if self._provider:
+                candidate = self._provider.selfplay_dir / "synced"
+                self.sync_dir = candidate if candidate.exists() else DEFAULT_SYNC_DIR
+            else:
+                self.sync_dir = DEFAULT_SYNC_DIR
+        else:
+            self.sync_dir = sync_dir
+
         self.manifest_path = manifest_path or DEFAULT_MANIFEST_PATH
-        self.local_game_dirs = local_game_dirs or [AI_SERVICE_ROOT / "data" / "games"]
+
+        if local_game_dirs is None:
+            dirs: List[Path] = []
+            if self._provider:
+                dirs.append(self._provider.selfplay_dir)
+            dirs.append(GAMES_DIR)
+            self.local_game_dirs = []
+            for d in dirs:
+                if d not in self.local_game_dirs:
+                    self.local_game_dirs.append(d)
+        else:
+            self.local_game_dirs = local_game_dirs
         self.node_id = node_id or socket.gethostname()
 
         # Initialize manifest if available
@@ -150,8 +177,9 @@ class DataCatalog:
         self._sources.clear()
 
         # Discover local game directories
+        local_source_type = "nfs" if self._provider and self._provider.has_shared_storage else "local"
         for game_dir in self.local_game_dirs:
-            self._discover_directory(game_dir, source_type="local", host_origin=self.node_id)
+            self._discover_directory(game_dir, source_type=local_source_type, host_origin=self.node_id)
 
         # Discover synced data
         if self.sync_dir.exists():
@@ -162,11 +190,6 @@ class DataCatalog:
                         source_type="synced",
                         host_origin=host_dir.name,
                     )
-
-        # Check for NFS shared storage
-        nfs_path = Path("/shared/ringrift/training_data")
-        if nfs_path.exists():
-            self._discover_directory(nfs_path, source_type="nfs", host_origin="shared")
 
         self._last_discovery = now
         logger.info(f"Discovered {len(self._sources)} data sources")

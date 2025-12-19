@@ -25,6 +25,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import hashlib
 import json
 import logging
@@ -317,6 +318,8 @@ class Aria2Transport:
         return cmd
 
     def _resolve_category_dir(self, local_dir: Path, category: str) -> Path:
+        if local_dir.name == "synced" and local_dir.parent.name == category:
+            return local_dir
         if category == "games" and local_dir.name in ("games", "selfplay"):
             return local_dir
         if category == "models" and local_dir.name == "models":
@@ -570,6 +573,7 @@ class Aria2Transport:
         self,
         source_urls: List[str],
         local_dir: Path,
+        patterns: Optional[List[str]] = None,
         dry_run: bool = False,
     ) -> SyncResult:
         """Sync model checkpoints from multiple sources."""
@@ -591,6 +595,8 @@ class Aria2Transport:
         for inventory in inventories:
             for file_info in inventory.files.values():
                 if file_info.category != "models":
+                    continue
+                if patterns and not any(fnmatch.fnmatch(file_info.name, pattern) for pattern in patterns):
                     continue
 
                 local_path = category_dir / file_info.name

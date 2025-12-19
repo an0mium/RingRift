@@ -2609,6 +2609,13 @@ class UnifiedAILoop:
                 self.event_bus.subscribe(DataEventType.PROMOTION_FAILED, self._on_promotion_failed)
                 self.event_bus.subscribe(DataEventType.DATA_SYNC_FAILED, self._on_data_sync_failed)
                 print("[UnifiedLoop] Failure event handlers registered")
+                # Subscribe to data pipeline events for coordinated training triggers
+                self.event_bus.subscribe(DataEventType.NEW_GAMES_AVAILABLE, self._on_new_games_available)
+                self.event_bus.subscribe(DataEventType.HIGH_QUALITY_DATA_AVAILABLE, self._on_high_quality_data)
+                # Subscribe to regression events for emergency response
+                self.event_bus.subscribe(DataEventType.REGRESSION_CRITICAL, self._on_critical_regression)
+                self.event_bus.subscribe(DataEventType.REGRESSION_SEVERE, self._on_severe_regression)
+                print("[UnifiedLoop] Data pipeline and regression handlers registered")
             except Exception as e:
                 print(f"[UnifiedLoop] Warning: Failed to initialize feedback controller: {e}")
 
@@ -3904,6 +3911,211 @@ class UnifiedAILoop:
 
         except Exception as e:
             print(f"[Feedback] Error processing promotion feedback: {e}")
+
+    async def _on_promotion_for_cluster_deploy(self, event: DataEvent):
+        """Deploy promoted models to cluster nodes automatically.
+
+        When a model is promoted, this handler deploys it to all cluster nodes
+        so they can use the latest champion model for inference and selfplay.
+        """
+        if not HAS_CLUSTER_DEPLOY:
+            return
+
+        try:
+            payload = event.payload
+            model_path = payload.get('model_path')
+            config_key = payload.get('config')
+            model_id = payload.get('model_id')
+            success = payload.get('success', True)
+
+            # Only deploy on successful promotion
+            if not success:
+                return
+
+            # Get model path if not provided
+            if not model_path and model_id:
+                # Try to find model in standard locations
+                for model_type in ['nnue', 'neural_net']:
+                    candidate = AI_SERVICE_ROOT / "models" / model_type / f"{model_id}.pt"
+                    if candidate.exists():
+                        model_path = str(candidate)
+                        break
+
+            if not model_path or not Path(model_path).exists():
+                if self.config.verbose:
+                    print(f"[ClusterDeploy] No model path for {model_id}, skipping deployment")
+                return
+
+            # Get cluster hosts
+            hosts = get_cluster_hosts()
+            if not hosts:
+                print(f"[ClusterDeploy] No cluster hosts configured, skipping deployment")
+                return
+
+            # Deploy asynchronously to avoid blocking
+            print(f"[ClusterDeploy] Deploying {model_id} to {len(hosts)} hosts...")
+
+            # Run deployment in background thread
+            loop = asyncio.get_event_loop()
+            results = await loop.run_in_executor(
+                None,
+                lambda: deploy_to_cluster(Path(model_path), hosts)
+            )
+
+            # Count successes
+            successful = sum(1 for s in results.values() if s)
+            print(f"[ClusterDeploy] Deployed {model_id} to {successful}/{len(hosts)} hosts")
+
+            # Emit deployment completed event
+            await self.event_bus.publish(DataEvent(
+                event_type=DataEventType.DATA_SYNC_COMPLETED,
+                payload={
+                    "type": "model_deployment",
+                    "model_id": model_id,
+                    "config": config_key,
+                    "hosts_successful": successful,
+                    "hosts_total": len(hosts),
+                    "results": results,
+                },
+                source="cluster_deploy",
+            ))
+
+        except Exception as e:
+            print(f"[ClusterDeploy] Error deploying model: {e}")
+
+    async def _on_new_games_available(self, event: DataEvent):
+        """Handle new games available from selfplay - check if training should be triggered.
+
+        This creates a feedback loop: selfplay → data available → training check
+        """
+        try:
+            payload = event.payload
+            config_key = payload.get('config')
+            new_games = payload.get('new_games', 0)
+
+            if not config_key or not new_games:
+                return
+
+            # Update config state with new games count
+            if config_key in self.state.configs:
+                config_state = self.state.configs[config_key]
+                # Note: games_since_training is usually updated by the caller,
+                # but we can ensure consistency here
+                if hasattr(config_state, 'games_since_training'):
+                    # Log significant data additions
+                    if new_games >= 100:
+                        print(f"[DataPipeline] {config_key}: +{new_games} games "
+                              f"(total: {config_state.games_since_training})")
+
+            # Check if training scheduler should evaluate threshold
+            if hasattr(self, 'training_scheduler') and self.training_scheduler:
+                # The training scheduler will check thresholds in its regular loop
+                # But we can trigger an immediate check for high-volume additions
+                if new_games >= 500:
+                    print(f"[DataPipeline] High volume data ({new_games} games) - "
+                          f"training scheduler will check {config_key}")
+
+        except Exception as e:
+            if self.config.verbose:
+                print(f"[DataPipeline] Error handling new games: {e}")
+
+    async def _on_high_quality_data(self, event: DataEvent):
+        """Handle high quality data availability - prioritize for training.
+
+        Quality-aware training uses high-quality games preferentially.
+        """
+        try:
+            payload = event.payload
+            config_key = payload.get('config')
+            quality_score = payload.get('quality_score', 0)
+            games_count = payload.get('games_count', 0)
+
+            print(f"[DataQuality] High quality data available for {config_key}: "
+                  f"{games_count} games with quality {quality_score:.2f}")
+
+            # If training scheduler supports quality-aware training, notify it
+            if hasattr(self, 'training_scheduler') and self.training_scheduler:
+                if hasattr(self.training_scheduler, 'notify_high_quality_data'):
+                    self.training_scheduler.notify_high_quality_data(
+                        config_key=config_key,
+                        quality_score=quality_score,
+                        games_count=games_count,
+                    )
+
+        except Exception as e:
+            if self.config.verbose:
+                print(f"[DataQuality] Error handling high quality data: {e}")
+
+    async def _on_critical_regression(self, event: DataEvent):
+        """Handle critical regression - trigger immediate rollback.
+
+        Critical regression indicates model performance has degraded severely.
+        This triggers emergency rollback to last known good model.
+        """
+        try:
+            payload = event.payload
+            config_key = payload.get('config')
+            model_id = payload.get('model_id')
+            regression_amount = payload.get('regression_amount', 0)
+            severity = payload.get('severity', 'critical')
+
+            print(f"[REGRESSION CRITICAL] {config_key}: model {model_id} "
+                  f"regressed by {regression_amount:.1f} Elo - triggering rollback")
+
+            # Trigger rollback through rollback monitor if available
+            if hasattr(self, 'rollback_monitor') and self.rollback_monitor:
+                await self.rollback_monitor.trigger_rollback(
+                    config_key=config_key,
+                    reason=f"Critical regression: {regression_amount:.1f} Elo",
+                )
+
+            # Emit error event for monitoring
+            await self.event_bus.publish(DataEvent(
+                event_type=DataEventType.ERROR,
+                payload={
+                    "type": "critical_regression",
+                    "config": config_key,
+                    "model_id": model_id,
+                    "regression_amount": regression_amount,
+                    "action_taken": "rollback_triggered",
+                },
+                source="regression_handler",
+            ))
+
+        except Exception as e:
+            print(f"[REGRESSION] Error handling critical regression: {e}")
+
+    async def _on_severe_regression(self, event: DataEvent):
+        """Handle severe regression - alert and consider rollback.
+
+        Severe regression is serious but not as urgent as critical.
+        We alert and prepare for potential rollback.
+        """
+        try:
+            payload = event.payload
+            config_key = payload.get('config')
+            model_id = payload.get('model_id')
+            regression_amount = payload.get('regression_amount', 0)
+
+            print(f"[REGRESSION SEVERE] {config_key}: model {model_id} "
+                  f"regressed by {regression_amount:.1f} Elo - monitoring closely")
+
+            # Update config state with regression warning
+            if config_key in self.state.configs:
+                config_state = self.state.configs[config_key]
+                config_state.regression_warning = True
+                config_state.regression_amount = regression_amount
+
+            # Log to feedback system
+            if self.feedback:
+                await self.feedback.record_regression(
+                    config_key=config_key,
+                    regression_amount=regression_amount,
+                    severity='severe',
+                )
+
+        except Exception as e:
+            print(f"[REGRESSION] Error handling severe regression: {e}")
 
     async def _on_training_for_model_registry(self, event: DataEvent):
         """Register newly trained models in the model registry."""

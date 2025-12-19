@@ -59,7 +59,7 @@ except ImportError:
 # Import SyncCoordinator for transport fallback chain (aria2 → ssh → p2p)
 # Unified sync coordinator (consolidated from deprecated DataSyncManager)
 try:
-    from app.distributed.sync_coordinator import SyncCoordinator
+    from app.distributed.sync_coordinator import SyncCoordinator, SyncCategory
     HAS_SYNC_COORDINATOR = True
 
     def get_sync_coordinator():
@@ -67,6 +67,7 @@ try:
 except ImportError:
     HAS_SYNC_COORDINATOR = False
     SyncCoordinator = None
+    SyncCategory = None
     logger.warning("SyncCoordinator not available, using direct rsync")
 
 
@@ -370,6 +371,7 @@ class ClusterSyncCoordinator:
             "nodes_reachable": 0,
             "models_synced": 0,
             "games_collected": 0,
+            "training_synced": 0,
             "elo_synced": False,
         }
 
@@ -382,35 +384,53 @@ class ClusterSyncCoordinator:
             # 2. Sync ELO database
             results["elo_synced"] = await self.sync_elo_database()
 
-            # 3. Collect games from all nodes
-            collect_dir = AI_SERVICE_ROOT / "data" / "games" / "collected"
-            results["games_collected"] = await self.collect_games_cluster_wide(collect_dir)
-
-            # 4. Find and sync best models (if any)
-            models_dir = AI_SERVICE_ROOT / "models"
-            if models_dir.exists():
-                best_models = {}
-                for model_file in models_dir.glob("*.pth"):
-                    # Simple heuristic: latest model per board type
-                    name = model_file.stem
-                    for board in ["square8", "square19", "hexagonal", "hex"]:
-                        if board in name.lower():
-                            if board not in best_models or model_file.stat().st_mtime > Path(best_models[board]).stat().st_mtime:
-                                best_models[board] = str(model_file)
-
-                if best_models:
-                    results["models_synced"] = await self.sync_models_cluster_wide(best_models)
-
-            # 5. Use SyncCoordinator for transport fallback (aria2 → ssh → p2p)
-            if HAS_SYNC_COORDINATOR:
+            coordinator_ok = False
+            if HAS_SYNC_COORDINATOR and SyncCategory is not None:
                 try:
                     coordinator = get_sync_coordinator()
-                    model_stats = await coordinator.sync_models()
-                    if model_stats.files_synced > 0:
-                        results["models_synced"] += model_stats.files_synced
-                        logger.info(f"SyncCoordinator: {model_stats.files_synced} models synced via {model_stats.transport_used}")
+                    cluster_stats = await coordinator.full_cluster_sync(
+                        categories=[
+                            SyncCategory.GAMES,
+                            SyncCategory.MODELS,
+                            SyncCategory.TRAINING,
+                        ],
+                    )
+                    games_stats = cluster_stats.categories.get("games")
+                    models_stats = cluster_stats.categories.get("models")
+                    training_stats = cluster_stats.categories.get("training")
+                    results["games_collected"] = games_stats.files_synced if games_stats else 0
+                    results["models_synced"] = models_stats.files_synced if models_stats else 0
+                    results["training_synced"] = training_stats.files_synced if training_stats else 0
+                    logger.info(
+                        "SyncCoordinator: %s games, %s models, %s training files via %s",
+                        results["games_collected"],
+                        results["models_synced"],
+                        results["training_synced"],
+                        cluster_stats.transport_distribution,
+                    )
+                    coordinator_ok = True
                 except Exception as e:
-                    logger.warning(f"SyncCoordinator model sync failed: {e}")
+                    logger.warning(f"SyncCoordinator full sync failed, falling back to rsync: {e}")
+
+            if not coordinator_ok:
+                # 3. Collect games from all nodes (legacy rsync)
+                collect_dir = AI_SERVICE_ROOT / "data" / "games" / "collected"
+                results["games_collected"] = await self.collect_games_cluster_wide(collect_dir)
+
+                # 4. Find and sync best models (if any)
+                models_dir = AI_SERVICE_ROOT / "models"
+                if models_dir.exists():
+                    best_models = {}
+                    for model_file in models_dir.glob("*.pth"):
+                        # Simple heuristic: latest model per board type
+                        name = model_file.stem
+                        for board in ["square8", "square19", "hexagonal", "hex"]:
+                            if board in name.lower():
+                                if board not in best_models or model_file.stat().st_mtime > Path(best_models[board]).stat().st_mtime:
+                                    best_models[board] = str(model_file)
+
+                    if best_models:
+                        results["models_synced"] = await self.sync_models_cluster_wide(best_models)
 
             self.state.last_sync = time.time()
 
@@ -491,29 +511,38 @@ async def main():
         print(f"  Nodes reachable: {results['nodes_reachable']}")
         print(f"  ELO synced: {results['elo_synced']}")
         print(f"  Games collected: {results['games_collected']}")
+        print(f"  Training synced: {results['training_synced']}")
         print(f"  Models synced: {results['models_synced']}")
 
     elif args.mode == "models":
         # Just sync models
-        await coordinator.check_all_nodes()
-        models_dir = AI_SERVICE_ROOT / "models"
-        best_models = {}
-        if models_dir.exists():
-            for model_file in models_dir.glob("*.pth"):
-                name = model_file.stem
-                for board in ["square8", "square19", "hexagonal"]:
-                    if board in name.lower():
-                        best_models[board] = str(model_file)
-        if best_models:
-            count = await coordinator.sync_models_cluster_wide(best_models)
-            print(f"Synced models to {count} nodes")
+        if HAS_SYNC_COORDINATOR:
+            stats = await get_sync_coordinator().sync_models()
+            print(f"Synced {stats.files_synced} models via {stats.transport_used}")
         else:
-            print("No models found to sync")
+            await coordinator.check_all_nodes()
+            models_dir = AI_SERVICE_ROOT / "models"
+            best_models = {}
+            if models_dir.exists():
+                for model_file in models_dir.glob("*.pth"):
+                    name = model_file.stem
+                    for board in ["square8", "square19", "hexagonal"]:
+                        if board in name.lower():
+                            best_models[board] = str(model_file)
+            if best_models:
+                count = await coordinator.sync_models_cluster_wide(best_models)
+                print(f"Synced models to {count} nodes")
+            else:
+                print("No models found to sync")
 
     elif args.mode == "games":
-        collect_dir = AI_SERVICE_ROOT / "data" / "games" / "collected"
-        count = await coordinator.collect_games_cluster_wide(collect_dir)
-        print(f"Collected {count} database files")
+        if HAS_SYNC_COORDINATOR:
+            stats = await get_sync_coordinator().sync_games()
+            print(f"Synced {stats.files_synced} game databases via {stats.transport_used}")
+        else:
+            collect_dir = AI_SERVICE_ROOT / "data" / "games" / "collected"
+            count = await coordinator.collect_games_cluster_wide(collect_dir)
+            print(f"Collected {count} database files")
 
     elif args.mode == "elo":
         success = await coordinator.sync_elo_database()

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Simple Elo DB synchronization using rsync
+# Simple Elo DB synchronization wrapper (delegates to elo_db_sync.py)
 # Add to cron: */5 * * * * /path/to/sync_elo_db.sh
 #
 # Usage:
@@ -11,7 +11,6 @@ set -e
 MODE=${1:-pull}
 COORDINATOR=${2:-lambda-h100}
 LOCAL_DB="${HOME}/ringrift/ai-service/data/unified_elo.db"
-REMOTE_DB="~/ringrift/ai-service/data/unified_elo.db"
 LOCK_FILE="/tmp/elo_sync.lock"
 
 # Prevent concurrent syncs
@@ -24,14 +23,13 @@ log() {
 
 case "$MODE" in
     pull)
-        log "Pulling Elo DB from $COORDINATOR"
-        rsync -avz --timeout=30 "$COORDINATOR:$REMOTE_DB" "$LOCAL_DB.tmp" && \
-            mv "$LOCAL_DB.tmp" "$LOCAL_DB"
+        log "Pulling Elo DB from $COORDINATOR (elo_db_sync.py)"
+        python3 scripts/elo_db_sync.py --mode pull --coordinator "$COORDINATOR" --db "$LOCAL_DB"
         log "Pull complete"
         ;;
     push)
-        log "Pushing Elo DB to $COORDINATOR"
-        rsync -avz --timeout=30 "$LOCAL_DB" "$COORDINATOR:$REMOTE_DB"
+        log "Pushing Elo DB to $COORDINATOR (elo_db_sync.py)"
+        python3 scripts/elo_db_sync.py --mode push --coordinator "$COORDINATOR" --db "$LOCAL_DB"
         log "Push complete"
         ;;
     *)

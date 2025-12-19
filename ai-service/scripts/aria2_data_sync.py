@@ -107,7 +107,11 @@ def _resolve_storage_paths() -> Tuple[List[Path], Path, Path, List[Path]]:
 
 GAMES_DIRS, MODELS_DIR, TRAINING_DIR, ELO_DB_PATHS = _resolve_storage_paths()
 
-DEFAULT_DATA_PORT = 8766
+try:
+    from app.config.unified_config import get_config
+    DEFAULT_DATA_PORT = get_config().distributed.data_server_port
+except Exception:
+    DEFAULT_DATA_PORT = 8766
 DEFAULT_MODEL_PORT = 8765
 
 ARIA2_CONNECTIONS = 16

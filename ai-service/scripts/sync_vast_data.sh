@@ -4,11 +4,19 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 LAMBDA_HOST="lambda-a10"
 LAMBDA_DB="/home/ubuntu/ringrift/ai-service/data/games/selfplay.db"
 MERGE_SCRIPT="/home/ubuntu/ringrift/ai-service/scripts/merge_game_dbs.py"
 TEMP_DIR="/tmp/vast_sync_$$"
 LOG_FILE="/var/log/ringrift/vast_sync.log"
+
+if [ -z "${RINGRIFT_LEGACY_SYNC:-}" ]; then
+    echo "[sync_vast_data] Deprecated; use cluster_sync_coordinator.py --mode full"
+    python3 "$SCRIPT_DIR/cluster_sync_coordinator.py" --mode full
+    exit $?
+fi
 
 # Vast instances - format: "ssh_host:port"
 VAST_INSTANCES=(

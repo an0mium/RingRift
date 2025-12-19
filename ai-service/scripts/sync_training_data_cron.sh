@@ -23,6 +23,12 @@ SYNC_PRIMARY_HOST="${SYNC_PRIMARY_HOST:-ubuntu@gpu-primary}"
 SYNC_FALLBACK_HOST="${SYNC_FALLBACK_HOST:-}"
 
 echo "[$TIMESTAMP] Starting data sync..." >> "$LOG_FILE"
+echo "[$TIMESTAMP] Deprecated path; attempting SyncCoordinator full sync" >> "$LOG_FILE"
+if python3 scripts/cluster_sync_coordinator.py --mode full >> "$LOG_FILE" 2>&1; then
+  echo "[$TIMESTAMP] SyncCoordinator succeeded" >> "$LOG_FILE"
+  exit 0
+fi
+echo "[$TIMESTAMP] SyncCoordinator failed, falling back to legacy rsync" >> "$LOG_FILE"
 
 # Try primary, then fallback
 sync_success=false

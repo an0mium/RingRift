@@ -25,9 +25,37 @@ import logging
 import math
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+class QualityCategory(str, Enum):
+    """Quality category for games.
+
+    Thresholds match the deprecated game_quality_scorer for backwards compatibility.
+    """
+    EXCELLENT = "excellent"  # 0.85+
+    GOOD = "good"            # 0.70-0.85
+    ADEQUATE = "adequate"    # 0.50-0.70
+    POOR = "poor"            # 0.30-0.50
+    UNUSABLE = "unusable"    # <0.30
+
+    @classmethod
+    def from_score(cls, score: float) -> "QualityCategory":
+        """Get category from numeric score."""
+        if score >= 0.85:
+            return cls.EXCELLENT
+        elif score >= 0.70:
+            return cls.GOOD
+        elif score >= 0.50:
+            return cls.ADEQUATE
+        elif score >= 0.30:
+            return cls.POOR
+        else:
+            return cls.UNUSABLE
+
 
 # Try to import config - fall back to defaults if unavailable
 try:
@@ -511,3 +539,46 @@ def compute_sync_priority(
     """Compute sync priority (convenience function)."""
     scorer = get_quality_scorer()
     return scorer.compute_sync_priority(quality, urgency_hours)
+
+
+def get_quality_category(score: float) -> QualityCategory:
+    """Get quality category from numeric score (convenience function)."""
+    return QualityCategory.from_score(score)
+
+
+def compute_game_quality_from_params(
+    game_id: str,
+    game_status: str,
+    winner: Optional[int],
+    termination_reason: Optional[str],
+    total_moves: int,
+    board_type: str = "square8",
+    source: Optional[str] = None,
+) -> GameQuality:
+    """Compute game quality from individual parameters.
+
+    This is a backwards-compatible wrapper that matches the old
+    game_quality_scorer.compute_game_quality() signature.
+
+    Args:
+        game_id: Unique game identifier
+        game_status: Game status string (e.g., "completed", "in_progress")
+        winner: Winner player index, or None for draw/incomplete
+        termination_reason: How the game ended
+        total_moves: Number of moves in the game
+        board_type: Board type (e.g., "square8", "hex8")
+        source: Data source identifier
+
+    Returns:
+        GameQuality with all scores computed
+    """
+    game_data = {
+        "game_id": game_id,
+        "game_status": game_status,
+        "winner": winner,
+        "termination_reason": termination_reason,
+        "total_moves": total_moves,
+        "board_type": board_type,
+        "source": source,
+    }
+    return compute_game_quality(game_data)

@@ -31,11 +31,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import socket
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .storage_provider import (
     StorageProvider,
@@ -80,6 +81,36 @@ try:
     HAS_SSH = True
 except ImportError:
     HAS_SSH = False
+
+try:
+    from .sync_utils import rsync_directory
+    HAS_RSYNC = True
+except ImportError:
+    HAS_RSYNC = False
+    rsync_directory = None
+
+try:
+    from app.metrics.orchestrator import (
+        record_sync_coordinator_op,
+        record_nfs_skip,
+        update_data_server_status,
+        update_sync_sources_count,
+    )
+    HAS_SYNC_METRICS = True
+except ImportError:
+    HAS_SYNC_METRICS = False
+
+    def record_sync_coordinator_op(*args, **kwargs):
+        return None
+
+    def record_nfs_skip(*args, **kwargs):
+        return None
+
+    def update_data_server_status(*args, **kwargs):
+        return None
+
+    def update_sync_sources_count(*args, **kwargs):
+        return None
 
 
 class SyncCategory(Enum):
@@ -248,6 +279,142 @@ class SyncCoordinator:
             )
             logger.debug("Gossip sync daemon initialized")
         return self._gossip
+
+    def _resolve_games_dir(self) -> Path:
+        """Resolve the preferred local directory for game DBs."""
+        base = self._provider.selfplay_dir
+        games_dir = base.parent / "games"
+        if base.name == "selfplay" and games_dir.exists():
+            return games_dir
+        return base
+
+    @staticmethod
+    def _snapshot_files(base_dir: Path, patterns: List[str]) -> Dict[str, int]:
+        snapshot: Dict[str, int] = {}
+        if not base_dir.exists():
+            return snapshot
+        for pattern in patterns:
+            for path in base_dir.rglob(pattern):
+                if not path.is_file():
+                    continue
+                try:
+                    rel_path = str(path.relative_to(base_dir))
+                    snapshot[rel_path] = path.stat().st_size
+                except Exception:
+                    continue
+        return snapshot
+
+    @staticmethod
+    def _diff_snapshot(before: Dict[str, int], after: Dict[str, int]) -> Tuple[int, int]:
+        new_files = {k: v for k, v in after.items() if k not in before}
+        return len(new_files), sum(new_files.values())
+
+    async def _sync_with_rsync(
+        self,
+        local_dir: Path,
+        remote_subdir: str,
+        include_patterns: List[str],
+    ) -> Tuple[int, int, List[str]]:
+        if not HAS_RSYNC or rsync_directory is None:
+            return 0, 0, ["rsync not available"]
+
+        try:
+            from app.distributed.hosts import load_remote_hosts
+            hosts = list(load_remote_hosts().values())
+        except Exception as e:
+            return 0, 0, [f"failed to load hosts: {e}"]
+
+        hostname = socket.gethostname().lower()
+        files_synced = 0
+        bytes_transferred = 0
+        errors: List[str] = []
+
+        pre_snapshot = self._snapshot_files(local_dir, include_patterns)
+        loop = asyncio.get_event_loop()
+
+        for host in hosts[:3]:
+            if host.name.lower() == hostname:
+                continue
+            if self._provider.should_skip_rsync_to(host.name):
+                continue
+
+            remote_dir = f"{host.work_directory.rstrip('/')}/{remote_subdir.lstrip('/')}"
+            try:
+                success = await loop.run_in_executor(
+                    None,
+                    lambda: rsync_directory(
+                        host,
+                        remote_dir,
+                        local_dir,
+                        include_patterns=include_patterns,
+                        exclude_patterns=["*"],
+                        timeout=self._config.ssh_timeout,
+                    ),
+                )
+                if not success:
+                    errors.append(f"rsync failed for {host.name}")
+                    continue
+            except Exception as e:
+                errors.append(f"rsync error for {host.name}: {e}")
+                continue
+
+            post_snapshot = self._snapshot_files(local_dir, include_patterns)
+            new_files, new_bytes = self._diff_snapshot(pre_snapshot, post_snapshot)
+            pre_snapshot = post_snapshot
+            files_synced += new_files
+            bytes_transferred += new_bytes
+
+        return files_synced, bytes_transferred, errors
+
+    async def _sync_with_p2p(
+        self,
+        local_dir: Path,
+        pattern: str,
+    ) -> Tuple[int, int, List[str]]:
+        p2p = self._init_p2p()
+        if not p2p:
+            return 0, 0, ["p2p not available"]
+
+        try:
+            from app.distributed.hosts import load_remote_hosts
+            hosts = list(load_remote_hosts().values())
+        except Exception as e:
+            return 0, 0, [f"failed to load hosts: {e}"]
+
+        try:
+            from app.config.unified_config import get_config
+            p2p_port = get_config().distributed.p2p_port
+        except Exception:
+            p2p_port = 8770
+
+        hostname = socket.gethostname().lower()
+        files_synced = 0
+        bytes_transferred = 0
+        errors: List[str] = []
+
+        for host in hosts[:3]:
+            if host.name.lower() == hostname:
+                continue
+            peer_host = host.tailscale_ip or host.ssh_host
+            if not peer_host:
+                continue
+            peer_host = peer_host.split("@", 1)[1] if "@" in peer_host else peer_host
+            try:
+                result = await p2p.sync_from_peer(
+                    peer_host=peer_host,
+                    peer_port=p2p_port,
+                    pattern=pattern,
+                    local_dir=local_dir,
+                )
+                if result.success:
+                    files_synced += result.files_synced
+                    bytes_transferred += result.bytes_transferred
+                else:
+                    errors.extend(result.errors)
+            except Exception as e:
+                errors.append(f"p2p error for {host.name}: {e}")
+
+        return files_synced, bytes_transferred, errors
 
     # =========================================================================
     # Manifest & Quality Integration
@@ -429,6 +596,7 @@ class SyncCoordinator:
             script_path = Path(__file__).parent.parent.parent / "scripts" / "aria2_data_sync.py"
             if not script_path.exists():
                 logger.error(f"Data server script not found: {script_path}")
+                update_data_server_status(port, False)
                 return False
 
             self._data_server_process = await asyncio.create_subprocess_exec(
@@ -443,14 +611,17 @@ class SyncCoordinator:
             if self._data_server_process.returncode is not None:
                 logger.error("Data server failed to start")
                 self._data_server_process = None
+                update_data_server_status(port, False)
                 return False
 
             logger.info(f"Data server started on port {port}")
+            update_data_server_status(port, True)
             return True
 
         except Exception as e:
             logger.error(f"Failed to start data server: {e}")
             self._data_server_process = None
+            update_data_server_status(port, False)
             return False
 
     async def stop_data_server(self) -> None:
@@ -465,6 +636,7 @@ class SyncCoordinator:
             self._data_server_process.kill()
         finally:
             self._data_server_process = None
+            update_data_server_status(self._data_server_port, False)
             logger.info("Data server stopped")
 
     def is_data_server_running(self) -> bool:
@@ -513,6 +685,7 @@ class SyncCoordinator:
         self._aria2_sources = sources
         self._source_discovery_time = now
         logger.info(f"Discovered {len(sources)} aria2 data sources")
+        update_sync_sources_count(len(sources))
         return sources
 
     # =========================================================================
@@ -540,6 +713,7 @@ class SyncCoordinator:
         if self._provider.has_shared_storage:
             logger.info("Skipping training data sync - using shared NFS storage")
             stats.transport_used = "nfs_shared"
+            record_nfs_skip("training")
             return stats
 
         # Discover sources
@@ -551,46 +725,100 @@ class SyncCoordinator:
             logger.warning("No sources available for training data sync")
             return stats
 
-        # Try aria2 first (best performance)
-        aria2 = self._init_aria2()
-        if aria2:
-            try:
-                result = await aria2.sync_training_data(
-                    sources,
-                    self._provider.training_dir,
-                    max_age_hours=max_age_hours,
-                )
-                stats.files_synced = result.files_synced
-                stats.bytes_transferred = result.bytes_transferred
-                stats.transport_used = "aria2"
-                stats.duration_seconds = time.time() - start_time
-                if result.success:
-                    logger.info(
-                        f"Training data sync complete: {stats.files_synced} files, "
-                        f"{stats.bytes_transferred / (1024*1024):.1f}MB via aria2"
-                    )
-                    return stats
-                stats.errors.extend(result.errors)
-            except Exception as e:
-                stats.errors.append(f"aria2 sync failed: {e}")
-                logger.warning(f"aria2 training sync failed, trying fallback: {e}")
+        for transport in self._config.fallback_chain:
+            if transport == "aria2" and self._config.enable_aria2:
+                aria2 = self._init_aria2()
+                if aria2:
+                    try:
+                        result = await aria2.sync_training_data(
+                            sources,
+                            self._provider.training_dir,
+                            max_age_hours=max_age_hours,
+                        )
+                        stats.files_synced = result.files_synced
+                        stats.bytes_transferred = result.bytes_transferred
+                        stats.transport_used = "aria2"
+                        stats.duration_seconds = time.time() - start_time
+                        stats.errors.extend(result.errors)
+                        record_sync_coordinator_op(
+                            "training",
+                            "aria2",
+                            result.files_synced,
+                            result.bytes_transferred,
+                            stats.duration_seconds,
+                            success=result.success,
+                            error_type="aria2_error" if result.errors else None,
+                        )
+                        if result.success or result.files_synced > 0:
+                            logger.info(
+                                f"Training data sync complete: {stats.files_synced} files, "
+                                f"{stats.bytes_transferred / (1024*1024):.1f}MB via aria2"
+                            )
+                            return stats
+                    except Exception as e:
+                        stats.errors.append(f"aria2 sync failed: {e}")
+                        logger.warning(f"aria2 training sync failed, trying fallback: {e}")
+                        record_sync_coordinator_op(
+                            "training",
+                            "aria2",
+                            0,
+                            0,
+                            time.time() - start_time,
+                            success=False,
+                            error_type=type(e).__name__,
+                        )
 
-        # Fallback to P2P HTTP
-        p2p = self._init_p2p()
-        if p2p:
-            try:
-                for source in sources[:3]:  # Limit fallback attempts
-                    result = await p2p.sync_directory(
-                        source,
-                        self._provider.training_dir,
-                        patterns=["*.npz", "*.h5"],
-                    )
-                    stats.files_synced += result.get("files_synced", 0)
-                    stats.bytes_transferred += result.get("bytes_transferred", 0)
-                stats.transport_used = "p2p_http"
-            except Exception as e:
-                stats.errors.append(f"P2P sync failed: {e}")
-                logger.warning(f"P2P training sync failed: {e}")
+            if transport == "ssh" and self._config.enable_ssh:
+                files, bytes_sent, errors = await self._sync_with_rsync(
+                    self._provider.training_dir,
+                    "data/training",
+                    ["*.npz", "*.h5"],
+                )
+                stats.files_synced = files
+                stats.bytes_transferred = bytes_sent
+                stats.transport_used = "ssh"
+                stats.errors.extend(errors)
+                stats.duration_seconds = time.time() - start_time
+                record_sync_coordinator_op(
+                    "training",
+                    "ssh",
+                    files,
+                    bytes_sent,
+                    stats.duration_seconds,
+                    success=len(errors) == 0,
+                    error_type="rsync_error" if errors else None,
+                )
+                if files > 0 or not errors:
+                    return stats
+
+            if transport == "p2p" and self._config.enable_p2p:
+                files_npz, bytes_npz, errors_npz = await self._sync_with_p2p(
+                    self._provider.training_dir,
+                    "data/training/*.npz",
+                )
+                files_h5, bytes_h5, errors_h5 = await self._sync_with_p2p(
+                    self._provider.training_dir,
+                    "data/training/*.h5",
+                )
+                files = files_npz + files_h5
+                bytes_sent = bytes_npz + bytes_h5
+                errors = errors_npz + errors_h5
+                stats.files_synced = files
+                stats.bytes_transferred = bytes_sent
+                stats.transport_used = "p2p"
+                stats.errors.extend(errors)
+                stats.duration_seconds = time.time() - start_time
+                record_sync_coordinator_op(
+                    "training",
+                    "p2p",
+                    files,
+                    bytes_sent,
+                    stats.duration_seconds,
+                    success=len(errors) == 0,
+                    error_type="p2p_error" if errors else None,
+                )
+                if files > 0 or not errors:
+                    return stats
 
         stats.duration_seconds = time.time() - start_time
         return stats
@@ -616,6 +844,7 @@ class SyncCoordinator:
         if self._provider.has_shared_storage:
             logger.info("Skipping model sync - using shared NFS storage")
             stats.transport_used = "nfs_shared"
+            record_nfs_skip("models")
             return stats
 
         # Discover sources
@@ -627,33 +856,114 @@ class SyncCoordinator:
             logger.warning("No sources available for model sync")
             return stats
 
-        # Use aria2 for model sync
-        aria2 = self._init_aria2()
-        if aria2:
-            try:
-                patterns = None
-                if model_ids:
-                    patterns = [f"*{mid}*" for mid in model_ids]
+        for transport in self._config.fallback_chain:
+            if transport == "aria2" and self._config.enable_aria2:
+                aria2 = self._init_aria2()
+                if aria2:
+                    try:
+                        patterns = None
+                        if model_ids:
+                            patterns = [f"*{mid}*" for mid in model_ids]
 
-                result = await aria2.sync_models(
-                    sources,
+                        result = await aria2.sync_models(
+                            sources,
+                            self._provider.models_dir,
+                            patterns=patterns,
+                        )
+                        stats.files_synced = result.files_synced
+                        stats.bytes_transferred = result.bytes_transferred
+                        stats.transport_used = "aria2"
+                        stats.duration_seconds = time.time() - start_time
+                        stats.errors.extend(result.errors)
+                        record_sync_coordinator_op(
+                            "models",
+                            "aria2",
+                            result.files_synced,
+                            result.bytes_transferred,
+                            stats.duration_seconds,
+                            success=result.success,
+                            error_type="aria2_error" if result.errors else None,
+                        )
+                        if result.success or result.files_synced > 0:
+                            logger.info(
+                                f"Model sync complete: {stats.files_synced} models, "
+                                f"{stats.bytes_transferred / (1024*1024):.1f}MB"
+                            )
+                            return stats
+                    except Exception as e:
+                        stats.errors.append(f"aria2 model sync failed: {e}")
+                        logger.warning(f"aria2 model sync failed: {e}")
+                        record_sync_coordinator_op(
+                            "models",
+                            "aria2",
+                            0,
+                            0,
+                            time.time() - start_time,
+                            success=False,
+                            error_type=type(e).__name__,
+                        )
+
+            if transport == "ssh" and self._config.enable_ssh:
+                include_patterns = ["*.pth", "*.onnx"]
+                if model_ids:
+                    include_patterns = [f"*{mid}*.pth" for mid in model_ids] + [
+                        f"*{mid}*.onnx" for mid in model_ids
+                    ]
+                files, bytes_sent, errors = await self._sync_with_rsync(
                     self._provider.models_dir,
-                    patterns=patterns,
+                    "models",
+                    include_patterns,
                 )
-                stats.files_synced = result.files_synced
-                stats.bytes_transferred = result.bytes_transferred
-                stats.transport_used = "aria2"
+                stats.files_synced = files
+                stats.bytes_transferred = bytes_sent
+                stats.transport_used = "ssh"
+                stats.errors.extend(errors)
                 stats.duration_seconds = time.time() - start_time
-                if result.success:
-                    logger.info(
-                        f"Model sync complete: {stats.files_synced} models, "
-                        f"{stats.bytes_transferred / (1024*1024):.1f}MB"
-                    )
+                record_sync_coordinator_op(
+                    "models",
+                    "ssh",
+                    files,
+                    bytes_sent,
+                    stats.duration_seconds,
+                    success=len(errors) == 0,
+                    error_type="rsync_error" if errors else None,
+                )
+                if files > 0 or not errors:
                     return stats
-                stats.errors.extend(result.errors)
-            except Exception as e:
-                stats.errors.append(f"aria2 model sync failed: {e}")
-                logger.warning(f"aria2 model sync failed: {e}")
+
+            if transport == "p2p" and self._config.enable_p2p:
+                patterns = ["models/*.pth", "models/*.onnx"]
+                if model_ids:
+                    patterns = [f"models/*{mid}*.pth" for mid in model_ids] + [
+                        f"models/*{mid}*.onnx" for mid in model_ids
+                    ]
+                total_files = 0
+                total_bytes = 0
+                total_errors: List[str] = []
+                for pattern in patterns:
+                    files, bytes_sent, errors = await self._sync_with_p2p(
+                        self._provider.models_dir,
+                        pattern,
+                    )
+                    total_files += files
+                    total_bytes += bytes_sent
+                    total_errors.extend(errors)
+                stats.files_synced = total_files
+                stats.bytes_transferred = total_bytes
+                stats.transport_used = "p2p"
+                stats.errors.extend(total_errors)
+                stats.duration_seconds = time.time() - start_time
+                record_sync_coordinator_op(
+                    "models",
+                    "p2p",
+                    total_files,
+                    total_bytes,
+                    stats.duration_seconds,
+                    success=len(total_errors) == 0,
+                    error_type="p2p_error" if total_errors else None,
+                )
+                if total_files > 0 or not total_errors:
+                    return stats
 
         stats.duration_seconds = time.time() - start_time
         return stats
@@ -674,11 +984,13 @@ class SyncCoordinator:
         """
         start_time = time.time()
         stats = SyncStats(category="games")
+        local_games_dir = self._resolve_games_dir()
 
         # Skip if we have shared storage
         if self._provider.has_shared_storage:
             logger.info("Skipping game sync - using shared NFS storage")
             stats.transport_used = "nfs_shared"
+            record_nfs_skip("games")
             return stats
 
         # Discover sources
@@ -690,28 +1002,93 @@ class SyncCoordinator:
             logger.warning("No sources available for game sync")
             return stats
 
-        # Use aria2 for game sync
-        aria2 = self._init_aria2()
-        if aria2:
-            try:
-                result = await aria2.sync_games(
-                    sources,
-                    self._provider.selfplay_dir,
+        for transport in self._config.fallback_chain:
+            if transport == "aria2" and self._config.enable_aria2:
+                aria2 = self._init_aria2()
+                if aria2:
+                    try:
+                        result = await aria2.sync_games(
+                            sources,
+                            local_games_dir,
+                        )
+                        stats.files_synced = result.files_synced
+                        stats.bytes_transferred = result.bytes_transferred
+                        stats.transport_used = "aria2"
+                        stats.duration_seconds = time.time() - start_time
+                        stats.errors.extend(result.errors)
+                        record_sync_coordinator_op(
+                            "games",
+                            "aria2",
+                            result.files_synced,
+                            result.bytes_transferred,
+                            stats.duration_seconds,
+                            success=result.success,
+                            error_type="aria2_error" if result.errors else None,
+                        )
+                        if result.success or result.files_synced > 0:
+                            logger.info(
+                                f"Game sync complete: {stats.files_synced} databases, "
+                                f"{stats.bytes_transferred / (1024*1024):.1f}MB"
+                            )
+                            return stats
+                    except Exception as e:
+                        stats.errors.append(f"aria2 game sync failed: {e}")
+                        logger.warning(f"aria2 game sync failed: {e}")
+                        record_sync_coordinator_op(
+                            "games",
+                            "aria2",
+                            0,
+                            0,
+                            time.time() - start_time,
+                            success=False,
+                            error_type=type(e).__name__,
+                        )
+
+            if transport == "ssh" and self._config.enable_ssh:
+                include_patterns = ["*.db"]
+                files, bytes_sent, errors = await self._sync_with_rsync(
+                    local_games_dir,
+                    "data/games",
+                    include_patterns,
                 )
-                stats.files_synced = result.files_synced
-                stats.bytes_transferred = result.bytes_transferred
-                stats.transport_used = "aria2"
+                stats.files_synced = files
+                stats.bytes_transferred = bytes_sent
+                stats.transport_used = "ssh"
+                stats.errors.extend(errors)
                 stats.duration_seconds = time.time() - start_time
-                if result.success:
-                    logger.info(
-                        f"Game sync complete: {stats.files_synced} databases, "
-                        f"{stats.bytes_transferred / (1024*1024):.1f}MB"
-                    )
+                record_sync_coordinator_op(
+                    "games",
+                    "ssh",
+                    files,
+                    bytes_sent,
+                    stats.duration_seconds,
+                    success=len(errors) == 0,
+                    error_type="rsync_error" if errors else None,
+                )
+                if files > 0 or not errors:
                     return stats
-                stats.errors.extend(result.errors)
-            except Exception as e:
-                stats.errors.append(f"aria2 game sync failed: {e}")
-                logger.warning(f"aria2 game sync failed: {e}")
+
+            if transport == "p2p" and self._config.enable_p2p:
+                files, bytes_sent, errors = await self._sync_with_p2p(
+                    local_games_dir,
+                    "data/games/*.db",
+                )
+                stats.files_synced = files
+                stats.bytes_transferred = bytes_sent
+                stats.transport_used = "p2p"
+                stats.errors.extend(errors)
+                stats.duration_seconds = time.time() - start_time
+                record_sync_coordinator_op(
+                    "games",
+                    "p2p",
+                    files,
+                    bytes_sent,
+                    stats.duration_seconds,
+                    success=len(errors) == 0,
+                    error_type="p2p_error" if errors else None,
+                )
+                if files > 0 or not errors:
+                    return stats
 
         stats.duration_seconds = time.time() - start_time
         return stats
@@ -826,7 +1203,7 @@ class SyncCoordinator:
                     # Use aria2 for priority sync
                     result = await aria2.sync_games(
                         host_sources,
-                        self._provider.selfplay_dir,
+                        self._resolve_games_dir(),
                         # Note: aria2 sync doesn't support game_id filtering yet
                         # This syncs all games from the source, but we track which ones
                         # were high-quality for metrics

@@ -2,7 +2,7 @@
 # setup_sync_cron.sh - Set up automated periodic sync of selfplay data
 #
 # This script configures a launchd job (macOS) or cron job (Linux) to
-# periodically run sync_selfplay_data.sh, pulling game databases from
+# periodically run cluster_sync_coordinator.py, pulling game databases from
 # all configured remote instances.
 #
 # Usage:
@@ -102,8 +102,10 @@ create_launchd_plist() {
 
     <key>ProgramArguments</key>
     <array>
-        <string>${SCRIPT_DIR}/sync_selfplay_data.sh</string>
-        <string>--merge</string>
+        <string>/usr/bin/python3</string>
+        <string>${SCRIPT_DIR}/cluster_sync_coordinator.py</string>
+        <string>--mode</string>
+        <string>games</string>
     </array>
 
     <key>WorkingDirectory</key>
@@ -192,10 +194,10 @@ status_launchd() {
 # ============================================
 
 enable_cron() {
-    local cron_entry="*/$INTERVAL_MINS * * * * cd $AI_SERVICE_DIR && $SCRIPT_DIR/sync_selfplay_data.sh --merge >> $LOG_DIR/sync.log 2>&1"
+    local cron_entry="*/$INTERVAL_MINS * * * * cd $AI_SERVICE_DIR && python3 $SCRIPT_DIR/cluster_sync_coordinator.py --mode games >> $LOG_DIR/sync.log 2>&1"
 
     # Remove existing entry if present
-    (crontab -l 2>/dev/null | grep -v "sync_selfplay_data.sh") | crontab -
+    (crontab -l 2>/dev/null | grep -v "cluster_sync_coordinator.py") | crontab -
 
     # Add new entry
     (crontab -l 2>/dev/null; echo "$cron_entry") | crontab -
@@ -205,7 +207,7 @@ enable_cron() {
 }
 
 disable_cron() {
-    (crontab -l 2>/dev/null | grep -v "sync_selfplay_data.sh") | crontab -
+    (crontab -l 2>/dev/null | grep -v "cluster_sync_coordinator.py") | crontab -
     log_success "Cron job removed"
 }
 
@@ -213,7 +215,7 @@ status_cron() {
     echo "=== Sync Job Status (Linux cron) ==="
     echo ""
 
-    local cron_line=$(crontab -l 2>/dev/null | grep "sync_selfplay_data.sh" || true)
+    local cron_line=$(crontab -l 2>/dev/null | grep "cluster_sync_coordinator.py" || true)
     if [[ -n "$cron_line" ]]; then
         echo "Cron entry: $cron_line"
     else
@@ -262,5 +264,5 @@ esac
 # Run sync now if requested
 if [[ "$RUN_NOW" == "true" ]]; then
     log_info "Running sync now..."
-    "$SCRIPT_DIR/sync_selfplay_data.sh" --merge
+    python3 "$SCRIPT_DIR/cluster_sync_coordinator.py" --mode games
 fi

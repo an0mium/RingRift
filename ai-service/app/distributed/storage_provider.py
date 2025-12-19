@@ -420,7 +420,7 @@ class TransportConfig:
     gossip_sync_interval: int = 60
 
     # General
-    fallback_chain: List[str] = field(default_factory=lambda: ["ssh", "p2p", "aria2"])
+    fallback_chain: List[str] = field(default_factory=lambda: ["aria2", "ssh", "p2p"])
     total_timeout_budget: int = 900  # 15 minutes max for all fallback attempts
 
 
