@@ -1680,6 +1680,27 @@ class TrainingScheduler:
                 if getattr(self.config, 'elo_weighting_enabled', True):
                     cmd.append("--enable-elo-weighting")
 
+            # Fault Tolerance (2025-12)
+            if not getattr(self.config, 'enable_circuit_breaker', True):
+                cmd.append("--disable-circuit-breaker")
+            if not getattr(self.config, 'enable_anomaly_detection', True):
+                cmd.append("--disable-anomaly-detection")
+            gradient_clip_mode = getattr(self.config, 'gradient_clip_mode', 'adaptive')
+            cmd.extend(["--gradient-clip-mode", gradient_clip_mode])
+            if gradient_clip_mode == 'fixed':
+                cmd.extend([
+                    "--gradient-clip-max-norm",
+                    str(getattr(self.config, 'gradient_clip_max_norm', 1.0)),
+                ])
+            anomaly_spike = getattr(self.config, 'anomaly_spike_threshold', 3.0)
+            if anomaly_spike != 3.0:  # Only add if non-default
+                cmd.extend(["--anomaly-spike-threshold", str(anomaly_spike)])
+            anomaly_grad = getattr(self.config, 'anomaly_gradient_threshold', 100.0)
+            if anomaly_grad != 100.0:  # Only add if non-default
+                cmd.extend(["--anomaly-gradient-threshold", str(anomaly_grad)])
+            if not getattr(self.config, 'enable_graceful_shutdown', True):
+                cmd.append("--disable-graceful-shutdown")
+
             print(f"[Training] Starting training for {model_id}...")
 
             # Also start NNUE policy training in parallel if configured

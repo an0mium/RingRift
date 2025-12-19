@@ -408,6 +408,20 @@ class TrainingConfig:
     # Reanalysis - re-evaluate games with current model
     reanalysis_enabled: bool = False
     reanalysis_blend_ratio: float = 0.5
+    # =========================================================================
+    # Fault Tolerance (2025-12)
+    # =========================================================================
+    # Circuit breaker for training operations
+    enable_circuit_breaker: bool = True  # Enable training circuit breaker
+    # Anomaly detection during training
+    enable_anomaly_detection: bool = True  # Detect NaN/Inf and loss spikes
+    anomaly_spike_threshold: float = 3.0  # Std devs for spike detection
+    anomaly_gradient_threshold: float = 100.0  # Gradient explosion threshold
+    # Gradient clipping mode
+    gradient_clip_mode: str = "adaptive"  # "adaptive" or "fixed"
+    gradient_clip_max_norm: float = 1.0  # Max norm for fixed clipping
+    # Graceful shutdown
+    enable_graceful_shutdown: bool = True  # Emergency checkpoints on SIGTERM
 
     def __post_init__(self):
         """Validate TrainingConfig fields after initialization."""
