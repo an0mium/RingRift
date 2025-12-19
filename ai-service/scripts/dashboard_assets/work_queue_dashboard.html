@@ -278,6 +278,13 @@
                 <p class="empty-message">Loading...</p>
             </div>
         </div>
+
+        <div class="card full-width">
+            <h2>Recent History</h2>
+            <div class="work-list" id="historyList">
+                <p class="empty-message">Loading...</p>
+            </div>
+        </div>
     </div>
 
     <div class="refresh-info">
@@ -285,7 +292,8 @@
     </div>
 
     <script>
-        const API_BASE = window.location.origin;
+        // Use relative URLs for proxy compatibility
+        const API_BASE = '';
 
         async function fetchQueueStatus() {
             try {
@@ -294,6 +302,17 @@
                 return await resp.json();
             } catch (e) {
                 console.error('Error fetching queue status:', e);
+                return null;
+            }
+        }
+
+        async function fetchHistory() {
+            try {
+                const resp = await fetch(`${API_BASE}/work/history?limit=20`);
+                if (!resp.ok) throw new Error('Failed to fetch');
+                return await resp.json();
+            } catch (e) {
+                console.error('Error fetching history:', e);
                 return null;
             }
         }
@@ -326,6 +345,25 @@
                 }
             } catch (e) {
                 alert(`Failed to add work: ${e.message}`);
+            }
+        }
+
+        async function cancelWork(workId) {
+            if (!confirm(`Cancel work ${workId}?`)) return;
+            try {
+                const resp = await fetch(`${API_BASE}/work/cancel`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ work_id: workId })
+                });
+                const data = await resp.json();
+                if (data.status === 'cancelled') {
+                    updateDashboard();
+                } else {
+                    alert(`Failed to cancel: ${data.error || 'Unknown error'}`);
+                }
+            } catch (e) {
+                alert(`Failed to cancel work: ${e.message}`);
             }
         }
 
@@ -391,6 +429,43 @@
             container.innerHTML = html;
         }
 
+        function renderHistoryList(items) {
+            const container = document.getElementById('historyList');
+            if (!items || items.length === 0) {
+                container.innerHTML = '<p class="empty-message">No history</p>';
+                return;
+            }
+
+            let html = `<table>
+                <tr>
+                    <th>ID</th>
+                    <th>Type</th>
+                    <th>Node</th>
+                    <th>Status</th>
+                    <th>Duration</th>
+                    <th>Time</th>
+                </tr>`;
+
+            for (const item of items) {
+                const duration = item.completed_at && item.created_at
+                    ? formatDuration(item.completed_at - item.created_at)
+                    : '-';
+                const completedTime = item.completed_at
+                    ? new Date(item.completed_at * 1000).toLocaleTimeString()
+                    : '-';
+                html += `<tr>
+                    <td>${item.work_id}</td>
+                    <td><span class="work-type">${item.work_type}</span></td>
+                    <td>${item.claimed_by || '-'}</td>
+                    <td><span class="status-badge status-${item.status}">${item.status}</span></td>
+                    <td>${duration}</td>
+                    <td>${completedTime}</td>
+                </tr>`;
+            }
+            html += '</table>';
+            container.innerHTML = html;
+        }
+
         async function updateDashboard() {
             const data = await fetchQueueStatus();
             if (!data) {
@@ -426,6 +501,12 @@
 
             // Update by type
             renderByTypeStats(data.by_type);
+
+            // Fetch and render history
+            const historyData = await fetchHistory();
+            if (historyData && historyData.history) {
+                renderHistoryList(historyData.history);
+            }
 
             // Update timestamp
             document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
