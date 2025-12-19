@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -36,7 +36,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..models import AIConfig, BoardType, GameState, Move, MoveType, Position
+from ..models import AIConfig, GameState, Move, MoveType, Position
 from .base import BaseAI
 
 logger = logging.getLogger(__name__)
@@ -47,23 +47,30 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class GMOConfig:
-    """Configuration for GMO AI."""
+    """Configuration for GMO AI.
+
+    Defaults tuned based on ablation study (2024-12):
+    - optim_steps reduced from 10 to 2 (fewer steps performed better)
+    - beta reduced from 0.3 to 0.1 (less aggressive exploration)
+    - gamma reduced from 0.1 to 0.05 (less novelty bonus)
+    - mc_samples kept at 10 (critical for performance - 0% without it)
+    """
     # Embedding dimensions
     state_dim: int = 128
     move_dim: int = 128
     hidden_dim: int = 256
 
-    # Optimization parameters
-    top_k: int = 5  # Number of candidates to optimize
-    optim_steps: int = 10  # Gradient steps per candidate
+    # Optimization parameters (tuned from ablation)
+    top_k: int = 3  # Number of candidates to optimize (reduced from 5)
+    optim_steps: int = 2  # Gradient steps per candidate (reduced from 10)
     lr: float = 0.1  # Learning rate for move optimization
 
-    # Information-theoretic parameters
-    beta: float = 0.3  # Exploration coefficient (uncertainty bonus)
-    gamma: float = 0.1  # Novelty coefficient
+    # Information-theoretic parameters (tuned from ablation)
+    beta: float = 0.1  # Exploration coefficient (reduced from 0.3)
+    gamma: float = 0.05  # Novelty coefficient (reduced from 0.1)
     exploration_temp: float = 1.0  # Base exploration temperature
 
-    # MC Dropout parameters
+    # MC Dropout parameters (critical - do not reduce mc_samples)
     dropout_rate: float = 0.1
     mc_samples: int = 10  # Number of dropout samples for uncertainty
 

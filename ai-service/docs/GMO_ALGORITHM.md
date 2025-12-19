@@ -297,7 +297,7 @@ def select_move(game_state):
         score = mean_value + beta * sqrt(variance) + gamma * novelty
         candidates.append((i, score, move_embed))
 
-    top_k = sorted(candidates, reverse=True)[:5]
+    top_k = sorted(candidates, reverse=True)[:3]
 
     # 4. Phase 2: SPEN-style gradient optimization
     best_move, best_score = None, -inf
@@ -325,12 +325,12 @@ def gradient_optimize(state_embed, initial_move_embed):
     move_embed = initial_move_embed.clone().requires_grad_(True)
     optimizer = Adam([move_embed], lr=0.1)
 
-    for step in range(10):
+    for step in range(optim_steps):
         optimizer.zero_grad()
         mean_value, variance = mc_dropout_estimate(state_embed, move_embed)
 
         # Anneal exploration (engineering choice, not novel)
-        exploration_weight = beta * (1 - step/9) * temperature
+        exploration_weight = beta * (1 - step / max(optim_steps - 1, 1)) * temperature
         objective = mean_value + exploration_weight * sqrt(variance)
 
         loss = -objective
@@ -385,13 +385,13 @@ class GMOConfig:
     hidden_dim: int = 256
 
     # Optimization parameters
-    top_k: int = 5           # Candidates to optimize
-    optim_steps: int = 10    # Gradient steps per candidate
+    top_k: int = 3           # Candidates to optimize
+    optim_steps: int = 2     # Gradient steps per candidate
     lr: float = 0.1          # Optimization learning rate
 
     # Exploration parameters (UCB-style)
-    beta: float = 0.3        # Uncertainty coefficient
-    gamma: float = 0.1       # Novelty coefficient
+    beta: float = 0.1        # Uncertainty coefficient
+    gamma: float = 0.05      # Novelty coefficient
     exploration_temp: float = 1.0
 
     # MC Dropout parameters
@@ -408,10 +408,10 @@ class GMOConfig:
 
 | Parameter     | Low Value Effect            | High Value Effect           | Range      |
 | ------------- | --------------------------- | --------------------------- | ---------- |
-| `beta`        | Exploit known good moves    | Explore uncertain moves     | 0.1 - 0.5  |
-| `gamma`       | Allow repetitive patterns   | Force diverse play          | 0.05 - 0.2 |
-| `top_k`       | Faster, may miss good moves | Thorough, slower            | 3 - 10     |
-| `optim_steps` | Quick, less refined         | Better optimization, slower | 5 - 20     |
+| `beta`        | Exploit known good moves    | Explore uncertain moves     | 0.05 - 0.3 |
+| `gamma`       | Allow repetitive patterns   | Force diverse play          | 0.01 - 0.1 |
+| `top_k`       | Faster, may miss good moves | Thorough, slower            | 2 - 7      |
+| `optim_steps` | Quick, less refined         | Better optimization, slower | 1 - 10     |
 
 ---
 

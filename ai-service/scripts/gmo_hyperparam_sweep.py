@@ -196,7 +196,7 @@ def evaluate_config(
 
     baselines = {
         "vs_random": lambda p: RandomAI(player_number=p, config=AIConfig(difficulty=1)),
-        "vs_heuristic": lambda p: HeuristicAI(player_number=p, config=AIConfig()),
+        "vs_heuristic": lambda p: HeuristicAI(player_number=p, config=AIConfig(difficulty=3)),
     }
 
     for baseline_name, baseline_factory in baselines.items():
