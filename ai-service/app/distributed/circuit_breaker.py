@@ -55,33 +55,55 @@ T = TypeVar("T")
 # ============================================
 
 try:
-    from prometheus_client import Counter, Gauge
+    from prometheus_client import Counter, Gauge, REGISTRY
     HAS_PROMETHEUS = True
 except ImportError:
     HAS_PROMETHEUS = False
+    REGISTRY = None
+
+# Helper to safely create metrics (handle re-registration on module reload)
+def _get_or_create_gauge(name: str, description: str, labels: list):
+    """Get existing gauge or create new one, handling re-registration."""
+    if not HAS_PROMETHEUS:
+        return None
+    try:
+        return Gauge(name, description, labels)
+    except ValueError:
+        # Already registered, get from registry
+        return REGISTRY._names_to_collectors.get(name)
+
+def _get_or_create_counter(name: str, description: str, labels: list):
+    """Get existing counter or create new one, handling re-registration."""
+    if not HAS_PROMETHEUS:
+        return None
+    try:
+        return Counter(name, description, labels)
+    except ValueError:
+        # Already registered, get from registry
+        return REGISTRY._names_to_collectors.get(name)
 
 if HAS_PROMETHEUS:
-    PROM_CIRCUIT_STATE = Gauge(
+    PROM_CIRCUIT_STATE = _get_or_create_gauge(
         'ringrift_circuit_breaker_state',
         'Circuit breaker state (0=closed, 1=open, 2=half_open)',
         ['operation_type', 'target']
     )
-    PROM_CIRCUIT_FAILURES = Counter(
+    PROM_CIRCUIT_FAILURES = _get_or_create_counter(
         'ringrift_circuit_breaker_failures_total',
         'Total circuit breaker failures recorded',
         ['operation_type', 'target']
     )
-    PROM_CIRCUIT_SUCCESSES = Counter(
+    PROM_CIRCUIT_SUCCESSES = _get_or_create_counter(
         'ringrift_circuit_breaker_successes_total',
         'Total circuit breaker successes recorded',
         ['operation_type', 'target']
     )
-    PROM_CIRCUIT_OPENS = Counter(
+    PROM_CIRCUIT_OPENS = _get_or_create_counter(
         'ringrift_circuit_breaker_opens_total',
         'Total circuit breaker open events',
         ['operation_type', 'target']
     )
-    PROM_CIRCUIT_BLOCKED_REQUESTS = Counter(
+    PROM_CIRCUIT_BLOCKED_REQUESTS = _get_or_create_counter(
         'ringrift_circuit_breaker_blocked_total',
         'Total requests blocked by open circuit',
         ['operation_type', 'target']
