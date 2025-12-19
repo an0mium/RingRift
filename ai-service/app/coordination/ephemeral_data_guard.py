@@ -552,3 +552,96 @@ def queue_critical_game(game_id: str, host: str, data_path: str) -> None:
 def reset_ephemeral_guard() -> None:
     """Reset the singleton."""
     EphemeralDataGuard.reset_instance()
+
+
+def wire_ephemeral_guard_events() -> EphemeralDataGuard:
+    """Wire ephemeral guard to the event bus for host monitoring.
+
+    Subscribes to:
+    - HOST_OFFLINE: Trigger evacuation check for the host
+    - HOST_ONLINE: Update host status and clear evacuation flags
+    - TASK_HEARTBEAT: Update heartbeat for ephemeral hosts
+
+    Returns:
+        The configured EphemeralDataGuard instance
+    """
+    guard = get_ephemeral_guard()
+
+    try:
+        from app.distributed.data_events import DataEventType, get_event_bus
+
+        bus = get_event_bus()
+
+        def _event_payload(event: Any) -> Dict[str, Any]:
+            if isinstance(event, dict):
+                return event
+            payload = getattr(event, "payload", None)
+            return payload if isinstance(payload, dict) else {}
+
+        def _on_host_offline(event: Any) -> None:
+            """Handle host going offline - check for evacuation."""
+            payload = _event_payload(event)
+            host = payload.get("host") or payload.get("node_id")
+            if not host:
+                return
+            checkpoint = guard.get_checkpoint(host)
+            if checkpoint and checkpoint.is_ephemeral and checkpoint.unsynced_games > 0:
+                logger.warning(
+                    f"[EphemeralGuard] Host {host} offline with {checkpoint.unsynced_games} "
+                    f"unsynced games, requesting evacuation"
+                )
+                guard.request_evacuation(host)
+
+        def _on_host_online(event: Any) -> None:
+            """Handle host coming online - update heartbeat."""
+            payload = _event_payload(event)
+            host = payload.get("host") or payload.get("node_id")
+            if host:
+                guard.heartbeat(host)
+
+        def _on_task_heartbeat(event: Any) -> None:
+            """Handle task heartbeat - update host heartbeat."""
+            payload = _event_payload(event)
+            host = payload.get("host") or payload.get("node_id")
+            if host:
+                guard.heartbeat(host)
+
+        bus.subscribe(DataEventType.HOST_OFFLINE, _on_host_offline)
+        bus.subscribe(DataEventType.HOST_ONLINE, _on_host_online)
+        bus.subscribe(DataEventType.TASK_HEARTBEAT, _on_task_heartbeat)
+
+        logger.info("[EphemeralGuard] Wired to event bus (HOST_OFFLINE, HOST_ONLINE, TASK_HEARTBEAT)")
+
+    except ImportError:
+        logger.warning("[EphemeralGuard] data_events not available, running without event bus")
+
+    return guard
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Constants
+    "CHECKPOINT_INTERVAL",
+    "HEARTBEAT_TIMEOUT",
+    "EVACUATION_THRESHOLD",
+    "CRITICAL_GAME_THRESHOLD",
+    "EPHEMERAL_HOST_PATTERNS",
+    # Data classes
+    "HostCheckpoint",
+    "WriteThrough",
+    # Main class
+    "EphemeralDataGuard",
+    # Functions
+    "get_ephemeral_guard",
+    "checkpoint_games",
+    "ephemeral_heartbeat",
+    "is_host_ephemeral",
+    "get_evacuation_candidates",
+    "request_evacuation",
+    "queue_critical_game",
+    "reset_ephemeral_guard",
+    "wire_ephemeral_guard_events",
+]

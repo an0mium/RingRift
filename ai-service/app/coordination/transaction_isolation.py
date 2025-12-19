@@ -893,3 +893,28 @@ def merge_transaction(
 def get_transaction_stats() -> Dict[str, Any]:
     """Get transaction statistics."""
     return get_transaction_isolation().get_transaction_stats()
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Enums
+    "TransactionState",
+    # Data classes
+    "MergeOperation",
+    "MergeTransaction",
+    # Main class
+    "TransactionIsolation",
+    # Functions
+    "get_transaction_isolation",
+    "reset_transaction_isolation",
+    "begin_merge_transaction",
+    "add_merge_operation",
+    "complete_merge_operation",
+    "commit_merge_transaction",
+    "rollback_merge_transaction",
+    "merge_transaction",
+    "get_transaction_stats",
+]

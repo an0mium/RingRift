@@ -189,7 +189,7 @@ from app.coordination.resource_targets import (
 # Resource optimizer exports (PID-controlled cluster-wide optimization)
 from app.coordination.resource_optimizer import (
     ResourceOptimizer,
-    ResourceType,
+    # ResourceType already imported from task_coordinator above
     ScaleAction,
     NodeResources,
     ClusterState,
@@ -256,7 +256,7 @@ except ImportError:
 # Cluster transport layer (unified multi-transport communication)
 from app.coordination.cluster_transport import (
     ClusterTransport,
-    CircuitBreaker,
+    # CircuitBreaker already imported from app.distributed.circuit_breaker above
     NodeConfig,
     TransportResult,
     get_cluster_transport,
@@ -482,7 +482,7 @@ from app.coordination.event_router import (
     EventSource,
     get_router as get_event_router,
     reset_router as reset_event_router,
-    publish as publish_event,
+    publish as router_publish_event,  # Alias to avoid collision with cross_process_events.publish_event
     publish_sync as publish_event_sync,
     subscribe as subscribe_event,
     unsubscribe as unsubscribe_event,
@@ -517,9 +517,9 @@ from app.coordination.orchestrator_registry import (
     # Coordinator Registration (December 2025)
     register_coordinator,
     unregister_coordinator,
-    get_coordinator,
+    get_coordinator as get_registered_coordinator,  # Alias to avoid collision with task_coordinator.get_coordinator
     get_registered_coordinators,
-    shutdown_all_coordinators,
+    shutdown_all_coordinators as shutdown_registered_coordinators,  # Alias to avoid collision
     auto_register_known_coordinators,
 )
 

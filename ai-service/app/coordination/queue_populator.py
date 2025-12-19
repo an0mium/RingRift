@@ -660,3 +660,112 @@ def load_populator_config_from_yaml(yaml_config: Dict[str, Any]) -> PopulatorCon
         enabled=populator.get("enabled", True),
         check_interval_seconds=populator.get("check_interval_seconds", 60),
     )
+
+
+# =============================================================================
+# Singleton pattern
+# =============================================================================
+
+_populator: Optional[QueuePopulator] = None
+
+
+def get_queue_populator(
+    config: Optional[PopulatorConfig] = None,
+    work_queue: Optional["WorkQueue"] = None,
+) -> QueuePopulator:
+    """Get or create the singleton QueuePopulator instance."""
+    global _populator
+    if _populator is None:
+        _populator = QueuePopulator(config=config, work_queue=work_queue)
+    elif work_queue is not None and _populator._work_queue is None:
+        _populator.set_work_queue(work_queue)
+    return _populator
+
+
+def reset_queue_populator() -> None:
+    """Reset the singleton for testing."""
+    global _populator
+    _populator = None
+
+
+def wire_queue_populator_events() -> QueuePopulator:
+    """Wire queue populator to the event bus for automatic updates.
+
+    Subscribes to:
+    - ELO_UPDATED: Update target Elo for configurations
+    - TRAINING_COMPLETED: Increment training count
+    - NEW_GAMES_AVAILABLE: Increment games count
+
+    Returns:
+        The configured QueuePopulator instance
+    """
+    populator = get_queue_populator()
+
+    try:
+        from app.distributed.data_events import DataEventType, get_event_bus
+
+        bus = get_event_bus()
+
+        def _event_payload(event: Any) -> Dict[str, Any]:
+            if isinstance(event, dict):
+                return event
+            payload = getattr(event, "payload", None)
+            return payload if isinstance(payload, dict) else {}
+
+        def _on_elo_updated(event: Any) -> None:
+            """Handle Elo update - update target tracking."""
+            payload = _event_payload(event)
+            board_type = payload.get("board_type")
+            num_players = payload.get("num_players")
+            elo = payload.get("elo") or payload.get("rating")
+            model_id = payload.get("model_id") or payload.get("participant_id")
+            if board_type and num_players and elo:
+                populator.update_target_elo(board_type, num_players, elo, model_id)
+
+        def _on_training_completed(event: Any) -> None:
+            """Handle training completion - increment count."""
+            payload = _event_payload(event)
+            board_type = payload.get("board_type")
+            num_players = payload.get("num_players")
+            if board_type and num_players:
+                populator.increment_training(board_type, num_players)
+
+        def _on_new_games(event: Any) -> None:
+            """Handle new games - increment count."""
+            payload = _event_payload(event)
+            board_type = payload.get("board_type")
+            num_players = payload.get("num_players")
+            count = payload.get("count", 1)
+            if board_type and num_players:
+                populator.increment_games(board_type, num_players, count)
+
+        bus.subscribe(DataEventType.ELO_UPDATED, _on_elo_updated)
+        bus.subscribe(DataEventType.TRAINING_COMPLETED, _on_training_completed)
+        bus.subscribe(DataEventType.NEW_GAMES_AVAILABLE, _on_new_games)
+
+        logger.info("[QueuePopulator] Wired to event bus (ELO_UPDATED, TRAINING_COMPLETED, NEW_GAMES_AVAILABLE)")
+
+    except ImportError:
+        logger.warning("[QueuePopulator] data_events not available, running without event bus")
+
+    return populator
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Enums
+    "BoardType",
+    # Data classes
+    "ConfigTarget",
+    "PopulatorConfig",
+    # Main class
+    "QueuePopulator",
+    # Functions
+    "load_populator_config_from_yaml",
+    "get_queue_populator",
+    "reset_queue_populator",
+    "wire_queue_populator_events",
+]

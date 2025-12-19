@@ -220,3 +220,26 @@ def is_work_allowed(node_id: str, work_type: str) -> bool:
 def get_best_work_type(node_id: str, available_types: List[str]) -> Optional[str]:
     """Convenience function to get best work type for a node."""
     return get_policy_manager().get_best_work_type(node_id, available_types)
+
+
+def reset_policy_manager() -> None:
+    """Reset the singleton for testing."""
+    global _policy_manager
+    _policy_manager = None
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Data classes
+    "NodePolicy",
+    # Main class
+    "NodePolicyManager",
+    # Functions
+    "get_policy_manager",
+    "is_work_allowed",
+    "get_best_work_type",
+    "reset_policy_manager",
+]

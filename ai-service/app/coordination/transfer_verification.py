@@ -575,3 +575,74 @@ def compute_batch_checksum(records: List[str], batch_id: str) -> BatchChecksum:
 def reset_transfer_verifier() -> None:
     """Reset the singleton."""
     TransferVerifier.reset_instance()
+
+
+def wire_transfer_verifier_events() -> TransferVerifier:
+    """Wire transfer verifier to the event bus for automatic verification.
+
+    Subscribes to:
+    - DATA_SYNC_COMPLETED: Verify data integrity after sync
+
+    Returns:
+        The configured TransferVerifier instance
+    """
+    verifier = get_transfer_verifier()
+
+    try:
+        from app.distributed.data_events import DataEventType, get_event_bus
+
+        bus = get_event_bus()
+
+        def _event_payload(event: Any) -> Dict[str, Any]:
+            if isinstance(event, dict):
+                return event
+            payload = getattr(event, "payload", None)
+            return payload if isinstance(payload, dict) else {}
+
+        def _on_sync_completed(event: Any) -> None:
+            """Handle sync completion - verify transferred data."""
+            payload = _event_payload(event)
+            source_checksum = payload.get("source_checksum")
+            dest_path = payload.get("dest_path")
+            if source_checksum and dest_path:
+                from pathlib import Path
+                is_valid = verifier.quick_verify(source_checksum, Path(dest_path))
+                if not is_valid:
+                    logger.warning(
+                        f"[TransferVerifier] Verification failed for {dest_path}"
+                    )
+
+        bus.subscribe(DataEventType.DATA_SYNC_COMPLETED, _on_sync_completed)
+
+        logger.info("[TransferVerifier] Wired to event bus (DATA_SYNC_COMPLETED)")
+
+    except ImportError:
+        logger.warning("[TransferVerifier] data_events not available, running without event bus")
+
+    return verifier
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Constants
+    "CHUNK_SIZE",
+    "MAX_QUARANTINE_AGE_DAYS",
+    # Data classes
+    "TransferRecord",
+    "QuarantineRecord",
+    "BatchChecksum",
+    # Main class
+    "TransferVerifier",
+    # Functions
+    "get_transfer_verifier",
+    "compute_file_checksum",
+    "verify_transfer",
+    "quarantine_file",
+    "verify_batch",
+    "compute_batch_checksum",
+    "reset_transfer_verifier",
+    "wire_transfer_verifier_events",
+]

@@ -638,3 +638,96 @@ if __name__ == "__main__":
                 orch.print_status()
 
     asyncio.run(main())
+
+
+def reset_orchestrator() -> None:
+    """Reset the singleton for testing."""
+    global _orchestrator
+    _orchestrator = None
+
+
+def wire_orchestrator_events() -> MultiProviderOrchestrator:
+    """Wire orchestrator to the event bus for automatic node tracking.
+
+    Subscribes to:
+    - HOST_ONLINE: Update node online status
+    - HOST_OFFLINE: Update node offline status
+    - CLUSTER_STATUS_CHANGED: Trigger discovery
+
+    Returns:
+        The configured MultiProviderOrchestrator instance
+    """
+    orchestrator = get_orchestrator()
+
+    try:
+        from app.distributed.data_events import DataEventType, get_event_bus
+
+        bus = get_event_bus()
+
+        def _event_payload(event: Any) -> Dict[str, Any]:
+            if isinstance(event, dict):
+                return event
+            payload = getattr(event, "payload", None)
+            return payload if isinstance(payload, dict) else {}
+
+        def _on_host_online(event: Any) -> None:
+            """Handle host coming online."""
+            payload = _event_payload(event)
+            host = payload.get("host") or payload.get("node_id")
+            if host and host in orchestrator.nodes:
+                node = orchestrator.nodes[host]
+                node.is_online = True
+                node.last_seen = time.time()
+                logger.info(f"[Orchestrator] Node {host} is online")
+
+        def _on_host_offline(event: Any) -> None:
+            """Handle host going offline."""
+            payload = _event_payload(event)
+            host = payload.get("host") or payload.get("node_id")
+            if host and host in orchestrator.nodes:
+                node = orchestrator.nodes[host]
+                node.is_online = False
+                node.role = NodeRole.OFFLINE
+                logger.warning(f"[Orchestrator] Node {host} is offline")
+
+        def _on_cluster_changed(event: Any) -> None:
+            """Handle cluster status change - trigger async discovery."""
+            # Schedule discovery on next event loop
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(orchestrator.discover_all())
+            except RuntimeError:
+                pass  # No event loop, skip
+
+        bus.subscribe(DataEventType.HOST_ONLINE, _on_host_online)
+        bus.subscribe(DataEventType.HOST_OFFLINE, _on_host_offline)
+        bus.subscribe(DataEventType.CLUSTER_STATUS_CHANGED, _on_cluster_changed)
+
+        logger.info("[Orchestrator] Wired to event bus (HOST_ONLINE, HOST_OFFLINE, CLUSTER_STATUS_CHANGED)")
+
+    except ImportError:
+        logger.warning("[Orchestrator] data_events not available, running without event bus")
+
+    return orchestrator
+
+
+# =============================================================================
+# Module exports
+# =============================================================================
+
+__all__ = [
+    # Enums
+    "Provider",
+    "NodeRole",
+    # Data classes
+    "ClusterNode",
+    # Main class
+    "MultiProviderOrchestrator",
+    # Functions
+    "get_orchestrator",
+    "discover_all_nodes",
+    "deploy_to_all_nodes",
+    "reset_orchestrator",
+    "wire_orchestrator_events",
+]
