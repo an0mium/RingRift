@@ -119,6 +119,12 @@ Features:
   - Adds MCTS visit distributions to existing games for KL loss training
   - Start: `python scripts/reanalyze_mcts_policy.py --input games.jsonl --output mcts_games.jsonl`
 - `curriculum_training.py` - Generation-based curriculum training
+- `retrain_d10_fresh.sh` - **D10 retraining workflow** (4KB)
+  - Automates JSONL→NPZ→Train→Eval pipeline for D10 tier
+  - Integrated enhancements (augmentation, background eval)
+  - Start: `./scripts/retrain_d10_fresh.sh`
+  - Dry run: `./scripts/retrain_d10_fresh.sh --dry-run`
+  - Skip stages: `./scripts/retrain_d10_fresh.sh --skip-convert --skip-train`
 - `run_self_play_soak.py` - Self-play data generation (158KB)
 - `run_hybrid_selfplay.py` - Hybrid self-play modes (67KB)
 - `hex8_training_pipeline.py` - **Hex8-specific pipeline** (19KB)
@@ -227,6 +233,13 @@ Features:
 
 ### Analysis
 
+- `analyze_training_run.py` - **Post-training analysis** (15KB)
+  - Parse training logs and extract metrics
+  - Loss curves, best epoch detection, overfitting analysis
+  - Multi-run comparison mode
+  - Start: `python scripts/analyze_training_run.py --log logs/training_sq8_2p.log`
+  - Compare: `python scripts/analyze_training_run.py --log "logs/training_*.log" --compare`
+  - JSON output: `python scripts/analyze_training_run.py --log logs/training.log --json`
 - `analyze_game_statistics.py` - **Comprehensive game statistics** (107KB)
   - Victory type distribution, win rates, game length stats, recovery usage
   - AI type breakdown, data quality metrics, metadata fixing

@@ -26,7 +26,7 @@ global:
   # Alertmanager does not support environment-variable interpolation in YAML
   # configs, so this must be a valid URL literal with a scheme even in local
   # staging. Replace with your real Slack webhook URL for production.
-  slack_api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+  slack_api_url: 'https://example.com/replace-with-slack-webhook'
 
   # ResolveTimeout is the time after which an alert is declared resolved
   # if it has not been updated.
@@ -258,7 +258,7 @@ receivers:
   - name: 'training-alerts'
     slack_configs:
       - channel: '#ringrift-training-alerts'
-        api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        api_url: 'https://example.com/replace-with-slack-webhook'
         send_resolved: true
         title: '{{ if eq .Status "firing" }}🔥{{ else }}✅{{ end }} Training: {{ .GroupLabels.alertname }}'
         text: |

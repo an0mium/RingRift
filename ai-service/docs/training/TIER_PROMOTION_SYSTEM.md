@@ -295,6 +295,80 @@ save_square8_two_player_registry({'board': 'square8', 'num_players': 2, 'tiers':
 "
 ```
 
+## Baseline Gating
+
+In addition to tier-vs-tier evaluation, models must pass baseline gating requirements to ensure minimum competence. This prevents regression to random/weak play.
+
+### Baseline Opponents
+
+Models are tested against two baseline opponents using the `game_gauntlet` module:
+
+| Baseline  | Elo Rating | Description                           |
+| --------- | ---------- | ------------------------------------- |
+| Random    | 400        | Uniformly random legal moves          |
+| Heuristic | 1200       | Rule-based greedy evaluation function |
+
+### Tier-Specific Thresholds
+
+Minimum win rates required against baselines (calibrated empirically):
+
+| Tier  | vs Random | vs Heuristic | Notes                           |
+| ----- | --------- | ------------ | ------------------------------- |
+| D1-D7 | 80%       | N/A          | Basic competence                |
+| D8    | 80%       | 70%          | Adds heuristic requirement      |
+| D9    | 75%       | 70%          | Calibrated from production data |
+| D10   | 75%       | 70%          | Calibrated from production data |
+| D11   | 80%       | 75%          | Highest tier requirements       |
+
+### Configuration
+
+Baseline gating is configured in `app/training/tier_eval_config.py`:
+
+```python
+from app.training.tier_eval_config import get_tier_config
+
+config = get_tier_config("D9")
+print(f"Min win rate vs random: {config.min_win_rate_vs_baseline:.0%}")
+print(f"Baseline opponents: {config.baseline_opponents}")
+```
+
+### Using game_gauntlet
+
+The `game_gauntlet` module provides unified baseline testing:
+
+```python
+from app.training.game_gauntlet import (
+    run_baseline_gauntlet,
+    BaselineOpponent,
+    BASELINE_ELOS,
+)
+
+# Run gauntlet against baselines
+result = run_baseline_gauntlet(
+    model_path="models/candidate.pth",
+    board_type="square8",
+    games_per_baseline=20,
+)
+
+print(f"Win rate: {result.win_rate:.0%}")
+print(f"Passes gating: {result.passes_baseline_gating}")
+print(f"Failed baselines: {result.failed_baselines}")
+```
+
+### Troubleshooting
+
+**Model fails baseline gating:**
+
+1. Check training data quality (was it generated from a strong model?)
+2. Verify data conversion preserved move legality
+3. Run smaller training to validate pipeline before full training
+
+**Calibration notes:**
+
+- Production models typically achieve 65-75% vs random (not 90%+)
+- D9/D10 thresholds were reduced from 85%/90% to 75% based on empirical data
+- The S-invariant guarantees no position repetition (draw-by-repetition disabled)
+
 ## Related Documentation
 
 - [TRAINING_PIPELINE.md](TRAINING_PIPELINE.md) - Training workflow

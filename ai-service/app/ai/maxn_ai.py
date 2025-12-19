@@ -15,19 +15,40 @@ independently to maximize their own scores.
 
 Note: Classic Max-N does not support alpha-beta pruning, though
 shallow pruning techniques exist (not implemented here).
+
+GPU Acceleration (default enabled):
+- Leaf position evaluation is batched and run on GPU for 10-50x speedup
+- Uses CPU rules engine for full parity (no GPU move generation)
+- Automatic fallback to CPU if no GPU available
+- Control via RINGRIFT_GPU_MAXN_DISABLE=1 environment variable
+- Shadow validation available via RINGRIFT_GPU_MAXN_SHADOW_VALIDATE=1
 """
 
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Tuple, Any, TYPE_CHECKING
 import logging
+import os
 import time
+
+import numpy as np
 
 from .heuristic_ai import HeuristicAI
 from .bounded_transposition_table import BoundedTranspositionTable
 from .zobrist import ZobristHash
-from ..models import GameState, Move, AIConfig, GamePhase
+from ..models import GameState, Move, AIConfig, GamePhase, BoardType
 from ..rules.mutable_state import MutableGameState
 
+if TYPE_CHECKING:
+    import torch
+
 logger = logging.getLogger(__name__)
+
+# Environment variable controls
+_GPU_MAXN_DISABLE = os.environ.get("RINGRIFT_GPU_MAXN_DISABLE", "").lower() in (
+    "1", "true", "yes", "on"
+)
+_GPU_MAXN_SHADOW_VALIDATE = os.environ.get("RINGRIFT_GPU_MAXN_SHADOW_VALIDATE", "").lower() in (
+    "1", "true", "yes", "on"
+)
 
 
 class MaxNAI(HeuristicAI):

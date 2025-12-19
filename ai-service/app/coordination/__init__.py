@@ -396,6 +396,18 @@ from app.coordination.distributed_lock import (
     training_lock,
 )
 
+# Coordinator Base (common patterns for coordinators/managers)
+from app.coordination.coordinator_base import (
+    CoordinatorBase,
+    CoordinatorProtocol,
+    CoordinatorStatus,
+    CoordinatorStats,
+    SQLitePersistenceMixin,
+    SingletonMixin,
+    CallbackMixin,
+    is_coordinator,
+)
+
 __all__ = [
     # Task Coordinator (canonical)
     "TaskCoordinator",
@@ -674,4 +686,13 @@ __all__ = [
     "acquire_training_lock",
     "release_training_lock",
     "training_lock",
+    # Coordinator Base (common patterns for coordinators/managers)
+    "CoordinatorBase",
+    "CoordinatorProtocol",
+    "CoordinatorStatus",
+    "CoordinatorStats",
+    "SQLitePersistenceMixin",
+    "SingletonMixin",
+    "CallbackMixin",
+    "is_coordinator",
 ]
