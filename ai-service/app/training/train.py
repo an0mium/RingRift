@@ -55,6 +55,12 @@ try:
     CALIBRATION_ECE = _safe_metric(Gauge, 'ringrift_calibration_ece', 'Expected Calibration Error', labelnames=['config'])
     CALIBRATION_MCE = _safe_metric(Gauge, 'ringrift_calibration_mce', 'Maximum Calibration Error', labelnames=['config'])
     BATCH_SIZE = _safe_metric(Gauge, 'ringrift_training_batch_size', 'Current training batch size', labelnames=['config'])
+
+    # Fault tolerance metrics (2025-12)
+    CIRCUIT_BREAKER_STATE = _safe_metric(Gauge, 'ringrift_circuit_breaker_state', 'Circuit breaker state (0=closed, 1=open, 2=half-open)', labelnames=['config', 'operation'])
+    ANOMALY_DETECTIONS = _safe_metric(Counter, 'ringrift_training_anomalies_total', 'Total training anomalies detected', labelnames=['config', 'type'])
+    GRADIENT_CLIP_NORM = _safe_metric(Gauge, 'ringrift_gradient_clip_norm', 'Current gradient clipping threshold', labelnames=['config'])
+    GRADIENT_NORM = _safe_metric(Gauge, 'ringrift_gradient_norm', 'Recent gradient norm', labelnames=['config'])
 except ImportError:
     HAS_PROMETHEUS = False
     TRAINING_EPOCHS = None
@@ -64,6 +70,10 @@ except ImportError:
     CALIBRATION_ECE = None
     CALIBRATION_MCE = None
     BATCH_SIZE = None
+    CIRCUIT_BREAKER_STATE = None
+    ANOMALY_DETECTIONS = None
+    GRADIENT_CLIP_NORM = None
+    GRADIENT_NORM = None
 
 from app.ai.neural_net import (
     RingRiftCNN_v2,
@@ -1594,6 +1604,7 @@ def train_model(
     enable_curriculum: bool = False,
     enable_augmentation: bool = False,
     enable_elo_weighting: bool = False,
+    enable_auxiliary_tasks: bool = False,
     # Policy label smoothing (2025-12)
     policy_label_smoothing: float = 0.0,
     # Data validation (2025-12)
@@ -1766,6 +1777,7 @@ def train_model(
             curriculum_enabled=enable_curriculum,
             augmentation_enabled=enable_augmentation,
             elo_weighting_enabled=enable_elo_weighting,
+            auxiliary_tasks_enabled=enable_auxiliary_tasks,
         )
         enhancements_manager = IntegratedTrainingManager(
             config=enh_config,
@@ -1775,7 +1787,7 @@ def train_model(
         logger.info(
             f"Integrated enhancements enabled: "
             f"curriculum={enable_curriculum}, augmentation={enable_augmentation}, "
-            f"elo_weighting={enable_elo_weighting}"
+            f"elo_weighting={enable_elo_weighting}, auxiliary_tasks={enable_auxiliary_tasks}"
         )
     elif use_integrated_enhancements and not HAS_INTEGRATED_ENHANCEMENTS:
         logger.warning("Integrated enhancements requested but not available (import failed)")
@@ -2736,8 +2748,15 @@ def train_model(
             # Circuit breaker check - skip training if circuit is open (2025-12)
             if training_breaker and not training_breaker.can_execute("training_epoch"):
                 logger.warning(f"Training circuit OPEN - skipping epoch {epoch} (recovering from failures)")
+                # Update circuit breaker state metric (1=open)
+                if HAS_PROMETHEUS and CIRCUIT_BREAKER_STATE and (not distributed or is_main_process()):
+                    CIRCUIT_BREAKER_STATE.labels(config=config_label, operation='training_epoch').set(1)
                 time.sleep(10.0)  # Brief pause before retry
                 continue
+
+            # Update circuit breaker state metric (0=closed, training can proceed)
+            if HAS_PROMETHEUS and CIRCUIT_BREAKER_STATE and training_breaker and (not distributed or is_main_process()):
+                CIRCUIT_BREAKER_STATE.labels(config=config_label, operation='training_epoch').set(0)
 
             # Circuit breaker: Check resources at the start of each epoch
             # This prevents training from overwhelming the system when resources are constrained
@@ -2892,13 +2911,33 @@ def train_model(
                 use_amp = device.type == 'cuda'
 
                 with torch.amp.autocast('cuda', enabled=use_amp):
-                    out = model(features, globals_vec)
-                    # V3 models return (values, policy_logits, rank_dist). We
-                    # ignore the rank distribution for v1/v2 training losses.
-                    if isinstance(out, tuple) and len(out) == 3:
-                        value_pred, policy_pred, _rank_dist_pred = out
+                    # Check if auxiliary tasks are enabled and model supports return_features
+                    use_aux_tasks = (
+                        enhancements_manager is not None
+                        and enhancements_manager.config.auxiliary_tasks_enabled
+                        and enhancements_manager._auxiliary_module is not None
+                    )
+
+                    # Forward pass with optional backbone feature extraction
+                    if use_aux_tasks:
+                        out = model(features, globals_vec, return_features=True)
+                        # V3+ models with features return (values, policy, rank_dist, features)
+                        if isinstance(out, tuple) and len(out) == 4:
+                            value_pred, policy_pred, _rank_dist_pred, backbone_features = out
+                        else:
+                            # Fallback: model doesn't support return_features
+                            value_pred, policy_pred = out[:2]
+                            backbone_features = None
+                            use_aux_tasks = False
                     else:
-                        value_pred, policy_pred = out
+                        out = model(features, globals_vec)
+                        # V3 models return (values, policy_logits, rank_dist). We
+                        # ignore the rank distribution for v1/v2 training losses.
+                        if isinstance(out, tuple) and len(out) == 3:
+                            value_pred, policy_pred, _rank_dist_pred = out
+                        else:
+                            value_pred, policy_pred = out
+                        backbone_features = None
 
                     # Apply log_softmax to policy prediction for KLDivLoss
                     policy_log_probs = torch.log_softmax(policy_pred, dim=1)
@@ -2932,6 +2971,26 @@ def train_model(
                     )
                     loss = value_loss + (config.policy_weight * policy_loss)
 
+                    # Auxiliary task loss (outcome prediction from value targets)
+                    if use_aux_tasks and backbone_features is not None:
+                        # Derive outcome class from value targets:
+                        # value > 0.3 → Win (2), value < -0.3 → Loss (0), else Draw (1)
+                        value_flat = value_targets.reshape(-1)
+                        outcome_targets = torch.where(
+                            value_flat > 0.3,
+                            torch.tensor(2, device=device, dtype=torch.long),
+                            torch.where(
+                                value_flat < -0.3,
+                                torch.tensor(0, device=device, dtype=torch.long),
+                                torch.tensor(1, device=device, dtype=torch.long),
+                            ),
+                        )
+                        aux_targets = {"outcome": outcome_targets}
+                        aux_loss, _aux_breakdown = enhancements_manager.compute_auxiliary_loss(
+                            backbone_features, aux_targets
+                        )
+                        loss = loss + aux_loss
+
                     # Scale loss for gradient accumulation to maintain gradient magnitude
                     if accumulation_steps > 1:
                         loss = loss / accumulation_steps
@@ -2953,6 +3012,17 @@ def train_model(
                     scaler.step(optimizer)
                     scaler.update()
 
+                    # Update gradient metrics (every 100 batches to minimize overhead)
+                    if i % 100 == 0 and HAS_PROMETHEUS and (not distributed or is_main_process()):
+                        if GRADIENT_NORM:
+                            GRADIENT_NORM.labels(config=config_label).set(
+                                grad_norm.item() if hasattr(grad_norm, 'item') else grad_norm
+                            )
+                        if adaptive_clipper is not None and GRADIENT_CLIP_NORM:
+                            GRADIENT_CLIP_NORM.labels(config=config_label).set(
+                                adaptive_clipper.current_max_norm
+                            )
+
                     # Update integrated enhancements step counter
                     if enhancements_manager is not None:
                         enhancements_manager.update_step()
@@ -2968,6 +3038,10 @@ def train_model(
                             f"total={anomaly_summary.get('total_anomalies', 0)}, "
                             f"consecutive={anomaly_summary.get('consecutive_anomalies', 0)}"
                         )
+                        # Update Prometheus anomaly counter
+                        if HAS_PROMETHEUS and ANOMALY_DETECTIONS and (not distributed or is_main_process()):
+                            anomaly_type = 'nan' if loss_val != loss_val else 'spike'  # NaN != NaN
+                            ANOMALY_DETECTIONS.labels(config=config_label, type=anomaly_type).inc()
                         # Record failure with circuit breaker
                         if training_breaker:
                             training_breaker.record_failure("training_epoch")
