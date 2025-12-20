@@ -34,21 +34,29 @@ file can be executed during unpickling.
 ### Migration Plan
 
 1. **Phase 1** (Complete): Created `safe_load_checkpoint` utility
-2. **Phase 2** (TODO): Migrate critical paths to use safe loading by default
+2. **Phase 2** (In Progress): Migrating critical paths to use safe loading by default
+   - ✅ `app/training/checkpoint_utils.py` - migrated
+   - ✅ `app/training/checkpointing.py` - migrated
+   - ✅ `app/ai/nnue_policy.py` - migrated
+   - ✅ `app/ai/minimax_ai.py` - migrated
+   - ✅ `app/ai/mcts_ai.py` - migrated
+   - ✅ `app/ai/gpu_parallel_games.py` - migrated
+   - ✅ `app/ai/cage_ai.py` - migrated
+   - ✅ `app/ai/ebmo_network.py` - migrated
+   - ✅ `app/ai/ebmo_online.py` - migrated
+   - ✅ `app/ai/ig_gmo.py` - migrated
 3. **Phase 3** (TODO): Update checkpoint format to be fully weights_only compatible
 
-### Files Requiring Attention
+### Files Still Requiring Migration
 
-The following files use `torch.load` with unsafe settings:
+The following files still use direct `torch.load` with `weights_only=False`:
 
-- `app/ai/_neural_net_legacy.py` (5 usages)
+- `app/ai/_neural_net_legacy.py` (5 usages) - legacy, being deprecated
 - `app/training/train.py` (1 usage)
 - `app/training/training_enhancements.py` (4 usages)
-- `app/training/model_versioning.py` (4 usages)
-- `app/training/checkpointing.py` (2 usages)
-- `app/training/checkpoint_utils.py` (1 usage)
-- `app/training/checkpoint_unified.py` (1 usage)
-- Various other training and AI modules
+- `app/training/model_versioning.py` (3 usages) - includes validation loads
+- `app/tournament/runner.py` (1 usage)
+- `app/models/discovery.py` (1 usage)
 
 ### Bandit Findings
 

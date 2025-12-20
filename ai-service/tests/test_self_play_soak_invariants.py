@@ -227,7 +227,7 @@ def test_has_anomalies_detects_invariant_and_engine_anomalies() -> None:
             length=10,
             status="completed",
             winner=1,
-            termination_reason="status:finished",
+            termination_reason="status:completed",  # Fixed: was 'status:finished'
             invariant_violations_by_type={},
         ),
         soak.GameRecord(

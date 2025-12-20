@@ -1025,7 +1025,7 @@ def get_system_health() -> dict:
     def _get_health_score(name: str, status: dict) -> float:
         """Calculate health score for a coordinator."""
         score = 1.0
-        nonlocal issues
+        # Note: 'issues' list is mutated via append(), no nonlocal needed
 
         # Check subscription status
         if not status.get("subscribed", True):
@@ -1382,7 +1382,7 @@ def start_coordinator_heartbeats(interval_seconds: float = 30.0) -> bool:
     """
     import asyncio
 
-    global _heartbeat_task, _heartbeat_running
+    global _heartbeat_task
 
     if _heartbeat_task is not None and not _heartbeat_task.done():
         return True  # Already running
