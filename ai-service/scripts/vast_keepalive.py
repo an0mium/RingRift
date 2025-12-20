@@ -20,13 +20,13 @@ Designed to be run via cron every 15-30 minutes.
 import argparse
 import json
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from scripts.lib.paths import AI_SERVICE_ROOT, LOGS_DIR
 from scripts.lib.logging_config import setup_script_logging
+from scripts.lib.paths import AI_SERVICE_ROOT, LOGS_DIR
 from scripts.lib.ssh import run_vast_ssh_command
 
 LOG_FILE = LOGS_DIR / "vast_keepalive.log"

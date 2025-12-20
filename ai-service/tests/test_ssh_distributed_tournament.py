@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import scripts.run_ssh_distributed_tournament as ssh_tourney
-
 from app.distributed.hosts import HostConfig
 
 

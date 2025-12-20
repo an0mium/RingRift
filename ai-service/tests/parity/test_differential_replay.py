@@ -14,7 +14,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, NamedTuple
+from typing import Dict, List, NamedTuple, Optional
 
 import pytest
 

@@ -22,7 +22,6 @@ import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
@@ -185,7 +184,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def _load_report(path: str) -> dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 

@@ -8,9 +8,9 @@ Tests cover:
 """
 
 import time
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 # =============================================================================
 # Test CacheType Enum
@@ -94,8 +94,8 @@ class TestCacheEntry:
         """Test creating a cache entry."""
         from app.coordination.cache_coordination_orchestrator import (
             CacheEntry,
-            CacheType,
             CacheStatus,
+            CacheType,
         )
 
         entry = CacheEntry(
@@ -114,8 +114,8 @@ class TestCacheEntry:
         """Test default values."""
         from app.coordination.cache_coordination_orchestrator import (
             CacheEntry,
-            CacheType,
             CacheStatus,
+            CacheType,
         )
 
         entry = CacheEntry(
@@ -623,8 +623,8 @@ class TestModuleFunctions:
     def test_register_cache_function(self):
         """Test register_cache convenience function."""
         from app.coordination.cache_coordination_orchestrator import (
-            register_cache,
             get_cache_orchestrator,
+            register_cache,
         )
 
         entry = register_cache(
@@ -640,8 +640,8 @@ class TestModuleFunctions:
     def test_invalidate_model_caches_function(self):
         """Test invalidate_model_caches convenience function."""
         from app.coordination.cache_coordination_orchestrator import (
-            register_cache,
             invalidate_model_caches,
+            register_cache,
         )
 
         register_cache("node1", "nnue_weights", "func_test_model")

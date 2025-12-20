@@ -11,14 +11,15 @@ Local machines may be faster.
 """
 
 import time
+
 import pytest
 import torch
 
 try:
-    from app.ai.gpu_parallel_games import ParallelGameRunner
     from app.ai.gpu_batch_state import BatchGameState
-    from app.ai.gpu_move_generation import generate_placement_moves_batch
     from app.ai.gpu_game_types import GameStatus
+    from app.ai.gpu_move_generation import generate_placement_moves_batch
+    from app.ai.gpu_parallel_games import ParallelGameRunner
 
     GPU_AVAILABLE = True
 except ImportError:

@@ -83,26 +83,26 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.main import _create_ai_instance, _get_difficulty_profile  # noqa: E402
-from app.models import (  # noqa: E402
+from app.game_engine import GameEngine
+from app.main import _create_ai_instance, _get_difficulty_profile
+from app.models import (
     AIConfig,
     AIType,
     BoardType,
     GameState,
     GameStatus,
 )
-from app.training.env import (  # noqa: E402
-    TrainingEnvConfig,
-    make_env,
-    TRAINING_HEURISTIC_EVAL_MODE_BY_BOARD,
-    get_theoretical_max_moves,
-)
-from app.training.cloud_storage import (  # noqa: E402
+from app.training.cloud_storage import (
     TrainingSample,
     get_storage,
 )
-from app.training.selfplay_config import SelfplayConfig, create_argument_parser  # noqa: E402
-from app.game_engine import GameEngine  # noqa: E402
+from app.training.env import (
+    TRAINING_HEURISTIC_EVAL_MODE_BY_BOARD,
+    TrainingEnvConfig,
+    get_theoretical_max_moves,
+    make_env,
+)
+from app.training.selfplay_config import SelfplayConfig, create_argument_parser
 
 # ---------------------------------------------------------------------------
 # Model Pool for Diverse Selfplay
@@ -740,7 +740,7 @@ def load_checkpoint(config: WorkerConfig) -> dict[str, Any] | None:
         return None
 
     try:
-        with open(config.checkpoint_path, "r") as f:
+        with open(config.checkpoint_path) as f:
             return json.load(f)
     except Exception as e:
         logger.warning(f"Failed to load checkpoint: {e}")

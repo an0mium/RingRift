@@ -14,13 +14,13 @@ if ROOT not in sys.path:
 
 from app.models import BoardType, Move, MoveType, Position
 from app.notation import (
+    MOVE_TYPE_TO_CODE,
     algebraic_to_position,
     game_to_pgn,
     move_to_algebraic,
     moves_to_notation_list,
-    position_to_algebraic,
     parse_pgn,
-    MOVE_TYPE_TO_CODE,
+    position_to_algebraic,
 )
 
 

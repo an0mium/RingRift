@@ -4,18 +4,19 @@ Tests the distributed locking system that coordinates training across
 multiple nodes using Redis or file-based fallback.
 """
 
-import pytest
 import tempfile
-import time
 import threading
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.coordination.distributed_lock import (
-    DistributedLock,
-    DEFAULT_LOCK_TIMEOUT,
     DEFAULT_ACQUIRE_TIMEOUT,
+    DEFAULT_LOCK_TIMEOUT,
     LOCK_DIR,
+    DistributedLock,
 )
 
 

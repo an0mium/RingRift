@@ -30,14 +30,14 @@ from torch.utils.data import DataLoader, Dataset
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.models import BoardType
 from app.ai.neural_net import (
+    HEX_BOARD_SIZE,
+    P_HEX,
+    HexNeuralNet_v3,
     get_policy_size_for_board,
     get_spatial_size_for_board,
-    HexNeuralNet_v3,
-    P_HEX,
-    HEX_BOARD_SIZE,
 )
+from app.models import BoardType
 
 logger = logging.getLogger(__name__)
 
@@ -511,7 +511,7 @@ def main():
         print(f"Transfer ratio: {result['transfer_ratio']:.1%}")
         print(f"Transferable layers: {result['num_transferable_layers']}")
         print(f"\nRecommendation: {result['recommendation']}")
-        print(f"\nTransferable layer names:")
+        print("\nTransferable layer names:")
         for layer in result['transferable_layers'][:10]:
             print(f"  - {layer}")
         if len(result['transferable_layers']) > 10:
@@ -533,7 +533,7 @@ def main():
             num_players=args.num_players,
         )
 
-        print(f"\n=== Transfer Learning Experiment Results ===")
+        print("\n=== Transfer Learning Experiment Results ===")
         print(f"Status: {result['experiment_status']}")
         if result['experiment_status'] == 'completed':
             print(f"Epochs trained: {result['epochs_trained']}")

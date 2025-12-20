@@ -3,10 +3,11 @@
 Tests DataValidator and GameDeduplicator functionality.
 """
 
-import numpy as np
-import pytest
 import tempfile
 from pathlib import Path
+
+import numpy as np
+import pytest
 
 from app.training.data_validation import (
     DataValidator,

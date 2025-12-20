@@ -7,12 +7,12 @@ Tests cover:
 - Thread safety of metric registration
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
 import threading
 import time
+from unittest.mock import MagicMock, patch
 
-from prometheus_client import Counter, Gauge, Histogram, Summary, REGISTRY
+import pytest
+from prometheus_client import REGISTRY, Counter, Gauge, Histogram, Summary
 
 
 class TestSafeMetric:
@@ -167,7 +167,7 @@ class TestMetricIntrospection:
 
     def test_get_metric_exists(self):
         """Test get_metric returns metric when it exists."""
-        from app.metrics.registry import safe_counter, get_metric
+        from app.metrics.registry import get_metric, safe_counter
 
         name = "test_get_metric_exists"
 
@@ -189,7 +189,7 @@ class TestMetricIntrospection:
 
     def test_is_metric_registered_true(self):
         """Test is_metric_registered returns True when metric exists."""
-        from app.metrics.registry import safe_counter, is_metric_registered
+        from app.metrics.registry import is_metric_registered, safe_counter
 
         name = "test_is_registered_true"
 
@@ -209,9 +209,9 @@ class TestMetricIntrospection:
     def test_list_registered_metrics(self):
         """Test list_registered_metrics returns tracked metrics."""
         from app.metrics.registry import (
+            list_registered_metrics,
             safe_counter,
             safe_gauge,
-            list_registered_metrics,
         )
 
         # Create some test metrics

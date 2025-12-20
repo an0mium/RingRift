@@ -219,7 +219,7 @@ def statistical_power(effect_size: float, n: int, alpha: float = 0.05) -> float:
 def load_result_file(filepath: Path) -> MatchupResult | None:
     """Load and parse a single result JSON file."""
     try:
-        with open(filepath, "r") as f:
+        with open(filepath) as f:
             data = json.load(f)
 
         config = data.get("config", {})
@@ -676,7 +676,7 @@ def print_summary(report: dict) -> None:
 
     if findings.get("cmaes_vs_baseline"):
         f = findings["cmaes_vs_baseline"]
-        print(f"   CMA-ES vs Baseline Heuristic:")
+        print("   CMA-ES vs Baseline Heuristic:")
         print(f"      Result: {f['result'].replace('_', ' ')}")
         print(f"      p-value: {f['p_value']:.4f}")
         print(f"      Effect size: {f['effect_size']:.3f} ({f['effect_interpretation']})")
@@ -685,7 +685,7 @@ def print_summary(report: dict) -> None:
 
     if findings.get("neural_network_performance"):
         f = findings["neural_network_performance"]
-        print(f"   Neural Network Performance:")
+        print("   Neural Network Performance:")
         print(f"      Win rate vs random: {f['win_rate_vs_random']:.0%}")
         print(f"      Significant: {'Yes' if f['significant_vs_random'] else 'No'} (p={f['p_value_vs_random']:.4f})")
         if f["comparison_to_baseline"] is not None:
@@ -695,7 +695,7 @@ def print_summary(report: dict) -> None:
 
     if findings.get("training_effectiveness"):
         f = findings["training_effectiveness"]
-        print(f"   Training Effectiveness:")
+        print("   Training Effectiveness:")
         print(f"      {f['conclusion']}")
         print()
 

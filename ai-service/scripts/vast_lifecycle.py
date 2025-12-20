@@ -156,7 +156,7 @@ def _get_fallback_instances() -> list[dict]:
         {"host": "ssh5.vast.ai", "port": 18168, "name": "vast-5090x8", "gpu": "8x RTX 5090", "board_type": "hexagonal"},
     ]
 
-from scripts.lib.logging_config import setup_logging, get_logger
+from scripts.lib.logging_config import get_logger, setup_logging
 
 setup_logging(level="INFO", log_file=LOG_FILE)
 logger = get_logger("vast_lifecycle")

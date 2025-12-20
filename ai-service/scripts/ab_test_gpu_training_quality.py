@@ -47,11 +47,10 @@ import json
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
-
 
 # Ensure ai-service root on path for scripts/lib imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -112,7 +111,7 @@ class SelfplayStats:
     device: str
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> "SelfplayStats":
+    def from_json(cls, data: dict[str, Any]) -> SelfplayStats:
         return cls(
             total_games=data.get("total_games", 0),
             total_moves=data.get("total_moves", 0),
@@ -337,23 +336,23 @@ def print_comparison_report(result: ComparisonResult) -> None:
     random_terr_rate = random_terr / random_total if random_total > 0 else 0
     print(f"  Random baseline: {random_terr_rate:.1%} ({random_terr}/{random_total})")
     print(f"  Hybrid heuristic: {result.hybrid_territory_victory_rate:.1%} {'✓' if result.territory_victory_ok else '✗'}")
-    print(f"  (Expected: >= 50% territory victories)")
+    print("  (Expected: >= 50% territory victories)")
 
     print("\n### STALEMATE RATE (Decisive Play Indicator) ###")
     random_stale = result.random_stats.victory_type_counts.get("stalemate", 0)
     random_stale_rate = random_stale / random_total if random_total > 0 else 0
     print(f"  Random baseline: {random_stale_rate:.1%} ({random_stale}/{random_total})")
     print(f"  Hybrid heuristic: {result.hybrid_stalemate_rate:.1%} {'✓' if result.stalemate_rate_ok else '✗'}")
-    print(f"  (Expected: <= 10% stalemates)")
+    print("  (Expected: <= 10% stalemates)")
 
     print("\n### DRAW RATE ###")
     print(f"  Random baseline: {result.random_stats.draw_rate:.1%}")
     print(f"  Hybrid heuristic: {result.hybrid_draw_rate:.1%} {'✓' if result.draw_rate_ok else '✗'}")
-    print(f"  (Expected: <= 30%)")
+    print("  (Expected: <= 30%)")
 
     print("\n### WIN BALANCE ###")
     print(f"  Hybrid wins by player: {result.hybrid_stats.wins_by_player} {'✓' if result.win_balance_ok else '✗'}")
-    print(f"  (Expected: 35-65% each)")
+    print("  (Expected: 35-65% each)")
 
     print("\n### THROUGHPUT ###")
     print(f"  Random: {result.random_stats.games_per_second:.2f} games/sec")
@@ -438,7 +437,7 @@ def main() -> int:
     random_dir = data_dir / config.random_subdir
     hybrid_dir = data_dir / config.hybrid_subdir
 
-    logger.info(f"A/B Test Configuration:")
+    logger.info("A/B Test Configuration:")
     logger.info(f"  Games: {config.num_games}")
     logger.info(f"  Board: {config.board_type} ({config.num_players}p)")
     logger.info(f"  Seed: {config.seed}")

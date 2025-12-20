@@ -3,24 +3,25 @@
 Tests the unified cluster host configuration module.
 """
 
-import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 # Import the module under test
 from scripts.lib.hosts import (
+    EloSyncConfig,
     HostConfig,
     HostsManager,
-    EloSyncConfig,
-    get_hosts,
+    get_active_hosts,
+    get_elo_sync_config,
     get_host,
     get_host_names,
-    get_active_hosts,
-    get_training_hosts,
-    get_selfplay_hosts,
-    get_p2p_voters,
-    get_elo_sync_config,
+    get_hosts,
     get_hosts_by_group,
+    get_p2p_voters,
+    get_selfplay_hosts,
+    get_training_hosts,
 )
 
 

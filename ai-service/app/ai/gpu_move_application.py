@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from .gpu_game_types import MoveType
+from .gpu_game_types import GamePhase, MoveType
 
 if TYPE_CHECKING:
     from .gpu_move_generation import BatchMoves
@@ -87,7 +87,7 @@ def apply_capture_moves_vectorized(
         state.must_move_from_y[g] = -1
         state.must_move_from_x[g] = -1
 
-        # Record in history
+        # Record in history (7 columns: move_type, player, from_y, from_x, to_y, to_x, phase)
         if mc < state.max_history_moves:
             state.move_history[g, mc, 0] = MoveType.CAPTURE
             state.move_history[g, mc, 1] = player
@@ -95,6 +95,7 @@ def apply_capture_moves_vectorized(
             state.move_history[g, mc, 3] = from_x
             state.move_history[g, mc, 4] = to_y
             state.move_history[g, mc, 5] = to_x
+            state.move_history[g, mc, 6] = int(state.current_phase[g].item())
         state.move_count[g] += 1
 
         # Get attacker stack info at origin.
@@ -245,7 +246,7 @@ def apply_movement_moves_vectorized(
         state.must_move_from_y[g] = -1
         state.must_move_from_x[g] = -1
 
-        # Record in history
+        # Record in history (7 columns: move_type, player, from_y, from_x, to_y, to_x, phase)
         if mc < state.max_history_moves:
             state.move_history[g, mc, 0] = MoveType.MOVEMENT
             state.move_history[g, mc, 1] = player
@@ -253,6 +254,7 @@ def apply_movement_moves_vectorized(
             state.move_history[g, mc, 3] = from_x
             state.move_history[g, mc, 4] = to_y
             state.move_history[g, mc, 5] = to_x
+            state.move_history[g, mc, 6] = int(state.current_phase[g].item())
         state.move_count[g] += 1
 
         moving_height = state.stack_height[g, from_y, from_x].item()
@@ -355,7 +357,7 @@ def apply_recovery_moves_vectorized(
 
     players = state.current_player[game_indices]
 
-    # Record in history
+    # Record in history (7 columns: move_type, player, from_y, from_x, to_y, to_x, phase)
     move_idx = state.move_count[game_indices]
     history_mask = move_idx < state.max_history_moves
     if history_mask.any():
@@ -368,6 +370,7 @@ def apply_recovery_moves_vectorized(
         state.move_history[hist_games, hist_move_idx, 3] = from_x[history_mask].to(hist_dtype)
         state.move_history[hist_games, hist_move_idx, 4] = to_y[history_mask].to(hist_dtype)
         state.move_history[hist_games, hist_move_idx, 5] = to_x[history_mask].to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 6] = state.current_phase[hist_games].to(hist_dtype)
 
     state.move_count[game_indices] += 1
 
@@ -437,14 +440,167 @@ def apply_recovery_moves_vectorized(
         state.rings_caused_eliminated.index_put_((hb_games, hb_players), pos_ones, accumulate=True)
 
 
+def reset_capture_chain_batch(
+    state: BatchGameState,
+    mask: torch.Tensor,
+) -> None:
+    """Reset capture chain tracking for games where turn is ending.
+
+    This should be called after captures complete when transitioning
+    to LINE_PROCESSING or next player's turn.
+
+    December 2025: Added for canonical CAPTURE/CHAIN_CAPTURE phase support.
+
+    Args:
+        state: BatchGameState to modify
+        mask: (batch_size,) bool tensor of games to reset
+    """
+    active_mask = mask & state.get_active_mask()
+    if not active_mask.any():
+        return
+
+    game_indices = torch.where(active_mask)[0]
+    state.in_capture_chain[game_indices] = False
+    state.capture_chain_depth[game_indices] = 0
+
+
+def mark_real_action_batch(
+    state: BatchGameState,
+    mask: torch.Tensor,
+) -> None:
+    """Mark that a real action occurred for games in the mask.
+
+    Real actions are: placement, movement, capture
+    Non-real actions are: recovery, bookkeeping (NO_*_ACTION)
+
+    December 2025: Added for FORCED_ELIMINATION detection (RR-CANON-R160).
+
+    Args:
+        state: BatchGameState to modify
+        mask: (batch_size,) bool tensor of games with real action
+    """
+    active_mask = mask & state.get_active_mask()
+    if not active_mask.any():
+        return
+
+    game_indices = torch.where(active_mask)[0]
+    state.turn_had_real_action[game_indices] = True
+
+
+def reset_turn_tracking_batch(
+    state: BatchGameState,
+    mask: torch.Tensor,
+) -> None:
+    """Reset per-turn tracking for games starting a new turn.
+
+    Resets: turn_had_real_action, in_capture_chain, capture_chain_depth
+
+    December 2025: Added for canonical phase tracking.
+
+    Args:
+        state: BatchGameState to modify
+        mask: (batch_size,) bool tensor of games starting new turn
+    """
+    active_mask = mask & state.get_active_mask()
+    if not active_mask.any():
+        return
+
+    game_indices = torch.where(active_mask)[0]
+    state.turn_had_real_action[game_indices] = False
+    state.in_capture_chain[game_indices] = False
+    state.capture_chain_depth[game_indices] = 0
+
+
+def check_and_apply_forced_elimination_batch(
+    state: BatchGameState,
+    mask: torch.Tensor,
+) -> torch.Tensor:
+    """Check for and apply FORCED_ELIMINATION for games in the mask.
+
+    FORCED_ELIMINATION occurs when (RR-CANON-R160):
+    - Player had no real action this turn (no placement, movement, or capture)
+    - Player still has stacks on the board
+
+    If triggered, this:
+    - Records a FORCED_ELIMINATION move
+    - Transitions phase to FORCED_ELIMINATION
+    - May lead to player elimination
+
+    December 2025: Added for canonical phase parity.
+
+    Args:
+        state: BatchGameState to modify
+        mask: (batch_size,) bool tensor of games to check (usually after territory processing)
+
+    Returns:
+        (batch_size,) bool tensor of games where forced elimination was triggered
+    """
+    active_mask = mask & state.get_active_mask()
+    if not active_mask.any():
+        return torch.zeros(state.batch_size, dtype=torch.bool, device=state.device)
+
+    game_indices = torch.where(active_mask)[0]
+
+    # Check conditions: no real action AND player has stacks
+    no_real_action = ~state.turn_had_real_action[game_indices]
+
+    # Check if current player has any stacks
+    players = state.current_player[game_indices].long()
+    has_stacks = torch.zeros(len(game_indices), dtype=torch.bool, device=state.device)
+    for i, g in enumerate(game_indices.tolist()):
+        player = players[i].item()
+        player_stacks = (state.stack_owner[g] == player).sum()
+        has_stacks[i] = player_stacks > 0
+
+    # Forced elimination triggers when: no real action AND has stacks
+    triggers = no_real_action & has_stacks
+
+    if not triggers.any():
+        return torch.zeros(state.batch_size, dtype=torch.bool, device=state.device)
+
+    # Apply forced elimination for triggered games
+    triggered_games = game_indices[triggers]
+    triggered_players = players[triggers]
+
+    # Record FORCED_ELIMINATION move
+    move_idx = state.move_count[triggered_games]
+    history_mask = move_idx < state.max_history_moves
+    if history_mask.any():
+        hist_games = triggered_games[history_mask]
+        hist_move_idx = move_idx[history_mask].long()
+        hist_dtype = state.move_history.dtype
+        state.move_history[hist_games, hist_move_idx, 0] = MoveType.FORCED_ELIMINATION
+        state.move_history[hist_games, hist_move_idx, 1] = triggered_players[history_mask].to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 2] = -1
+        state.move_history[hist_games, hist_move_idx, 3] = -1
+        state.move_history[hist_games, hist_move_idx, 4] = -1
+        state.move_history[hist_games, hist_move_idx, 5] = -1
+        state.move_history[hist_games, hist_move_idx, 6] = GamePhase.FORCED_ELIMINATION
+
+    state.move_count[triggered_games] += 1
+    state.current_phase[triggered_games] = GamePhase.FORCED_ELIMINATION
+
+    # Build result mask
+    result = torch.zeros(state.batch_size, dtype=torch.bool, device=state.device)
+    result[triggered_games] = True
+    return result
+
+
 def apply_no_action_moves_batch(
     state: BatchGameState,
     mask: torch.Tensor,
 ) -> None:
-    """Record a NO_ACTION move for each masked active game.
+    """Record a phase-specific NO_*_ACTION move for each masked active game.
 
     This is used to avoid silent phase progression when a player has no
     legal action in an interactive phase (RR-CANON-R075).
+
+    December 2025: Updated to use canonical phase-specific move types:
+    - RING_PLACEMENT → NO_PLACEMENT_ACTION
+    - MOVEMENT → NO_MOVEMENT_ACTION
+    - LINE_PROCESSING → NO_LINE_ACTION
+    - TERRITORY_PROCESSING → NO_TERRITORY_ACTION
+    - Others → NO_ACTION (fallback)
 
     Optimized 2025-12-13: Eliminated Python loops and .item() calls.
     """
@@ -455,19 +611,34 @@ def apply_no_action_moves_batch(
     game_indices = torch.where(active_mask)[0]
     move_idx = state.move_count[game_indices]
     players = state.current_player[game_indices]
+    phases = state.current_phase[game_indices]
 
-    # Record in history for games with space
+    # Map current phase to canonical NO_*_ACTION move type
+    # Create tensor of move types based on phase
+    move_types = torch.full_like(phases, MoveType.NO_ACTION, dtype=torch.int16)
+    move_types[phases == GamePhase.RING_PLACEMENT] = MoveType.NO_PLACEMENT_ACTION
+    move_types[phases == GamePhase.MOVEMENT] = MoveType.NO_MOVEMENT_ACTION
+    move_types[phases == GamePhase.LINE_PROCESSING] = MoveType.NO_LINE_ACTION
+    move_types[phases == GamePhase.TERRITORY_PROCESSING] = MoveType.NO_TERRITORY_ACTION
+    # CAPTURE/CHAIN_CAPTURE phases use SKIP_CAPTURE
+    move_types[phases == GamePhase.CAPTURE] = MoveType.SKIP_CAPTURE
+    move_types[phases == GamePhase.CHAIN_CAPTURE] = MoveType.SKIP_CAPTURE
+    # RECOVERY phase uses SKIP_RECOVERY
+    move_types[phases == GamePhase.RECOVERY] = MoveType.SKIP_RECOVERY
+
+    # Record in history for games with space (7 columns: move_type, player, from_y, from_x, to_y, to_x, phase)
     history_mask = move_idx < state.max_history_moves
     if history_mask.any():
         hist_games = game_indices[history_mask]
         hist_move_idx = move_idx[history_mask].long()
         hist_dtype = state.move_history.dtype
-        state.move_history[hist_games, hist_move_idx, 0] = MoveType.NO_ACTION
+        state.move_history[hist_games, hist_move_idx, 0] = move_types[history_mask].to(hist_dtype)
         state.move_history[hist_games, hist_move_idx, 1] = players[history_mask].to(hist_dtype)
         state.move_history[hist_games, hist_move_idx, 2] = -1
         state.move_history[hist_games, hist_move_idx, 3] = -1
         state.move_history[hist_games, hist_move_idx, 4] = -1
         state.move_history[hist_games, hist_move_idx, 5] = -1
+        state.move_history[hist_games, hist_move_idx, 6] = phases[history_mask].to(hist_dtype)
 
     state.move_count[game_indices] += 1
 
@@ -519,6 +690,7 @@ def apply_placement_moves_batch_vectorized(
     dest_cap = state.cap_height[game_indices, y, x]
 
     # Record move history (for games with history space)
+    # 7 columns: move_type, player, from_y, from_x, to_y, to_x, phase
     move_idx = state.move_count[game_indices]
     history_mask = move_idx < state.max_history_moves
     if history_mask.any():
@@ -537,6 +709,7 @@ def apply_placement_moves_batch_vectorized(
         state.move_history[hist_games, hist_move_idx, 3] = hist_x.to(hist_dtype)
         state.move_history[hist_games, hist_move_idx, 4] = hist_y.to(hist_dtype)  # to_y same for placement
         state.move_history[hist_games, hist_move_idx, 5] = hist_x.to(hist_dtype)  # to_x same for placement
+        state.move_history[hist_games, hist_move_idx, 6] = state.current_phase[hist_games].to(hist_dtype)
 
     # Compute new values based on destination state
     is_empty = dest_height <= 0
@@ -623,6 +796,7 @@ def _apply_placement_moves_batch_legacy(
             state.move_history[g, move_idx, 3] = x
             state.move_history[g, move_idx, 4] = y
             state.move_history[g, move_idx, 5] = x
+            state.move_history[g, move_idx, 6] = int(state.current_phase[g].item())
 
         dest_owner = int(state.stack_owner[g, y, x].item())
         dest_height = int(state.stack_height[g, y, x].item())
@@ -706,7 +880,7 @@ def apply_movement_moves_batch_vectorized(
     move_type = moves.move_type[global_indices]
     players = state.current_player[game_indices]
 
-    # Record move history
+    # Record move history (7 columns: move_type, player, from_y, from_x, to_y, to_x, phase)
     move_idx = state.move_count[game_indices]
     history_mask = move_idx < state.max_history_moves
     if history_mask.any():
@@ -719,6 +893,7 @@ def apply_movement_moves_batch_vectorized(
         state.move_history[hist_games, hist_move_idx, 3] = from_x[history_mask].to(hist_dtype)
         state.move_history[hist_games, hist_move_idx, 4] = to_y[history_mask].to(hist_dtype)
         state.move_history[hist_games, hist_move_idx, 5] = to_x[history_mask].to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 6] = state.current_phase[hist_games].to(hist_dtype)
 
     # Get moving stack info
     moving_height = state.stack_height[game_indices, from_y, from_x]
@@ -875,6 +1050,7 @@ def _apply_movement_moves_batch_legacy(
             state.move_history[g, move_idx, 3] = from_x
             state.move_history[g, move_idx, 4] = to_y
             state.move_history[g, move_idx, 5] = to_x
+            state.move_history[g, move_idx, 6] = int(state.current_phase[g].item())
 
         moving_height = state.stack_height[g, from_y, from_x].item()
         moving_cap_height = state.cap_height[g, from_y, from_x].item()
@@ -941,7 +1117,11 @@ def apply_capture_moves_batch_vectorized(
     move_indices: torch.Tensor,
     moves: BatchMoves,
 ) -> None:
-    """Vectorized capture move application.
+    """Vectorized capture move application with canonical phase tracking.
+
+    December 2025: Updated for canonical CAPTURE/CHAIN_CAPTURE phases:
+    - First capture uses OVERTAKING_CAPTURE and CAPTURE phase
+    - Chain captures use CONTINUE_CAPTURE_SEGMENT and CHAIN_CAPTURE phase
 
     Args:
         state: BatchGameState to modify
@@ -972,22 +1152,44 @@ def apply_capture_moves_batch_vectorized(
     from_x = moves.from_x[global_indices].long()
     to_y = moves.to_y[global_indices].long()
     to_x = moves.to_x[global_indices].long()
-    move_type = moves.move_type[global_indices]
     players = state.current_player[game_indices]
 
-    # Record move history
+    # Determine canonical move type based on capture chain state
+    # First capture → OVERTAKING_CAPTURE, chain captures → CONTINUE_CAPTURE_SEGMENT
+    is_chain_capture = state.in_capture_chain[game_indices]
+    canonical_move_type = torch.where(
+        is_chain_capture,
+        torch.full((n_games,), MoveType.CONTINUE_CAPTURE_SEGMENT, dtype=torch.int16, device=device),
+        torch.full((n_games,), MoveType.OVERTAKING_CAPTURE, dtype=torch.int16, device=device),
+    )
+
+    # Determine canonical phase based on capture chain state
+    # First capture → CAPTURE phase, chain captures → CHAIN_CAPTURE phase
+    canonical_phase = torch.where(
+        is_chain_capture,
+        torch.full((n_games,), GamePhase.CHAIN_CAPTURE, dtype=torch.int8, device=device),
+        torch.full((n_games,), GamePhase.CAPTURE, dtype=torch.int8, device=device),
+    )
+
+    # Record move history (7 columns: move_type, player, from_y, from_x, to_y, to_x, phase)
     move_idx = state.move_count[game_indices]
     history_mask = move_idx < state.max_history_moves
     if history_mask.any():
         hist_games = game_indices[history_mask]
         hist_move_idx = move_idx[history_mask].long()
         hist_dtype = state.move_history.dtype
-        state.move_history[hist_games, hist_move_idx, 0] = move_type[history_mask].to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 0] = canonical_move_type[history_mask].to(hist_dtype)
         state.move_history[hist_games, hist_move_idx, 1] = players[history_mask].to(hist_dtype)
         state.move_history[hist_games, hist_move_idx, 2] = from_y[history_mask].to(hist_dtype)
         state.move_history[hist_games, hist_move_idx, 3] = from_x[history_mask].to(hist_dtype)
         state.move_history[hist_games, hist_move_idx, 4] = to_y[history_mask].to(hist_dtype)
         state.move_history[hist_games, hist_move_idx, 5] = to_x[history_mask].to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 6] = canonical_phase[history_mask].to(hist_dtype)
+
+    # Update capture chain tracking
+    state.in_capture_chain[game_indices] = True
+    state.capture_chain_depth[game_indices] += 1
+    state.current_phase[game_indices] = canonical_phase
 
     # Get attacker stack info
     attacker_height = state.stack_height[game_indices, from_y, from_x]
@@ -1193,6 +1395,7 @@ def _apply_capture_moves_batch_legacy(
             state.move_history[g, move_idx, 3] = from_x
             state.move_history[g, move_idx, 4] = to_y
             state.move_history[g, move_idx, 5] = to_x
+            state.move_history[g, move_idx, 6] = int(state.current_phase[g].item())
 
         attacker_height = state.stack_height[g, from_y, from_x].item()
         attacker_cap_height = state.cap_height[g, from_y, from_x].item()
@@ -1271,4 +1474,9 @@ __all__ = [
     # Batch apply functions (main API)
     'apply_placement_moves_batch_vectorized',
     'apply_recovery_moves_vectorized',
+    # Canonical phase tracking (December 2025)
+    'check_and_apply_forced_elimination_batch',
+    'mark_real_action_batch',
+    'reset_capture_chain_batch',
+    'reset_turn_tracking_batch',
 ]

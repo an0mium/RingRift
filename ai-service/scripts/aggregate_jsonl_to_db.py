@@ -71,15 +71,12 @@ def open_jsonl_file(filepath: Path):
     if is_gzip_file(filepath):
         return gzip.open(filepath, "rt", encoding="utf-8", errors="replace")
     else:
-        return open(filepath, "r", encoding="utf-8", errors="replace")
+        return open(filepath, encoding="utf-8", errors="replace")
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.models import (
-    BoardType, BoardState, GamePhase, GameState, GameStatus,
-    Move, Player, TimeControl
-)
+from app.models import BoardState, BoardType, GamePhase, GameState, GameStatus, Move, Player, TimeControl
 
 # Unified logging setup
 from scripts.lib.logging_config import setup_script_logging

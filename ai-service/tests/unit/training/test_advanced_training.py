@@ -10,23 +10,24 @@ Tests cover:
 - CMAESAutoTuner class
 """
 
-import pytest
+import tempfile
+from datetime import datetime, timedelta
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
 import numpy as np
+import pytest
 import torch
 import torch.nn as nn
-import tempfile
-from pathlib import Path
-from datetime import datetime, timedelta
-from unittest.mock import patch, MagicMock
 
 from app.training.advanced_training import (
-    LRFinderResult,
-    LRFinder,
+    CMAESAutoTuner,
     GradientCheckpointing,
+    LRFinder,
+    LRFinderResult,
     OpponentStats,
     PFSPOpponentPool,
     PlateauConfig,
-    CMAESAutoTuner,
 )
 
 

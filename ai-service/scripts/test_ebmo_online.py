@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Test EBMO Online Learning implementation."""
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
+
 from app.ai.ebmo_online import EBMOOnlineAI, EBMOOnlineConfig
 from app.ai.random_ai import RandomAI
-from app.models import AIConfig, BoardType, GameStatus
 from app.game_engine import GameEngine
+from app.models import AIConfig, BoardType, GameStatus
 from app.training.initial_state import create_initial_state
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')

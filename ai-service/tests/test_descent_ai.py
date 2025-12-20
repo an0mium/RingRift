@@ -1,6 +1,6 @@
 import unittest
-from unittest.mock import MagicMock, patch
 from datetime import datetime
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -8,16 +8,16 @@ import torch
 
 from app.ai.descent_ai import DescentAI
 from app.models import (
-    GameState,
     AIConfig,
+    BoardState,
     BoardType,
     GamePhase,
+    GameState,
     GameStatus,
-    TimeControl,
-    BoardState,
     Player,
     Position,
     RingStack,
+    TimeControl,
 )
 
 # Test timeout guards to prevent hanging in CI

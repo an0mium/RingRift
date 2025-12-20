@@ -46,7 +46,7 @@ from typing import Any, Dict, List, Optional
 # Allow imports from app/
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.db import GameReplayDB  # noqa: E402
+from app.db import GameReplayDB
 
 
 @dataclass

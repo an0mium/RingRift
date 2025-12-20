@@ -41,8 +41,8 @@ import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -64,12 +64,12 @@ except ImportError:
 # Diverse tournament orchestrator integration (for periodic Elo calibration)
 try:
     from scripts.run_diverse_tournaments import (
+        TournamentResult,
+        build_tournament_configs,
+        filter_available_hosts,
+        load_cluster_hosts,
         run_tournament_round_distributed,
         run_tournament_round_local,
-        load_cluster_hosts,
-        filter_available_hosts,
-        build_tournament_configs,
-        TournamentResult,
     )
     HAS_DIVERSE_TOURNAMENTS = True
 except ImportError:
@@ -102,14 +102,14 @@ except ImportError:
 # Unified resource guard - 80% utilization limits (enforced 2025-12-16)
 try:
     from app.utils.resource_guard import (
-        can_proceed as resource_can_proceed,
-        check_disk_space,
-        check_memory,
-        check_cpu,
-        check_gpu_memory,
-        wait_for_resources,
-        get_resource_status,
         LIMITS as RESOURCE_LIMITS,
+        can_proceed as resource_can_proceed,
+        check_cpu,
+        check_disk_space,
+        check_gpu_memory,
+        check_memory,
+        get_resource_status,
+        wait_for_resources,
     )
     HAS_RESOURCE_GUARD = True
 except ImportError:
@@ -1753,7 +1753,7 @@ def run_diverse_tournaments(
         return True, 0, 0
 
     if dry_run:
-        print(f"[DRY-RUN] Would run diverse tournaments:")
+        print("[DRY-RUN] Would run diverse tournaments:")
         print(f"  Board types: {board_types}")
         print(f"  Player counts: {player_counts}")
         print(f"  Games per config: {games_per_config}")
@@ -1816,7 +1816,7 @@ def run_diverse_tournaments(
     total_samples = sum(r.samples_generated for r in results)
     success_count = sum(1 for r in results if r.success)
 
-    print(f"\nTournament Summary:")
+    print("\nTournament Summary:")
     print(f"  Successful configs: {success_count}/{len(results)}")
     print(f"  Total games: {total_games}")
     print(f"  Total samples: {total_samples}")
@@ -1843,7 +1843,7 @@ def run_improvement_iteration(
     Returns: (improved, winrate, games_generated)
     """
     # Step 1: Selfplay - use pipeline manager if async selfplay was started
-    print(f"\n--- Step 1: Selfplay ---")
+    print("\n--- Step 1: Selfplay ---")
     if pipeline_manager is not None and pipeline_manager.enabled:
         # Get result from async selfplay (or run sync if no task pending)
         success, games, staging_db_path = pipeline_manager.get_selfplay_result(
@@ -1856,7 +1856,7 @@ def run_improvement_iteration(
 
     # Step 2: Ingest staging sources (canonical mode only)
     if bool(config.get("canonical_mode", False)):
-        print(f"\n--- Step 2: Ingest Training Pool ---")
+        print("\n--- Step 2: Ingest Training Pool ---")
         if not ingest_training_pool(
             config,
             iteration,
@@ -1868,19 +1868,19 @@ def run_improvement_iteration(
             return False, 0.0, games
 
     # Step 3: Export training data
-    print(f"\n--- Step 3: Export Data ---")
+    print("\n--- Step 3: Export Data ---")
     success, data_path = export_training_data(config, iteration, dry_run)
     if not success:
         return False, 0.0, games
 
     # Step 4: Train model
-    print(f"\n--- Step 4: Train Model ---")
+    print("\n--- Step 4: Train Model ---")
     success, iter_model = train_model(config, iteration, data_path, dry_run)
     if not success:
         return False, 0.0, games
 
     # Step 5: Evaluate
-    print(f"\n--- Step 5: Evaluate ---")
+    print("\n--- Step 5: Evaluate ---")
     success, eval_summary = evaluate_model(
         config,
         iteration,
@@ -1894,7 +1894,7 @@ def run_improvement_iteration(
     config["last_eval_summary"] = eval_summary
 
     # Step 6: Promote if improved
-    print(f"\n--- Step 6: Promotion Decision ---")
+    print("\n--- Step 6: Promotion Decision ---")
     threshold = config.get("promotion_threshold", 0.55)
     pool_gate = eval_summary.get("pool_gate") if isinstance(eval_summary, dict) else None
     pool_gate_text = ""
@@ -2684,7 +2684,7 @@ def main():
     # Print adaptive controller stats if enabled
     if adaptive_controller is not None:
         stats = adaptive_controller.get_statistics()
-        print(f"\nAdaptive Controller Statistics:")
+        print("\nAdaptive Controller Statistics:")
         print(f"  Plateau count: {stats.get('plateau_count', 0)}")
         print(f"  Promotion rate: {stats.get('promotion_rate', 0):.1%}")
         print(f"  Trend: {stats.get('trend', 'unknown')}")

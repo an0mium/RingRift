@@ -60,10 +60,10 @@ logger = setup_script_logging("transfer_learning")
 # Import model architecture if available
 try:
     from app.ai.neural_net import (
+        MAX_PLAYERS,
+        P_HEX,
         POLICY_SIZE_8x8,
         POLICY_SIZE_19x19,
-        P_HEX,
-        MAX_PLAYERS,
     )
 except ImportError:
     # Fallback values
@@ -82,7 +82,7 @@ class ConfigSpec:
     policy_size: int
 
     @classmethod
-    def from_string(cls, config_str: str) -> "ConfigSpec":
+    def from_string(cls, config_str: str) -> ConfigSpec:
         """Parse config string like 'square8_2p' or 'hex_3p'."""
         match = re.match(r"(square\d+|hex)_(\d)p", config_str.lower())
         if not match:

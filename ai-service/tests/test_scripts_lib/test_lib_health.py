@@ -10,29 +10,29 @@ Tests cover:
 import json
 import os
 import socket
-import time
-from pathlib import Path
-from unittest.mock import patch, MagicMock
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from scripts.lib.health import (
-    DiskHealth,
-    MemoryHealth,
     CPUHealth,
+    DiskHealth,
     GPUInfo,
-    SystemHealth,
+    MemoryHealth,
     ServiceHealth,
-    check_disk_space,
-    check_memory,
+    SystemHealth,
     check_cpu,
+    check_disk_space,
     check_gpus,
-    check_system_health,
     check_http_health,
+    check_memory,
     check_port_open,
     check_process_health,
+    check_system_health,
     wait_for_healthy,
 )
 

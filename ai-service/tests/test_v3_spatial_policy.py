@@ -15,16 +15,16 @@ import pytest
 import torch
 
 from app.ai.neural_net import (
-    HexNeuralNet_v3,
-    HexNeuralNet_v3_Lite,
-    HexNeuralNet_v2,
-    P_HEX,
     HEX_BOARD_SIZE,
-    HEX_PLACEMENT_SPAN,
+    HEX_MAX_DIST,
     HEX_MOVEMENT_BASE,
+    HEX_PLACEMENT_SPAN,
     HEX_SPECIAL_BASE,
     NUM_HEX_DIRS,
-    HEX_MAX_DIST,
+    P_HEX,
+    HexNeuralNet_v2,
+    HexNeuralNet_v3,
+    HexNeuralNet_v3_Lite,
 )
 
 

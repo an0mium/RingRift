@@ -50,7 +50,7 @@ class SSHConfig:
     server_alive_interval: int | None = None
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "SSHConfig":
+    def from_dict(cls, d: dict[str, Any]) -> SSHConfig:
         """Create config from a dictionary (e.g., from YAML config)."""
         return cls(
             host=d.get("ssh_host") or d.get("host") or d.get("tailscale_ip", ""),

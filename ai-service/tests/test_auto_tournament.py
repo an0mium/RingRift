@@ -20,19 +20,18 @@ import torch.nn as nn
 
 from app.training.auto_tournament import (
     AutoTournamentPipeline,
+    ChallengerResult,
+    RegisteredModel,
+    _binomial_coefficient,
     calculate_binomial_p_value,
     calculate_elo_change,
     expected_score,
-    RegisteredModel,
-    ChallengerResult,
     should_promote,
-    _binomial_coefficient,
 )
 from app.training.model_versioning import (
     ModelMetadata,
     save_model_checkpoint,
 )
-
 
 # =============================================================================
 # Test Fixtures

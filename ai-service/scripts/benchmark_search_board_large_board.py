@@ -32,11 +32,10 @@ sys.path.insert(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
 )
 
-from app.db import GameReplayDB  # noqa: E402
-from app.game_engine import GameEngine  # noqa: E402
-from app.models import BoardType, GameState, Move  # noqa: E402
-from app.rules.mutable_state import MutableGameState  # noqa: E402
-
+from app.db import GameReplayDB
+from app.game_engine import GameEngine
+from app.models import BoardType, GameState, Move
+from app.rules.mutable_state import MutableGameState
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 PARITY_FIXTURES_DIR = AI_SERVICE_ROOT / "parity_fixtures"

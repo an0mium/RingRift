@@ -3,29 +3,29 @@
 Provides common fixtures for comparing GPU and CPU implementations.
 """
 
+from typing import Any, Dict, List, Optional
+
+import numpy as np
 import pytest
 import torch
-import numpy as np
-from typing import List, Dict, Any, Optional
 
+from app.game_engine import GameEngine
 from app.models import (
-    GameState,
-    BoardType,
     BoardState,
+    BoardType,
     GamePhase,
+    GameState,
     GameStatus,
     Player,
     Position,
     TimeControl,
 )
-from app.game_engine import GameEngine
 from app.rules.core import (
     BOARD_CONFIGS,
     get_effective_line_length,
-    get_victory_threshold,
     get_territory_victory_threshold,
+    get_victory_threshold,
 )
-
 
 # =============================================================================
 # Device Configuration

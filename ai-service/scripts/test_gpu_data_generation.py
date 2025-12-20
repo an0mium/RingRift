@@ -60,7 +60,7 @@ class GPUDataGenTester:
         self.has_gpu = self.device.type in ("cuda", "mps")
 
         if self.verbose:
-            print(f"GPU Data Generation Tester initialized")
+            print("GPU Data Generation Tester initialized")
             print(f"  Device: {self.device}")
             print(f"  GPU available: {self.has_gpu}")
             if self.device.type == "cuda":
@@ -443,7 +443,7 @@ class GPUDataGenTester:
         batch_sizes: list[int] = [10, 20, 50],
     ) -> bool:
         """Test GPU memory usage at different batch sizes."""
-        self._log(f"\n=== Test: GPU Memory Usage ===")
+        self._log("\n=== Test: GPU Memory Usage ===")
         start_time = time.time()
 
         if not self.has_gpu or self.device.type != "cuda":
@@ -506,7 +506,7 @@ class GPUDataGenTester:
 
     def test_multi_board_types(self) -> bool:
         """Test data generation across different board types."""
-        self._log(f"\n=== Test: Multi Board Types ===")
+        self._log("\n=== Test: Multi Board Types ===")
         start_time = time.time()
 
         board_types = [

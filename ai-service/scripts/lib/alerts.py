@@ -32,12 +32,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -62,16 +62,16 @@ class AlertSeverity(Enum):
         }
         return levels[self.value]
 
-    def __lt__(self, other: "AlertSeverity") -> bool:
+    def __lt__(self, other: AlertSeverity) -> bool:
         return self.level < other.level
 
-    def __le__(self, other: "AlertSeverity") -> bool:
+    def __le__(self, other: AlertSeverity) -> bool:
         return self.level <= other.level
 
-    def __gt__(self, other: "AlertSeverity") -> bool:
+    def __gt__(self, other: AlertSeverity) -> bool:
         return self.level > other.level
 
-    def __ge__(self, other: "AlertSeverity") -> bool:
+    def __ge__(self, other: AlertSeverity) -> bool:
         return self.level >= other.level
 
 
@@ -153,7 +153,7 @@ class Alert:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Alert":
+    def from_dict(cls, data: dict[str, Any]) -> Alert:
         """Create from dictionary."""
         return cls(
             severity=AlertSeverity(data["severity"]),
@@ -170,7 +170,7 @@ class Alert:
         return json.dumps(self.to_dict())
 
     @classmethod
-    def from_json(cls, json_str: str) -> "Alert":
+    def from_json(cls, json_str: str) -> Alert:
         """Create from JSON string."""
         return cls.from_dict(json.loads(json_str))
 
@@ -208,7 +208,7 @@ class AlertThresholds:
     training_stall_minutes: int = 30
 
     @classmethod
-    def from_env(cls) -> "AlertThresholds":
+    def from_env(cls) -> AlertThresholds:
         """Create from environment variables."""
         return cls(
             disk_warning_percent=float(os.getenv("RINGRIFT_DISK_WARNING", "65")),

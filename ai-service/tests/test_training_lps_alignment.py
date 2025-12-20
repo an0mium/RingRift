@@ -17,7 +17,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import (  # noqa: E402
+from app.models import (
     BoardState,
     BoardType,
     GamePhase,
@@ -28,12 +28,12 @@ from app.models import (  # noqa: E402
     RingStack,
     TimeControl,
 )
-from app.training.env import RingRiftEnv  # noqa: E402
-from app.training.tournament import (  # noqa: E402
-    infer_victory_reason,
+from app.rules.core import count_rings_in_play_for_player
+from app.training.env import RingRiftEnv
+from app.training.tournament import (
     VICTORY_REASONS,
+    infer_victory_reason,
 )
-from app.rules.core import count_rings_in_play_for_player  # noqa: E402
 
 
 def _make_two_player_state() -> GameState:

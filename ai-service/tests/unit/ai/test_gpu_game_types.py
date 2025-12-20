@@ -12,15 +12,15 @@ import pytest
 import torch
 
 from app.ai.gpu_game_types import (
-    get_int_dtype,
-    GameStatus,
-    MoveType,
-    GamePhase,
-    DetectedLine,
-    get_required_line_length,
+    LINE_DIRECTIONS,
     MAX_STACK_HEIGHT,
     SQUARE_DIRECTIONS,
-    LINE_DIRECTIONS,
+    DetectedLine,
+    GamePhase,
+    GameStatus,
+    MoveType,
+    get_int_dtype,
+    get_required_line_length,
 )
 
 

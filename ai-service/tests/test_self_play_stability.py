@@ -33,10 +33,10 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.ai.base import BaseAI  # noqa: E402
-from app.main import _get_difficulty_profile, _create_ai_instance  # noqa: E402
-from app.models import AIConfig, AIType, BoardType, GameStatus, GameState  # noqa: E402
-from app.training.env import RingRiftEnv  # noqa: E402
+from app.ai.base import BaseAI
+from app.main import _create_ai_instance, _get_difficulty_profile
+from app.models import AIConfig, AIType, BoardType, GameState, GameStatus
+from app.training.env import RingRiftEnv
 
 # Test timeout guards to prevent hanging in CI
 # Allow more time for self-play as it runs multiple games

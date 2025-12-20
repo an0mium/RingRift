@@ -29,7 +29,7 @@ DEFAULT_DB_PATH = AI_SERVICE_ROOT / "data" / "unified_elo.db"
 
 # ELO calculation constants (centralized)
 try:
-    from app.config.thresholds import INITIAL_ELO_RATING, ELO_K_FACTOR
+    from app.config.thresholds import ELO_K_FACTOR, INITIAL_ELO_RATING
     INITIAL_RATING = INITIAL_ELO_RATING
     K_FACTOR = float(ELO_K_FACTOR)
 except ImportError:

@@ -36,9 +36,9 @@ from typing import Any, Dict, List
 # Add app/ to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.training.selfplay_config import SelfplayConfig, create_argument_parser, EngineMode
-
 import torch
+
+from app.training.selfplay_config import EngineMode, SelfplayConfig, create_argument_parser
 
 # Unified logging setup
 from scripts.lib.logging_config import setup_script_logging

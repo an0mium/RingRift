@@ -11,6 +11,7 @@ Tests cover:
 """
 
 import math
+from datetime import datetime
 
 import pytest
 import torch
@@ -39,8 +40,6 @@ from app.models import (
     RingStack,
     TimeControl,
 )
-from datetime import datetime
-
 
 # =============================================================================
 # Helpers

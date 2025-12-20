@@ -148,13 +148,13 @@ def run_elo_tournament(board_type: str, num_players: int) -> bool:
         else:
             # Check if it's a load issue
             if "load too high" in result.stderr.lower():
-                print(f"[Elo] System load too high, will retry later")
+                print("[Elo] System load too high, will retry later")
                 return False
             print(f"[Elo] Tournament failed: {result.stderr[:300]}")
             return False
 
     except subprocess.TimeoutExpired:
-        print(f"[Elo] Tournament timeout")
+        print("[Elo] Tournament timeout")
         return False
     except Exception as e:
         print(f"[Elo] Error: {e}")

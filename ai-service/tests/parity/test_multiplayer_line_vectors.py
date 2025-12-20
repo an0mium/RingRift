@@ -17,16 +17,15 @@ import pytest
 # Ensure app package is importable when running tests directly
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../"))
 
-from app.board_manager import BoardManager  # noqa: E402
-from app.models import (  # noqa: E402
+from app.board_manager import BoardManager
+from app.models import (
     BoardState,
     BoardType,
     MarkerInfo,
     Position,
     RingStack,
 )
-from app.rules.core import get_effective_line_length  # noqa: E402
-
+from app.rules.core import get_effective_line_length
 
 VECTORS_PATH = Path(__file__).parent / "vectors" / "multiplayer_line.vectors.json"
 

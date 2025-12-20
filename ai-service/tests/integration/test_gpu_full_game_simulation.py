@@ -12,8 +12,8 @@ import pytest
 import torch
 
 try:
-    from app.ai.gpu_parallel_games import ParallelGameRunner
     from app.ai.gpu_game_types import GameStatus
+    from app.ai.gpu_parallel_games import ParallelGameRunner
 
     GPU_AVAILABLE = True
 except ImportError:

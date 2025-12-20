@@ -14,28 +14,29 @@ import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset
 
+from app.training.data_loader import StreamingDataLoader
+
 # Import the module under test
 from app.training.distributed import (
-    setup_distributed,
-    cleanup_distributed,
-    is_distributed,
-    is_main_process,
-    get_rank,
-    get_world_size,
-    get_local_rank,
-    get_distributed_sampler,
-    wrap_model_ddp,
-    synchronize,
-    reduce_tensor,
-    all_gather_object,
-    broadcast_object,
-    seed_everything,
-    get_device_for_rank,
-    scale_learning_rate,
     DistributedMetrics,
     DistributedTrainer,
+    all_gather_object,
+    broadcast_object,
+    cleanup_distributed,
+    get_device_for_rank,
+    get_distributed_sampler,
+    get_local_rank,
+    get_rank,
+    get_world_size,
+    is_distributed,
+    is_main_process,
+    reduce_tensor,
+    scale_learning_rate,
+    seed_everything,
+    setup_distributed,
+    synchronize,
+    wrap_model_ddp,
 )
-from app.training.data_loader import StreamingDataLoader
 
 
 class SimpleModel(nn.Module):

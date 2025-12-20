@@ -14,22 +14,22 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from scripts.lib.process import (
-    SingletonLock,
-    SignalHandler,
-    ProcessInfo,
     CommandOutput,
-    is_process_running,
-    find_processes_by_pattern,
+    ProcessInfo,
+    SignalHandler,
+    SingletonLock,
     count_processes_by_pattern,
+    daemon_context,
+    find_processes_by_pattern,
+    is_process_running,
     kill_process,
     kill_processes_by_pattern,
     run_command,
-    daemon_context,
     wait_for_process_exit,
 )
 

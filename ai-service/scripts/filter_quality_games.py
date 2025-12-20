@@ -23,8 +23,8 @@ import argparse
 import json
 import os
 import sys
-from pathlib import Path
 from collections import Counter, defaultdict
+from pathlib import Path
 from typing import Any
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -128,7 +128,7 @@ def process_files(
         is_all_low_quality = True
 
         try:
-            with open(jsonl_path, 'r') as f:
+            with open(jsonl_path) as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -203,31 +203,31 @@ def print_report(stats: dict[str, Any]) -> None:
     print("HIGH-QUALITY GAME FILTER REPORT")
     print("=" * 60)
 
-    print(f"\n### File Summary")
+    print("\n### File Summary")
     print(f"  Files processed: {stats['files_processed']}")
     print(f"  Files with quality games: {stats['files_with_quality']}")
     print(f"  Files with only low-quality: {stats['files_low_quality_only']}")
 
-    print(f"\n### Game Summary")
+    print("\n### Game Summary")
     print(f"  Total games: {stats['total_games']:,}")
     print(f"  High-quality games: {stats['high_quality_games']:,} ({100*stats['high_quality_games']/stats['total_games']:.1f}%)")
     print(f"  Low-quality games: {stats['low_quality_games']:,} ({100*stats['low_quality_games']/stats['total_games']:.1f}%)")
 
-    print(f"\n### By Engine Mode")
+    print("\n### By Engine Mode")
     for engine, count in stats["by_engine_mode"].most_common():
         pct = 100 * count / stats["high_quality_games"] if stats["high_quality_games"] else 0
         print(f"  {count:>8} ({pct:>5.1f}%)  {engine}")
 
-    print(f"\n### By Board Type")
+    print("\n### By Board Type")
     for board, count in stats["by_board_type"].most_common():
         pct = 100 * count / stats["high_quality_games"] if stats["high_quality_games"] else 0
         print(f"  {count:>8} ({pct:>5.1f}%)  {board}")
 
-    print(f"\n### By Configuration (Board/Players/Engine)")
+    print("\n### By Configuration (Board/Players/Engine)")
     for config, count in stats["by_config"].most_common(20):
         print(f"  {count:>8}  {config}")
 
-    print(f"\n### Termination Reason by Configuration")
+    print("\n### Termination Reason by Configuration")
     print("-" * 70)
     print(f"{'Config':<35} {'Territory':>10} {'Elimination':>12} {'LPS':>8} {'Other':>8}")
     print("-" * 70)
@@ -246,10 +246,10 @@ def print_report(stats: dict[str, Any]) -> None:
         print(f"{config:<35} {pct(territory):>10} {pct(elimination):>12} {pct(lps):>8} {pct(other):>8}")
 
     if "files_removed" in stats:
-        print(f"\n### Cleanup")
+        print("\n### Cleanup")
         print(f"  Files removed: {stats['files_removed']}")
     elif "files_would_remove" in stats:
-        print(f"\n### Cleanup (dry-run)")
+        print("\n### Cleanup (dry-run)")
         print(f"  Files would remove: {stats['files_would_remove']}")
 
 

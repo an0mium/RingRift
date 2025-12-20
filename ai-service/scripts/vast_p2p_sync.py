@@ -289,8 +289,8 @@ def unretire_node_via_api(node_id: str) -> bool:
         return False
 
     try:
-        import urllib.request
         import urllib.parse
+        import urllib.request
 
         url = f"{p2p_leader}/admin/unretire?node_id={urllib.parse.quote(node_id)}"
         req = urllib.request.Request(url, method='POST')
@@ -955,9 +955,9 @@ def main():
                 else:
                     logger.info(f"Unretiring {node.node_id} (Vast instance {inst_id})")
                     if unretire_node_via_api(node.node_id):
-                        logger.info(f"  -> Unretired successfully")
+                        logger.info("  -> Unretired successfully")
                     else:
-                        logger.warning(f"  -> Failed to unretire via API")
+                        logger.warning("  -> Failed to unretire via API")
 
     # Update config
     if args.update_config or args.full:

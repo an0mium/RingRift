@@ -12,9 +12,9 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.ai.mcts_ai import MCTSAI, MCTSNode  # noqa: E402
-from app.ai.neural_net import INVALID_MOVE_INDEX  # noqa: E402
-from app.models import (  # noqa: E402
+from app.ai.mcts_ai import MCTSAI, MCTSNode
+from app.ai.neural_net import INVALID_MOVE_INDEX
+from app.models import (
     AIConfig,
     BoardState,
     BoardType,

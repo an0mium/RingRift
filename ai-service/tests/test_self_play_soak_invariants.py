@@ -8,15 +8,15 @@ import pytest
 # Ensure app and scripts packages are importable when running tests directly.
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 
-from app.models import (  # type: ignore  # noqa: E402
+import scripts.run_self_play_soak as soak  # type: ignore
+from app.metrics import (  # type: ignore
+    PYTHON_INVARIANT_VIOLATIONS,
+)
+from app.models import (  # type: ignore
     BoardType,
     GamePhase,
     GameStatus,
 )
-from app.metrics import (  # type: ignore  # noqa: E402
-    PYTHON_INVARIANT_VIOLATIONS,
-)
-import scripts.run_self_play_soak as soak  # type: ignore  # noqa: E402
 
 
 def test_summarise_aggregates_invariant_counts() -> None:

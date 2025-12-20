@@ -7,15 +7,14 @@ import pytest
 import torch
 
 from app.ai.gpu_batch_state import BatchGameState
+from app.ai.gpu_game_types import get_required_line_length
 from app.ai.gpu_line_detection import (
-    detect_lines_vectorized,
-    has_lines_batch_vectorized,
-    detect_lines_with_metadata,
     detect_lines_batch,
+    detect_lines_vectorized,
+    detect_lines_with_metadata,
+    has_lines_batch_vectorized,
     process_lines_batch,
 )
-from app.ai.gpu_game_types import get_required_line_length
-
 
 # =============================================================================
 # Test Fixtures

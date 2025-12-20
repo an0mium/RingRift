@@ -8,21 +8,26 @@ from __future__ import annotations
 
 import os
 import time
-from dataclasses import dataclass, field, asdict, fields as dataclass_fields
+from dataclasses import (
+    asdict,
+    dataclass,
+    field,
+    fields as dataclass_fields,
+)
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from .types import NodeRole, JobType
 from .constants import (
-    PEER_TIMEOUT,
     DISK_WARNING_THRESHOLD,
-    MEMORY_WARNING_THRESHOLD,
+    GPU_POWER_RANKINGS,
+    LOAD_AVERAGE_MAX_MULTIPLIER,
     LOAD_MAX_FOR_NEW_JOBS,
     MAX_CONSECUTIVE_FAILURES,
+    MEMORY_WARNING_THRESHOLD,
+    PEER_TIMEOUT,
     RETRY_DEAD_NODE_INTERVAL,
     RETRY_RETIRED_NODE_INTERVAL,
-    LOAD_AVERAGE_MAX_MULTIPLIER,
-    GPU_POWER_RANKINGS,
 )
+from .types import JobType, NodeRole
 
 
 @dataclass
@@ -255,7 +260,7 @@ class NodeInfo:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict) -> 'NodeInfo':
+    def from_dict(cls, d: dict) -> NodeInfo:
         """Create from dictionary."""
         d = d.copy()
         d['role'] = NodeRole(d.get('role', 'follower'))
@@ -309,7 +314,7 @@ class ClusterJob:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict) -> 'ClusterJob':
+    def from_dict(cls, d: dict) -> ClusterJob:
         d = d.copy()
         d['job_type'] = JobType(d.get('job_type', 'selfplay'))
         # Handle missing new fields
@@ -343,7 +348,7 @@ class DistributedCMAESState:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> 'DistributedCMAESState':
+    def from_dict(cls, d: dict) -> DistributedCMAESState:
         d.setdefault('pending_results', {})
         return cls(**d)
 
@@ -370,7 +375,7 @@ class DistributedTournamentState:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> 'DistributedTournamentState':
+    def from_dict(cls, d: dict) -> DistributedTournamentState:
         return cls(**d)
 
 
@@ -423,7 +428,7 @@ class ImprovementLoopState:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> 'ImprovementLoopState':
+    def from_dict(cls, d: dict) -> ImprovementLoopState:
         return cls(**d)
 
 
@@ -467,7 +472,7 @@ class TrainingJob:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> 'TrainingJob':
+    def from_dict(cls, d: dict) -> TrainingJob:
         return cls(**d)
 
 
@@ -543,7 +548,7 @@ class TrainingThresholds:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> 'TrainingThresholds':
+    def from_dict(cls, d: dict) -> TrainingThresholds:
         return cls(**d)
 
 
@@ -567,7 +572,7 @@ class DataFileInfo:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> 'DataFileInfo':
+    def from_dict(cls, d: dict) -> DataFileInfo:
         return cls(**d)
 
 
@@ -594,7 +599,7 @@ class NodeDataManifest:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict) -> 'NodeDataManifest':
+    def from_dict(cls, d: dict) -> NodeDataManifest:
         d = d.copy()
         d['files'] = [DataFileInfo.from_dict(f) if isinstance(f, dict) else f for f in d.get('files', [])]
         return cls(**d)
@@ -655,7 +660,7 @@ class ClusterDataManifest:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict) -> 'ClusterDataManifest':
+    def from_dict(cls, d: dict) -> ClusterDataManifest:
         d = d.copy()
         d['node_manifests'] = {k: NodeDataManifest.from_dict(v) for k, v in d.get('node_manifests', {}).items()}
         d['unique_files'] = set(d.get('unique_files', []))
@@ -682,7 +687,7 @@ class DataSyncJob:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> 'DataSyncJob':
+    def from_dict(cls, d: dict) -> DataSyncJob:
         return cls(**d)
 
 
@@ -705,7 +710,7 @@ class ClusterSyncPlan:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict) -> 'ClusterSyncPlan':
+    def from_dict(cls, d: dict) -> ClusterSyncPlan:
         d = d.copy()
         d['sync_jobs'] = [DataSyncJob.from_dict(j) for j in d.get('sync_jobs', [])]
         return cls(**d)

@@ -7,19 +7,20 @@ These tests verify:
 3. Both search modes produce valid results
 """
 
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 # Add parent for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from scripts.benchmark_make_unmake import (  # noqa: E402
-    create_starting_state,
-    create_midgame_state,
+from scripts.benchmark_make_unmake import (
     benchmark_search,
-    validate_correctness,
+    create_midgame_state,
+    create_starting_state,
     run_make_unmake_roundtrip_test,
+    validate_correctness,
 )
 
 

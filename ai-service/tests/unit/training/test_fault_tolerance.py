@@ -22,23 +22,23 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.training.fault_tolerance import (
-    retry_with_backoff,
-    RecoverableError,
-    NonRecoverableError,
-    handle_gpu_error,
-    TrainingErrorHandler,
-    CheckpointType,
-    TrainingState,
-    CheckpointMetadata,
-    TrainingProgress,
-    CheckpointManager,
-    HeartbeatMonitor,
-    GracefulShutdown,
-    FaultTolerantTrainer,
-    DistributedFaultHandler,
-)
 from app.training.checkpoint_unified import UnifiedCheckpointConfig
+from app.training.fault_tolerance import (
+    CheckpointManager,
+    CheckpointMetadata,
+    CheckpointType,
+    DistributedFaultHandler,
+    FaultTolerantTrainer,
+    GracefulShutdown,
+    HeartbeatMonitor,
+    NonRecoverableError,
+    RecoverableError,
+    TrainingErrorHandler,
+    TrainingProgress,
+    TrainingState,
+    handle_gpu_error,
+    retry_with_backoff,
+)
 
 
 class TestRetryWithBackoff:

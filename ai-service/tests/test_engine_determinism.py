@@ -9,23 +9,23 @@ and canonical hashes on repeated runs (RR‑CANON R190).
 import os
 import sys
 from datetime import datetime
-from typing import Dict, Any, Tuple
+from typing import Any, Dict, Tuple
 
 # Ensure app package is importable when running tests directly.
 # Mirrors the pattern used in other ai-service tests.
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 
-from app.models import (  # noqa: E402
-    GameState,
+from app.game_engine import GameEngine
+from app.models import (
     BoardType,
     GamePhase,
+    GameState,
     GameStatus,
     Position,
 )
-from app.game_engine import GameEngine  # noqa: E402
-from app.rules.core import (  # noqa: E402
-    hash_game_state,
+from app.rules.core import (
     compute_progress_snapshot,
+    hash_game_state,
     summarize_board,
 )
 

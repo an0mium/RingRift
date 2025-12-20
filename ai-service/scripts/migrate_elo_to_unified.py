@@ -392,7 +392,7 @@ def run_migration(dry_run: bool = False, force: bool = False):
         return False
 
     legacy_counts = count_legacy_records()
-    logger.info(f"  Records to migrate:")
+    logger.info("  Records to migrate:")
     logger.info(f"    Models: {legacy_counts['models']}")
     logger.info(f"    Elo ratings: {legacy_counts['elo_ratings']}")
     logger.info(f"    Match history: {legacy_counts['match_history']}")
@@ -403,7 +403,7 @@ def run_migration(dry_run: bool = False, force: bool = False):
     unified_db = EloDatabase(UNIFIED_DB_PATH)
 
     unified_counts_before = count_unified_records(unified_db)
-    logger.info(f"  Current records:")
+    logger.info("  Current records:")
     logger.info(f"    Participants: {unified_counts_before['participants']}")
     logger.info(f"    Elo ratings: {unified_counts_before['elo_ratings']}")
     logger.info(f"    Match history: {unified_counts_before['match_history']}")
@@ -431,7 +431,7 @@ def run_migration(dry_run: bool = False, force: bool = False):
         logger.info("\n" + "-" * 40)
         logger.info("Migration complete!")
         logger.info("-" * 40)
-        logger.info(f"  Final unified database records:")
+        logger.info("  Final unified database records:")
         logger.info(f"    Participants: {unified_counts_after['participants']} "
                    f"(+{unified_counts_after['participants'] - unified_counts_before['participants']})")
         logger.info(f"    Elo ratings: {unified_counts_after['elo_ratings']} "

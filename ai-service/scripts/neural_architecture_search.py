@@ -328,9 +328,9 @@ def evaluate_architecture(arch: Architecture, quick_eval: bool = True) -> float:
 
 def _evaluate_architecture_real(arch: Architecture, quick_eval: bool = True) -> float:
     """Evaluate architecture with actual training."""
+    import os
     import subprocess
     import tempfile
-    import os
 
     p = arch.params
     board_type = os.environ.get("RINGRIFT_NAS_BOARD", "square8")

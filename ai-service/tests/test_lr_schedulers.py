@@ -9,21 +9,22 @@ Tests cover:
 - Backward compatibility (no scheduler specified)
 """
 
+import math
+import os
+import tempfile
+from typing import List
+
 import pytest
 import torch.nn as nn
 import torch.optim as optim
-import os
-import tempfile
-import math
-from typing import List
 
+from app.training.checkpointing import (
+    load_checkpoint,
+    save_checkpoint,
+)
 from app.training.schedulers import (
     create_lr_scheduler,
     get_warmup_scheduler,
-)
-from app.training.checkpointing import (
-    save_checkpoint,
-    load_checkpoint,
 )
 from app.training.train_cli import parse_args
 

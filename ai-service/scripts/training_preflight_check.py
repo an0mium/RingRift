@@ -244,8 +244,8 @@ class PreflightChecker:
 
         # Self-play game (short test)
         try:
-            from app.training.env import RingRiftEnv
             from app.models import BoardType
+            from app.training.env import RingRiftEnv
 
             env = RingRiftEnv(board_type=BoardType.SQUARE8, max_moves=10)
             env.reset(seed=42)
@@ -283,8 +283,8 @@ class PreflightChecker:
 
         # Generate data module
         try:
-            from app.training import generate_data  # noqa: F401
-            from app.training.generate_data import (  # noqa: F401
+            from app.training import generate_data
+            from app.training.generate_data import (
                 create_initial_state,
             )
 
@@ -411,6 +411,7 @@ class PreflightChecker:
         # RingRiftCNN_v2 forward pass
         try:
             import torch
+
             from app.ai.neural_net import RingRiftCNN_v2
 
             net = RingRiftCNN_v2(board_size=8)
@@ -455,6 +456,7 @@ class PreflightChecker:
         # Weight initialization check
         try:
             import torch
+
             from app.ai.neural_net import RingRiftCNN_v2
 
             net = RingRiftCNN_v2(board_size=8)
@@ -536,9 +538,9 @@ class PreflightChecker:
 
         # Checkpoint saving
         try:
-            from app.training.train import (  # noqa: F401
-                save_checkpoint,
+            from app.training.train import (
                 load_checkpoint,
+                save_checkpoint,
             )
 
             self.add_check(
@@ -562,7 +564,7 @@ class PreflightChecker:
 
         # LR schedulers
         try:
-            from app.training.train import get_warmup_scheduler  # noqa: F401
+            from app.training.train import get_warmup_scheduler
 
             self.add_check(
                 cat,
@@ -585,11 +587,11 @@ class PreflightChecker:
 
         # Distributed utilities
         try:
-            from app.training.distributed import (  # noqa: F401
-                setup_distributed,
+            from app.training.distributed import (
                 cleanup_distributed,
-                is_main_process,
                 get_distributed_sampler,
+                is_main_process,
+                setup_distributed,
                 wrap_model_ddp,
             )
 
@@ -676,7 +678,7 @@ class PreflightChecker:
 
         # CMA-ES
         try:
-            import cma  # noqa: F401
+            import cma
 
             self.add_check(
                 cat,
@@ -707,7 +709,7 @@ class PreflightChecker:
 
         # Hex augmentation
         try:
-            from app.training.hex_augmentation import (  # noqa: F401
+            from app.training.hex_augmentation import (
                 HexSymmetryTransform,
             )
 
@@ -733,8 +735,8 @@ class PreflightChecker:
         # Parallel self-play utilities check (just imports)
         try:
             # Check that key components exist
-            from app.ai.descent_ai import DescentAI  # noqa: F401
-            from app.ai.heuristic_ai import HeuristicAI  # noqa: F401
+            from app.ai.descent_ai import DescentAI
+            from app.ai.heuristic_ai import HeuristicAI
 
             self.add_check(
                 cat,
@@ -762,8 +764,8 @@ class PreflightChecker:
         # Generate data
         states = []
         try:
-            from app.training.env import RingRiftEnv
             from app.models import BoardType
+            from app.training.env import RingRiftEnv
 
             env = RingRiftEnv(board_type=BoardType.SQUARE8, max_moves=50)
 
@@ -849,6 +851,7 @@ class PreflightChecker:
         try:
             import torch
             import torch.nn as nn
+
             from app.ai.neural_net import RingRiftCNN_v2
 
             net = RingRiftCNN_v2(board_size=8)

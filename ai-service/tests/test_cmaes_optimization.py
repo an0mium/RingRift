@@ -21,11 +21,11 @@ sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
 
-from app.ai.heuristic_weights import (  # noqa: E402
+from app.ai.heuristic_weights import (
     BASE_V1_BALANCED_WEIGHTS,
     HeuristicWeights,
 )
-from app.models import BoardType  # noqa: E402
+from app.models import BoardType
 
 # Import the functions to test from the script
 sys.path.insert(
@@ -40,7 +40,7 @@ sys.path.insert(
 cma_mock = MagicMock()
 sys.modules["cma"] = cma_mock
 
-from run_cmaes_optimization import (  # noqa: E402
+from run_cmaes_optimization import (
     WEIGHT_KEYS,
     array_to_weights,
     create_game_state,
@@ -109,7 +109,7 @@ class TestWeightPersistence:
         save_weights_to_file(weights, str(path), generation=5, fitness=0.75)
 
         # Verify file content
-        with open(path, "r") as f:
+        with open(path) as f:
             data = json.load(f)
 
         assert "weights" in data
@@ -424,7 +424,7 @@ class TestCMAESIntegration:
         run_meta_path = os.path.join(run_dir, "run_meta.json")
         assert os.path.exists(run_meta_path)
 
-        with open(run_meta_path, "r", encoding="utf-8") as f:
+        with open(run_meta_path, encoding="utf-8") as f:
             meta = json.load(f)
 
         assert meta["run_id"] == run_id
@@ -439,7 +439,7 @@ class TestCMAESIntegration:
         assert any(name.startswith("generation_001") for name in files)
 
         gen_path = os.path.join(generations_dir, "generation_001.json")
-        with open(gen_path, "r", encoding="utf-8") as f:
+        with open(gen_path, encoding="utf-8") as f:
             gen_data = json.load(f)
 
         assert gen_data["generation"] == 1

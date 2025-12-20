@@ -5,23 +5,30 @@ or expensive tree search. They test the core MCTS logic in isolation.
 """
 
 import math
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.ai.mcts_ai import (
+    DynamicBatchSizer,
     MCTSNode,
     MCTSNodeLite,
-    DynamicBatchSizer,
     _move_key,
     _moves_match,
     _pos_key,
     _pos_seq_key,
 )
 from app.models import (
-    GameState, BoardState, Move, MoveType, Position,
-    GamePhase, GameStatus, BoardType, Player,
+    BoardState,
+    BoardType,
+    GamePhase,
+    GameState,
+    GameStatus,
+    Move,
+    MoveType,
+    Player,
+    Position,
 )
-
 
 # =============================================================================
 # Fixtures

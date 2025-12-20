@@ -38,7 +38,6 @@ from typing import Any, Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.utils.paths import AI_SERVICE_ROOT, DATA_DIR, QUARANTINE_DIR
-
 from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("db_health_check")
@@ -142,7 +141,7 @@ class DBHealthChecker:
 
                 # Create new database
                 new_db_path = db_path.with_suffix(".db.new")
-                with open(dump_path, "r") as dump_file:
+                with open(dump_path) as dump_file:
                     subprocess.run(
                         ["sqlite3", str(new_db_path)],
                         stdin=dump_file, check=True, timeout=300

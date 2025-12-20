@@ -3,16 +3,17 @@
 Tests SafeguardConfig, SpawnRateTracker, ResourceMonitor, and Safeguards.
 """
 
-import pytest
 import time
-from unittest.mock import patch, MagicMock
 from datetime import datetime, timedelta
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from app.coordination.safeguards import (
-    SafeguardConfig,
-    SpawnRateTracker,
     ResourceMonitor,
+    SafeguardConfig,
     Safeguards,
+    SpawnRateTracker,
     check_before_spawn,
 )
 

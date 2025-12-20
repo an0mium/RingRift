@@ -48,18 +48,17 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from app.models import AIConfig, AIType, BoardType, GameStatus
-from app.game_engine import GameEngine
-from app.ai.random_ai import RandomAI
-from app.ai.heuristic_ai import HeuristicAI
-from app.ai.minimax_ai import MinimaxAI
-from app.ai.mcts_ai import MCTSAI
 from app.ai.descent_ai import DescentAI
+from app.ai.heuristic_ai import HeuristicAI
+from app.ai.mcts_ai import MCTSAI
+from app.ai.minimax_ai import MinimaxAI
+from app.ai.random_ai import RandomAI
 from app.config.ladder_config import get_ladder_tier_config
 from app.config.thresholds import INITIAL_ELO_RATING
-from app.training.significance import wilson_score_interval
+from app.game_engine import GameEngine
+from app.models import AIConfig, AIType, BoardType, GameStatus
 from app.training.generate_data import create_initial_state
-
+from app.training.significance import wilson_score_interval
 from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("run_distributed_tournament")
@@ -157,7 +156,7 @@ class TournamentState:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TournamentState":
+    def from_dict(cls, data: dict[str, Any]) -> TournamentState:
         state = cls(
             tournament_id=data["tournament_id"],
             started_at=data["started_at"],
@@ -1237,7 +1236,7 @@ def main() -> None:
     print("=" * 60)
     print(f"\nTotal games: {report['summary']['total_games']}")
     print(f"Duration: {report['duration_sec']:.1f} seconds")
-    print(f"\nRANKINGS BY ELO:")
+    print("\nRANKINGS BY ELO:")
     print("-" * 50)
     print(f"{'Rank':<6} {'Tier':<6} {'Elo':<8} {'W-L-D':<12} {'Win%':<8}")
     print("-" * 50)

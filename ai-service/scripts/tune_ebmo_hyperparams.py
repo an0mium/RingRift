@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 """Tune EBMO hyperparameters via grid search."""
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
+
 logging.disable(logging.INFO)
 
 from app.ai.ebmo_ai import EBMO_AI
 from app.ai.ebmo_network import EBMOConfig
-from app.ai.random_ai import RandomAI
 from app.ai.heuristic_ai import HeuristicAI
-from app.models import AIConfig
-from app.training.initial_state import create_initial_state
+from app.ai.random_ai import RandomAI
 from app.game_engine import GameEngine
+from app.models import AIConfig
 from app.models.core import BoardType
+from app.training.initial_state import create_initial_state
 
 
 def play_game(ai1, ai2, max_moves=150):
@@ -84,7 +86,7 @@ def main():
     print("EBMO Hyperparameter Tuning")
     print("=" * 70)
     print(f"Model: {model_path}")
-    print(f"Games per config: 6 (3 vs Random, 3 vs Heuristic)")
+    print("Games per config: 6 (3 vs Random, 3 vs Heuristic)")
     print()
 
     results = []

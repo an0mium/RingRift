@@ -1,19 +1,20 @@
-import unittest
-import torch
-import numpy as np
-import sys
 import os
+import sys
+import unittest
+
+import numpy as np
+import torch
 
 # Ensure app package is importable
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 
 from app.ai.neural_net import (
-    RingRiftCNN_v2,
-    RingRiftCNN_v2_Lite,
+    P_HEX,
     HexNeuralNet_v2,
     HexNeuralNet_v2_Lite,
-    P_HEX,
     POLICY_SIZE_8x8,
+    RingRiftCNN_v2,
+    RingRiftCNN_v2_Lite,
 )
 
 

@@ -5,9 +5,10 @@ Count actual recovery opportunities: states where player is eligible AND it's th
 
 import json
 from pathlib import Path
-from app.models import GameState, MoveType, GamePhase
+
 from app.game_engine import GameEngine
-from app.rules.core import is_eligible_for_recovery, count_buried_rings, player_has_markers, player_controls_any_stack
+from app.models import GamePhase, GameState, MoveType
+from app.rules.core import count_buried_rings, is_eligible_for_recovery, player_controls_any_stack, player_has_markers
 from app.rules.recovery import get_expanded_recovery_moves
 from app.training.generate_data import create_initial_state
 
@@ -145,7 +146,7 @@ def main():
     for d in selfplay_dirs:
         if d.exists():
             for f in d.glob("games.jsonl"):
-                with open(f, 'r') as fp:
+                with open(f) as fp:
                     for line in fp:
                         line = line.strip()
                         if line:
@@ -193,7 +194,7 @@ def main():
     print(f"{'='*60}")
     print(f"Total games analyzed: {totals['total_games']}")
     print(f"Total game states checked: {totals['total_states']}")
-    print(f"\nRecovery eligibility (player eligible AND it's their turn):")
+    print("\nRecovery eligibility (player eligible AND it's their turn):")
     print(f"  Any phase: {totals['eligible_on_turn']} ({100*totals['eligible_on_turn']/totals['total_states']:.4f}%)")
     print(f"  Movement phase only: {totals['eligible_on_turn_in_movement']} ({100*totals['eligible_on_turn_in_movement']/totals['total_states']:.4f}%)")
     print(f"\nActual recovery moves available: {totals['recovery_moves_available']}")

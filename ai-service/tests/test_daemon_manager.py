@@ -8,16 +8,17 @@ Tests the daemon lifecycle management system that coordinates:
 """
 
 import asyncio
-import pytest
+from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Dict, Any
+
+import pytest
 
 from app.coordination.daemon_manager import (
-    DaemonManager,
-    DaemonType,
-    DaemonState,
     DaemonInfo,
+    DaemonManager,
     DaemonManagerConfig,
+    DaemonState,
+    DaemonType,
     get_daemon_manager,
     reset_daemon_manager,
 )

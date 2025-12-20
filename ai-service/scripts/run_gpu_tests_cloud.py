@@ -70,7 +70,7 @@ def load_hosts_config() -> dict[str, dict]:
         print(f"Error: Config file not found: {config_path}")
         return {}
 
-    with open(config_path, "r") as f:
+    with open(config_path) as f:
         config = yaml.safe_load(f)
 
     return config.get("hosts", {})
@@ -186,14 +186,14 @@ PYTHONPATH=. python scripts/test_gpu_all.py --{mode} --output-json /tmp/gpu_test
     ssh_cmd.append(test_cmd.strip())
 
     if dry_run:
-        print(f"  [DRY RUN] Would execute:")
+        print("  [DRY RUN] Would execute:")
         print(f"  {' '.join(ssh_cmd[:5])} '...'")
         return {"status": "dry_run", "host": host_name}
 
     # Execute tests
     start_time = time.time()
     try:
-        print(f"  Executing tests (this may take several minutes)...")
+        print("  Executing tests (this may take several minutes)...")
         result = subprocess.run(
             ssh_cmd,
             capture_output=True,
@@ -285,7 +285,7 @@ def main():
         print("Error: No GPU hosts available for testing")
         sys.exit(1)
 
-    print(f"\nGPU Test Deployment")
+    print("\nGPU Test Deployment")
     print(f"  Mode: {args.mode}")
     print(f"  Hosts: {', '.join(test_hosts)}")
     print()

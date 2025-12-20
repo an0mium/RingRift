@@ -46,13 +46,13 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Ramdrive utilities for high-speed I/O
-from app.utils.ramdrive import get_config_from_args, get_games_directory, RamdriveSyncer
+from app.utils.ramdrive import RamdriveSyncer, get_config_from_args, get_games_directory
 
 # Unified resource checking utilities (80% max utilization)
 try:
     from app.utils.resource_guard import (
-        get_disk_usage as unified_get_disk_usage,
         LIMITS as RESOURCE_LIMITS,
+        get_disk_usage as unified_get_disk_usage,
     )
     HAS_RESOURCE_GUARD = True
 except ImportError:
@@ -108,7 +108,7 @@ def load_weights_from_profile(
         )
         return DEFAULT_WEIGHTS.copy()
 
-    with open(weights_file, "r") as f:
+    with open(weights_file) as f:
         data = json.load(f)
 
     profiles = data.get("profiles", {})
@@ -180,23 +180,23 @@ def check_disk_space(logger, output_dir: str) -> str:
     return "ok"
 
 
+from app.db import (
+    ParityValidationError,
+    get_or_create_db,
+    record_completed_game_with_parity_check,
+)
 from app.training.selfplay_config import SelfplayConfig, create_argument_parser
 
 # Import shared victory type module
 from app.utils.victory_type import derive_victory_type
-from app.db import (
-    get_or_create_db,
-    record_completed_game_with_parity_check,
-    ParityValidationError,
-)
 
 # Import coordination for task limits and duration tracking
 try:
     from app.coordination import (
         TaskCoordinator,
         TaskType,
-        register_running_task,
         record_task_completion,
+        register_running_task,
     )
     from app.coordination.helpers import can_spawn_safe as can_spawn
     HAS_COORDINATION = True
@@ -255,13 +255,13 @@ def run_hybrid_selfplay(
     Returns:
         Statistics dictionary
     """
+    from app.ai.gpu_batch import get_device
     from app.ai.hybrid_gpu import (
         create_hybrid_evaluator,
     )
-    from app.ai.gpu_batch import get_device
     from app.game_engine import GameEngine
-    from app.training.generate_data import create_initial_state
     from app.models import BoardType
+    from app.training.generate_data import create_initial_state
 
     os.makedirs(output_dir, exist_ok=True)
     np.random.seed(seed)
@@ -353,12 +353,15 @@ def run_hybrid_selfplay(
     mcts_state_adapter_class = None  # Will hold the adapter class for MCTS
     if engine_mode == "mcts":
         try:
-            from app.mcts.improved_mcts import (
-                ImprovedMCTS, MCTSConfig, NeuralNetworkInterface,
-                GameState as MCTSGameState
-            )
-            from typing import List, Tuple
             import hashlib
+            from typing import List, Tuple
+
+            from app.mcts.improved_mcts import (
+                GameState as MCTSGameState,
+                ImprovedMCTS,
+                MCTSConfig,
+                NeuralNetworkInterface,
+            )
 
             class GameStateAdapter(MCTSGameState):
                 """Adapts app.models.GameState to MCTS GameState interface.
@@ -387,7 +390,7 @@ def run_hybrid_selfplay(
                     """Return indices [0, 1, 2, ...] for legal moves."""
                     return list(range(len(self._legal_moves)))
 
-                def apply_move(self, move_idx: int) -> 'GameStateAdapter':
+                def apply_move(self, move_idx: int) -> GameStateAdapter:
                     """Apply move by index and return new adapted state."""
                     if move_idx < 0 or move_idx >= len(self._legal_moves):
                         raise ValueError(f"Invalid move index {move_idx}, have {len(self._legal_moves)} moves")
@@ -1149,18 +1152,18 @@ def run_hybrid_selfplay(
 
 def run_benchmark(board_type: str = "square8", num_players: int = 2):
     """Run benchmark comparing pure CPU vs hybrid evaluation."""
+    from app.ai.gpu_batch import get_device
     from app.ai.hybrid_gpu import (
-        create_hybrid_evaluator,
         benchmark_hybrid_evaluation,
+        create_hybrid_evaluator,
     )
     from app.ai.numba_rules import (
         NUMBA_AVAILABLE,
         benchmark_numba_functions,
     )
-    from app.ai.gpu_batch import get_device
     from app.game_engine import GameEngine
-    from app.training.generate_data import create_initial_state
     from app.models import BoardType
+    from app.training.generate_data import create_initial_state
 
     logger.info("=" * 60)
     logger.info("BENCHMARK: CPU vs Hybrid GPU Evaluation")
@@ -1445,9 +1448,13 @@ def main():
         # Also import graceful degradation functions for dynamic resource management
         try:
             from app.utils.resource_guard import (
-                check_disk_space, check_memory, check_gpu_memory,
-                LIMITS, should_proceed_with_priority,
-                OperationPriority, get_degradation_level,
+                LIMITS,
+                OperationPriority,
+                check_disk_space,
+                check_gpu_memory,
+                check_memory,
+                get_degradation_level,
+                should_proceed_with_priority,
             )
             # Estimate output size: ~2KB per game for JSONL/DB
             estimated_output_mb = (args.num_games * 0.002) + 50
@@ -1459,7 +1466,7 @@ def main():
                 sys.exit(1)
             if not check_gpu_memory(required_gb=1.0):
                 logger.warning("GPU memory constrained, may affect performance")
-            logger.info(f"Resource check passed: disk/memory/GPU within 80% limits")
+            logger.info("Resource check passed: disk/memory/GPU within 80% limits")
 
             # Graceful degradation: Hybrid selfplay is NORMAL priority
             degradation = get_degradation_level()
@@ -1566,7 +1573,7 @@ def main():
                     config = f"{args.board_type}_{args.num_players}p"
                     # Args: task_type, host, started_at, completed_at, success, config
                     record_task_completion("hybrid_selfplay", node_id, start_time, time.time(), True, config)
-                    logger.info(f"Recorded task completion for duration learning")
+                    logger.info("Recorded task completion for duration learning")
                 except Exception as e:
                     logger.warning(f"Failed to record task completion: {e}")
 

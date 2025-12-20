@@ -4,20 +4,21 @@ Tests the selfplay configuration, argument parsing, and orchestration
 components working together.
 """
 
-import pytest
 from dataclasses import asdict
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+import pytest
+
+from app.models import BoardType
 from app.training.selfplay_config import (
-    SelfplayConfig,
     EngineMode,
     OutputFormat,
-    parse_selfplay_args,
+    SelfplayConfig,
     create_argument_parser,
     get_default_config,
     get_production_config,
+    parse_selfplay_args,
 )
-from app.models import BoardType
 
 
 class TestSelfplayConfigCreation:

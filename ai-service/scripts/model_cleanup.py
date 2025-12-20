@@ -7,18 +7,18 @@ Keeps:
 - Models referenced in promotion history
 - Models referenced in Elo leaderboard
 """
+import argparse
+import json
 import os
 import re
-import json
 import sys
-import argparse
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.utils.paths import MODELS_DIR, DATA_DIR
+from app.utils.paths import DATA_DIR, MODELS_DIR
 
 PROMOTION_HISTORY = str(DATA_DIR / "model_promotion_history.json")
 KEEP_PER_CONFIG = 5  # Keep most recent N models per board config
@@ -125,7 +125,7 @@ def find_models_to_delete(models_dir, keep_per_config, dry_run=True):
 
             # Check if protected
             if model_id in protected:
-                to_keep.append((model["filename"], f"protected (promotion history)"))
+                to_keep.append((model["filename"], "protected (promotion history)"))
                 kept += 1
                 continue
 
@@ -204,7 +204,7 @@ def main():
             print(f"  SKIP: {filename} - {reason}")
 
     print()
-    print(f"Summary:")
+    print("Summary:")
     print(f"  Models to keep:   {len(to_keep):3d} ({total_keep_size / 1024 / 1024:.1f} MB)")
     print(f"  Models to delete: {len(to_delete):3d} ({total_delete_size / 1024 / 1024:.1f} MB)")
 

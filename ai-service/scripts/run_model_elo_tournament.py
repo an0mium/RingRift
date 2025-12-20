@@ -39,20 +39,25 @@ if TYPE_CHECKING:
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
-from app.models import (
-    AIConfig, AIType, BoardType, GameStatus, GameState,
-)
-from app.rules.default_engine import DefaultRulesEngine
-from app.utils.victory_type import derive_victory_type
-from app.training.generate_data import create_initial_state
-
 # Import event bus helpers (consolidated imports)
 import asyncio
+
 from app.distributed.event_helpers import (
-    has_event_bus,
-    get_event_bus_safe,
     emit_elo_updated_safe,
+    get_event_bus_safe,
+    has_event_bus,
 )
+from app.models import (
+    AIConfig,
+    AIType,
+    BoardType,
+    GameState,
+    GameStatus,
+)
+from app.rules.default_engine import DefaultRulesEngine
+from app.training.generate_data import create_initial_state
+from app.utils.victory_type import derive_victory_type
+
 HAS_EVENT_BUS = has_event_bus()
 
 # For backwards compatibility
@@ -64,22 +69,23 @@ else:
 
 # Import coordination helpers (consolidated imports)
 from app.coordination.helpers import (
-    has_coordination,
-    get_registry_safe,
-    can_spawn_safe,
     OrchestratorRole,
+    can_spawn_safe,
+    get_registry_safe,
+    has_coordination,
 )
+
 HAS_COORDINATION = has_coordination()
 
 # For backwards compatibility
 if HAS_COORDINATION:
     from app.coordination import (
-        get_registry,
-        can_spawn,
         can_schedule_task,
+        can_spawn,
         estimate_task_duration,
-        register_running_task,
+        get_registry,
         record_task_completion,
+        register_running_task,
     )
 else:
     get_registry = get_registry_safe
@@ -107,16 +113,16 @@ def create_ai_from_model(
     model_def: dict[str, Any],
     player_number: int,
     board_type: BoardType,
-) -> "BaseAI":
+) -> BaseAI:
     """Create an AI instance from a model definition.
 
     Supports neural network models (model_path to .pth file), NNUE models (.pt files),
     and baseline players (model_path starting with __BASELINE_).
     """
-    from app.ai.random_ai import RandomAI
     from app.ai.heuristic_ai import HeuristicAI
     from app.ai.mcts_ai import MCTSAI
     from app.ai.minimax_ai import MinimaxAI
+    from app.ai.random_ai import RandomAI
 
     model_path = model_def.get("model_path", "")
     ai_type = model_def.get("ai_type", "neural_net")
@@ -187,6 +193,7 @@ def play_model_vs_model_game(
     If save_game_history=True, also returns full game record for training data export.
     """
     import uuid
+
     from app.rules.default_engine import DefaultRulesEngine
     from app.training.generate_data import create_initial_state
 
@@ -329,6 +336,7 @@ def play_nn_vs_nn_game(
     import time
     import uuid
     from datetime import datetime
+
     from app.ai.neural_net import NeuralNetAI, clear_model_cache
 
     def _timeout_tiebreak_winner(final_state: GameState) -> int | None:
@@ -781,6 +789,7 @@ LEGACY_ELO_DB_PATH = AI_SERVICE_ROOT / "data" / "elo_leaderboard.db"  # Legacy, 
 from app.tournament.unified_elo_db import (
     EloDatabase,
 )
+
 UNIFIED_DB_AVAILABLE = True
 
 
@@ -981,7 +990,9 @@ def get_leaderboard(
             "draws": row.get("draws", 0),
             "win_rate": round(win_rate, 1),
             "version": row.get("model_version", "unknown"),
-            "last_update": datetime.fromtimestamp(row["last_update"]).isoformat() if row.get("last_update") else None,
+            "last_update": (datetime.fromtimestamp(float(row["last_update"])).isoformat()
+                           if row.get("last_update") and str(row["last_update"]).replace('.','').isdigit()
+                           else row.get("last_update")),
         })
 
     return results
@@ -1115,7 +1126,7 @@ def run_all_config_tournaments(args):
     models_dir = AI_SERVICE_ROOT / "models"
 
     print(f"\n{'='*80}")
-    print(f" Running Elo Tournaments for All Configurations")
+    print(" Running Elo Tournaments for All Configurations")
     print(f"{'='*80}")
 
     overall_start = time.time()
@@ -1207,7 +1218,7 @@ def run_all_config_tournaments(args):
 
     overall_elapsed = time.time() - overall_start
     print(f"\n{'='*80}")
-    print(f" All Tournaments Complete")
+    print(" All Tournaments Complete")
     print(f"{'='*80}")
     print(f"Total games: {total_games_all}")
     print(f"Total time: {overall_elapsed:.1f}s")
@@ -1230,11 +1241,12 @@ def run_continuous_tournament(args):
     emit_events = args.emit_events
     if emit_events:
         try:
-            from app.distributed.data_events import (
-                emit_evaluation_completed,
-                emit_error,
-            )
             import asyncio
+
+            from app.distributed.data_events import (
+                emit_error,
+                emit_evaluation_completed,
+            )
         except ImportError:
             print("[ContinuousTournament] Warning: Event bus not available, disabling event emission")
             emit_events = False
@@ -1257,7 +1269,7 @@ def run_continuous_tournament(args):
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    print(f"[ContinuousTournament] Starting continuous evaluation daemon")
+    print("[ContinuousTournament] Starting continuous evaluation daemon")
     print(f"  Interval: {interval}s ({interval // 60} min)")
     print(f"  Games per matchup: {args.games}")
     print(f"  Board: {args.board}, Players: {args.players}")
@@ -1773,7 +1785,7 @@ def main():
                 matchups.append((m1, m2))
 
     print(f"\n{'='*80}")
-    print(f" Tournament Plan")
+    print(" Tournament Plan")
     print(f"{'='*80}")
     print(f"Models: {len(models)}")
     print(f"Matchups: {len(matchups)}")
@@ -1853,7 +1865,7 @@ def main():
             config = f"{args.board}_{args.players}p"
             # Args: task_type, host, started_at, completed_at, success, config
             record_task_completion("tournament", node_id, coord_start_time, time.time(), True, config)
-            print(f"[Tournament] Recorded task completion")
+            print("[Tournament] Recorded task completion")
         except Exception as e:
             print(f"[Tournament] Warning: Failed to record task completion: {e}")
 

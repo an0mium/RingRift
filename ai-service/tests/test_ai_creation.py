@@ -1,16 +1,17 @@
 import pytest
+
+from app.ai.descent_ai import DescentAI
+from app.ai.heuristic_ai import HeuristicAI
+from app.ai.ig_gmo import IGGMO
+from app.ai.mcts_ai import MCTSAI
+from app.ai.minimax_ai import MinimaxAI
+from app.ai.random_ai import RandomAI
 from app.main import (
     _create_ai_instance,
-    _select_ai_type,
     _get_difficulty_profile,
+    _select_ai_type,
 )
-from app.models import AIType, AIConfig
-from app.ai.minimax_ai import MinimaxAI
-from app.ai.mcts_ai import MCTSAI
-from app.ai.heuristic_ai import HeuristicAI
-from app.ai.random_ai import RandomAI
-from app.ai.descent_ai import DescentAI
-from app.ai.ig_gmo import IGGMO
+from app.models import AIConfig, AIType
 
 # Test timeout guards to prevent hanging in CI
 TEST_TIMEOUT_SECONDS = 30

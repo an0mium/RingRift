@@ -8,7 +8,7 @@ from NPZ format to HDF5 format with data integrity preserved.
 import os
 import tempfile
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
 import numpy as np
 import pytest
@@ -22,10 +22,10 @@ except ImportError:
 
 # Import conversion functions
 from scripts.convert_npz_to_hdf5 import (
-    convert_npz_to_hdf5,
-    convert_directory,
-    compute_array_checksum,
     HAS_H5PY as SCRIPT_HAS_H5PY,
+    compute_array_checksum,
+    convert_directory,
+    convert_npz_to_hdf5,
 )
 
 

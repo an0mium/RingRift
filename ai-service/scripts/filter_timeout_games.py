@@ -147,7 +147,7 @@ def filter_jsonl_file(jsonl_path: Path, dry_run: bool = False, backup: bool = Tr
         games_before = 0
         valid_games = []
 
-        with open(jsonl_path, 'r') as f:
+        with open(jsonl_path) as f:
             for line in f:
                 if not line.strip():
                     continue
@@ -506,7 +506,7 @@ async def filter_cluster(config_path: Path, dry_run: bool = False, specific_host
 
     print("\n" + "=" * 70)
     action = "would be removed" if dry_run else "removed"
-    print(f"SUMMARY")
+    print("SUMMARY")
     print("=" * 70)
     print(f"  Total timeout games {action}: {total_removed:,}")
     print(f"  Successful hosts: {successful_hosts}")

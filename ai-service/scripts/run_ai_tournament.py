@@ -1,34 +1,33 @@
-import sys
-import os
-import time
 import argparse
 import fcntl
 import json
+import os
+import sys
+import time
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 # Add the parent directory to sys.path to allow imports from app
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app.ai.descent_ai import DescentAI
+from app.ai.heuristic_ai import HeuristicAI
+from app.ai.mcts_ai import MCTSAI
+from app.ai.minimax_ai import MinimaxAI
+from app.ai.random_ai import RandomAI
+from app.models import AIConfig, BoardState, BoardType, GamePhase, GameState, GameStatus, Player, TimeControl
+from app.rules.default_engine import DefaultRulesEngine
 from app.utils.progress_reporter import SoakProgressReporter
 from app.utils.victory_type import derive_victory_type
-
-from app.models import GameState, BoardType, GamePhase, GameStatus, Player, TimeControl, BoardState, AIConfig
-from app.ai.heuristic_ai import HeuristicAI
-from app.ai.minimax_ai import MinimaxAI
-from app.ai.mcts_ai import MCTSAI
-from app.ai.random_ai import RandomAI
-from app.ai.descent_ai import DescentAI
-from app.rules.default_engine import DefaultRulesEngine
 
 # Import coordination for task limits and duration tracking
 try:
     from app.coordination import (
         TaskType,
         can_spawn,
-        register_running_task,
         record_task_completion,
+        register_running_task,
     )
     HAS_COORDINATION = True
 except ImportError:
@@ -260,7 +259,7 @@ def main():
         except Exception as e:
             print(f"[Coordination] Warning: Failed to register task: {e}")
 
-    print(f"Tournament Configuration:")
+    print("Tournament Configuration:")
     print(f"  Player 1: {args.p1} (Difficulty {args.p1_diff})")
     print(f"  Player 2: {args.p2} (Difficulty {args.p2_diff})")
     print(f"  Board: {args.board}")
@@ -444,7 +443,7 @@ def main():
             config = f"{args.p1}_vs_{args.p2}_{args.board}"
             # Args: task_type, host, started_at, completed_at, success, config
             record_task_completion("tournament", node_id, coord_start_time, time.time(), True, config)
-            print(f"[Coordination] Recorded task completion")
+            print("[Coordination] Recorded task completion")
         except Exception as e:
             print(f"[Coordination] Warning: Failed to record task completion: {e}")
 

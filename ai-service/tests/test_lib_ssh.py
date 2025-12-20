@@ -3,9 +3,10 @@
 Tests SSH command execution utilities.
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
 import subprocess
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from scripts.lib.ssh import (
     SSHConfig,

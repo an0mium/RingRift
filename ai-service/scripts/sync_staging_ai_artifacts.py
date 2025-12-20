@@ -35,9 +35,9 @@ import sys
 import tarfile
 import tempfile
 import time
+from collections.abc import Iterable
 from pathlib import Path
 from typing import List
-from collections.abc import Iterable
 
 
 def _env_bool(value: str | None) -> bool:

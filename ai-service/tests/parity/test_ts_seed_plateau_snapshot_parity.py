@@ -18,18 +18,18 @@ from __future__ import annotations
 
 import json
 import os
+
+# Ensure app package is importable when running tests directly
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
 import pytest
 
-# Ensure app package is importable when running tests directly
-import sys
-
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../"))
 
-from app.models.core import (  # noqa: E402
+from app.models.core import (
     BoardState,
     BoardType,
     GamePhase,
@@ -40,7 +40,6 @@ from app.models.core import (  # noqa: E402
     RingStack,
     TimeControl,
 )
-
 
 BASE_DIR = Path(__file__).resolve().parent
 PARITY_DIR = BASE_DIR

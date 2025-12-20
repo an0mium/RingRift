@@ -1,7 +1,6 @@
 import pytest
 import torch
 
-
 try:
     from app.ai.gpu_parallel_games import GameStatus, ParallelGameRunner
 

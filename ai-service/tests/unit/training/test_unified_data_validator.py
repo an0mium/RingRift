@@ -1,8 +1,9 @@
 """Tests for unified_data_validator.py - consolidated data validation."""
 
-import pytest
-from unittest.mock import MagicMock, patch
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestUnifiedDataValidatorImports:
@@ -12,14 +13,14 @@ class TestUnifiedDataValidatorImports:
         """Test importing the unified API."""
         from app.training.unified_data_validator import (
             UnifiedDataValidator,
-            UnifiedValidationResult,
             UnifiedValidationIssue,
-            ValidationType,
+            UnifiedValidationResult,
             ValidationSeverity,
+            ValidationType,
             get_validator,
-            validate_training_data,
-            validate_database,
             validate_any,
+            validate_database,
+            validate_training_data,
         )
         assert UnifiedDataValidator is not None
         assert get_validator is not None
@@ -39,8 +40,8 @@ class TestUnifiedDataValidatorImports:
         """Test territory validation re-exports."""
         try:
             from app.training.unified_data_validator import (
-                validate_territory_example,
                 validate_territory_dataset_file,
+                validate_territory_example,
             )
         except ImportError:
             pytest.skip("Territory validation not available")
@@ -49,10 +50,10 @@ class TestUnifiedDataValidatorImports:
         """Test parity validation re-exports."""
         try:
             from app.training.unified_data_validator import (
-                validate_parity,
-                ParityValidationError,
                 ParityDivergence,
                 ParityMode,
+                ParityValidationError,
+                validate_parity,
             )
         except ImportError:
             pytest.skip("Parity validation not available")
@@ -110,8 +111,8 @@ class TestUnifiedValidationResult:
         """Test adding an issue to result."""
         from app.training.unified_data_validator import (
             UnifiedValidationResult,
-            ValidationType,
             ValidationSeverity,
+            ValidationType,
         )
 
         result = UnifiedValidationResult(

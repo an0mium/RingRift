@@ -444,21 +444,21 @@ def main():
         print("\n" + "="*60)
         print("SWEEP ANALYSIS")
         print("="*60)
-        print(f"\nBest Configuration:")
+        print("\nBest Configuration:")
         for k, v in analysis["best_config"].items():
             print(f"  {k}: {v}")
-        print(f"\nBest Win Rates:")
+        print("\nBest Win Rates:")
         print(f"  vs Random: {analysis['best_vs_random']:.1f}%")
         print(f"  vs Heuristic: {analysis['best_vs_heuristic']:.1f}%")
         print(f"  Combined: {analysis['best_combined']:.1f}%")
-        print(f"\nParameter Importance (by win rate range):")
+        print("\nParameter Importance (by win rate range):")
         for param, info in sorted(
             analysis["param_importance"].items(),
             key=lambda x: x[1]["importance"],
             reverse=True
         ):
             print(f"  {param}: {info['importance']:.1f}% range, best={info['best_value']}")
-        print(f"\nTop 5 Configurations:")
+        print("\nTop 5 Configurations:")
         for i, cfg in enumerate(analysis["top_5"], 1):
             print(f"  {i}. R:{cfg['vs_random']:.0f}% H:{cfg['vs_heuristic']:.0f}% "
                   f"steps={cfg['config']['optim_steps']} lr={cfg['config']['lr']} "
@@ -527,10 +527,10 @@ def main():
     print("\n" + "="*60)
     print("SWEEP COMPLETE")
     print("="*60)
-    print(f"\nBest Configuration:")
+    print("\nBest Configuration:")
     for k, v in analysis["best_config"].items():
         print(f"  {k}: {v}")
-    print(f"\nBest Win Rates:")
+    print("\nBest Win Rates:")
     print(f"  vs Random: {analysis['best_vs_random']:.1f}%")
     print(f"  vs Heuristic: {analysis['best_vs_heuristic']:.1f}%")
 

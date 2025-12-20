@@ -3,14 +3,14 @@
 import pytest
 
 from app.utils.result import (
-    Ok,
     Err,
+    Ok,
+    OperationResult,
     Result,
     ResultError,
-    result_from_exception,
     collect_results,
     partition_results,
-    OperationResult,
+    result_from_exception,
 )
 
 

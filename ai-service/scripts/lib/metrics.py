@@ -44,13 +44,12 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
-from collections.abc import Iterator
+from typing import Any, Dict, Optional
 
 from scripts.lib.datetime_utils import format_elapsed_time
-
 
 # =============================================================================
 # Timing Statistics
@@ -138,7 +137,7 @@ class TimingStats:
         self.min_time = float("inf")
         self.max_time = 0.0
 
-    def merge(self, other: "TimingStats") -> None:
+    def merge(self, other: TimingStats) -> None:
         """Merge statistics from another TimingStats.
 
         Args:
@@ -411,7 +410,7 @@ class WinLossCounter:
         self.losses = 0
         self.draws = 0
 
-    def merge(self, other: "WinLossCounter") -> None:
+    def merge(self, other: WinLossCounter) -> None:
         """Merge another counter into this one."""
         self.wins += other.wins
         self.losses += other.losses
@@ -629,7 +628,7 @@ class RunningStats:
         self.min_value = float("inf")
         self.max_value = float("-inf")
 
-    def merge(self, other: "RunningStats") -> None:
+    def merge(self, other: RunningStats) -> None:
         """Merge another RunningStats into this one.
 
         Uses parallel algorithm for combining statistics.

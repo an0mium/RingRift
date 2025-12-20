@@ -12,14 +12,15 @@ Tests cover:
 
 import os
 import tempfile
-import pytest
+
 import numpy as np
+import pytest
 import torch
 
 from app.training.data_loader import (
+    FileHandle,
     StreamingDataLoader,
     StreamingDataset,
-    FileHandle,
     get_sample_count,
     merge_data_files,
 )

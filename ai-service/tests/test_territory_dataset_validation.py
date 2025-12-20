@@ -11,14 +11,14 @@ import pytest
 # Ensure app package is importable when running tests directly.
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 
-from app.models import (  # type: ignore  # noqa: E402
+from app.models import (  # type: ignore
     BoardState,
     BoardType,
     GameState,
     Player,
     TimeControl,
 )
-from app.training.territory_dataset_validation import (  # type: ignore  # noqa: E402
+from app.training.territory_dataset_validation import (  # type: ignore
     iter_territory_dataset_errors,
     validate_territory_example,
 )

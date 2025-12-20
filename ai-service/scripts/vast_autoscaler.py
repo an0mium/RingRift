@@ -106,7 +106,7 @@ class ScalingState:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ScalingState":
+    def from_dict(cls, data: dict) -> ScalingState:
         return cls(
             last_scale_up=datetime.fromisoformat(data["last_scale_up"]) if data.get("last_scale_up") else None,
             last_scale_down=datetime.fromisoformat(data["last_scale_down"]) if data.get("last_scale_down") else None,

@@ -25,10 +25,10 @@ import shlex
 import sys
 import time
 import uuid
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from collections.abc import Callable, Iterable, Sequence
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -44,10 +44,9 @@ from app.distributed.hosts import (
 )
 from app.models import BoardType
 
-from scripts.run_distributed_tournament import DistributedTournament, TournamentState
-
 # Unified logging setup
 from scripts.lib.logging_config import setup_script_logging
+from scripts.run_distributed_tournament import DistributedTournament, TournamentState
 
 logger = setup_script_logging("run_ssh_distributed_tournament")
 
@@ -606,7 +605,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     combined_matches = []
     completed_matchups: list[Matchup] = []
     for path in sorted(shard_paths):
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             state = TournamentState.from_dict(json.load(f))
         combined_matches.extend(state.matches)
         if len(state.tiers) == 2:

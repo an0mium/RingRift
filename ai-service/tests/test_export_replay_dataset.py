@@ -1,16 +1,18 @@
 """Tests for export_replay_dataset value target functions."""
 
-import pytest
-from unittest.mock import MagicMock
+import os
 
 # Import the functions to test
 import sys
-import os
+from unittest.mock import MagicMock
+
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from scripts.export_replay_dataset import (
-    value_from_final_winner,
     value_from_final_ranking,
+    value_from_final_winner,
 )
 
 

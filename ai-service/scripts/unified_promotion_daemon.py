@@ -82,7 +82,7 @@ class DaemonConfig:
     notify_on_rejection: bool = False
 
     @classmethod
-    def from_yaml(cls, path: Path) -> "DaemonConfig":
+    def from_yaml(cls, path: Path) -> DaemonConfig:
         """Load config from YAML file."""
         if not path.exists():
             logger.warning(f"Config file not found: {path}, using defaults")
@@ -134,7 +134,7 @@ class DaemonState:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "DaemonState":
+    def from_dict(cls, data: dict) -> DaemonState:
         return cls(
             known_models=data.get("known_models", {}),
             evaluated_models=data.get("evaluated_models", {}),
@@ -199,10 +199,10 @@ class GauntletRunner:
         """Run gauntlet for a single model."""
         try:
             # Import gauntlet functions
+            from app.models import BoardType
             from scripts.baseline_gauntlet import (
                 run_gauntlet_for_model,
             )
-            from app.models import BoardType
 
             # Parse model info from path/filename
             model_info = self._parse_model_info(model_path)
@@ -569,7 +569,7 @@ class UnifiedPromotionDaemon:
                 print(f"  - {p['model']} at {p['timestamp']}")
 
         # Config summary
-        print(f"\nConfig:")
+        print("\nConfig:")
         print(f"  Check interval: {self.config.check_interval_seconds}s")
         print(f"  Games per baseline: {self.config.games_per_baseline}")
         print(f"  Min win rate: {self.config.min_win_rate:.0%}")

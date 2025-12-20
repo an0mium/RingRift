@@ -1,24 +1,25 @@
 """Tests for scripts.lib.alerts module."""
 
 import json
-import pytest
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from scripts.lib.alerts import (
-    AlertSeverity,
-    AlertType,
     Alert,
-    AlertThresholds,
     AlertManager,
-    create_alert,
+    AlertSeverity,
+    AlertThresholds,
+    AlertType,
+    check_cpu_alert,
     check_disk_alert,
     check_memory_alert,
-    check_cpu_alert,
-    log_handler,
     console_handler,
+    create_alert,
     file_handler,
+    log_handler,
 )
 
 

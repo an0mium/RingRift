@@ -4,60 +4,60 @@ Tests for app.coordination.event_emitters module.
 Tests the centralized event emission functions for all event types.
 """
 
-import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from app.coordination.event_emitters import (
-    # Helper functions
-    _get_timestamp,
     _emit_via_router,
     _emit_via_router_sync,
-    # Training events
-    emit_training_started,
-    emit_training_complete,
-    emit_training_complete_sync,
-    # Selfplay events
-    emit_selfplay_complete,
-    # Evaluation events
-    emit_evaluation_complete,
-    # Promotion events
-    emit_promotion_complete,
-    # Sync events
-    emit_sync_complete,
-    # Quality events
-    emit_quality_updated,
-    # Task events
-    emit_task_complete,
-    # Optimization events
-    emit_optimization_triggered,
-    # Metrics events
-    emit_plateau_detected,
-    emit_regression_detected,
+    # Helper functions
+    _get_timestamp,
     # Backpressure events
     emit_backpressure_activated,
     emit_backpressure_released,
     # Cache events
     emit_cache_invalidated,
-    # Host/Node events
-    emit_host_online,
-    emit_host_offline,
-    emit_node_recovered,
-    # Error Recovery events
-    emit_training_rollback_needed,
-    emit_training_rollback_completed,
+    emit_coordinator_health_degraded,
+    emit_coordinator_heartbeat,
+    emit_coordinator_shutdown,
+    emit_curriculum_rebalanced,
+    # Evaluation events
+    emit_evaluation_complete,
     emit_handler_failed,
     emit_handler_timeout,
-    emit_coordinator_health_degraded,
-    emit_coordinator_shutdown,
-    emit_coordinator_heartbeat,
-    emit_task_abandoned,
-    emit_task_orphaned,
+    emit_host_offline,
+    # Host/Node events
+    emit_host_online,
     emit_model_corrupted,
-    emit_curriculum_rebalanced,
+    emit_node_recovered,
+    # Optimization events
+    emit_optimization_triggered,
+    # Metrics events
+    emit_plateau_detected,
+    # Promotion events
+    emit_promotion_complete,
+    # Quality events
+    emit_quality_updated,
+    emit_regression_detected,
+    # Selfplay events
+    emit_selfplay_complete,
+    # Sync events
+    emit_sync_complete,
+    emit_task_abandoned,
+    # Task events
+    emit_task_complete,
+    emit_task_orphaned,
+    emit_training_complete,
+    emit_training_complete_sync,
+    emit_training_rollback_completed,
+    # Error Recovery events
+    emit_training_rollback_needed,
+    # Training events
+    emit_training_started,
     emit_training_triggered,
 )
-
 
 # ============================================
 # Test Fixtures

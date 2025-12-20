@@ -8,10 +8,10 @@ Tests cover:
 
 import asyncio
 import time
-import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
 from dataclasses import dataclass
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 
 # =============================================================================
 # Test SyncOrchestratorConfig Dataclass
@@ -348,8 +348,8 @@ class TestModuleFunctions:
     def test_get_sync_orchestrator_creates_singleton(self):
         """Test that get_sync_orchestrator creates a singleton."""
         from app.distributed.sync_orchestrator import (
-            get_sync_orchestrator,
             SyncOrchestrator,
+            get_sync_orchestrator,
         )
 
         orch1 = get_sync_orchestrator()

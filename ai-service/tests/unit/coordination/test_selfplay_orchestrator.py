@@ -8,21 +8,21 @@ Tests cover:
 - Module helper functions
 """
 
-import pytest
-import time
 import asyncio
-from unittest.mock import MagicMock, patch, AsyncMock
+import time
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.coordination.selfplay_orchestrator import (
-    SelfplayType,
-    SelfplayTaskInfo,
-    SelfplayStats,
     SelfplayOrchestrator,
+    SelfplayStats,
+    SelfplayTaskInfo,
+    SelfplayType,
     get_selfplay_orchestrator,
-    wire_selfplay_events,
     get_selfplay_stats,
+    wire_selfplay_events,
 )
-
 
 # ============================================
 # Tests for SelfplayType enum

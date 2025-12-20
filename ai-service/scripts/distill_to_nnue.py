@@ -55,10 +55,10 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
-from collections.abc import Iterator
 
 import numpy as np
 
@@ -78,8 +78,8 @@ from app.ai.nnue import (
     extract_features_from_gamestate,
     get_feature_dim,
 )
-from app.models import BoardType, GameState
 from app.db import GameReplayDB
+from app.models import BoardType, GameState
 
 
 @dataclass
@@ -180,9 +180,9 @@ def get_nn_value(
     """
     # Import feature extraction from neural_net module
     from app.ai.neural_net import (
-        encode_state_to_tensor,
-        encode_global_features,
         BOARD_SPATIAL_SIZES,
+        encode_global_features,
+        encode_state_to_tensor,
     )
 
     board_type = game_state.board_type

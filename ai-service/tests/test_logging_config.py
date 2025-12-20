@@ -1,19 +1,20 @@
 """Tests for app/core/logging_config.py - Unified logging configuration."""
 
 import logging
-import pytest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from app.core.logging_config import (
-    setup_logging,
-    get_logger,
-    configure_third_party_loggers,
-    LogContext,
-    DEFAULT_FORMAT,
     COMPACT_FORMAT,
+    DEFAULT_FORMAT,
     DETAILED_FORMAT,
     STRUCTURED_FORMAT,
+    LogContext,
+    configure_third_party_loggers,
+    get_logger,
+    setup_logging,
 )
 
 

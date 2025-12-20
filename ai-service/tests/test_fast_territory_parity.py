@@ -5,12 +5,12 @@ This test ensures that the optimized NumPy-based territory detection
 produces identical results to the original Python implementation.
 """
 
-import pytest
 from typing import List, Set
+
+import pytest
+
 from app.board_manager import BoardManager
-from app.models import (
-    BoardState, BoardType, Position, RingStack, MarkerInfo, Territory
-)
+from app.models import BoardState, BoardType, MarkerInfo, Position, RingStack, Territory
 
 
 def territories_equivalent(t1: list[Territory], t2: list[Territory]) -> bool:
@@ -79,6 +79,7 @@ class TestFastTerritoryParity:
         os.environ['RINGRIFT_USE_FAST_TERRITORY'] = 'false'
         # Need to reload to pick up the env change
         import importlib
+
         import app.board_manager as bm
         importlib.reload(bm)
 

@@ -6,13 +6,14 @@ and their next MOVEMENT phase turn, causing them to lose eligibility.
 
 import json
 from pathlib import Path
-from app.models import GameState, MoveType, GamePhase
+
 from app.game_engine import GameEngine
+from app.models import GamePhase, GameState, MoveType
 from app.rules.core import (
-    is_eligible_for_recovery,
     count_buried_rings,
-    player_has_markers,
+    is_eligible_for_recovery,
     player_controls_any_stack,
+    player_has_markers,
 )
 from app.training.generate_data import create_initial_state
 
@@ -63,7 +64,7 @@ def trace_game(game_file: str, game_index: int, eligible_move_idx: int, eligible
     """
     games_file = Path(game_file)
     games = []
-    with open(games_file, 'r') as f:
+    with open(games_file) as f:
         for line in f:
             line = line.strip()
             if line:
@@ -217,7 +218,7 @@ def trace_game(game_file: str, game_index: int, eligible_move_idx: int, eligible
 def main():
     # Load the analysis results
     results_file = Path("data/selfplay/actual_recovery_opportunities.json")
-    with open(results_file, 'r') as f:
+    with open(results_file) as f:
         results = json.load(f)
 
     eligible_states = results.get('eligible_but_not_movement', [])

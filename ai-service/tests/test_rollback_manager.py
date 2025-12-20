@@ -11,14 +11,14 @@ from pathlib import Path
 import pytest
 
 from app.training.model_registry import (
+    ModelMetrics,
     ModelRegistry,
     ModelStage,
-    ModelMetrics,
 )
 from app.training.rollback_manager import (
+    RollbackEvent,
     RollbackManager,
     RollbackThresholds,
-    RollbackEvent,
 )
 
 

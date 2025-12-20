@@ -8,13 +8,12 @@ import torch
 
 from app.ai.gpu_batch_state import BatchGameState
 from app.ai.gpu_territory import (
-    _find_eligible_territory_cap,
     _find_all_regions,
-    _is_physically_disconnected,
+    _find_eligible_territory_cap,
     _is_color_disconnected,
+    _is_physically_disconnected,
     compute_territory_batch,
 )
-
 
 # =============================================================================
 # Test Fixtures

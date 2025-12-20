@@ -13,10 +13,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from app.config.perf_budgets import TierPerfBudget  # noqa: E402
-from app.models import BoardType  # noqa: E402
-from app.training.tier_perf_benchmark import TierPerfResult  # noqa: E402
-from scripts.run_full_tier_gating import _eval_perf_budget  # type: ignore[import]  # noqa: E402
+from app.config.perf_budgets import TierPerfBudget
+from app.models import BoardType
+from app.training.tier_perf_benchmark import TierPerfResult
+from scripts.run_full_tier_gating import _eval_perf_budget  # type: ignore[import]
 
 
 def _make_budget(max_avg: float, max_p95: float) -> TierPerfBudget:

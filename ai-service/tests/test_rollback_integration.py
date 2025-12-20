@@ -14,12 +14,19 @@ requiring actual model files or Elo databases.
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
-from typing import List, Dict, Any
+from typing import Any, Dict, List
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
+from app.training.notification_config import (
+    FilteredWebhookHook,
+    PagerDutyNotificationHook,
+    load_rollback_config,
+)
 from app.training.promotion_controller import (
+    LoggingNotificationHook,
+    NotificationHook,
     PromotionController,
     PromotionCriteria,
     PromotionDecision,
@@ -27,13 +34,6 @@ from app.training.promotion_controller import (
     RollbackCriteria,
     RollbackEvent,
     RollbackMonitor,
-    NotificationHook,
-    LoggingNotificationHook,
-)
-from app.training.notification_config import (
-    FilteredWebhookHook,
-    PagerDutyNotificationHook,
-    load_rollback_config,
 )
 
 
@@ -511,6 +511,7 @@ class TestConfigIntegration:
     def test_load_config_and_create_monitor(self):
         """Test loading config and creating a fully configured monitor."""
         import tempfile
+
         import yaml
 
         config = {

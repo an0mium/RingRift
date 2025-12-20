@@ -31,17 +31,16 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import (  # noqa: E402
+from app.game_engine import GameEngine
+from app.models import (
     GamePhase,
-    GameStatus,
     GameState,
+    GameStatus,
     Position,
     RingStack,
 )
-from app.game_engine import GameEngine  # noqa: E402
-from app.rules import global_actions as ga  # noqa: E402
-from tests.rules.helpers import _make_base_game_state  # noqa: E402
-
+from app.rules import global_actions as ga
+from tests.rules.helpers import _make_base_game_state
 
 # ---------------------------------------------------------------------------
 # Scenario builders (Python analogues of tests/fixtures/anmFixtures.ts)

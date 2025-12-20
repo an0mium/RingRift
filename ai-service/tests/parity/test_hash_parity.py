@@ -10,7 +10,7 @@ This enables meaningful cross-engine parity testing.
 
 import pytest
 
-from app.db.game_replay import _compute_state_hash, _simple_hash, _fingerprint_state
+from app.db.game_replay import _compute_state_hash, _fingerprint_state, _simple_hash
 from app.rules.core import hash_game_state
 
 
@@ -49,7 +49,8 @@ class TestSimpleHash:
 def _create_test_state():
     """Create a minimal test game state."""
     from datetime import datetime, timezone
-    from app.models import GameState, BoardState, GamePhase, Player, BoardType, TimeControl
+
+    from app.models import BoardState, BoardType, GamePhase, GameState, Player, TimeControl
 
     board = BoardState(
         type=BoardType.SQUARE8,

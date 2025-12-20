@@ -222,7 +222,7 @@ def main():
         return 1
 
     # Run tournament
-    print(f"Running promotion tournament:")
+    print("Running promotion tournament:")
     print(f"  Candidate: {args.candidate}")
     print(f"  Baseline: {args.baseline}")
     print(f"  Threshold: {args.threshold:.0%}")

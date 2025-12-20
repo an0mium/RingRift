@@ -1732,6 +1732,29 @@ class GameReplayDB:
                     # Next move is a movement/capture move, no bridging needed
                     break
 
+            # RR-PARITY-FIX-2025-12-20: CAPTURE phase handling
+            # When in capture phase but next move is from a later phase (line_processing,
+            # territory_processing), inject SKIP_CAPTURE to advance. This bridges the gap
+            # when TS selfplay recordings skip the skip_capture move (no captures available).
+            capture_moves = ("overtaking_capture", "continue_capture_segment", "skip_capture")
+            if current_phase == "capture":
+                if next_type not in capture_moves:
+                    # Next move is from a later phase - need to bridge with SKIP_CAPTURE
+                    skip_capture_move = Move(
+                        id="auto-inject-skip-capture",
+                        type=MoveType.SKIP_CAPTURE,
+                        player=state.current_player,
+                        to=Position(x=0, y=0),
+                        timestamp=datetime.now(),
+                        thinkTime=0,
+                        moveNumber=0,
+                    )
+                    state = GameEngine.apply_move(state, skip_capture_move, trace_mode=True)
+                    continue  # Re-check phase after injection
+                else:
+                    # Next move is a capture move, no bridging needed
+                    break
+
             # Check if we're in a no-action phase that needs auto-advancing
             if current_phase == "territory_processing":
                 # Check if the next move is forced_elimination - if so, coerce phase

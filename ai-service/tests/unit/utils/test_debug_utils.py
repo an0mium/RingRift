@@ -6,16 +6,16 @@ import time
 import pytest
 
 from app.utils.debug_utils import (
+    DEBUG_ENABLED,
+    Timer,
+    debug_context,
+    dump_state,
+    format_exception_chain,
+    get_call_stack,
+    log_call,
+    memory_usage_mb,
     timed,
     timed_async,
-    log_call,
-    debug_context,
-    Timer,
-    get_call_stack,
-    format_exception_chain,
-    memory_usage_mb,
-    dump_state,
-    DEBUG_ENABLED,
 )
 
 

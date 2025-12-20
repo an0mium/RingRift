@@ -34,7 +34,7 @@ import time
 import urllib.request
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
 
 
 def log(msg: str):

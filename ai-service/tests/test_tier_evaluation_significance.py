@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from app.models import AIType, BoardType
-from app.training.tier_eval_config import TierEvaluationConfig, TierOpponentConfig
 from app.training import tier_eval_runner as runner
+from app.training.tier_eval_config import TierEvaluationConfig, TierOpponentConfig
 
 
 def test_min_win_rate_uses_wilson_lower_bound(monkeypatch) -> None:

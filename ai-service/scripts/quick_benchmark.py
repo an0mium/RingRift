@@ -18,14 +18,14 @@ os.environ["RINGRIFT_USE_FAST_TERRITORY"] = "true"
 os.environ["RINGRIFT_USE_MOVE_CACHE"] = "true"
 os.environ["RINGRIFT_EARLY_TERM_THRESHOLD"] = "50"
 
-from app.ai.heuristic_ai import HeuristicAI  # noqa: E402
-from app.models import (  # noqa: E402
+from app.ai.heuristic_ai import HeuristicAI
+from app.models import (
     AIConfig,
-    BoardType,
-    GameState,
-    GamePhase,
-    GameStatus,
     BoardState,
+    BoardType,
+    GamePhase,
+    GameState,
+    GameStatus,
     Player,
     TimeControl,
 )
@@ -161,7 +161,7 @@ def main():
 
     # 8x8 benchmark
     moves, time_s, mps, avg_ms = run_benchmark(BoardType.SQUARE8, 8, num_games=3, max_moves=30)
-    print(f"8x8 Board:")
+    print("8x8 Board:")
     print(f"  Total moves: {moves}")
     print(f"  Total time: {time_s:.2f}s")
     print(f"  Moves/sec: {mps:.1f}")
@@ -170,7 +170,7 @@ def main():
 
     # Hex benchmark
     moves, time_s, mps, avg_ms = run_benchmark(BoardType.HEXAGONAL, 7, num_games=2, max_moves=20)
-    print(f"Hex11 Board:")
+    print("Hex11 Board:")
     print(f"  Total moves: {moves}")
     print(f"  Total time: {time_s:.2f}s")
     print(f"  Moves/sec: {mps:.1f}")

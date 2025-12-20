@@ -29,7 +29,7 @@ import json
 import os
 import sys
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional
@@ -46,7 +46,9 @@ AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 from app.models import (
-    AIConfig, AIType, BoardType,
+    AIConfig,
+    AIType,
+    BoardType,
 )
 from app.rules.default_engine import DefaultRulesEngine
 from app.training.generate_data import create_initial_state
@@ -110,7 +112,7 @@ def create_ai_for_algorithm(
     think_time_ms: int,
     board_type: BoardType,
     num_players: int = 2,
-) -> "BaseAI":
+) -> BaseAI:
     """Create an AI instance for the specified algorithm.
 
     Args:
@@ -124,9 +126,9 @@ def create_ai_for_algorithm(
         Configured AI instance
     """
     from app.ai.descent_ai import DescentAI
-    from app.ai.mcts_ai import MCTSAI
     from app.ai.gumbel_mcts_ai import GumbelMCTSAI
-    from app.ai.maxn_ai import MaxNAI, BRSAI
+    from app.ai.maxn_ai import BRSAI, MaxNAI
+    from app.ai.mcts_ai import MCTSAI
 
     algorithm = algorithm.lower()
 

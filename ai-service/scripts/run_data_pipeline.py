@@ -148,7 +148,7 @@ class DataPipeline:
         local_dest.mkdir(parents=True, exist_ok=True)
 
         # Build rsync command
-        ssh_opts = f"-o ConnectTimeout=30 -o ServerAliveInterval=10"
+        ssh_opts = "-o ConnectTimeout=30 -o ServerAliveInterval=10"
         if source.ssh_key:
             ssh_key_expanded = os.path.expanduser(source.ssh_key)
             ssh_opts += f" -i {ssh_key_expanded}"
@@ -264,7 +264,7 @@ class DataPipeline:
             total_lines = 0
             for jsonl_file in source_dir.rglob("games.jsonl"):
                 try:
-                    with open(jsonl_file, "r") as f:
+                    with open(jsonl_file) as f:
                         total_lines += sum(1 for _ in f)
                 except Exception:
                     pass

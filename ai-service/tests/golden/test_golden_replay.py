@@ -11,12 +11,12 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
 import pytest
 
 # Import the Python game engine and types
 from app.game_engine import GameEngine
 from app.models.core import BoardType
-
 
 # =============================================================================
 # GOLDEN GAMES DIRECTORY

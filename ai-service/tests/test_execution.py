@@ -281,7 +281,7 @@ class TestGameResult:
 
     def test_game_result_creation(self):
         """Test creating a game result."""
-        from app.execution import GameResult, GameOutcome
+        from app.execution import GameOutcome, GameResult
 
         result = GameResult(
             game_id="test-game-1",
@@ -331,11 +331,11 @@ class TestModuleExports:
     def test_executor_exports(self):
         """Test executor exports."""
         from app.execution import (
-            ExecutionResult,
             BaseExecutor,
+            ExecutionResult,
+            ExecutorPool,
             LocalExecutor,
             SSHExecutor,
-            ExecutorPool,
             run_command,
         )
 
@@ -350,11 +350,11 @@ class TestModuleExports:
         """Test backend exports."""
         from app.execution import (
             BackendType,
-            WorkerStatus,
             JobResult,
-            OrchestratorBackend,
             LocalBackend,
+            OrchestratorBackend,
             SSHBackend,
+            WorkerStatus,
             get_backend,
         )
 
@@ -369,9 +369,9 @@ class TestModuleExports:
     def test_game_executor_exports(self):
         """Test game executor exports."""
         from app.execution import (
+            GameExecutor,
             GameOutcome,
             GameResult,
-            GameExecutor,
             ParallelGameExecutor,
             run_quick_game,
             run_selfplay_batch,

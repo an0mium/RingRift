@@ -9,7 +9,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import (  # noqa: E402
+from app.game_engine import GameEngine
+from app.models import (
     BoardState,
     BoardType,
     GamePhase,
@@ -22,9 +23,8 @@ from app.models import (  # noqa: E402
     RingStack,
     TimeControl,
 )
-from app.game_engine import GameEngine  # noqa: E402
-from app.rules.default_engine import DefaultRulesEngine  # noqa: E402
-from app.rules.mutators.territory import TerritoryMutator  # noqa: E402
+from app.rules.default_engine import DefaultRulesEngine
+from app.rules.mutators.territory import TerritoryMutator
 
 
 def _make_player(player_number: int, rings_in_hand: int) -> Player:

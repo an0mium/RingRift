@@ -11,19 +11,19 @@ from unittest.mock import patch
 import pytest
 
 from app.config.thresholds import (
-    AlertLevel,
     THRESHOLDS,
+    AlertLevel,
+    get_all_thresholds,
     get_threshold,
     should_alert,
-    get_all_thresholds,
     update_threshold,
 )
 from app.monitoring.base import (
-    HealthStatus,
     Alert,
-    MonitoringResult,
-    HealthMonitor,
     CompositeMonitor,
+    HealthMonitor,
+    HealthStatus,
+    MonitoringResult,
 )
 
 

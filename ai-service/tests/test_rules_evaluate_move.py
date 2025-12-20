@@ -1,26 +1,26 @@
-import unittest
 import os
 import sys
+import unittest
 from datetime import datetime
 
-from fastapi.testclient import TestClient
 from fastapi.encoders import jsonable_encoder
+from fastapi.testclient import TestClient
 
 # Ensure app package is importable when running tests directly.
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 
-from app.main import app  # noqa: E402
-from app.models import (  # noqa: E402
-    GameState,
+from app.board_manager import BoardManager
+from app.game_engine import GameEngine
+from app.main import app
+from app.models import (
     BoardState,
     BoardType,
     GamePhase,
+    GameState,
     GameStatus,
-    TimeControl,
     Player,
+    TimeControl,
 )
-from app.game_engine import GameEngine  # noqa: E402
-from app.board_manager import BoardManager  # noqa: E402
 
 
 def make_initial_state() -> GameState:

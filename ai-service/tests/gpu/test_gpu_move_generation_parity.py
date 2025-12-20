@@ -14,12 +14,13 @@ See Also:
     - app/ai/shadow_validation.py (Runtime validation infrastructure)
 """
 
-import pytest
-import torch
 from typing import Set, Tuple
 
-from app.models import BoardType, GamePhase, MoveType
+import pytest
+import torch
+
 from app.game_engine import GameEngine
+from app.models import BoardType, GamePhase, MoveType
 
 # Import fixtures from conftest
 from .conftest import create_empty_game_state

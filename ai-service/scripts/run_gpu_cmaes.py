@@ -48,13 +48,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 
-from app.ai.gpu_batch import get_device, get_all_cuda_devices
+from app.ai.gpu_batch import get_all_cuda_devices, get_device
 from app.ai.gpu_parallel_games import (
     ParallelGameRunner,
-    evaluate_candidate_fitness_gpu,
     benchmark_parallel_games,
+    evaluate_candidate_fitness_gpu,
 )
-
 from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("run_gpu_cmaes")

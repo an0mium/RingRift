@@ -177,7 +177,7 @@ def main():
     for input_file in input_files:
         print(f"  Reading {input_file}...")
         try:
-            with open(input_file, "r") as f:
+            with open(input_file) as f:
                 for line in f:
                     if not line.strip():
                         continue

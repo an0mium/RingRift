@@ -4,17 +4,18 @@ Tests the unified alerting module.
 """
 
 import json
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from scripts.monitor.alerting import (
-    AlertSeverity,
-    AlertLevel,
     LEVEL_COLORS,
     LEVEL_EMOJI,
-    send_slack_alert,
-    send_discord_alert,
+    AlertLevel,
+    AlertSeverity,
     send_alert,
+    send_discord_alert,
+    send_slack_alert,
 )
 
 

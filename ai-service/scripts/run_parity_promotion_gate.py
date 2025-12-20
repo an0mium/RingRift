@@ -23,10 +23,9 @@ import argparse
 import json
 import os
 import sys
+from collections.abc import Iterable, Mapping, MutableMapping
 from dataclasses import dataclass
 from typing import Any, Dict, List
-from collections.abc import Iterable, Mapping, MutableMapping
-
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -34,10 +33,10 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 # Reuse the evaluation harness and board helpers.
-from scripts.evaluate_ai_models import (  # type: ignore[import]  # noqa: E402
+from scripts.evaluate_ai_models import (  # type: ignore[import]
     BOARD_TYPE_MAP,
-    EvaluationResults,
     SUPPORTED_AI_TYPES,
+    EvaluationResults,
     format_results_json,
     run_evaluation,
 )

@@ -32,19 +32,19 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from app.ai.factory import AIFactory
 from app.ai.ebmo_ai import EBMO_AI
 from app.ai.ebmo_network import (
+    ActionFeatureExtractor,
     EBMOConfig,
     EBMONetwork,
-    ActionFeatureExtractor,
     contrastive_energy_loss,
     margin_ranking_loss,
     outcome_weighted_energy_loss,
 )
+from app.ai.factory import AIFactory
 from app.ai.neural_net import NeuralNetAI
-from app.models.core import AIType, AIConfig, BoardType
 from app.game_engine import GameEngine
+from app.models.core import AIConfig, AIType, BoardType
 from app.training.generate_data import create_initial_state
 
 logging.basicConfig(

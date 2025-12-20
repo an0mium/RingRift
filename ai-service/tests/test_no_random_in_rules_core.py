@@ -9,7 +9,6 @@ confined to AI, training, and Zobrist helpers.
 import os
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 APP_ROOT = PROJECT_ROOT / "app"
 
@@ -22,10 +21,10 @@ def _read_text(paths):
                 for name in filenames:
                     if name.endswith(".py"):
                         file_path = Path(dirpath) / name
-                        with open(file_path, "r", encoding="utf-8") as f:
+                        with open(file_path, encoding="utf-8") as f:
                             chunks.append(f.read())
         elif path.is_file():
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 chunks.append(f.read())
     return "\n".join(chunks)
 

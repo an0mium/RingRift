@@ -38,8 +38,8 @@ sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 # Training coordination imports
 try:
-    from app.coordination.distributed_lock import DistributedLock
     from app.config.coordination_defaults import LockDefaults
+    from app.coordination.distributed_lock import DistributedLock
     HAS_DISTRIBUTED_LOCK = True
 except ImportError:
     HAS_DISTRIBUTED_LOCK = False
@@ -311,7 +311,7 @@ def run_training_job(job: TrainingJob, initial_model: Path | None = None) -> tup
             return False, str(log_file)
 
     except subprocess.TimeoutExpired:
-        print(f"[Training] Timeout after 2 hours")
+        print("[Training] Timeout after 2 hours")
         return False, "Timeout"
     except Exception as e:
         print(f"[Training] Error: {e}")
@@ -350,7 +350,7 @@ def run_elo_tournament(board_type: str, num_players: int, games: int = 30) -> bo
         )
 
         if result.returncode == 0:
-            print(f"[Elo] Tournament complete")
+            print("[Elo] Tournament complete")
             return True
         else:
             print(f"[Elo] Tournament failed: {result.stderr[:300]}")

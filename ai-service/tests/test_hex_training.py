@@ -8,32 +8,34 @@ Tests the complete hex training infrastructure:
 - Integration with training infrastructure
 """
 
+from datetime import datetime
+
 import numpy as np
 import pytest
 import torch
-from datetime import datetime
 
 from app.ai.neural_net import (
-    HexNeuralNet_v2,
-    HexNeuralNet_v2_Lite,
-    ActionEncoderHex,
     HEX_BOARD_SIZE,
     P_HEX,
+    ActionEncoderHex,
+    HexNeuralNet_v2,
+    HexNeuralNet_v2_Lite,
 )
 from app.models import (
-    BoardType,
     BoardState,
-    GameState,
+    BoardType,
     GamePhase,
+    GameState,
     GameStatus,
-    TimeControl,
-    Player,
-    Position,
+    MarkerInfo,
     Move,
     MoveType,
+    Player,
+    Position,
     RingStack,
-    MarkerInfo,
+    TimeControl,
 )
+from app.rules.core import get_rings_per_player
 from app.training.encoding import (
     HexStateEncoder,
     detect_board_type_from_features,
@@ -43,7 +45,6 @@ from app.training.hex_augmentation import (
     HexSymmetryTransform,
     augment_hex_sample,
 )
-from app.rules.core import get_rings_per_player
 
 
 def create_hex_game_state(

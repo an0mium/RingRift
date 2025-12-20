@@ -44,7 +44,6 @@ from app.db import GameReplayDB
 from app.models import BoardType
 from app.training.export_cache import get_export_cache
 
-
 BOARD_TYPE_MAP: dict[str, BoardType] = {
     "square8": BoardType.SQUARE8,
     "square19": BoardType.SQUARE19,
@@ -193,11 +192,11 @@ def export_parallel(
                 policy_encoding="board_aware" if use_board_aware_encoding else "legacy_max_n",
             )
             samples = cache_info.get("samples_exported", "?") if cache_info else "?"
-            logger.info(f"[CACHE HIT] Skipping export - source DBs unchanged")
+            logger.info("[CACHE HIT] Skipping export - source DBs unchanged")
             logger.info(f"  Output: {output_path}")
             logger.info(f"  Cached samples: {samples}")
             return 0
-        logger.info(f"[CACHE MISS] Export needed - source DBs have changed")
+        logger.info("[CACHE MISS] Export needed - source DBs have changed")
 
     start_time = time.time()
 

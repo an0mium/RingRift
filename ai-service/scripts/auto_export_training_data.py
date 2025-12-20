@@ -250,7 +250,7 @@ def run_export(config: ExportConfig, databases: list[Path]) -> tuple[bool, str]:
                 logger.info(f"Export successful: {output_file.name} ({size_mb:.1f} MB)")
                 return True, str(output_file)
             else:
-                logger.warning(f"Export completed but file not created")
+                logger.warning("Export completed but file not created")
                 return False, "No output file"
         else:
             logger.error(f"Export failed: {result.stderr[:500]}")

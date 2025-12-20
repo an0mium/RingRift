@@ -11,30 +11,30 @@ Tests cover:
 Note: These tests use CPU fallback when GPU is not available.
 """
 
-import pytest
 import numpy as np
+import pytest
 import torch
 
-from app.ai.gpu_parallel_games import (
-    # Helper functions
-    select_moves_vectorized,
-    # Core classes
-    BatchGameState,
-    ParallelGameRunner,
-)
+from app.ai.gpu_batch import get_device
 from app.ai.gpu_game_types import (
-    get_int_dtype,
+    GamePhase,
     GameStatus,
     MoveType,
-    GamePhase,
+    get_int_dtype,
     get_required_line_length,
 )
 from app.ai.gpu_move_generation import (
     BatchMoves,
-    generate_placement_moves_batch,
     _empty_batch_moves,
+    generate_placement_moves_batch,
 )
-from app.ai.gpu_batch import get_device
+from app.ai.gpu_parallel_games import (
+    # Core classes
+    BatchGameState,
+    ParallelGameRunner,
+    # Helper functions
+    select_moves_vectorized,
+)
 
 
 class TestMPSCompatibilityHelpers:

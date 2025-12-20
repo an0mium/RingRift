@@ -156,7 +156,7 @@ def cmd_show(args):
 
     print(f"\nTags: {', '.join(model.tags) if model.tags else 'None'}")
 
-    print(f"\nMetrics:")
+    print("\nMetrics:")
     metrics = model.metrics
     print(f"  Elo:            {metrics.elo or 'N/A'}")
     print(f"  Elo Uncertainty:{metrics.elo_uncertainty or 'N/A'}")
@@ -164,14 +164,14 @@ def cmd_show(args):
     print(f"  Draw Rate:      {metrics.draw_rate:.1%}" if metrics.draw_rate else "  Draw Rate:      N/A")
     print(f"  Games Played:   {metrics.games_played}")
 
-    print(f"\nTraining Config:")
+    print("\nTraining Config:")
     config = model.training_config
     print(f"  Optimizer:      {config.optimizer}")
     print(f"  Learning Rate:  {config.learning_rate}")
     print(f"  Batch Size:     {config.batch_size}")
     print(f"  Epochs:         {config.epochs}")
     if config.extra_config:
-        print(f"  Extra Config:")
+        print("  Extra Config:")
         for k, v in config.extra_config.items():
             print(f"    {k}: {v}")
 
@@ -206,7 +206,7 @@ def cmd_promote(args):
             model_id,
             version,
             to_stage,
-            reason=args.reason or f"Manual promotion via CLI",
+            reason=args.reason or "Manual promotion via CLI",
             promoted_by=os.environ.get("USER", "cli"),
         )
         print(f"Successfully promoted {model_id}:v{version} to {to_stage.value}")
@@ -287,7 +287,7 @@ def cmd_rollback(args):
             print(f"Version {args.version} not found in archived models.")
             return 1
 
-    print(f"\nRollback Plan:")
+    print("\nRollback Plan:")
     if current_prod:
         print(f"  Current Production: {current_prod.model_id}:v{current_prod.version}")
         print(f"  Will Archive:       {current_prod.model_id}:v{current_prod.version}")
@@ -461,15 +461,15 @@ def cmd_stats(args):
 
     total = sum(stages.values())
 
-    print(f"\nModel Registry Statistics")
+    print("\nModel Registry Statistics")
     print("=" * 40)
-    print(f"\nBy Stage:")
+    print("\nBy Stage:")
     for stage, count in stages.items():
         pct = (count / total * 100) if total > 0 else 0
         bar = "#" * int(pct / 5)
         print(f"  {stage:<12} {count:>5} ({pct:>5.1f}%) {bar}")
 
-    print(f"\nBy Type:")
+    print("\nBy Type:")
     for mtype, count in types.items():
         pct = (count / total * 100) if total > 0 else 0
         print(f"  {mtype:<15} {count:>5} ({pct:>5.1f}%)")
@@ -477,7 +477,7 @@ def cmd_stats(args):
     print(f"\nTotal: {total} model versions")
 
     # Show production models
-    print(f"\nProduction Models:")
+    print("\nProduction Models:")
     prod_models = registry.list_models(stage=ModelStage.PRODUCTION)
     if prod_models:
         for m in prod_models:

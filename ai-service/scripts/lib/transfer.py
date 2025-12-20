@@ -35,10 +35,10 @@ import os
 import shutil
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
-from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 

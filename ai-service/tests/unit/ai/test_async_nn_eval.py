@@ -13,22 +13,22 @@ import queue
 import threading
 import time
 from concurrent.futures import Future
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import numpy as np
 import pytest
 
 from app.ai.async_nn_eval import (
-    _is_truthy_env,
+    _GLOBAL_BATCHER_LOCK,
+    AsyncNeuralBatcher,
+    _acquire_global_batcher,
     _device_type,
-    _should_use_microbatcher,
-    _parse_positive_int,
     _EvalRequest,
     _GlobalNNMicroBatcher,
-    _acquire_global_batcher,
+    _is_truthy_env,
+    _parse_positive_int,
     _release_global_batcher,
-    AsyncNeuralBatcher,
-    _GLOBAL_BATCHER_LOCK,
+    _should_use_microbatcher,
 )
 
 

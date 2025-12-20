@@ -10,7 +10,7 @@ from typing import Any, Dict
 import pytest
 
 from app.config.ladder_config import get_ladder_tier_config  # type: ignore[import]
-from app.models import BoardType, AIType  # type: ignore[import]
+from app.models import AIType, BoardType  # type: ignore[import]
 from app.training.tier_promotion_registry import (  # type: ignore[import]
     _default_square8_two_player_registry,
     get_current_ladder_model_for_tier,
@@ -45,7 +45,7 @@ def test_load_and_save_square8_two_player_registry_roundtrip(tmp_path: Path) -> 
     loaded["tiers"]["D4"] = {"current": {"tier": "D4"}, "candidates": []}
     save_square8_two_player_registry(loaded, path=path)
 
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         on_disk = json.load(f)
 
     assert on_disk["board"] == "square8"
@@ -190,7 +190,7 @@ def test_update_square8_two_player_registry_for_run_persists_to_disk(
     # Registry file should now exist on disk.
     assert os.path.exists(registry_path)
 
-    with open(registry_path, "r", encoding="utf-8") as f:
+    with open(registry_path, encoding="utf-8") as f:
         persisted = json.load(f)
 
     assert persisted["board"] == "square8"

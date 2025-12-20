@@ -43,12 +43,12 @@ import sys
 import threading
 import time
 import uuid
-from urllib.parse import urlparse
+from collections.abc import Generator
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
-from collections.abc import Generator
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from app.coordination.queue_populator import QueuePopulator
@@ -119,8 +119,8 @@ def get_tier_calibrator():
 # Add project root to path for scripts.lib imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from scripts.lib.logging_config import setup_script_logging
 from scripts.lib.file_formats import open_jsonl_file
+from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("p2p_orchestrator")
 
@@ -147,208 +147,208 @@ def db_connection(db_path: str | Path, timeout: float = 30.0) -> Generator[sqlit
 
 
 # Centralized ramdrive utilities for auto-detection
-from app.utils.ramdrive import (
-    get_system_resources,
-    should_use_ramdrive,
-    log_storage_recommendation,
-    RamdriveSyncer,
+# Shared database integrity utilities
+from app.db.integrity import (
+    check_and_repair_databases,
 )
 
 # Circuit breaker for fault-tolerant network operations
 from app.distributed.circuit_breaker import (
-    get_circuit_registry,
     CircuitState,
+    get_circuit_registry,
 )
-
-# Import refactored P2P types and models
-# These were extracted from this file for modularity (Phase 1 refactoring)
-from scripts.p2p.types import NodeRole, JobType
-from scripts.p2p.models import (
-    NodeInfo,
-    ClusterJob,
-    DistributedCMAESState,
-    DistributedTournamentState,
-    SSHTournamentRun,
-    ImprovementLoopState,
-    TrainingJob,
-    TrainingThresholds,
-    DataFileInfo,
-    NodeDataManifest,
-    ClusterDataManifest,
-    DataSyncJob,
-    ClusterSyncPlan,
-)
-# Import constants from the refactored module (Phase 2 refactoring - consolidated)
-from scripts.p2p.constants import (
-    # Network configuration
-    DEFAULT_PORT,
-    HEARTBEAT_INTERVAL,
-    PEER_TIMEOUT,
-    ELECTION_TIMEOUT,
-    LEADER_LEASE_DURATION,
-    LEADER_LEASE_RENEW_INTERVAL,
-    LEADERLESS_TRAINING_TIMEOUT,
-    JOB_CHECK_INTERVAL,
-    DISCOVERY_PORT,
-    DISCOVERY_INTERVAL,
-    # Resource thresholds
-    DISK_CRITICAL_THRESHOLD,
-    DISK_WARNING_THRESHOLD,
-    DISK_CLEANUP_THRESHOLD,
-    MEMORY_CRITICAL_THRESHOLD,
-    MEMORY_WARNING_THRESHOLD,
-    MIN_MEMORY_GB_FOR_TASKS,
-    LOAD_MAX_FOR_NEW_JOBS,
-    # GPU configuration
-    TARGET_GPU_UTIL_MIN,
-    TARGET_GPU_UTIL_MAX,
-    GH200_MIN_SELFPLAY,
-    GH200_MAX_SELFPLAY,
-    GPU_POWER_RANKINGS,
-    # Connection robustness
-    HTTP_CONNECT_TIMEOUT,
-    HTTP_TOTAL_TIMEOUT,
-    MAX_CONSECUTIVE_FAILURES,
-    RETRY_DEAD_NODE_INTERVAL,
-    PEER_RETIRE_AFTER_SECONDS,
-    # Elo constants (from app.config.thresholds)
-    INITIAL_ELO_RATING,
-    ELO_K_FACTOR,
-    RETRY_RETIRED_NODE_INTERVAL,
-    PEER_PURGE_AFTER_SECONDS,
-    # NAT/Relay settings
-    NAT_INBOUND_HEARTBEAT_STALE_SECONDS,
-    RELAY_HEARTBEAT_INTERVAL,
-    RELAY_COMMAND_TTL_SECONDS,
-    RELAY_COMMAND_MAX_BATCH,
-    RELAY_COMMAND_MAX_ATTEMPTS,
-    RELAY_MAX_PENDING_START_JOBS,
-    NAT_BLOCKED_RECOVERY_TIMEOUT,
-    NAT_BLOCKED_PROBE_INTERVAL,
-    NAT_BLOCKED_PROBE_TIMEOUT,
-    VOTER_HEARTBEAT_INTERVAL,
-    VOTER_HEARTBEAT_TIMEOUT,
-    VOTER_MESH_REFRESH_INTERVAL,
-    VOTER_NAT_RECOVERY_AGGRESSIVE,
-    NAT_STUN_LIKE_PROBE_INTERVAL,
-    NAT_SYMMETRIC_DETECTION_ENABLED,
-    NAT_RELAY_PREFERENCE_THRESHOLD,
-    NAT_HOLE_PUNCH_RETRY_COUNT,
-    NAT_EXTERNAL_IP_CACHE_TTL,
-    PEER_BOOTSTRAP_INTERVAL,
-    PEER_BOOTSTRAP_MIN_PEERS,
-    # Safeguards
-    GPU_IDLE_RESTART_TIMEOUT,
-    GPU_IDLE_THRESHOLD,
-    RUNAWAY_SELFPLAY_PROCESS_THRESHOLD,
-    LOAD_AVERAGE_MAX_MULTIPLIER,
-    SPAWN_RATE_LIMIT_PER_MINUTE,
-    COORDINATOR_URL,
-    AGENT_MODE_ENABLED,
-    MAX_DISK_USAGE_PERCENT,
-    ARBITER_URL,
-    # Dynamic voter management
-    DYNAMIC_VOTER_ENABLED,
-    DYNAMIC_VOTER_TARGET,
-    DYNAMIC_VOTER_MIN,
-    VOTER_MIN_QUORUM,
-    DYNAMIC_VOTER_MAX_QUORUM,
-    VOTER_HEALTH_THRESHOLD,
-    VOTER_PROMOTION_UPTIME,
-    VOTER_DEMOTION_FAILURES,
-    LEADER_HEALTH_CHECK_INTERVAL,
-    LEADER_MIN_RESPONSE_RATE,
-    LEADER_DEGRADED_STEPDOWN_DELAY,
-    # Auto-update settings
-    GIT_UPDATE_CHECK_INTERVAL,
-    GIT_REMOTE_NAME,
-    GIT_BRANCH_NAME,
-    AUTO_UPDATE_ENABLED,
-    GRACEFUL_SHUTDOWN_BEFORE_UPDATE,
-    # Auth and build info
-    AUTH_TOKEN_ENV,
-    AUTH_TOKEN_FILE_ENV,
-    BUILD_VERSION_ENV,
-    ADVERTISE_HOST_ENV,
-    ADVERTISE_PORT_ENV,
-    TAILSCALE_CGNAT_NETWORK,
-    # Data management
-    MANIFEST_JSONL_LINECOUNT_MAX_BYTES,
-    MANIFEST_JSONL_LINECOUNT_CHUNK_BYTES,
-    MANIFEST_JSONL_SAMPLE_BYTES,
-    STARTUP_JSONL_GRACE_PERIOD_SECONDS,
-    DATA_MANAGEMENT_INTERVAL,
-    DB_EXPORT_THRESHOLD_MB,
-    TRAINING_DATA_SYNC_THRESHOLD_MB,
-    MAX_CONCURRENT_EXPORTS,
-    AUTO_TRAINING_THRESHOLD_MB,
-    # Training node sync
-    TRAINING_NODE_COUNT,
-    TRAINING_SYNC_INTERVAL,
-    MODEL_SYNC_INTERVAL,
-    MIN_GAMES_FOR_SYNC,
-    P2P_DATA_SYNC_BASE,
-    P2P_DATA_SYNC_MIN,
-    P2P_DATA_SYNC_MAX,
-    P2P_MODEL_SYNC_BASE,
-    P2P_MODEL_SYNC_MIN,
-    P2P_MODEL_SYNC_MAX,
-    P2P_TRAINING_DB_SYNC_BASE,
-    P2P_TRAINING_DB_SYNC_MIN,
-    P2P_TRAINING_DB_SYNC_MAX,
-    P2P_SYNC_BACKOFF_FACTOR,
-    P2P_SYNC_SPEEDUP_FACTOR,
-    # Unified inventory / Idle detection
-    UNIFIED_DISCOVERY_INTERVAL,
-    IDLE_CHECK_INTERVAL,
-    IDLE_GPU_THRESHOLD,
-    AUTO_ASSIGN_ENABLED,
-    IDLE_GRACE_PERIOD,
-    AUTO_WORK_BATCH_SIZE,
-    # Stale process cleanup
-    MAX_SELFPLAY_RUNTIME,
-    MAX_TRAINING_RUNTIME,
-    MAX_GAUNTLET_RUNTIME,
-    MAX_TOURNAMENT_RUNTIME,
-    STALE_PROCESS_CHECK_INTERVAL,
-    STALE_PROCESS_PATTERNS,
-    # State directory
-    STATE_DIR,
-)
-
-# Import refactored utilities (Phase 2 refactoring)
-from scripts.p2p.resource import (
-    check_disk_has_capacity,
-)
-from scripts.p2p.network import (
-    AsyncLockWrapper,
-    get_client_session,
-)
-from scripts.p2p.utils import (
-    systemd_notify_watchdog,
-    systemd_notify_ready,
+from app.utils.ramdrive import (
+    RamdriveSyncer,
+    get_system_resources,
+    log_storage_recommendation,
+    should_use_ramdrive,
 )
 from scripts.p2p.cluster_config import (
     get_cluster_config,
     get_webhook_urls,
 )
 
-# Shared database integrity utilities
-from app.db.integrity import (
-    check_and_repair_databases,
+# Import constants from the refactored module (Phase 2 refactoring - consolidated)
+from scripts.p2p.constants import (
+    ADVERTISE_HOST_ENV,
+    ADVERTISE_PORT_ENV,
+    AGENT_MODE_ENABLED,
+    ARBITER_URL,
+    # Auth and build info
+    AUTH_TOKEN_ENV,
+    AUTH_TOKEN_FILE_ENV,
+    AUTO_ASSIGN_ENABLED,
+    AUTO_TRAINING_THRESHOLD_MB,
+    AUTO_UPDATE_ENABLED,
+    AUTO_WORK_BATCH_SIZE,
+    BUILD_VERSION_ENV,
+    COORDINATOR_URL,
+    DATA_MANAGEMENT_INTERVAL,
+    DB_EXPORT_THRESHOLD_MB,
+    # Network configuration
+    DEFAULT_PORT,
+    DISCOVERY_INTERVAL,
+    DISCOVERY_PORT,
+    DISK_CLEANUP_THRESHOLD,
+    # Resource thresholds
+    DISK_CRITICAL_THRESHOLD,
+    DISK_WARNING_THRESHOLD,
+    # Dynamic voter management
+    DYNAMIC_VOTER_ENABLED,
+    DYNAMIC_VOTER_MAX_QUORUM,
+    DYNAMIC_VOTER_MIN,
+    DYNAMIC_VOTER_TARGET,
+    ELECTION_TIMEOUT,
+    ELO_K_FACTOR,
+    GH200_MAX_SELFPLAY,
+    GH200_MIN_SELFPLAY,
+    GIT_BRANCH_NAME,
+    GIT_REMOTE_NAME,
+    # Auto-update settings
+    GIT_UPDATE_CHECK_INTERVAL,
+    # Safeguards
+    GPU_IDLE_RESTART_TIMEOUT,
+    GPU_IDLE_THRESHOLD,
+    GPU_POWER_RANKINGS,
+    GRACEFUL_SHUTDOWN_BEFORE_UPDATE,
+    HEARTBEAT_INTERVAL,
+    # Connection robustness
+    HTTP_CONNECT_TIMEOUT,
+    HTTP_TOTAL_TIMEOUT,
+    IDLE_CHECK_INTERVAL,
+    IDLE_GPU_THRESHOLD,
+    IDLE_GRACE_PERIOD,
+    # Elo constants (from app.config.thresholds)
+    INITIAL_ELO_RATING,
+    JOB_CHECK_INTERVAL,
+    LEADER_DEGRADED_STEPDOWN_DELAY,
+    LEADER_HEALTH_CHECK_INTERVAL,
+    LEADER_LEASE_DURATION,
+    LEADER_LEASE_RENEW_INTERVAL,
+    LEADER_MIN_RESPONSE_RATE,
+    LEADERLESS_TRAINING_TIMEOUT,
+    LOAD_AVERAGE_MAX_MULTIPLIER,
+    LOAD_MAX_FOR_NEW_JOBS,
+    MANIFEST_JSONL_LINECOUNT_CHUNK_BYTES,
+    # Data management
+    MANIFEST_JSONL_LINECOUNT_MAX_BYTES,
+    MANIFEST_JSONL_SAMPLE_BYTES,
+    MAX_CONCURRENT_EXPORTS,
+    MAX_CONSECUTIVE_FAILURES,
+    MAX_DISK_USAGE_PERCENT,
+    MAX_GAUNTLET_RUNTIME,
+    # Stale process cleanup
+    MAX_SELFPLAY_RUNTIME,
+    MAX_TOURNAMENT_RUNTIME,
+    MAX_TRAINING_RUNTIME,
+    MEMORY_CRITICAL_THRESHOLD,
+    MEMORY_WARNING_THRESHOLD,
+    MIN_GAMES_FOR_SYNC,
+    MIN_MEMORY_GB_FOR_TASKS,
+    MODEL_SYNC_INTERVAL,
+    NAT_BLOCKED_PROBE_INTERVAL,
+    NAT_BLOCKED_PROBE_TIMEOUT,
+    NAT_BLOCKED_RECOVERY_TIMEOUT,
+    NAT_EXTERNAL_IP_CACHE_TTL,
+    NAT_HOLE_PUNCH_RETRY_COUNT,
+    # NAT/Relay settings
+    NAT_INBOUND_HEARTBEAT_STALE_SECONDS,
+    NAT_RELAY_PREFERENCE_THRESHOLD,
+    NAT_STUN_LIKE_PROBE_INTERVAL,
+    NAT_SYMMETRIC_DETECTION_ENABLED,
+    P2P_DATA_SYNC_BASE,
+    P2P_DATA_SYNC_MAX,
+    P2P_DATA_SYNC_MIN,
+    P2P_MODEL_SYNC_BASE,
+    P2P_MODEL_SYNC_MAX,
+    P2P_MODEL_SYNC_MIN,
+    P2P_SYNC_BACKOFF_FACTOR,
+    P2P_SYNC_SPEEDUP_FACTOR,
+    P2P_TRAINING_DB_SYNC_BASE,
+    P2P_TRAINING_DB_SYNC_MAX,
+    P2P_TRAINING_DB_SYNC_MIN,
+    PEER_BOOTSTRAP_INTERVAL,
+    PEER_BOOTSTRAP_MIN_PEERS,
+    PEER_PURGE_AFTER_SECONDS,
+    PEER_RETIRE_AFTER_SECONDS,
+    PEER_TIMEOUT,
+    RELAY_COMMAND_MAX_ATTEMPTS,
+    RELAY_COMMAND_MAX_BATCH,
+    RELAY_COMMAND_TTL_SECONDS,
+    RELAY_HEARTBEAT_INTERVAL,
+    RELAY_MAX_PENDING_START_JOBS,
+    RETRY_DEAD_NODE_INTERVAL,
+    RETRY_RETIRED_NODE_INTERVAL,
+    RUNAWAY_SELFPLAY_PROCESS_THRESHOLD,
+    SPAWN_RATE_LIMIT_PER_MINUTE,
+    STALE_PROCESS_CHECK_INTERVAL,
+    STALE_PROCESS_PATTERNS,
+    STARTUP_JSONL_GRACE_PERIOD_SECONDS,
+    # State directory
+    STATE_DIR,
+    TAILSCALE_CGNAT_NETWORK,
+    TARGET_GPU_UTIL_MAX,
+    # GPU configuration
+    TARGET_GPU_UTIL_MIN,
+    TRAINING_DATA_SYNC_THRESHOLD_MB,
+    # Training node sync
+    TRAINING_NODE_COUNT,
+    TRAINING_SYNC_INTERVAL,
+    # Unified inventory / Idle detection
+    UNIFIED_DISCOVERY_INTERVAL,
+    VOTER_DEMOTION_FAILURES,
+    VOTER_HEALTH_THRESHOLD,
+    VOTER_HEARTBEAT_INTERVAL,
+    VOTER_HEARTBEAT_TIMEOUT,
+    VOTER_MESH_REFRESH_INTERVAL,
+    VOTER_MIN_QUORUM,
+    VOTER_NAT_RECOVERY_AGGRESSIVE,
+    VOTER_PROMOTION_UPTIME,
+)
+from scripts.p2p.models import (
+    ClusterDataManifest,
+    ClusterJob,
+    ClusterSyncPlan,
+    DataFileInfo,
+    DataSyncJob,
+    DistributedCMAESState,
+    DistributedTournamentState,
+    ImprovementLoopState,
+    NodeDataManifest,
+    NodeInfo,
+    SSHTournamentRun,
+    TrainingJob,
+    TrainingThresholds,
+)
+from scripts.p2p.network import (
+    AsyncLockWrapper,
+    get_client_session,
+)
+
+# Import refactored utilities (Phase 2 refactoring)
+from scripts.p2p.resource import (
+    check_disk_has_capacity,
+)
+
+# Import refactored P2P types and models
+# These were extracted from this file for modularity (Phase 1 refactoring)
+from scripts.p2p.types import JobType, NodeRole
+from scripts.p2p.utils import (
+    systemd_notify_ready,
+    systemd_notify_watchdog,
 )
 
 # Unified resource checking utilities (80% max utilization)
 # Includes graceful degradation for dynamic workload management
 try:
     from app.utils.resource_guard import (
+        LIMITS as RESOURCE_LIMITS,
+        OperationPriority,
+        check_cpu as unified_check_cpu,
         check_disk_space as unified_check_disk,
         check_memory as unified_check_memory,
-        check_cpu as unified_check_cpu,
-        LIMITS as RESOURCE_LIMITS,
-        should_proceed_with_priority,
-        OperationPriority,
         get_degradation_level,
+        should_proceed_with_priority,
     )
     HAS_RESOURCE_GUARD = True
 except ImportError:
@@ -365,9 +365,9 @@ except ImportError:
 try:
     from app.tournament.elo_sync_manager import (
         EloSyncManager,
+        ensure_elo_synced,
         get_elo_sync_manager,
         sync_elo_after_games,
-        ensure_elo_synced,
     )
     HAS_ELO_SYNC = True
 except ImportError:
@@ -410,7 +410,7 @@ except ImportError:
 # HTTP server imports
 try:
     import aiohttp
-    from aiohttp import web, ClientSession, ClientTimeout
+    from aiohttp import ClientSession, ClientTimeout, web
     HAS_AIOHTTP = True
 except ImportError:
     HAS_AIOHTTP = False
@@ -457,8 +457,8 @@ except ImportError:
 # Dynamic host registry for IP auto-update
 try:
     from app.distributed.dynamic_registry import (
-        get_registry,
         NodeState,
+        get_registry,
     )
     HAS_DYNAMIC_REGISTRY = True
 except ImportError:
@@ -470,8 +470,8 @@ except ImportError:
 try:
     from app.distributed.hybrid_transport import (
         HybridTransport,
-        get_hybrid_transport,
         diagnose_node_connectivity,
+        get_hybrid_transport,
     )
     from app.distributed.ssh_transport import (
         SSHTransport,
@@ -513,47 +513,48 @@ except ImportError:
 # New coordination features: OrchestratorRole, backpressure, sync_lock, bandwidth
 try:
     from app.coordination import (
+        NodeResources,
         # Orchestrator role management (SQLite-backed with heartbeat)
         OrchestratorRole,
-        acquire_orchestrator_role,
-        release_orchestrator_role,
         # Queue backpressure
         QueueType,
-        should_throttle_production,
-        should_stop_production,
-        get_throttle_factor,
-        # Sync mutex for data transfer coordination
-        sync_lock,
-        # Bandwidth management
-        request_bandwidth,
-        release_bandwidth,
-        TransferPriority,
-        # Resource targets for unified utilization management
-        get_resource_targets,
-        get_host_targets,
-        should_scale_up,
-        should_scale_down,
-        get_target_job_count,
-        record_utilization,
         # Resource optimizer for cluster-wide PID-controlled optimization
         ResourceOptimizer,
-        NodeResources,
-        get_resource_optimizer,
-        get_optimal_concurrency,
+        TransferPriority,
+        acquire_orchestrator_role,
         get_cluster_utilization,
+        get_host_targets,
+        get_optimal_concurrency,
+        get_resource_optimizer,
+        # Resource targets for unified utilization management
+        get_resource_targets,
+        get_target_job_count,
+        get_throttle_factor,
+        record_utilization,
+        release_bandwidth,
+        release_orchestrator_role,
+        # Bandwidth management
+        request_bandwidth,
+        should_scale_down,
+        should_scale_up,
+        should_stop_production,
+        should_throttle_production,
+        # Sync mutex for data transfer coordination
+        sync_lock,
     )
+
     # Import rate negotiation functions for cooperative utilization (60-80% target)
     from app.coordination.resource_optimizer import (
-        negotiate_selfplay_rate,
-        get_current_selfplay_rate,
         apply_feedback_adjustment,
-        get_utilization_status,
-        update_config_weights,
         get_config_weights,
-        # Hardware-aware selfplay limits (single source of truth)
-        get_max_selfplay_for_node,
+        get_current_selfplay_rate,
         get_hybrid_selfplay_limits,
         get_max_cpu_only_selfplay,
+        # Hardware-aware selfplay limits (single source of truth)
+        get_max_selfplay_for_node,
+        get_utilization_status,
+        negotiate_selfplay_rate,
+        update_config_weights,
     )
     HAS_RATE_NEGOTIATION = True
     HAS_NEW_COORDINATION = True
@@ -587,14 +588,14 @@ except ImportError:
 # Model sync across cluster
 try:
     from scripts.sync_models import (
+        HOSTS_MODULE_AVAILABLE as HAS_HOSTS_FOR_SYNC,
+        ClusterModelState,
         scan_cluster as scan_cluster_models,
         sync_missing_models,
-        ClusterModelState,
-        HOSTS_MODULE_AVAILABLE as HAS_HOSTS_FOR_SYNC,
     )
     # Also import load_remote_hosts for scanning
     if HAS_HOSTS_FOR_SYNC:
-        from app.distributed.hosts import load_remote_hosts, filter_ready_hosts
+        from app.distributed.hosts import filter_ready_hosts, load_remote_hosts
     HAS_MODEL_SYNC = True
 except ImportError:
     HAS_MODEL_SYNC = False
@@ -608,9 +609,9 @@ except ImportError:
 # PFSP (Prioritized Fictitious Self-Play) opponent pool
 try:
     from app.training.advanced_training import (
-        PFSPOpponentPool,
-        OpponentStats,
         CMAESAutoTuner,
+        OpponentStats,
+        PFSPOpponentPool,
         PlateauConfig,
     )
     HAS_PFSP = True
@@ -957,20 +958,20 @@ class P2POrchestrator:
         self.games_at_last_cmaes_train: dict[str, int] = {}
 
         # Phase 5: Automated improvement cycle manager (leader-only)
-        self.improvement_cycle_manager: 'ImprovementCycleManager' | None = None
+        self.improvement_cycle_manager: ImprovementCycleManager | None = None
         if HAS_IMPROVEMENT_MANAGER:
             try:
                 self.improvement_cycle_manager = ImprovementCycleManager(
                     db_path=STATE_DIR / f"{node_id}_improvement.db",
                     ringrift_path=self.ringrift_path,
                 )
-                logger.info(f"ImprovementCycleManager initialized")
+                logger.info("ImprovementCycleManager initialized")
             except Exception as e:
                 logger.error(f"Failed to initialize ImprovementCycleManager: {e}")
         self.last_improvement_cycle_check: float = 0.0
 
         # P2P-integrated monitoring (leader starts Prometheus/Grafana)
-        self.monitoring_manager: 'MonitoringManager' | None = None
+        self.monitoring_manager: MonitoringManager | None = None
         if HAS_P2P_MONITORING:
             try:
                 self.monitoring_manager = MonitoringManager(
@@ -979,7 +980,7 @@ class P2POrchestrator:
                     grafana_port=3000,
                     config_dir=Path(self.ringrift_path) / "monitoring",
                 )
-                logger.info(f"MonitoringManager initialized")
+                logger.info("MonitoringManager initialized")
             except Exception as e:
                 logger.error(f"Failed to initialize MonitoringManager: {e}")
         self._monitoring_was_leader = False  # Track leadership changes
@@ -1049,7 +1050,7 @@ class P2POrchestrator:
                 logger.error(f"Failed to initialize EloSyncManager: {e}")
 
         # Queue Populator - Maintains 50+ work items until 2000 Elo target met
-        self._queue_populator: "QueuePopulator" | None = None
+        self._queue_populator: QueuePopulator | None = None
 
         # PFSP (Prioritized Fictitious Self-Play) opponent pool (leader-only)
         # Maintains a pool of historical models weighted by difficulty for diverse training
@@ -1177,11 +1178,11 @@ class P2POrchestrator:
             logger.info(f"Auth: disabled (set {AUTH_TOKEN_ENV} to enable)")
 
         # Hybrid transport for HTTP/SSH fallback (self-healing Vast connectivity)
-        self.hybrid_transport: 'HybridTransport' | None = None
+        self.hybrid_transport: HybridTransport | None = None
         if HAS_HYBRID_TRANSPORT:
             try:
                 self.hybrid_transport = get_hybrid_transport()
-                logger.info(f"HybridTransport: enabled (HTTP with SSH fallback for Vast)")
+                logger.info("HybridTransport: enabled (HTTP with SSH fallback for Vast)")
             except Exception as e:
                 logger.info(f"HybridTransport: failed to initialize: {e}")
 
@@ -2270,7 +2271,7 @@ class P2POrchestrator:
             status=502,
         )
 
-    def _is_request_authorized(self, request: "web.Request") -> bool:
+    def _is_request_authorized(self, request: web.Request) -> bool:
         if not self.auth_token:
             return True
 
@@ -2942,7 +2943,7 @@ class P2POrchestrator:
             logger.info("Disabling Tailscale-priority mode (connectivity recovered)")
             self._tailscale_priority = False
 
-    def _tailscale_urls_for_voter(self, voter: "NodeInfo", path: str) -> list[str]:
+    def _tailscale_urls_for_voter(self, voter: NodeInfo, path: str) -> list[str]:
         """Return Tailscale-exclusive URLs for voter communication.
 
         For election/lease operations between voter nodes, NAT-blocked public IPs
@@ -3600,7 +3601,7 @@ class P2POrchestrator:
                 return None
 
             import json
-            with open(cache_path, "r") as f:
+            with open(cache_path) as f:
                 cache_data = json.load(f)
 
             # Check version
@@ -6012,7 +6013,7 @@ class P2POrchestrator:
                     success, message = await self._perform_git_update()
 
                     if success:
-                        logger.info(f"Update successful, restarting...")
+                        logger.info("Update successful, restarting...")
                         await self._restart_orchestrator()
                     else:
                         logger.info(f"Update failed: {message}")
@@ -6999,7 +7000,7 @@ class P2POrchestrator:
         when the leader detects disk usage approaching critical thresholds.
         """
         try:
-            logger.info(f"Cleanup request received")
+            logger.info("Cleanup request received")
 
             # Run cleanup in background to avoid blocking the request
             asyncio.create_task(self._cleanup_local_disk())
@@ -7021,7 +7022,7 @@ class P2POrchestrator:
         Kills all selfplay processes and clears job tracking so they restart.
         """
         try:
-            logger.info(f"Restart stuck jobs request received")
+            logger.info("Restart stuck jobs request received")
 
             # Run in background to avoid blocking
             asyncio.create_task(self._restart_local_stuck_jobs())
@@ -9100,8 +9101,8 @@ class P2POrchestrator:
 
             async with sem:
                 # Run selfplay subprocess to evaluate weights
-                import tempfile
                 import json as json_mod
+                import tempfile
 
                 with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
                     json_mod.dump(weights, f)
@@ -9400,7 +9401,7 @@ print(wins / total)
             duration_sec: Game duration in seconds
         """
         try:
-            logger.info(f"Tournament endpoint called, parsing request...")
+            logger.info("Tournament endpoint called, parsing request...")
             data = await request.json()
             logger.info(f"Request parsed: {data}")
 
@@ -9418,7 +9419,7 @@ print(wins / total)
             # Acquire semaphore to prevent concurrent matches (OOM protection)
             # Create lazily in async context to avoid event loop issues
             if self._tournament_match_semaphore is None:
-                logger.info(f"Creating tournament semaphore...")
+                logger.info("Creating tournament semaphore...")
                 self._tournament_match_semaphore = asyncio.Semaphore(1)
 
             # Try to acquire semaphore with timeout to avoid deadlocks
@@ -9518,6 +9519,7 @@ print(wins / total)
         """
         try:
             import time as time_mod
+
             from app.models import AIConfig, AIType, BoardType, GameStatus
             from app.rules.default_engine import DefaultRulesEngine
             from app.training.initial_state import create_initial_state
@@ -9928,8 +9930,8 @@ print(wins / total)
     async def _play_tournament_match(self, job_id: str, match_info: dict):
         """Play a tournament match locally using subprocess selfplay."""
         try:
-            import sys
             import json as json_module
+            import sys
 
             agent1 = match_info["agent1"]
             agent2 = match_info["agent2"]
@@ -10155,7 +10157,7 @@ print(json.dumps(result))
 
         # Log rankings
         ranked = sorted(state.final_ratings.items(), key=lambda x: x[1]["elo"], reverse=True)
-        logger.info(f"Tournament final rankings:")
+        logger.info("Tournament final rankings:")
         for rank, (agent, stats) in enumerate(ranked, 1):
             logger.info(f"  {rank}. {agent}: Elo={stats['elo']}, W/L/D={stats['wins']}/{stats['losses']}/{stats['draws']}")
 
@@ -10675,7 +10677,7 @@ print(json.dumps(result))
 
         if tasks_sent == 0:
             # No workers available, run locally
-            logger.info(f"No workers available, running selfplay locally")
+            logger.info("No workers available, running selfplay locally")
             await self._run_local_selfplay(
                 job_id, state.games_per_iteration,
                 state.board_type, state.num_players,
@@ -10744,7 +10746,7 @@ print(json.dumps(result))
                 logger.info(f"Local selfplay failed: {stderr.decode()[:500]}")
 
         except asyncio.TimeoutError:
-            logger.info(f"Local selfplay timed out")
+            logger.info("Local selfplay timed out")
         except Exception as e:
             logger.info(f"Local selfplay error: {e}")
 
@@ -10829,13 +10831,13 @@ else:
             )
 
             if proc.returncode == 0:
-                logger.info(f"Training data export completed")
+                logger.info("Training data export completed")
                 state.training_data_path = output_file
             else:
                 logger.info(f"Training data export failed: {stderr.decode()[:500]}")
 
         except asyncio.TimeoutError:
-            logger.info(f"Training data export timed out")
+            logger.info("Training data export timed out")
         except Exception as e:
             logger.info(f"Training data export error: {e}")
 
@@ -10903,7 +10905,7 @@ else:
         """Run training locally using subprocess."""
         import sys
 
-        logger.info(f"Running local training")
+        logger.info("Running local training")
 
         training_script = f"""
 import sys
@@ -10965,7 +10967,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 logger.info(f"Training stderr: {stderr.decode()[:500]}")
 
         except asyncio.TimeoutError:
-            logger.info(f"Local training timed out")
+            logger.info("Local training timed out")
         except Exception as e:
             logger.info(f"Local training error: {e}")
 
@@ -11694,7 +11696,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         except Exception as e:
             return web.json_response({"success": False, "error": str(e)})
 
-    async def _handle_training_job_completion(self, job: 'TrainingJob') -> None:
+    async def _handle_training_job_completion(self, job: TrainingJob) -> None:
         """Handle training job completion - run gauntlet, notify cycle manager, trigger evaluation.
 
         This method bridges the training completion with the improvement cycle:
@@ -11720,7 +11722,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     job.num_players,
                     reason="failed_post_training_gauntlet"
                 )
-                logger.info(f"Model archived: failed post-training gauntlet (< 50% vs median)")
+                logger.info("Model archived: failed post-training gauntlet (< 50% vs median)")
                 return  # Don't proceed with tournament scheduling
 
             # Notify improvement cycle manager
@@ -11737,7 +11739,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         except Exception as e:
             logger.error(f"handling training completion for {job.job_id}: {e}")
 
-    async def _schedule_model_comparison_tournament(self, job: 'TrainingJob') -> None:
+    async def _schedule_model_comparison_tournament(self, job: TrainingJob) -> None:
         """Schedule a tournament to compare the new model against baseline."""
         if not job.output_model_path:
             return
@@ -11821,7 +11823,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             logger.error(f"getting median model: {e}")
             return None
 
-    async def _run_post_training_gauntlet(self, job: 'TrainingJob') -> bool:
+    async def _run_post_training_gauntlet(self, job: TrainingJob) -> bool:
         """Run quick gauntlet evaluation for newly trained model.
 
         Model must beat the median-rated model with 50%+ win rate to pass.
@@ -12232,7 +12234,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             else:
                 # LOCAL MODE: Run GPU CMA-ES on this node only
-                logger.info(f"Starting LOCAL GPU CMA-ES (no remote workers available)")
+                logger.info("Starting LOCAL GPU CMA-ES (no remote workers available)")
 
                 output_dir = os.path.join(
                     self.ringrift_path, "ai-service", "data", "cmaes",
@@ -12465,8 +12467,8 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     ))
                 elif validation_rate < 95:
                     logger.info(f"WARNING: GPU selfplay validation rate {validation_rate:.1f}% is below 95%")
-                    logger.info(f"  This indicates potential GPU/CPU rule divergence")
-                    logger.info(f"  Skipping auto-import to canonical database")
+                    logger.info("  This indicates potential GPU/CPU rule divergence")
+                    logger.info("  Skipping auto-import to canonical database")
                     # Alert on low validation rate
                     asyncio.create_task(self.notifier.send(
                         title="Low GPU Validation Rate",
@@ -12599,7 +12601,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
                     promoted = win_rate >= 0.55
                     if promoted:
-                        logger.info(f"New model beats baseline! Promoting to best baseline.")
+                        logger.info("New model beats baseline! Promoting to best baseline.")
                         await self._promote_to_baseline(
                             config["model_a"], config["board_type"],
                             config["num_players"], "nnue" if "nnue" in config["model_a"].lower() else "cmaes"
@@ -12691,7 +12693,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             if should_tune:
                 logger.info(f"[CMA-ES] Elo plateau detected for {config_key} (Elo: {best_elo:.0f})")
-                logger.info(f"[CMA-ES] Triggering auto hyperparameter optimization...")
+                logger.info("[CMA-ES] Triggering auto hyperparameter optimization...")
 
                 # Trigger CMA-ES via existing distributed infrastructure
                 await self._trigger_auto_cmaes(board_type, num_players)
@@ -12770,7 +12772,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     num_players=num_players,
                     tournament_id=tournament_id,
                 )
-                logger.info(f"Recorded tournament result to unified Elo DB")
+                logger.info("Recorded tournament result to unified Elo DB")
 
                 # Trigger Elo sync to propagate to cluster
                 if HAS_ELO_SYNC and self.elo_sync_manager:
@@ -13316,7 +13318,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             # Elo metrics with config labels
             try:
-                from scripts.run_model_elo_tournament import init_elo_database, ELO_DB_PATH
+                from scripts.run_model_elo_tournament import ELO_DB_PATH, init_elo_database
                 if ELO_DB_PATH and ELO_DB_PATH.exists():
                     db = init_elo_database()
                     conn = db._get_connection()
@@ -13482,7 +13484,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             lines.append("# HELP ringrift_elo_uncertainty Elo rating uncertainty margin")
             lines.append("# TYPE ringrift_elo_uncertainty gauge")
             try:
-                from scripts.run_model_elo_tournament import init_elo_database, ELO_DB_PATH
+                from scripts.run_model_elo_tournament import ELO_DB_PATH, init_elo_database
                 if ELO_DB_PATH and ELO_DB_PATH.exists():
                     db = init_elo_database()
                     conn = db._get_connection()
@@ -14824,9 +14826,9 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             # Try to import Elo database functions
             try:
                 from scripts.run_model_elo_tournament import (
-                    init_elo_database,
-                    get_leaderboard,
                     ELO_DB_PATH,
+                    get_leaderboard,
+                    init_elo_database,
                 )
             except ImportError:
                 return web.json_response({
@@ -14989,8 +14991,8 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             else:
                 # Default: tournament participants from unified_elo.db
                 from scripts.run_model_elo_tournament import (
-                    init_elo_database,
                     ELO_DB_PATH,
+                    init_elo_database,
                 )
 
                 if not ELO_DB_PATH or not ELO_DB_PATH.exists():
@@ -15886,8 +15888,8 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
     async def _get_training_efficiency_cached(self) -> dict[str, Any]:
         """Get training efficiency metrics with caching (5 min TTL)."""
-        import sqlite3
         import re
+        import sqlite3
 
         cache_key = "_training_efficiency_cache"
         cache_time_key = "_training_efficiency_cache_time"
@@ -16085,8 +16087,8 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         Returns:
             Dict with rollback results (success, message, details)
         """
-        import shutil
         import json
+        import shutil
 
         result = {
             "success": False,
@@ -17381,8 +17383,8 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     try:
                         # Get mapping from node_id to vast_instance_id
                         from scripts.vast_p2p_sync import (
-                            get_node_to_vast_mapping_async,
                             deprovision_instances_async,
+                            get_node_to_vast_mapping_async,
                         )
                         node_to_vast = await get_node_to_vast_mapping_async()
 
@@ -17699,8 +17701,9 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
         # Initialize populator
         try:
-            from app.coordination.queue_populator import QueuePopulator, load_populator_config_from_yaml
             import yaml
+
+            from app.coordination.queue_populator import QueuePopulator, load_populator_config_from_yaml
 
             # Load config from YAML
             config_path = Path(__file__).parent.parent / "config" / "unified_loop.yaml"
@@ -19912,8 +19915,8 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         Runs evaluation games between the candidate model and the best model.
         Reports win rate for the candidate.
         """
-        import sys
         import json as json_module
+        import sys
 
         state = self.improvement_loop_state.get(job_id)
         if not state:
@@ -20016,13 +20019,13 @@ print(json.dumps({{
 
                 state.evaluation_winrate = result.get('winrate', 0.5)
                 logger.info(f"Evaluation result: winrate={state.evaluation_winrate:.2%}")
-                logger.info(f"  Candidate")
+                logger.info("  Candidate")
             else:
                 logger.info(f"Evaluation failed: {stderr.decode()[:500]}")
                 state.evaluation_winrate = 0.5
 
         except asyncio.TimeoutError:
-            logger.info(f"Evaluation timed out")
+            logger.info("Evaluation timed out")
             state.evaluation_winrate = 0.5
         except Exception as e:
             logger.info(f"Evaluation error: {e}")
@@ -20043,9 +20046,9 @@ print(json.dumps({{
         candidate_path = getattr(state, 'candidate_model_path', None)
 
         logger.info(f"Checking model promotion for job {job_id}")
-        logger.info(f"  Current")
-        logger.info(f"  Candidate")
-        logger.info(f"  Threshold")
+        logger.info("  Current")
+        logger.info("  Candidate")
+        logger.info("  Threshold")
 
         if winrate >= PROMOTION_THRESHOLD and candidate_path:
             # Promote candidate to best
@@ -20773,7 +20776,7 @@ print(json.dumps({{
 
                 # Health-based leadership: step down if we can't reach enough peers
                 if self.role == NodeRole.LEADER and not self._check_leader_health():
-                    logger.info(f"Stepping down due to degraded health")
+                    logger.info("Stepping down due to degraded health")
                     self.role = NodeRole.FOLLOWER
                     self.leader_id = None
                     self.leader_lease_id = ""
@@ -21065,7 +21068,7 @@ print(json.dumps({{
         # we likely have symmetric NAT
         if len(external_ips) > 1:
             self._nat_type = "symmetric"
-            logger.info(f"Detected symmetric NAT (multiple external IPs seen)")
+            logger.info("Detected symmetric NAT (multiple external IPs seen)")
         elif len(external_ips) == 1:
             self._nat_type = "cone"
         else:
@@ -24020,7 +24023,7 @@ print(json.dumps({{
         agent_ids = proposal.get("agent_ids", [])
 
         if len(agent_ids) < 2:
-            logger.info(f"TOURNAMENT: Cannot start - need at least 2 agents")
+            logger.info("TOURNAMENT: Cannot start - need at least 2 agents")
             return
 
         # Create round-robin pairings
@@ -24114,10 +24117,10 @@ print(json.dumps({{
             # Start monitoring services
             success = await self.monitoring_manager.start_as_leader()
             if success:
-                logger.info(f"Monitoring services started on leader node")
+                logger.info("Monitoring services started on leader node")
                 self._monitoring_was_leader = True
             else:
-                logger.error(f"Failed to start monitoring services")
+                logger.error("Failed to start monitoring services")
         except Exception as e:
             logger.error(f"starting monitoring services: {e}")
 
@@ -24131,7 +24134,7 @@ print(json.dumps({{
         if self.role != NodeRole.LEADER:
             try:
                 await self.monitoring_manager.stop()
-                logger.info(f"Monitoring services stopped (no longer leader)")
+                logger.info("Monitoring services stopped (no longer leader)")
                 self._monitoring_was_leader = False
             except Exception as e:
                 logger.error(f"stopping monitoring services: {e}")
@@ -24180,11 +24183,11 @@ print(json.dumps({{
         lease_expires = await self._acquire_voter_lease_quorum(lease_id, int(LEADER_LEASE_DURATION))
         if getattr(self, "voter_node_ids", []) and not lease_expires:
             # Voter quorum failed - try arbiter fallback before stepping down
-            logger.info(f"Voter lease quorum failed; checking arbiter...")
+            logger.info("Voter lease quorum failed; checking arbiter...")
             arbiter_leader = await self._query_arbiter_for_leader()
             if arbiter_leader == self.node_id:
                 # Arbiter still recognizes us as leader - extend lease provisionally
-                logger.info(f"Arbiter confirms us as leader despite quorum failure; continuing with provisional lease")
+                logger.info("Arbiter confirms us as leader despite quorum failure; continuing with provisional lease")
                 lease_expires = now + LEADER_LEASE_DURATION / 2  # Shorter lease until quorum recovers
             elif arbiter_leader:
                 # Arbiter says someone else is leader - defer to arbiter
@@ -24573,7 +24576,7 @@ print(json.dumps({{
                     )
                     if result.returncode == 0:
                         killed += 1
-                        logger.info(f"LOCAL: Killed stuck GPU selfplay processes")
+                        logger.info("LOCAL: Killed stuck GPU selfplay processes")
                         # Clear job tracking so they restart
                         with self.jobs_lock:
                             gpu_jobs = [jid for jid, job in self.local_jobs.items()
@@ -26904,7 +26907,7 @@ print(json.dumps({{
                 # CPU-intensive data export job (NPZ creation)
                 # These jobs should be routed to high-CPU nodes (vast nodes preferred)
                 if not export_params:
-                    logger.info(f"DATA_EXPORT job requires export_params")
+                    logger.info("DATA_EXPORT job requires export_params")
                     return None
 
                 input_path = export_params.get("input_path")
@@ -26914,7 +26917,7 @@ print(json.dumps({{
                 is_jsonl = export_params.get("is_jsonl", False)
 
                 if not input_path or not output_path:
-                    logger.info(f"DATA_EXPORT requires input_path and output_path")
+                    logger.info("DATA_EXPORT requires input_path and output_path")
                     return None
 
                 # Ensure output directory exists

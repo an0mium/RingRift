@@ -32,16 +32,16 @@ import numpy as np
 # Add the app directory to the path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.ai.descent_ai import DescentAI  # noqa: E402
-from app.ai.heuristic_ai import HeuristicAI  # noqa: E402
-from app.ai.random_ai import RandomAI  # noqa: E402
-from app.models import AIConfig, GameStatus  # noqa: E402
-from app.training.env import TrainingEnvConfig, make_env  # noqa: E402
-from app.utils.memory_config import MemoryConfig  # noqa: E402
-from app.utils.progress_reporter import ProgressReporter  # noqa: E402
+from app.ai.descent_ai import DescentAI
+from app.ai.heuristic_ai import HeuristicAI
+from app.ai.random_ai import RandomAI
+from app.models import AIConfig, GameStatus
+from app.training.env import TrainingEnvConfig, make_env
+from app.utils.memory_config import MemoryConfig
+from app.utils.progress_reporter import ProgressReporter
 
 try:
-    from app.ai.mcts_ai import MCTSAI  # noqa: E402
+    from app.ai.mcts_ai import MCTSAI
 except ImportError:
     MCTSAI = None  # type: ignore
 

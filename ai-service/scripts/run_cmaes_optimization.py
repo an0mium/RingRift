@@ -51,13 +51,13 @@ import argparse
 import json
 import os
 import sys
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, cast
-from collections.abc import Callable
 
 import numpy as np
-import time
 
 # Allow imports from app/
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -72,7 +72,22 @@ except ImportError:  # pragma: no cover - handled via CLI guard
     # emit a clear error message if CMA-ES is actually required.
     cma = None  # type: ignore[assignment]
 
-from app.models import (  # type: ignore  # noqa: E402
+from app.ai.heuristic_ai import HeuristicAI  # type: ignore
+from app.ai.heuristic_weights import (  # type: ignore
+    BASE_V1_BALANCED_WEIGHTS,
+    HEURISTIC_WEIGHT_KEYS,
+    HeuristicWeights,
+)
+from app.db import (
+    GameReplayDB,
+    ParityValidationError,
+)
+from app.db.unified_recording import (
+    get_or_create_db,
+    record_completed_game_with_parity_check,
+    should_record_games,
+)
+from app.models import (  # type: ignore
     AIConfig,
     BoardState,
     BoardType,
@@ -84,38 +99,26 @@ from app.models import (  # type: ignore  # noqa: E402
     Player,
     TimeControl,
 )
-from app.ai.heuristic_ai import HeuristicAI  # type: ignore  # noqa: E402
-from app.ai.heuristic_weights import (  # type: ignore  # noqa: E402
-    BASE_V1_BALANCED_WEIGHTS,
-    HEURISTIC_WEIGHT_KEYS,
-    HeuristicWeights,
-)
-from app.rules.default_engine import (  # type: ignore  # noqa: E402
+from app.rules.core import BOARD_CONFIGS  # type: ignore
+from app.rules.default_engine import (  # type: ignore
     DefaultRulesEngine,
 )
-from app.rules.core import BOARD_CONFIGS  # type: ignore  # noqa: E402
-from app.training.eval_pools import (  # type: ignore  # noqa: E402
-    load_state_pool,
-)
-from app.training.env import (  # type: ignore  # noqa: E402
+from app.training.env import (  # type: ignore
     TRAINING_HEURISTIC_EVAL_MODE_BY_BOARD,
 )
-from app.utils.progress_reporter import (  # noqa: E402
+from app.training.eval_pools import (  # type: ignore
+    load_state_pool,
+)
+from app.utils.progress_reporter import (
     OptimizationProgressReporter,
     ProgressReporter,
 )
-from app.db.unified_recording import (  # noqa: E402
-    record_completed_game_with_parity_check,
-    get_or_create_db,
-    should_record_games,
-)
-from app.db import ParityValidationError  # noqa: E402
-from app.db import GameReplayDB  # noqa: E402
 
 # GPU evaluation imports (optional - only needed for --gpu mode)
 try:
     import torch
-    from app.ai.gpu_batch import get_device, clear_gpu_memory
+
+    from app.ai.gpu_batch import clear_gpu_memory, get_device
     from app.ai.gpu_parallel_games import ParallelGameRunner
     GPU_AVAILABLE = True
 except ImportError:
@@ -124,16 +127,16 @@ except ImportError:
 
 # Distributed evaluation imports (optional - only needed for --distributed mode)
 try:
-    from app.distributed import (  # noqa: E402
+    from app.distributed import (
         DistributedEvaluator,
         QueueDistributedEvaluator,
         discover_workers,
-        wait_for_workers,
-        parse_manual_workers,
         filter_healthy_workers,
+        parse_manual_workers,
+        wait_for_workers,
         write_games_to_db,
     )
-    from app.distributed.hosts import (  # noqa: E402
+    from app.distributed.hosts import (
         HostConfig,
         load_remote_hosts,
     )
@@ -154,7 +157,7 @@ except ImportError:
 VALID_MODES = ["local", "lan", "aws", "hybrid"]
 
 
-def get_hosts_for_mode(mode: str, hosts_config: dict[str, "HostConfig"]) -> list[str]:
+def get_hosts_for_mode(mode: str, hosts_config: dict[str, HostConfig]) -> list[str]:
     """Get list of host names based on deployment mode.
 
     Args:
@@ -1453,7 +1456,7 @@ def run_axis_aligned_multiplayer_eval(
         if not os.path.isfile(path):
             continue
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
 
         weights_obj = payload.get("weights")
@@ -1555,7 +1558,7 @@ def load_weights_from_file(path: str) -> HeuristicWeights:
     HeuristicWeights
         Loaded weights dictionary.
     """
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
 
     # Handle both flat format and nested "weights" format
@@ -1642,7 +1645,7 @@ def update_trained_profiles_config(
 
     # Load existing config or create new one
     if os.path.exists(TRAINED_PROFILES_PATH):
-        with open(TRAINED_PROFILES_PATH, "r", encoding="utf-8") as f:
+        with open(TRAINED_PROFILES_PATH, encoding="utf-8") as f:
             config = json.load(f)
     else:
         config = {
@@ -1888,7 +1891,7 @@ def run_cmaes_optimization(config: CMAESConfig) -> HeuristicWeights:
                 # Load weights
                 best_weights = load_weights_from_file(latest_checkpoint_path)
                 # Optionally recover fitness metadata
-                with open(latest_checkpoint_path, "r", encoding="utf-8") as f:
+                with open(latest_checkpoint_path, encoding="utf-8") as f:
                     checkpoint_payload = json.load(f)
                 if isinstance(checkpoint_payload, dict) and "fitness" in checkpoint_payload:
                     best_fitness = float(checkpoint_payload["fitness"])
@@ -1981,7 +1984,7 @@ def run_cmaes_optimization(config: CMAESConfig) -> HeuristicWeights:
         injected_solutions = []
         for profile_path in config.inject_profiles:
             try:
-                with open(profile_path, "r", encoding="utf-8") as f:
+                with open(profile_path, encoding="utf-8") as f:
                     profile_data = json.load(f)
                 profile_weights = profile_data.get("weights", profile_data)
                 # Convert to ordered array matching WEIGHT_KEYS
@@ -2052,8 +2055,8 @@ def run_cmaes_optimization(config: CMAESConfig) -> HeuristicWeights:
             hosts_config = load_remote_hosts()
             if not hosts_config:
                 raise RuntimeError(
-                    f"No hosts configured. Copy config/distributed_hosts.template.yaml "
-                    f"to config/distributed_hosts.yaml and configure your hosts."
+                    "No hosts configured. Copy config/distributed_hosts.template.yaml "
+                    "to config/distributed_hosts.yaml and configure your hosts."
                 )
             host_names = get_hosts_for_mode(config.mode, hosts_config)
             if not host_names:

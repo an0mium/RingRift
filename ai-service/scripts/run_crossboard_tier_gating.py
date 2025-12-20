@@ -21,7 +21,6 @@ import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
@@ -182,7 +181,7 @@ def _run_parity_gate(args: argparse.Namespace, run_dir: str) -> dict[str, Any] |
         cmd.extend(["--minimax-depth", str(args.parity_minimax_depth)])
 
     subprocess.run(cmd, check=True, cwd=PROJECT_ROOT)
-    with open(out_path, "r", encoding="utf-8") as f:
+    with open(out_path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -208,7 +207,7 @@ def _run_full_gate(args: argparse.Namespace, run_dir: str) -> dict[str, Any]:
 
     subprocess.run(cmd, check=True, cwd=PROJECT_ROOT)
     gate_path = os.path.join(run_dir, FULL_GATE_FILENAME)
-    with open(gate_path, "r", encoding="utf-8") as f:
+    with open(gate_path, encoding="utf-8") as f:
         return json.load(f)
 
 

@@ -1,8 +1,9 @@
 """Tests for unified_model_store.py - consolidated model lifecycle management."""
 
-import pytest
-from unittest.mock import MagicMock, patch
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestUnifiedModelStoreImports:
@@ -11,14 +12,14 @@ class TestUnifiedModelStoreImports:
     def test_import_unified_api(self):
         """Test importing the unified API."""
         from app.training.unified_model_store import (
-            UnifiedModelStore,
             ModelInfo,
             ModelStoreStage,
             ModelStoreType,
+            UnifiedModelStore,
             get_model_store,
-            register_model,
             get_production_model,
             promote_model,
+            register_model,
         )
         assert UnifiedModelStore is not None
         assert ModelInfo is not None
@@ -27,10 +28,10 @@ class TestUnifiedModelStoreImports:
     def test_import_legacy_reexports(self):
         """Test that legacy re-exports are available."""
         from app.training.unified_model_store import (
+            ModelMetrics,
             ModelRegistry,
             ModelStage,
             ModelType,
-            ModelMetrics,
             get_model_registry,
         )
         assert ModelRegistry is not None
@@ -40,9 +41,9 @@ class TestUnifiedModelStoreImports:
     def test_import_via_package(self):
         """Test importing via app.training package."""
         from app.training import (
+            ModelInfo,
             UnifiedModelStore,
             get_model_store,
-            ModelInfo,
         )
         assert UnifiedModelStore is not None
         assert get_model_store is not None

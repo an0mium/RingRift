@@ -24,8 +24,8 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from app.models import AIConfig
-from app.training.initial_state import create_initial_state
 from app.rules.default_engine import DefaultRulesEngine
+from app.training.initial_state import create_initial_state
 from scripts.lib.logging_config import setup_script_logging
 
 
@@ -112,7 +112,7 @@ def benchmark_gumbel_mcts(
         "gpu_device": str(ai._gpu_device) if ai._gpu_device else "N/A",
     }
 
-    print(f"\nResults:")
+    print("\nResults:")
     print(f"  Total time: {total_time:.2f}s")
     print(f"  Avg time per move: {avg_time*1000:.1f}ms")
     print(f"  Moves/sec: {results['moves_per_sec']:.2f}")
@@ -137,6 +137,7 @@ def compare_gpu_vs_cpu(
     os.environ.pop("RINGRIFT_GPU_GUMBEL_DISABLE", None)
     # Need to reimport to pick up env var change
     import importlib
+
     from app.ai import gumbel_mcts_ai
     importlib.reload(gumbel_mcts_ai)
 

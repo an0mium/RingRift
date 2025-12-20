@@ -49,8 +49,8 @@ except ImportError:
 # Unified resource guard - 80% utilization limits (enforced 2025-12-16)
 try:
     from app.utils.resource_guard import (
-        get_disk_usage as unified_get_disk_usage,
         LIMITS as RESOURCE_LIMITS,
+        get_disk_usage as unified_get_disk_usage,
     )
     HAS_RESOURCE_GUARD = True
 except ImportError:
@@ -649,7 +649,7 @@ def run_cleanup(ringrift_path: str, threshold: int = None, force: bool = False,
     # Summarize results
     total_freed = sum(r.size_bytes for r in all_results if r.deleted)
 
-    print(f"\nCleanup complete:")
+    print("\nCleanup complete:")
     print(f"  Files processed: {len(all_results)}")
     print(f"  Space freed: {format_size(total_freed)}")
 
@@ -686,9 +686,9 @@ def main():
 
     # Log threshold source for debugging
     if HAS_THRESHOLDS:
-        print(f"Using centralized thresholds from app.monitoring.thresholds")
+        print("Using centralized thresholds from app.monitoring.thresholds")
     else:
-        print(f"Using fallback thresholds (app.monitoring.thresholds not available)")
+        print("Using fallback thresholds (app.monitoring.thresholds not available)")
 
     result = run_cleanup(
         ringrift_path=args.ringrift_path,
@@ -700,7 +700,7 @@ def main():
 
     # Exit with error if still over threshold after cleanup
     if result.get("new_percent", 0) > args.threshold and not args.dry_run:
-        print(f"\nWARNING: Still above threshold after cleanup!")
+        print("\nWARNING: Still above threshold after cleanup!")
         sys.exit(1)
 
     sys.exit(0)

@@ -9,8 +9,8 @@ Tests cover:
 - Multi-node coordination
 """
 
-from unittest.mock import MagicMock, patch
 import os
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -77,8 +77,8 @@ class TestUnifiedDistributedTrainer:
         """Test trainer initialization in single GPU mode."""
         try:
             from app.training.distributed_unified import (
-                UnifiedDistributedTrainer,
                 UnifiedDistributedConfig,
+                UnifiedDistributedTrainer,
             )
         except ImportError:
             pytest.skip("distributed_unified not available")
@@ -93,8 +93,8 @@ class TestUnifiedDistributedTrainer:
         """Test that trainer detects distributed environment variables."""
         try:
             from app.training.distributed_unified import (
-                UnifiedDistributedTrainer,
                 UnifiedDistributedConfig,
+                UnifiedDistributedTrainer,
             )
         except ImportError:
             pytest.skip("distributed_unified not available")
@@ -185,8 +185,8 @@ class TestMixedPrecision:
         """Test that GradScaler is created for AMP when setup is called."""
         try:
             from app.training.distributed_unified import (
-                UnifiedDistributedTrainer,
                 UnifiedDistributedConfig,
+                UnifiedDistributedTrainer,
             )
         except ImportError:
             pytest.skip("distributed_unified not available")

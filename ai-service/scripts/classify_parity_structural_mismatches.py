@@ -35,9 +35,9 @@ import argparse
 import json
 import os
 import subprocess
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 from scripts import debug_ts_python_state_diff as dbg  # type: ignore
 
@@ -193,7 +193,7 @@ def classify_structural_mismatches(
 
         try:
             _run_ts_dump(root, db_path, game_id, ts_k, dump_dir)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             results.append(
                 StructuralClassification(
                     db_path=str(db_path),

@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
-from scripts import debug_ts_python_state_diff as dbg  # type: ignore
 from app.rules.serialization import deserialize_game_state
+from scripts import debug_ts_python_state_diff as dbg  # type: ignore
 
 
 def _compute_structural_diffs_from_states(

@@ -5,17 +5,17 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.utils.datetime_utils import (
-    utc_now,
-    utc_timestamp,
+    date_str,
+    format_age,
+    format_duration,
     iso_now,
     iso_now_ms,
-    to_iso,
     parse_iso,
     time_ago,
-    format_duration,
-    format_age,
-    date_str,
     timestamp_str,
+    to_iso,
+    utc_now,
+    utc_timestamp,
 )
 
 

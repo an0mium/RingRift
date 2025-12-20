@@ -6,14 +6,14 @@ from pathlib import Path
 import pytest
 
 from app.utils.yaml_utils import (
+    YAMLLoadError,
+    dump_yaml,
+    dumps_yaml,
+    load_config_yaml,
     load_yaml,
     load_yaml_with_defaults,
     safe_load_yaml,
-    dump_yaml,
-    dumps_yaml,
     validate_yaml_schema,
-    load_config_yaml,
-    YAMLLoadError,
 )
 
 

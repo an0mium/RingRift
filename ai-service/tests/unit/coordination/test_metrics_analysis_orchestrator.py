@@ -9,9 +9,9 @@ Tests cover:
 """
 
 import time
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 # =============================================================================
 # Test TrendDirection Enum
@@ -674,8 +674,8 @@ class TestModuleFunctions:
     def test_record_metric_function(self):
         """Test record_metric convenience function."""
         from app.coordination.metrics_analysis_orchestrator import (
-            record_metric,
             get_metrics_orchestrator,
+            record_metric,
         )
 
         record_metric("convenience_test", 42.0)

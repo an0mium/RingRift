@@ -1,8 +1,9 @@
 """Tests for coordinator_base.py - base classes and registry for coordinators."""
 
-import pytest
 import asyncio
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestCoordinatorBaseImports:
@@ -11,8 +12,8 @@ class TestCoordinatorBaseImports:
     def test_import_enums_and_dataclasses(self):
         """Test importing enums and dataclasses."""
         from app.coordination.coordinator_base import (
-            CoordinatorStatus,
             CoordinatorStats,
+            CoordinatorStatus,
         )
         assert CoordinatorStatus is not None
         assert CoordinatorStats is not None
@@ -34,9 +35,9 @@ class TestCoordinatorBaseImports:
     def test_import_mixins(self):
         """Test importing mixins."""
         from app.coordination.coordinator_base import (
-            SQLitePersistenceMixin,
-            SingletonMixin,
             CallbackMixin,
+            SingletonMixin,
+            SQLitePersistenceMixin,
         )
         assert SQLitePersistenceMixin is not None
         assert SingletonMixin is not None

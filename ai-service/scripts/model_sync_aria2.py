@@ -38,6 +38,7 @@ Usage:
 Designed for distributing trained models across P2P cluster.
 """
 import warnings
+
 warnings.warn(
     "model_sync_aria2.py is deprecated. Use sync_models.py instead.",
     DeprecationWarning,
@@ -344,7 +345,7 @@ def cmd_status():
         print(f"{m['name']:<50} {size_mb:>8.1f} MB  {mtime}")
 
     # Probe sources
-    print(f"\nModel sources:")
+    print("\nModel sources:")
     sources = get_best_sources(len(MODEL_SOURCES))
     for s in MODEL_SOURCES:
         available = any(src["name"] == s["name"] for src in sources)

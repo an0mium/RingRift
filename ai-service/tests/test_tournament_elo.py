@@ -8,6 +8,7 @@ Comprehensive tests for:
 """
 
 import math
+
 import pytest
 
 
@@ -358,8 +359,8 @@ class TestModuleExports:
     def test_main_exports(self):
         """Test importing main exports from elo module."""
         from app.tournament.elo import (
-            EloRating,
             EloCalculator,
+            EloRating,
         )
 
         assert EloRating is not None

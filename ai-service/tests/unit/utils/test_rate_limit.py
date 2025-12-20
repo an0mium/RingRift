@@ -6,11 +6,11 @@ import pytest
 
 from app.utils.rate_limit import (
     Cooldown,
-    RateLimiter,
     KeyedRateLimiter,
+    RateLimiter,
+    RateLimitExceeded,
     rate_limit,
     rate_limit_async,
-    RateLimitExceeded,
 )
 
 

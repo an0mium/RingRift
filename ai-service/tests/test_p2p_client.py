@@ -4,19 +4,20 @@ Tests the P2P orchestrator client library.
 """
 
 import json
-import pytest
-from unittest.mock import patch, MagicMock
 from datetime import datetime
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from scripts.p2p.client import (
-    P2PClient,
-    P2PClientError,
-    JobType,
-    JobStatus,
+    ClusterStatus,
     JobRequest,
     JobResult,
+    JobStatus,
+    JobType,
     NodeInfo,
-    ClusterStatus,
+    P2PClient,
+    P2PClientError,
     get_client,
     get_cluster_status,
     submit_selfplay_job,

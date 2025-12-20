@@ -64,7 +64,7 @@ class HostConfig:
     port: int
 
     @classmethod
-    def from_string(cls, s: str) -> "HostConfig":
+    def from_string(cls, s: str) -> HostConfig:
         """Parse host string like 'user@host:port' or 'user@host -p port'."""
         # Handle "user@host:port" format
         if ':' in s and '-p' not in s:
@@ -293,7 +293,7 @@ def collect_results(hosts: list[HostConfig]) -> dict[str, any]:
         # List result files
         rc, stdout, _ = run_ssh(host, f"ls {REMOTE_RESULTS_DIR}/*.json 2>/dev/null || true")
         if rc != 0 or not stdout.strip():
-            print(f"    No results found")
+            print("    No results found")
             continue
 
         for remote_file in stdout.strip().split('\n'):
@@ -415,7 +415,7 @@ def main():
             print(f"  {status} {target}: {msg}")
             if not ok:
                 # Retry once after delay
-                print(f"    Retrying in 10s...")
+                print("    Retrying in 10s...")
                 time.sleep(10)
                 target, ok, msg = deploy_via_tarball(host)
                 status = "✓" if ok else "✗"
@@ -432,7 +432,7 @@ def main():
             host = hosts[i % len(hosts)]
             assignments.append((host, board_type))
 
-        print(f"Assignments:")
+        print("Assignments:")
         for host, bt in assignments:
             print(f"  {host.host}:{host.port} -> {bt}")
 

@@ -12,10 +12,10 @@ For training data:
 
 Designed for automated cron execution.
 """
-import os
-import json
-import sqlite3
 import glob
+import json
+import os
+import sqlite3
 from datetime import datetime
 
 DATA_DIR = os.environ.get("DATA_DIR", "data/games")

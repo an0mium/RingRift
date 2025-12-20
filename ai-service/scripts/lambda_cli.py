@@ -3,8 +3,10 @@
 import argparse
 import os
 import sys
+
 import requests
 import yaml
+
 
 def get_api_key():
     """Get API key from config file or environment."""

@@ -5,10 +5,10 @@ from __future__ import annotations
 import unittest
 
 from app.training.tier_eval_config import (
+    TIER_EVAL_CONFIGS,
     TierEvaluationConfig,
     TierOpponentConfig,
     get_tier_config,
-    TIER_EVAL_CONFIGS,
 )
 
 

@@ -185,7 +185,7 @@ def run_migration(db_path: str, dry_run: bool = False, force: bool = False) -> b
         db = GameReplayDB(db_path)
         stats = db.get_stats()
 
-        print(f"\nMigration complete!")
+        print("\nMigration complete!")
         print(f"Schema version: {stats['schema_version']}")
         print(f"Games: {stats['total_games']:,}")
         print(f"Moves: {stats['total_moves']:,}")

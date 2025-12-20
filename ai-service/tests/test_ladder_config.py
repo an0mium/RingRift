@@ -6,14 +6,14 @@ import pytest
 # Ensure app package is importable when running tests directly.
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 
-from app.config.ladder_config import (  # noqa: E402
+from app.ai.heuristic_ai import HeuristicAI
+from app.config.ladder_config import (
     LadderTierConfig,
     get_ladder_tier_config,
 )
-from app.models import AIType, BoardType  # noqa: E402
-from app.training.tier_eval_config import get_tier_config  # noqa: E402
-from app.training import tier_eval_runner as runner  # noqa: E402
-from app.ai.heuristic_ai import HeuristicAI  # noqa: E402
+from app.models import AIType, BoardType
+from app.training import tier_eval_runner as runner
+from app.training.tier_eval_config import get_tier_config
 
 
 def test_square8_two_player_ladder_entries_exist() -> None:

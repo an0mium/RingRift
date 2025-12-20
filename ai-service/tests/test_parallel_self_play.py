@@ -10,7 +10,7 @@ import pytest
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.run_parallel_self_play import (  # noqa: E402
+from scripts.run_parallel_self_play import (
     GameResult,
     WorkerTask,
     aggregate_results,

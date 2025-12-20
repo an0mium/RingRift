@@ -89,7 +89,7 @@ def find_training_runs(training_dir: str) -> list[TrainingRun]:
 
     for path in weight_files:
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
 
             # Try to determine num_players from run metadata
@@ -98,7 +98,7 @@ def find_training_runs(training_dir: str) -> list[TrainingRun]:
             num_players = 2  # Default
 
             if os.path.exists(meta_path):
-                with open(meta_path, "r", encoding="utf-8") as f:
+                with open(meta_path, encoding="utf-8") as f:
                     meta = json.load(f)
                     num_players = meta.get("num_players", 2)
 
@@ -170,9 +170,8 @@ def validate_weights(
     print(f"\nValidating weights ({num_games} games, {num_players} players)...")
 
     # Import validation function
-    from scripts.validate_and_promote_weights import validate_weights as do_validate
-
     from app.models import BoardType
+    from scripts.validate_and_promote_weights import validate_weights as do_validate
 
     result = do_validate(
         weights_path,
@@ -266,7 +265,7 @@ def run_pipeline(
                 all_passed = False
                 print(f"  FAILED: {num_players}p weights did not pass validation")
         else:
-            print(f"  Skipping validation (--skip-validation)")
+            print("  Skipping validation (--skip-validation)")
 
     # Promote if all passed and not dry run
     promoted = False
@@ -427,7 +426,7 @@ def main():
     print(f"  Weights promoted: {result.promoted}")
 
     if result.promoted_path:
-        print(f"\n  To use promoted weights, set:")
+        print("\n  To use promoted weights, set:")
         print(f"    export RINGRIFT_TRAINED_HEURISTIC_PROFILES={os.path.abspath(result.promoted_path)}")
 
     # Exit code for CI/CD

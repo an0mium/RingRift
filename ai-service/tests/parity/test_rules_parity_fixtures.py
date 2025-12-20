@@ -16,26 +16,26 @@ Once this round-trip is stable, we can extend the fixtures to include
 state+action scenarios and assert full rules parity.
 """
 
+import glob
 import json
 import os
 import sys
 from datetime import datetime
-import glob
 
 import pytest
 
 # Ensure app package is importable
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../"))
 
-from app.models import (  # noqa: E402
-    GameState,
+from fastapi.testclient import TestClient
+
+from app.main import app
+from app.models import (
     BoardType,
+    GameState,
     Move,
 )
-from app.rules.default_engine import DefaultRulesEngine  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-from app.main import app  # noqa: E402
-
+from app.rules.default_engine import DefaultRulesEngine
 
 BASE_DIR = os.path.dirname(__file__)
 
@@ -137,7 +137,7 @@ def test_load_ts_initial_state_fixture() -> None:
     """
 
     fixture_path = os.path.abspath(FIXTURE_REL_PATH)
-    with open(fixture_path, "r", encoding="utf-8") as f:
+    with open(fixture_path, encoding="utf-8") as f:
         payload = json.load(f)
 
     assert payload["boardType"] == "square8"
@@ -183,7 +183,7 @@ def test_state_action_parity(fixture_path: str) -> None:
     3. Assert validation matches expected.tsValid.
     4. If valid, apply move and assert outcome parity (stateHash, S-invariant).
     """
-    with open(fixture_path, "r", encoding="utf-8") as f:
+    with open(fixture_path, encoding="utf-8") as f:
         payload = json.load(f)
 
     state_dict = payload["state"]
@@ -206,8 +206,8 @@ def test_state_action_parity(fixture_path: str) -> None:
     if ts_valid:
         ts_next = expected.get("tsNext")
         if ts_next:
-            from app.game_engine import GameEngine
             from app.board_manager import BoardManager
+            from app.game_engine import GameEngine
 
             next_state = GameEngine.apply_move(state, move)
             raw_hash = BoardManager.hash_game_state(next_state)
@@ -247,7 +247,7 @@ def test_state_action_http_parity(fixture_path: str) -> None:
     """
     client = TestClient(app)
 
-    with open(fixture_path, "r", encoding="utf-8") as f:
+    with open(fixture_path, encoding="utf-8") as f:
         payload = json.load(f)
 
     state_dict = payload["state"]
@@ -365,8 +365,8 @@ def test_replay_ts_trace_fixtures_and_assert_python_state_parity() -> None:
     after applying the same Move sequence, Python's board hash and S-invariant
     match the TS ones when provided.
     """
-    from app.game_engine import GameEngine
     from app.board_manager import BoardManager
+    from app.game_engine import GameEngine
 
     trace_paths = _iter_trace_fixtures()
     if not trace_paths:
@@ -376,7 +376,7 @@ def test_replay_ts_trace_fixtures_and_assert_python_state_parity() -> None:
 
     for path in trace_paths:
         fixture_path = os.path.abspath(path)
-        with open(fixture_path, "r", encoding="utf-8") as f:
+        with open(fixture_path, encoding="utf-8") as f:
             payload = json.load(f)
 
         board_type = payload.get("boardType")
@@ -469,7 +469,7 @@ def test_default_engine_matches_game_engine_when_replaying_ts_traces() -> None:
     lockstep with GameEngine.apply_move for every Move in the TS-generated
     traces (captures, lines, territory, etc.).
     """
-    from app.game_engine import GameEngine  # noqa: WPS433,E402
+    from app.game_engine import GameEngine
 
     trace_paths = _iter_trace_fixtures()
     if not trace_paths:
@@ -479,7 +479,7 @@ def test_default_engine_matches_game_engine_when_replaying_ts_traces() -> None:
 
     for path in trace_paths:
         fixture_path = os.path.abspath(path)
-        with open(fixture_path, "r", encoding="utf-8") as f:
+        with open(fixture_path, encoding="utf-8") as f:
             payload = json.load(f)
 
         initial_state_dict = payload["initialState"]
@@ -590,7 +590,7 @@ def test_default_engine_matches_game_engine_when_replaying_ts_traces() -> None:
         "from the TypeScript project root to generate them."
     ),
 )
-def test_default_engine_mutator_first_matches_game_engine_on_ts_traces() -> None:  # noqa: E501
+def test_default_engine_mutator_first_matches_game_engine_on_ts_traces() -> None:
     """Replay TS trace fixtures with mutator-first mode enabled.
 
     This test ensures that when DefaultRulesEngine is constructed with
@@ -600,7 +600,7 @@ def test_default_engine_mutator_first_matches_game_engine_on_ts_traces() -> None
     path will surface as a RuntimeError inside
     ``DefaultRulesEngine.apply_move``.
     """
-    from app.game_engine import GameEngine  # noqa: WPS433,E402
+    from app.game_engine import GameEngine
 
     trace_paths = _iter_trace_fixtures()
     if not trace_paths:
@@ -610,7 +610,7 @@ def test_default_engine_mutator_first_matches_game_engine_on_ts_traces() -> None
 
     for path in trace_paths:
         fixture_path = os.path.abspath(path)
-        with open(fixture_path, "r", encoding="utf-8") as f:
+        with open(fixture_path, encoding="utf-8") as f:
             payload = json.load(f)
 
         initial_state_dict = payload["initialState"]

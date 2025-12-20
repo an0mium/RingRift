@@ -2,39 +2,42 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 import pytest
-from hypothesis import given, settings
-from hypothesis import strategies as st
+from hypothesis import (
+    given,
+    settings,
+    strategies as st,
+)
 
 # Ensure app package is importable when running tests directly from ai-service/
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import (  # noqa: E402
+from app.board_manager import BoardManager
+from app.game_engine import GameEngine
+from app.models import (
     GamePhase,
     GameStatus,
+    Move,
+    MoveType,
     Position,
     RingStack,
-    MoveType,
-    Move,
 )
-from app.models.core import MarkerInfo  # noqa: E402
-from app.game_engine import GameEngine  # noqa: E402
-from app.board_manager import BoardManager  # noqa: E402
-from app.rules import global_actions as ga  # noqa: E402
-from tests.rules.helpers import _make_base_game_state  # noqa: E402
+from app.models.core import MarkerInfo
+from app.rules import global_actions as ga
+from tests.rules.helpers import _make_base_game_state
 
 if TYPE_CHECKING:
-    from app.models import GameState  # noqa: F401
+    from app.models import GameState
 
 
 def _build_q23_region_state(
     internal_heights: list[int],
     outside_height: int,
-) -> tuple["GameState", list[Position], int]:
+) -> tuple[GameState, list[Position], int]:
     """Construct a Q23-style 2×2 disconnected region on square8 for P1.
 
     Geometry mirrors the TS territoryProcessing.property harness but fixes
@@ -348,7 +351,7 @@ def test_no_territory_action_then_forced_elimination_phase_transition(
 
     # Sanity: the engine-side helper must treat this turn as having had no
     # interactive actions so far.
-    from app.rules import phase_machine as pm  # noqa: E402
+    from app.rules import phase_machine as pm
 
     assert pm.compute_had_any_action_this_turn(state) is False
 

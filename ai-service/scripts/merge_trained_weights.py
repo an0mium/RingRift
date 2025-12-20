@@ -41,7 +41,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.ai.heuristic_weights import BASE_V1_BALANCED_WEIGHTS
 
-
 HeuristicWeights = dict[str, float]
 
 
@@ -58,7 +57,7 @@ def get_num_players_from_path(path: str) -> int | None:
 
     if os.path.exists(meta_path):
         try:
-            with open(meta_path, "r", encoding="utf-8") as f:
+            with open(meta_path, encoding="utf-8") as f:
                 meta = json.load(f)
                 if "num_players" in meta:
                     return meta["num_players"]
@@ -71,7 +70,7 @@ def get_num_players_from_path(path: str) -> int | None:
 
     if os.path.exists(parent_meta_path):
         try:
-            with open(parent_meta_path, "r", encoding="utf-8") as f:
+            with open(parent_meta_path, encoding="utf-8") as f:
                 meta = json.load(f)
                 if "num_players" in meta:
                     return meta["num_players"]
@@ -96,7 +95,7 @@ def load_weights_file(path: str) -> tuple[HeuristicWeights, float, int, dict]:
     Returns:
         Tuple of (weights dict, fitness score, num_players, full metadata)
     """
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
 
     weights = data.get("weights", data)

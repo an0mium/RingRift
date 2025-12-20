@@ -58,7 +58,6 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
-
 from neural_architecture_search import (
     SEARCH_SPACE,
     Architecture,
@@ -75,12 +74,12 @@ AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 # Unified resource guard - 80% utilization limits (enforced 2025-12-16)
 try:
     from app.utils.resource_guard import (
+        LIMITS as RESOURCE_LIMITS,
         can_proceed as resource_can_proceed,
         check_disk_space,
-        check_memory,
         check_gpu_memory,
+        check_memory,
         require_resources,
-        LIMITS as RESOURCE_LIMITS,
     )
     HAS_RESOURCE_GUARD = True
 except ImportError:

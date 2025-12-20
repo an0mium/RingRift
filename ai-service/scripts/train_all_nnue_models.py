@@ -172,14 +172,14 @@ def train_nnue(
         )
 
         if result.returncode == 0:
-            logger.info(f"  Training completed successfully")
+            logger.info("  Training completed successfully")
             return True
         else:
             logger.error(f"  Training failed: {result.stderr[-500:]}")
             return False
 
     except subprocess.TimeoutExpired:
-        logger.error(f"  Training timed out after 1 hour")
+        logger.error("  Training timed out after 1 hour")
         return False
     except Exception as e:
         logger.error(f"  Training error: {e}")

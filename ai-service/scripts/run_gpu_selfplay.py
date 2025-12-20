@@ -51,34 +51,33 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Ramdrive utilities for high-speed I/O
-from app.utils.ramdrive import get_config_from_args, get_games_directory, RamdriveSyncer
-from app.training.selfplay_config import SelfplayConfig, create_argument_parser
-
 import torch
 
 from app.ai.gpu_batch import get_device
-from app.ai.nnue import BatchNNUEEvaluator
 from app.ai.gpu_parallel_games import (
     ParallelGameRunner,
     benchmark_parallel_games,
 )
-from app.models.core import BoardType
-from app.models import Move, MoveType, Position, GameState
-from app.training.generate_data import create_initial_state
-from app.game_engine import GameEngine
+from app.ai.nnue import BatchNNUEEvaluator
 
 # Import coordination helpers for task limits and duration tracking
 from app.coordination.helpers import (
-    has_coordination,
-    get_task_types,
     can_spawn_safe,
-    register_running_task_safe,
+    get_task_types,
+    has_coordination,
     record_task_completion_safe,
+    register_running_task_safe,
 )
+from app.game_engine import GameEngine
+from app.models import GameState, Move, MoveType, Position
+from app.models.core import BoardType
+from app.training.generate_data import create_initial_state
+from app.training.selfplay_config import SelfplayConfig, create_argument_parser
+from app.utils.ramdrive import RamdriveSyncer, get_config_from_args, get_games_directory
 
 # Curriculum feedback for adaptive training weights
 try:
-    from app.training.curriculum_feedback import record_selfplay_game, get_curriculum_feedback
+    from app.training.curriculum_feedback import get_curriculum_feedback, record_selfplay_game
     HAS_CURRICULUM_FEEDBACK = True
 except ImportError:
     HAS_CURRICULUM_FEEDBACK = False
@@ -429,7 +428,7 @@ def load_weights_from_profile(
         logger.warning(f"Weights file not found: {weights_file}, using defaults")
         return DEFAULT_WEIGHTS.copy()
 
-    with open(weights_file, "r") as f:
+    with open(weights_file) as f:
         data = json.load(f)
 
     profiles = data.get("profiles", {})
@@ -721,7 +720,7 @@ class GPUSelfPlayGenerator:
             # NOTE: Canonical DB output is disabled for GPU games.
             # GPU selfplay moves don't map 1:1 to canonical game engine phases.
             # Use scripts/import_gpu_selfplay_to_db.py for post-hoc conversion.
-            logger.info(f"  Note: DB output not supported for GPU games (use import_gpu_selfplay_to_db.py)")
+            logger.info("  Note: DB output not supported for GPU games (use import_gpu_selfplay_to_db.py)")
 
         # Buffered write for better I/O performance (flush every N records)
         WRITE_BUFFER_SIZE = 100  # Records before flush - balances throughput vs data safety
@@ -975,7 +974,7 @@ def run_gpu_selfplay(
         logger.info(f"  Sample rate: {shadow_sample_rate:.1%}")
         logger.info(f"  Threshold: {shadow_threshold:.2%}")
     if use_policy:
-        logger.info(f"Move selection: policy-guided" + (f" ({policy_model_path})" if policy_model_path else ""))
+        logger.info("Move selection: policy-guided" + (f" ({policy_model_path})" if policy_model_path else ""))
     else:
         logger.info(f"Move selection: {'heuristic-based' if use_heuristic_selection else 'center-bias random'}")
     logger.info(f"Weight noise: {weight_noise:.1%}" if weight_noise > 0 else "Weight noise: disabled")
@@ -1253,9 +1252,14 @@ def main():
     # Also import graceful degradation functions for dynamic resource management
     try:
         from app.utils.resource_guard import (
-            check_disk_space, check_memory, check_gpu_memory,
-            get_resource_status, LIMITS,
-            should_proceed_with_priority, OperationPriority, get_degradation_level,
+            LIMITS,
+            OperationPriority,
+            check_disk_space,
+            check_gpu_memory,
+            check_memory,
+            get_degradation_level,
+            get_resource_status,
+            should_proceed_with_priority,
         )
         # Estimate output size: ~1KB per game for JSONL + ~100KB per 100 games for NPZ
         estimated_output_mb = (args.num_games * 0.001) + (args.num_games / 100 * 0.1) + 50
@@ -1369,7 +1373,7 @@ def main():
             config = f"{args.board}_{args.num_players}p"
             actual_duration = time.time() - start_time
             if record_task_completion_safe(task_id, "gpu_selfplay", actual_duration):
-                logger.info(f"Recorded task completion for duration learning")
+                logger.info("Recorded task completion for duration learning")
 
 
 if __name__ == "__main__":

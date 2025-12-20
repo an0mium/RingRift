@@ -71,22 +71,23 @@ import subprocess
 import sys
 import tempfile
 import uuid
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from scripts.lib.paths import AI_SERVICE_ROOT, REPO_ROOT
+
 # Ensure `app.*` imports resolve when invoked from repo root.
 if str(AI_SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 from app.db.game_replay import GameReplayDB, _compute_state_hash
-from app.training.generate_data import create_initial_state
 from app.game_engine import GameEngine
 from app.models import BoardType
-from app.rules.serialization import serialize_game_state
-from app.rules.history_validation import validate_canonical_history_for_game
 from app.rules import global_actions as ga
+from app.rules.history_validation import validate_canonical_history_for_game
+from app.rules.serialization import serialize_game_state
+from app.training.generate_data import create_initial_state
 
 
 @dataclass
@@ -240,7 +241,7 @@ def import_json_to_temp_db(json_path: str) -> tuple[Path, str]:
     import sqlite3
     from datetime import datetime
 
-    with open(json_path, "r") as f:
+    with open(json_path) as f:
         data = json.load(f)
 
     # Detect format and extract fields

@@ -19,17 +19,17 @@ import torch
 import torch.nn as nn
 
 from app.ai.gpu_batch import (
-    get_device,
-    get_all_cuda_devices,
+    AsyncGPUEvaluator,
+    EvalRequest,
+    GPUBatchEvaluator,
+    GPUBoardState,
+    GPUHeuristicEvaluator,
+    benchmark_gpu_batch,
     clear_gpu_memory,
     compile_model,
+    get_all_cuda_devices,
+    get_device,
     warmup_compiled_model,
-    GPUBoardState,
-    GPUBatchEvaluator,
-    GPUHeuristicEvaluator,
-    EvalRequest,
-    AsyncGPUEvaluator,
-    benchmark_gpu_batch,
 )
 
 

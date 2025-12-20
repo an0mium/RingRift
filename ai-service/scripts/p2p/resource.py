@@ -15,12 +15,12 @@ from .constants import MAX_DISK_USAGE_PERCENT
 # Unified resource checking utilities (80% max utilization)
 try:
     from app.utils.resource_guard import (
+        check_cpu as unified_check_cpu,
         check_disk_space as unified_check_disk,
         check_memory as unified_check_memory,
-        check_cpu as unified_check_cpu,
+        get_cpu_usage,
         get_disk_usage,
         get_memory_usage,
-        get_cpu_usage,
     )
     HAS_RESOURCE_GUARD = True
 except ImportError:

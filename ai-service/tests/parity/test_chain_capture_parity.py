@@ -16,8 +16,8 @@ Parity is critical because:
 - Chain captures involve complex state transitions
 """
 
-import sys
 import os
+import sys
 from datetime import datetime
 from typing import Optional
 
@@ -26,21 +26,21 @@ import pytest
 # Ensure app package is importable when running tests directly
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../"))
 
-from app.models import (  # noqa: E402
-    GameState,
-    BoardType,
+from app.game_engine import GameEngine
+from app.models import (
     BoardState,
+    BoardType,
     GamePhase,
+    GameState,
     GameStatus,
-    TimeControl,
-    Player,
-    Position,
-    RingStack,
     MarkerInfo,
     Move,
     MoveType,
+    Player,
+    Position,
+    RingStack,
+    TimeControl,
 )
-from app.game_engine import GameEngine  # noqa: E402
 
 
 def create_base_state(

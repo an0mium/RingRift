@@ -57,9 +57,10 @@ def detect_gpu_and_batch_size() -> tuple:
 
 def run_benchmark(num_games: int, batch_size: int, output_file: str = None) -> dict:
     """Run GPU self-play benchmark."""
+    import torch
+
     from app.ai.gpu_parallel_games import ParallelGameRunner
     from app.ai.heuristic_weights import BASE_V1_BALANCED_WEIGHTS
-    import torch
 
     print(f"\n{'='*60}")
     print("GPU Self-Play Benchmark")

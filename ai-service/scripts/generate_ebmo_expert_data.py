@@ -38,16 +38,13 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from app.models import (
-    GameState, BoardType, GamePhase, GameStatus,
-    Player, TimeControl, BoardState, AIConfig, Move
-)
 from app.ai.heuristic_ai import HeuristicAI
 from app.ai.minimax_ai import MinimaxAI
+from app.ai.neural_net import NeuralNetAI
 from app.ai.random_ai import RandomAI
+from app.models import AIConfig, BoardState, BoardType, GamePhase, GameState, GameStatus, Move, Player, TimeControl
 from app.rules.default_engine import DefaultRulesEngine
 from app.training.ebmo_dataset import ActionFeatureGenerator
-from app.ai.neural_net import NeuralNetAI
 
 # Configure logging
 logging.basicConfig(

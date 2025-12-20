@@ -204,7 +204,7 @@ def run_check(state: MonitorState, slack_url: str | None = None) -> MonitorState
     if state.last_training_status == "running" and training_status == "stopped":
         alerts.append((
             "Training Completed",
-            f"Training has stopped. Check logs for new model."
+            "Training has stopped. Check logs for new model."
         ))
     elif state.last_training_status != "running" and training_status == "running":
         alerts.append((

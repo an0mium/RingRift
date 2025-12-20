@@ -40,39 +40,42 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from threading import Thread
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
+# Import canonical EventBus (consolidated 2025-12-18)
+from app.distributed.data_events import (
+    EventBus as CanonicalEventBus,
+    get_event_bus,
+)
+
 # Import refactored configuration and event types
 # These were extracted from this file for modularity (Phase 1 refactoring)
 from scripts.unified_loop.config import (
-    PBTConfig,
+    ConfigState,
+    DataEvent,
+    DataEventType,
+    FeedbackState,
+    HostState,
     NASConfig,
+    PBTConfig,
     PERConfig,
     UnifiedLoopConfig,
-    DataEventType,
-    DataEvent,
-    HostState,
-    ConfigState,
-    FeedbackState,
 )
-
-# Import canonical EventBus (consolidated 2025-12-18)
-from app.distributed.data_events import EventBus as CanonicalEventBus, get_event_bus
 
 # DataEvent/DataEventType are imported from scripts.unified_loop.config above
 HAS_DATA_EVENTS = True
 
 # Import refactored service classes (Phase 2 refactoring)
-from scripts.unified_loop.evaluation import ModelPruningService
 from scripts.unified_loop.curriculum import AdaptiveCurriculum
+from scripts.unified_loop.data_collection import StreamingDataCollector
+from scripts.unified_loop.evaluation import ModelPruningService
 from scripts.unified_loop.promotion import ModelPromoter
 from scripts.unified_loop.tournament import ShadowTournamentService
-from scripts.unified_loop.data_collection import StreamingDataCollector
 from scripts.unified_loop.training import TrainingScheduler
 
 # Local selfplay generation (parallel with Gumbel-MCTS support)
@@ -91,24 +94,24 @@ from app.db.integrity import (
 # Unified resource checking utilities (80% max utilization)
 try:
     from app.utils.resource_guard import (
+        LIMITS as RESOURCE_LIMITS,
+        DiskPressureLevel,
+        MemoryPressureLevel,
+        can_proceed as resources_can_proceed,
+        check_cpu as unified_check_cpu,
         check_disk_space as unified_check_disk,
         check_memory as unified_check_memory,
-        check_cpu as unified_check_cpu,
-        get_disk_usage,
-        get_memory_usage,
         get_cpu_usage,
-        can_proceed as resources_can_proceed,
-        LIMITS as RESOURCE_LIMITS,
-        # Memory pressure monitoring (added 2025-12-18)
-        start_memory_monitor,
-        stop_memory_monitor,
-        MemoryPressureLevel,
+        get_disk_pressure_level,
+        get_disk_usage,
         get_memory_pressure_level,
+        get_memory_usage,
         # Disk pressure monitoring (added 2025-12-18)
         start_disk_monitor,
+        # Memory pressure monitoring (added 2025-12-18)
+        start_memory_monitor,
         stop_disk_monitor,
-        DiskPressureLevel,
-        get_disk_pressure_level,
+        stop_memory_monitor,
     )
     HAS_RESOURCE_GUARD = True
     HAS_PRESSURE_MONITORS = True
@@ -136,9 +139,9 @@ except ImportError:
 # Model registry for tracking model lifecycle and provenance
 try:
     from app.training.model_registry import (
+        ModelMetrics,
         ModelRegistry,
         ModelStage,
-        ModelMetrics,
         TrainingConfig as RegistryTrainingConfig,
     )
     HAS_MODEL_REGISTRY = True
@@ -149,7 +152,7 @@ except ImportError:
 
 # Optional Prometheus client
 try:
-    from prometheus_client import Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST, REGISTRY
+    from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, Counter, Gauge, Histogram, generate_latest
     HAS_PROMETHEUS = True
 except ImportError:
     HAS_PROMETHEUS = False
@@ -234,35 +237,35 @@ try:
     from app.coordination import (
         # Orchestrator role management (SQLite-backed with heartbeat)
         OrchestratorRole,
-        acquire_orchestrator_role,
-        release_orchestrator_role,
-        is_orchestrator_role_available,
-        orchestrator_role,
-        get_registry,
         # Queue backpressure
         QueueType,
-        should_throttle_production,
-        should_stop_production,
-        get_throttle_factor,
-        report_queue_depth,
-        # Sync mutex for rsync coordination
-        sync_lock,
-        # Bandwidth management
-        request_bandwidth,
-        release_bandwidth,
         TransferPriority,
+        acquire_orchestrator_role,
         # Duration-aware scheduling
         can_schedule_task,
-        register_running_task,
-        record_task_completion,
         estimate_task_duration,
+        get_cluster_summary,
+        get_host_targets,
+        get_registry,
         # Resource targets for unified utilization management
         get_resource_targets,
-        get_host_targets,
-        get_cluster_summary,
-        should_scale_up,
-        should_scale_down,
+        get_throttle_factor,
+        is_orchestrator_role_available,
+        orchestrator_role,
+        record_task_completion,
+        register_running_task,
+        release_bandwidth,
+        release_orchestrator_role,
+        report_queue_depth,
+        # Bandwidth management
+        request_bandwidth,
         set_backpressure,
+        should_scale_down,
+        should_scale_up,
+        should_stop_production,
+        should_throttle_production,
+        # Sync mutex for rsync coordination
+        sync_lock,
     )
     HAS_COORDINATION = True
 except ImportError:
@@ -272,18 +275,19 @@ except ImportError:
 # Priority job scheduler for critical job prioritization
 try:
     from app.coordination import (
-        PriorityJobScheduler,
         JobPriority,
+        PriorityJobScheduler,
         ScheduledJob,
-        get_job_scheduler,
-        reset_job_scheduler,
         # Curriculum learning
         get_config_game_counts,
-        select_curriculum_config,
-        get_underserved_configs,
         get_cpu_rich_hosts,
         get_gpu_rich_hosts,
+        get_job_scheduler,
+        get_underserved_configs,
+        reset_job_scheduler,
+        select_curriculum_config,
     )
+
     # Host offline → job migration wiring
     from app.coordination.job_scheduler import wire_host_dead_to_job_migration
     HAS_JOB_SCHEDULER = True
@@ -298,9 +302,9 @@ except ImportError:
 # Stage event bus for pipeline orchestration
 try:
     from app.coordination import (
-        StageEventBus,
-        StageEvent,
         StageCompletionResult,
+        StageEvent,
+        StageEventBus,
         get_stage_event_bus,
     )
     HAS_STAGE_EVENTS = True
@@ -329,8 +333,8 @@ except ImportError:
 try:
     from app.training import (
         PromotionController,
-        PromotionType,
         PromotionCriteria,
+        PromotionType,
         get_promotion_controller,
     )
     HAS_PROMOTION_CONTROLLER = True
@@ -343,22 +347,22 @@ except ImportError:
 # Resource optimizer for cooperative cluster-wide utilization targeting
 try:
     from app.coordination.resource_optimizer import (
-        ResourceOptimizer,
-        NodeResources,
         ClusterState,
+        NodeResources,
         OptimizationResult,
+        ResourceOptimizer,
         ScaleAction,
-        get_resource_optimizer,
-        get_optimal_concurrency,
+        apply_feedback_adjustment,
         get_cluster_utilization as get_optimizer_cluster_utilization,
+        get_config_weights,
+        get_current_selfplay_rate,
+        get_optimal_concurrency,
+        get_resource_optimizer,
+        get_utilization_status,
         # Rate negotiation for cooperative utilization (60-80% target)
         negotiate_selfplay_rate,
-        get_current_selfplay_rate,
-        apply_feedback_adjustment,
-        get_utilization_status,
         # Data-aware config weighting
         update_config_weights,
-        get_config_weights,
     )
     HAS_RESOURCE_OPTIMIZER = True
 except ImportError:
@@ -383,16 +387,16 @@ try:
         FeedbackAccelerator,
         MomentumState,
         TrainingIntensity,
+        get_aggregate_selfplay_recommendation,
+        get_curriculum_weights as get_momentum_curriculum_weights,
         get_feedback_accelerator,
-        should_trigger_training as accelerator_should_trigger,
+        get_selfplay_rate_recommendation,
         get_training_intensity,
         record_elo_update,
         record_games_generated,
-        record_training_complete,
         record_promotion,
-        get_curriculum_weights as get_momentum_curriculum_weights,
-        get_selfplay_rate_recommendation,
-        get_aggregate_selfplay_recommendation,
+        record_training_complete,
+        should_trigger_training as accelerator_should_trigger,
         wire_evaluation_to_feedback,
     )
     HAS_FEEDBACK_ACCELERATOR = True
@@ -419,13 +423,13 @@ try:
         ImprovementOptimizer,
         ImprovementSignal,
         OptimizationRecommendation,
-        get_improvement_optimizer,
-        should_fast_track_training,
         get_dynamic_threshold as get_optimizer_dynamic_threshold,
         get_evaluation_interval,
+        get_improvement_metrics,
+        get_improvement_optimizer,
         record_promotion_success,
         record_training_complete as record_optimizer_training_complete,
-        get_improvement_metrics,
+        should_fast_track_training,
     )
     HAS_IMPROVEMENT_OPTIMIZER = True
 except ImportError:
@@ -444,9 +448,9 @@ except ImportError:
 # Unified signal computation for training decisions and feedback loops
 try:
     from app.training.unified_signals import (
-        UnifiedSignalComputer,
         TrainingSignals,
         TrainingUrgency,
+        UnifiedSignalComputer,
         get_signal_computer,
     )
     HAS_UNIFIED_SIGNALS = True
@@ -460,10 +464,10 @@ except ImportError:
 # Unified execution framework for local and remote commands
 try:
     from app.execution.executor import (
+        ExecutionResult,
+        ExecutorPool,
         LocalExecutor,
         SSHExecutor,
-        ExecutorPool,
-        ExecutionResult,
         run_command,
     )
     HAS_EXECUTOR = True
@@ -478,12 +482,12 @@ except ImportError:
 # Import orchestrator backends for unified execution strategy
 try:
     from app.execution.backends import (
-        OrchestratorBackend,
         BackendType,
+        JobResult,
         LocalBackend,
+        OrchestratorBackend,
         SSHBackend,
         WorkerStatus,
-        JobResult,
         get_backend,
     )
     HAS_BACKENDS = True
@@ -500,9 +504,9 @@ except ImportError:
 # Import centralized Elo service (canonical ELO operations)
 try:
     from app.training.elo_service import (
+        ELO_DB_PATH as CANONICAL_ELO_DB_PATH,
         EloService,
         get_elo_service,
-        ELO_DB_PATH as CANONICAL_ELO_DB_PATH,
     )
     HAS_ELO_SERVICE = True
 except ImportError:
@@ -514,8 +518,8 @@ except ImportError:
 # Import hot data buffer for in-memory game caching (reduces DB roundtrips)
 try:
     from app.training.hot_data_buffer import (
-        HotDataBuffer,
         GameRecord,
+        HotDataBuffer,
         create_hot_buffer,
     )
     HAS_HOT_BUFFER = True
@@ -529,8 +533,8 @@ except ImportError:
 try:
     from app.training.quality_bridge import (
         QualityBridge,
-        get_quality_bridge,
         QualityBridgeConfig,
+        get_quality_bridge,
     )
     HAS_QUALITY_BRIDGE = True
 except ImportError:
@@ -542,12 +546,12 @@ except ImportError:
 # Import quality metrics for monitoring training data quality
 try:
     from app.metrics.orchestrator import (
+        collect_quality_metrics_from_bridge,
+        record_pipeline_iteration,
         record_training_data_quality,
         update_quality_bridge_status,
-        collect_quality_metrics_from_bridge,
         # Queue and iteration tracking (December 2025)
         update_selfplay_queue_size,
-        record_pipeline_iteration,
     )
     HAS_QUALITY_METRICS = True
 except ImportError:
@@ -561,13 +565,13 @@ except ImportError:
 # Import diverse tournament orchestrator for Elo calibration
 try:
     from scripts.run_diverse_tournaments import (
-        build_tournament_configs,
-        run_tournament_round_local,
-        run_tournament_round_distributed,  # Phase 3.3: Batched parallel tournaments
-        load_cluster_hosts,
-        filter_available_hosts,
         TournamentConfig,
         TournamentResult,
+        build_tournament_configs,
+        filter_available_hosts,
+        load_cluster_hosts,
+        run_tournament_round_distributed,  # Phase 3.3: Batched parallel tournaments
+        run_tournament_round_local,
     )
     HAS_DIVERSE_TOURNAMENTS = True
 except ImportError:
@@ -597,9 +601,9 @@ except ImportError:
 # Import value calibration for model prediction quality analysis
 try:
     from app.training.value_calibration import (
-        ValueCalibrator,
-        CalibrationTracker,
         CalibrationReport,
+        CalibrationTracker,
+        ValueCalibrator,
     )
     HAS_VALUE_CALIBRATION = True
 except ImportError:
@@ -611,9 +615,9 @@ except ImportError:
 # Import temperature scheduling for exploration/exploitation control
 try:
     from app.training.temperature_scheduling import (
-        TemperatureScheduler,
-        TemperatureConfig,
         ScheduleType,
+        TemperatureConfig,
+        TemperatureScheduler,
         create_scheduler as create_temp_scheduler,
     )
     HAS_TEMPERATURE_SCHEDULING = True
@@ -627,10 +631,10 @@ except ImportError:
 # Import pipeline feedback controller for closed-loop integration
 try:
     from app.integration.pipeline_feedback import (
-        PipelineFeedbackController,
         FeedbackAction,
         FeedbackSignal,
         FeedbackSignalRouter,
+        PipelineFeedbackController,
         create_feedback_controller,
     )
     HAS_FEEDBACK = True
@@ -644,8 +648,8 @@ except ImportError:
 # Import cross-process event queue for multi-daemon coordination
 try:
     from app.coordination.cross_process_events import (
-        CrossProcessEventQueue,
         CrossProcessEvent,
+        CrossProcessEventQueue,
     )
     HAS_CROSS_PROCESS_EVENTS = True
 except ImportError:
@@ -656,9 +660,9 @@ except ImportError:
 # Import holdout validation for overfitting detection during promotion
 try:
     from scripts.holdout_validation import (
-        evaluate_model_on_holdout,
-        EvaluationResult,
         OVERFIT_THRESHOLD,
+        EvaluationResult,
+        evaluate_model_on_holdout,
     )
     HAS_HOLDOUT_VALIDATION = True
 except ImportError:
@@ -670,13 +674,13 @@ except ImportError:
 # Import pre-spawn health policy for remote hosts (renamed from health_check.py)
 try:
     from app.coordination.host_health_policy import (
-        is_host_healthy,
+        HealthStatus as PreSpawnHealthStatus,
         check_host_health,
-        get_healthy_hosts,
         clear_health_cache,
         gate_on_cluster_health,
+        get_healthy_hosts,
         is_cluster_healthy,
-        HealthStatus as PreSpawnHealthStatus,
+        is_host_healthy,
     )
     HAS_PRE_SPAWN_HEALTH = True
 except ImportError:
@@ -693,8 +697,8 @@ except ImportError:
 try:
     from app.distributed.circuit_breaker import (
         CircuitBreaker,
-        CircuitState,
         CircuitOpenError,
+        CircuitState,
         get_host_breaker,
         get_training_breaker,
         set_host_breaker_callback,
@@ -758,12 +762,12 @@ except ImportError:
 # Host classification for storage type detection and sync profiles
 try:
     from app.distributed.host_classification import (
-        StorageType,
-        HostTier,
         HostSyncProfile,
+        HostTier,
+        StorageType,
         classify_host_storage,
-        get_ephemeral_hosts,
         create_sync_profile,
+        get_ephemeral_hosts,
     )
     HAS_HOST_CLASSIFICATION = True
 except ImportError:
@@ -778,9 +782,9 @@ except ImportError:
 # Gauntlet evaluation and model culling
 try:
     from app.tournament.distributed_gauntlet import (
+        CONFIG_KEYS as GAUNTLET_CONFIG_KEYS,
         DistributedNNGauntlet,
         GauntletConfig,
-        CONFIG_KEYS as GAUNTLET_CONFIG_KEYS,
         get_gauntlet,
     )
     from app.tournament.model_culling import (
@@ -800,8 +804,8 @@ except ImportError:
 # Two-stage gauntlet for efficient evaluation (10 games screen + 50 games deep)
 try:
     from scripts.two_stage_gauntlet import (
-        run_two_stage_gauntlet,
         ModelResult as TwoStageModelResult,
+        run_two_stage_gauntlet,
     )
     HAS_TWO_STAGE_GAUNTLET = True
 except ImportError:
@@ -813,9 +817,9 @@ except ImportError:
 try:
     from app.tournament.elo_sync_manager import (
         EloSyncManager,
+        ensure_elo_synced,
         get_elo_sync_manager,
         sync_elo_after_games,
-        ensure_elo_synced,
     )
     HAS_ELO_SYNC = True
 except ImportError:
@@ -854,8 +858,8 @@ except ImportError:
 # Centralized regression detection (December 2025)
 try:
     from app.training.regression_detector import (
-        get_regression_detector,
         RegressionSeverity,
+        get_regression_detector,
     )
     HAS_REGRESSION_DETECTOR = True
 except ImportError:
@@ -1496,7 +1500,7 @@ class ComponentHealth:
 
 
 # Global health tracker (set by UnifiedAILoop)
-_health_tracker: "HealthTracker" | None = None
+_health_tracker: HealthTracker | None = None
 
 
 class HealthTracker:
@@ -1609,7 +1613,7 @@ class MetricsHandler(BaseHTTPRequestHandler):
 
         # Circuit breakers (if available)
         try:
-            from app.distributed.circuit_breaker import get_circuit_registry, CircuitState
+            from app.distributed.circuit_breaker import CircuitState, get_circuit_registry
             registry = get_circuit_registry()
             open_circuits = registry.get_all_open_circuits()
             health["components"]["circuit_breakers"] = {
@@ -2117,7 +2121,7 @@ class UnifiedLoopState:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "UnifiedLoopState":
+    def from_dict(cls, data: dict[str, Any]) -> UnifiedLoopState:
         """Create state from dictionary."""
         state = cls()
         for key in ["started_at", "last_cycle_at", "total_data_syncs", "total_training_runs",
@@ -3092,7 +3096,7 @@ class UnifiedAILoop:
 
     async def _emit_stage_event(
         self,
-        event: "StageEvent",
+        event: StageEvent,
         success: bool,
         **kwargs,
     ):
@@ -3131,7 +3135,7 @@ class UnifiedAILoop:
     def _schedule_job(
         self,
         job_type: str,
-        priority: "JobPriority",
+        priority: JobPriority,
         config: dict[str, Any],
         requires_gpu: bool = False,
         host_preference: str | None = None,
@@ -3160,7 +3164,7 @@ class UnifiedAILoop:
         )
         return self.job_scheduler.schedule(job)
 
-    def _get_next_scheduled_job(self) -> tuple["ScheduledJob", Any] | None:
+    def _get_next_scheduled_job(self) -> tuple[ScheduledJob, Any] | None:
         """Get the next job to run from the priority queue.
 
         Returns:
@@ -4058,7 +4062,7 @@ class UnifiedAILoop:
             # Get cluster hosts
             hosts = get_cluster_hosts()
             if not hosts:
-                print(f"[ClusterDeploy] No cluster hosts configured, skipping deployment")
+                print("[ClusterDeploy] No cluster hosts configured, skipping deployment")
                 return
 
             # Deploy asynchronously to avoid blocking
@@ -4410,7 +4414,7 @@ class UnifiedAILoop:
         else:
             # No P2P coordinator - just log the requested adjustment
             print(f"[Selfplay] Rate adjustment requested (multiplier={multiplier:.2f}): {reason}")
-            print(f"[Selfplay] Note: P2P coordinator not available, adjustment not applied")
+            print("[Selfplay] Note: P2P coordinator not available, adjustment not applied")
 
         # Persist via resource_optimizer for cluster-wide rate negotiation
         # This allows P2P orchestrator to query the negotiated rate
@@ -4488,7 +4492,7 @@ class UnifiedAILoop:
 
             if not should_continue:
                 print(f"[AdaptiveCtrl] PLATEAU DETECTED: {plateau_count} iterations without improvement")
-                print(f"[AdaptiveCtrl] Consider triggering CMA-ES hyperparameter search or architecture changes")
+                print("[AdaptiveCtrl] Consider triggering CMA-ES hyperparameter search or architecture changes")
             elif plateau_count > 0:
                 print(f"[AdaptiveCtrl] Plateau count: {plateau_count}/{self.adaptive_ctrl.plateau_threshold}")
 
@@ -4809,7 +4813,7 @@ class UnifiedAILoop:
 
             if process.returncode == 0:
                 results["success"] = True
-                print(f"[CMA-ES] Optimization completed successfully")
+                print("[CMA-ES] Optimization completed successfully")
 
                 # Load best weights
                 weights_file = AI_SERVICE_ROOT / "data" / f"cmaes_weights_{run_id}.json"
@@ -4948,7 +4952,7 @@ class UnifiedAILoop:
     # FeedbackSignalRouter Handlers
     # =========================================================================
 
-    async def _handle_increase_data_collection(self, signal: 'FeedbackSignal') -> bool:
+    async def _handle_increase_data_collection(self, signal: FeedbackSignal) -> bool:
         """Handle INCREASE_DATA_COLLECTION signals - boost selfplay games."""
         try:
             print(f"[FeedbackRouter] INCREASE_DATA_COLLECTION: {signal.reason} (magnitude={signal.magnitude:.2f})")
@@ -4971,7 +4975,7 @@ class UnifiedAILoop:
             print(f"[FeedbackRouter] Error handling INCREASE_DATA_COLLECTION: {e}")
             return False
 
-    async def _handle_urgent_retraining(self, signal: 'FeedbackSignal') -> bool:
+    async def _handle_urgent_retraining(self, signal: FeedbackSignal) -> bool:
         """Handle URGENT_RETRAINING signals - fast-track training for regression recovery."""
         try:
             print(f"[FeedbackRouter] URGENT_RETRAINING: {signal.reason} (magnitude={signal.magnitude:.2f})")
@@ -4992,7 +4996,7 @@ class UnifiedAILoop:
             print(f"[FeedbackRouter] Error handling URGENT_RETRAINING: {e}")
             return False
 
-    async def _handle_cmaes_feedback_signal(self, signal: 'FeedbackSignal') -> bool:
+    async def _handle_cmaes_feedback_signal(self, signal: FeedbackSignal) -> bool:
         """Handle TRIGGER_CMAES signals - initiate hyperparameter optimization."""
         try:
             print(f"[FeedbackRouter] TRIGGER_CMAES: {signal.reason} (magnitude={signal.magnitude:.2f})")
@@ -5024,7 +5028,7 @@ class UnifiedAILoop:
             print(f"[FeedbackRouter] Error handling TRIGGER_CMAES: {e}")
             return False
 
-    async def _handle_scale_up_selfplay(self, signal: 'FeedbackSignal') -> bool:
+    async def _handle_scale_up_selfplay(self, signal: FeedbackSignal) -> bool:
         """Handle SCALE_UP_SELFPLAY signals - increase concurrent selfplay for underutilized resources."""
         try:
             print(f"[FeedbackRouter] SCALE_UP_SELFPLAY: {signal.reason} (magnitude={signal.magnitude:.2f})")
@@ -5305,7 +5309,7 @@ class UnifiedAILoop:
 
         print("[HealthRecovery] Recovery loop stopped")
 
-    async def _handle_scale_down_selfplay(self, signal: 'FeedbackSignal') -> bool:
+    async def _handle_scale_down_selfplay(self, signal: FeedbackSignal) -> bool:
         """Handle SCALE_DOWN_SELFPLAY signals - reduce concurrent selfplay to avoid resource contention."""
         try:
             print(f"[FeedbackRouter] SCALE_DOWN_SELFPLAY: {signal.reason} (magnitude={signal.magnitude:.2f})")
@@ -5324,7 +5328,7 @@ class UnifiedAILoop:
             print(f"[FeedbackRouter] Error handling SCALE_DOWN_SELFPLAY: {e}")
             return False
 
-    async def route_feedback_signal(self, signal: 'FeedbackSignal') -> list[tuple[str, bool]]:
+    async def route_feedback_signal(self, signal: FeedbackSignal) -> list[tuple[str, bool]]:
         """Route a feedback signal through the router.
 
         This can be called by components to route signals through the unified router.
@@ -5924,8 +5928,8 @@ class UnifiedAILoop:
         # Import holdout validation for pre-promotion gate
         try:
             from scripts.holdout_validation import (
-                evaluate_model_on_holdout,
                 OVERFIT_THRESHOLD,
+                evaluate_model_on_holdout,
             )
             has_holdout_validation = True
         except ImportError:
@@ -6041,8 +6045,8 @@ class UnifiedAILoop:
         # Import holdout validation
         try:
             from scripts.holdout_validation import (
-                evaluate_model_on_holdout,
                 OVERFIT_THRESHOLD,
+                evaluate_model_on_holdout,
             )
             has_holdout = True
         except ImportError:
@@ -6313,7 +6317,7 @@ class UnifiedAILoop:
                 if summary.healthy:
                     consecutive_failures = 0
                     if self.config.verbose:
-                        print(f"[HealthCheck] All components healthy")
+                        print("[HealthCheck] All components healthy")
                 else:
                     consecutive_failures += 1
                     print(f"[HealthCheck] UNHEALTHY - {len(summary.issues)} issues:")
@@ -6559,7 +6563,7 @@ class UnifiedAILoop:
         except AttributeError:
             # P2P integration may not have these methods yet
             if self.config.verbose:
-                print(f"[Utilization] P2P integration doesn't support scaling API")
+                print("[Utilization] P2P integration doesn't support scaling API")
         except Exception as e:
             print(f"[Utilization] P2P scale request error: {e}")
 
@@ -6856,7 +6860,7 @@ class UnifiedAILoop:
                         hp_config["last_updated"] = datetime.now().isoformat() + "Z"
                         with open(hp_config_path, "w") as f:
                             json.dump(hp_config, f, indent=2)
-                        print(f"[HPTuning] Saved updated hyperparameters.json")
+                        print("[HPTuning] Saved updated hyperparameters.json")
 
             except Exception as e:
                 print(f"[HPTuning] Error in sync loop: {e}")
@@ -6927,7 +6931,7 @@ class UnifiedAILoop:
                 stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=1800)
 
                 if process.returncode == 0:
-                    print(f"[ExternalDriveSync] Cycle complete")
+                    print("[ExternalDriveSync] Cycle complete")
                 else:
                     print(f"[ExternalDriveSync] Error: {stderr.decode()[:200]}")
 
@@ -7079,6 +7083,7 @@ class UnifiedAILoop:
             Number of models evaluated, or None on error
         """
         from concurrent.futures import ThreadPoolExecutor
+
         from app.models import BoardType
         from app.models.discovery import discover_models as unified_discover_models
 
@@ -7161,7 +7166,7 @@ class UnifiedAILoop:
         await asyncio.sleep(60)
 
         use_two_stage = HAS_TWO_STAGE_GAUNTLET and run_two_stage_gauntlet is not None
-        print(f"[Gauntlet] Gauntlet evaluation and model culling loop started")
+        print("[Gauntlet] Gauntlet evaluation and model culling loop started")
         print(f"[Gauntlet] Two-stage gauntlet: {'ENABLED' if use_two_stage else 'DISABLED (fallback to full)'}")
 
         while self._running:
@@ -7900,7 +7905,7 @@ class UnifiedAILoop:
         # Start P2P cluster integration if configured
         await self._start_p2p()
         if self.p2p and self._p2p_started:
-            print(f"[UnifiedLoop] P2P cluster integration enabled")
+            print("[UnifiedLoop] P2P cluster integration enabled")
 
         try:
             # Start all loops including metrics, external drive sync, and advanced training
@@ -8087,7 +8092,7 @@ def main():
 
     if args.resume:
         if clear_emergency_halt():
-            print(f"[UnifiedLoop] Emergency halt flag cleared")
+            print("[UnifiedLoop] Emergency halt flag cleared")
             print("[UnifiedLoop] You can now restart the loop with --start or --foreground")
         else:
             print("[UnifiedLoop] No emergency halt flag was set")
@@ -8131,7 +8136,7 @@ def main():
 
         # Emergency halt status
         if check_emergency_halt():
-            print(f"  EMERGENCY HALT: ACTIVE (use --resume to clear)")
+            print("  EMERGENCY HALT: ACTIVE (use --resume to clear)")
         return
 
     if args.stop:

@@ -44,12 +44,12 @@ except ImportError:
 # Unified resource guard - 80% utilization limits (enforced 2025-12-16)
 try:
     from app.utils.resource_guard import (
+        LIMITS as RESOURCE_LIMITS,
         can_proceed as resource_can_proceed,
         check_disk_space,
-        check_memory,
         check_gpu_memory,
+        check_memory,
         wait_for_resources,
-        LIMITS as RESOURCE_LIMITS,
     )
     HAS_RESOURCE_GUARD = True
 except ImportError:
@@ -504,9 +504,9 @@ def train_stage(
     Returns:
         Training results dict
     """
-    logger.info(f"=" * 60)
+    logger.info("=" * 60)
     logger.info(f"CURRICULUM STAGE {stage.stage_id}: {stage.name.upper()}")
-    logger.info(f"=" * 60)
+    logger.info("=" * 60)
     logger.info(f"Description: {stage.description}")
     logger.info(f"Move range: {stage.move_range[0]}-{stage.move_range[1]}")
     logger.info(f"Epochs: {stage.epochs}")
@@ -766,7 +766,7 @@ def main():
             print("No Elo data available for weight computation")
             return 1
 
-        print(f"\nConfig               Elo Weight  Description")
+        print("\nConfig               Elo Weight  Description")
         print("-" * 60)
         for config_key, weight in sorted(weights.items()):
             boost = "↑" if weight > 1.0 else "↓" if weight < 1.0 else "="

@@ -52,7 +52,7 @@ except ImportError:
 
 # Prometheus metrics - avoid duplicate registration
 try:
-    from prometheus_client import Counter, Histogram, REGISTRY
+    from prometheus_client import REGISTRY, Counter, Histogram
     HAS_PROMETHEUS = True
 
     if 'ringrift_local_selfplay_games_total' in REGISTRY._names_to_collectors:
@@ -105,8 +105,8 @@ class LocalSelfplayGenerator:
 
     def __init__(
         self,
-        state: "UnifiedLoopState",
-        event_bus: "EventBus",
+        state: UnifiedLoopState,
+        event_bus: EventBus,
         output_dir: Path | None = None,
         num_workers: int | None = None,
         training_scheduler: Any | None = None,
@@ -427,7 +427,7 @@ class LocalSelfplayGenerator:
             if opponent_model:
                 logger.info(f"[PFSP] Selected opponent: {opponent_model} for {config_key}")
             else:
-                logger.debug(f"[PFSP] No opponent available, using self-play")
+                logger.debug("[PFSP] No opponent available, using self-play")
 
         # Generate output filename
         timestamp = int(time.time())
@@ -717,8 +717,9 @@ class LocalSelfplayGenerator:
             )
 
         try:
-            from app.ai.gpu_parallel_games import ParallelGameRunner
             import torch
+
+            from app.ai.gpu_parallel_games import ParallelGameRunner
 
             # Parse config key
             parts = config_key.rsplit("_", 1)

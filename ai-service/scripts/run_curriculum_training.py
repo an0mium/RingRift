@@ -28,7 +28,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.models import BoardType
 from app.training.curriculum import CurriculumConfig, CurriculumTrainer
-
 from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("curriculum_training")

@@ -9,11 +9,11 @@ from pathlib import Path
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
+from app.ai.heuristic_ai import HeuristicAI
+from app.ai.random_ai import RandomAI
 from app.models import AIConfig, AIType, BoardType, GameStatus
 from app.rules.default_engine import DefaultRulesEngine
 from app.training.generate_data import create_initial_state
-from app.ai.random_ai import RandomAI
-from app.ai.heuristic_ai import HeuristicAI
 
 
 def run_game(ai1, ai2, board_type, num_players):

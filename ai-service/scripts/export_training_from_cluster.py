@@ -133,11 +133,11 @@ def export_positions_from_db(
 
         # Export positions from snapshots
         cursor.execute("""
-            SELECT gs.game_id, gs.move_index, gs.state_json, g.winner
+            SELECT gs.game_id, gs.move_number, gs.state_json, g.winner
             FROM game_state_snapshots gs
             JOIN games g ON gs.game_id = g.game_id
             WHERE g.winner IS NOT NULL
-            ORDER BY gs.game_id, gs.move_index
+            ORDER BY gs.game_id, gs.move_number
             LIMIT ?
         """, (max_games * 50,))  # Assume ~50 moves per game
 
@@ -146,10 +146,10 @@ def export_positions_from_db(
         policies = []
 
         for row in cursor.fetchall():
-            game_id, move_idx, state_json, winner = row
+            game_id, move_number, state_json, winner = row
 
             # Sample every N positions
-            if move_idx % sample_every != 0:
+            if move_number % sample_every != 0:
                 continue
 
             try:

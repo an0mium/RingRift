@@ -73,9 +73,8 @@ from typing import Any, Dict, List, Set
 # Allow imports from app/
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.db import GameReplayDB  # noqa: E402
-from app.models import GameState, Move  # noqa: E402
-
+from app.db import GameReplayDB
+from app.models import GameState, Move
 
 # Merge state tracking file
 MERGE_STATE_FILE = ".merge_state.json"
@@ -146,7 +145,7 @@ def _load_final_state(
             pass
 
     # Fallback: replay all moves from the initial state using the current engine
-    from app.game_engine import GameEngine  # noqa: E402
+    from app.game_engine import GameEngine
 
     state = initial_state
     for move in moves:

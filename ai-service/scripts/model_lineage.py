@@ -437,7 +437,7 @@ def main():
             model_hash = compute_file_hash(Path(args.tree))
             model_id = find_by_hash(model_hash)
             if not model_id:
-                print(f"Model not found in lineage database. Register it first with --register")
+                print("Model not found in lineage database. Register it first with --register")
                 return 1
         else:
             model_id = args.tree

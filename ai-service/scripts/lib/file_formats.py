@@ -36,10 +36,10 @@ import json
 import os
 import shutil
 import tempfile
+from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional, TextIO, Union
-from collections.abc import Generator, Iterator
 
 from scripts.lib.logging_config import get_logger
 
@@ -93,7 +93,7 @@ def open_jsonl_file(filepath: Union[str, Path]) -> Generator[TextIO, None, None]
     if is_gzip_file(filepath):
         handle = gzip.open(filepath, "rt", encoding="utf-8", errors="replace")
     else:
-        handle = open(filepath, "r", encoding="utf-8", errors="replace")
+        handle = open(filepath, encoding="utf-8", errors="replace")
 
     try:
         yield handle
@@ -227,7 +227,7 @@ def load_json(
         return default
 
     try:
-        with open(filepath, "r", encoding=encoding) as f:
+        with open(filepath, encoding=encoding) as f:
             return json.load(f)
     except (json.JSONDecodeError, OSError) as e:
         logger.warning(f"Failed to load JSON from {filepath}: {e}")
@@ -253,7 +253,7 @@ def load_json_strict(
     """
     filepath = Path(filepath)
 
-    with open(filepath, "r", encoding=encoding) as f:
+    with open(filepath, encoding=encoding) as f:
         return json.load(f)
 
 

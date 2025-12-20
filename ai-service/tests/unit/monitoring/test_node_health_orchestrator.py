@@ -8,10 +8,10 @@ Tests cover:
 """
 
 import time
-import pytest
-from unittest.mock import MagicMock, patch
 from dataclasses import dataclass
+from unittest.mock import MagicMock, patch
 
+import pytest
 
 # =============================================================================
 # Test NodeHealthState Enum
@@ -697,8 +697,8 @@ class TestModuleFunctions:
     def test_wire_health_events(self):
         """Test wiring health events."""
         from app.monitoring.node_health_orchestrator import (
-            wire_health_events,
             get_health_orchestrator,
+            wire_health_events,
         )
 
         mock_bus = MagicMock()
@@ -731,9 +731,9 @@ class TestModuleFunctions:
     def test_reset_health_orchestrator(self):
         """Test resetting the orchestrator singleton."""
         from app.monitoring.node_health_orchestrator import (
-            wire_health_events,
             get_health_orchestrator,
             reset_health_orchestrator,
+            wire_health_events,
         )
 
         mock_bus = MagicMock()

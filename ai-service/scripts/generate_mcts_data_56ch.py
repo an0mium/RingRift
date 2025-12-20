@@ -5,8 +5,9 @@ Uses Gumbel MCTS to label moves with quality scores, and stacks
 4 frames of 14-channel features to create 56-channel input.
 """
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import argparse
@@ -16,12 +17,12 @@ from typing import List, Tuple
 
 import numpy as np
 
+from app.ai.ebmo_network import ActionFeatureExtractor
 from app.ai.gumbel_mcts_ai import GumbelMCTSAI
 from app.ai.neural_net import NeuralNetAI
-from app.ai.ebmo_network import ActionFeatureExtractor
 from app.game_engine import GameEngine
-from app.training.initial_state import create_initial_state
 from app.models.core import AIConfig, BoardType
+from app.training.initial_state import create_initial_state
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("generate_mcts_56ch")

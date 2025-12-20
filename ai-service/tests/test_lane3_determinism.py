@@ -9,12 +9,13 @@ These tests ensure:
 See docs/PLAN_AI_WORK.md Lane 3 for full scope.
 """
 
-import pytest
 from typing import Set
 
-from app.ai.factory import AIFactory, CANONICAL_DIFFICULTY_PROFILES
+import pytest
+
 from app.ai.base import BaseAI
-from app.models import AIType, AIConfig, BoardType
+from app.ai.factory import CANONICAL_DIFFICULTY_PROFILES, AIFactory
+from app.models import AIConfig, AIType, BoardType
 from app.training.initial_state import create_initial_state
 
 

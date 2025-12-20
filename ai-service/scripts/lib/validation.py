@@ -54,7 +54,7 @@ class ValidationResult:
         """Add a warning (doesn't affect validity)."""
         self.warnings.append(message)
 
-    def merge(self, other: "ValidationResult") -> None:
+    def merge(self, other: ValidationResult) -> None:
         """Merge another result into this one."""
         self.is_valid = self.is_valid and other.is_valid
         self.errors.extend(other.errors)
@@ -336,7 +336,7 @@ def validate_training_config(config_key: str) -> ValidationResult:
     result = ValidationResult(is_valid=True)
 
     try:
-        from scripts.lib.config import get_config, BoardConfig
+        from scripts.lib.config import BoardConfig, get_config
 
         # Validate board config parsing
         try:

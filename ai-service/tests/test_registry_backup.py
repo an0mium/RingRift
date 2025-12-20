@@ -13,10 +13,10 @@ from pathlib import Path
 import pytest
 
 from app.training.registry_backup import (
-    RegistryBackupManager,
     BackupMetadata,
-    backup_before_sync,
+    RegistryBackupManager,
     auto_backup_if_needed,
+    backup_before_sync,
 )
 
 

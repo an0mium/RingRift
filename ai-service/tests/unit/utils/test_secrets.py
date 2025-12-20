@@ -6,15 +6,15 @@ from unittest.mock import patch
 import pytest
 
 from app.utils.secrets import (
+    SENSITIVE_KEY_PATTERNS,
+    SecretString,
+    get_env_masked,
+    is_sensitive_key,
+    load_secret_from_env,
     mask_secret,
     mask_secret_prefix,
-    is_sensitive_key,
-    sanitize_value,
     sanitize_for_log,
-    SecretString,
-    load_secret_from_env,
-    get_env_masked,
-    SENSITIVE_KEY_PATTERNS,
+    sanitize_value,
 )
 
 

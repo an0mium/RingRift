@@ -8,19 +8,22 @@ Run with: pytest tests/gpu/test_gpu_property_based.py -v --hypothesis-show-stati
 
 import pytest
 import torch
-from hypothesis import given, settings, assume
-from hypothesis import strategies as st
+from hypothesis import (
+    assume,
+    given,
+    settings,
+    strategies as st,
+)
 
 from app.ai.gpu_batch_state import BatchGameState
 from app.ai.gpu_game_types import GamePhase, MoveType
-from app.ai.gpu_parallel_games import (
-    generate_placement_moves_batch,
-    generate_movement_moves_batch,
-    generate_capture_moves_batch,
-    apply_placement_moves_batch,
-)
 from app.ai.gpu_line_detection import detect_lines_vectorized
-
+from app.ai.gpu_parallel_games import (
+    apply_placement_moves_batch,
+    generate_capture_moves_batch,
+    generate_movement_moves_batch,
+    generate_placement_moves_batch,
+)
 
 # =============================================================================
 # Strategies for generating game states

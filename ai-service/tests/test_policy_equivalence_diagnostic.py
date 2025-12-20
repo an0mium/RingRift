@@ -4,12 +4,12 @@ import sys
 # Ensure app package is importable when running tests directly.
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 
-from app.ai.heuristic_weights import (  # type: ignore  # noqa: E402
+from app.ai.heuristic_weights import (  # type: ignore
     BASE_V1_BALANCED_WEIGHTS,
 )
-from app.training.env import RingRiftEnv  # type: ignore  # noqa: E402
-from app.models import BoardType  # type: ignore  # noqa: E402
-from scripts.diagnose_policy_equivalence import (  # type: ignore  # noqa: E402
+from app.models import BoardType  # type: ignore
+from app.training.env import RingRiftEnv  # type: ignore
+from scripts.diagnose_policy_equivalence import (  # type: ignore
     compare_moves_on_states,
 )
 

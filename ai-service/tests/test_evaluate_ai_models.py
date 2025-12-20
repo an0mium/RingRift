@@ -392,8 +392,8 @@ class TestMatchExecution:
     @pytest.mark.slow
     def test_two_game_match(self) -> None:
         """Test running a 2-game match for quick validation."""
-        from scripts.evaluate_ai_models import run_evaluation
         from app.models import BoardType
+        from scripts.evaluate_ai_models import run_evaluation
 
         # Run a quick 2-game match between two random AIs
         results = run_evaluation(
@@ -419,8 +419,8 @@ class TestMatchExecution:
     @pytest.mark.slow
     def test_baseline_vs_random_quick(self) -> None:
         """Test baseline heuristic against random (quick run)."""
-        from scripts.evaluate_ai_models import run_evaluation
         from app.models import BoardType
+        from scripts.evaluate_ai_models import run_evaluation
 
         results = run_evaluation(
             player1_type=AI_TYPE_BASELINE_HEURISTIC,
@@ -446,10 +446,8 @@ class TestMatchExecution:
     @pytest.mark.slow
     def test_output_file_creation(self) -> None:
         """Test that output file is properly created."""
-        from scripts.evaluate_ai_models import (
-            run_evaluation, format_results_json
-        )
         from app.models import BoardType
+        from scripts.evaluate_ai_models import format_results_json, run_evaluation
 
         results = run_evaluation(
             player1_type=AI_TYPE_RANDOM,
@@ -475,7 +473,7 @@ class TestMatchExecution:
 
         try:
             assert os.path.exists(temp_path)
-            with open(temp_path, 'r') as f:
+            with open(temp_path) as f:
                 loaded = json.load(f)
             assert loaded["config"]["games"] == 2
             assert "results" in loaded

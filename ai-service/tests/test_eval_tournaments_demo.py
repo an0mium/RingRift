@@ -16,15 +16,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from app.rules.default_engine import DefaultRulesEngine  # noqa: E402
-from app.training.eval_pools import (  # noqa: E402
+import scripts.run_eval_tournaments as eval_tournaments
+from app.rules.default_engine import DefaultRulesEngine
+from app.training.eval_pools import (
     POOL_PATHS,
     EvalPoolConfig,
     get_eval_pool_config,
     load_eval_pool,
 )
-import scripts.run_eval_tournaments as eval_tournaments  # noqa: E402
-
 
 TEST_TIMEOUT_SECONDS = 60
 

@@ -22,7 +22,9 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import (  # noqa: E402
+from app.board_manager import BoardManager
+from app.game_engine import GameEngine
+from app.models import (
     BoardState,
     BoardType,
     GamePhase,
@@ -34,11 +36,8 @@ from app.models import (  # noqa: E402
     RingStack,
     TimeControl,
 )
-from app.game_engine import GameEngine  # noqa: E402
-from app.rules.default_engine import DefaultRulesEngine  # noqa: E402
-from app.training.env import RingRiftEnv  # noqa: E402
-from app.board_manager import BoardManager  # noqa: E402
-
+from app.rules.default_engine import DefaultRulesEngine
+from app.training.env import RingRiftEnv
 from tests.rules.helpers import _make_base_game_state
 
 
@@ -341,7 +340,7 @@ def test_default_engine_apply_move_matches_game_engine_for_process_line_syntheti
     line_positions = [Position(x=i, y=0) for i in range(required_len)]
 
     # Import LineInfo lazily to keep imports focused at the top of the file.
-    from app.models import LineInfo  # noqa: WPS433,E402
+    from app.models import LineInfo
 
     synthetic_line = LineInfo(
         positions=line_positions,
@@ -432,7 +431,7 @@ def test_default_engine_apply_move_matches_game_engine_for_choose_territory_opti
     board.stacks[outside_key] = outside_stack
 
     # Import Territory lazily to keep top-level imports concise.
-    from app.models import Territory  # noqa: WPS433,E402
+    from app.models import Territory
 
     region_territory = Territory(
         spaces=[region_pos],

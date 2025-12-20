@@ -31,7 +31,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
-
 # Allow imports from app/
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -496,8 +495,8 @@ def main():
     print("SWAP DECISION VALIDATION EXPERIMENT")
     print("=" * 60)
     print(f"Games per position: {args.games}")
-    print(f"Using base v1 balanced weights")
-    print(f"New swap weights:")
+    print("Using base v1 balanced weights")
+    print("New swap weights:")
     print(f"  WEIGHT_SWAP_OPENING_STRENGTH: {weights.get('WEIGHT_SWAP_OPENING_STRENGTH', 'N/A')}")
     print(f"  WEIGHT_SWAP_CORNER_PENALTY: {weights.get('WEIGHT_SWAP_CORNER_PENALTY', 'N/A')}")
     print(f"  WEIGHT_SWAP_EDGE_BONUS: {weights.get('WEIGHT_SWAP_EDGE_BONUS', 'N/A')}")

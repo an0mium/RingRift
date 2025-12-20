@@ -8,10 +8,10 @@ Tests cover:
 """
 
 import time
-import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
 from dataclasses import dataclass
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 
 # =============================================================================
 # Test OptimizationType Enum
@@ -88,8 +88,8 @@ class TestOptimizationRun:
         """Test creating run with required fields."""
         from app.training.optimization_orchestrator import (
             OptimizationRun,
-            OptimizationType,
             OptimizationState,
+            OptimizationType,
         )
 
         run = OptimizationRun(
@@ -110,8 +110,8 @@ class TestOptimizationRun:
         """Test default values."""
         from app.training.optimization_orchestrator import (
             OptimizationRun,
-            OptimizationType,
             OptimizationState,
+            OptimizationType,
         )
 
         run = OptimizationRun(
@@ -133,8 +133,8 @@ class TestOptimizationRun:
         """Test to_dict method."""
         from app.training.optimization_orchestrator import (
             OptimizationRun,
-            OptimizationType,
             OptimizationState,
+            OptimizationType,
         )
 
         now = time.time()
@@ -167,8 +167,8 @@ class TestOptimizationRun:
         """Test to_dict calculates duration dynamically."""
         from app.training.optimization_orchestrator import (
             OptimizationRun,
-            OptimizationType,
             OptimizationState,
+            OptimizationType,
         )
 
         past_time = time.time() - 60  # Started 60 seconds ago
@@ -266,8 +266,8 @@ class TestOptimizationOrchestrator:
         """Test CMAES completed handler."""
         from app.training.optimization_orchestrator import (
             OptimizationRun,
-            OptimizationType,
             OptimizationState,
+            OptimizationType,
         )
 
         # Add active run first
@@ -312,8 +312,8 @@ class TestOptimizationOrchestrator:
         """Test NAS started handler updates state."""
         from app.training.optimization_orchestrator import (
             OptimizationRun,
-            OptimizationType,
             OptimizationState,
+            OptimizationType,
         )
 
         # Add pending run
@@ -337,8 +337,8 @@ class TestOptimizationOrchestrator:
         """Test NAS generation handler."""
         from app.training.optimization_orchestrator import (
             OptimizationRun,
-            OptimizationType,
             OptimizationState,
+            OptimizationType,
         )
 
         orchestrator._active_runs["nas_001"] = OptimizationRun(
@@ -384,8 +384,8 @@ class TestOptimizationOrchestrator:
         """Test PBT generation handler."""
         from app.training.optimization_orchestrator import (
             OptimizationRun,
-            OptimizationType,
             OptimizationState,
+            OptimizationType,
         )
 
         orchestrator._active_runs["pbt_001"] = OptimizationRun(
@@ -422,8 +422,8 @@ class TestOptimizationOrchestrator:
         """Test finding run by config match."""
         from app.training.optimization_orchestrator import (
             OptimizationRun,
-            OptimizationType,
             OptimizationState,
+            OptimizationType,
         )
 
         orchestrator._active_runs["cmaes_sq8"] = OptimizationRun(
@@ -443,8 +443,8 @@ class TestOptimizationOrchestrator:
         """Test history limit is respected."""
         from app.training.optimization_orchestrator import (
             OptimizationRun,
-            OptimizationType,
             OptimizationState,
+            OptimizationType,
         )
 
         orchestrator._max_history = 5
@@ -467,8 +467,8 @@ class TestOptimizationOrchestrator:
         """Test getting active runs."""
         from app.training.optimization_orchestrator import (
             OptimizationRun,
-            OptimizationType,
             OptimizationState,
+            OptimizationType,
         )
 
         orchestrator._active_runs["run1"] = OptimizationRun(
@@ -496,8 +496,8 @@ class TestOptimizationOrchestrator:
         """Test getting completed runs with limit."""
         from app.training.optimization_orchestrator import (
             OptimizationRun,
-            OptimizationType,
             OptimizationState,
+            OptimizationType,
         )
 
         for i in range(10):
@@ -518,8 +518,8 @@ class TestOptimizationOrchestrator:
         """Test getting specific active run."""
         from app.training.optimization_orchestrator import (
             OptimizationRun,
-            OptimizationType,
             OptimizationState,
+            OptimizationType,
         )
 
         orchestrator._active_runs["run_123"] = OptimizationRun(
@@ -539,8 +539,8 @@ class TestOptimizationOrchestrator:
         """Test getting specific completed run."""
         from app.training.optimization_orchestrator import (
             OptimizationRun,
-            OptimizationType,
             OptimizationState,
+            OptimizationType,
         )
 
         run = OptimizationRun(
@@ -566,8 +566,8 @@ class TestOptimizationOrchestrator:
         """Test getting orchestrator status."""
         from app.training.optimization_orchestrator import (
             OptimizationRun,
-            OptimizationType,
             OptimizationState,
+            OptimizationType,
         )
 
         orchestrator._subscribed = True
@@ -617,8 +617,8 @@ class TestModuleFunctions:
     def test_get_optimization_orchestrator_creates_singleton(self):
         """Test that get_optimization_orchestrator creates a singleton."""
         from app.training.optimization_orchestrator import (
-            get_optimization_orchestrator,
             OptimizationOrchestrator,
+            get_optimization_orchestrator,
         )
 
         orch1 = get_optimization_orchestrator()
@@ -643,8 +643,8 @@ class TestModuleFunctions:
     def test_wire_optimization_events(self):
         """Test wiring optimization events."""
         from app.training.optimization_orchestrator import (
-            wire_optimization_events,
             reset_optimization_orchestrator,
+            wire_optimization_events,
         )
 
         with patch("app.distributed.data_events.get_event_bus") as mock_bus:

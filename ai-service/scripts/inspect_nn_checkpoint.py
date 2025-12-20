@@ -29,7 +29,6 @@ import torch
 
 from app.models import BoardType
 
-
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
 

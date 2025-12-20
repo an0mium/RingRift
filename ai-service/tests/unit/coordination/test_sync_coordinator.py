@@ -8,30 +8,29 @@ import sqlite3
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.coordination.sync_coordinator import (
-    # Enums
-    SyncPriority,
-    HostType,
-    SyncAction,
+    CRITICAL_STALE_THRESHOLD_SECONDS,
+    # Constants
+    STALE_DATA_THRESHOLD_SECONDS,
+    ClusterDataStatus,
     # Data classes
     HostDataState,
+    HostType,
+    SyncAction,
+    # Enums
+    SyncPriority,
     SyncRecommendation,
-    ClusterDataStatus,
     # Main class
     SyncScheduler,
     # Functions
     get_sync_scheduler,
     reset_sync_scheduler,
-    # Constants
-    STALE_DATA_THRESHOLD_SECONDS,
-    CRITICAL_STALE_THRESHOLD_SECONDS,
 )
-
 
 # =============================================================================
 # Enum Tests

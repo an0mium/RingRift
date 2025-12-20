@@ -6,14 +6,13 @@ All fixtures are session-scoped by default for better performance where appropri
 but game state fixtures are function-scoped to ensure test isolation.
 """
 
+import sys
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-import sys
 from typing import Dict, List, Optional
-from collections.abc import Callable
 
 import pytest
-
 
 # =============================================================================
 # PROMETHEUS REGISTRY FIX
@@ -86,7 +85,6 @@ from app.models import (
     RingStack,
     TimeControl,
 )
-
 
 # =============================================================================
 # FACTORY FIXTURES
@@ -366,19 +364,19 @@ def position_factory() -> Callable[..., Position]:
 
 # Import hex-specific utilities from fixtures module
 from tests.fixtures.hex_fixtures import (
-    HexCoord,
-    D6_ROTATIONS,
     D6_REFLECTIONS,
+    D6_ROTATIONS,
     D6_SYMMETRIES,
-    verify_d6_symmetry,
+    HexCoord,
     apply_symmetry_to_board,
     apply_symmetry_to_state,
-    create_hex_game_state,
     create_hex_board_with_stacks,
+    create_hex_game_state,
     create_hex_training_sample,
     hex_center_position,
     hex_corner_positions,
     hex_edge_midpoints,
+    verify_d6_symmetry,
 )
 
 

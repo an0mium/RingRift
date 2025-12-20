@@ -8,7 +8,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.rules.default_engine import DefaultRulesEngine  # noqa: E402
+from app.rules.default_engine import DefaultRulesEngine
 
 
 @pytest.fixture(autouse=True)

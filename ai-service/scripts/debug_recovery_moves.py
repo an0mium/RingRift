@@ -10,19 +10,20 @@ This script loads a specific recovery-eligible state and checks:
 
 import json
 from pathlib import Path
-from app.models import MoveType, GamePhase
+
 from app.game_engine import GameEngine
+from app.models import GamePhase, MoveType
 from app.rules.core import (
-    is_eligible_for_recovery,
     count_buried_rings,
-    player_has_markers,
+    is_eligible_for_recovery,
     player_controls_any_stack,
+    player_has_markers,
 )
 from app.rules.recovery import (
-    get_recovery_moves,
-    get_expanded_recovery_moves,
-    enumerate_recovery_slide_targets,
     enumerate_expanded_recovery_targets,
+    enumerate_recovery_slide_targets,
+    get_expanded_recovery_moves,
+    get_recovery_moves,
 )
 from app.training.generate_data import create_initial_state
 
@@ -31,7 +32,7 @@ def analyze_eligible_state(game_file: str, game_index: int, move_index: int, pla
     """Replay to the specified state and check recovery move generation."""
     games_file = Path(game_file)
     games = []
-    with open(games_file, 'r') as f:
+    with open(games_file) as f:
         for line in f:
             line = line.strip()
             if line:
@@ -114,17 +115,17 @@ def analyze_eligible_state(game_file: str, game_index: int, move_index: int, pla
     print(f"  -> is_eligible_for_recovery: {is_eligible_for_recovery(state, player)}")
 
     # Check if we're in MOVEMENT phase
-    print(f"\nPHASE CHECK:")
+    print("\nPHASE CHECK:")
     print(f"  Current phase: {state.current_phase}")
     print(f"  Is MOVEMENT phase: {state.current_phase == GamePhase.MOVEMENT}")
 
     # Check if it's the player's turn
-    print(f"\nTURN CHECK:")
+    print("\nTURN CHECK:")
     print(f"  Current player: {state.current_player}")
     print(f"  Is player's turn: {state.current_player == player}")
 
     # Try to generate recovery moves
-    print(f"\nRECOVERY MOVE GENERATION:")
+    print("\nRECOVERY MOVE GENERATION:")
 
     # Direct call to enumerate_recovery_slide_targets
     targets = enumerate_recovery_slide_targets(state, player)
@@ -147,7 +148,7 @@ def analyze_eligible_state(game_file: str, game_index: int, move_index: int, pla
         print(f"    - {m.type.value}: {m.from_pos} -> {m.to}")
 
     # Call get_valid_moves (this is what the AI uses)
-    print(f"\nGET_VALID_MOVES OUTPUT:")
+    print("\nGET_VALID_MOVES OUTPUT:")
     valid_moves = GameEngine.get_valid_moves(state, state.current_player)
     print(f"  Total valid moves: {len(valid_moves)}")
 
@@ -157,7 +158,7 @@ def analyze_eligible_state(game_file: str, game_index: int, move_index: int, pla
         t = vm.type.value
         move_types[t] = move_types.get(t, 0) + 1
 
-    print(f"  Move types:")
+    print("  Move types:")
     for t, count in sorted(move_types.items()):
         print(f"    {t}: {count}")
 
@@ -172,7 +173,7 @@ def analyze_eligible_state(game_file: str, game_index: int, move_index: int, pla
 def main():
     # Load the analysis results to find eligible states
     results_file = Path("data/selfplay/recovery_analysis_results.json")
-    with open(results_file, 'r') as f:
+    with open(results_file) as f:
         results = json.load(f)
 
     eligible_states = results.get('eligible_states', [])

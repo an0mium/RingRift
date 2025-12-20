@@ -13,13 +13,13 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+
+# Add ai-service to path for imports
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
-
-# Add ai-service to path for imports
-import sys
 
 from scripts.lib.paths import REPO_ROOT
 
@@ -199,7 +199,7 @@ def main():
     output_dir = Path(args.output_dir) if args.output_dir else root / "ai-service" / "parity_fixtures"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Searching for selfplay databases...")
+    print("Searching for selfplay databases...")
     dbs = find_selfplay_dbs()
     print(f"Found {len(dbs)} databases")
 
@@ -214,7 +214,7 @@ def main():
         moves = get_territory_moves(db_path, limit=30)
 
         if not moves:
-            print(f"  No territory moves found")
+            print("  No territory moves found")
             continue
 
         print(f"  Found {len(moves)} territory moves")

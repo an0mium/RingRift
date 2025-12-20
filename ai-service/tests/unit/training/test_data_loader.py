@@ -8,8 +8,8 @@ import os
 import tempfile
 import threading
 import time
-from pathlib import Path
 from collections.abc import Iterator
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -18,8 +18,8 @@ import torch
 
 from app.training.data_loader import (
     FileHandle,
-    StreamingDataLoader,
     PrefetchIterator,
+    StreamingDataLoader,
     get_sample_count,
 )
 

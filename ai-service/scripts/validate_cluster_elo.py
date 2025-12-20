@@ -16,10 +16,10 @@ import argparse
 import json
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import urllib.request
-import urllib.error
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(AI_SERVICE_ROOT))
@@ -234,7 +234,7 @@ def main():
     print("=" * 50)
 
     # Fetch from authoritative source (Mac Studio)
-    print(f"\nFetching authoritative Elo from Mac Studio...")
+    print("\nFetching authoritative Elo from Mac Studio...")
     source_elo = fetch_elo_from_node(MAC_STUDIO_ELO_URL.split("//")[1].split(":")[0])
     if not source_elo:
         print("ERROR: Could not reach Mac Studio (authoritative source)")
@@ -256,7 +256,7 @@ def main():
         node_elo = fetch_elo_from_node(host)
 
         if not node_elo:
-            print(f"    Status: UNREACHABLE")
+            print("    Status: UNREACHABLE")
             nodes_to_sync.append((node_name, host))
             all_valid = False
             continue
@@ -266,11 +266,11 @@ def main():
         if diverged or missing:
             all_valid = False
             nodes_to_sync.append((node_name, host))
-            print(f"    Status: DIVERGED")
+            print("    Status: DIVERGED")
             print(f"    Matches: {len(matches)}, Diverged: {len(diverged)}, Missing: {len(missing)}")
 
             if args.verbose and diverged:
-                print(f"    Diverged models:")
+                print("    Diverged models:")
                 for d in diverged[:5]:
                     print(f"      {d['model_id']}: {d['source_elo']:.0f} vs {d['target_elo']:.0f} (diff: {d['diff']:.0f})")
         else:
@@ -285,13 +285,13 @@ def main():
         print(f"RESULT: {len(nodes_to_sync)} nodes have divergent Elo ratings")
 
         if args.fix and LOCAL_ELO_DB.exists():
-            print(f"\nSyncing Elo database to divergent nodes...")
+            print("\nSyncing Elo database to divergent nodes...")
             for node_name, host in nodes_to_sync:
                 print(f"  Syncing to {node_name}...")
                 if sync_elo_to_node(host, LOCAL_ELO_DB):
-                    print(f"    Success")
+                    print("    Success")
                 else:
-                    print(f"    Failed")
+                    print("    Failed")
         elif args.fix:
             print(f"ERROR: Local Elo database not found: {LOCAL_ELO_DB}")
             return 1

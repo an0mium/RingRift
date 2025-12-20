@@ -6,9 +6,9 @@ Tests cover:
 - Pipeline state constants
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+import pytest
 
 # =============================================================================
 # Test Metric Definitions
@@ -388,11 +388,11 @@ class TestPipelineState:
     def test_pipeline_state_constants(self):
         """Test pipeline state constants exist."""
         from app.metrics.orchestrator import (
+            PIPELINE_EVALUATION,
             PIPELINE_IDLE,
+            PIPELINE_PROMOTION,
             PIPELINE_SELFPLAY,
             PIPELINE_TRAINING,
-            PIPELINE_EVALUATION,
-            PIPELINE_PROMOTION,
         )
 
         assert PIPELINE_IDLE == 0
@@ -404,8 +404,8 @@ class TestPipelineState:
     def test_set_pipeline_state(self):
         """Test set_pipeline_state function."""
         from app.metrics.orchestrator import (
-            set_pipeline_state,
             PIPELINE_TRAINING,
+            set_pipeline_state,
         )
 
         set_pipeline_state("unified_ai_loop", PIPELINE_TRAINING)
@@ -544,16 +544,16 @@ class TestMetricsIntegration:
     def test_full_pipeline_metrics_flow(self):
         """Test recording metrics for full pipeline."""
         from app.metrics.orchestrator import (
-            record_selfplay_batch,
-            record_training_run,
-            record_evaluation,
-            record_model_promotion,
-            set_pipeline_state,
+            PIPELINE_EVALUATION,
+            PIPELINE_IDLE,
+            PIPELINE_PROMOTION,
             PIPELINE_SELFPLAY,
             PIPELINE_TRAINING,
-            PIPELINE_EVALUATION,
-            PIPELINE_PROMOTION,
-            PIPELINE_IDLE,
+            record_evaluation,
+            record_model_promotion,
+            record_selfplay_batch,
+            record_training_run,
+            set_pipeline_state,
         )
 
         # Selfplay

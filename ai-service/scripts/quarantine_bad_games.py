@@ -23,10 +23,9 @@ Usage:
 
 import argparse
 import sqlite3
-from pathlib import Path
 from collections import defaultdict
 from datetime import datetime
-
+from pathlib import Path
 
 # Move limits by board type
 MOVE_LIMITS = {

@@ -6,19 +6,19 @@ import pytest
 from app.ai.heuristic_ai import HeuristicAI
 from app.ai.move_cache import clear_move_cache
 from app.models import (
-    GameState,
     AIConfig,
+    BoardState,
     BoardType,
     GamePhase,
+    GameState,
     GameStatus,
-    TimeControl,
-    BoardState,
-    Position,
-    RingStack,
     MarkerInfo,
-    Player,
     Move,
     MoveType,
+    Player,
+    Position,
+    RingStack,
+    TimeControl,
 )
 
 

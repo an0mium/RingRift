@@ -10,7 +10,8 @@ from enum import Enum
 from typing import List, Optional
 
 from scripts.p2p.cluster_config import get_cluster_config
-from .dashboard import get_cluster_status, NodeStatus
+
+from .dashboard import NodeStatus, get_cluster_status
 
 
 class HealthStatus(Enum):

@@ -10,33 +10,33 @@ Tests the priority-based job scheduling system including:
 - HostDeadJobMigrator for job migration
 """
 
-import pytest
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.coordination.job_scheduler import (
+    # Job migration
+    HostDeadJobMigrator,
     # Core classes
     JobPriority,
-    ScheduledJob,
     PriorityJobScheduler,
-    # Module functions
-    get_scheduler,
-    reset_scheduler,
-    # Curriculum learning
-    select_curriculum_config,
-    get_underserved_configs,
+    ScheduledJob,
     # Host selection
     get_cpu_rich_hosts,
     get_gpu_rich_hosts,
-    # Job migration
-    HostDeadJobMigrator,
-    wire_host_dead_to_job_migration,
     get_job_migrator,
+    # Module functions
+    get_scheduler,
+    get_underserved_configs,
     reset_job_migrator,
+    reset_scheduler,
+    # Curriculum learning
+    select_curriculum_config,
+    wire_host_dead_to_job_migration,
 )
-
 
 # ============================================
 # Test Fixtures

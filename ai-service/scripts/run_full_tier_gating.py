@@ -33,10 +33,10 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from app.config.perf_budgets import (  # noqa: E402
+from app.config.perf_budgets import (
     get_tier_perf_budget,
 )
-from app.training.tier_perf_benchmark import (  # noqa: E402
+from app.training.tier_perf_benchmark import (
     TierPerfResult,
     run_tier_perf_benchmark,
 )
@@ -106,7 +106,7 @@ def _load_training_report(run_dir: str) -> dict[str, Any]:
             f"training_report.json not found in run dir {run_dir!r}; "
             "ensure run_tier_training_pipeline.py has completed."
         )
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -150,9 +150,9 @@ def _run_tier_gate_cli(
 
     subprocess.run(cmd, check=True)
 
-    with open(eval_path, "r", encoding="utf-8") as f:
+    with open(eval_path, encoding="utf-8") as f:
         eval_payload = json.load(f)
-    with open(plan_path, "r", encoding="utf-8") as f:
+    with open(plan_path, encoding="utf-8") as f:
         plan_payload = json.load(f)
     return eval_payload, plan_payload
 
@@ -232,7 +232,7 @@ def _update_status_json(
     status: dict[str, Any] = {}
     if os.path.exists(status_path):
         try:
-            with open(status_path, "r", encoding="utf-8") as f:
+            with open(status_path, encoding="utf-8") as f:
                 status = json.load(f)
         except Exception:  # pragma: no cover - defensive
             status = {}

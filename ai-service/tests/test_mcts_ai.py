@@ -41,8 +41,8 @@ slow builds. Enable selectively for nightly or dedicated AI test runs:
 """
 import os
 import unittest
-from unittest.mock import MagicMock, patch
 from datetime import datetime
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -50,8 +50,18 @@ import torch
 
 from app.ai.mcts_ai import MCTSAI, MCTSNodeLite
 from app.models import (
-    GameState, AIConfig, BoardType, GamePhase, GameStatus, TimeControl,
-    BoardState, Move, MoveType, Position, Player, RingStack
+    AIConfig,
+    BoardState,
+    BoardType,
+    GamePhase,
+    GameState,
+    GameStatus,
+    Move,
+    MoveType,
+    Player,
+    Position,
+    RingStack,
+    TimeControl,
 )
 
 # ==============================================================================

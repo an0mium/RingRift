@@ -9,8 +9,9 @@ Tests the event bus functionality including:
 """
 
 import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.distributed.data_events import (
     DataEvent,

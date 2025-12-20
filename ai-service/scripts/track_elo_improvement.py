@@ -7,9 +7,9 @@ Usage:
 
 import argparse
 import sqlite3
+import sys
 from datetime import datetime
 from pathlib import Path
-import sys
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
@@ -111,7 +111,7 @@ def show_elo_progression(conn: sqlite3.Connection, hours: int = 24):
 
 def show_model_improvement(conn: sqlite3.Connection, _model_prefix: str = "nn"):
     """Show improvement trajectory for neural net models."""
-    print_section(f"NEURAL NET MODEL IMPROVEMENT")
+    print_section("NEURAL NET MODEL IMPROVEMENT")
 
     query = """
     SELECT model_id,

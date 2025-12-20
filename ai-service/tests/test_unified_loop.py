@@ -10,13 +10,14 @@ Covers:
 """
 
 import asyncio
-import pytest
 import sqlite3
 import sys
 import tempfile
 import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 # Add ai-service to path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -25,10 +26,10 @@ from app.distributed.data_events import (
     DataEvent,
     DataEventType,
     EventBus,
-    get_event_bus,
-    reset_event_bus,
     emit_new_games,
     emit_training_completed,
+    get_event_bus,
+    reset_event_bus,
 )
 
 
@@ -333,11 +334,11 @@ class TestTrainingScheduler:
     def test_should_trigger_threshold(self):
         """Test training trigger based on game threshold."""
         from scripts.unified_ai_loop import (
+            ConfigState,
+            EventBus,
             TrainingConfig,
             TrainingScheduler,
             UnifiedLoopState,
-            ConfigState,
-            EventBus,
         )
 
         config = TrainingConfig(trigger_threshold_games=100, min_interval_seconds=0)
@@ -358,11 +359,11 @@ class TestTrainingScheduler:
     def test_should_not_trigger_interval(self):
         """Test training blocked by minimum interval."""
         from scripts.unified_ai_loop import (
+            ConfigState,
+            EventBus,
             TrainingConfig,
             TrainingScheduler,
             UnifiedLoopState,
-            ConfigState,
-            EventBus,
         )
 
         config = TrainingConfig(trigger_threshold_games=100, min_interval_seconds=3600)
@@ -383,11 +384,11 @@ class TestTrainingScheduler:
     def test_should_not_trigger_in_progress(self):
         """Test training blocked when already in progress."""
         from scripts.unified_ai_loop import (
+            ConfigState,
+            EventBus,
             TrainingConfig,
             TrainingScheduler,
             UnifiedLoopState,
-            ConfigState,
-            EventBus,
         )
 
         config = TrainingConfig(trigger_threshold_games=100, min_interval_seconds=0)
@@ -442,9 +443,9 @@ class TestStatePersistence:
     def test_state_roundtrip(self):
         """Test state serialization and deserialization."""
         from scripts.unified_ai_loop import (
-            UnifiedLoopState,
-            HostState,
             ConfigState,
+            HostState,
+            UnifiedLoopState,
         )
 
         state = UnifiedLoopState()

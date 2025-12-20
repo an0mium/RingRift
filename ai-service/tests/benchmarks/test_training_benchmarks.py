@@ -11,14 +11,14 @@ Run with: pytest tests/benchmarks/test_training_benchmarks.py -v --benchmark-onl
 Or without pytest-benchmark: python tests/benchmarks/test_training_benchmarks.py
 """
 
-import sys
-import time
-import tempfile
 import shutil
-from pathlib import Path
-from typing import List, Tuple
+import sys
+import tempfile
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -32,10 +32,9 @@ if str(_AI_SERVICE_ROOT) not in sys.path:
 
 import pytest
 
-
 # Check if pytest-benchmark is available
 try:
-    import pytest_benchmark  # noqa
+    import pytest_benchmark
     HAS_BENCHMARK = True
 except ImportError:
     HAS_BENCHMARK = False
@@ -189,7 +188,7 @@ class TestMoveEncodingBenchmarks:
                 SQUARE8_2P_POLICY_SIZE,
                 _encode_move_for_policy,
             )
-            from app.models import Position, Move
+            from app.models import Move, Position
         except ImportError:
             pytest.skip("Neural net module not available")
 
@@ -211,7 +210,7 @@ class TestMoveEncodingBenchmarks:
         min_t, avg_t, max_t = simple_benchmark(encode_batch, iterations=100)
         throughput = (len(moves) / avg_t) * 1000
 
-        print(f"\n=== Move Encoding Benchmark ===")
+        print("\n=== Move Encoding Benchmark ===")
         print(f"100 moves: {avg_t:.2f}ms, Throughput: {throughput:.0f} moves/sec")
 
         assert throughput > 10000  # At least 10k moves/sec
@@ -250,7 +249,7 @@ class TestCheckpointBenchmarks:
         # Get file size
         file_size_mb = checkpoint_path.stat().st_size / (1024 * 1024)
 
-        print(f"\n=== Checkpoint Save Benchmark ===")
+        print("\n=== Checkpoint Save Benchmark ===")
         print(f"Latency: {avg_t:.2f}ms avg, File size: {file_size_mb:.2f}MB")
 
         assert avg_t < 500  # Save < 500ms
@@ -278,7 +277,7 @@ class TestCheckpointBenchmarks:
 
         min_t, avg_t, max_t = simple_benchmark(load_checkpoint, iterations=20)
 
-        print(f"\n=== Checkpoint Load Benchmark ===")
+        print("\n=== Checkpoint Load Benchmark ===")
         print(f"Latency: {avg_t:.2f}ms avg")
 
         assert avg_t < 500  # Load < 500ms
@@ -290,13 +289,13 @@ class TestHeuristicWeightBenchmarks:
     def test_flatten_reconstruct_throughput(self):
         """Benchmark heuristic weight flatten/reconstruct."""
         try:
-            from app.training.train import (
-                _flatten_heuristic_weights,
-                _reconstruct_heuristic_profile,
-            )
             from app.ai.heuristic_weights import (
                 HEURISTIC_WEIGHT_KEYS,
                 HEURISTIC_WEIGHT_PROFILES,
+            )
+            from app.training.train import (
+                _flatten_heuristic_weights,
+                _reconstruct_heuristic_profile,
             )
         except ImportError:
             pytest.skip("Heuristic weights not available")
@@ -313,7 +312,7 @@ class TestHeuristicWeightBenchmarks:
         min_t, avg_t, max_t = simple_benchmark(flatten_reconstruct, iterations=1000)
         throughput = (1 / avg_t) * 1000  # ops/sec
 
-        print(f"\n=== Heuristic Weight Flatten/Reconstruct Benchmark ===")
+        print("\n=== Heuristic Weight Flatten/Reconstruct Benchmark ===")
         print(f"Latency: {avg_t:.4f}ms, Throughput: {throughput:.0f} ops/sec")
 
         assert throughput > 1000  # At least 1000 ops/sec
@@ -348,7 +347,7 @@ class TestAdvancedTrainingBenchmarks:
         min_t, avg_t, max_t = simple_benchmark(sample_opponent, iterations=1000)
         throughput = (1 / avg_t) * 1000
 
-        print(f"\n=== PFSP Sampling Benchmark (50 opponents) ===")
+        print("\n=== PFSP Sampling Benchmark (50 opponents) ===")
         print(f"Latency: {avg_t:.4f}ms, Throughput: {throughput:.0f} samples/sec")
 
         assert throughput > 1000  # At least 1000 samples/sec
@@ -377,7 +376,7 @@ class TestAdvancedTrainingBenchmarks:
         min_t, avg_t, max_t = simple_benchmark(analyze, iterations=100)
         throughput = (1 / avg_t) * 1000
 
-        print(f"\n=== LR Finder Analysis Benchmark (200 points) ===")
+        print("\n=== LR Finder Analysis Benchmark (200 points) ===")
         print(f"Latency: {avg_t:.4f}ms, Throughput: {throughput:.0f} analyses/sec")
 
         assert throughput > 100  # At least 100 analyses/sec
@@ -422,7 +421,7 @@ class TestDataLoadingBenchmarks:
         file_size_mb = data_path.stat().st_size / (1024 * 1024)
         throughput_mb = file_size_mb / (avg_t / 1000)  # MB/sec
 
-        print(f"\n=== NumPy Load Benchmark ===")
+        print("\n=== NumPy Load Benchmark ===")
         print(f"Latency: {avg_t:.2f}ms, File: {file_size_mb:.2f}MB, Throughput: {throughput_mb:.0f}MB/sec")
 
 

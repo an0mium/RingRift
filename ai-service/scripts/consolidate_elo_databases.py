@@ -31,8 +31,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from app.tournament.unified_elo_db import (
-    EloDatabase,
     DEFAULT_DB_PATH as UNIFIED_ELO_DB_PATH,
+    EloDatabase,
 )
 
 
@@ -131,7 +131,7 @@ def import_from_jsonl(db: EloDatabase, jsonl_path: Path, tournament_id: str = No
         if magic == b'\x1f\x8b':  # Gzip magic bytes
             f = gzip.open(jsonl_path, "rt", encoding="utf-8")
         else:
-            f = open(jsonl_path, "r", encoding="utf-8")
+            f = open(jsonl_path, encoding="utf-8")
     except Exception:
         return 0
 

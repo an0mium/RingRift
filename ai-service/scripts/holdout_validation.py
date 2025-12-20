@@ -881,7 +881,7 @@ def main():
         )
 
         if result:
-            print(f"\nResults:")
+            print("\nResults:")
             print(f"  Holdout loss: {result.holdout_loss:.4f}")
             print(f"  Holdout accuracy: {result.holdout_accuracy:.4f}")
             print(f"  Samples evaluated: {result.num_samples}")
@@ -889,7 +889,7 @@ def main():
                 print(f"  Training loss: {result.train_loss:.4f}")
                 print(f"  Overfit gap: {result.overfit_gap:.4f}")
                 if result.overfit_gap > OVERFIT_THRESHOLD:
-                    print(f"  ⚠️  WARNING: Model may be overfitting!")
+                    print("  ⚠️  WARNING: Model may be overfitting!")
 
     elif args.evaluate_stratified:
         if not args.model:
@@ -920,7 +920,7 @@ def main():
         results = evaluate_model_stratified(model_path, board_type, num_players)
 
         if results:
-            print(f"\nStratified Results:")
+            print("\nStratified Results:")
             for phase in GAME_PHASES:
                 if phase in results:
                     r = results[phase]

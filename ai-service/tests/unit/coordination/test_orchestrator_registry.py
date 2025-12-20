@@ -10,7 +10,6 @@ Tests the SQLite-based orchestrator coordination system including:
 """
 
 import os
-import pytest
 import sqlite3
 import tempfile
 import threading
@@ -20,42 +19,43 @@ from pathlib import Path
 from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.coordination.orchestrator_registry import (
+    HEARTBEAT_INTERVAL_SECONDS,
+    HEARTBEAT_TIMEOUT_SECONDS,
+    REGISTRY_DB,
+    # Module-level constants
+    REGISTRY_DIR,
+    CoordinatorHealth,
+    CrossCoordinatorHealthProtocol,
+    # Dataclasses
+    OrchestratorInfo,
+    # Main class
+    OrchestratorRegistry,
     # Enums
     OrchestratorRole,
     OrchestratorState,
-    # Dataclasses
-    OrchestratorInfo,
-    CoordinatorHealth,
-    # Main class
-    OrchestratorRegistry,
-    CrossCoordinatorHealthProtocol,
-    # Module-level constants
-    REGISTRY_DIR,
-    REGISTRY_DB,
-    HEARTBEAT_INTERVAL_SECONDS,
-    HEARTBEAT_TIMEOUT_SECONDS,
-    # Convenience functions
-    get_registry,
     acquire_orchestrator_role,
-    release_orchestrator_role,
-    is_orchestrator_role_available,
-    orchestrator_role,
-    # Health functions
-    get_cross_coordinator_health,
-    check_cluster_health,
-    # Coordinator registration
-    register_coordinator,
-    unregister_coordinator,
-    get_coordinator,
-    get_registered_coordinators,
-    shutdown_all_coordinators,
     auto_register_known_coordinators,
+    check_cluster_health,
     # Discovery
     discover_and_register_orchestrators,
+    get_coordinator,
+    # Health functions
+    get_cross_coordinator_health,
     get_orchestrator_inventory,
+    get_registered_coordinators,
+    # Convenience functions
+    get_registry,
+    is_orchestrator_role_available,
+    orchestrator_role,
+    # Coordinator registration
+    register_coordinator,
+    release_orchestrator_role,
+    shutdown_all_coordinators,
+    unregister_coordinator,
 )
-
 
 # ============================================
 # Test Fixtures

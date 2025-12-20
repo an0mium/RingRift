@@ -45,29 +45,29 @@ import time
 import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, List, Optional
 
 # Add app to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app.ai.heuristic_weights import BASE_V1_BALANCED_WEIGHTS
+from app.distributed.game_collector import InMemoryGameCollector
 from app.distributed.queue import (
-    TaskQueue,
-    EvalTask,
     EvalResult,
+    EvalTask,
+    TaskQueue,
     get_task_queue,
 )
 from app.models import BoardType, GameState
-from app.ai.heuristic_weights import BASE_V1_BALANCED_WEIGHTS
 from app.training.eval_pools import load_state_pool
-from scripts.run_cmaes_optimization import (
-    evaluate_fitness,
-    BOARD_NAME_TO_TYPE,
-)
-from app.distributed.game_collector import InMemoryGameCollector
 
 # Unified logging setup
 from scripts.lib.logging_config import setup_script_logging
+from scripts.run_cmaes_optimization import (
+    BOARD_NAME_TO_TYPE,
+    evaluate_fitness,
+)
 
 logger = setup_script_logging("cmaes_cloud_worker")
 

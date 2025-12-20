@@ -10,8 +10,8 @@ the Python GameEngine:
 from __future__ import annotations
 
 import copy
-from datetime import datetime
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -19,7 +19,6 @@ import pytest
 from app.game_engine import GameEngine  # type: ignore[import]
 from app.models import GameState, Move, MoveType, Position  # type: ignore[import]
 from app.rules.recovery import apply_recovery_slide  # type: ignore[import]
-
 
 VECTORS_PATH = Path(__file__).parent / "vectors" / "recovery_action.vectors.json"
 

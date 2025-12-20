@@ -5,12 +5,12 @@ import logging
 import pytest
 
 from app.utils.logging_utils import (
-    PrefixedLogger,
-    get_logger,
     LogContext,
+    PrefixedLogger,
+    configure_logging,
+    get_logger,
     log_duration,
     log_duration_async,
-    configure_logging,
     silence_logger,
 )
 

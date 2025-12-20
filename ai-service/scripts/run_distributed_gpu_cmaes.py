@@ -46,8 +46,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.ai.gpu_batch import get_device
 from app.ai.gpu_parallel_games import (
-    evaluate_candidate_fitness_gpu,
     benchmark_parallel_games,
+    evaluate_candidate_fitness_gpu,
 )
 
 # Unified logging setup
@@ -170,9 +170,9 @@ class GPUWorker:
 def run_worker_server(port: int, board_size: int, num_players: int):
     """Run HTTP worker server for remote evaluation."""
     try:
+        import uvicorn
         from fastapi import FastAPI
         from pydantic import BaseModel
-        import uvicorn
     except ImportError:
         logger.error("FastAPI/uvicorn not installed. Run: pip install fastapi uvicorn")
         sys.exit(1)

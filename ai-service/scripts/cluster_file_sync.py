@@ -737,7 +737,7 @@ def main():
         result = rsync_transfer(local_dir, host, port, remote_path, config)
 
         if result.success:
-            logger.info(f"Successfully synced directory")
+            logger.info("Successfully synced directory")
         else:
             logger.error(f"Sync failed: {result.error}")
             sys.exit(1)

@@ -7,15 +7,14 @@ import pytest
 import torch
 
 from app.ai.gpu_batch_state import BatchGameState
+from app.ai.gpu_game_types import GamePhase, MoveType
 from app.ai.gpu_move_generation import (
     BatchMoves,
-    generate_placement_moves_batch,
-    generate_movement_moves_batch_vectorized,
     generate_capture_moves_batch_vectorized,
+    generate_movement_moves_batch_vectorized,
+    generate_placement_moves_batch,
     generate_recovery_moves_batch,
 )
-from app.ai.gpu_game_types import GamePhase, MoveType
-
 
 # =============================================================================
 # Test Fixtures

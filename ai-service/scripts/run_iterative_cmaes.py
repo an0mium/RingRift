@@ -145,14 +145,14 @@ def check_nn_quality_gate(
 
         passed = winrate >= quality_threshold
 
-        print(f"\nResults:")
+        print("\nResults:")
         print(f"  Neural win rate: {winrate:.1%}")
         print(f"  Threshold: {quality_threshold:.1%}")
         print(f"  Status: {'PASSED ✓' if passed else 'FAILED ✗'}")
 
         if not passed:
-            print(f"\n  WARNING: NN model does not meet quality threshold.")
-            print(f"  CMA-ES will proceed with heuristic-only optimization.")
+            print("\n  WARNING: NN model does not meet quality threshold.")
+            print("  CMA-ES will proceed with heuristic-only optimization.")
 
         return passed, winrate
 
@@ -200,7 +200,7 @@ def load_trained_profiles(profiles_path: str) -> dict[str, Any]:
             "profiles": {},
             "training_metadata": {},
         }
-    with open(profiles_path, "r", encoding="utf-8") as f:
+    with open(profiles_path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -213,7 +213,7 @@ def save_trained_profiles(profiles: dict[str, Any], profiles_path: str) -> None:
 
 def load_checkpoint_fitness(checkpoint_path: str) -> tuple[float, dict[str, float]]:
     """Load fitness and weights from a checkpoint file."""
-    with open(checkpoint_path, "r", encoding="utf-8") as f:
+    with open(checkpoint_path, encoding="utf-8") as f:
         data = json.load(f)
     return data.get("fitness", 0.0), data.get("weights", {})
 
@@ -549,7 +549,7 @@ def run_iterative_pipeline(
     best_overall_fitness = baseline_fitness
 
     print(f"\n{'#'*60}")
-    print(f"ITERATIVE CMA-ES PIPELINE")
+    print("ITERATIVE CMA-ES PIPELINE")
     print(f"{'#'*60}")
     print(f"Board: {board}")
     print(f"Players: {num_players}")
@@ -562,18 +562,18 @@ def run_iterative_pipeline(
     if gpu:
         print(f"GPU acceleration: ENABLED (batch_size={gpu_batch_size})")
     else:
-        print(f"GPU acceleration: disabled (CPU mode)")
+        print("GPU acceleration: disabled (CPU mode)")
     if distributed:
-        print(f"Distributed mode: ENABLED")
+        print("Distributed mode: ENABLED")
         if workers:
             print(f"  Workers: {workers}")
         if discover_workers:
-            print(f"  Worker discovery: enabled")
+            print("  Worker discovery: enabled")
         print(f"  Min workers: {min_workers}")
         if not no_record:
-            print(f"  Game recording: enabled (games collected from workers)")
+            print("  Game recording: enabled (games collected from workers)")
     else:
-        print(f"Distributed mode: disabled (local)")
+        print("Distributed mode: disabled (local)")
     print()
 
     for iteration in range(1, max_iterations + 1):

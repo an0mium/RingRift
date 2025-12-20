@@ -11,21 +11,21 @@ import gzip
 import subprocess
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from scripts.lib.transfer import (
     TransferConfig,
     TransferResult,
+    compress_file,
     compute_checksum,
     copy_local,
-    compress_file,
     decompress_file,
-    scp_push,
-    scp_pull,
-    rsync_push,
     rsync_pull,
+    rsync_push,
+    scp_pull,
+    scp_push,
     verify_transfer,
 )
 

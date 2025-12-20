@@ -25,13 +25,12 @@ from typing import Dict, List
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from scripts.lib.metrics import TimingStats
-
-from app.models import AIConfig, BoardType, GameStatus
 from app.ai.heuristic_ai import HeuristicAI
 from app.ai.heuristic_weights import BASE_V1_BALANCED_WEIGHTS
+from app.models import AIConfig, BoardType, GameStatus
 from app.rules.default_engine import DefaultRulesEngine
 from app.training.initial_state import create_initial_state
+from scripts.lib.metrics import TimingStats
 
 
 class SelfPlayProfiler:
@@ -117,7 +116,7 @@ class SelfPlayProfiler:
         total_moves = sum(self.move_counts)
         total_time = sum(self.game_times)
 
-        print(f"\nOverall Statistics:")
+        print("\nOverall Statistics:")
         print(f"  Games played: {total_games}")
         print(f"  Total moves: {total_moves}")
         print(f"  Total time: {total_time:.2f}s")
@@ -151,14 +150,14 @@ class SelfPlayProfiler:
         select_move_time = self.timings.get("select_move", TimingStats()).total_time
         apply_time = self.timings.get("apply_move", TimingStats()).total_time
 
-        print(f"\nTime breakdown:")
+        print("\nTime breakdown:")
         if total_moves > 0:
             print(f"  select_move: {select_move_time/total_moves*1000:.2f}ms avg per call")
             print(f"  apply_move: {apply_time/total_moves*1000:.2f}ms avg per call")
             print(f"  select_move as % of total: {select_move_time/total_time*100:.1f}%")
             print(f"  apply_move as % of total: {apply_time/total_time*100:.1f}%")
 
-        print(f"\nRun with --cprofile for detailed function-level breakdown")
+        print("\nRun with --cprofile for detailed function-level breakdown")
 
 
 def run_cprofile_analysis(board_type: BoardType, num_players: int, num_games: int):

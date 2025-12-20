@@ -33,10 +33,10 @@ Usage:
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional, Union
-from collections.abc import Iterator
 
 from scripts.lib.logging_config import get_logger
 
@@ -307,7 +307,7 @@ class ElapsedTimer:
         """Get formatted elapsed time string."""
         return format_elapsed_time(self.elapsed, precision=1)
 
-    def __enter__(self) -> "ElapsedTimer":
+    def __enter__(self) -> ElapsedTimer:
         self.start_time = time.time()
         return self
 

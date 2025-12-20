@@ -27,8 +27,8 @@ class ModelPruningService:
     def __init__(
         self,
         config: ModelPruningConfig,
-        state: "UnifiedLoopState",
-        event_bus: "EventBus",
+        state: UnifiedLoopState,
+        event_bus: EventBus,
     ):
         self.config = config
         self.state = state
@@ -112,7 +112,7 @@ class ModelPruningService:
                 output = stdout.decode() if stdout else ""
 
                 if process.returncode == 0:
-                    print(f"[ModelPruning] Completed successfully")
+                    print("[ModelPruning] Completed successfully")
                     self._last_prune = time.time()
                     # Publish event
                     await self.event_bus.publish(DataEvent(

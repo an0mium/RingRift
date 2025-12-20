@@ -12,8 +12,8 @@ if PROJECT_ROOT not in sys.path:
 from app.ai.ebmo_ai import EBMO_AI
 from app.ai.ebmo_network import EBMOConfig
 from app.ai.factory import AIFactory
-from app.models.core import AIType, AIConfig, BoardType
 from app.game_engine import GameEngine
+from app.models.core import AIConfig, AIType, BoardType
 from app.training.generate_data import create_initial_state
 
 
@@ -65,7 +65,7 @@ def debug_game(model_path: str):
                 by_type[mtype].append(energy_val)
 
             print(f"\nMove {move_num+1} (Player {current} - {ai_name})")
-            print(f"  Valid moves by type (min energy):")
+            print("  Valid moves by type (min energy):")
             for mtype, vals in sorted(by_type.items(), key=lambda x: min(x[1])):
                 print(f"    {mtype}: {min(vals):.4f} (count={len(vals)})")
 

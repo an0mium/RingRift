@@ -9,11 +9,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.training.fault_tolerance import (
-    retry_with_backoff,
-    handle_gpu_error,
-    TrainingErrorHandler,
-    RecoverableError,
     NonRecoverableError,
+    RecoverableError,
+    TrainingErrorHandler,
+    handle_gpu_error,
+    retry_with_backoff,
 )
 
 

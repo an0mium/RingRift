@@ -1,27 +1,28 @@
 """Tests for app/utils/resource_guard.py - Unified resource checking."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from app.utils.resource_guard import (
     LIMITS,
+    AsyncResourceLimiter,
+    OperationPriority,
+    ResourceGuard,
     ResourceLimits,
-    get_disk_usage,
-    check_disk_space,
+    can_proceed,
+    check_cpu,
     check_disk_for_write,
-    get_memory_usage,
+    check_disk_space,
+    check_gpu_memory,
     check_memory,
     get_cpu_usage,
-    check_cpu,
-    get_gpu_memory_usage,
-    check_gpu_memory,
-    can_proceed,
-    get_resource_status,
-    ResourceGuard,
     get_degradation_level,
+    get_disk_usage,
+    get_gpu_memory_usage,
+    get_memory_usage,
+    get_resource_status,
     should_proceed_with_priority,
-    OperationPriority,
-    AsyncResourceLimiter,
 )
 
 
@@ -382,7 +383,7 @@ class TestMemoryPressureDetection:
     @patch('app.utils.resource_guard.get_memory_usage')
     def test_get_memory_pressure_level_normal(self, mock_mem):
         """Normal memory usage should return NORMAL level."""
-        from app.utils.resource_guard import get_memory_pressure_level, MemoryPressureLevel
+        from app.utils.resource_guard import MemoryPressureLevel, get_memory_pressure_level
         mock_mem.return_value = (50.0, 8.0, 16.0)  # 50% used
         level = get_memory_pressure_level()
         assert level == MemoryPressureLevel.NORMAL
@@ -390,7 +391,7 @@ class TestMemoryPressureDetection:
     @patch('app.utils.resource_guard.get_memory_usage')
     def test_get_memory_pressure_level_warning(self, mock_mem):
         """70-80% memory usage should return WARNING level."""
-        from app.utils.resource_guard import get_memory_pressure_level, MemoryPressureLevel
+        from app.utils.resource_guard import MemoryPressureLevel, get_memory_pressure_level
         mock_mem.return_value = (75.0, 12.0, 16.0)  # 75% used
         level = get_memory_pressure_level()
         assert level == MemoryPressureLevel.WARNING
@@ -398,7 +399,7 @@ class TestMemoryPressureDetection:
     @patch('app.utils.resource_guard.get_memory_usage')
     def test_get_memory_pressure_level_critical(self, mock_mem):
         """85-90% memory usage should return CRITICAL level."""
-        from app.utils.resource_guard import get_memory_pressure_level, MemoryPressureLevel
+        from app.utils.resource_guard import MemoryPressureLevel, get_memory_pressure_level
         mock_mem.return_value = (87.0, 14.0, 16.0)  # 87% used
         level = get_memory_pressure_level()
         assert level == MemoryPressureLevel.CRITICAL
@@ -406,14 +407,14 @@ class TestMemoryPressureDetection:
     @patch('app.utils.resource_guard.get_memory_usage')
     def test_get_memory_pressure_level_emergency(self, mock_mem):
         """90%+ memory usage should return EMERGENCY level."""
-        from app.utils.resource_guard import get_memory_pressure_level, MemoryPressureLevel
+        from app.utils.resource_guard import MemoryPressureLevel, get_memory_pressure_level
         mock_mem.return_value = (92.0, 14.7, 16.0)  # 92% used
         level = get_memory_pressure_level()
         assert level == MemoryPressureLevel.EMERGENCY
 
     def test_trigger_memory_cleanup_import(self):
         """trigger_memory_cleanup should be importable."""
-        from app.utils.resource_guard import trigger_memory_cleanup, MemoryPressureLevel
+        from app.utils.resource_guard import MemoryPressureLevel, trigger_memory_cleanup
         # Should not raise
         freed = trigger_memory_cleanup(MemoryPressureLevel.WARNING)
         assert isinstance(freed, int)
@@ -453,7 +454,7 @@ class TestDiskPressureCleanup:
     @patch('app.utils.resource_guard.get_disk_usage')
     def test_get_disk_pressure_level_normal(self, mock_disk):
         """Normal disk usage should return NORMAL level."""
-        from app.utils.resource_guard import get_disk_pressure_level, DiskPressureLevel
+        from app.utils.resource_guard import DiskPressureLevel, get_disk_pressure_level
         mock_disk.return_value = (50.0, 500.0, 1000.0)  # 50% used
         level = get_disk_pressure_level()
         assert level == DiskPressureLevel.NORMAL
@@ -461,7 +462,7 @@ class TestDiskPressureCleanup:
     @patch('app.utils.resource_guard.get_disk_usage')
     def test_get_disk_pressure_level_warning(self, mock_disk):
         """70-75% disk usage should return WARNING level."""
-        from app.utils.resource_guard import get_disk_pressure_level, DiskPressureLevel
+        from app.utils.resource_guard import DiskPressureLevel, get_disk_pressure_level
         mock_disk.return_value = (72.0, 720.0, 1000.0)  # 72% used
         level = get_disk_pressure_level()
         assert level == DiskPressureLevel.WARNING
@@ -469,7 +470,7 @@ class TestDiskPressureCleanup:
     @patch('app.utils.resource_guard.get_disk_usage')
     def test_get_disk_pressure_level_emergency(self, mock_disk):
         """85%+ disk usage should return EMERGENCY level."""
-        from app.utils.resource_guard import get_disk_pressure_level, DiskPressureLevel
+        from app.utils.resource_guard import DiskPressureLevel, get_disk_pressure_level
         mock_disk.return_value = (88.0, 880.0, 1000.0)  # 88% used
         level = get_disk_pressure_level()
         assert level == DiskPressureLevel.EMERGENCY
@@ -490,7 +491,7 @@ class TestDiskPressureCleanup:
 
     def test_trigger_disk_cleanup_import(self):
         """trigger_disk_cleanup should be importable."""
-        from app.utils.resource_guard import trigger_disk_cleanup, DiskPressureLevel
+        from app.utils.resource_guard import DiskPressureLevel, trigger_disk_cleanup
         # Should not raise (dry_run to avoid actual cleanup)
         freed = trigger_disk_cleanup(DiskPressureLevel.WARNING, dry_run=True)
         assert isinstance(freed, int)

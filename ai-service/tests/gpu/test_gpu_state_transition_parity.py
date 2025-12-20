@@ -15,9 +15,12 @@ import torch
 from app.models import BoardType, GamePhase, MoveType
 
 try:
-    from app.ai.gpu_parallel_games import ParallelGameRunner
-    from app.ai.gpu_game_types import GameStatus, GamePhase as GPUPhase
     from app.ai.gpu_batch_state import BatchGameState
+    from app.ai.gpu_game_types import (
+        GamePhase as GPUPhase,
+        GameStatus,
+    )
+    from app.ai.gpu_parallel_games import ParallelGameRunner
     from app.rules.core import get_victory_threshold
 
     GPU_AVAILABLE = True

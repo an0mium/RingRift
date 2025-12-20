@@ -68,11 +68,11 @@ sys.path.insert(0, str(ROOT))
 # Unified resource guard - 80% utilization limits (enforced 2025-12-16)
 try:
     from app.utils.resource_guard import (
+        LIMITS as RESOURCE_LIMITS,
         can_proceed as resource_can_proceed,
         check_disk_space,
         check_memory,
         require_resources,
-        LIMITS as RESOURCE_LIMITS,
     )
     HAS_RESOURCE_GUARD = True
 except ImportError:
@@ -214,18 +214,18 @@ def run_worker_export(
     encoder_version: str = "default",
 ) -> int:
     """Run export for specific game IDs (worker mode)."""
+    from app.ai.neural_net import INVALID_MOVE_INDEX
     from app.db import GameReplayDB
+    from app.game_engine import GameEngine
 
     # Import the export function components
     from scripts.export_replay_dataset import (
+        BOARD_TYPE_MAP,
         build_encoder,
+        compute_multi_player_values,
         encode_state_with_history,
         value_from_final_ranking,
-        compute_multi_player_values,
-        BOARD_TYPE_MAP,
     )
-    from app.ai.neural_net import INVALID_MOVE_INDEX
-    from app.game_engine import GameEngine
 
     board_type_enum = BOARD_TYPE_MAP[board_type]
     encoder = build_encoder(board_type_enum, encoder_version)

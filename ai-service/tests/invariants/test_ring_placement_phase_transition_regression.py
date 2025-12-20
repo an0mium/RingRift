@@ -37,12 +37,21 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import (
-    GameState, Move, Position, MoveType, GamePhase, GameStatus, BoardType,
-    BoardState, Player, RingStack, TimeControl
-)
-from app.game_engine import GameEngine
 from app.board_manager import BoardManager
+from app.game_engine import GameEngine
+from app.models import (
+    BoardState,
+    BoardType,
+    GamePhase,
+    GameState,
+    GameStatus,
+    Move,
+    MoveType,
+    Player,
+    Position,
+    RingStack,
+    TimeControl,
+)
 
 
 def create_ring_placement_zero_rings_state() -> GameState:

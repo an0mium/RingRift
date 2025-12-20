@@ -14,15 +14,15 @@ from typing import Any, Dict
 import pytest
 
 from scripts.lib.data_quality import (
-    VictoryType,
     VICTORY_TYPE_VALUE,
     GameLengthConfig,
-    QualityScores,
     GameQuality,
-    QualityWeights,
     GameQualityScorer,
     QualityFilter,
+    QualityScores,
     QualityStats,
+    QualityWeights,
+    VictoryType,
     compute_quality_stats,
 )
 

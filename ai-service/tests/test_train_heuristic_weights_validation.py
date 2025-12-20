@@ -18,7 +18,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.training.train_heuristic_weights import (  # noqa: E402
+from app.training.train_heuristic_weights import (
     train_from_jsonl,
 )
 

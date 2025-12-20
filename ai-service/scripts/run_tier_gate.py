@@ -29,23 +29,23 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from app.training.tier_eval_config import (  # noqa: E402
-    HEURISTIC_TIER_SPECS,
-    HeuristicTierSpec,
-    TIER_EVAL_CONFIGS,
-    get_tier_config,
-)
-from app.training.eval_pools import (  # noqa: E402
-    run_heuristic_tier_eval,
-)
-from app.training.tier_eval_runner import (  # noqa: E402
-    run_tier_evaluation,
-)
-from app.config.ladder_config import (  # noqa: E402
+from app.config.ladder_config import (
     get_ladder_tier_config,
 )
-from app.models import AIType  # noqa: E402
-from app.training.tier_eval_runner import TierEvaluationResult  # noqa: E402
+from app.models import AIType
+from app.training.eval_pools import (
+    run_heuristic_tier_eval,
+)
+from app.training.tier_eval_config import (
+    HEURISTIC_TIER_SPECS,
+    TIER_EVAL_CONFIGS,
+    HeuristicTierSpec,
+    get_tier_config,
+)
+from app.training.tier_eval_runner import (
+    TierEvaluationResult,
+    run_tier_evaluation,
+)
 
 
 def _get_heuristic_tier_spec(tier_id: str) -> HeuristicTierSpec:

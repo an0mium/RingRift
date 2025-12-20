@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
 

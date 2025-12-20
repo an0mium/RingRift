@@ -74,12 +74,11 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+from app.ai.neural_net import INVALID_MOVE_INDEX, NeuralNetAI, encode_move_for_board
 from app.db import GameReplayDB
 from app.models import AIConfig, BoardType, GameState
-from app.ai.neural_net import NeuralNetAI, INVALID_MOVE_INDEX, encode_move_for_board
 from app.training.encoding import get_encoder_for_board_type
 from app.training.export_cache import get_export_cache
-
 
 BOARD_TYPE_MAP: dict[str, BoardType] = {
     "square8": BoardType.SQUARE8,
@@ -450,7 +449,7 @@ def export_replay_dataset_multi(
                     continue
                 path = os.path.join(fixtures_path, name)
                 try:
-                    with open(path, "r", encoding="utf-8") as f:
+                    with open(path, encoding="utf-8") as f:
                         fixture = json.load(f)
                 except Exception:
                     continue
@@ -1097,11 +1096,11 @@ def main(argv: list[str] | None = None) -> int:
                 policy_encoding="board_aware" if args.board_aware_encoding else "legacy_max_n",
             )
             samples = cache_info.get("samples_exported", "?") if cache_info else "?"
-            print(f"[CACHE HIT] Skipping export - source DBs unchanged since last export")
+            print("[CACHE HIT] Skipping export - source DBs unchanged since last export")
             print(f"  Output: {args.output}")
             print(f"  Cached samples: {samples}")
             return 0
-        print(f"[CACHE MISS] Export needed - source DBs have changed")
+        print("[CACHE MISS] Export needed - source DBs have changed")
 
     # Use multi-source export with deduplication
     export_replay_dataset_multi(

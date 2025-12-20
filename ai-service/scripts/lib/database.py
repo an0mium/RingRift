@@ -23,10 +23,10 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional, Union
-from collections.abc import Generator
 
 logger = logging.getLogger(__name__)
 

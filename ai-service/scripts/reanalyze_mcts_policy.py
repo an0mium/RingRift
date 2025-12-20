@@ -22,7 +22,7 @@ import json
 import os
 import sys
 import time
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 # Add project root to path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -30,11 +30,12 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+import hashlib
+
+from app.mcts.improved_mcts import GameState as MCTSGameState
 from app.models import BoardType, GameState, Move
 from app.rules.default_engine import DefaultRulesEngine
-from app.mcts.improved_mcts import GameState as MCTSGameState
 from app.training.generate_data import create_initial_state
-import hashlib
 
 # Unified logging setup
 from scripts.lib.logging_config import setup_script_logging
@@ -158,6 +159,7 @@ def parse_move_dict(move_dict: dict[str, Any], move_number: int) -> Move | None:
     Returns None for unknown move types.
     """
     from datetime import datetime
+
     from app.models import MoveType, Position
 
     move_type_str = str(move_dict.get("type") or "").strip()
@@ -398,7 +400,7 @@ def main():
     logger.info(f"Processing {args.input}...")
 
     mode = "a" if args.append else "w"
-    with open(args.input, "r") as fin, open(args.output, mode) as fout:
+    with open(args.input) as fin, open(args.output, mode) as fout:
         for line_num, line in enumerate(fin):
             if not line.strip():
                 continue

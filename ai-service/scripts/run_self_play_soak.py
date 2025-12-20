@@ -59,12 +59,12 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import gc
 import json
 import logging
 import os
 import random
 import sys
-import gc
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -75,11 +75,17 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.main import (  # type: ignore  # noqa: E402
+from app.game_engine import (  # type: ignore
+    STRICT_NO_MOVE_INVARIANT,
+    GameEngine,
+    PhaseRequirement,
+    PhaseRequirementType,
+)
+from app.main import (  # type: ignore
     _create_ai_instance,
     _get_difficulty_profile,
 )
-from app.models import (  # type: ignore  # noqa: E402
+from app.models import (  # type: ignore
     AIConfig,
     AIType,
     BoardType,
@@ -90,17 +96,11 @@ from app.models import (  # type: ignore  # noqa: E402
     MoveType,
     Position,
 )
-from app.training.env import (  # type: ignore  # noqa: E402
-    TrainingEnvConfig,
-    make_env,
+from app.training.env import (  # type: ignore
     TRAINING_HEURISTIC_EVAL_MODE_BY_BOARD,
+    TrainingEnvConfig,
     get_theoretical_max_moves,
-)
-from app.game_engine import (  # type: ignore  # noqa: E402
-    GameEngine,
-    STRICT_NO_MOVE_INVARIANT,
-    PhaseRequirementType,
-    PhaseRequirement,
+    make_env,
 )
 
 # GPU imports - lazy imported only when --gpu is used to avoid torch import overhead
@@ -116,8 +116,8 @@ try:
     from app.coordination import (
         TaskType,
         can_spawn_safe,
-        register_running_task,
         record_task_completion,
+        register_running_task,
     )
     HAS_COORDINATION = True
 except ImportError:
@@ -174,7 +174,7 @@ def load_weights_from_profile(
         return None
 
     try:
-        with open(weights_file, "r") as f:
+        with open(weights_file) as f:
             data = json.load(f)
     except (json.JSONDecodeError, IOError) as e:
         print(
@@ -198,22 +198,22 @@ def load_weights_from_profile(
         flush=True,
     )
     return weights
-from app.metrics import (  # type: ignore  # noqa: E402
-    PYTHON_INVARIANT_VIOLATIONS,
-)
-from app.rules.core import compute_progress_snapshot  # noqa: E402
-from app.board_manager import BoardManager  # noqa: E402
-from app.rules import global_actions as ga  # type: ignore  # noqa: E402
-from app.rules.history_contract import (  # noqa: E402
-    validate_canonical_move,
-)
-from app.utils.progress_reporter import SoakProgressReporter  # noqa: E402
-from app.db import (  # noqa: E402
+from app.ai.neural_net import clear_model_cache
+from app.board_manager import BoardManager
+from app.db import (
+    ParityValidationError,
     get_or_create_db,
     record_completed_game_with_parity_check,
-    ParityValidationError,
 )
-from app.ai.neural_net import clear_model_cache  # noqa: E402
+from app.metrics import (  # type: ignore
+    PYTHON_INVARIANT_VIOLATIONS,
+)
+from app.rules import global_actions as ga  # type: ignore
+from app.rules.core import compute_progress_snapshot
+from app.rules.history_contract import (
+    validate_canonical_move,
+)
+from app.utils.progress_reporter import SoakProgressReporter
 
 # Hot model reload for unified AI loop integration
 try:
@@ -366,8 +366,7 @@ class HotModelReloader:
             }
         except (OSError, json.JSONDecodeError):
             return {"exists": True, "path": self._watch_path}
-from app.utils.victory_type import derive_victory_type  # noqa: E402
-
+from app.utils.victory_type import derive_victory_type
 
 VIOLATION_TYPE_TO_INVARIANT_ID: dict[str, str] = {
     "S_INVARIANT_DECREASED": "INV-S-MONOTONIC",
@@ -1093,11 +1092,11 @@ def _build_mixed_ai_pool(
     if engine_mode in ("diverse", "diverse-cpu"):
         try:
             from app.training.diverse_ai_config import (
-                get_weighted_ai_type,
-                GPU_OPTIMIZED_WEIGHTS,
                 CPU_OPTIMIZED_WEIGHTS,
-                get_diverse_matchups,
+                GPU_OPTIMIZED_WEIGHTS,
                 DiverseAIConfig,
+                get_diverse_matchups,
+                get_weighted_ai_type,
             )
         except ImportError:
             raise SystemExit(
@@ -1361,7 +1360,7 @@ def run_self_play_soak(
         )
         if heuristic_weights and engine_mode == "heuristic-only":
             print(
-                f"[heuristic-weights] Using custom weights for heuristic-only mode",
+                "[heuristic-weights] Using custom weights for heuristic-only mode",
                 flush=True,
             )
 
@@ -1544,7 +1543,7 @@ def run_self_play_soak(
     checkpoint_path = args.log_jsonl + ".checkpoint.json"
 
     if resume_from_jsonl and os.path.exists(args.log_jsonl):
-        with open(args.log_jsonl, "r", encoding="utf-8") as f:
+        with open(args.log_jsonl, encoding="utf-8") as f:
             start_game_idx = sum(1 for _ in f)
         if start_game_idx > 0:
             logger.info(f"Resuming from game {start_game_idx} (found {start_game_idx} existing games in {args.log_jsonl})")
@@ -1652,7 +1651,7 @@ def run_self_play_soak(
             # Periodic resource check (every 50 games) - stop early if 80% limits exceeded
             if game_idx > 0 and game_idx % 50 == 0:
                 try:
-                    from app.utils.resource_guard import check_memory, check_disk_space
+                    from app.utils.resource_guard import check_disk_space, check_memory
                     if not check_memory(required_gb=2.0, log_warning=False):
                         print(
                             f"[resource-guard] Memory pressure detected at game {game_idx}, "
@@ -3080,7 +3079,7 @@ def run_gpu_self_play_soak(
 
     # Print summary
     throughput = num_games / elapsed if elapsed > 0 else 0
-    print(f"\nGPU self-play complete:")
+    print("\nGPU self-play complete:")
     print(f"  Games: {stats.get('total_games', num_games)}")
     print(f"  Total time: {elapsed:.2f}s")
     print(f"  Throughput: {throughput:.1f} games/sec")
@@ -3599,9 +3598,7 @@ def main() -> None:  # pragma: no cover - CLI entrypoint
 
     # Resource guard: Check disk/memory before starting (80% limits)
     try:
-        from app.utils.resource_guard import (
-            check_disk_space, check_memory, LIMITS
-        )
+        from app.utils.resource_guard import LIMITS, check_disk_space, check_memory
         # Estimate output size: soak tests can generate lots of data
         num_games = getattr(args, "num_games", 1000)
         estimated_output_mb = (num_games * 0.005) + 100  # ~5KB per game + overhead
@@ -3611,7 +3608,7 @@ def main() -> None:  # pragma: no cover - CLI entrypoint
         if not check_memory(required_gb=4.0):
             print(f"ERROR: Insufficient memory (limit: {LIMITS.MEMORY_MAX_PERCENT}%)", file=sys.stderr)
             raise SystemExit(1)
-        print(f"Resource check passed: disk/memory within 80% limits")
+        print("Resource check passed: disk/memory within 80% limits")
     except ImportError:
         pass  # Resource guard not available
 

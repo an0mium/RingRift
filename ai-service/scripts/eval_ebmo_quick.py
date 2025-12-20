@@ -12,8 +12,8 @@ if PROJECT_ROOT not in sys.path:
 from app.ai.ebmo_ai import EBMO_AI
 from app.ai.ebmo_network import EBMOConfig
 from app.ai.factory import AIFactory
-from app.models.core import AIType, AIConfig, BoardType
 from app.game_engine import GameEngine
+from app.models.core import AIConfig, AIType, BoardType
 from app.training.generate_data import create_initial_state
 
 
@@ -44,7 +44,7 @@ def evaluate_model(model_path: str, num_games: int = 10):
     """Evaluate model with direct evaluation."""
     print(f"\n{'='*60}")
     print(f"Evaluating: {model_path}")
-    print(f"Mode: Direct evaluation (no gradient descent)")
+    print("Mode: Direct evaluation (no gradient descent)")
     print(f"{'='*60}\n")
 
     # Create EBMO with direct eval mode

@@ -19,17 +19,19 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Tuple
-from collections.abc import Iterable
 
 import pytest
+
+from app.utils.paths import AI_SERVICE_ROOT
 
 # Import the parity helper used by the CLI script
 from scripts.check_ts_python_replay_parity import (  # type: ignore[import]
     check_game_parity,
 )
-from app.utils.paths import AI_SERVICE_ROOT
+
 PARITY_FIXTURES_DIR = AI_SERVICE_ROOT / "parity_fixtures"
 
 

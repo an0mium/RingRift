@@ -1,22 +1,23 @@
 """Tests for Vast.ai P2P Sync script."""
 
 import json
+
+# Import the module under test
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Import the module under test
-import sys
 sys.path.insert(0, str(Path(__file__).parents[3]))
 
 from scripts.vast_p2p_sync import (
-    VastInstance,
-    P2PNode,
-    match_vast_to_p2p,
     GPU_ROLES,
     PREFERRED_GPUS,
+    P2PNode,
+    VastInstance,
+    match_vast_to_p2p,
 )
 
 

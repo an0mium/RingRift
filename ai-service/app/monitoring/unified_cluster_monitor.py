@@ -46,10 +46,10 @@ logger = logging.getLogger(__name__)
 # Try to import optional dependencies
 try:
     from app.distributed.health_checks import (
-        ComponentHealth,  # noqa: F401 (used in type hints when enabled)
+        ComponentHealth,
         HealthChecker,
-        HealthRecoveryIntegration,  # noqa: F401 (used when recovery integration enabled)
-        HealthSummary,  # noqa: F401 (used in type hints when enabled)
+        HealthRecoveryIntegration,
+        HealthSummary,
         integrate_health_with_recovery,
     )
     HAS_HEALTH_CHECKS = True

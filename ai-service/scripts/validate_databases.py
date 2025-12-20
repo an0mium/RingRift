@@ -12,11 +12,11 @@ Usage:
   python scripts/validate_databases.py data/games --replay --delete --force
   python scripts/validate_databases.py /path/to/specific.db --replay
 """
+import argparse
+import json
+import os
 import sqlite3
 import sys
-import os
-import json
-import argparse
 from pathlib import Path
 
 # Add ai-service to path for imports
@@ -199,7 +199,7 @@ def scan_directory(
             print(f"  {db_path.name}: {status}")
 
     # Summary
-    print(f"\n=== Validation Summary ===")
+    print("\n=== Validation Summary ===")
     print(f"Total databases: {len(db_files)}")
     print(f"Empty databases: {len(empty_dbs)}")
     print(f"Failing databases: {len(failing_dbs)}")

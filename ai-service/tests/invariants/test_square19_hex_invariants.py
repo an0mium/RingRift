@@ -19,8 +19,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import BoardType, GameStatus  # type: ignore  # noqa: E402
-from app.training.env import RingRiftEnv  # type: ignore  # noqa: E402
+from app.models import BoardType, GameStatus  # type: ignore
+from app.training.env import RingRiftEnv  # type: ignore
 
 
 def _play_short_game(

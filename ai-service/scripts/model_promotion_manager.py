@@ -52,25 +52,26 @@ except ImportError:
 
 # Import unified ELO database for alias sync
 try:
-    from app.tournament.unified_elo_db import get_elo_database, UnifiedEloRating
+    from app.tournament.unified_elo_db import UnifiedEloRating, get_elo_database
     HAS_UNIFIED_ELO = True
 except ImportError:
     HAS_UNIFIED_ELO = False
 
 # Import event bus helpers (consolidated imports)
 from app.distributed.event_helpers import (
-    has_event_bus,
-    get_event_bus_safe,
-    emit_model_promoted_safe,
-    emit_error_safe,
-    DataEventType,
     DataEvent,
+    DataEventType,
+    emit_error_safe,
+    emit_model_promoted_safe,
+    get_event_bus_safe,
+    has_event_bus,
 )
+
 HAS_EVENT_BUS = has_event_bus()
 
 # For backwards compatibility, get the raw functions if available
 if HAS_EVENT_BUS:
-    from app.distributed.data_events import get_event_bus, emit_model_promoted, emit_error
+    from app.distributed.data_events import emit_error, emit_model_promoted, get_event_bus
 else:
     get_event_bus = get_event_bus_safe
     emit_model_promoted = emit_model_promoted_safe
@@ -78,27 +79,28 @@ else:
 
 # Import coordination helpers (consolidated imports)
 from app.coordination.helpers import (
-    has_coordination,
-    get_registry_safe,
-    can_spawn_safe,
     OrchestratorRole,
     TaskCoordinator,
     TaskType,
+    can_spawn_safe,
+    get_registry_safe,
+    has_coordination,
 )
+
 HAS_COORDINATION = has_coordination()
 
 # For backwards compatibility
 if HAS_COORDINATION:
-    from app.coordination import get_registry, can_spawn_safe
+    from app.coordination import can_spawn_safe, get_registry
 else:
     get_registry = get_registry_safe
 
 # Import canonical config helpers
 try:
     from app.config.unified_config import (
+        get_promotion_check_interval,
         get_promotion_elo_threshold,
         get_promotion_min_games,
-        get_promotion_check_interval,
         get_rollback_elo_threshold,
         get_rollback_min_games,
     )
@@ -510,7 +512,7 @@ class AutoPromotionTrigger:
             verbose,
         ):
             if verbose:
-                print(f"  Regression tests FAILED - skipping promotion")
+                print("  Regression tests FAILED - skipping promotion")
             return None
 
         # Publish alias
@@ -556,7 +558,7 @@ class AutoPromotionTrigger:
         # Sync to cluster if enabled
         if self.config.sync_to_cluster:
             if verbose:
-                print(f"  Syncing to cluster...")
+                print("  Syncing to cluster...")
             sync_to_cluster_ssh([promoted], verbose=verbose)
 
         # Emit event for pipeline integration
@@ -575,7 +577,7 @@ class AutoPromotionTrigger:
                     print(f"  Failed to emit promotion event: {e}")
 
         if verbose:
-            print(f"  Promotion complete!")
+            print("  Promotion complete!")
 
         return promoted
 
@@ -600,8 +602,8 @@ def run_auto_promotion_daemon(config: AutoPromotionConfig = None, verbose: bool 
             holder = registry.get_role_holder(OrchestratorRole.UNIFIED_LOOP)
             existing_pid = holder.pid if holder else "unknown"
             print(f"[AutoPromotion] WARNING: Unified orchestrator is running (PID {existing_pid})")
-            print(f"[AutoPromotion] The orchestrator handles promotions - this daemon may duplicate work")
-            print(f"[AutoPromotion] Consider using --full-pipeline instead of --daemon")
+            print("[AutoPromotion] The orchestrator handles promotions - this daemon may duplicate work")
+            print("[AutoPromotion] Consider using --full-pipeline instead of --daemon")
 
     config = config or AutoPromotionConfig()
     trigger = AutoPromotionTrigger(config)
@@ -619,15 +621,15 @@ def run_auto_promotion_daemon(config: AutoPromotionConfig = None, verbose: bool 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    print(f"[AutoPromotion] Starting auto-promotion daemon")
+    print("[AutoPromotion] Starting auto-promotion daemon")
     print(f"  Check interval: {config.check_interval_seconds}s")
     print(f"  Elo threshold: +{config.elo_threshold}")
     print(f"  Min games: {config.min_games}")
     print(f"  Sync to cluster: {config.sync_to_cluster}")
     if HAS_COORDINATION:
-        print(f"  Coordination: enabled")
+        print("  Coordination: enabled")
     if HAS_EVENT_BUS:
-        print(f"  Event-driven: enabled (TRAINING_COMPLETED, EVALUATION_COMPLETED)")
+        print("  Event-driven: enabled (TRAINING_COMPLETED, EVALUATION_COMPLETED)")
 
     iteration = 0
     while running:
@@ -644,7 +646,7 @@ def run_auto_promotion_daemon(config: AutoPromotionConfig = None, verbose: bool 
                 for candidate in candidates:
                     trigger.execute_promotion(candidate, verbose=verbose)
             elif verbose:
-                print(f"[AutoPromotion] No promotion candidates")
+                print("[AutoPromotion] No promotion candidates")
 
         except Exception as e:
             print(f"[AutoPromotion] Error: {e}")
@@ -897,7 +899,7 @@ def perform_rollback(candidate: RollbackCandidate, *, verbose: bool = True) -> b
         )
 
         if not published:
-            print(f"[model_promotion] ERROR: Failed to publish rollback alias")
+            print("[model_promotion] ERROR: Failed to publish rollback alias")
             return False
 
         # Log the rollback
@@ -1022,7 +1024,7 @@ def sync_alias_elo(
     """
     if not HAS_UNIFIED_ELO:
         if verbose:
-            print(f"[model_promotion] Skipping ELO sync - unified_elo_db not available")
+            print("[model_promotion] Skipping ELO sync - unified_elo_db not available")
         return False
 
     try:
@@ -1419,7 +1421,7 @@ def run_regression_gate(model_path: Path, board_type: str, num_players: int, ver
     # Skip if regression tests are disabled
     if os.environ.get("RINGRIFT_SKIP_REGRESSION_TESTS", "").lower() in ("1", "true", "yes"):
         if verbose:
-            print(f"  Regression tests skipped (RINGRIFT_SKIP_REGRESSION_TESTS=1)")
+            print("  Regression tests skipped (RINGRIFT_SKIP_REGRESSION_TESTS=1)")
         return True
 
     # Check if hard blocking is enabled (default: enabled)
@@ -1428,7 +1430,7 @@ def run_regression_gate(model_path: Path, board_type: str, num_players: int, ver
     regression_script = AI_SERVICE_ROOT / "scripts" / "model_regression_tests.py"
     if not regression_script.exists():
         if verbose:
-            print(f"  Regression tests skipped (script not found)")
+            print("  Regression tests skipped (script not found)")
         return True
 
     try:
@@ -1451,13 +1453,13 @@ def run_regression_gate(model_path: Path, board_type: str, num_players: int, ver
         passed = result.returncode == 0
         if verbose:
             if passed:
-                print(f"  Regression tests: PASSED")
+                print("  Regression tests: PASSED")
             else:
                 if hard_block:
-                    print(f"  Regression tests: FAILED - blocking promotion")
+                    print("  Regression tests: FAILED - blocking promotion")
                     _log_regression_failure(model_path, board_type, num_players, result)
                 else:
-                    print(f"  Regression tests: FAILED (set RINGRIFT_REGRESSION_HARD_BLOCK=1 to block)")
+                    print("  Regression tests: FAILED (set RINGRIFT_REGRESSION_HARD_BLOCK=1 to block)")
 
         # Block promotion if tests failed and hard_block is enabled
         if not passed and hard_block:
@@ -1466,7 +1468,7 @@ def run_regression_gate(model_path: Path, board_type: str, num_players: int, ver
 
     except subprocess.TimeoutExpired:
         if verbose:
-            print(f"  Regression tests: TIMEOUT")
+            print("  Regression tests: TIMEOUT")
         # Block on timeout if hard_block is enabled
         return not hard_block
     except Exception as e:
@@ -1519,7 +1521,7 @@ def update_all_promotions(
         best = get_best_model_from_elo(board_type, num_players)
         if not best:
             if verbose:
-                print(f"  No Elo data available")
+                print("  No Elo data available")
             continue
 
         if best["games_played"] < min_games:
@@ -1536,7 +1538,7 @@ def update_all_promotions(
         # Run regression tests before promotion
         if run_regression and not run_regression_gate(model_path, board_type, num_players, verbose):
             if verbose:
-                print(f"  Skipping promotion due to failed regression tests")
+                print("  Skipping promotion due to failed regression tests")
             continue
 
         alias_id = best_alias_id(board_type, int(num_players))

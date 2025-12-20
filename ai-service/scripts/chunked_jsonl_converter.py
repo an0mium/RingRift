@@ -37,18 +37,18 @@ import logging
 import sqlite3
 import sys
 import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
-from collections.abc import Iterator
 
 # Ensure ai-service root on path for scripts/lib imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # Unified logging and file format utilities
-from scripts.lib.logging_config import setup_script_logging
 from scripts.lib.file_formats import open_jsonl_file
+from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("chunked_jsonl_converter")
 

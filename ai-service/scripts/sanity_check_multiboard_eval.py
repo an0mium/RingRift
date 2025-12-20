@@ -26,15 +26,15 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.ai.heuristic_weights import (  # type: ignore  # noqa: E402
+from app.ai.heuristic_weights import (  # type: ignore
     BASE_V1_BALANCED_WEIGHTS,
     HEURISTIC_WEIGHT_KEYS,
 )
-from app.models import BoardType  # type: ignore  # noqa: E402
-from app.training.env import (  # type: ignore  # noqa: E402
+from app.models import BoardType  # type: ignore
+from app.training.env import (  # type: ignore
     build_training_eval_kwargs,
 )
-from scripts.run_cmaes_optimization import (  # type: ignore  # noqa: E402
+from scripts.run_cmaes_optimization import (  # type: ignore
     evaluate_fitness,
     evaluate_fitness_over_boards,
 )

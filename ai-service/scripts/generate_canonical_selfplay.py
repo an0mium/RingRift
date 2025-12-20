@@ -55,10 +55,10 @@ AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 if str(AI_SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(AI_SERVICE_ROOT))
 
-from app.training.selfplay_config import SelfplayConfig, create_argument_parser
 from app.db.game_replay import GameReplayDB
 from app.game_engine import GameEngine
 from app.rules.history_validation import validate_canonical_config_for_game
+from app.training.selfplay_config import SelfplayConfig, create_argument_parser
 
 
 def _build_env() -> dict[str, str]:

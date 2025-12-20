@@ -36,15 +36,15 @@ import os
 import random
 import subprocess
 import sys
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 # Add ai-service to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.lib.paths import REPO_ROOT
 from app.db.game_replay import GameReplayDB, _compute_state_hash
+from scripts.lib.paths import REPO_ROOT
 
 
 @dataclass
@@ -100,8 +100,8 @@ def summarize_python_state(db: GameReplayDB, game_id: str, move_index: int) -> S
 
 def summarize_python_initial_state(db: GameReplayDB, game_id: str) -> StateSummary:
     """Get Python initial state summary (before any moves)."""
-    from app.training.generate_data import create_initial_state
     from app.models import BoardType
+    from app.training.generate_data import create_initial_state
 
     state = db.get_initial_state(game_id)
     if state is None:
@@ -451,7 +451,7 @@ def generate_vectors(
             vectors_generated += 1
 
     print()
-    print(f"Summary:")
+    print("Summary:")
     print(f"  Games processed: {games_processed}")
     print(f"  Vectors generated: {vectors_generated}")
     print(f"  Output directory: {output_dir}")

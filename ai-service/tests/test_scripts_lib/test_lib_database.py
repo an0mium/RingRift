@@ -7,24 +7,25 @@ Tests cover:
 - Game counting and integrity checks
 """
 
-import pytest
 import sqlite3
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from scripts.lib.database import (
-    safe_transaction,
-    read_only_connection,
-    get_game_db_path,
-    get_elo_db_path,
-    count_games,
-    table_exists,
-    get_db_size_mb,
-    vacuum_database,
-    check_integrity,
     DATA_DIR,
     GAMES_DIR,
     UNIFIED_ELO_DB,
+    check_integrity,
+    count_games,
+    get_db_size_mb,
+    get_elo_db_path,
+    get_game_db_path,
+    read_only_connection,
+    safe_transaction,
+    table_exists,
+    vacuum_database,
 )
 
 

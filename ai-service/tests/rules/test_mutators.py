@@ -1,35 +1,34 @@
-from datetime import datetime
 import os
 import sys
+from datetime import datetime
 
 # Ensure `app.*` imports resolve when running pytest from ai-service/
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import (  # noqa: E402
+from app.board_manager import BoardManager
+from app.game_engine import GameEngine
+from app.models import (
     BoardState,
     BoardType,
     GamePhase,
     GameState,
+    LineInfo,
     MarkerInfo,
     Move,
     MoveType,
     Player,
     Position,
     RingStack,
-    LineInfo,
     Territory,
     TimeControl,
 )
-from app.game_engine import GameEngine  # noqa: E402
-from app.rules.mutators.placement import PlacementMutator  # noqa: E402
-from app.rules.mutators.movement import MovementMutator  # noqa: E402
-from app.rules.mutators.capture import CaptureMutator  # noqa: E402
-from app.rules.mutators.line import LineMutator  # noqa: E402
-from app.rules.mutators.territory import TerritoryMutator  # noqa: E402
-from app.board_manager import BoardManager  # noqa: E402
-
+from app.rules.mutators.capture import CaptureMutator
+from app.rules.mutators.line import LineMutator
+from app.rules.mutators.movement import MovementMutator
+from app.rules.mutators.placement import PlacementMutator
+from app.rules.mutators.territory import TerritoryMutator
 from tests.rules.helpers import (
     _make_base_game_state,
     _make_place_ring_move,

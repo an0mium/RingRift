@@ -11,11 +11,11 @@ import torch
 
 from app.ai.neural_losses import (
     MAX_PLAYERS,
+    build_rank_targets,
+    masked_policy_kl,
     multi_player_value_loss,
     rank_distribution_loss,
     ranks_from_game_result,
-    masked_policy_kl,
-    build_rank_targets,
 )
 
 
@@ -377,17 +377,16 @@ class TestBackwardsCompatibility:
 
     def test_import_from_neural_net(self):
         """Test that functions can still be imported from neural_net.py."""
-        from app.ai.neural_net import (
-            multi_player_value_loss as mlvl,
-            rank_distribution_loss as rdl,
-            ranks_from_game_result as rfgr,
-        )
-
         # Verify they're the same functions
         from app.ai.neural_losses import (
             multi_player_value_loss,
             rank_distribution_loss,
             ranks_from_game_result,
+        )
+        from app.ai.neural_net import (
+            multi_player_value_loss as mlvl,
+            rank_distribution_loss as rdl,
+            ranks_from_game_result as rfgr,
         )
 
         assert mlvl is multi_player_value_loss

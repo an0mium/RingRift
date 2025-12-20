@@ -16,19 +16,19 @@ from unittest.mock import patch
 import pytest
 
 from scripts.lib.file_formats import (
+    count_jsonl_lines,
+    get_file_size_mb,
+    get_uncompressed_size_estimate,
     is_gzip_file,
+    load_json,
+    load_json_if_exists,
+    load_json_strict,
     open_jsonl_file,
     read_jsonl_lines,
-    count_jsonl_lines,
-    write_jsonl_lines,
-    load_json,
-    load_json_strict,
-    load_json_if_exists,
     save_json,
     save_json_compact,
     update_json,
-    get_file_size_mb,
-    get_uncompressed_size_estimate,
+    write_jsonl_lines,
 )
 
 

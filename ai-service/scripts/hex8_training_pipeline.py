@@ -40,11 +40,11 @@ except ImportError:
 # Unified resource guard - 80% utilization limits (enforced 2025-12-16)
 try:
     from app.utils.resource_guard import (
+        LIMITS as RESOURCE_LIMITS,
         can_proceed as resource_can_proceed,
         check_disk_space,
         check_memory,
         wait_for_resources,
-        LIMITS as RESOURCE_LIMITS,
     )
     HAS_RESOURCE_GUARD = True
 except ImportError:
@@ -409,7 +409,7 @@ def train_hex8_model(
             cmd, capture_output=True, text=True, timeout=7200, cwd=Path(__file__).parent.parent
         )
         if result.returncode == 0:
-            logger.info(f"Training completed successfully!")
+            logger.info("Training completed successfully!")
             logger.info(result.stdout[-2000:] if len(result.stdout) > 2000 else result.stdout)
             return True
         else:

@@ -18,19 +18,18 @@ At present it is intentionally fixture-driven:
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from pathlib import Path
 from typing import List, Tuple
-from collections.abc import Iterable
 
 import pytest
 
 from app.db import GameReplayDB
-from tests.parity.test_differential_replay import (  # noqa: E402
-    get_recorded_game_steps,
-    run_ts_replay,
-    compare_replays,
+from tests.parity.test_differential_replay import (
+  compare_replays,
+  get_recorded_game_steps,
+  run_ts_replay,
 )
-
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "golden_games"
 

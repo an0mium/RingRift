@@ -16,19 +16,17 @@ import argparse
 import json
 import os
 import sys
-from typing import Dict, Tuple
 from collections.abc import Iterable
-
+from typing import Dict, Tuple
 
 # Allow imports from app/ when run from the ai-service root.
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.ai.heuristic_weights import (  # type: ignore  # noqa: E402
+from app.ai.heuristic_weights import (  # type: ignore
     BASE_V1_BALANCED_WEIGHTS,
     HEURISTIC_WEIGHT_KEYS,
     HeuristicWeights,
 )
-
 
 OUTPUT_DIR = os.path.join("logs", "axis_aligned", "profiles")
 

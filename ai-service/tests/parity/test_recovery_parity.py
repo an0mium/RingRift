@@ -11,39 +11,40 @@ Tests cover:
 - Marker slide and collapse logic
 """
 
-import pytest
 from datetime import datetime
-from typing import Dict, Any
+from typing import Any, Dict
 
+import pytest
+
+from app.game_engine import GameEngine  # type: ignore[import]
 from app.models import (
-    GameState,
     BoardState,
     BoardType,
-    Position,
-    RingStack,
-    MarkerInfo,
-    Player,
     GamePhase,
+    GameState,
     GameStatus,
+    MarkerInfo,
     Move,
     MoveType,
+    Player,
+    Position,
+    RingStack,
     TimeControl,
 )
 from app.rules.core import (
     count_buried_rings,
-    player_has_markers,
+    get_effective_line_length,
     is_eligible_for_recovery,
     player_controls_any_stack,
-    get_effective_line_length,
+    player_has_markers,
 )
 from app.rules.recovery import (
+    apply_recovery_slide,
+    calculate_recovery_cost,
     enumerate_recovery_slide_targets,
     has_any_recovery_move,
     validate_recovery_slide,
-    apply_recovery_slide,
-    calculate_recovery_cost,
 )
-from app.game_engine import GameEngine  # type: ignore[import]
 
 
 def make_test_state(

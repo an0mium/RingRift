@@ -8,13 +8,14 @@ Tests the complete feedback cycle:
 """
 
 import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 # Import the integration modules
 from app.integration.evaluation_curriculum_bridge import (
-    EvaluationCurriculumBridge,
     CurriculumState,
+    EvaluationCurriculumBridge,
     create_evaluation_bridge,
 )
 

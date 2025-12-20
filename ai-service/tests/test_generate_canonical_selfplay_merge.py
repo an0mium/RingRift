@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import os
-import sys
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,7 +12,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-import scripts.generate_canonical_selfplay as gcs  # noqa: E402
+import scripts.generate_canonical_selfplay as gcs
 
 
 def test_merge_distributed_dbs_archives_existing_dest_db(

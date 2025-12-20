@@ -40,7 +40,7 @@ import os
 import sys
 import tempfile
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -91,8 +91,8 @@ class ValidationResult:
 
 def create_test_state(board_type: str = "square8", num_players: int = 2):
     """Create a test game state for benchmarking."""
-    from app.training.generate_data import create_initial_state
     from app.models import BoardType
+    from app.training.generate_data import create_initial_state
 
     bt = BoardType(board_type)
     return create_initial_state(bt, num_players)
@@ -100,8 +100,9 @@ def create_test_state(board_type: str = "square8", num_players: int = 2):
 
 def advance_game_state(game_state, num_moves: int = 10):
     """Advance game state by making random moves."""
-    from app.game_engine import GameEngine
     import random
+
+    from app.game_engine import GameEngine
 
     current_state = game_state
 
@@ -283,12 +284,13 @@ def run_gpu_selfplay_games(
     Returns:
         Tuple of (db_path, list of game_ids)
     """
-    from app.game_engine import GameEngine
+    import uuid
+
     from app.ai.maxn_ai import MaxNAI
     from app.ai.mcts_ai import MCTSAI
-    from app.models import AIConfig, BoardType, Move
     from app.db.game_replay import GameReplayDB
-    import uuid
+    from app.game_engine import GameEngine
+    from app.models import AIConfig, BoardType, Move
 
     if db_path is None:
         db_path = tempfile.mktemp(suffix=".db", prefix="gpu_selfplay_")
@@ -522,9 +524,9 @@ def print_benchmark_results(results: list[BenchmarkResult]) -> None:
             print(f"  Speedup: {speedup:.2f}x")
 
             if speedup >= 1.5:
-                print(f"  Status: PASS (>= 1.5x speedup)")
+                print("  Status: PASS (>= 1.5x speedup)")
             else:
-                print(f"  Status: MARGINAL (< 1.5x speedup)")
+                print("  Status: MARGINAL (< 1.5x speedup)")
 
 
 def print_validation_results(results: list[ValidationResult]) -> None:

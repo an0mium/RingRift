@@ -28,28 +28,28 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from app.main import (  # noqa: E402
-    _create_ai_instance,
-    _get_difficulty_profile,
-)
-from app.config.ladder_config import (  # noqa: E402
+from app.config.ladder_config import (
     LadderTierConfig,
     get_ladder_tier_config,
 )
-from app.models import (  # noqa: E402
+from app.main import (
+    _create_ai_instance,
+    _get_difficulty_profile,
+)
+from app.models import (
     AIConfig,
     AIType,
     BoardType,
     GameStatus,
 )
-from app.training.env import (  # noqa: E402
+from app.training.env import (
     TrainingEnvConfig,
     get_theoretical_max_moves,
     make_env,
 )
-from app.training.eval_pools import (  # noqa: E402
-    EvalScenario,
+from app.training.eval_pools import (
     EvalPoolConfig,
+    EvalScenario,
     get_eval_pool_config,
     load_eval_pool,
 )
@@ -279,7 +279,7 @@ def _run_tournament_on_pool(
     demo: bool,
 ) -> dict[str, Any]:
     """Core tournament loop over a single evaluation pool."""
-    from app.training.env import RingRiftEnv  # noqa: E402
+    from app.training.env import RingRiftEnv
 
     effective_games = _effective_num_games(num_games, demo)
     max_moves = _effective_max_moves(

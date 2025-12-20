@@ -108,7 +108,7 @@ def analyze_sensitivity_results(
     Returns:
         List of WeightClassification objects sorted by win rate (descending)
     """
-    with open(results_path, "r", encoding="utf-8") as f:
+    with open(results_path, encoding="utf-8") as f:
         data = json.load(f)
 
     results = data.get("results", [])
@@ -247,7 +247,7 @@ def main():
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
 
     # Load original input metadata
-    with open(args.input, "r", encoding="utf-8") as f:
+    with open(args.input, encoding="utf-8") as f:
         input_data = json.load(f)
 
     output_data = {

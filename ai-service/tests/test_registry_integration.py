@@ -11,16 +11,16 @@ from pathlib import Path
 
 import pytest
 
+from app.training.cmaes_registry_integration import (
+    get_best_heuristic_model,
+    register_cmaes_result,
+)
 from app.training.model_registry import (
+    ModelMetrics,
     ModelRegistry,
     ModelStage,
     ModelType,
-    ModelMetrics,
     TrainingConfig,
-)
-from app.training.cmaes_registry_integration import (
-    register_cmaes_result,
-    get_best_heuristic_model,
 )
 from app.training.rollback_manager import (
     RollbackManager,

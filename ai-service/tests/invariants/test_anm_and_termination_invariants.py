@@ -20,7 +20,8 @@ ROOT = os.path.abspath(
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import (  # noqa: E402
+from app.game_engine import GameEngine
+from app.models import (
     GamePhase,
     GameStatus,
     MoveType,
@@ -28,23 +29,21 @@ from app.models import (  # noqa: E402
     Position,
     RingStack,
 )
-from app.game_engine import GameEngine  # noqa: E402
-from app.rules import global_actions as ga  # noqa: E402
-from app.rules.global_actions import (  # noqa: E402
+from app.rules import global_actions as ga
+from app.rules.default_engine import DefaultRulesEngine
+from app.rules.global_actions import (
     apply_forced_elimination_for_player,
 )
-from app.rules.default_engine import DefaultRulesEngine  # noqa: E402
-from tests.rules.helpers import (  # noqa: E402
-    _make_base_game_state,
-    _make_place_ring_move,
-)
-from tests.parity.test_anm_global_actions_parity import (  # noqa: E402
+from tests.parity.test_anm_global_actions_parity import (
     make_anm_scen01_movement_no_moves_but_fe_available,
     make_anm_scen02_movement_placements_only,
     make_anm_scen03_movement_current_player_fully_eliminated,
     make_anm_scen06_global_stalemate_bare_board,
 )
-
+from tests.rules.helpers import (
+    _make_base_game_state,
+    _make_place_ring_move,
+)
 
 # ARCHIVED TEST: test_strict_invariant_raises_on_synthetic_anm_state
 # Removed 2025-12-07

@@ -7,24 +7,25 @@ Tests cover:
 - VastNodeManager instance management
 """
 
-import pytest
-from unittest.mock import patch, MagicMock, PropertyMock
-import subprocess
 import json
+import subprocess
 import time
+from unittest.mock import MagicMock, PropertyMock, patch
+
+import pytest
 
 from scripts.lib.cluster import (
-    ClusterNode,
-    ClusterManager,
     ClusterAutomation,
-    VastNodeManager,
-    NodeStatus,
-    NodeHealth,
-    GPUInfo,
-    CommandResult,
+    ClusterManager,
+    ClusterNode,
     CommandError,
-    get_cluster,
+    CommandResult,
+    GPUInfo,
+    NodeHealth,
+    NodeStatus,
+    VastNodeManager,
     get_automation,
+    get_cluster,
 )
 
 

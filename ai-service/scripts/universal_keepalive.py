@@ -408,7 +408,7 @@ class UniversalKeepalive:
                 if not all(status.values()):
                     logger.warning(f"Health check: {status}")
                 else:
-                    logger.debug(f"Health check: all OK")
+                    logger.debug("Health check: all OK")
 
                 # Take corrective actions with notifications
                 if not status["p2p_running"]:

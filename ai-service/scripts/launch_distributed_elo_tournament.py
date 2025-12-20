@@ -40,7 +40,7 @@ sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 # Centralized Elo constants
 try:
-    from app.config.thresholds import INITIAL_ELO_RATING, ELO_K_FACTOR
+    from app.config.thresholds import ELO_K_FACTOR, INITIAL_ELO_RATING
 except ImportError:
     INITIAL_ELO_RATING = 1500.0
     ELO_K_FACTOR = 32
@@ -343,8 +343,8 @@ def check_node_health(node_id: str, config: dict) -> NodeStatus:
 
     First tries direct HTTP health check (fast), then falls back to SSH.
     """
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     ip = config["ip"]
     user = config["user"]
@@ -509,8 +509,8 @@ def run_match_via_p2p(
     Returns:
         Tuple of (MatchResult or None, error_message or None)
     """
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     url = f"http://{node_ip}:8770/tournament/play_elo_match"
 
@@ -829,7 +829,7 @@ def run_distributed_tournament(
     import random
     random.shuffle(matchups)
 
-    print(f"\n[Tournament] Starting tournament:")
+    print("\n[Tournament] Starting tournament:")
     print(f"  Agents: {len(agents)}")
     print(f"  Matchups: {len(matchups)}")
     print(f"  Nodes: {len(nodes)}")
@@ -925,7 +925,7 @@ def run_distributed_tournament(
                 print(f"  Progress: {completed}/{total} ({failed} failed) - {rate:.1f} matches/sec - ETA: {eta:.0f}s")
 
     elapsed = time.time() - start_time
-    print(f"\n[Tournament] Initial pass completed!")
+    print("\n[Tournament] Initial pass completed!")
     print(f"  Total: {completed} matches in {elapsed:.1f}s")
     print(f"  Failed: {failed}")
     print(f"  Rate: {completed/elapsed:.2f} matches/sec")
@@ -975,13 +975,13 @@ def run_distributed_tournament(
 
     # Print error breakdown if there were failures
     if error_counts:
-        print(f"\n[Tournament] Error breakdown:")
+        print("\n[Tournament] Error breakdown:")
         for error, count in error_counts.most_common(10):
             print(f"  {count:>4}x {error}")
 
     # Print node failure breakdown
     if node_failures:
-        print(f"\n[Tournament] Failures by node:")
+        print("\n[Tournament] Failures by node:")
         for node_id, count in node_failures.most_common(10):
             print(f"  {count:>4}x {node_id}")
 
@@ -1041,7 +1041,7 @@ def main():
     else:
         agents = list(AI_TYPE_CONFIGS_LIGHTWEIGHT.keys())
 
-    print(f"\n[Tournament] AI Type Calibration Tournament")
+    print("\n[Tournament] AI Type Calibration Tournament")
     print(f"[Tournament] Agents: {agents}")
     print(f"[Tournament] Games per pairing: {args.games}")
     print(f"[Tournament] Ramdrive: {'enabled' if args.ramdrive else 'disabled'}")

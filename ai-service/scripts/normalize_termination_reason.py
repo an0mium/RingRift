@@ -26,7 +26,6 @@ import os
 import sqlite3
 import sys
 
-
 # Mapping from legacy to canonical values
 NORMALIZATION_MAP = {
     "status:completed:lps": "lps",
@@ -189,7 +188,7 @@ def main():
         total_unknown += stats["unknown"]
 
     print()
-    print(f"Summary:")
+    print("Summary:")
     print(f"  Already canonical: {total_already_canonical}")
     print(f"  Updated: {total_updated}")
     if total_unknown:

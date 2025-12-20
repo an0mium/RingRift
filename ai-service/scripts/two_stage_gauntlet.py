@@ -52,7 +52,7 @@ import socket
 import sys
 import uuid
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -231,7 +231,7 @@ def play_game(
     try:
         from app.game_engine import GameEngine
         from app.main import _create_ai_instance
-        from app.models import AIType, AIConfig, GameStatus
+        from app.models import AIConfig, AIType, GameStatus
         from app.training.generate_data import create_initial_state
 
         state = create_initial_state(board_type=board_type, num_players=num_players)
@@ -330,9 +330,9 @@ def play_game(
 
 def _record_game(
     db_path: str,
-    initial_state: "GameState",
-    final_state: "GameState",
-    moves: list[tuple["Move", "GameState", "GameState"]],
+    initial_state: GameState,
+    final_state: GameState,
+    moves: list[tuple[Move, GameState, GameState]],
     model_name: str,
     model_type: str,
     opponent_type: str,
@@ -701,7 +701,7 @@ def promote_gauntlet_winners(
 
     if not to_promote:
         print(f"No models meet threshold {threshold:.1%} for promotion")
-        print(f"Top models:")
+        print("Top models:")
         for i, r in enumerate(results[:5]):
             print(f"  {i+1}. {r.model_name}: CI=[{r.confidence_lower:.3f}, {r.confidence_upper:.3f}]")
         return []
@@ -759,7 +759,7 @@ def promote_gauntlet_winners(
                         "original_model": result.model_name,
                     },
                 )
-                print(f"             Registered in model registry")
+                print("             Registered in model registry")
             except Exception as e:
                 print(f"             Warning: Could not register in registry: {e}")
 
@@ -898,14 +898,14 @@ def main():
     early_exit = [r for r in results if r.stage1_early_exit]
 
     print(f"\n{'='*60}")
-    print(f"SUMMARY")
+    print("SUMMARY")
     print(f"{'='*60}")
     print(f"Total models: {len(results)}")
     print(f"Passed stage 1: {len(passed)} ({100*len(passed)/len(results):.1f}%)")
     print(f"Early exit: {len(early_exit)} ({100*len(early_exit)/len(results):.1f}%)")
 
     if passed:
-        print(f"\nTop 10 models:")
+        print("\nTop 10 models:")
         passed.sort(key=lambda r: r.confidence_lower, reverse=True)
         for i, r in enumerate(passed[:10]):
             print(f"  {i+1}. {r.model_name}: {r.final_score:.3f} [{r.confidence_lower:.3f}, {r.confidence_upper:.3f}]")
@@ -913,7 +913,7 @@ def main():
     # Auto-promote if requested and this is a single-shard run (to avoid race conditions)
     if args.promote and args.num_shards == 1:
         print(f"\n{'='*60}")
-        print(f"AUTO-PROMOTION")
+        print("AUTO-PROMOTION")
         print(f"{'='*60}")
         promoted = promote_gauntlet_winners(
             board_type=args.board,

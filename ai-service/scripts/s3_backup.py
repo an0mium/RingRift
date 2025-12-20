@@ -255,14 +255,14 @@ def main():
     parser.add_argument("--restore", type=str, metavar="PREFIX", help="Restore from S3 (e.g., 'models/best')")
     args = parser.parse_args()
 
-    print(f"RingRift S3 Backup")
+    print("RingRift S3 Backup")
     print(f"  Bucket: {S3_BUCKET}")
     print(f"  Region: {AWS_REGION}")
     print(f"  Mode: {'DRY RUN' if args.dry_run else 'LIVE'}")
 
     if args.restore:
         # Restore mode
-        print(f"\n=== Restoring from S3 ===")
+        print("\n=== Restoring from S3 ===")
         s3_prefix = args.restore
 
         if s3_prefix in BACKUP_PATHS:
@@ -295,7 +295,7 @@ def main():
 
         create_backup_manifest(args.dry_run)
 
-    print(f"\n=== Backup Summary ===")
+    print("\n=== Backup Summary ===")
     print(f"  Files uploaded: {total_stats['uploaded']}")
     print(f"  Files deleted from S3: {total_stats['deleted']}")
 

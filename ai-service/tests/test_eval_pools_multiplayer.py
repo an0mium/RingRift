@@ -1,8 +1,10 @@
 """Tests for loading 3-player and 4-player evaluation pools."""
 import os
+
 import pytest
+
 from app.models import BoardType
-from app.training.eval_pools import load_state_pool, POOL_PATHS
+from app.training.eval_pools import POOL_PATHS, load_state_pool
 
 
 def test_load_square19_3p_pool():

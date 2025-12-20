@@ -18,11 +18,11 @@ import torch
 import torch.nn as nn
 
 from app.ai.ensemble_inference import (
-    EnsembleStrategy,
-    ModelConfig,
+    DynamicEnsemble,
     EnsemblePrediction,
     EnsemblePredictor,
-    DynamicEnsemble,
+    EnsembleStrategy,
+    ModelConfig,
     create_ensemble_from_directory,
 )
 

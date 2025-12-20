@@ -18,12 +18,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.distributed.circuit_breaker import CircuitState
 from app.tournament.elo_sync_manager import (
     EloSyncManager,
-    SyncState,
     NodeInfo,
+    SyncState,
 )
-from app.distributed.circuit_breaker import CircuitState
 
 
 @pytest.fixture

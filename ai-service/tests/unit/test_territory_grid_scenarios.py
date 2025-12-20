@@ -12,19 +12,20 @@ Scenarios involve a 19x19 grid divided by vertical and horizontal lines at
 intersections vary by scenario to test different territory detection edge cases.
 """
 
-import pytest
-from typing import Dict, List, Set, Tuple, Optional
 from dataclasses import dataclass
+from typing import Dict, List, Optional, Set, Tuple
 
+import pytest
+
+from app.board_manager import BoardManager
 from app.models import (
     BoardState,
     BoardType,
+    MarkerInfo,
     Position,
     RingStack,
-    MarkerInfo,
     Territory,
 )
-from app.board_manager import BoardManager
 
 
 @dataclass
@@ -538,7 +539,7 @@ class TestTerritoryRulesCompliance:
         regions = get_cpu_disconnected_regions(board, player=1)
 
         print("\n=== R141 Test: Mixed-color boundary ===")
-        print(f"Cell surrounded by P1 (top/bottom) and P2 (left/right)")
+        print("Cell surrounded by P1 (top/bottom) and P2 (left/right)")
         print(f"Regions found: {len(regions)}")
 
         # Per R141, this should NOT create a disconnected region
@@ -588,7 +589,7 @@ class TestTerritoryRulesCompliance:
         regions = get_cpu_disconnected_regions(board, player=1)
 
         print("\n=== R142 Test: All players represented ===")
-        print(f"Both sides have P1 and P2 stacks")
+        print("Both sides have P1 and P2 stacks")
         print(f"Regions found: {len(regions)}")
 
         # Per R142, neither side qualifies as disconnected because

@@ -7,9 +7,10 @@ Tests for:
 - Model lifecycle integration
 """
 
-import pytest
 from dataclasses import asdict
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestTrainingConfigValidation:
@@ -227,7 +228,7 @@ class TestModelLifecycleIntegration:
     def test_lifecycle_manager_initialization(self):
         """ModelLifecycleManager should initialize in ModelPromoter."""
         from scripts.unified_loop.config import PromotionConfig
-        from scripts.unified_loop.promotion import ModelPromoter, HAS_LIFECYCLE_MANAGER
+        from scripts.unified_loop.promotion import HAS_LIFECYCLE_MANAGER, ModelPromoter
 
         if not HAS_LIFECYCLE_MANAGER:
             pytest.skip("ModelLifecycleManager not available")

@@ -129,7 +129,7 @@ async def main():
         await asyncio.sleep(2)
 
     # Final stats
-    logger.info(f"\n=== Summary ===")
+    logger.info("\n=== Summary ===")
     logger.info(f"Total: {total_evaluated} model evaluations, {total_games} games")
 
     # Show remaining low-game models

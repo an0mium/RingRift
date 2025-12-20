@@ -50,8 +50,8 @@ def run_with_watchdog(service_args: list, check_interval: int = 30, max_restarts
 
     Restarts the service if it crashes or becomes unresponsive.
     """
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     restart_count = 0
     process = None
@@ -265,7 +265,7 @@ Examples:
         for host in service.hosts.values():
             status = "ephemeral" if host.is_ephemeral else "persistent"
             logger.info(f"  {host.name}: {host.ssh_user}@{host.ssh_host}:{host.ssh_port} ({status})")
-        logger.info(f"Components enabled:")
+        logger.info("Components enabled:")
         logger.info(f"  Manifest replication: {service._manifest_replicator is not None}")
         logger.info(f"  P2P fallback: {service._p2p_fallback is not None}")
         logger.info(f"  Content dedup: {service._content_deduplicator is not None}")

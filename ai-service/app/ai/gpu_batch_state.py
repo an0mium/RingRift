@@ -41,40 +41,41 @@ logger = logging.getLogger(__name__)
 
 # Mapping from CPU MoveType string values to GPU MoveType integer values
 # CPU MoveType is a string enum, GPU MoveType is an IntEnum
+# December 2025: Updated for canonical parity with phase-specific types
 _CPU_TO_GPU_MOVE_TYPE = {
     # Placement moves
     'place_ring': MoveType.PLACEMENT,
-    'skip_placement': MoveType.SKIP,
-    'no_placement_action': MoveType.SKIP,
+    'skip_placement': MoveType.SKIP_PLACEMENT,
+    'no_placement_action': MoveType.NO_PLACEMENT_ACTION,
     # Movement moves
     'move_stack': MoveType.MOVEMENT,
     'move_ring': MoveType.MOVEMENT,
     'build_stack': MoveType.MOVEMENT,
-    'no_movement_action': MoveType.SKIP,
-    # Capture moves
-    'overtaking_capture': MoveType.CAPTURE,
-    'continue_capture_segment': MoveType.CAPTURE,
-    'skip_capture': MoveType.SKIP,
-    'chain_capture': MoveType.CAPTURE,
+    'no_movement_action': MoveType.NO_MOVEMENT_ACTION,
+    # Capture moves (canonical types)
+    'overtaking_capture': MoveType.OVERTAKING_CAPTURE,
+    'continue_capture_segment': MoveType.CONTINUE_CAPTURE_SEGMENT,
+    'skip_capture': MoveType.SKIP_CAPTURE,
+    'chain_capture': MoveType.OVERTAKING_CAPTURE,  # Legacy alias
     # Line moves
     'process_line': MoveType.LINE_FORMATION,
-    'choose_line_reward': MoveType.LINE_FORMATION,
-    'no_line_action': MoveType.SKIP,
+    'choose_line_reward': MoveType.CHOOSE_LINE_OPTION,
+    'no_line_action': MoveType.NO_LINE_ACTION,
     'line_formation': MoveType.LINE_FORMATION,
-    'choose_line_option': MoveType.LINE_FORMATION,
+    'choose_line_option': MoveType.CHOOSE_LINE_OPTION,
     # Territory moves
     'process_territory_region': MoveType.TERRITORY_CLAIM,
-    'skip_territory_processing': MoveType.SKIP,
-    'no_territory_action': MoveType.SKIP,
+    'skip_territory_processing': MoveType.NO_TERRITORY_ACTION,
+    'no_territory_action': MoveType.NO_TERRITORY_ACTION,
     'territory_claim': MoveType.TERRITORY_CLAIM,
-    'choose_territory_option': MoveType.TERRITORY_CLAIM,
+    'choose_territory_option': MoveType.CHOOSE_TERRITORY_OPTION,
     # Recovery moves
-    'recovery_slide': MoveType.MOVEMENT,
-    'skip_recovery': MoveType.SKIP,
+    'recovery_slide': MoveType.RECOVERY_SLIDE,
+    'skip_recovery': MoveType.SKIP_RECOVERY,
     # Other
     'swap_sides': MoveType.SKIP,
     'eliminate_rings_from_stack': MoveType.SKIP,
-    'forced_elimination': MoveType.SKIP,
+    'forced_elimination': MoveType.FORCED_ELIMINATION,
 }
 
 
@@ -132,6 +133,16 @@ class BatchGameState:
     must_move_from_y: torch.Tensor  # int16 (batch_size,)
     must_move_from_x: torch.Tensor  # int16 (batch_size,)
 
+    # Capture chain tracking (December 2025 - canonical phases)
+    # Track if game is in a capture chain sequence (for CHAIN_CAPTURE phase)
+    in_capture_chain: torch.Tensor  # bool (batch_size,)
+    capture_chain_depth: torch.Tensor  # int16 (batch_size,) - 0 = no chain
+
+    # Forced elimination detection (December 2025 - RR-CANON-R160)
+    # Track if player took a "real" action this turn (placement, movement, capture)
+    # If turn ends with no real action and player has stacks → FORCED_ELIMINATION
+    turn_had_real_action: torch.Tensor  # bool (batch_size,)
+
     # LPS tracking (RR-CANON-R172): tensor mirrors of GameState fields.
     # We track a full-round cycle over all non-permanently-eliminated players.
     lps_round_index: torch.Tensor  # int32 (batch_size,)
@@ -142,8 +153,9 @@ class BatchGameState:
     lps_consecutive_exclusive_rounds: torch.Tensor  # int16 (batch_size,)
     lps_consecutive_exclusive_player: torch.Tensor  # int8 (batch_size,) 0=none
 
-    # Move history: (batch_size, max_moves, 6) - [move_type, player, from_y, from_x, to_y, to_x]
+    # Move history: (batch_size, max_moves, 7) - [move_type, player, from_y, from_x, to_y, to_x, phase]
     # -1 indicates unused slot
+    # Phase column enables canonical export with phase tracking (December 2025)
     move_history: torch.Tensor
     max_history_moves: int
 
@@ -230,6 +242,13 @@ class BatchGameState:
             must_move_from_y=torch.full((batch_size,), -1, dtype=torch.int16, device=device),
             must_move_from_x=torch.full((batch_size,), -1, dtype=torch.int16, device=device),
 
+            # Capture chain tracking (December 2025 - canonical phases)
+            in_capture_chain=torch.zeros(batch_size, dtype=torch.bool, device=device),
+            capture_chain_depth=torch.zeros(batch_size, dtype=torch.int16, device=device),
+
+            # Forced elimination detection (December 2025 - RR-CANON-R160)
+            turn_had_real_action=torch.zeros(batch_size, dtype=torch.bool, device=device),
+
             # LPS tracking tensors (RR-CANON-R172)
             lps_round_index=torch.zeros(batch_size, dtype=torch.int32, device=device),
             lps_current_round_first_player=torch.zeros(batch_size, dtype=torch.int8, device=device),
@@ -239,8 +258,8 @@ class BatchGameState:
             lps_consecutive_exclusive_rounds=torch.zeros(batch_size, dtype=torch.int16, device=device),
             lps_consecutive_exclusive_player=torch.zeros(batch_size, dtype=torch.int8, device=device),
 
-            # Move history
-            move_history=torch.full((batch_size, max_history_moves, 6), -1, dtype=torch.int16, device=device),
+            # Move history (7 columns: move_type, player, from_y, from_x, to_y, to_x, phase)
+            move_history=torch.full((batch_size, max_history_moves, 7), -1, dtype=torch.int16, device=device),
             max_history_moves=max_history_moves,
 
             # LPS configuration
@@ -416,17 +435,18 @@ class BatchGameState:
             batch.current_player[g] = game_state.current_player
             batch.move_count[g] = len(game_state.move_history)
 
-            # Map phase from CPU to GPU enum
+            # Map phase from CPU to GPU enum (December 2025: canonical phase mapping)
             from app.models import GamePhase as CPUGamePhase
             phase_map = {
                 CPUGamePhase.RING_PLACEMENT: GamePhase.RING_PLACEMENT,
                 CPUGamePhase.MOVEMENT: GamePhase.MOVEMENT,
-                CPUGamePhase.CAPTURE: GamePhase.MOVEMENT,  # Capture is part of movement
-                CPUGamePhase.CHAIN_CAPTURE: GamePhase.MOVEMENT,  # Chain capture is part of movement
+                CPUGamePhase.CAPTURE: GamePhase.CAPTURE,
+                CPUGamePhase.CHAIN_CAPTURE: GamePhase.CHAIN_CAPTURE,
+                CPUGamePhase.RECOVERY: GamePhase.RECOVERY,
                 CPUGamePhase.LINE_PROCESSING: GamePhase.LINE_PROCESSING,
                 CPUGamePhase.TERRITORY_PROCESSING: GamePhase.TERRITORY_PROCESSING,
-                CPUGamePhase.FORCED_ELIMINATION: GamePhase.END_TURN,  # Map to END_TURN
-                CPUGamePhase.GAME_OVER: GamePhase.END_TURN,  # Map to END_TURN
+                CPUGamePhase.FORCED_ELIMINATION: GamePhase.FORCED_ELIMINATION,
+                CPUGamePhase.GAME_OVER: GamePhase.GAME_OVER,
             }
             batch.current_phase[g] = phase_map.get(game_state.current_phase, GamePhase.RING_PLACEMENT)
 
@@ -472,6 +492,22 @@ class BatchGameState:
                 if move.to:
                     batch.move_history[g, i, 4] = move.to.x if hasattr(move.to, 'x') else move.to[0]
                     batch.move_history[g, i, 5] = move.to.y if hasattr(move.to, 'y') else move.to[1]
+                # Copy phase from move if present (column 6) - December 2025: canonical mapping
+                if hasattr(move, 'phase') and move.phase is not None:
+                    # Map CPU phase to GPU phase (canonical phases)
+                    from app.models import GamePhase as CPUGamePhase
+                    move_phase_map = {
+                        CPUGamePhase.RING_PLACEMENT: GamePhase.RING_PLACEMENT,
+                        CPUGamePhase.MOVEMENT: GamePhase.MOVEMENT,
+                        CPUGamePhase.CAPTURE: GamePhase.CAPTURE,
+                        CPUGamePhase.CHAIN_CAPTURE: GamePhase.CHAIN_CAPTURE,
+                        CPUGamePhase.RECOVERY: GamePhase.RECOVERY,
+                        CPUGamePhase.LINE_PROCESSING: GamePhase.LINE_PROCESSING,
+                        CPUGamePhase.TERRITORY_PROCESSING: GamePhase.TERRITORY_PROCESSING,
+                        CPUGamePhase.FORCED_ELIMINATION: GamePhase.FORCED_ELIMINATION,
+                        CPUGamePhase.GAME_OVER: GamePhase.GAME_OVER,
+                    }
+                    batch.move_history[g, i, 6] = move_phase_map.get(move.phase, GamePhase.RING_PLACEMENT)
 
         return batch
 
@@ -587,18 +623,19 @@ class BatchGameState:
                 )
             )
 
-        # Map GPU phase to CPU phase
+        # Map GPU phase to CPU phase (December 2025: canonical phases)
         gpu_phase_val = int(self.current_phase[game_idx].item())
         phase_map = {
             GamePhase.RING_PLACEMENT.value: CPUGamePhase.RING_PLACEMENT,
             GamePhase.MOVEMENT.value: CPUGamePhase.MOVEMENT,
             GamePhase.LINE_PROCESSING.value: CPUGamePhase.LINE_PROCESSING,
             GamePhase.TERRITORY_PROCESSING.value: CPUGamePhase.TERRITORY_PROCESSING,
-            GamePhase.END_TURN.value: CPUGamePhase.END_TURN,
+            GamePhase.END_TURN.value: CPUGamePhase.MOVEMENT,  # Legacy fallback
             GamePhase.CAPTURE.value: CPUGamePhase.CAPTURE,
             GamePhase.CHAIN_CAPTURE.value: CPUGamePhase.CHAIN_CAPTURE,
-            GamePhase.FORCED_ELIMINATION.value: CPUGamePhase.FORCED_ELIMINATION,
             GamePhase.RECOVERY.value: CPUGamePhase.RECOVERY,
+            GamePhase.FORCED_ELIMINATION.value: CPUGamePhase.FORCED_ELIMINATION,
+            GamePhase.GAME_OVER.value: CPUGamePhase.GAME_OVER,
         }
         cpu_phase = phase_map.get(gpu_phase_val, CPUGamePhase.RING_PLACEMENT)
 
@@ -734,7 +771,7 @@ class BatchGameState:
             game_idx: Index of the game in the batch
 
         Returns:
-            List of move dictionaries with keys: move_type, player, from_pos, to_pos
+            List of move dictionaries with keys: move_type, player, from_pos, to_pos, phase
         """
         moves = []
         for i in range(self.max_history_moves):
@@ -747,12 +784,14 @@ class BatchGameState:
             from_x = self.move_history[game_idx, i, 3].item()
             to_y = self.move_history[game_idx, i, 4].item()
             to_x = self.move_history[game_idx, i, 5].item()
+            phase = self.move_history[game_idx, i, 6].item()
 
             move = {
                 "move_type": MoveType(move_type).name,
                 "player": player,
                 "from_pos": (from_y, from_x) if from_y >= 0 else None,
                 "to_pos": (to_y, to_x) if to_y >= 0 else None,
+                "phase": GamePhase(phase).name if phase >= 0 else None,
             }
             moves.append(move)
 

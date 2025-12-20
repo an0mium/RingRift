@@ -33,14 +33,14 @@ import argparse
 import hashlib
 import http.server
 import json
+import os
 import socketserver
 import subprocess
 import sys
-import os
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import time
 
 # Try to import bencodepy, fall back to simple implementation
 try:
@@ -539,7 +539,7 @@ def serve_models(models_dir: Path, port: int):
         models = list_models(models_dir)
         print(f"Serving {len(models)} models from {models_dir}")
         print(f"HTTP server running at http://{local_ip}:{port}")
-        print(f"Other nodes can download using:")
+        print("Other nodes can download using:")
         print(f"  python p2p_model_distribution.py download --source-ip {local_ip} --port {port} --dest-dir /path/to/dest")
         print()
         print("Press Ctrl+C to stop")
@@ -560,8 +560,8 @@ def download_models(
     """Download models using aria2c with multiple connections."""
 
     # First, get the list of available models from source
-    import urllib.request
     import re
+    import urllib.request
 
     try:
         index_url = f"http://{source_ip}:{port}/"
@@ -649,7 +649,7 @@ def generate_url_file(source_ip: str, port: int, models_dir: Path, output: Path)
             f.write(url + '\n')
 
     print(f"Generated {len(urls)} URLs in {output}")
-    print(f"\nTo download on remote machine:")
+    print("\nTo download on remote machine:")
     print(f"  aria2c --input-file={output} --dir=/path/to/dest --max-connection-per-server=16 --max-concurrent-downloads=5")
 
 

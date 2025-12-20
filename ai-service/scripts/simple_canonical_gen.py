@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import random
+
 from app.game_engine import GameEngine
 from app.models.core import AIConfig, BoardType, GameStatus, MoveType
 from app.training.initial_state import create_initial_state

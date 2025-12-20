@@ -10,33 +10,33 @@ Tests cover:
 - Queue and iteration tracking helpers
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
 import time
+from unittest.mock import MagicMock, patch
 
+import pytest
 from prometheus_client import REGISTRY
 
 from app.metrics.orchestrator import (
+    PIPELINE_EVALUATION,
+    # State constants
+    PIPELINE_IDLE,
+    PIPELINE_PROMOTION,
+    PIPELINE_SELFPLAY,
+    PIPELINE_TRAINING,
+    get_pipeline_iterations,
+    get_selfplay_queue_size,
+    record_evaluation,
+    record_model_promotion,
+    record_pipeline_iteration,
+    record_pipeline_stage,
+    record_promotion_rejection,
     # Helper functions
     record_selfplay_batch,
     record_training_run,
-    record_evaluation,
-    record_model_promotion,
-    record_promotion_rejection,
-    record_pipeline_stage,
-    time_pipeline_stage,
     set_pipeline_state,
+    time_pipeline_stage,
     # Queue and iteration tracking
     update_selfplay_queue_size,
-    record_pipeline_iteration,
-    get_selfplay_queue_size,
-    get_pipeline_iterations,
-    # State constants
-    PIPELINE_IDLE,
-    PIPELINE_SELFPLAY,
-    PIPELINE_TRAINING,
-    PIPELINE_EVALUATION,
-    PIPELINE_PROMOTION,
 )
 
 

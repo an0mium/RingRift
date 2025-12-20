@@ -260,7 +260,7 @@ def allocate_budget(
                 recommended_gpu_hours=budget_per_config,
                 expected_elo_gain=expected_gain,
                 priority="medium",
-                rationale=f"Balanced allocation strategy",
+                rationale="Balanced allocation strategy",
             ))
 
     elif strategy == "efficiency":

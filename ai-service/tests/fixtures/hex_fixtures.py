@@ -31,10 +31,10 @@ Usage:
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
-from collections.abc import Callable
 
 import numpy as np
 import pytest
@@ -53,8 +53,7 @@ from app.models import (
     RingStack,
     TimeControl,
 )
-from app.rules.core import get_rings_per_player, BOARD_CONFIGS
-
+from app.rules.core import BOARD_CONFIGS, get_rings_per_player
 
 # =============================================================================
 # Hex Coordinate System
@@ -84,7 +83,7 @@ class HexCoord:
         return (self.q, self.r, self.s)
 
     @classmethod
-    def from_cube(cls, x: int, y: int, z: int) -> 'HexCoord':
+    def from_cube(cls, x: int, y: int, z: int) -> HexCoord:
         """Create from cube coordinates."""
         return cls(q=x, r=y)
 
@@ -103,7 +102,7 @@ class HexCoord:
         return (x, y)
 
     @classmethod
-    def from_offset(cls, x: int, y: int, size: int) -> 'HexCoord':
+    def from_offset(cls, x: int, y: int, size: int) -> HexCoord:
         """Create from offset coordinates.
 
         Args:
@@ -114,13 +113,13 @@ class HexCoord:
         q = x - (r + 1) // 2
         return cls(q=q, r=r)
 
-    def distance(self, other: 'HexCoord') -> int:
+    def distance(self, other: HexCoord) -> int:
         """Manhattan distance in hex grid."""
         return (abs(self.q - other.q) +
                 abs(self.q + self.r - other.q - other.r) +
                 abs(self.r - other.r)) // 2
 
-    def neighbors(self) -> list['HexCoord']:
+    def neighbors(self) -> list[HexCoord]:
         """Get the 6 neighboring hex coordinates."""
         return [
             HexCoord(self.q + 1, self.r),
@@ -131,29 +130,29 @@ class HexCoord:
             HexCoord(self.q, self.r + 1),
         ]
 
-    def rotate_60(self) -> 'HexCoord':
+    def rotate_60(self) -> HexCoord:
         """Rotate 60 degrees clockwise around origin."""
         # In cube coords: (x,y,z) -> (-z,-x,-y)
         x, y, z = self.to_cube()
         return HexCoord.from_cube(-z, -x, -y)
 
-    def rotate_120(self) -> 'HexCoord':
+    def rotate_120(self) -> HexCoord:
         """Rotate 120 degrees clockwise around origin."""
         return self.rotate_60().rotate_60()
 
-    def rotate_180(self) -> 'HexCoord':
+    def rotate_180(self) -> HexCoord:
         """Rotate 180 degrees around origin."""
         return HexCoord(-self.q, -self.r)
 
-    def rotate_240(self) -> 'HexCoord':
+    def rotate_240(self) -> HexCoord:
         """Rotate 240 degrees clockwise around origin."""
         return self.rotate_180().rotate_60()
 
-    def rotate_300(self) -> 'HexCoord':
+    def rotate_300(self) -> HexCoord:
         """Rotate 300 degrees clockwise around origin."""
         return self.rotate_180().rotate_120()
 
-    def reflect_q(self) -> 'HexCoord':
+    def reflect_q(self) -> HexCoord:
         """Reflect across the q axis."""
         x, y, z = self.to_cube()
         return HexCoord.from_cube(x, z, y)

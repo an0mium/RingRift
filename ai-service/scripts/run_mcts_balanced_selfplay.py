@@ -30,11 +30,10 @@ from typing import Any, Dict
 # Add the app directory to the path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.training.selfplay_config import SelfplayConfig, create_argument_parser, EngineMode
-
 from app.ai.mcts_ai import MCTSAI
 from app.models import AIConfig, BoardType, GameStatus
 from app.training.env import RingRiftEnv
+from app.training.selfplay_config import EngineMode, SelfplayConfig, create_argument_parser
 
 # Unified logging setup
 from scripts.lib.logging_config import setup_script_logging

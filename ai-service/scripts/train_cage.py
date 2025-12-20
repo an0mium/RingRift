@@ -10,8 +10,9 @@ Usage:
     python scripts/train_cage.py --num-games 200 --epochs 100
 """
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import argparse
@@ -23,13 +24,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 from app.ai.cage_network import CAGEConfig, CAGENetwork
 from app.ai.heuristic_ai import HeuristicAI
 from app.game_engine import GameEngine
-from app.training.initial_state import create_initial_state
 from app.models.core import AIConfig, BoardType
+from app.training.initial_state import create_initial_state
 
 logging.basicConfig(
     level=logging.INFO,
@@ -77,8 +78,8 @@ def generate_cage_data(
     Returns:
         (boards, globals, actions, outcomes, is_best) arrays
     """
-    from app.ai.neural_net import NeuralNetAI
     from app.ai.ebmo_network import ActionFeatureExtractor
+    from app.ai.neural_net import NeuralNetAI
 
     engine = GameEngine()
     nn = NeuralNetAI(1, AIConfig(difficulty=5))

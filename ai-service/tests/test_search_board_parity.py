@@ -1,6 +1,6 @@
+import json
 import os
 import sys
-import json
 from pathlib import Path
 from typing import List, Tuple
 
@@ -13,10 +13,10 @@ if ROOT not in sys.path:
 
 PARITY_FIXTURES_DIR = Path(ROOT) / "parity_fixtures"
 
-from app.db import GameReplayDB  # noqa: E402
-from app.game_engine import GameEngine  # noqa: E402
-from app.models import GameState, BoardType, Move  # noqa: E402
-from app.rules.mutable_state import MutableGameState, MoveUndo  # noqa: E402
+from app.db import GameReplayDB
+from app.game_engine import GameEngine
+from app.models import BoardType, GameState, Move
+from app.rules.mutable_state import MoveUndo, MutableGameState
 
 # A small, representative subset of large-board parity fixtures.
 # These were originally written by scripts/check_ts_python_replay_parity.py

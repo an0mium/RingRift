@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 from datetime import datetime
 from typing import Optional
 
@@ -8,21 +8,22 @@ import pytest
 # Ensure app package is importable when running tests directly
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../"))
 
+from app.game_engine import GameEngine
 from app.models import (
-    GameState,
-    BoardType,
     BoardState,
+    BoardType,
     GamePhase,
+    GameState,
     GameStatus,
-    TimeControl,
-    Player,
-    Position,
-    RingStack,
     MarkerInfo,
     Move,
     MoveType,
+    Player,
+    Position,
+    RingStack,
+    TimeControl,
 )
-from app.game_engine import GameEngine
+
 
 def create_base_state(
     board_type: BoardType = BoardType.SQUARE8,

@@ -651,8 +651,8 @@ def main():
     if args.json:
         print(json.dumps(report.to_dict(), indent=2))
     else:
-        print(f"\nRegression Test Report")
-        print(f"=" * 50)
+        print("\nRegression Test Report")
+        print("=" * 50)
         print(f"Model: {report.model_path}")
         print(f"Config: {report.config}")
         print(f"Status: {'PASSED' if report.passed else 'FAILED'}")
@@ -660,7 +660,7 @@ def main():
         print(f"Duration: {report.duration_seconds:.1f}s")
 
         if report.failed_tests > 0:
-            print(f"\nFailed Tests:")
+            print("\nFailed Tests:")
             for result in report.results:
                 if not result.passed:
                     print(f"  - {result.test_name}: {result.message}")

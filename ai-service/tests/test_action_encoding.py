@@ -1,50 +1,50 @@
-import unittest
-import sys
 import os
+import sys
+import unittest
 from datetime import datetime
 
 # Ensure app package is importable
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 
-from app.models import (  # noqa: E402
-    Position,
-    LineInfo,
-    Move,
-    MoveType,
+from app.ai.neural_net import (
+    INVALID_MOVE_INDEX,
+    P_HEX,
+    SQUARE8_FORCED_ELIMINATION_IDX,
+    SQUARE8_LINE_FORM_BASE,
+    SQUARE8_NO_LINE_ACTION_IDX,
+    SQUARE8_NO_MOVEMENT_ACTION_IDX,
+    SQUARE8_NO_PLACEMENT_ACTION_IDX,
+    SQUARE8_NO_TERRITORY_ACTION_IDX,
+    SQUARE8_SKIP_CAPTURE_IDX,
+    SQUARE8_SKIP_TERRITORY_PROCESSING_IDX,
+    SQUARE19_FORCED_ELIMINATION_IDX,
+    SQUARE19_LINE_FORM_BASE,
+    SQUARE19_NO_LINE_ACTION_IDX,
+    SQUARE19_NO_MOVEMENT_ACTION_IDX,
+    SQUARE19_NO_PLACEMENT_ACTION_IDX,
+    SQUARE19_NO_TERRITORY_ACTION_IDX,
+    SQUARE19_SKIP_CAPTURE_IDX,
+    SQUARE19_SKIP_TERRITORY_PROCESSING_IDX,
+    ActionEncoderHex,
+    NeuralNetAI,
+    decode_move_for_board,
+    encode_move_for_board,
+)
+from app.models import (
     AIConfig,
     BoardState,
     BoardType,
-    GameState,
     GamePhase,
+    GameState,
     GameStatus,
+    LineInfo,
+    Move,
+    MoveType,
     Player,
+    Position,
     TimeControl,
 )
-from app.ai.neural_net import (  # noqa: E402
-    NeuralNetAI,
-    INVALID_MOVE_INDEX,
-    ActionEncoderHex,
-    P_HEX,
-    encode_move_for_board,
-    decode_move_for_board,
-    SQUARE8_LINE_FORM_BASE,
-    SQUARE19_LINE_FORM_BASE,
-    SQUARE8_NO_PLACEMENT_ACTION_IDX,
-    SQUARE8_NO_MOVEMENT_ACTION_IDX,
-    SQUARE8_SKIP_CAPTURE_IDX,
-    SQUARE8_NO_LINE_ACTION_IDX,
-    SQUARE8_NO_TERRITORY_ACTION_IDX,
-    SQUARE8_SKIP_TERRITORY_PROCESSING_IDX,
-    SQUARE8_FORCED_ELIMINATION_IDX,
-    SQUARE19_NO_PLACEMENT_ACTION_IDX,
-    SQUARE19_NO_MOVEMENT_ACTION_IDX,
-    SQUARE19_SKIP_CAPTURE_IDX,
-    SQUARE19_NO_LINE_ACTION_IDX,
-    SQUARE19_NO_TERRITORY_ACTION_IDX,
-    SQUARE19_SKIP_TERRITORY_PROCESSING_IDX,
-    SQUARE19_FORCED_ELIMINATION_IDX,
-)
-from app.rules.core import (  # noqa: E402
+from app.rules.core import (
     get_rings_per_player,
     get_territory_victory_threshold,
     get_victory_threshold,

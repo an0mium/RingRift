@@ -10,22 +10,23 @@ broader set of legacy/experimental fixtures under xfail.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Tuple
-from collections.abc import Iterable
-
 import json
 import os
+from collections.abc import Iterable
+from pathlib import Path
+from typing import Tuple
 
 import pytest
+
+from app.utils.paths import AI_SERVICE_ROOT
 
 # Import the parity helper used by the CLI script. We mirror the pattern
 # from test_replay_parity_fixtures_regression.py to keep imports stable
 # under pytest.
 from scripts.check_ts_python_replay_parity import (  # type: ignore[import]
-    check_game_parity,
+  check_game_parity,
 )
-from app.utils.paths import AI_SERVICE_ROOT
+
 PARITY_FIXTURES_DIR = AI_SERVICE_ROOT / "parity_fixtures"
 
 

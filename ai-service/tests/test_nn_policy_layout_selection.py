@@ -4,8 +4,8 @@ from datetime import datetime
 from types import SimpleNamespace
 
 from app.ai.neural_net import NeuralNetAI
-from app.models.core import AIConfig, BoardState, Move, Position
 from app.models import BoardType
+from app.models.core import AIConfig, BoardState, Move, Position
 
 
 def _make_ai() -> NeuralNetAI:

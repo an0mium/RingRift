@@ -1,8 +1,9 @@
-import pytest
 from datetime import datetime
 
-from app.ai.mcts_ai import MCTSAI, MCTSNode
+import pytest
+
 from app.ai.descent_ai import DescentAI
+from app.ai.mcts_ai import MCTSAI, MCTSNode
 from app.models import (
     AIConfig,
     BoardState,

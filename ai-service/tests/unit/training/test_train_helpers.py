@@ -10,24 +10,25 @@ Tests cover:
 - run_cmaes_heuristic_optimization(): CMA-ES optimization loop
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from app.training.train import (
-    _flatten_heuristic_weights,
-    _reconstruct_heuristic_profile,
-    _get_heuristic_tier_by_id,
-    temporary_heuristic_profile,
-    seed_all_legacy,
-    evaluate_heuristic_candidate,
-    run_cmaes_heuristic_optimization,
-)
+import pytest
+
 from app.ai.heuristic_weights import (
     HEURISTIC_WEIGHT_KEYS,
     HEURISTIC_WEIGHT_PROFILES,
 )
-from app.training.tier_eval_config import HEURISTIC_TIER_SPECS, HeuristicTierSpec
 from app.models import BoardType
+from app.training.tier_eval_config import HEURISTIC_TIER_SPECS, HeuristicTierSpec
+from app.training.train import (
+    _flatten_heuristic_weights,
+    _get_heuristic_tier_by_id,
+    _reconstruct_heuristic_profile,
+    evaluate_heuristic_candidate,
+    run_cmaes_heuristic_optimization,
+    seed_all_legacy,
+    temporary_heuristic_profile,
+)
 
 
 class TestFlattenHeuristicWeights:
@@ -298,6 +299,7 @@ class TestSeedAllLegacy:
     def test_deterministic_behavior(self):
         """Test that seeding produces deterministic randomness."""
         import random
+
         import numpy as np
 
         # Seed and capture random values

@@ -32,7 +32,6 @@ from app.rules.history_validation import (
     validate_canonical_history_for_game,
 )
 
-
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
 

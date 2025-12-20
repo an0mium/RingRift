@@ -1,24 +1,26 @@
 #!/usr/bin/env python3
 """Diagnose EBMO model behavior to understand poor performance."""
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import torch
-import numpy as np
 from pathlib import Path
 
-from app.models import AIConfig
+import numpy as np
+import torch
+
 from app.ai.ebmo_ai import EBMO_AI
 from app.ai.ebmo_network import EBMOConfig, load_ebmo_model
 from app.game.game import Game
+from app.models import AIConfig
 
 
 def diagnose_model(model_path: str):
     """Run diagnostic checks on EBMO model."""
     print(f"\n{'='*60}")
-    print(f"EBMO Model Diagnostics")
+    print("EBMO Model Diagnostics")
     print(f"Model: {model_path}")
     print(f"{'='*60}\n")
 
@@ -45,7 +47,7 @@ def diagnose_model(model_path: str):
     game = Game()
     state = game.get_state()
 
-    print(f"\n--- Game State ---")
+    print("\n--- Game State ---")
     print(f"  Phase: {state.phase}")
     print(f"  Current player: {state.current_player}")
 
@@ -63,7 +65,7 @@ def diagnose_model(model_path: str):
         print(f"    {i}: {move.type.value} to=({move.to.x}, {move.to.y})")
 
     # Get move energies
-    print(f"\n--- Move Energies ---")
+    print("\n--- Move Energies ---")
     energies = ai.get_move_energies(state)
 
     # Sort by energy
@@ -79,7 +81,7 @@ def diagnose_model(model_path: str):
 
     # Check energy distribution
     energy_values = list(energies.values())
-    print(f"\n--- Energy Statistics ---")
+    print("\n--- Energy Statistics ---")
     print(f"  Min energy: {min(energy_values):.4f}")
     print(f"  Max energy: {max(energy_values):.4f}")
     print(f"  Mean energy: {np.mean(energy_values):.4f}")
@@ -92,7 +94,7 @@ def diagnose_model(model_path: str):
         print("  Model may not be discriminating between moves.")
 
     # Test what move the model selects
-    print(f"\n--- Move Selection Test ---")
+    print("\n--- Move Selection Test ---")
     selected_move = ai.select_move(state)
     print(f"  Selected move: {selected_move.type.value}")
     if selected_move.to:
@@ -101,11 +103,11 @@ def diagnose_model(model_path: str):
     # Check if it's selecting skip moves
     skip_types = {'skip_placement', 'skip_capture', 'no_placement_action'}
     if selected_move.type.value in skip_types:
-        print(f"\n  WARNING: Model is selecting a SKIP move!")
+        print("\n  WARNING: Model is selecting a SKIP move!")
         print("  This could explain 0% win rate.")
 
     # Play a few moves and see what happens
-    print(f"\n--- Simulated Game (first 10 moves) ---")
+    print("\n--- Simulated Game (first 10 moves) ---")
     test_game = Game()
     ai1 = EBMO_AI(player_number=1, config=ai_config, model_path=model_path)
     ai2 = EBMO_AI(player_number=2, config=ai_config, model_path=model_path)
@@ -132,7 +134,7 @@ def diagnose_model(model_path: str):
             break
 
     # Check model parameter statistics
-    print(f"\n--- Model Parameter Statistics ---")
+    print("\n--- Model Parameter Statistics ---")
     total_params = 0
     zero_params = 0
     nan_params = 0
@@ -156,7 +158,7 @@ def diagnose_model(model_path: str):
 def compare_models(model1_path: str, model2_path: str):
     """Compare energy distributions between two models."""
     print(f"\n{'='*60}")
-    print(f"Model Comparison")
+    print("Model Comparison")
     print(f"{'='*60}\n")
 
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -187,7 +189,7 @@ def compare_models(model1_path: str, model2_path: str):
     move1 = ai1.select_move(state)
     move2 = ai2.select_move(state)
 
-    print(f"\nSelected moves:")
+    print("\nSelected moves:")
     print(f"  Model 1: {move1.type.value}")
     print(f"  Model 2: {move2.type.value}")
 

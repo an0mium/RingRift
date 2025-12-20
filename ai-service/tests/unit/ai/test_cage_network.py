@@ -5,11 +5,11 @@ import torch
 
 from app.ai.cage_network import (
     CAGEConfig,
+    CAGEEnergyHead,
     CAGENetwork,
+    ConstraintNetwork,
     GraphAttentionLayer,
     GraphEncoder,
-    ConstraintNetwork,
-    CAGEEnergyHead,
     board_to_graph,
 )
 from app.models import BoardType, GameState

@@ -6,11 +6,12 @@ Tests cover:
 - iterate_games with batch loading
 """
 
-import pytest
-from unittest.mock import MagicMock, patch
 from typing import Dict, List, Optional
+from unittest.mock import MagicMock, patch
 
-from app.models import GameState, Move, BoardType
+import pytest
+
+from app.models import BoardType, GameState, Move
 
 
 class TestGetInitialStatesBatch:

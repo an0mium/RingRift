@@ -8,21 +8,23 @@ Tests the consolidated cluster monitoring system that provides:
 """
 
 import json
-import pytest
-from unittest.mock import MagicMock, patch, Mock
-from datetime import datetime
-from typing import Dict, Any
 
 # Import from scripts directory
 import sys
+from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
 
 from unified_cluster_monitor import (
-    NodeHealth,
-    LeaderHealth,
-    ClusterHealth,
     ClusterConfig,
+    ClusterHealth,
+    LeaderHealth,
+    NodeHealth,
     UnifiedClusterMonitor,
 )
 

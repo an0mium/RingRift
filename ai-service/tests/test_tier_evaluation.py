@@ -18,20 +18,20 @@ SCRIPTS_DIR = os.path.join(ROOT, "scripts")
 if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
-from app.models import AIType, BoardType  # noqa: E402
-from app.training.tier_eval_config import (  # noqa: E402
-    TierEvaluationConfig,
-    TierOpponentConfig,
-    get_tier_config,
-)
-from app.training.tier_eval_runner import run_tier_evaluation  # noqa: E402
-from app.training.eval_pools import (  # noqa: E402
+from app.models import AIType, BoardType
+from app.training.eval_pools import (
     HEURISTIC_TIER_SPECS,
     POOL_PATHS,
     run_all_heuristic_tiers,
     run_heuristic_tier_eval,
 )
-from scripts import run_tier_gate  # noqa: E402
+from app.training.tier_eval_config import (
+    TierEvaluationConfig,
+    TierOpponentConfig,
+    get_tier_config,
+)
+from app.training.tier_eval_runner import run_tier_evaluation
+from scripts import run_tier_gate
 
 
 class TestTierEvaluationRunner:
@@ -203,8 +203,8 @@ def test_heuristic_tier_eval_smoke(monkeypatch) -> None:
     tier = HEURISTIC_TIER_SPECS[0]
 
     # Stub load_state_pool to return a single valid GameState snapshot.
-    from app.training import eval_pools as eval_pools_mod  # noqa: E402
-    from app.training.generate_data import (  # noqa: E402
+    from app.training import eval_pools as eval_pools_mod
+    from app.training.generate_data import (
         create_initial_state,
     )
 

@@ -9,24 +9,23 @@ These tests verify that the shadow validation system correctly:
 This is Phase 2 infrastructure - the safety net for GPU move generation.
 """
 
-import pytest
 import random
 from typing import List, Tuple
 from unittest.mock import MagicMock, patch
 
-from app.models import MoveType
+import pytest
 
 # Import shadow validation
 from app.ai.shadow_validation import (
+    DEFAULT_DIVERGENCE_THRESHOLD,
+    DEFAULT_SAMPLE_RATE,
+    DivergenceRecord,
+    DivergenceType,
     ShadowValidator,
     ValidationStats,
-    DivergenceType,
-    DivergenceRecord,
-    DEFAULT_SAMPLE_RATE,
-    DEFAULT_DIVERGENCE_THRESHOLD,
     create_shadow_validator,
 )
-
+from app.models import MoveType
 
 # =============================================================================
 # Fixtures
@@ -438,9 +437,9 @@ class TestFactoryFunction:
 
 
 from app.ai.shadow_validation import (
-    StateValidator,
-    StateValidationStats,
     StateDivergenceRecord,
+    StateValidationStats,
+    StateValidator,
     create_state_validator,
 )
 

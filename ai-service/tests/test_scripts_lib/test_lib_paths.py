@@ -6,27 +6,28 @@ Tests cover:
 - Directory creation utilities
 """
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 from scripts.lib.paths import (
     AI_SERVICE_ROOT,
+    CONFIG_DIR,
     DATA_DIR,
     GAMES_DIR,
-    SELFPLAY_DIR,
-    TRAINING_DIR,
+    LOGS_DIR,
     MODELS_DIR,
     NNUE_MODELS_DIR,
-    LOGS_DIR,
-    CONFIG_DIR,
     SCRIPTS_DIR,
+    SELFPLAY_DIR,
+    TRAINING_DIR,
     UNIFIED_ELO_DB,
-    get_game_db_path,
-    get_training_data_path,
-    get_model_path,
-    get_log_path,
     ensure_dir,
     ensure_parent_dir,
+    get_game_db_path,
+    get_log_path,
+    get_model_path,
+    get_training_data_path,
 )
 
 

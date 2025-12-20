@@ -7,25 +7,26 @@ Tests move application functions per RR-CANON rules:
 - Recovery slide moves (R110-R115)
 """
 
-import torch
 from dataclasses import dataclass
 
-from app.ai.gpu_move_application import (
-    apply_capture_moves_vectorized,
-    apply_movement_moves_vectorized,
-    apply_recovery_moves_vectorized,
-    apply_no_action_moves_batch,
-    apply_placement_moves_batch_vectorized,
-    _apply_placement_moves_batch_legacy,
-    apply_placement_moves_batch,
-    apply_movement_moves_batch_vectorized,
-    _apply_movement_moves_batch_legacy,
-    apply_movement_moves_batch,
-    apply_capture_moves_batch_vectorized,
-    _apply_capture_moves_batch_legacy,
-    apply_capture_moves_batch,
-)
+import torch
+
 from app.ai.gpu_game_types import MoveType
+from app.ai.gpu_move_application import (
+    _apply_capture_moves_batch_legacy,
+    _apply_movement_moves_batch_legacy,
+    _apply_placement_moves_batch_legacy,
+    apply_capture_moves_batch,
+    apply_capture_moves_batch_vectorized,
+    apply_capture_moves_vectorized,
+    apply_movement_moves_batch,
+    apply_movement_moves_batch_vectorized,
+    apply_movement_moves_vectorized,
+    apply_no_action_moves_batch,
+    apply_placement_moves_batch,
+    apply_placement_moves_batch_vectorized,
+    apply_recovery_moves_vectorized,
+)
 
 
 @dataclass
@@ -983,19 +984,19 @@ class TestMoveApplicationIntegration:
     def test_module_exports(self):
         """Test that all expected functions are exported."""
         from app.ai.gpu_move_application import (
-            apply_capture_moves_vectorized,
-            apply_movement_moves_vectorized,
-            apply_recovery_moves_vectorized,
-            apply_no_action_moves_batch,
-            apply_placement_moves_batch_vectorized,
-            _apply_placement_moves_batch_legacy,
-            apply_placement_moves_batch,
-            apply_movement_moves_batch_vectorized,
-            _apply_movement_moves_batch_legacy,
-            apply_movement_moves_batch,
-            apply_capture_moves_batch_vectorized,
             _apply_capture_moves_batch_legacy,
+            _apply_movement_moves_batch_legacy,
+            _apply_placement_moves_batch_legacy,
             apply_capture_moves_batch,
+            apply_capture_moves_batch_vectorized,
+            apply_capture_moves_vectorized,
+            apply_movement_moves_batch,
+            apply_movement_moves_batch_vectorized,
+            apply_movement_moves_vectorized,
+            apply_no_action_moves_batch,
+            apply_placement_moves_batch,
+            apply_placement_moves_batch_vectorized,
+            apply_recovery_moves_vectorized,
         )
 
         # All should be callable

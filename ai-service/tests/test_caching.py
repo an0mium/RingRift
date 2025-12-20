@@ -239,6 +239,7 @@ class TestMemoryCache:
     def test_thread_safety(self):
         """Test that cache is thread-safe."""
         import threading
+
         from app.caching import MemoryCache
 
         cache = MemoryCache(max_size=1000)
@@ -418,7 +419,7 @@ class TestModuleExports:
 
     def test_base_exports(self):
         """Test base module exports."""
-        from app.caching import Cache, CacheEntry, CacheStats, CacheConfig
+        from app.caching import Cache, CacheConfig, CacheEntry, CacheStats
 
         assert Cache is not None
         assert CacheEntry is not None
@@ -427,7 +428,7 @@ class TestModuleExports:
 
     def test_memory_exports(self):
         """Test memory cache exports."""
-        from app.caching import MemoryCache, LRUCache, TTLCache
+        from app.caching import LRUCache, MemoryCache, TTLCache
 
         assert MemoryCache is not None
         assert LRUCache is not None
@@ -435,7 +436,7 @@ class TestModuleExports:
 
     def test_decorator_exports(self):
         """Test decorator exports."""
-        from app.caching import cached, async_cached, invalidate_cache
+        from app.caching import async_cached, cached, invalidate_cache
 
         assert callable(cached)
         assert callable(async_cached)

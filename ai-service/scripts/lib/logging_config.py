@@ -148,7 +148,7 @@ class MetricsLogger:
         self.counters[name] = self.counters.get(name, 0) + value
         self._maybe_log()
 
-    def time(self, name: str) -> "TimerContext":
+    def time(self, name: str) -> TimerContext:
         """Start a timer context manager."""
         return TimerContext(self, name)
 
@@ -190,7 +190,7 @@ class TimerContext:
         self.name = name
         self.start_time: float | None = None
 
-    def __enter__(self) -> "TimerContext":
+    def __enter__(self) -> TimerContext:
         self.start_time = time.time()
         return self
 

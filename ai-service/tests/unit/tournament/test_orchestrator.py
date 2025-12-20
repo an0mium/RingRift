@@ -8,11 +8,11 @@ Tests cover:
 """
 
 import time
-from datetime import datetime
-import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
 from dataclasses import dataclass
+from datetime import datetime
+from unittest.mock import MagicMock, PropertyMock, patch
 
+import pytest
 
 # =============================================================================
 # Test EvaluationResult Dataclass
@@ -162,7 +162,7 @@ class TestTournamentSummary:
 
     def test_with_evaluation_results(self):
         """Test summary with evaluation results."""
-        from app.tournament.orchestrator import TournamentSummary, EvaluationResult
+        from app.tournament.orchestrator import EvaluationResult, TournamentSummary
 
         eval_result = EvaluationResult(
             candidate_id="new_model",

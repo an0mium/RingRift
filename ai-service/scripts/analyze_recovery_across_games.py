@@ -16,21 +16,21 @@ It produces aggregate statistics and finds specific game states where
 recovery should have been possible.
 """
 
-import json
 import argparse
-from pathlib import Path
+import json
+import traceback
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional
-import traceback
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from app.models import GameState, MoveType
 from app.game_engine import GameEngine
+from app.models import GameState, MoveType
 from app.rules.core import (
-    is_eligible_for_recovery,
     count_buried_rings,
-    player_has_markers,
+    is_eligible_for_recovery,
     player_controls_any_stack,
+    player_has_markers,
 )
 from app.training.generate_data import create_initial_state
 
@@ -296,7 +296,7 @@ def replay_and_analyze_game(
 def load_games_from_file(filepath: Path) -> list[dict]:
     """Load games from a JSONL file, skipping invalid lines."""
     games = []
-    with open(filepath, 'r') as f:
+    with open(filepath) as f:
         for _line_num, line in enumerate(f, 1):
             line = line.strip()
             if line:
@@ -390,23 +390,23 @@ def main():
     print("RECOVERY ELIGIBILITY ANALYSIS RESULTS")
     print("=" * 70)
 
-    print(f"\nGAMES ANALYZED:")
+    print("\nGAMES ANALYZED:")
     print(f"  Total games: {total_games}")
     print(f"  Games with forced_elimination: {games_with_fe}")
     print(f"  Games with recovery_slide: {games_with_recovery}")
     print(f"  Games with replay errors: {games_with_errors}")
 
-    print(f"\n  By board type:")
+    print("\n  By board type:")
     for bt, count in sorted(board_type_games.items()):
         print(f"    {bt}: {count}")
 
-    print(f"\n  By player count:")
+    print("\n  By player count:")
     for pc, count in sorted(player_count_games.items()):
         print(f"    {pc}p: {count}")
 
     print(f"\nSTATES ANALYZED: {stats.total_states_checked:,}")
 
-    print(f"\nINDIVIDUAL CONDITION FREQUENCIES:")
+    print("\nINDIVIDUAL CONDITION FREQUENCIES:")
     if stats.total_states_checked > 0:
         pct = lambda x: 100.0 * x / stats.total_states_checked
         print(f"  Zero rings in hand:    {stats.zero_rings_in_hand:>8,} ({pct(stats.zero_rings_in_hand):>6.2f}%)")
@@ -414,21 +414,21 @@ def main():
         print(f"  Has markers on board:  {stats.has_markers:>8,} ({pct(stats.has_markers):>6.2f}%)")
         print(f"  Has buried rings:      {stats.has_buried_rings:>8,} ({pct(stats.has_buried_rings):>6.2f}%)")
 
-    print(f"\nCONDITIONS MET DISTRIBUTION:")
+    print("\nCONDITIONS MET DISTRIBUTION:")
     if stats.total_states_checked > 0:
         print(f"  3 conditions (ELIGIBLE): {stats.three_conditions_met:>8,} ({pct(stats.three_conditions_met):>6.2f}%)")
         print(f"  2 conditions:            {stats.two_conditions_met:>8,} ({pct(stats.two_conditions_met):>6.2f}%)")
         print(f"  1 condition:             {stats.one_condition_met:>8,} ({pct(stats.one_condition_met):>6.2f}%)")
         print(f"  0 conditions:            {stats.zero_conditions_met:>8,} ({pct(stats.zero_conditions_met):>6.2f}%)")
 
-    print(f"\nTOP CONDITION COMBINATIONS:")
+    print("\nTOP CONDITION COMBINATIONS:")
     sorted_combos = sorted(stats.condition_combos.items(), key=lambda x: -x[1])[:15]
     for combo, count in sorted_combos:
         pct_val = 100.0 * count / stats.total_states_checked if stats.total_states_checked > 0 else 0
         print(f"  {combo:40s}: {count:>8,} ({pct_val:>6.2f}%)")
 
     if stats.near_misses:
-        print(f"\nNEAR-MISS EXAMPLES (2 conditions met):")
+        print("\nNEAR-MISS EXAMPLES (2 conditions met):")
         # Group by missing condition
         by_missing = defaultdict(list)
         for nm in stats.near_misses:
@@ -453,7 +453,7 @@ def main():
     min_rings = min((gs.min_rings_in_hand_seen for gs in all_game_stats if gs.min_rings_in_hand_seen < 99), default=99)
     max_markers = max((gs.max_markers_seen for gs in all_game_stats), default=0)
 
-    print(f"\nGAME-LEVEL SUMMARY:")
+    print("\nGAME-LEVEL SUMMARY:")
     print(f"  Games with recovery-eligible states: {games_with_eligible}")
     print(f"  Total recovery-eligible states: {total_eligible_states}")
     print(f"  Max buried rings seen in any game: {max_buried}")

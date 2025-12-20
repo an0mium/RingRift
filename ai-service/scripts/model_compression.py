@@ -35,10 +35,10 @@ import copy
 import os
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
-from collections.abc import Callable
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -55,7 +55,7 @@ try:
     import torch
     import torch.nn as nn
     import torch.nn.utils.prune as prune
-    from torch.quantization import quantize_dynamic, get_default_qconfig
+    from torch.quantization import get_default_qconfig, quantize_dynamic
     HAS_TORCH = True
 except ImportError:
     HAS_TORCH = False

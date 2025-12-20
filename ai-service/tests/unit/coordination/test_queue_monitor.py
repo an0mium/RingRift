@@ -4,21 +4,22 @@ Tests the queue monitoring system that tracks queue depths and applies
 backpressure to prevent queue overflow.
 """
 
-import pytest
 import tempfile
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from app.coordination.queue_monitor import (
-    QueueType,
+    DEFAULT_QUEUE_CONFIG,
     BackpressureLevel,
-    QueueStatus,
     QueueMetric,
     QueueMonitor,
-    DEFAULT_QUEUE_CONFIG,
-    get_queue_monitor,
+    QueueStatus,
+    QueueType,
     check_backpressure,
+    get_queue_monitor,
     report_queue_depth,
     should_throttle_production,
 )

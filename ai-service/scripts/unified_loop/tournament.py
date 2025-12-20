@@ -13,8 +13,9 @@ import os
 import time
 from typing import TYPE_CHECKING, Any, Dict, List
 
-from .config import DataEvent, DataEventType, EvaluationConfig
 from app.utils.paths import AI_SERVICE_ROOT
+
+from .config import DataEvent, DataEventType, EvaluationConfig
 
 if TYPE_CHECKING:
     from unified_ai_loop import EventBus, UnifiedLoopState
@@ -22,8 +23,8 @@ if TYPE_CHECKING:
 # Import improvement optimizer for adaptive intervals
 try:
     from app.training.improvement_optimizer import (
-        get_improvement_optimizer,
         get_evaluation_interval,
+        get_improvement_optimizer,
     )
     HAS_IMPROVEMENT_OPTIMIZER = True
 except ImportError:
@@ -75,7 +76,7 @@ class ShadowTournamentService:
     # Prioritized by CPU count for CPU-intensive tournament evaluation
     TOURNAMENT_HOSTS = _load_tournament_hosts()
 
-    def __init__(self, config: EvaluationConfig, state: "UnifiedLoopState", event_bus: "EventBus"):
+    def __init__(self, config: EvaluationConfig, state: UnifiedLoopState, event_bus: EventBus):
         self.config = config
         self.state = state
         self.event_bus = event_bus

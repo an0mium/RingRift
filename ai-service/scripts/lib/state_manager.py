@@ -32,10 +32,10 @@ Usage:
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Dict, Generic, Optional, Type, TypeVar, Union
-from collections.abc import Callable
 
 from scripts.lib.logging_config import get_logger
 
@@ -201,7 +201,7 @@ class StatePersistence:
     """
 
     @classmethod
-    def load_from_file(cls, path: Union[str, Path]) -> "StatePersistence":
+    def load_from_file(cls, path: Union[str, Path]) -> StatePersistence:
         """Load state from JSON file.
 
         Args:

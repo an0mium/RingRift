@@ -7,10 +7,10 @@ Tests cover:
 """
 
 import time
-import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
 from dataclasses import dataclass
+from unittest.mock import MagicMock, PropertyMock, patch
 
+import pytest
 
 # =============================================================================
 # Test PERBufferState Dataclass
@@ -510,7 +510,7 @@ class TestModuleFunctions:
 
     def test_wire_per_events(self):
         """Test wiring PER events."""
-        from app.training.per_orchestrator import wire_per_events, get_per_orchestrator
+        from app.training.per_orchestrator import get_per_orchestrator, wire_per_events
 
         mock_bus = MagicMock()
 
@@ -552,7 +552,7 @@ class TestModuleFunctions:
 
     def test_get_per_orchestrator_after_wire(self):
         """Test get_per_orchestrator returns instance after wiring."""
-        from app.training.per_orchestrator import wire_per_events, get_per_orchestrator
+        from app.training.per_orchestrator import get_per_orchestrator, wire_per_events
 
         mock_bus = MagicMock()
 
@@ -564,9 +564,9 @@ class TestModuleFunctions:
     def test_reset_per_orchestrator(self):
         """Test resetting the orchestrator singleton."""
         from app.training.per_orchestrator import (
-            wire_per_events,
             get_per_orchestrator,
             reset_per_orchestrator,
+            wire_per_events,
         )
 
         mock_bus = MagicMock()
@@ -584,8 +584,8 @@ class TestModuleFunctions:
     def test_reset_per_orchestrator_unsubscribes(self):
         """Test that reset unsubscribes from events."""
         from app.training.per_orchestrator import (
-            wire_per_events,
             reset_per_orchestrator,
+            wire_per_events,
         )
 
         mock_bus = MagicMock()
@@ -687,7 +687,7 @@ class TestPERIntegration:
 
     def test_history_retention_on_priority_updates(self):
         """Test that history is only updated every 10 priority updates."""
-        from app.training.per_orchestrator import PEROrchestrator, PERBufferState
+        from app.training.per_orchestrator import PERBufferState, PEROrchestrator
 
         @dataclass
         class MockEvent:

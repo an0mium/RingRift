@@ -7,8 +7,9 @@ Trains EBMO to:
 3. Learn from Heuristic's winning strategies
 """
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import argparse
@@ -18,9 +19,9 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 
-from app.ai.ebmo_network import EBMONetwork, EBMOConfig
+from app.ai.ebmo_network import EBMOConfig, EBMONetwork
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger("train_ebmo_contrastive")

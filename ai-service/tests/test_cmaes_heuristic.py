@@ -7,13 +7,12 @@ import os
 import sys
 from typing import List
 
-
 # Ensure app/ is importable when running tests directly
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from app.training.train import (  # noqa: E402
+from app.training.train import (
     run_cmaes_heuristic_optimization,
 )
 

@@ -38,10 +38,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import torch
 
 from app.training.model_versioning import (
-    ModelVersionManager,
-    ModelMetadata,
-    LegacyCheckpointError,
     MODEL_VERSIONS,
+    LegacyCheckpointError,
+    ModelMetadata,
+    ModelVersionManager,
     compute_state_dict_checksum,
 )
 

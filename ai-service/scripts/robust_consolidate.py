@@ -4,10 +4,10 @@
 Creates a fully-compatible GameReplayDB with games, game_moves, and game_choices tables.
 """
 
-import sqlite3
-from pathlib import Path
-import time
 import fcntl
+import sqlite3
+import time
+from pathlib import Path
 
 SCHEMA_VERSION = 2  # Must match GameReplayDB expected version
 
@@ -253,7 +253,7 @@ def main():
             FROM games GROUP BY board_type, num_players ORDER BY count DESC
         """)
 
-        print(f"\n=== Consolidation Complete ===")
+        print("\n=== Consolidation Complete ===")
         print(f"Total unique games: {final_count}")
         print(f"Total moves: {final_moves}")
         print(f"Errors: {errors}")

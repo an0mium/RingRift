@@ -292,8 +292,8 @@ class TestCircuitBreakerIntegration(unittest.TestCase):
         """Import circuit breaker components."""
         try:
             from app.distributed.circuit_breaker import (
-                get_training_breaker,
                 CircuitState,
+                get_training_breaker,
             )
             self.get_training_breaker = get_training_breaker
             self.CircuitState = CircuitState
@@ -355,10 +355,9 @@ class TestIntegrationImports(unittest.TestCase):
     def test_train_imports(self) -> None:
         """Test that train.py can import all new components."""
         # These should not raise ImportError
-        from app.training.train import GracefulShutdownHandler
-
         # Check HAS_* flags are set correctly
         from app.training import train
+        from app.training.train import GracefulShutdownHandler
 
         # These flags should exist
         self.assertTrue(hasattr(train, 'HAS_CIRCUIT_BREAKER'))
@@ -367,11 +366,11 @@ class TestIntegrationImports(unittest.TestCase):
     def test_training_enhancements_exports(self) -> None:
         """Test training_enhancements.py exports."""
         from app.training.training_enhancements import (
-            TrainingAnomalyDetector,
             AdaptiveGradientClipper,
             CheckpointAverager,
             EarlyStopping,
             EnhancedEarlyStopping,
+            TrainingAnomalyDetector,
         )
 
         # All should be classes
@@ -392,8 +391,8 @@ class TestIntegratedEnhancements(unittest.TestCase):
         """Import integrated enhancements components."""
         try:
             from app.training.integrated_enhancements import (
-                IntegratedTrainingManager,
                 IntegratedEnhancementsConfig,
+                IntegratedTrainingManager,
             )
             self.IntegratedTrainingManager = IntegratedTrainingManager
             self.IntegratedEnhancementsConfig = IntegratedEnhancementsConfig
@@ -777,6 +776,7 @@ class TestDistributedFaultTolerance(unittest.TestCase):
     def test_train_model_signature_has_fault_tolerance_params(self) -> None:
         """Test that train_model function accepts fault tolerance parameters."""
         import inspect
+
         from app.training.train import train_model
 
         sig = inspect.signature(train_model)
@@ -829,8 +829,8 @@ class TestGradNormWeighting(unittest.TestCase):
         try:
             from app.training.multi_task_learning import (
                 GradNormWeighter,
-                MultiTaskLoss,
                 MultiTaskConfig,
+                MultiTaskLoss,
             )
             cls.GradNormWeighter = GradNormWeighter
             cls.MultiTaskLoss = MultiTaskLoss
@@ -927,8 +927,8 @@ class TestUnifiedRegressionDetector(unittest.TestCase):
         """Import regression detector components."""
         try:
             from app.training.regression_detector import (
-                RegressionDetector,
                 RegressionConfig,
+                RegressionDetector,
                 RegressionEvent,
                 RegressionSeverity,
             )
@@ -1208,8 +1208,8 @@ class TestAugmentBatchDense(unittest.TestCase):
         """Check if integrated enhancements are available."""
         try:
             from app.training.integrated_enhancements import (
-                IntegratedTrainingManager,
                 IntegratedEnhancementsConfig,
+                IntegratedTrainingManager,
             )
             cls.has_enhancements = True
             cls.IntegratedTrainingManager = IntegratedTrainingManager
@@ -1286,9 +1286,9 @@ class TestGameGauntlet(unittest.TestCase):
         """Check if game_gauntlet is available."""
         try:
             from app.training.game_gauntlet import (
+                BASELINE_ELOS,
                 BaselineOpponent,
                 GauntletResult,
-                BASELINE_ELOS,
             )
             cls.has_gauntlet = True
             cls.BaselineOpponent = BaselineOpponent
@@ -1346,8 +1346,8 @@ class TestBaselineGatingStatus(unittest.TestCase):
         """Check if integrated enhancements are available."""
         try:
             from app.training.integrated_enhancements import (
-                IntegratedTrainingManager,
                 IntegratedEnhancementsConfig,
+                IntegratedTrainingManager,
             )
             cls.has_enhancements = True
             cls.IntegratedTrainingManager = IntegratedTrainingManager

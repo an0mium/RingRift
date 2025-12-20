@@ -8,16 +8,17 @@ V2 architectures use torch.mean() for global pooling instead of AdaptiveAvgPool2
 which ensures compatibility with PyTorch's MPS backend.
 """
 
-import pytest
-import torch
 import os
 from unittest.mock import Mock
 
+import pytest
+import torch
+
 from app.ai.neural_net import (
-    RingRiftCNN_v2,
-    RingRiftCNN_v2_Lite,
     HexNeuralNet_v2,
     HexNeuralNet_v2_Lite,
+    RingRiftCNN_v2,
+    RingRiftCNN_v2_Lite,
     create_model_for_board,
     get_memory_tier,
 )

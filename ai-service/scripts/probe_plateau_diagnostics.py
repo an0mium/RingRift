@@ -26,8 +26,8 @@ import argparse
 import json
 import os
 import sys
-from typing import Any, Dict, List, Tuple
 from collections.abc import Mapping
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
@@ -36,17 +36,16 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import BoardType  # type: ignore  # noqa: E402
-from app.ai.heuristic_weights import (  # type: ignore  # noqa: E402
+from app.ai.heuristic_weights import (  # type: ignore
     BASE_V1_BALANCED_WEIGHTS,
     HEURISTIC_WEIGHT_KEYS,
     HeuristicWeights,
 )
-from scripts.run_cmaes_optimization import (  # type: ignore  # noqa: E402
+from app.models import BoardType  # type: ignore
+from scripts.run_cmaes_optimization import (  # type: ignore
     BOARD_NAME_TO_TYPE,
     evaluate_fitness_over_boards,
 )
-
 
 ProbeResult = dict[str, Any]
 

@@ -14,11 +14,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from app.config.ladder_config import (  # type: ignore[import]  # noqa: E402
+import scripts.analyze_difficulty_calibration as adc
+from app.config.ladder_config import (  # type: ignore[import]
     LadderTierConfig,
 )
-from app.models import AIType, BoardType  # type: ignore[import]  # noqa: E402
-import scripts.analyze_difficulty_calibration as adc  # noqa: E402
+from app.models import AIType, BoardType  # type: ignore[import]
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:

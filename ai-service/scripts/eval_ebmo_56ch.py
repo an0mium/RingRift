@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Evaluate EBMO 56-channel model against Random AI."""
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
+
 from app.ai.ebmo_ai import EBMO_AI
 from app.ai.random_ai import RandomAI
-from app.models import AIConfig, BoardType, GameStatus
 from app.game_engine import GameEngine
+from app.models import AIConfig, BoardType, GameStatus
 from app.training.initial_state import create_initial_state
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')

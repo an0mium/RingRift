@@ -170,8 +170,27 @@ export function advanceGameForCurrentPlayer(
   // without replacing their internal pointer.
   Object.assign(gameState, nextState);
 
-  // Evaluate Last Player Standing (R172) using shared helpers. LPS tracking
-  // state is owned by the host via hooks.
+  // RR-PARITY-FIX-2025-12-20: LPS timing parity with Python.
+  // Python evaluates LPS at turn START:
+  //   1. _update_lps_round_tracking_for_current_player() - updates tracking FIRST
+  //   2. _maybe_apply_lps_victory_at_turn_start() - THEN evaluates LPS victory
+  // We must update tracking BEFORE evaluating victory to ensure the
+  // consecutiveExclusiveRounds counter is current when checking the threshold.
+  //
+  // This matches ClientSandboxEngine.handleStartOfInteractiveTurn() which also
+  // calls updateLpsRoundTrackingForCurrentPlayer() before maybeEndGameByLastPlayerStanding().
+
+  // Update LPS tracking state first
+  const lpsState = hooks.getLpsState();
+  updateLpsTracking(lpsState, {
+    currentPlayer: gameState.currentPlayer,
+    activePlayers: gameState.players.map((p) => p.playerNumber),
+    hasRealAction: hooks.hasAnyRealActionForPlayer(gameState.currentPlayer),
+  });
+  // State was mutated in place - persist it back
+  hooks.setLpsState(lpsState);
+
+  // Now evaluate Last Player Standing (R172) using shared helpers.
   const lpsResult = evaluateLpsVictory({
     gameState,
     lps: hooks.getLpsState(),
@@ -181,16 +200,6 @@ export function advanceGameForCurrentPlayer(
 
   if (lpsResult.isVictory) {
     hooks.endGame(lpsResult.winner, 'last_player_standing');
-  } else {
-    // Update LPS tracking state in place for future turns
-    const lpsState = hooks.getLpsState();
-    updateLpsTracking(lpsState, {
-      currentPlayer: gameState.currentPlayer,
-      activePlayers: gameState.players.map((p) => p.playerNumber),
-      hasRealAction: hooks.hasAnyRealActionForPlayer(gameState.currentPlayer),
-    });
-    // State was mutated in place - persist it back
-    hooks.setLpsState(lpsState);
   }
 
   return nextTurn as PerTurnState;

@@ -3,8 +3,9 @@
 Tests heuristic position evaluation with 45 weights per RR-CANON rules.
 """
 
-import torch
 from dataclasses import dataclass
+
+import torch
 
 from app.ai.gpu_heuristic import evaluate_positions_batch
 

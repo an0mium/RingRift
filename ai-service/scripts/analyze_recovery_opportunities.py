@@ -18,8 +18,8 @@ Usage:
 import argparse
 import json
 import sys
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 
@@ -283,7 +283,7 @@ def analyze_jsonl_file(filepath: Path, limit: int | None = None) -> AnalysisStat
     """Analyze a single JSONL file."""
     stats = AnalysisStats()
 
-    with open(filepath, 'r') as f:
+    with open(filepath) as f:
         for line_num, line in enumerate(f):
             if limit and line_num >= limit:
                 break

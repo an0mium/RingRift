@@ -35,9 +35,9 @@ import json
 import sqlite3
 import sys
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -46,13 +46,13 @@ SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.lib.logging_config import (
-    setup_script_logging,
-    get_metrics_logger,
-)
 from scripts.lib.alerts import (
     AlertSeverity,
     AlertType,
+)
+from scripts.lib.logging_config import (
+    get_metrics_logger,
+    setup_script_logging,
 )
 
 LOG_DIR = PROJECT_ROOT / "logs"
@@ -61,7 +61,7 @@ logger = setup_script_logging("data_quality_monitor", log_dir=str(LOG_DIR))
 
 # Prometheus client
 try:
-    from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
+    from prometheus_client import CONTENT_TYPE_LATEST, Gauge, generate_latest
     HAS_PROMETHEUS = True
 except ImportError:
     HAS_PROMETHEUS = False

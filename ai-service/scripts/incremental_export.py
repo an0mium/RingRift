@@ -42,6 +42,7 @@ from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("incremental_export")
 
+from app.models import BoardType
 from app.training.incremental_export import (
     ExportStats,
     get_incremental_exporter,
@@ -49,11 +50,9 @@ from app.training.incremental_export import (
 
 # Import conversion functions from jsonl_to_npz
 from scripts.jsonl_to_npz import (
-    build_encoder,
     BOARD_TYPE_MAP,
+    build_encoder,
 )
-from app.models import BoardType
-
 
 # JSONL source directories (same as multi_config_training_loop.py)
 CONFIG_JSONL_DIRS: dict[tuple[str, int], list[str]] = {
@@ -113,7 +112,7 @@ def scan_game_ids_from_jsonl(
 
     try:
         lines_read = 0
-        with open(jsonl_path, "r") as f:
+        with open(jsonl_path) as f:
             for line in f:
                 lines_read += 1
                 if lines_read > max_lines:
@@ -192,7 +191,7 @@ def process_new_games_from_jsonl(
     variants = board_variants.get(board_type_str, [board_type_str])
 
     try:
-        with open(jsonl_path, "r") as f:
+        with open(jsonl_path) as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -474,7 +473,7 @@ def main():
         encoder_version=args.encoder_version,
     )
 
-    print(f"\nIncremental Export Complete:")
+    print("\nIncremental Export Complete:")
     print(f"  Total games seen: {stats.total_games_seen}")
     print(f"  New games found: {stats.new_games_found}")
     print(f"  Games exported: {stats.games_exported}")

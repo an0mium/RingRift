@@ -4,24 +4,24 @@ Verifies the hex coordinate system, D6 symmetry operations,
 and game state factory functions work correctly.
 """
 
-import pytest
 import numpy as np
+import pytest
 
+from app.models import BoardType, GamePhase, GameStatus, Position, RingStack
 from tests.fixtures.hex_fixtures import (
-    HexCoord,
-    D6_ROTATIONS,
     D6_REFLECTIONS,
+    D6_ROTATIONS,
     D6_SYMMETRIES,
+    HexCoord,
     apply_symmetry_to_board,
-    verify_d6_symmetry,
-    create_hex_game_state,
     create_hex_board_with_stacks,
+    create_hex_game_state,
     create_hex_training_sample,
     hex_center_position,
     hex_corner_positions,
     hex_edge_midpoints,
+    verify_d6_symmetry,
 )
-from app.models import GamePhase, BoardType, GameStatus, Position, RingStack
 
 
 class TestHexCoord:

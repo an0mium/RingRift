@@ -6,20 +6,20 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import (  # noqa: E402
+from app.game_engine import GameEngine
+from app.models import (
+    MarkerInfo,
     Position,
     RingStack,
-    MarkerInfo,
 )
-from app.game_engine import GameEngine  # noqa: E402
-from app.rules.placement import (  # noqa: E402
+from app.rules.core import BOARD_CONFIGS
+from app.rules.placement import (
     PlacementContextPy,
-    validate_placement_on_board_py,
-    evaluate_skip_placement_eligibility_py,
     apply_place_ring_py,
+    evaluate_skip_placement_eligibility_py,
+    validate_placement_on_board_py,
 )
-from app.rules.core import BOARD_CONFIGS  # noqa: E402
-from tests.rules.helpers import (  # noqa: E402
+from tests.rules.helpers import (
     _make_base_game_state,
     _make_place_ring_move,
 )

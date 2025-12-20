@@ -33,6 +33,7 @@ import functools
 import logging
 import random
 import time
+from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from typing import (
     Any,
@@ -42,7 +43,6 @@ from typing import (
     TypeVar,
     Union,
 )
-from collections.abc import Callable, Generator
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ class RetryConfig:
 
         return max(0, delay)
 
-    def attempts(self) -> Generator["RetryAttempt", None, None]:
+    def attempts(self) -> Generator[RetryAttempt, None, None]:
         """Generate retry attempts for use in a for loop.
 
         Example:
@@ -255,7 +255,10 @@ def with_timeout(
         def slow_operation():
             ...
     """
-    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+    from concurrent.futures import (
+        ThreadPoolExecutor,
+        TimeoutError as FuturesTimeout,
+    )
 
     def decorator(func: Callable[..., T]) -> Callable[..., T | None]:
         @functools.wraps(func)

@@ -326,7 +326,7 @@ def main():
     )
     args = parser.parse_args()
 
-    log(f"Cluster Monitor Daemon starting")
+    log("Cluster Monitor Daemon starting")
     log(f"Duration: {args.duration_hours} hours")
     log(f"Check interval: {MIN_INTERVAL_SECONDS}-{MAX_INTERVAL_SECONDS} seconds")
     log(f"Log file: {LOG_FILE}")

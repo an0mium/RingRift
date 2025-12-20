@@ -367,7 +367,7 @@ def export_for_selfplay(book: OpeningBook, output_path: str):
 def print_book_stats(book: OpeningBook, max_depth: int = 5):
     """Print statistics about the opening book."""
     print(f"\n{'='*50}")
-    print(f"Opening Book Statistics")
+    print("Opening Book Statistics")
     print(f"{'='*50}")
     print(f"Board Type: {book.board_type}")
     print(f"Players: {book.num_players}")
@@ -386,7 +386,7 @@ def print_book_stats(book: OpeningBook, max_depth: int = 5):
     depth_counts = {}
     count_at_depth(book.root, 0, depth_counts)
 
-    print(f"\nMoves by Depth:")
+    print("\nMoves by Depth:")
     total_moves = 0
     for depth in sorted(depth_counts.keys()):
         count = depth_counts[depth]
@@ -394,7 +394,7 @@ def print_book_stats(book: OpeningBook, max_depth: int = 5):
         print(f"  Depth {depth}: {count} unique moves")
     print(f"  Total: {total_moves} unique positions")
 
-    print(f"\nTop First Moves:")
+    print("\nTop First Moves:")
     first_moves = sorted(book.root.children.items(), key=lambda x: x[1].count, reverse=True)[:10]
     for move, node in first_moves:
         print(f"  {move}: {node.count} games, {node.win_rate:.1%} win rate, Elo {node.avg_elo:.0f}")

@@ -23,12 +23,12 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from app.config.perf_budgets import (  # noqa: E402
+from app.config.perf_budgets import (
     TIER_PERF_BUDGETS,
     TierPerfBudget,
     get_tier_perf_budget,
 )
-from app.training.tier_perf_benchmark import (  # noqa: E402
+from app.training.tier_perf_benchmark import (
     TierPerfResult,
     run_tier_perf_benchmark,
 )

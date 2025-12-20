@@ -6,10 +6,9 @@ Tests the GPU-accelerated parallel game simulation end-to-end.
 import pytest
 import torch
 
-from app.ai.gpu_parallel_games import ParallelGameRunner
 from app.ai.gpu_batch_state import BatchGameState
 from app.ai.gpu_game_types import GamePhase, GameStatus
-
+from app.ai.gpu_parallel_games import ParallelGameRunner
 
 # =============================================================================
 # Test Fixtures

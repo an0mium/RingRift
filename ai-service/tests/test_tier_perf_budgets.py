@@ -12,22 +12,22 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from app.config.perf_budgets import (  # noqa: E402
-    TierPerfBudget,
-    TIER_PERF_BUDGETS,
-    get_tier_perf_budget,
-)
-from app.config.ladder_config import (  # noqa: E402
+from app.config.ladder_config import (
     LadderTierConfig,
     get_ladder_tier_config,
 )
-from app.training.tier_eval_config import (  # noqa: E402
+from app.config.perf_budgets import (
+    TIER_PERF_BUDGETS,
+    TierPerfBudget,
+    get_tier_perf_budget,
+)
+from app.training.tier_eval_config import (
     TierEvaluationConfig,
     get_tier_config,
 )
-from app.training.tier_perf_benchmark import (  # noqa: E402
-    _resolve_eval_config,
+from app.training.tier_perf_benchmark import (
     TierPerfResult,
+    _resolve_eval_config,
     run_tier_perf_benchmark,
 )
 

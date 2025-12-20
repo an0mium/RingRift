@@ -14,10 +14,10 @@ Usage:
 import argparse
 import json
 import sys
-from pathlib import Path
-from dataclasses import dataclass, field
-from typing import Optional
 from collections import Counter
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
 
 
 @dataclass
@@ -296,7 +296,7 @@ def analyze_jsonl_file(filepath: Path, limit: int | None = None, verbose: bool =
     stats = AnalysisStats()
 
     try:
-        with open(filepath, 'r') as f:
+        with open(filepath) as f:
             for line_num, line in enumerate(f):
                 if limit and line_num >= limit:
                     break

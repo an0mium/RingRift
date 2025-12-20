@@ -62,7 +62,7 @@ except ImportError:
 
 # Optional Prometheus metrics - avoid duplicate registration
 try:
-    from prometheus_client import Counter, Gauge, REGISTRY
+    from prometheus_client import REGISTRY, Counter, Gauge
     HAS_PROMETHEUS = True
 
     def _get_or_create_gauge(name, desc, labels):
@@ -89,9 +89,9 @@ except ImportError:
 # Import holdout validation for overfitting detection during promotion
 try:
     from scripts.holdout_validation import (
-        evaluate_model_on_holdout,
-        EvaluationResult,
         OVERFIT_THRESHOLD,
+        EvaluationResult,
+        evaluate_model_on_holdout,
     )
     HAS_HOLDOUT_VALIDATION = True
 except ImportError:
@@ -110,8 +110,8 @@ except ImportError:
 
 # Optional ClusterHealthMonitor for checking cluster state before promotion
 try:
-    from app.monitoring.cluster_monitor import ClusterHealthMonitor, check_local_health
     from app.monitoring.base import HealthStatus
+    from app.monitoring.cluster_monitor import ClusterHealthMonitor, check_local_health
     HAS_CLUSTER_MONITOR = True
 except ImportError:
     HAS_CLUSTER_MONITOR = False
@@ -130,7 +130,7 @@ class ModelPromoter:
     - Support for different promotion types (staging, production, tier, rollback)
     """
 
-    def __init__(self, config: PromotionConfig, state: "UnifiedLoopState", event_bus: "EventBus"):
+    def __init__(self, config: PromotionConfig, state: UnifiedLoopState, event_bus: EventBus):
         self.config = config
         self.state = state
         self.event_bus = event_bus
@@ -567,7 +567,7 @@ def print_promotion_verification(results: dict[str, Any]) -> None:
     print(f"\nOverall Status: {status}")
     print(f"Timestamp: {results.get('timestamp')}")
 
-    print(f"\nComponent Status:")
+    print("\nComponent Status:")
     print(f"  EloService: {'OK' if results.get('elo_service_available') else 'MISSING'}")
     print(f"  Database: {'OK' if results.get('elo_database_accessible') else 'ERROR'}")
     print(f"  PromotionController: {'OK' if results.get('promotion_controller_available') else 'MISSING'}")

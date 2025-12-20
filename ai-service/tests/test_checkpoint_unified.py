@@ -9,10 +9,10 @@ Tests cover:
 - Lineage tracking
 """
 
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-import tempfile
 
 import pytest
 
@@ -130,8 +130,8 @@ class TestUnifiedCheckpointManager:
         """Test checkpoint manager initialization."""
         try:
             from app.training.checkpoint_unified import (
-                UnifiedCheckpointManager,
                 UnifiedCheckpointConfig,
+                UnifiedCheckpointManager,
             )
         except ImportError:
             pytest.skip("checkpoint_unified not available")
@@ -145,8 +145,8 @@ class TestUnifiedCheckpointManager:
         """Test that manager creates checkpoint directory."""
         try:
             from app.training.checkpoint_unified import (
-                UnifiedCheckpointManager,
                 UnifiedCheckpointConfig,
+                UnifiedCheckpointManager,
             )
         except ImportError:
             pytest.skip("checkpoint_unified not available")
@@ -161,8 +161,8 @@ class TestUnifiedCheckpointManager:
         """Test adaptive checkpointing configuration."""
         try:
             from app.training.checkpoint_unified import (
-                UnifiedCheckpointManager,
                 UnifiedCheckpointConfig,
+                UnifiedCheckpointManager,
             )
         except ImportError:
             pytest.skip("checkpoint_unified not available")
@@ -242,8 +242,8 @@ class TestCheckpointRecovery:
         """Test finding the latest checkpoint."""
         try:
             from app.training.checkpoint_unified import (
-                UnifiedCheckpointManager,
                 UnifiedCheckpointConfig,
+                UnifiedCheckpointManager,
             )
         except ImportError:
             pytest.skip("checkpoint_unified not available")
@@ -267,8 +267,8 @@ class TestCheckpointRecovery:
         """Test listing available checkpoints."""
         try:
             from app.training.checkpoint_unified import (
-                UnifiedCheckpointManager,
                 UnifiedCheckpointConfig,
+                UnifiedCheckpointManager,
             )
         except ImportError:
             pytest.skip("checkpoint_unified not available")
@@ -288,8 +288,8 @@ class TestHashVerification:
         """Test that hash computation is available."""
         try:
             from app.training.checkpoint_unified import (
-                UnifiedCheckpointManager,
                 UnifiedCheckpointConfig,
+                UnifiedCheckpointManager,
             )
         except ImportError:
             pytest.skip("checkpoint_unified not available")
@@ -314,8 +314,8 @@ class TestRetentionPolicy:
         """Test max checkpoints configuration."""
         try:
             from app.training.checkpoint_unified import (
-                UnifiedCheckpointManager,
                 UnifiedCheckpointConfig,
+                UnifiedCheckpointManager,
             )
         except ImportError:
             pytest.skip("checkpoint_unified not available")
@@ -334,8 +334,8 @@ class TestRetentionPolicy:
         """Test keep_every_n_epochs configuration."""
         try:
             from app.training.checkpoint_unified import (
-                UnifiedCheckpointManager,
                 UnifiedCheckpointConfig,
+                UnifiedCheckpointManager,
             )
         except ImportError:
             pytest.skip("checkpoint_unified not available")

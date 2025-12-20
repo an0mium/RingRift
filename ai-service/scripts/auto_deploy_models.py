@@ -334,7 +334,7 @@ def trigger_retraining(
     with open(retrain_queue, "w") as f:
         json.dump(queue, f, indent=2)
 
-    print(f"[Deploy] Retrain request queued")
+    print("[Deploy] Retrain request queued")
 
 
 def run_deployment_pipeline(
@@ -346,7 +346,7 @@ def run_deployment_pipeline(
 ) -> bool:
     """Run full deployment pipeline."""
     print(f"\n{'='*60}")
-    print(f"[Deploy] Starting deployment pipeline")
+    print("[Deploy] Starting deployment pipeline")
     print(f"[Deploy] Board: {board_type}, Players: {num_players}")
     print(f"{'='*60}\n")
 
@@ -376,7 +376,7 @@ def run_deployment_pipeline(
     eval_result = None
     if not skip_eval:
         eval_result = evaluate_model(model_path, baseline_path, board_type, num_players)
-        print(f"\n[Deploy] Evaluation Results:")
+        print("\n[Deploy] Evaluation Results:")
         print(f"  Win Rate: {eval_result.win_rate:.1%}")
         print(f"  Games: {eval_result.games_played}")
         print(f"  Passed: {eval_result.passed}")
@@ -413,7 +413,7 @@ def run_deployment_pipeline(
     if current_model.exists() and current_model != model_path:
         archive_name = f"nnue_{board_type}_{num_players}p_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pt"
         shutil.copy2(current_model, archive_dir / archive_name)
-        print(f"[Deploy] Archived previous model")
+        print("[Deploy] Archived previous model")
 
     # Copy to standard location
     if model_path != current_model:
@@ -438,7 +438,7 @@ def run_deployment_pipeline(
     save_deployment_log(records)
 
     print(f"\n{'='*60}")
-    print(f"[Deploy] Deployment SUCCESSFUL")
+    print("[Deploy] Deployment SUCCESSFUL")
     print(f"[Deploy] Deployed to: {', '.join(deployed_to)}")
     print(f"{'='*60}\n")
 

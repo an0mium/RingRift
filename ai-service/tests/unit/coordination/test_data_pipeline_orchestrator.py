@@ -9,22 +9,22 @@ Tests cover:
 - Module helper functions
 """
 
-import pytest
 import time
 from unittest.mock import MagicMock
 
-from app.coordination.data_pipeline_orchestrator import (
-    PipelineStage,
-    StageTransition,
-    IterationRecord,
-    PipelineStats,
-    DataPipelineOrchestrator,
-    get_pipeline_orchestrator,
-    wire_pipeline_events,
-    get_pipeline_status,
-    get_current_pipeline_stage,
-)
+import pytest
 
+from app.coordination.data_pipeline_orchestrator import (
+    DataPipelineOrchestrator,
+    IterationRecord,
+    PipelineStage,
+    PipelineStats,
+    StageTransition,
+    get_current_pipeline_stage,
+    get_pipeline_orchestrator,
+    get_pipeline_status,
+    wire_pipeline_events,
+)
 
 # ============================================
 # Tests for PipelineStage enum

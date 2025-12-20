@@ -29,25 +29,25 @@ Usage:
 import argparse
 import asyncio
 import json
-import sys
 import os
+import sys
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app.coordination.slurm_backend import (
+    SlurmPartition,
+    get_slurm_backend,
+)
 from app.coordination.unified_scheduler import (
-    UnifiedJob,
-    JobType,
     Backend,
     JobState,
+    JobType,
+    UnifiedJob,
     get_scheduler,
-    submit_selfplay,
     submit_gpu_selfplay,
+    submit_selfplay,
     submit_training,
-)
-from app.coordination.slurm_backend import (
-    get_slurm_backend,
-    SlurmPartition,
 )
 
 

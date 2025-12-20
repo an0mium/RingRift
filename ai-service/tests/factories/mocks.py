@@ -6,9 +6,9 @@ Provides mock implementations of common interfaces and async utilities.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
-from collections.abc import Callable
 from unittest.mock import AsyncMock, MagicMock
 
 __all__ = [

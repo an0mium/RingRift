@@ -19,8 +19,8 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.rules import MutableGameState, create_game_state
 from app.ai.nnue import NNUEEvaluator, load_nnue_model
+from app.rules import MutableGameState, create_game_state
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
@@ -120,7 +120,7 @@ def run_comparison(
     num_players: int = 2,
 ) -> dict[str, Any]:
     """Run a comparison tournament between two NNUE models."""
-    print(f"\nNNUE Model Comparison")
+    print("\nNNUE Model Comparison")
     print("=" * 60)
     print(f"Model A: {model_a_path}")
     print(f"Model B: {model_b_path}")

@@ -8,23 +8,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import torch
 import numpy as np
+import torch
 
+from app.ai.gpu_batch import get_device
 from app.ai.gpu_parallel_games import (
     BatchGameState,
-    generate_placement_moves_batch,
-    generate_movement_moves_batch,
-    generate_capture_moves_batch_vectorized,
-    apply_placement_moves_batch_vectorized,
-    apply_movement_moves_batch_vectorized,
-    apply_capture_moves_batch_vectorized,
-    _apply_placement_moves_batch_legacy,
-    _apply_movement_moves_batch_legacy,
     _apply_capture_moves_batch_legacy,
+    _apply_movement_moves_batch_legacy,
+    _apply_placement_moves_batch_legacy,
+    apply_capture_moves_batch_vectorized,
+    apply_movement_moves_batch_vectorized,
+    apply_placement_moves_batch_vectorized,
+    generate_capture_moves_batch_vectorized,
+    generate_movement_moves_batch,
+    generate_placement_moves_batch,
 )
-from app.ai.gpu_batch import get_device
-
 from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("benchmark_move_application")
@@ -148,7 +147,7 @@ def setup_capture_state(batch_size: int, board_size: int, device: torch.device, 
 
 def benchmark_placement(args, device):
     """Benchmark placement move application."""
-    logger.info(f"\n=== PLACEMENT APPLICATION BENCHMARK ===")
+    logger.info("\n=== PLACEMENT APPLICATION BENCHMARK ===")
 
     vec_times = []
     leg_times = []
@@ -214,7 +213,7 @@ def benchmark_placement(args, device):
 
 def benchmark_movement(args, device):
     """Benchmark movement move application."""
-    logger.info(f"\n=== MOVEMENT APPLICATION BENCHMARK ===")
+    logger.info("\n=== MOVEMENT APPLICATION BENCHMARK ===")
 
     vec_times = []
     leg_times = []
@@ -272,7 +271,7 @@ def benchmark_movement(args, device):
 
 def benchmark_capture(args, device):
     """Benchmark capture move application."""
-    logger.info(f"\n=== CAPTURE APPLICATION BENCHMARK ===")
+    logger.info("\n=== CAPTURE APPLICATION BENCHMARK ===")
 
     vec_times = []
     leg_times = []

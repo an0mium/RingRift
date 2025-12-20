@@ -39,7 +39,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 def cmd_harvest(args: argparse.Namespace) -> int:
     """Run data harvesting."""
     from scripts.harvest_local_training_data import harvest_local_data
-    from scripts.lib.logging_config import setup_script_logging, get_logger
+    from scripts.lib.logging_config import get_logger, setup_script_logging
 
     setup_script_logging(
         script_name="harvest",
@@ -76,8 +76,8 @@ def cmd_harvest(args: argparse.Namespace) -> int:
 
 def cmd_monitor(args: argparse.Namespace) -> int:
     """Run Elo monitoring."""
-    from scripts.elo_monitor import EloMonitor, StatusReporter, AlertSeverity
-    from scripts.lib.logging_config import setup_script_logging, get_logger
+    from scripts.elo_monitor import AlertSeverity, EloMonitor, StatusReporter
+    from scripts.lib.logging_config import get_logger, setup_script_logging
 
     setup_script_logging(
         script_name="monitor",
@@ -111,8 +111,8 @@ def cmd_monitor(args: argparse.Namespace) -> int:
 
 def cmd_compare(args: argparse.Namespace) -> int:
     """Run model comparison."""
-    from scripts.compare_models_elo import ModelComparator, ComparisonReporter
-    from scripts.lib.logging_config import setup_script_logging, get_logger
+    from scripts.compare_models_elo import ComparisonReporter, ModelComparator
+    from scripts.lib.logging_config import get_logger, setup_script_logging
 
     setup_script_logging(
         script_name="compare",
@@ -165,7 +165,7 @@ def cmd_compare(args: argparse.Namespace) -> int:
 def cmd_health(args: argparse.Namespace) -> int:
     """Check cluster health."""
     from scripts.lib.cluster import ClusterManager
-    from scripts.lib.logging_config import setup_script_logging, get_logger
+    from scripts.lib.logging_config import get_logger, setup_script_logging
 
     setup_script_logging(
         script_name="health",
@@ -178,7 +178,7 @@ def cmd_health(args: argparse.Namespace) -> int:
     healthy_nodes = manager.get_healthy_nodes(force_check=True)
 
     print(f"\n{'=' * 60}")
-    print(f"  CLUSTER HEALTH CHECK")
+    print("  CLUSTER HEALTH CHECK")
     print(f"{'=' * 60}\n")
 
     total_nodes = len(manager.nodes)
@@ -209,8 +209,8 @@ def cmd_health(args: argparse.Namespace) -> int:
 
 def cmd_periodic(args: argparse.Namespace) -> int:
     """Run periodic tasks."""
+    from scripts.lib.logging_config import get_logger, setup_script_logging
     from scripts.periodic_harvest import run_periodic_harvest
-    from scripts.lib.logging_config import setup_script_logging, get_logger
 
     setup_script_logging(
         script_name=f"periodic_{args.task}",
@@ -297,7 +297,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     action = args.daemon_action
 
     try:
-        from app.coordination.daemon_manager import get_daemon_manager, DaemonType
+        from app.coordination.daemon_manager import DaemonType, get_daemon_manager
 
         async def do_action():
             manager = get_daemon_manager()

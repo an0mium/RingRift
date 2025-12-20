@@ -4,17 +4,18 @@ Tests the shadow validation system that verifies GPU-generated moves
 against the canonical CPU rules engine.
 """
 
-import pytest
 import time
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.ai.shadow_validation import (
-    DivergenceType,
-    DivergenceRecord,
-    ValidationStats,
-    ShadowValidator,
-    DEFAULT_SAMPLE_RATE,
     DEFAULT_DIVERGENCE_THRESHOLD,
+    DEFAULT_SAMPLE_RATE,
+    DivergenceRecord,
+    DivergenceType,
+    ShadowValidator,
+    ValidationStats,
 )
 
 

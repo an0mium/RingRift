@@ -15,13 +15,13 @@ from unittest.mock import patch
 import pytest
 
 from scripts.lib.metrics import (
-    TimingStats,
-    RateCalculator,
     Counter,
-    WinLossCounter,
-    ProgressTracker,
-    RunningStats,
     MetricsCollection,
+    ProgressTracker,
+    RateCalculator,
+    RunningStats,
+    TimingStats,
+    WinLossCounter,
 )
 
 

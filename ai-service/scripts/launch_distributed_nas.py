@@ -258,9 +258,9 @@ def main():
         for inst in instances:
             print(f"  Collecting from {inst.instance_id}...")
             if collect_results(inst, args.collect, output_dir):
-                print(f"    Success")
+                print("    Success")
             else:
-                print(f"    Failed")
+                print("    Failed")
         return 0
 
     # Sync code
@@ -268,7 +268,7 @@ def main():
     for inst in instances:
         print(f"  Syncing to {inst.instance_id}...")
         if not sync_code_to_instance(inst, args.dry_run):
-            print(f"    Warning: sync failed, skipping instance")
+            print("    Warning: sync failed, skipping instance")
             instances.remove(inst)
 
     if args.sync_only:
@@ -279,7 +279,7 @@ def main():
     run_id = f"nas_dist_{int(time.time())}"
     iterations = args.generations
 
-    print(f"\nLaunching distributed NAS...")
+    print("\nLaunching distributed NAS...")
     print(f"  Strategy: {args.strategy}")
     print(f"  Iterations: {iterations}")
     print(f"  Board: {args.board}_{args.players}p")

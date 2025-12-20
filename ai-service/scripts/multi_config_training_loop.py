@@ -20,17 +20,17 @@ Environment Variables:
     RINGRIFT_ENABLE_AUTO_HP_TUNING: Set to "1" to enable automatic HP tuning (default: disabled)
     RINGRIFT_MIN_GAMES_FOR_HP_TUNING: Min games before HP tuning is considered (default: 500)
 """
+import glob
+import json
 import os
-import sys
-import time
+import re
 import sqlite3
 import subprocess
-import glob
-import re
-import json
+import sys
+import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Set, Any
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -61,10 +61,10 @@ except ImportError:
 
 try:
     from app.config.hyperparameters import (
+        get_all_configs as get_all_hp_configs,
+        get_hyperparameter_info,
         get_hyperparameters,
         needs_tuning,
-        get_hyperparameter_info,
-        get_all_configs as get_all_hp_configs,
     )
     HAS_HYPERPARAMETERS = True
 except ImportError:
@@ -73,8 +73,8 @@ except ImportError:
 # PFSP (Prioritized Fictitious Self-Play) opponent pool for diverse training
 try:
     from app.training.advanced_training import (
-        PFSPOpponentPool,
         OpponentStats,
+        PFSPOpponentPool,
     )
     HAS_PFSP = True
 except ImportError:
@@ -109,8 +109,8 @@ except ImportError:
 # background eval, ELO weighting, curriculum learning, and data augmentation
 try:
     from app.training.integrated_enhancements import (
-        IntegratedTrainingManager,
         IntegratedEnhancementsConfig,
+        IntegratedTrainingManager,
         create_integrated_manager,
     )
     HAS_INTEGRATED_ENHANCEMENTS = True
@@ -877,7 +877,7 @@ def count_jsonl_games(jsonl_path: str, board_type: str, num_players: int,
     lines_read = 0
 
     try:
-        with open(jsonl_path, 'r') as f:
+        with open(jsonl_path) as f:
             for line in f:
                 lines_read += 1
                 if lines_read > max_lines:
@@ -937,7 +937,7 @@ def get_jsonl_file_metadata(jsonl_path: str, max_lines: int = 5000) -> dict[tupl
 
     try:
         lines_read = 0
-        with open(jsonl_path, 'r') as f:
+        with open(jsonl_path) as f:
             for line in f:
                 lines_read += 1
                 if lines_read > max_lines:
@@ -1282,16 +1282,16 @@ def run_training(board_type: str, num_players: int, db_paths: list[str],
         for jsonl_path in jsonl_paths:
             exp_cmd.extend(["--input", jsonl_path])
 
-        print(f"  Exporting from JSONL...", flush=True)
+        print("  Exporting from JSONL...", flush=True)
         try:
             r = subprocess.run(exp_cmd, capture_output=True, text=True, timeout=export_timeout, env=env)
             if r.returncode == 0 and os.path.exists(jsonl_npz):
                 npz_files.append(jsonl_npz)
-                print(f"  JSONL export complete", flush=True)
+                print("  JSONL export complete", flush=True)
             else:
                 print(f"  JSONL export failed: {r.stderr[:300] if r.stderr else r.stdout[:300]}", flush=True)
         except subprocess.TimeoutExpired:
-            print(f"  JSONL export timeout", flush=True)
+            print("  JSONL export timeout", flush=True)
 
     # Export from DB if available (and JSONL didn't produce enough)
     if has_db:
@@ -1339,7 +1339,7 @@ def run_training(board_type: str, num_players: int, db_paths: list[str],
 
     # Check if we have any data
     if not npz_files:
-        print(f"  No data exported, skipping training", flush=True)
+        print("  No data exported, skipping training", flush=True)
         last_trained_counts[key] = current_count
         return False
 
@@ -1350,7 +1350,7 @@ def run_training(board_type: str, num_players: int, db_paths: list[str],
         if merged_samples > 0:
             print(f"  Merged {merged_samples} total samples from {len(npz_files)} sources", flush=True)
         elif merged_samples == 0:
-            print(f"  Warning: Merge produced no samples", flush=True)
+            print("  Warning: Merge produced no samples", flush=True)
             last_trained_counts[key] = current_count
             return False
     else:
@@ -1496,7 +1496,7 @@ def run_training(board_type: str, num_players: int, db_paths: list[str],
             last_trained_counts[key] = current_count
             return False
     except subprocess.TimeoutExpired:
-        print(f"  Training timeout after 900s", flush=True)
+        print("  Training timeout after 900s", flush=True)
         last_trained_counts[key] = current_count
         return False
 
@@ -1608,22 +1608,22 @@ def run_policy_training(board_type: str, num_players: int, db_paths: list[str],
         if r.returncode != 0:
             # Check if it's a "no data" error vs actual failure
             if "No training samples" in r.stderr or "No training samples" in r.stdout:
-                print(f"  Policy training skipped: no policy training data available", flush=True)
+                print("  Policy training skipped: no policy training data available", flush=True)
                 return False
             print(f"  Policy training failed: {r.stderr[:500] if r.stderr else r.stdout[:500]}", flush=True)
             return False
     except subprocess.TimeoutExpired:
-        print(f"  Policy training timeout after 1200s", flush=True)
+        print("  Policy training timeout after 1200s", flush=True)
         return False
 
     # Check output for KL loss status
     output = r.stdout + r.stderr
     if "Auto-enabled KL loss" in output:
-        print(f"  Policy training complete with KL loss (MCTS data detected)!", flush=True)
+        print("  Policy training complete with KL loss (MCTS data detected)!", flush=True)
     elif "KL loss not auto-enabled" in output:
-        print(f"  Policy training complete with cross-entropy (no MCTS data)", flush=True)
+        print("  Policy training complete with cross-entropy (no MCTS data)", flush=True)
     else:
-        print(f"  Policy training complete!", flush=True)
+        print("  Policy training complete!", flush=True)
 
     return True
 
@@ -1641,29 +1641,29 @@ def main():
     print("Advanced Features:", flush=True)
     print(f"  - Hyperparameters: {'ENABLED' if HAS_HYPERPARAMETERS else 'disabled'}", flush=True)
     print(f"  - Feedback Accelerator: {'ENABLED' if HAS_FEEDBACK_ACCELERATOR else 'disabled'}", flush=True)
-    print(f"  - Adaptive Curriculum: ENABLED (ELO-based)", flush=True)
+    print("  - Adaptive Curriculum: ENABLED (ELO-based)", flush=True)
     print(f"  - Auto HP Tuning: {'ENABLED' if ENABLE_AUTO_HP_TUNING else 'disabled (set RINGRIFT_ENABLE_AUTO_HP_TUNING=1)'}", flush=True)
     if ENABLE_POLICY_TRAINING:
         print(f"  - Policy Training: ENABLED (auto-KL: {POLICY_AUTO_KL_LOSS}, "
               f"coverage>={POLICY_KL_MIN_COVERAGE:.0%}, min={POLICY_KL_MIN_SAMPLES} samples)", flush=True)
     else:
-        print(f"  - Policy Training: disabled (set RINGRIFT_ENABLE_POLICY_TRAINING=1)", flush=True)
+        print("  - Policy Training: disabled (set RINGRIFT_ENABLE_POLICY_TRAINING=1)", flush=True)
     # PFSP status
     if HAS_PFSP:
         pfsp_configs = list(PFSP_POOLS.keys())
         print(f"  - PFSP Opponent Pools: ENABLED ({len(pfsp_configs)} configs)", flush=True)
     else:
-        print(f"  - PFSP Opponent Pools: disabled (import failed)", flush=True)
+        print("  - PFSP Opponent Pools: disabled (import failed)", flush=True)
     # CMA-ES status
     if HAS_CMAES:
-        print(f"  - CMA-ES Auto-Tuning: ENABLED (plateau detection)", flush=True)
+        print("  - CMA-ES Auto-Tuning: ENABLED (plateau detection)", flush=True)
     else:
-        print(f"  - CMA-ES Auto-Tuning: disabled (import failed)", flush=True)
+        print("  - CMA-ES Auto-Tuning: disabled (import failed)", flush=True)
     # Incremental export status
     if ENABLE_INCREMENTAL_EXPORT:
-        print(f"  - Incremental Export: ENABLED (fast data pipeline)", flush=True)
+        print("  - Incremental Export: ENABLED (fast data pipeline)", flush=True)
     else:
-        print(f"  - Incremental Export: disabled (set RINGRIFT_ENABLE_INCREMENTAL_EXPORT=1)", flush=True)
+        print("  - Incremental Export: disabled (set RINGRIFT_ENABLE_INCREMENTAL_EXPORT=1)", flush=True)
 
     # Show hyperparameter status for all configs
     if HAS_HYPERPARAMETERS:

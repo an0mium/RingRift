@@ -361,7 +361,7 @@ def print_quality_stats(games: list[GameQuality], title: str = "Training Data Qu
     print(title)
     print("=" * 60)
     print(f"\nTotal games: {len(games)}")
-    print(f"\nElo statistics:")
+    print("\nElo statistics:")
     print(f"  Average Elo: {sum(avg_elos)/len(avg_elos):.0f}")
     print(f"  Min avg Elo: {min(avg_elos):.0f}")
     print(f"  Max avg Elo: {max(avg_elos):.0f}")
@@ -381,12 +381,12 @@ def print_quality_stats(games: list[GameQuality], title: str = "Training Data Qu
         pct = 100 * count / len(games)
         print(f"  {label}: {count} games ({pct:.1f}%)")
 
-    print(f"\nQuality weights:")
+    print("\nQuality weights:")
     print(f"  Mean weight: {sum(weights)/len(weights):.2f}")
     print(f"  Min weight: {min(weights):.2f}")
     print(f"  Max weight: {max(weights):.2f}")
 
-    print(f"\nGame length:")
+    print("\nGame length:")
     print(f"  Avg moves: {sum(moves)/len(moves):.0f}")
     print(f"  Min moves: {min(moves)}")
     print(f"  Max moves: {max(moves)}")

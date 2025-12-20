@@ -15,8 +15,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-import scripts.run_nn_training_baseline as nn_baseline  # noqa: E402
-
+import scripts.run_nn_training_baseline as nn_baseline
 
 TEST_TIMEOUT_SECONDS = 60
 

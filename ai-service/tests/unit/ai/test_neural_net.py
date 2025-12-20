@@ -9,46 +9,46 @@ Tests cover:
 - CNN architecture forward passes (with mocking)
 """
 
-import pytest
-import torch
-import numpy as np
-from unittest.mock import MagicMock, patch
 from dataclasses import dataclass
 from typing import Optional
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pytest
+import torch
 
 from app.ai.neural_net import (
+    HEX8_BOARD_SIZE,
+    # Hex constants
+    HEX_BOARD_SIZE,
+    HEX_DIRS,
+    INVALID_MOVE_INDEX,
+    MAX_N,
+    MAX_PLAYERS,
+    NUM_HEX_DIRS,
+    P_HEX,
+    POLICY_SIZE_HEX8,
+    SQUARE8_LINE_FORM_BASE,
+    SQUARE8_MOVEMENT_BASE,
+    # Square8 policy layout constants
+    SQUARE8_PLACEMENT_SPAN,
+    SQUARE8_SKIP_PLACEMENT_IDX,
+    SQUARE8_SWAP_SIDES_IDX,
+    SQUARE8_TERRITORY_CLAIM_BASE,
+    # Dataclass
+    DecodedPolicyIndex,
     # Constants
     POLICY_SIZE_8x8,
     POLICY_SIZE_19x19,
-    POLICY_SIZE_HEX8,
-    P_HEX,
-    MAX_N,
-    MAX_PLAYERS,
-    INVALID_MOVE_INDEX,
-    # Square8 policy layout constants
-    SQUARE8_PLACEMENT_SPAN,
-    SQUARE8_MOVEMENT_BASE,
-    SQUARE8_LINE_FORM_BASE,
-    SQUARE8_TERRITORY_CLAIM_BASE,
-    SQUARE8_SKIP_PLACEMENT_IDX,
-    SQUARE8_SWAP_SIDES_IDX,
-    # Hex constants
-    HEX_BOARD_SIZE,
-    HEX8_BOARD_SIZE,
-    NUM_HEX_DIRS,
-    HEX_DIRS,
+    _decode_move_square8,
+    _encode_move_square8,
+    decode_move_for_board,
+    encode_move_for_board,
     # Functions
     get_policy_size_for_board,
     get_spatial_size_for_board,
-    encode_move_for_board,
-    decode_move_for_board,
-    _encode_move_square8,
-    _decode_move_square8,
-    # Dataclass
-    DecodedPolicyIndex,
 )
-from app.models import BoardType, Move, MoveType, Position, BoardState
-
+from app.models import BoardState, BoardType, Move, MoveType, Position
 
 # =============================================================================
 # Test Fixtures

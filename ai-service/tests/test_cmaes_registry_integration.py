@@ -11,11 +11,11 @@ from pathlib import Path
 import pytest
 
 from app.training.cmaes_registry_integration import (
-    register_cmaes_result,
-    get_best_heuristic_model,
-    load_heuristic_weights_from_registry,
-    list_cmaes_runs,
     CMAESRunConfig,
+    get_best_heuristic_model,
+    list_cmaes_runs,
+    load_heuristic_weights_from_registry,
+    register_cmaes_result,
 )
 from app.training.model_registry import (
     ModelRegistry,

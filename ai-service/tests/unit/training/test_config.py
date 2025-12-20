@@ -5,15 +5,16 @@ environment variable overrides.
 """
 
 import os
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from app.training.config import (
     GpuScalingConfig,
+    _get_gpu_memory_gb,
+    _scale_batch_size_for_gpu,
     get_gpu_scaling_config,
     set_gpu_scaling_config,
-    _scale_batch_size_for_gpu,
-    _get_gpu_memory_gb,
 )
 
 

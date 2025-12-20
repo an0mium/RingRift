@@ -5,8 +5,9 @@ EBMO learns by seeing what moves Heuristic makes in winning games.
 Uses contrastive labeling: winner's moves = positive, loser's = negative.
 """
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import argparse
@@ -16,12 +17,12 @@ from pathlib import Path
 import numpy as np
 
 from app.ai.ebmo_ai import EBMO_AI
+from app.ai.ebmo_network import ActionFeatureExtractor
 from app.ai.heuristic_ai import HeuristicAI
 from app.ai.neural_net import NeuralNetAI
-from app.ai.ebmo_network import ActionFeatureExtractor
 from app.game_engine import GameEngine
-from app.training.initial_state import create_initial_state
 from app.models.core import AIConfig, BoardType, GameStatus
+from app.training.initial_state import create_initial_state
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("generate_ebmo_vs_heuristic")

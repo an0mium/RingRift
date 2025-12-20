@@ -23,11 +23,11 @@ import sys
 import tempfile
 import time
 import uuid
+from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
-from collections.abc import Iterable, Sequence
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = AI_SERVICE_ROOT.parent
@@ -40,7 +40,6 @@ from app.rules.history_validation import (
     validate_canonical_config_for_game,
     validate_canonical_history_for_game,
 )
-
 
 DEFAULT_HOLDOUT_SOURCE_SUBSTRINGS = (
     "tournament",

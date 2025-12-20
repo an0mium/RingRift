@@ -83,7 +83,7 @@ class ValidationResult:
 
 def load_candidate_weights(path: str) -> tuple[HeuristicWeights, dict]:
     """Load candidate weights from a file."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
 
     # Handle different file formats
@@ -283,7 +283,7 @@ def promote_weights(
 
     # Load existing profiles or create new
     if os.path.exists(output_path):
-        with open(output_path, "r", encoding="utf-8") as f:
+        with open(output_path, encoding="utf-8") as f:
             data = json.load(f)
     else:
         data = {"profiles": {}, "metadata": {"updates": []}}

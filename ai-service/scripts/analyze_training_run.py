@@ -80,7 +80,7 @@ def parse_training_log(log_path: Path) -> TrainingRunSummary:
     current_value_loss = None
     current_policy_loss = None
 
-    with open(log_path, "r") as f:
+    with open(log_path) as f:
         for line in f:
             # Extract learning rate
             lr_match = lr_pattern.search(line)

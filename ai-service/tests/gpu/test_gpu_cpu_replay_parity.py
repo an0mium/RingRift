@@ -23,19 +23,20 @@ These tests serve as:
 """
 
 import os
+from pathlib import Path
+from typing import List, Optional, Tuple
+
+import numpy as np
 import pytest
 import torch
-import numpy as np
-from pathlib import Path
-from typing import List, Tuple, Optional
 
-from app.models import BoardType, GamePhase, GameState
 from app.db.game_replay import GameReplayDB
+from app.models import BoardType, GamePhase, GameState
 
 # Conditional imports - tests skip if GPU modules unavailable
 try:
-    from app.ai.gpu_parallel_games import BatchGameState
     from app.ai.gpu_heuristic import evaluate_positions_batch
+    from app.ai.gpu_parallel_games import BatchGameState
     from app.ai.heuristic_ai import HeuristicAI
     from app.models import AIConfig
     GPU_MODULES_AVAILABLE = True
@@ -50,9 +51,10 @@ FROM_SINGLE_GAME_ERROR = ""
 if GPU_MODULES_AVAILABLE:
     try:
         # Verify the internal imports work (they currently fail with CellContent)
-        from app.ai.gpu_batch_state import BatchGameState as _TestBGS
         # Try to trigger the import that fails
         import inspect
+
+        from app.ai.gpu_batch_state import BatchGameState as _TestBGS
         source = inspect.getsource(_TestBGS.from_game_states)
         if "CellContent" in source or "game_state.rules" in source:
             FROM_SINGLE_GAME_ERROR = "from_single_game uses deprecated API (CellContent, game_state.rules)"

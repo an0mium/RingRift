@@ -5,17 +5,17 @@ Mirrors: tests/unit/engine/EliminationAggregate.test.ts
 """
 
 import pytest
+
 from app.rules.elimination import (
     EliminationContext,
     EliminationReason,
     calculate_cap_height,
-    is_stack_eligible_for_elimination,
-    get_rings_to_eliminate,
     eliminate_from_stack,
     enumerate_eligible_stacks,
+    get_rings_to_eliminate,
     has_eligible_elimination_target,
+    is_stack_eligible_for_elimination,
 )
-
 
 # =============================================================================
 # CALCULATE CAP HEIGHT

@@ -33,14 +33,22 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import (
-    GameState, Move, Position, MoveType, GamePhase, GameStatus, BoardType,
-    BoardState, Player, RingStack, TimeControl
-)
-from app.game_engine import GameEngine
 from app.board_manager import BoardManager
+from app.game_engine import GameEngine
+from app.models import (
+    BoardState,
+    BoardType,
+    GamePhase,
+    GameState,
+    GameStatus,
+    Move,
+    MoveType,
+    Player,
+    Position,
+    RingStack,
+    TimeControl,
+)
 from app.rules import global_actions as ga
-
 
 SELFPLAY_FAILURES_DIR = Path(__file__).parent.parent.parent / "logs" / "selfplay" / "failures"
 RESULTS_FAILURES_DIR = Path(__file__).parent.parent.parent / "results" / "failures"
@@ -50,7 +58,7 @@ def load_failure_snapshot(path: Path) -> GameState | None:
     """Load a failure snapshot and return the GameState."""
     if not path.exists():
         return None
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         payload = json.load(f)
     return GameState.model_validate(payload["state"])
 

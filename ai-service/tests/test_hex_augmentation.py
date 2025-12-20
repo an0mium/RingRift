@@ -8,13 +8,13 @@ import numpy as np
 import pytest
 
 from app.training.hex_augmentation import (
+    HEX_BOARD_SIZE,
+    HEX_MOVEMENT_BASE,
+    HEX_PLACEMENT_SPAN,
+    HEX_RADIUS,
+    P_HEX,
     HexSymmetryTransform,
     augment_hex_sample,
-    HEX_BOARD_SIZE,
-    HEX_RADIUS,
-    HEX_PLACEMENT_SPAN,
-    HEX_MOVEMENT_BASE,
-    P_HEX,
 )
 
 

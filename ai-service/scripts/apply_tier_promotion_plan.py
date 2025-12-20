@@ -26,17 +26,16 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from app.models import BoardType  # noqa: E402
-from app.config.ladder_config import (  # noqa: E402
+from app.config.ladder_config import (
     get_ladder_tier_config,
 )
-from app.training.tier_promotion_registry import (  # noqa: E402
+from app.models import BoardType
+from app.training.tier_promotion_registry import (
     DEFAULT_SQUARE8_2P_REGISTRY_PATH,
     load_square8_two_player_registry,
-    save_square8_two_player_registry,
     record_promotion_plan,
+    save_square8_two_player_registry,
 )
-
 
 PROMOTION_SUMMARY_FILENAME = "promotion_summary.json"
 PROMOTION_PATCH_GUIDE_FILENAME = "promotion_patch_guide.txt"
@@ -100,7 +99,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def _load_promotion_plan(path: str) -> dict[str, Any]:
     """Load and parse a promotion_plan.json file."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 

@@ -7,8 +7,7 @@ import pytest
 import torch
 
 from app.ai.gpu_batch_state import BatchGameState
-from app.ai.gpu_game_types import GameStatus, GamePhase, MoveType
-
+from app.ai.gpu_game_types import GamePhase, GameStatus, MoveType
 
 # =============================================================================
 # Test Fixtures

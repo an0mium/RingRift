@@ -25,7 +25,7 @@ This test validates that:
 import json
 import os
 import sys
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 import pytest
 
@@ -34,14 +34,22 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import (
-    GameState, Move, Position, MoveType, GamePhase, GameStatus, BoardType,
-    BoardState, Player, RingStack, TimeControl
-)
-from app.game_engine import GameEngine
 from app.board_manager import BoardManager
+from app.game_engine import GameEngine
+from app.models import (
+    BoardState,
+    BoardType,
+    GamePhase,
+    GameState,
+    GameStatus,
+    Move,
+    MoveType,
+    Player,
+    Position,
+    RingStack,
+    TimeControl,
+)
 from app.rules import global_actions as ga
-
 
 FAILURE_SNAPSHOT_PATH = os.path.join(
     os.path.dirname(__file__),
@@ -92,7 +100,7 @@ def test_turn_rotation_keeps_recovery_eligible_player_from_snapshot() -> None:
 
     After calling _end_turn, P1 should NOT be skipped if they have buried rings.
     """
-    with open(FAILURE_SNAPSHOT_PATH, "r", encoding="utf-8") as f:
+    with open(FAILURE_SNAPSHOT_PATH, encoding="utf-8") as f:
         payload = json.load(f)
 
     state = GameState.model_validate(payload["state"])

@@ -23,11 +23,10 @@ from scripts.lib.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-from app.training.selfplay_config import SelfplayConfig, create_argument_parser
-
-from app.models import MoveType, GameStatus
 from app.game_engine import GameEngine
+from app.models import GameStatus, MoveType
 from app.training.generate_data import create_initial_state
+from app.training.selfplay_config import SelfplayConfig, create_argument_parser
 from app.utils.victory_type import derive_victory_type
 
 # Import coordination for task limits and duration tracking
@@ -35,8 +34,8 @@ try:
     from app.coordination import (
         TaskType,
         can_spawn_safe,
-        register_running_task,
         record_task_completion,
+        register_running_task,
     )
     HAS_COORDINATION = True
 except ImportError:
@@ -335,7 +334,7 @@ def main():
             config = f"{args.board_type}_{args.num_players}p"
             # Args: task_type, host, started_at, completed_at, success, config
             record_task_completion("selfplay", node_id, coord_start_time, time.time(), True, config)
-            print(f"[Coordination] Recorded task completion")
+            print("[Coordination] Recorded task completion")
         except Exception as e:
             print(f"[Coordination] Warning: Failed to record task completion: {e}")
 

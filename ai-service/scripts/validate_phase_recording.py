@@ -15,10 +15,10 @@ import argparse
 import json
 import sqlite3
 import sys
-from pathlib import Path
-from typing import List, Dict, Set, Tuple, Optional
 from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 
 # Add ai-service to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -275,7 +275,7 @@ def main():
 
             if violations:
                 # Show first few violations
-                print(f"  First violations:")
+                print("  First violations:")
                 for v in violations[:5]:
                     print(f"    - Game {v.game_id}, Turn {v.turn_number}, P{v.player_number}: {v.reason}")
                 if len(violations) > 5:

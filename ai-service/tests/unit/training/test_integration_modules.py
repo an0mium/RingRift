@@ -12,11 +12,11 @@ Tests:
 """
 
 import asyncio
-import pytest
 import threading
 import time
-from unittest.mock import Mock, MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import pytest
 
 # =============================================================================
 # Model State Machine Tests
@@ -85,9 +85,9 @@ class TestModelStateMachine:
     def test_invalid_transition(self):
         """Test invalid state transition raises exception."""
         from app.training.model_state_machine import (
+            InvalidTransitionError,
             ModelLifecycleStateMachine,
             ModelState,
-            InvalidTransitionError,
         )
 
         lifecycle = ModelLifecycleStateMachine()
@@ -178,8 +178,8 @@ class TestLifecycleIntegration:
     @pytest.mark.asyncio
     async def test_health_check(self):
         """Test health check on service."""
-        from app.training.lifecycle_integration import BackgroundEvalService
         from app.core.health import HealthStatus
+        from app.training.lifecycle_integration import BackgroundEvalService
 
         service = BackgroundEvalService(
             model_getter=lambda: {},
@@ -200,9 +200,9 @@ class TestThreadIntegration:
     def test_spawn_eval_thread(self):
         """Test spawning evaluation thread."""
         from app.training.thread_integration import (
-            spawn_eval_thread,
             get_training_thread_spawner,
             reset_training_thread_spawner,
+            spawn_eval_thread,
         )
 
         reset_training_thread_spawner()
@@ -298,8 +298,8 @@ class TestEventIntegration:
     @pytest.mark.asyncio
     async def test_publish_training_started(self):
         """Test publishing training started event."""
-        from app.training.event_integration import publish_training_started
         from app.core.event_bus import reset_event_bus
+        from app.training.event_integration import publish_training_started
 
         reset_event_bus()
 
@@ -408,8 +408,8 @@ class TestMetricsIntegration:
 
     def test_training_metrics_step(self):
         """Test TrainingMetrics.step() method."""
-        from app.training.metrics_integration import TrainingMetrics
         from app.metrics.unified_publisher import reset_metrics_publisher
+        from app.training.metrics_integration import TrainingMetrics
 
         reset_metrics_publisher()
 
@@ -425,8 +425,8 @@ class TestMetricsIntegration:
 
     def test_training_metrics_evaluation(self):
         """Test TrainingMetrics.evaluation() method."""
-        from app.training.metrics_integration import TrainingMetrics
         from app.metrics.unified_publisher import reset_metrics_publisher
+        from app.training.metrics_integration import TrainingMetrics
 
         reset_metrics_publisher()
 
@@ -442,8 +442,8 @@ class TestMetricsIntegration:
 
     def test_epoch_timer_context_manager(self):
         """Test TrainingMetrics.epoch_timer() context manager."""
-        from app.training.metrics_integration import TrainingMetrics
         from app.metrics.unified_publisher import reset_metrics_publisher
+        from app.training.metrics_integration import TrainingMetrics
 
         reset_metrics_publisher()
 
@@ -513,11 +513,11 @@ class TestExceptionIntegration:
     def test_training_exception_types(self):
         """Test training exception types."""
         from app.training.exception_integration import (
-            TrainingError,
             CheckpointError,
+            DataLoadError,
             EvaluationError,
             SelfplayError,
-            DataLoadError,
+            TrainingError,
         )
 
         assert issubclass(TrainingError, Exception)
@@ -526,8 +526,8 @@ class TestExceptionIntegration:
 
     def test_training_retry_policies(self):
         """Test TrainingRetryPolicies."""
-        from app.training.exception_integration import TrainingRetryPolicies
         from app.core.error_handler import RetryStrategy
+        from app.training.exception_integration import TrainingRetryPolicies
 
         assert TrainingRetryPolicies.CHECKPOINT_SAVE.max_attempts == 3
         assert TrainingRetryPolicies.DATA_LOAD.strategy == RetryStrategy.EXPONENTIAL_JITTER
@@ -578,8 +578,8 @@ class TestExceptionIntegration:
     def test_training_error_context(self):
         """Test training_error_context manager."""
         from app.training.exception_integration import (
-            training_error_context,
             TrainingError,
+            training_error_context,
         )
 
         with pytest.raises(TrainingError):
@@ -617,7 +617,7 @@ class TestThreadSpawnerCore:
 
     def test_thread_restart_on_failure(self):
         """Test thread restarts on failure."""
-        from app.core.thread_spawner import ThreadSpawner, RestartPolicy
+        from app.core.thread_spawner import RestartPolicy, ThreadSpawner
 
         spawner = ThreadSpawner()
         call_count = 0
@@ -703,12 +703,13 @@ class TestPromotionControllerDistributedLocking:
 
     def test_execute_promotion_acquires_lock(self):
         """Test that execute_promotion uses distributed locking."""
+        from unittest.mock import MagicMock, patch
+
         from app.training.promotion_controller import (
             PromotionController,
             PromotionDecision,
             PromotionType,
         )
-        from unittest.mock import patch, MagicMock
 
         controller = PromotionController()
 
@@ -735,12 +736,13 @@ class TestPromotionControllerDistributedLocking:
 
     def test_execute_promotion_fails_without_lock(self):
         """Test that execute_promotion fails gracefully when lock not acquired."""
+        from unittest.mock import MagicMock, patch
+
         from app.training.promotion_controller import (
             PromotionController,
             PromotionDecision,
             PromotionType,
         )
-        from unittest.mock import patch, MagicMock
 
         controller = PromotionController()
 
@@ -774,12 +776,12 @@ class TestExceptionConsolidation:
     def test_exceptions_available_in_app_errors(self):
         """Test all training exceptions are available in app.errors."""
         from app.errors import (
-            TrainingError,
             CheckpointError,
-            EvaluationError,
-            SelfplayError,
             DataLoadError,
+            EvaluationError,
             ModelVersioningError,
+            SelfplayError,
+            TrainingError,
         )
 
         # All should be importable
@@ -793,13 +795,13 @@ class TestExceptionConsolidation:
     def test_exception_hierarchy(self):
         """Test exception inheritance hierarchy."""
         from app.errors import (
-            RingRiftError,
-            TrainingError,
             CheckpointError,
-            EvaluationError,
-            SelfplayError,
             DataLoadError,
+            EvaluationError,
             ModelVersioningError,
+            RingRiftError,
+            SelfplayError,
+            TrainingError,
         )
 
         # TrainingError inherits from RingRiftError
@@ -814,16 +816,16 @@ class TestExceptionConsolidation:
 
     def test_exceptions_reexported_from_exception_integration(self):
         """Test exceptions are re-exported from exception_integration."""
+        from app.errors import (
+            CheckpointError as CheckpointErrorDirect,
+            TrainingError as TrainingErrorDirect,
+        )
         from app.training.exception_integration import (
-            TrainingError,
             CheckpointError,
+            DataLoadError,
             EvaluationError,
             SelfplayError,
-            DataLoadError,
-        )
-        from app.errors import (
-            TrainingError as TrainingErrorDirect,
-            CheckpointError as CheckpointErrorDirect,
+            TrainingError,
         )
 
         # Should be the same classes
@@ -833,10 +835,10 @@ class TestExceptionConsolidation:
     def test_exception_error_codes(self):
         """Test exception error codes are set correctly."""
         from app.errors import (
-            TrainingError,
+            DataLoadError,
             EvaluationError,
             SelfplayError,
-            DataLoadError,
+            TrainingError,
         )
 
         assert TrainingError.code == "TRAINING_ERROR"
@@ -949,7 +951,7 @@ class TestModelVersioningExceptions:
 
     def test_model_versioning_error_in_app_errors(self):
         """Test ModelVersioningError is in app.errors."""
-        from app.errors import ModelVersioningError, CheckpointError
+        from app.errors import CheckpointError, ModelVersioningError
 
         assert issubclass(ModelVersioningError, CheckpointError)
         assert ModelVersioningError.code == "MODEL_VERSIONING_ERROR"
@@ -957,9 +959,9 @@ class TestModelVersioningExceptions:
     def test_subclasses_in_model_versioning(self):
         """Test specialized subclasses remain in model_versioning."""
         from app.training.model_versioning import (
+            ChecksumMismatchError,
             ModelVersioningError,
             VersionMismatchError,
-            ChecksumMismatchError,
         )
 
         assert issubclass(VersionMismatchError, ModelVersioningError)
@@ -984,13 +986,12 @@ class TestRegressionDetector:
 
     def test_get_regression_detector_singleton(self):
         """Test get_regression_detector returns singleton."""
-        from app.training.regression_detector import (
-            get_regression_detector,
-            _detector_instance,
-        )
-
         # Reset singleton for test isolation
         import app.training.regression_detector as rd
+        from app.training.regression_detector import (
+            _detector_instance,
+            get_regression_detector,
+        )
         rd._detector_instance = None
 
         detector1 = get_regression_detector()
@@ -1042,8 +1043,8 @@ class TestRegressionDetector:
     def test_check_regression_critical(self):
         """Test check_regression detects critical regression."""
         from app.training.regression_detector import (
-            RegressionDetector,
             RegressionConfig,
+            RegressionDetector,
             RegressionSeverity,
         )
 
@@ -1071,8 +1072,8 @@ class TestRegressionDetector:
         """Test adding and notifying listeners."""
         from app.training.regression_detector import (
             RegressionDetector,
-            RegressionListener,
             RegressionEvent,
+            RegressionListener,
         )
 
         class TestListener(RegressionListener):
@@ -1188,7 +1189,7 @@ class TestQualityBridge:
 
     def test_get_quality_bridge_singleton(self):
         """Test get_quality_bridge returns singleton."""
-        from app.training.quality_bridge import get_quality_bridge, QualityBridge
+        from app.training.quality_bridge import QualityBridge, get_quality_bridge
 
         # Reset singleton for isolation
         QualityBridge.reset_instance()
@@ -1202,7 +1203,7 @@ class TestQualityBridge:
 
     def test_quality_lookup_returns_dict(self):
         """Test quality lookup returns a dict."""
-        from app.training.quality_bridge import get_quality_bridge, QualityBridge
+        from app.training.quality_bridge import QualityBridge, get_quality_bridge
 
         QualityBridge.reset_instance()
         bridge = get_quality_bridge()
@@ -1285,6 +1286,7 @@ class TestCheckpointUtils:
         """Test compute_file_hash function."""
         import tempfile
         from pathlib import Path
+
         from app.training.checkpoint_utils import compute_file_hash
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
@@ -1302,6 +1304,7 @@ class TestCheckpointUtils:
         """Test atomic_save function."""
         import tempfile
         from pathlib import Path
+
         from app.training.checkpoint_utils import atomic_save
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1321,7 +1324,8 @@ class TestCheckpointUtils:
         """Test atomic_save cleans up temp file on failure."""
         import tempfile
         from pathlib import Path
-        from app.training.checkpoint_utils import atomic_save, TEMP_SUFFIX
+
+        from app.training.checkpoint_utils import TEMP_SUFFIX, atomic_save
 
         with tempfile.TemporaryDirectory() as tmpdir:
             test_file = Path(tmpdir) / 'test.txt'
@@ -1345,7 +1349,9 @@ class TestCheckpointUtils:
         """Test atomic_torch_save function."""
         import tempfile
         from pathlib import Path
+
         import torch
+
         from app.training.checkpoint_utils import atomic_torch_save
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1366,7 +1372,9 @@ class TestCheckpointUtils:
         """Test load_with_validation function."""
         import tempfile
         from pathlib import Path
+
         import torch
+
         from app.training.checkpoint_utils import atomic_torch_save, load_with_validation
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1385,7 +1393,9 @@ class TestCheckpointUtils:
         """Test load_with_validation raises on hash mismatch."""
         import tempfile
         from pathlib import Path
+
         import torch
+
         from app.training.checkpoint_utils import atomic_torch_save, load_with_validation
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1406,16 +1416,18 @@ class TestMetricsRegistry:
 
     def test_safe_metric_creates_counter(self):
         """Test safe_metric creates a Counter."""
-        from app.metrics.registry import safe_metric
         from prometheus_client import Counter
+
+        from app.metrics.registry import safe_metric
 
         counter = safe_metric(Counter, 'test_registry_counter_1', 'Test counter')
         assert counter is not None
 
     def test_safe_metric_returns_existing(self):
         """Test safe_metric returns existing metric instead of creating new."""
-        from app.metrics.registry import safe_metric
         from prometheus_client import Counter
+
+        from app.metrics.registry import safe_metric
 
         c1 = safe_metric(Counter, 'test_registry_counter_2', 'Test counter')
         c2 = safe_metric(Counter, 'test_registry_counter_2', 'Test counter')
@@ -1448,7 +1460,7 @@ class TestMetricsRegistry:
 
     def test_is_metric_registered(self):
         """Test is_metric_registered function."""
-        from app.metrics.registry import safe_counter, is_metric_registered
+        from app.metrics.registry import is_metric_registered, safe_counter
 
         # Create a metric
         safe_counter('test_registry_counter_4', 'Test counter')
@@ -1461,7 +1473,7 @@ class TestMetricsRegistry:
 
     def test_get_metric(self):
         """Test get_metric function."""
-        from app.metrics.registry import safe_counter, get_metric
+        from app.metrics.registry import get_metric, safe_counter
 
         # Create a metric
         original = safe_counter('test_registry_counter_5', 'Test counter')
@@ -1476,12 +1488,12 @@ class TestMetricsRegistry:
     def test_import_from_app_metrics(self):
         """Test registry functions can be imported from app.metrics."""
         from app.metrics import (
-            safe_metric,
+            get_metric,
+            is_metric_registered,
             safe_counter,
             safe_gauge,
             safe_histogram,
-            is_metric_registered,
-            get_metric,
+            safe_metric,
         )
 
         # All should be importable

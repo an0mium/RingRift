@@ -8,40 +8,39 @@ import sqlite3
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any
-from unittest.mock import MagicMock, patch, PropertyMock
+from typing import Any, Dict
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
 from app.coordination.resource_optimizer import (
-    # Enums
-    ResourceType,
-    ScaleAction,
+    SCALE_DOWN_THRESHOLD,
+    SCALE_UP_THRESHOLD,
+    TARGET_UTIL_MAX,
+    # Constants (for testing)
+    TARGET_UTIL_MIN,
+    TARGET_UTIL_OPTIMAL,
+    ClusterState,
     # Data classes
     NodeResources,
-    ClusterState,
     OptimizationResult,
     # Classes
     PIDController,
-    UtilizationPredictor,
     ResourceOptimizer,
+    # Enums
+    ResourceType,
+    ScaleAction,
+    UtilizationPredictor,
+    get_cluster_utilization,
+    get_hybrid_selfplay_limits,
+    get_max_cpu_only_selfplay,
+    get_max_selfplay_for_node,
+    get_optimal_concurrency,
     # Module functions
     get_resource_optimizer,
-    should_scale_up,
     should_scale_down,
-    get_optimal_concurrency,
-    get_cluster_utilization,
-    get_max_selfplay_for_node,
-    get_max_cpu_only_selfplay,
-    get_hybrid_selfplay_limits,
-    # Constants (for testing)
-    TARGET_UTIL_MIN,
-    TARGET_UTIL_MAX,
-    TARGET_UTIL_OPTIMAL,
-    SCALE_UP_THRESHOLD,
-    SCALE_DOWN_THRESHOLD,
+    should_scale_up,
 )
-
 
 # =============================================================================
 # Enum Tests

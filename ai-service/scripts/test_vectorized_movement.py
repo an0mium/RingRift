@@ -13,17 +13,17 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import torch
 import numpy as np
+import torch
 
+from app.ai.gpu_batch import get_device
 from app.ai.gpu_parallel_games import (
     BatchGameState,
-    generate_movement_moves_batch_vectorized,
+    _generate_capture_moves_batch_legacy,
     _generate_movement_moves_batch_legacy,
     generate_capture_moves_batch_vectorized,
-    _generate_capture_moves_batch_legacy,
+    generate_movement_moves_batch_vectorized,
 )
-from app.ai.gpu_batch import get_device
 
 # Unified logging setup
 from scripts.lib.logging_config import setup_script_logging

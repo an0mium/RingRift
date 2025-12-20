@@ -8,16 +8,16 @@ For 3+ player games, properly tests all configurations:
 Measures average win rate across all player positions.
 """
 
-import sys
-import os
-import json
 import argparse
+import json
+import os
+import sys
 from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.models import BoardType, AIConfig, GameState, GameStatus
 from app.ai.heuristic_ai import HeuristicAI
+from app.models import AIConfig, BoardType, GameState, GameStatus
 from app.rules.default_engine import DefaultRulesEngine
 from app.training.initial_state import create_initial_state
 from scripts.lib.cli import BOARD_TYPE_MAP
@@ -25,7 +25,7 @@ from scripts.lib.cli import BOARD_TYPE_MAP
 
 def load_weight_profile(path: str) -> dict[str, float]:
     """Load weights from a JSON profile file."""
-    with open(path, "r") as f:
+    with open(path) as f:
         data = json.load(f)
     return data.get("weights", data)
 
@@ -251,7 +251,7 @@ def main():
     print(f"Total games: {total_games}")
     print(f"Max moves: {args.max_moves}")
     print(f"{'='*60}")
-    print(f"\nConfigurations to test:")
+    print("\nConfigurations to test:")
     for i, config in enumerate(configs):
         print(f"  {i+1}. {config}")
     print(f"{'='*60}\n")
@@ -311,11 +311,11 @@ def main():
         )
 
     print(f"\n{'='*60}")
-    print(f"Final Results:")
+    print("Final Results:")
     print(f"{'='*60}")
 
     # Show per-configuration breakdown
-    print(f"\nPer-Configuration Results:")
+    print("\nPer-Configuration Results:")
     for config, results in config_results.items():
         total_in_config = results["a_wins"] + results["b_wins"] + results["draws"]
         a_pct = 100 * results["a_wins"] / total_in_config if total_in_config > 0 else 0
@@ -325,7 +325,7 @@ def main():
             f"B={results['b_wins']} ({b_pct:.1f}%), Draws={results['draws']}"
         )
 
-    print(f"\nOverall Results:")
+    print("\nOverall Results:")
     print(f"  {args.name_a}: {total_a_wins} wins ({100*total_a_wins/total_games:.1f}%)")
     print(f"  {args.name_b}: {total_b_wins} wins ({100*total_b_wins/total_games:.1f}%)")
     print(f"  Draws: {total_draws} ({100*total_draws/total_games:.1f}%)")
@@ -339,11 +339,11 @@ def main():
         margin = total_b_wins - total_a_wins
         print(f"\n>>> {args.name_b} is STRONGER (by {margin} games) <<<")
     else:
-        print(f"\n>>> TIE <<<")
+        print("\n>>> TIE <<<")
 
     # Print position-based wins
     print(f"\n{'='*60}")
-    print(f"Wins by Player Position:")
+    print("Wins by Player Position:")
     print(f"{'='*60}")
     for pos, wins in wins_by_position.items():
         pct = 100 * wins / total_games if total_games > 0 else 0
@@ -352,12 +352,12 @@ def main():
     # Print diagnostics if requested
     if args.diagnostics and all_game_infos:
         print(f"\n{'='*60}")
-        print(f"Game Diagnostics:")
+        print("Game Diagnostics:")
         print(f"{'='*60}")
 
         # Move count statistics
         move_counts = [g["move_count"] for g in all_game_infos]
-        print(f"\nMove counts:")
+        print("\nMove counts:")
         print(f"  Min: {min(move_counts)}")
         print(f"  Max: {max(move_counts)}")
         print(f"  Avg: {sum(move_counts)/len(move_counts):.1f}")
@@ -365,11 +365,11 @@ def main():
 
         # Check for identical games
         if len(set(move_counts)) == 1:
-            print(f"  ⚠️  ALL GAMES SAME LENGTH - suspicious!")
+            print("  ⚠️  ALL GAMES SAME LENGTH - suspicious!")
 
         # Rings eliminated
         elim_counts = [g.get("total_rings_eliminated", 0) for g in all_game_infos]
-        print(f"\nRings eliminated per game:")
+        print("\nRings eliminated per game:")
         print(f"  Min: {min(elim_counts)}")
         print(f"  Max: {max(elim_counts)}")
         print(f"  Avg: {sum(elim_counts)/len(elim_counts):.1f}")
@@ -382,7 +382,7 @@ def main():
         print(f"\nGame phases seen: {sorted(all_phases)}")
 
         # Sample first 5 games
-        print(f"\nSample games (first 5):")
+        print("\nSample games (first 5):")
         for i, g in enumerate(all_game_infos[:5]):
             print(
                 f"  Game {i+1}: {g.get('move_count', '?')} moves, "
@@ -393,7 +393,7 @@ def main():
 
         # Per-player stats from last game
         last = all_game_infos[-1]
-        print(f"\nLast game player stats:")
+        print("\nLast game player stats:")
         for p in range(1, num_players + 1):
             rih = last.get(f"p{p}_rings_in_hand", "?")
             elim = last.get(f"p{p}_eliminated_rings", "?")

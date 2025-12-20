@@ -35,7 +35,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-
 # Allow imports from app/
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -43,16 +42,17 @@ AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
 # Import event bus helpers (consolidated imports)
 from app.distributed.event_helpers import (
-    has_event_bus,
-    get_event_bus_safe,
-    emit_evaluation_completed_safe,
     emit_error_safe,
+    emit_evaluation_completed_safe,
+    get_event_bus_safe,
+    has_event_bus,
 )
+
 HAS_EVENT_BUS = has_event_bus()
 
 # For backwards compatibility, get the raw functions if available
 if HAS_EVENT_BUS:
-    from app.distributed.data_events import get_event_bus, emit_evaluation_completed, emit_error
+    from app.distributed.data_events import emit_error, emit_evaluation_completed, get_event_bus
 else:
     get_event_bus = get_event_bus_safe
     emit_evaluation_completed = emit_evaluation_completed_safe
@@ -112,10 +112,10 @@ except ImportError:
 # Try to import canonical config
 try:
     from app.config.unified_config import (
-        get_shadow_tournament_interval,
         get_full_tournament_interval,
-        get_tournament_games_per_matchup,
         get_regression_elo_threshold,
+        get_shadow_tournament_interval,
+        get_tournament_games_per_matchup,
     )
     HAS_UNIFIED_CONFIG = True
 except ImportError:

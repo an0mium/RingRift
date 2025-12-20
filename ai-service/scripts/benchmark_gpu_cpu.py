@@ -33,7 +33,7 @@ import json
 import os
 import sys
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -43,21 +43,21 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Set environment for consistent benchmarking
 os.environ.setdefault("RINGRIFT_SKIP_SHADOW_CONTRACTS", "true")
 
-import torch  # noqa: E402
+import torch
 
-from app.models import (  # noqa: E402
-    BoardType,
-    GameState,
-    GamePhase,
-    GameStatus,
+from app.game_engine import GameEngine
+from app.models import (
     BoardState,
+    BoardType,
+    GamePhase,
+    GameState,
+    GameStatus,
     Player,
     Position,
     RingStack,
     TimeControl,
 )
-from app.game_engine import GameEngine  # noqa: E402
-from app.rules.core import BOARD_CONFIGS, get_victory_threshold, get_territory_victory_threshold  # noqa: E402
+from app.rules.core import BOARD_CONFIGS, get_territory_victory_threshold, get_victory_threshold
 
 # Unified logging setup
 from scripts.lib.logging_config import setup_script_logging

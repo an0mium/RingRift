@@ -9,10 +9,10 @@ Tests cover:
 
 import asyncio
 import time
-import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
 from dataclasses import dataclass
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 
 # =============================================================================
 # Test Provider Enum
@@ -114,8 +114,8 @@ class TestClusterNode:
         """Test default values are set correctly."""
         from app.coordination.multi_provider_orchestrator import (
             ClusterNode,
-            Provider,
             NodeRole,
+            Provider,
         )
 
         node = ClusterNode(name="test", provider=Provider.LOCAL)
@@ -143,8 +143,8 @@ class TestClusterNode:
         """Test creating node with all fields."""
         from app.coordination.multi_provider_orchestrator import (
             ClusterNode,
-            Provider,
             NodeRole,
+            Provider,
         )
 
         node = ClusterNode(
@@ -277,8 +277,8 @@ class TestMultiProviderOrchestrator:
         """Test managing multiple nodes."""
         from app.coordination.multi_provider_orchestrator import (
             ClusterNode,
-            Provider,
             NodeRole,
+            Provider,
         )
 
         # Add nodes from different providers
@@ -364,8 +364,8 @@ class TestModuleFunctions:
     def test_get_orchestrator_creates_singleton(self):
         """Test that get_orchestrator creates a singleton."""
         from app.coordination.multi_provider_orchestrator import (
-            get_orchestrator,
             MultiProviderOrchestrator,
+            get_orchestrator,
         )
 
         orch1 = get_orchestrator()
@@ -405,10 +405,10 @@ class TestModuleFunctions:
     async def test_deploy_to_all_nodes(self):
         """Test deploy_to_all_nodes convenience function."""
         from app.coordination.multi_provider_orchestrator import (
-            deploy_to_all_nodes,
-            get_orchestrator,
             ClusterNode,
             Provider,
+            deploy_to_all_nodes,
+            get_orchestrator,
         )
 
         orch = get_orchestrator()
@@ -444,10 +444,10 @@ class TestOrchestratorIntegration:
     def test_node_lifecycle(self):
         """Test node lifecycle from discovery to assignment."""
         from app.coordination.multi_provider_orchestrator import (
-            MultiProviderOrchestrator,
             ClusterNode,
-            Provider,
+            MultiProviderOrchestrator,
             NodeRole,
+            Provider,
         )
 
         orch = MultiProviderOrchestrator()
@@ -485,8 +485,8 @@ class TestOrchestratorIntegration:
     def test_filter_nodes_by_capability(self):
         """Test filtering nodes by GPU capability."""
         from app.coordination.multi_provider_orchestrator import (
-            MultiProviderOrchestrator,
             ClusterNode,
+            MultiProviderOrchestrator,
             Provider,
         )
 

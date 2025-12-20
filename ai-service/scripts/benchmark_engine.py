@@ -4,10 +4,10 @@ Benchmark script to compare AI engines
 
 import time
 
-from app.models import AIConfig, GameStatus
-from app.game_engine import GameEngine
-from app.ai.mcts_ai import MCTSAI
 from app.ai.descent_ai import DescentAI
+from app.ai.mcts_ai import MCTSAI
+from app.game_engine import GameEngine
+from app.models import AIConfig, GameStatus
 from app.rules.default_engine import DefaultRulesEngine
 from app.training.initial_state import create_initial_state
 

@@ -32,7 +32,7 @@ def test_circuit_breaker():
         from app.distributed.circuit_breaker import get_training_breaker
 
         breaker = get_training_breaker()
-        print(f"  ✓ Circuit breaker initialized")
+        print("  ✓ Circuit breaker initialized")
 
         # Test can_execute
         can_exec = breaker.can_execute("training_epoch")
@@ -40,11 +40,11 @@ def test_circuit_breaker():
 
         # Test record_success
         breaker.record_success("training_epoch")
-        print(f"  ✓ record_success() called")
+        print("  ✓ record_success() called")
 
         # Test record_failure
         breaker.record_failure("training_epoch")
-        print(f"  ✓ record_failure() called")
+        print("  ✓ record_failure() called")
 
         return True
     except Exception as e:
@@ -63,7 +63,7 @@ def test_anomaly_detector():
             gradient_norm_threshold=100.0,
             halt_on_nan=False,
         )
-        print(f"  ✓ Anomaly detector initialized")
+        print("  ✓ Anomaly detector initialized")
 
         # Test normal loss
         result = detector.check_loss(0.5, step=1)
@@ -122,21 +122,21 @@ def test_graceful_shutdown():
         from app.training.train import GracefulShutdownHandler
 
         handler = GracefulShutdownHandler()
-        print(f"  ✓ Shutdown handler initialized")
+        print("  ✓ Shutdown handler initialized")
 
         callback_called = [False]
         def test_callback():
             callback_called[0] = True
 
         handler.setup(test_callback)
-        print(f"  ✓ Handler setup complete")
+        print("  ✓ Handler setup complete")
 
         # Verify shutdown_requested is False initially
         assert not handler.shutdown_requested, "shutdown_requested should be False"
         print(f"  ✓ shutdown_requested = {handler.shutdown_requested}")
 
         handler.teardown()
-        print(f"  ✓ Handler teardown complete")
+        print("  ✓ Handler teardown complete")
 
         return True
     except Exception as e:
@@ -149,11 +149,11 @@ def test_prometheus_metrics():
     print("\n=== Testing Prometheus Metrics ===")
     try:
         from app.training.train import (
-            HAS_PROMETHEUS,
-            CIRCUIT_BREAKER_STATE,
             ANOMALY_DETECTIONS,
+            CIRCUIT_BREAKER_STATE,
             GRADIENT_CLIP_NORM,
             GRADIENT_NORM,
+            HAS_PROMETHEUS,
         )
 
         print(f"  ✓ HAS_PROMETHEUS = {HAS_PROMETHEUS}")
@@ -167,9 +167,9 @@ def test_prometheus_metrics():
             # Test setting a metric
             if GRADIENT_NORM:
                 GRADIENT_NORM.labels(config='test').set(0.5)
-                print(f"  ✓ GRADIENT_NORM metric set successfully")
+                print("  ✓ GRADIENT_NORM metric set successfully")
         else:
-            print(f"  ⚠ Prometheus not available, skipping metric tests")
+            print("  ⚠ Prometheus not available, skipping metric tests")
 
         return True
     except Exception as e:
@@ -192,9 +192,9 @@ def test_short_training_loop():
 
         # Import training components
         from app.training.train import (
-            GracefulShutdownHandler,
             HAS_CIRCUIT_BREAKER,
             HAS_TRAINING_ENHANCEMENTS,
+            GracefulShutdownHandler,
         )
 
         print(f"  ✓ HAS_CIRCUIT_BREAKER = {HAS_CIRCUIT_BREAKER}")
@@ -221,21 +221,21 @@ def test_short_training_loop():
         if HAS_CIRCUIT_BREAKER:
             from app.distributed.circuit_breaker import get_training_breaker
             training_breaker = get_training_breaker()
-            print(f"  ✓ Training circuit breaker enabled")
+            print("  ✓ Training circuit breaker enabled")
         else:
             training_breaker = None
 
         if HAS_TRAINING_ENHANCEMENTS:
             from app.training.training_enhancements import (
-                TrainingAnomalyDetector,
                 AdaptiveGradientClipper,
+                TrainingAnomalyDetector,
             )
             anomaly_detector = TrainingAnomalyDetector(
                 loss_spike_threshold=3.0,
                 halt_on_nan=False,
             )
             adaptive_clipper = AdaptiveGradientClipper(initial_max_norm=1.0)
-            print(f"  ✓ Anomaly detector and adaptive clipper enabled")
+            print("  ✓ Anomaly detector and adaptive clipper enabled")
         else:
             anomaly_detector = None
             adaptive_clipper = None
@@ -245,12 +245,12 @@ def test_short_training_loop():
         checkpoint_saved = [False]
         def emergency_save():
             checkpoint_saved[0] = True
-            print(f"    [Emergency checkpoint would be saved here]")
+            print("    [Emergency checkpoint would be saved here]")
         shutdown_handler.setup(emergency_save)
-        print(f"  ✓ Graceful shutdown handler configured")
+        print("  ✓ Graceful shutdown handler configured")
 
         # Simulate a few training steps
-        print(f"  → Running 5 simulated training steps...")
+        print("  → Running 5 simulated training steps...")
         model.train()
         anomaly_step = 0
 
@@ -292,11 +292,11 @@ def test_short_training_loop():
         # Record success with circuit breaker
         if training_breaker:
             training_breaker.record_success("training_epoch")
-            print(f"  ✓ Circuit breaker success recorded")
+            print("  ✓ Circuit breaker success recorded")
 
         # Cleanup
         shutdown_handler.teardown()
-        print(f"  ✓ Training loop completed successfully")
+        print("  ✓ Training loop completed successfully")
 
         return True
     except Exception as e:

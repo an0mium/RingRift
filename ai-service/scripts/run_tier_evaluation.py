@@ -23,11 +23,11 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from app.training.tier_eval_config import (  # noqa: E402
+from app.training.tier_eval_config import (
     TIER_EVAL_CONFIGS,
     get_tier_config,
 )
-from app.training.tier_eval_runner import (  # noqa: E402
+from app.training.tier_eval_runner import (
     run_tier_evaluation,
 )
 

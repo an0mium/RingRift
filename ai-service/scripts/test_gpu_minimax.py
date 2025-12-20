@@ -31,11 +31,11 @@ import torch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.ai.gpu_minimax_ai import GPUMinimaxAI
-from app.ai.minimax_ai import MinimaxAI
 from app.ai.heuristic_ai import HeuristicAI
+from app.ai.minimax_ai import MinimaxAI
 from app.models import AIConfig, BoardType, GameState, GameStatus, Move
-from app.training.generate_data import create_initial_state
 from app.rules.default_engine import DefaultRulesEngine
+from app.training.generate_data import create_initial_state
 
 
 @dataclass
@@ -61,7 +61,7 @@ class GPUMinimaxTester:
         self.has_gpu = self.device.type in ("cuda", "mps")
 
         if self.verbose:
-            print(f"GPU Minimax Tester initialized")
+            print("GPU Minimax Tester initialized")
             print(f"  Device: {self.device}")
             print(f"  GPU available: {self.has_gpu}")
             if self.device.type == "cuda":
@@ -304,7 +304,7 @@ class GPUMinimaxTester:
         batch_sizes: list[int] = [32, 64, 128],
     ) -> bool:
         """Test GPU memory usage stays within bounds."""
-        self._log(f"\n=== Test: GPU Memory Bounds ===")
+        self._log("\n=== Test: GPU Memory Bounds ===")
         start_time = time.time()
 
         if not self.has_gpu or self.device.type != "cuda":

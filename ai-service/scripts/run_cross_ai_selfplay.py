@@ -29,11 +29,11 @@ import multiprocessing as mp
 import random
 import sys
 import time
+import uuid
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import uuid
 
 # NOTE: Shadow contracts are now enabled to validate training data against TS rules.
 # Requires Node.js and compiled TypeScript (npm install && npx tsc -p tsconfig.server.json)
@@ -43,13 +43,13 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.game_engine import GameEngine
 from app.main import _create_ai_instance, _get_difficulty_profile
 from app.models import (
     AIConfig,
     BoardType,
     GameStatus,
 )
-from app.game_engine import GameEngine
 from app.training.generate_data import create_initial_state
 from app.training.selfplay_config import SelfplayConfig, create_argument_parser
 

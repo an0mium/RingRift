@@ -12,22 +12,21 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from typing import Any, Dict, List, Optional, Tuple
 from collections.abc import Sequence
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from app.ai.neural_net import INVALID_MOVE_INDEX, NeuralNetAI, encode_move_for_board
 from app.db import GameReplayDB
 from app.models import AIConfig, BoardType, GameState, Move
-from app.ai.neural_net import NeuralNetAI, INVALID_MOVE_INDEX, encode_move_for_board
 from app.training.encoding import get_encoder_for_board_type
-
 from scripts.export_replay_dataset import (
     BOARD_TYPE_MAP,
-    encode_state_with_history,
-    value_from_final_winner,
-    value_from_final_ranking,
     compute_multi_player_values,
+    encode_state_with_history,
+    value_from_final_ranking,
+    value_from_final_winner,
 )
 
 
@@ -241,7 +240,7 @@ def reanalyze_replay_dataset(
                     continue
                 path = os.path.join(fixtures_path, name)
                 try:
-                    with open(path, "r", encoding="utf-8") as f:
+                    with open(path, encoding="utf-8") as f:
                         fixture = json.load(f)
                 except Exception:
                     continue

@@ -8,8 +8,8 @@ import pytest
 # Ensure app and scripts packages are importable when running tests directly.
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../"))
 
-import scripts.run_parity_healthcheck as parity  # type: ignore  # noqa: E402
-from scripts.run_parity_healthcheck import (  # type: ignore  # noqa: E402
+import scripts.run_parity_healthcheck as parity  # type: ignore
+from scripts.run_parity_healthcheck import (  # type: ignore
     ParityCaseResult,
 )
 

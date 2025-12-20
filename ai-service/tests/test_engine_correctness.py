@@ -1,11 +1,9 @@
-import unittest
 import copy
+import unittest
 from datetime import datetime
-from app.models import (
-    GameState, BoardType, BoardState, GamePhase, GameStatus, TimeControl,
-    Player, Position, RingStack
-)
+
 from app.game_engine import GameEngine
+from app.models import BoardState, BoardType, GamePhase, GameState, GameStatus, Player, Position, RingStack, TimeControl
 
 
 class TestEngineCorrectness(unittest.TestCase):

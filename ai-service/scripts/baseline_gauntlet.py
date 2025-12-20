@@ -41,6 +41,7 @@ Usage:
     python scripts/baseline_gauntlet.py --results
 """
 import warnings
+
 warnings.warn(
     "baseline_gauntlet.py is deprecated. Use run_gauntlet.py instead.",
     DeprecationWarning,
@@ -133,7 +134,7 @@ def play_game(
     try:
         from app.game_engine import GameEngine
         from app.main import _create_ai_instance
-        from app.models import AIType, AIConfig, GameStatus
+        from app.models import AIConfig, AIType, GameStatus
         from app.training.generate_data import create_initial_state
 
         # Initialize game state with board config

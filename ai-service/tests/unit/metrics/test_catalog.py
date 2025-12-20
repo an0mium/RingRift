@@ -13,10 +13,10 @@ import pytest
 
 from app.metrics.catalog import (
     MetricCatalog,
-    get_metric_catalog,
     MetricCategory,
-    MetricType,
     MetricInfo,
+    MetricType,
+    get_metric_catalog,
     register_metric,
 )
 

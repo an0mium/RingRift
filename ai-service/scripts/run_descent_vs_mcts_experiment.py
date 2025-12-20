@@ -27,11 +27,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.models import BoardType
-from app.training.generate_data import generate_dataset
-from app.training.train import train_from_file
 from app.training.config import TrainConfig
 from app.training.env import get_theoretical_max_moves
-
+from app.training.generate_data import generate_dataset
+from app.training.train import train_from_file
 from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("descent_vs_mcts")

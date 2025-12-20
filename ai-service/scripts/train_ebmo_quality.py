@@ -27,7 +27,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -38,8 +38,8 @@ from app.ai.ebmo_network import (
     EBMOConfig,
     EBMONetwork,
     contrastive_energy_loss,
-    margin_ranking_loss,
     manifold_boundary_loss,
+    margin_ranking_loss,
 )
 
 logging.basicConfig(

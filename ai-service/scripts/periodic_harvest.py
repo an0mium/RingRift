@@ -23,7 +23,7 @@ import json
 import os
 import subprocess
 import sys
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
@@ -34,9 +34,9 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.lib.logging_config import (
-    setup_script_logging,
     get_logger,
     get_metrics_logger,
+    setup_script_logging,
 )
 
 logger = get_logger(__name__)

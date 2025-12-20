@@ -589,6 +589,7 @@ The AI Training Pipeline Remediation is complete when:
 | 1.9     | 2025-12-20 | Added trace-mode regression test to guard ANM auto-resolution                                                                                                       |
 | 2.0     | 2025-12-20 | **AI-03 COMPLETE**: Parity gates pass for square19/hex at low volume; scale-up deferred to AI-04.                                                                   |
 | 2.1     | 2025-12-20 | Updated large-board counts and shifted focus to scale-up throughput and volume targets.                                                                             |
+| 2.2     | 2025-12-20 | **AI-04 DIAGNOSIS COMPLETE**: trace_replay_failure root cause identified as TS↔Python LPS victory detection parity issue. Next step: fix TS LPS tracking.           |
 
 ---
 
@@ -890,3 +891,94 @@ See `ai-service/data/games/db_health.canonical_square19.json` and
 **Conclusion:**
 
 The primary goal of AI-03 was achieved: **the parity gate passes for all recorded games**. The phase parity fix from AI-02c is confirmed working for both hexagonal and square19 board types. Volume scaling to >=200 games per board type is deferred to AI-04, with distributed soaks as the preferred path.
+
+### AI-04: Diagnose trace_replay_failure Blocking Volume Scale (2025-12-20)
+
+**Status:** ✅ ROOT CAUSE IDENTIFIED - LPS victory parity issue
+
+**Context:** AI-03 confirmed phase parity is fixed (0 semantic divergences), but self-play volume scaling is blocked because the soak harness terminates early due to `trace_replay_failure:invalid_history` errors. The `--fail-on-anomaly` flag causes early termination even when parity passes.
+
+**Error Pattern:**
+
+```
+db_record_error: "trace_replay_failure:invalid_history:RuntimeError:Phase/move invariant violated: cannot apply move type no_placement_action in phase territory_processing"
+```
+
+**Root Cause Analysis:**
+
+The trace replay failure is caused by a **LPS (Last-Player-Standing) victory detection parity issue** between TypeScript and Python:
+
+1. **TypeScript self-play engine** records games as they play out in TS
+2. At a certain point, the **Python trace replay** detects LPS victory conditions that the TS engine missed:
+   - `lps_consecutive_exclusive_rounds: 3`
+   - `lps_consecutive_exclusive_player: 1` (Player 1 had exclusive "real actions" for 3 rounds)
+   - `lps_rounds_required: 3`
+3. Python marks the game as `completed` with `winner: 1`
+4. The TS-recorded moves CONTINUE after this point (TS didn't detect the LPS victory)
+5. When Python replays the next moves:
+   - `_end_turn()` returns early because `game_status != ACTIVE` (line 1384)
+   - Phase stays `territory_processing` instead of transitioning to `ring_placement`
+   - Next move (`no_placement_action`) fails phase/move invariant check
+
+**Detailed Trace (Game Index 4 from archived hexagonal soak):**
+
+| Move | Type                         | Player | Python State After                                                  |
+| ---- | ---------------------------- | ------ | ------------------------------------------------------------------- |
+| 826  | `choose_territory_option`    | P2     | phase=territory_processing                                          |
+| 827  | `eliminate_rings_from_stack` | P2     | **game_status=completed, winner=1**                                 |
+| 828  | `no_placement_action`        | P1     | _(TS continues, Python already ended)_                              |
+| ...  | ...                          | ...    | ...                                                                 |
+| 831  | `no_territory_action`        | P1     | phase stays territory_processing                                    |
+| 832  | `no_placement_action`        | P2     | **FAILS: cannot apply no_placement_action in territory_processing** |
+
+**Why Python Detects Victory Earlier:**
+
+Before move 827, Python's LPS tracking shows:
+
+- Player 1: 23 stacks, has real actions (placement/movement/capture)
+- Player 2: 2 stacks, NO real actions (only recovery or bookkeeping moves)
+- Player 1 has been the ONLY player with real actions for 3 consecutive rounds
+- This triggers LPS victory for Player 1
+
+The TypeScript engine either:
+
+1. Has different LPS tracking logic, OR
+2. Has a bug in LPS round counting, OR
+3. Evaluates LPS at a different timing point
+
+**Recommended Fix Path:**
+
+| Option            | Description                                  | Effort | Risk                                    |
+| ----------------- | -------------------------------------------- | ------ | --------------------------------------- |
+| **A (Preferred)** | Fix TS LPS detection to match Python timing  | Medium | Low - aligns both engines               |
+| B                 | Fix Python LPS to match TS timing            | Medium | Medium - may require spec clarification |
+| C (Workaround)    | Tolerate games that end early due to victory | Low    | Low - reduces data quality slightly     |
+
+**Workaround for Scale-Up (Option C):**
+
+If the full fix is deferred, modify trace_replay_failure handling to:
+
+1. Detect when Python ends the game early due to victory
+2. Truncate the recorded move history at Python's victory point
+3. Mark the game as canonical up to that point
+4. Log a warning instead of failing the entire soak
+
+**Files to Investigate for Fix:**
+
+- **TypeScript LPS tracking:** `src/shared/engine/lpsTracking.ts`
+- **Python LPS tracking:** `ai-service/app/_game_engine_legacy.py` (lines 2827-2993)
+- **LPS victory check:** `GameEngine._maybe_apply_lps_victory_at_turn_start()` (Python)
+- **TS equivalent:** `TurnOrchestrator.evaluateLpsVictory()` or similar
+
+**Next Steps:**
+
+1. Compare TS vs Python LPS round tracking logic in detail
+2. Identify where the divergence occurs (round boundary detection? actor mask updates?)
+3. Fix the engine with the parity issue (likely TS, since Python follows canonical spec)
+4. Re-run canonical selfplay soak without --fail-on-anomaly to confirm fix
+
+**Acceptance Criteria:**
+
+- [ ] Root cause of trace_replay_failure identified ✅
+- [ ] Clear next step defined (fix TS LPS detection) ✅
+- [ ] Document findings in AI_TRAINING_PIPELINE_REMEDIATION_PLAN.md ✅

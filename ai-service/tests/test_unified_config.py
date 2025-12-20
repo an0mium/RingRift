@@ -1,23 +1,24 @@
 """Tests for unified_config module."""
-import pytest
+import os
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
-import os
+
+import pytest
 
 from app.config.unified_config import (
-    UnifiedConfig,
-    TrainingConfig,
+    CurriculumConfig,
     EvaluationConfig,
     PromotionConfig,
-    CurriculumConfig,
     SafeguardsConfig,
     SafetyConfig,
-    TournamentConfig,
     SelfplayConfig,
+    TournamentConfig,
+    TrainingConfig,
+    UnifiedConfig,
     get_config,
-    get_training_threshold,
     get_min_elo_improvement,
+    get_training_threshold,
 )
 
 

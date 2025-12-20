@@ -43,10 +43,9 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import GameState, Move, GameStatus  # noqa: E402
-from app.game_engine import GameEngine  # noqa: E402
-from app.rules import global_actions as ga  # noqa: E402
-
+from app.game_engine import GameEngine
+from app.models import GameState, GameStatus, Move
+from app.rules import global_actions as ga
 
 SNAPSHOT_PATH = os.path.join(
     os.path.dirname(__file__),
@@ -87,7 +86,7 @@ def test_territory_processing_invariant_regression(
         raising=False,
     )
 
-    with open(SNAPSHOT_PATH, "r", encoding="utf-8") as f:
+    with open(SNAPSHOT_PATH, encoding="utf-8") as f:
         payload = json.load(f)
 
     state_payload = payload["state"]

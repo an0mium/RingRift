@@ -26,7 +26,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import (  # noqa: E402
+from app.game_engine import GameEngine
+from app.models import (
     BoardState,
     BoardType,
     GamePhase,
@@ -39,8 +40,7 @@ from app.models import (  # noqa: E402
     RingStack,
     TimeControl,
 )
-from app.game_engine import GameEngine  # noqa: E402
-from app.rules import global_actions as ga  # noqa: E402
+from app.rules import global_actions as ga
 
 
 def _make_multiplayer_game_state(num_players: int = 3) -> GameState:

@@ -8,18 +8,19 @@ Tests cover:
 - TrainingState state management
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 import torch
-from unittest.mock import patch, MagicMock
 
 from app.training.train_setup import (
-    FaultToleranceConfig,
     FaultToleranceComponents,
+    FaultToleranceConfig,
+    TrainingState,
+    compute_effective_lr,
+    get_device,
     setup_fault_tolerance,
     setup_graceful_shutdown,
-    get_device,
-    compute_effective_lr,
-    TrainingState,
 )
 
 

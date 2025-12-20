@@ -28,16 +28,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.tournament.distributed_gauntlet import (
+    CONFIG_KEYS,
     DistributedNNGauntlet,
     GauntletConfig,
-    CONFIG_KEYS,
     get_gauntlet,
 )
 from app.tournament.model_culling import (
     ModelCullingController,
     get_culling_controller,
 )
-
 from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("run_gauntlet")

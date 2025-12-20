@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 """Benchmark EBMO against ladder AIs (Heuristic, PolicyOnly, MCTS)."""
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
-from dataclasses import dataclass
 from collections.abc import Callable
+from dataclasses import dataclass
 
+from app.ai.base import BaseAI
 from app.ai.ebmo_ai import EBMO_AI
 from app.ai.heuristic_ai import HeuristicAI
 from app.ai.random_ai import RandomAI
-from app.ai.base import BaseAI
-from app.models import AIConfig, BoardType, GameStatus
 from app.game_engine import GameEngine
+from app.models import AIConfig, BoardType, GameStatus
 from app.training.initial_state import create_initial_state
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')

@@ -14,9 +14,9 @@ import argparse
 import json
 import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
-from datetime import datetime
 
 AI_SERVICE_ROOT = Path(__file__).parent.parent
 MODELS_DIR = AI_SERVICE_ROOT / "models"
@@ -169,7 +169,7 @@ def main():
         for m in sorted(to_prune, key=lambda x: scores.get(x.stem, 0)):
             score = scores.get(m.stem, 0)
             print(f"  {m.name}: score={score:.2f}")
-        print(f"\nRun with --prune to actually delete these models")
+        print("\nRun with --prune to actually delete these models")
     else:
         print(f"\nPruning {len(to_prune)} models...")
         pruned = prune_models(to_prune, backup=not args.no_backup)

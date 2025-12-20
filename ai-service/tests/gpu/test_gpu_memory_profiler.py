@@ -205,8 +205,8 @@ class TestMemoryProfilingIntegration:
     def test_profile_game_simulation(self):
         """Profile memory during game simulation."""
         try:
-            from app.ai.gpu_parallel_games import ParallelGameRunner
             from app.ai.gpu_game_types import GameStatus
+            from app.ai.gpu_parallel_games import ParallelGameRunner
         except ImportError:
             pytest.skip("GPU modules not available")
 

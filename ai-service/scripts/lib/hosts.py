@@ -25,10 +25,11 @@ Usage:
 
 from __future__ import annotations
 
-import yaml
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+import yaml
 
 # Find config directory
 _SCRIPT_DIR = Path(__file__).parent

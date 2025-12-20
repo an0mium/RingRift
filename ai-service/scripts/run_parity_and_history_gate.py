@@ -45,9 +45,9 @@ import argparse
 import json
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import List
-from collections.abc import Sequence
 
 
 def run_cmd(cmd: Sequence[str], cwd: Path) -> subprocess.CompletedProcess:

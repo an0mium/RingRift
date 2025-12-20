@@ -29,9 +29,8 @@ import asyncio
 import os
 import subprocess
 import sys
-from pathlib import Path
 from collections.abc import Mapping
-
+from pathlib import Path
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = AI_SERVICE_ROOT.parent

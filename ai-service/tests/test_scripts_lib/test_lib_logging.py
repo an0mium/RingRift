@@ -1,21 +1,22 @@
 """Tests for scripts.lib.logging_config module."""
 
-import pytest
-import logging
 import json
+import logging
 import time
-from pathlib import Path
 from io import StringIO
-from unittest.mock import patch, MagicMock
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from scripts.lib.logging_config import (
-    JsonFormatter,
     ColoredFormatter,
+    JsonFormatter,
     MetricsLogger,
     TimerContext,
-    setup_logging,
     get_logger,
     get_metrics_logger,
+    setup_logging,
     setup_script_logging,
 )
 

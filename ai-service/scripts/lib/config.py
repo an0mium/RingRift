@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -66,7 +66,7 @@ class TrainingConfig:
     model: ModelConfig = field(default_factory=ModelConfig)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TrainingConfig":
+    def from_dict(cls, data: dict[str, Any]) -> TrainingConfig:
         """Create config from dictionary."""
         model_data = {}
         config_data = {}
@@ -103,7 +103,7 @@ class BoardConfig:
         return f"{self.board_type}_{self.num_players}p"
 
     @classmethod
-    def from_config_key(cls, config_key: str) -> "BoardConfig":
+    def from_config_key(cls, config_key: str) -> BoardConfig:
         """Parse from config key like 'square8_2p'."""
         parts = config_key.rsplit("_", 1)
         if len(parts) != 2:

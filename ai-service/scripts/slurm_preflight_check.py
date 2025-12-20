@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
+
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
 

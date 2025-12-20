@@ -10,14 +10,14 @@ Usage:
 """
 
 import argparse
+import concurrent.futures
 import json
 import subprocess
 import sys
-from pathlib import Path
-from typing import Dict, List, Any
-from dataclasses import dataclass
 from collections import defaultdict
-import concurrent.futures
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List
 
 AI_SERVICE_ROOT = Path(__file__).parent.parent
 RESULTS_DIR = AI_SERVICE_ROOT / "data" / "cluster_elo_results"

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Debug script to test DescentAI initialization and select_move."""
 
-import sys
 import os
+import sys
 
 # Allow imports from app/
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.models import AIConfig, BoardType
 from app.ai.descent_ai import DescentAI
+from app.models import AIConfig, BoardType
 
 
 def main():

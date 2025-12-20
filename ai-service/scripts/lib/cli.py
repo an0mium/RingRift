@@ -50,7 +50,7 @@ VALID_PLAYER_COUNTS = [2, 3, 4]
 # Canonical mapping from string names to BoardType enum
 # Includes all common aliases used across scripts
 if _HAS_BOARD_TYPE:
-    BOARD_TYPE_MAP: dict[str, "BoardType"] = {
+    BOARD_TYPE_MAP: dict[str, BoardType] = {
         # Standard names
         "square8": BoardType.SQUARE8,
         "square19": BoardType.SQUARE19,
@@ -67,7 +67,7 @@ else:
     BOARD_TYPE_MAP = {}
 
 
-def parse_board_type(value: str) -> "BoardType":
+def parse_board_type(value: str) -> BoardType:
     """Parse a board type string to BoardType enum.
 
     Handles common aliases and is case-insensitive.

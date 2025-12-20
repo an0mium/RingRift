@@ -211,7 +211,7 @@ class EnsembleTeacher(nn.Module):
         checkpoint_path: Path,
         model_class: type,
         device: torch.device,
-    ) -> "EnsembleTeacher":
+    ) -> EnsembleTeacher:
         """Load ensemble from checkpoint created by ensemble_models.py.
 
         Args:

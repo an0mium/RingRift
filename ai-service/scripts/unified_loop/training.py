@@ -19,16 +19,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from .config import (
+    INITIAL_ELO_RATING,
     DataEvent,
     DataEventType,
     FeedbackConfig,
     FeedbackState,
-    INITIAL_ELO_RATING,
     TrainingConfig,
 )
 
 if TYPE_CHECKING:
     from unified_ai_loop import ConfigPriorityQueue, EventBus, UnifiedLoopState
+
     from app.execution.backends import OrchestratorBackend
     from app.integration.pipeline_feedback import PipelineFeedbackController
 
@@ -47,7 +48,7 @@ except ImportError:
 
 # Optional Prometheus metrics - avoid duplicate registration
 try:
-    from prometheus_client import Counter, Gauge, Histogram, REGISTRY
+    from prometheus_client import REGISTRY, Counter, Gauge, Histogram
     HAS_PROMETHEUS = True
 
     def _get_or_create_counter(name, desc, labels=None):
@@ -216,8 +217,8 @@ try:
     from app.training.curriculum_feedback import (
         CurriculumFeedback,
         get_curriculum_feedback,
-        record_selfplay_game,
         get_curriculum_weights,
+        record_selfplay_game,
     )
     HAS_CURRICULUM_FEEDBACK = True
 except ImportError:
@@ -230,20 +231,20 @@ except ImportError:
 # Advanced training utilities (2025-12)
 try:
     from app.training.advanced_training import (
+        AdaptivePrecisionManager,
+        CMAESAutoTuner,
+        GradientCheckpointing,
         LRFinder,
         LRFinderResult,
-        GradientCheckpointing,
-        PFSPOpponentPool,
         OpponentStats,
-        CMAESAutoTuner,
+        PFSPOpponentPool,
         PlateauConfig,
+        ProgressiveLayerUnfreezing,
+        SmartCheckpointManager,
+        StabilityMetrics,
+        SWAWithRestarts,
         # Phase 4 imports
         TrainingStabilityMonitor,
-        StabilityMetrics,
-        AdaptivePrecisionManager,
-        ProgressiveLayerUnfreezing,
-        SWAWithRestarts,
-        SmartCheckpointManager,
         create_phase4_training_suite,
     )
     HAS_ADVANCED_TRAINING = True
@@ -268,9 +269,9 @@ except ImportError:
 # Streaming pipeline integration (2025-12 bottleneck fixes)
 try:
     from app.training.streaming_pipeline import (
-        StreamingDataPipeline,
-        StreamingConfig,
         GameSample,
+        StreamingConfig,
+        StreamingDataPipeline,
     )
     HAS_STREAMING_PIPELINE = True
 except ImportError:
@@ -321,9 +322,9 @@ except ImportError:
 # NNUE dataset validation (2025-12)
 try:
     from app.training.nnue_dataset import (
-        validate_nnue_dataset,
-        validate_database_integrity,
         DataValidationResult,
+        validate_database_integrity,
+        validate_nnue_dataset,
     )
     HAS_NNUE_VALIDATION = True
 except ImportError:
@@ -356,11 +357,11 @@ class TrainingScheduler:
     def __init__(
         self,
         config: TrainingConfig,
-        state: "UnifiedLoopState",
-        event_bus: "EventBus",
+        state: UnifiedLoopState,
+        event_bus: EventBus,
         feedback_config: FeedbackConfig | None = None,
-        feedback: "PipelineFeedbackController" | None = None,
-        config_priority: "ConfigPriorityQueue" | None = None
+        feedback: PipelineFeedbackController | None = None,
+        config_priority: ConfigPriorityQueue | None = None
     ):
         # Import ConfigPriorityQueue at runtime to avoid circular imports
         from scripts.unified_ai_loop import ConfigPriorityQueue as CPQ
@@ -460,7 +461,7 @@ class TrainingScheduler:
         self._connection_pool: Any | None = None
         self._parity_failure_rate: float = 0.0  # Track parity failures for training decisions
         # Execution backend for remote training dispatch (coordinator mode)
-        self._backend: "OrchestratorBackend" | None = None
+        self._backend: OrchestratorBackend | None = None
         # Auto-recovery state (Phase 7)
         self._retry_attempts: dict[str, int] = {}  # config_key -> retry count
         self._last_failure_time: dict[str, float] = {}  # config_key -> timestamp
@@ -990,11 +991,11 @@ class TrainingScheduler:
         if self._curriculum_feedback is not None:
             self._curriculum_feedback.record_training(config_key)
 
-    def set_feedback_controller(self, feedback: "PipelineFeedbackController"):
+    def set_feedback_controller(self, feedback: PipelineFeedbackController):
         """Set the feedback controller (called after initialization)."""
         self.feedback = feedback
 
-    def set_execution_backend(self, backend: "OrchestratorBackend"):
+    def set_execution_backend(self, backend: OrchestratorBackend):
         """Set the execution backend for remote training dispatch."""
         self._backend = backend
 
@@ -1008,7 +1009,7 @@ class TrainingScheduler:
             True if training was successfully dispatched
         """
         if self._backend is None:
-            print(f"[Training] No execution backend for remote training")
+            print("[Training] No execution backend for remote training")
             return False
 
         parts = config_key.rsplit("_", 1)
@@ -1230,6 +1231,7 @@ class TrainingScheduler:
         # Duration-aware scheduling
         if HAS_COORDINATION:
             import socket
+
             from app.coordination.duration_scheduler import get_scheduler
             node_id = socket.gethostname()
             scheduler = get_scheduler()
@@ -1330,7 +1332,7 @@ class TrainingScheduler:
             # Try remote dispatch via execution backend
             if self._backend is not None:
                 return await self._dispatch_remote_training(config_key)
-            print(f"[Training] Skipping local training (RINGRIFT_DISABLE_LOCAL_TASKS=true, no backend)")
+            print("[Training] Skipping local training (RINGRIFT_DISABLE_LOCAL_TASKS=true, no backend)")
             return False
 
         if self.state.training_in_progress:
@@ -1338,7 +1340,7 @@ class TrainingScheduler:
 
         # Circuit breaker check - avoid spawning if too many recent failures (2025-12)
         if self._circuit_breaker and not self._circuit_breaker.can_proceed("training_spawn"):
-            print(f"[Training] BLOCKED by circuit breaker: training spawn circuit OPEN (too many recent failures)")
+            print("[Training] BLOCKED by circuit breaker: training spawn circuit OPEN (too many recent failures)")
             if HAS_PROMETHEUS:
                 DATA_QUALITY_BLOCKED_TRAINING.labels(reason="circuit_breaker_open").inc()
             return False
@@ -1358,7 +1360,7 @@ class TrainingScheduler:
                 return False
 
             if self.feedback.should_quarantine_data():
-                print(f"[Training] BLOCKED by data quality gate: data quarantined")
+                print("[Training] BLOCKED by data quality gate: data quarantined")
                 if HAS_PROMETHEUS:
                     DATA_QUALITY_BLOCKED_TRAINING.labels(reason="quarantined").inc()
                 return False
@@ -1458,7 +1460,7 @@ class TrainingScheduler:
                 game_dbs.extend(synced_dir.rglob("*.db"))
 
             if not game_dbs and not has_jsonl_data:
-                print(f"[Training] No game data found")
+                print("[Training] No game data found")
                 self.state.training_in_progress = False
                 self._release_training_lock()
                 return False
@@ -1470,7 +1472,7 @@ class TrainingScheduler:
 
             should_consolidate = False
             if has_jsonl_data:
-                print(f"[Training] Using JSONL data, skipping DB consolidation")
+                print("[Training] Using JSONL data, skipping DB consolidation")
             elif not consolidated_db.exists():
                 should_consolidate = True
             else:
@@ -2039,7 +2041,7 @@ class TrainingScheduler:
             cmd.append("--save-curves")
 
             jsonl_status = f"JSONL: {jsonl_path.name}" if jsonl_path and jsonl_path.exists() else "JSONL: None"
-            print(f"[Training] Starting NNUE policy training with advanced optimizations...")
+            print("[Training] Starting NNUE policy training with advanced optimizations...")
             print(f"[Training]   SWA: {getattr(self.config, 'use_swa', True)}, "
                   f"EMA: {getattr(self.config, 'use_ema', True)}, "
                   f"Progressive batch: {getattr(self.config, 'use_progressive_batch', True)}")
@@ -2255,7 +2257,7 @@ class TrainingScheduler:
                 cmaes_script = AI_SERVICE_ROOT / "scripts" / "cmaes_hp_search.py"
 
             if not cmaes_script.exists():
-                print(f"[CMA-ES] Tuning script not found")
+                print("[CMA-ES] Tuning script not found")
                 return
 
             cmd = [
@@ -2416,7 +2418,7 @@ class TrainingScheduler:
     async def request_urgent_training(self, configs: list[str], reason: str) -> bool:
         """Request urgent training for specified configs due to feedback signal."""
         if self.state.training_in_progress:
-            print(f"[Training] Urgent training request deferred: training already in progress")
+            print("[Training] Urgent training request deferred: training already in progress")
             return False
 
         now = time.time()

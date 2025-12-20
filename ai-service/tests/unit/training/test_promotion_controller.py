@@ -3,26 +3,27 @@
 Tests the unified promotion controller, rollback monitor, and A/B test manager.
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
 from datetime import datetime
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from app.training.promotion_controller import (
+    ABTestConfig,
+    ABTestManager,
+    ABTestResult,
+    LoggingNotificationHook,
+    NotificationHook,
     PromotionController,
-    PromotionType,
     PromotionCriteria,
     PromotionDecision,
+    PromotionType,
     RollbackCriteria,
-    RollbackMonitor,
     RollbackEvent,
-    NotificationHook,
-    LoggingNotificationHook,
-    ABTestConfig,
-    ABTestResult,
-    ABTestManager,
+    RollbackMonitor,
+    get_ab_test_manager,
     get_promotion_controller,
     get_rollback_monitor,
-    get_ab_test_manager,
 )
 
 

@@ -7,6 +7,7 @@ Tests that all coordination components work together correctly.
 import os
 import tempfile
 import time
+
 import pytest
 
 # Skip if coordination modules not available
@@ -53,8 +54,8 @@ class TestOrchestratorRegistry:
     def test_role_acquisition(self):
         """Test acquiring and releasing roles."""
         from app.coordination import (
-            OrchestratorRole,
             OrchestratorRegistry,
+            OrchestratorRole,
         )
 
         # Reset singleton for clean test
@@ -127,8 +128,8 @@ class TestQueueMonitor:
         """Test queue depth reporting and backpressure."""
         from app.coordination import (
             QueueType,
-            report_queue_depth,
             check_backpressure,
+            report_queue_depth,
             should_throttle_production,
         )
 
@@ -177,9 +178,9 @@ class TestBandwidthManager:
     def test_bandwidth_allocation(self):
         """Test bandwidth allocation."""
         from app.coordination import (
-            request_bandwidth,
-            release_bandwidth,
             TransferPriority,
+            release_bandwidth,
+            request_bandwidth,
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:

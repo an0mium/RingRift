@@ -7,8 +7,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import BoardType, Position  # noqa: E402
-from app.rules.geometry import BoardGeometry  # noqa: E402
+from app.models import BoardType, Position
+from app.rules.geometry import BoardGeometry
 
 
 @pytest.mark.parametrize(

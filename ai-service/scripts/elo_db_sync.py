@@ -37,22 +37,22 @@ Usage:
 """
 
 import argparse
+import hashlib
+import http.server
+import json
+import os
 import shutil
+import socketserver
 import sqlite3
 import subprocess
 import sys
-import time
-import json
-import hashlib
-import os
 import tempfile
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
-from typing import List, Dict, Tuple, Any
-from datetime import datetime
-import http.server
-import socketserver
+import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
 
 # Add ai-service to path
 ROOT = Path(__file__).resolve().parent.parent
@@ -78,7 +78,7 @@ ARIA2_TIMEOUT = 120
 
 # Try to use unified hosts module
 try:
-    from scripts.lib.hosts import get_hosts, get_elo_sync_config, get_host
+    from scripts.lib.hosts import get_elo_sync_config, get_host, get_hosts
     USE_UNIFIED_HOSTS = True
 except ImportError:
     USE_UNIFIED_HOSTS = False

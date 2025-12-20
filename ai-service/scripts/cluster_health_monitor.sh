@@ -1,110 +1,37 @@
 #!/bin/bash
-# Cluster Health Monitor - runs for 10 hours, checking every 3-5 minutes
-# Monitors Lambda nodes and ensures selfplay is running
+LOGFILE="/Users/armand/Development/RingRift/ai-service/logs/cluster_health.log"
+DURATION=${1:-10}
+CYCLES=$((DURATION * 12))  # 5 min intervals
 
-LAMBDA_NODES=(
-    "100.65.88.62"
-    "100.79.109.120"
-    "100.117.177.83"
-    "100.99.27.56"
-    "100.97.98.26"
-    "100.66.65.33"
-    "100.104.126.58"
-    "100.83.234.82"
-)
+echo "[$(date)] Monitor starting: $DURATION hours, $CYCLES cycles" >> "$LOGFILE"
 
-LOG_FILE="${HOME}/cluster_monitor.log"
-DURATION_HOURS=10
-INTERVAL_SECONDS=240  # 4 minutes
-
-log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
-}
-
-check_node_health() {
-    local ip=$1
-    # Check SSH connectivity (timeout 10s)
-    if timeout 10 ssh -o ConnectTimeout=5 -o BatchMode=yes ubuntu@${ip} "echo OK" >/dev/null 2>&1; then
-        echo "ok"
-    else
-        echo "unreachable"
+for i in $(seq 1 $CYCLES); do
+    echo "" >> "$LOGFILE"
+    echo "[$(date)] === Cycle $i/$CYCLES ===" >> "$LOGFILE"
+    
+    # Check A40
+    A40_GPU=$(ssh -o ConnectTimeout=15 root@100.97.157.45 "nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader" 2>/dev/null || echo "OFFLINE")
+    A40_PROCS=$(ssh -o ConnectTimeout=15 root@100.97.157.45 "pgrep -c python" 2>/dev/null || echo "0")
+    echo "[$(date)] A40: GPU=$A40_GPU, Procs=$A40_PROCS" >> "$LOGFILE"
+    
+    # Check 5070
+    N5070_GPU=$(ssh -o ConnectTimeout=15 root@100.74.40.31 "nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader" 2>/dev/null || echo "OFFLINE")
+    N5070_PROCS=$(ssh -o ConnectTimeout=15 root@100.74.40.31 "pgrep -c python" 2>/dev/null || echo "0")
+    echo "[$(date)] 5070: GPU=$N5070_GPU, Procs=$N5070_PROCS" >> "$LOGFILE"
+    
+    # Check 4080S
+    N4080_GPU=$(ssh -o ConnectTimeout=15 root@100.79.143.125 "nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader" 2>/dev/null || echo "OFFLINE")
+    N4080_PROCS=$(ssh -o ConnectTimeout=15 root@100.79.143.125 "pgrep -c python" 2>/dev/null || echo "0")
+    echo "[$(date)] 4080S: GPU=$N4080_GPU, Procs=$N4080_PROCS" >> "$LOGFILE"
+    
+    # If A40 idle, start work
+    if [[ "$A40_GPU" == "0 %" ]] && [[ "$A40_PROCS" -lt 5 ]]; then
+        echo "[$(date)] A40 idle - starting selfplay" >> "$LOGFILE"
+        ssh root@100.97.157.45 "cd /root/ringrift/ai-service && source venv/bin/activate && PYTHONPATH=. nohup python scripts/run_gpu_selfplay.py --board square19 --num-games 100 --batch-size 64 --engine-mode random-only >/tmp/selfplay.log 2>&1 &" 2>/dev/null
     fi
-}
-
-check_gpu_status() {
-    local ip=$1
-    # Check CUDA availability
-    timeout 30 ssh ubuntu@${ip} "cd ~/ringrift/ai-service && source venv/bin/activate && python -c 'import torch; print(\"CUDA:\", torch.cuda.is_available())'" 2>/dev/null | grep -q "CUDA: True"
-    if [ $? -eq 0 ]; then
-        echo "ok"
-    else
-        echo "no_cuda"
-    fi
-}
-
-check_selfplay_running() {
-    local ip=$1
-    # Check if any selfplay process is running
-    local count=$(timeout 10 ssh ubuntu@${ip} "pgrep -f 'run.*selfplay' | wc -l" 2>/dev/null)
-    echo "${count:-0}"
-}
-
-start_selfplay() {
-    local ip=$1
-    local board_type=$2  # hexagonal or square19
-    log "Starting ${board_type} selfplay on ${ip}"
-    ssh ubuntu@${ip} "cd ~/ringrift/ai-service && source venv/bin/activate && nohup python scripts/run_random_selfplay.py --board ${board_type} --num-games 1000 --output-dir data/selfplay/${board_type}_$(date +%Y%m%d_%H%M%S) > /tmp/selfplay.log 2>&1 &" &
-}
-
-run_health_check() {
-    log "=== Starting health check cycle ==="
     
-    local healthy=0
-    local unhealthy=0
-    local selfplay_running=0
-    
-    for ip in "${LAMBDA_NODES[@]}"; do
-        # Check connectivity
-        status=$(check_node_health "$ip")
-        
-        if [ "$status" = "ok" ]; then
-            ((healthy++))
-            
-            # Check selfplay
-            sp_count=$(check_selfplay_running "$ip")
-            if [ "$sp_count" -gt 0 ]; then
-                ((selfplay_running++))
-                log "  ${ip}: healthy, ${sp_count} selfplay processes"
-            else
-                log "  ${ip}: healthy, no selfplay - consider starting"
-                # Auto-start selfplay on idle nodes (alternate between hex and square19)
-                if [ $((RANDOM % 2)) -eq 0 ]; then
-                    start_selfplay "$ip" "hexagonal"
-                else
-                    start_selfplay "$ip" "square19"
-                fi
-            fi
-        else
-            ((unhealthy++))
-            log "  ${ip}: UNREACHABLE"
-        fi
-    done
-    
-    log "Summary: ${healthy}/${#LAMBDA_NODES[@]} healthy, ${selfplay_running} running selfplay"
-    log "=== Health check complete ==="
-}
-
-# Main monitoring loop
-log "Starting 10-hour cluster monitoring (interval: ${INTERVAL_SECONDS}s)"
-END_TIME=$(($(date +%s) + DURATION_HOURS * 3600))
-
-while [ $(date +%s) -lt $END_TIME ]; do
-    run_health_check
-    
-    # Sleep with random jitter (3-5 minutes)
-    SLEEP_TIME=$((180 + RANDOM % 120))
-    log "Sleeping for ${SLEEP_TIME} seconds..."
-    sleep $SLEEP_TIME
+    echo "[$(date)] Sleeping 5 min..." >> "$LOGFILE"
+    [ $i -lt $CYCLES ] && sleep 300
 done
 
-log "Monitoring complete after ${DURATION_HOURS} hours"
+echo "[$(date)] Monitor complete" >> "$LOGFILE"

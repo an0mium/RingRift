@@ -38,16 +38,16 @@ from typing import Any, Dict, List, Optional
 # Add ai-service to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from app.distributed.hosts import (
+    detect_host_memory,
+    get_ssh_executor,
+)
 from app.distributed.memory import (
     MemoryProfile,
     MemoryTracker,
     format_memory_profile,
     get_current_rss_mb,
     write_memory_report,
-)
-from app.distributed.hosts import (
-    detect_host_memory,
-    get_ssh_executor,
 )
 
 # Unified logging setup
@@ -120,11 +120,12 @@ def run_single_benchmark(config: BenchmarkConfig) -> MemoryProfile:
     """
     import uuid
     from datetime import datetime as dt
-    from app.models import GameState, BoardType, GamePhase, GameStatus, Player, TimeControl, BoardState, AIConfig
+
     from app.ai.heuristic_ai import HeuristicAI
-    from app.ai.minimax_ai import MinimaxAI
     from app.ai.mcts_ai import MCTSAI
+    from app.ai.minimax_ai import MinimaxAI
     from app.ai.random_ai import RandomAI
+    from app.models import AIConfig, BoardState, BoardType, GamePhase, GameState, GameStatus, Player, TimeControl
     from app.rules.default_engine import DefaultRulesEngine
 
     AI_CLASSES = {
@@ -330,7 +331,7 @@ def run_benchmarks(
     if profiles:
         max_peak = max(p.peak_rss_mb for p in profiles)
         max_increase = max(p.memory_increase_mb for p in profiles)
-        logger.info(f"\nSummary:")
+        logger.info("\nSummary:")
         logger.info(f"  Max peak RSS: {max_peak} MB")
         logger.info(f"  Max memory increase: {max_increase} MB")
 
@@ -409,9 +410,10 @@ def benchmark_nnue_inference(
     Returns:
         MemoryProfile
     """
-    from app.models import BoardType
-    from app.ai.nnue import load_nnue_model, get_feature_dim
     import numpy as np
+
+    from app.ai.nnue import get_feature_dim, load_nnue_model
+    from app.models import BoardType
 
     logger.info(f"Benchmarking NNUE inference: {board_type}, {num_iterations} iterations")
 
@@ -461,8 +463,9 @@ def benchmark_nnue_training_step(
     """
     import torch
     import torch.nn as nn
-    from app.models import BoardType
+
     from app.ai.nnue import RingRiftNNUE, get_feature_dim
+    from app.models import BoardType
 
     logger.info(f"Benchmarking NNUE training: {board_type}, batch_size={batch_size}, {num_batches} batches")
 

@@ -32,7 +32,6 @@ from typing import List
 from app.db import GameReplayDB
 from app.game_engine import GameEngine
 
-
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -50,7 +49,7 @@ def _python_soak_for_db(db_path: Path, max_games: int) -> bool:
         game_ids = [row["game_id"] for row in rows]
 
     if not game_ids:
-        _log(f"  Skipping (no games found).")
+        _log("  Skipping (no games found).")
         return True
 
     random.shuffle(game_ids)

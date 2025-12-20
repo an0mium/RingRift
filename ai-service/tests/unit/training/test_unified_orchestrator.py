@@ -7,9 +7,9 @@ Tests cover:
 - Factory functions
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 # =============================================================================
 # Test OrchestratorConfig Dataclass
@@ -201,11 +201,12 @@ class TestEnhancementsWrapper:
 
     def test_compute_sample_weights_default(self):
         """Test compute_sample_weights returns ones when unavailable."""
+        import numpy as np
+
         from app.training.unified_orchestrator import (
             EnhancementsWrapper,
             OrchestratorConfig,
         )
-        import numpy as np
 
         wrapper = EnhancementsWrapper(OrchestratorConfig())
         elos = np.array([1500, 1600, 1700])
@@ -387,8 +388,8 @@ class TestUnifiedTrainingOrchestrator:
     def test_initialization_with_config(self, mock_model):
         """Test orchestrator initialization with custom config."""
         from app.training.unified_orchestrator import (
-            UnifiedTrainingOrchestrator,
             OrchestratorConfig,
+            UnifiedTrainingOrchestrator,
         )
 
         config = OrchestratorConfig(board_type="hex6", num_players=3)

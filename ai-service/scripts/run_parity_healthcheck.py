@@ -32,9 +32,9 @@ import argparse
 import json
 import os
 import sys
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
-from collections.abc import Iterable, Sequence
 
 # Ensure `app.*` and `tests.*` imports resolve when run from ai-service/
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -42,14 +42,13 @@ if ROOT not in sys.path:
     sys.path.append(ROOT)
 
 # Contract vectors runner and helpers
-import tests.contracts.test_contract_vectors as contract_vectors  # type: ignore  # noqa: E402,E501
+import tests.contracts.test_contract_vectors as contract_vectors  # type: ignore
+from app.utils.progress_reporter import ProgressReporter  # type: ignore
 
 # Plateau snapshot builders (seed plateau parity)
-from tests.parity import (  # type: ignore  # noqa: E402
+from tests.parity import (  # type: ignore
     test_ts_seed_plateau_snapshot_parity as plateau_mod,
 )
-
-from app.utils.progress_reporter import ProgressReporter  # type: ignore  # noqa: E402
 
 
 @dataclass

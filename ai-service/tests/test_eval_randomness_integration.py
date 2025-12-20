@@ -18,11 +18,11 @@ import pytest
 # directly (mirrors pattern used in other ai-service tests).
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 
-from app.ai.heuristic_weights import (  # type: ignore  # noqa: E402
+from app.ai.heuristic_weights import (  # type: ignore
     BASE_V1_BALANCED_WEIGHTS,
 )
-from app.models import BoardType  # type: ignore  # noqa: E402
-from scripts.run_cmaes_optimization import (  # type: ignore  # noqa: E402
+from app.models import BoardType  # type: ignore
+from scripts.run_cmaes_optimization import (  # type: ignore
     evaluate_fitness,
 )
 

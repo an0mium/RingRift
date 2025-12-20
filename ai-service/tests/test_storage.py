@@ -128,7 +128,7 @@ class TestGetStorageBackend:
 
     def test_get_local_backend_default(self):
         """Test getting local backend as default."""
-        from app.storage import get_storage_backend, LocalStorage
+        from app.storage import LocalStorage, get_storage_backend
 
         storage = get_storage_backend(backend="local")
 
@@ -144,7 +144,7 @@ class TestGetStorageBackend:
 
     def test_get_backend_from_env(self, tmp_path, monkeypatch):
         """Test getting backend from environment variables."""
-        from app.storage import get_storage_backend, LocalStorage
+        from app.storage import LocalStorage, get_storage_backend
 
         monkeypatch.setenv("STORAGE_BACKEND", "local")
         monkeypatch.setenv("STORAGE_BASE_PATH", str(tmp_path))
@@ -271,8 +271,9 @@ class TestStorageBackendInterface:
 
     def test_abstract_methods(self):
         """Test that StorageBackend has required abstract methods."""
-        from app.storage import StorageBackend
         import inspect
+
+        from app.storage import StorageBackend
 
         # Get abstract methods
         abstract_methods = set()
@@ -290,10 +291,10 @@ class TestModuleExports:
     def test_all_exports(self):
         """Test importing all exports from storage module."""
         from app.storage import (
-            StorageBackend,
+            GCSStorage,
             LocalStorage,
             S3Storage,
-            GCSStorage,
+            StorageBackend,
             get_storage_backend,
         )
 

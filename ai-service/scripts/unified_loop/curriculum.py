@@ -13,14 +13,16 @@ import statistics
 import time
 from typing import TYPE_CHECKING, Dict, Optional
 
-from .config import CurriculumConfig, DataEvent, DataEventType
 from app.utils.paths import AI_SERVICE_ROOT
+
+from .config import CurriculumConfig, DataEvent, DataEventType
 
 # Path for curriculum weights shared with P2P orchestrator (Phase 3.1)
 CURRICULUM_WEIGHTS_PATH = AI_SERVICE_ROOT / "data" / "curriculum_weights.json"
 
 if TYPE_CHECKING:
     from unified_ai_loop import EventBus, UnifiedLoopState
+
     from app.integration.pipeline_feedback import PipelineFeedbackController
 
 # Optional ELO service import
@@ -87,13 +89,13 @@ def load_curriculum_weights() -> dict[str, float]:
 class AdaptiveCurriculum:
     """Manages Elo-weighted training curriculum with feedback integration."""
 
-    def __init__(self, config: CurriculumConfig, state: "UnifiedLoopState", event_bus: "EventBus"):
+    def __init__(self, config: CurriculumConfig, state: UnifiedLoopState, event_bus: EventBus):
         self.config = config
         self.state = state
         self.event_bus = event_bus
-        self.feedback: "PipelineFeedbackController" | None = None
+        self.feedback: PipelineFeedbackController | None = None
 
-    def set_feedback_controller(self, feedback: "PipelineFeedbackController"):
+    def set_feedback_controller(self, feedback: PipelineFeedbackController):
         """Set the feedback controller for curriculum adjustments."""
         self.feedback = feedback
 

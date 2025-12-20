@@ -9,7 +9,9 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import (  # noqa: E402
+from app.board_manager import BoardManager
+from app.game_engine import GameEngine
+from app.models import (
     BoardType,
     GamePhase,
     GameState,
@@ -19,11 +21,9 @@ from app.models import (  # noqa: E402
     RingStack,
     Territory,
 )
-from app.game_engine import GameEngine  # noqa: E402
-from app.rules.default_engine import DefaultRulesEngine  # noqa: E402
-from app.training.env import RingRiftEnv  # noqa: E402
-from app.board_manager import BoardManager  # noqa: E402
-from tests.rules.helpers import _make_base_game_state  # noqa: E402
+from app.rules.default_engine import DefaultRulesEngine
+from app.training.env import RingRiftEnv
+from tests.rules.helpers import _make_base_game_state
 
 
 @pytest.mark.parametrize("board_type", [BoardType.SQUARE8, BoardType.SQUARE19])

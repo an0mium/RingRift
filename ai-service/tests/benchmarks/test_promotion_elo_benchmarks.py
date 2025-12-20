@@ -14,10 +14,10 @@ import sqlite3
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Tuple
-from collections.abc import Callable
 from unittest.mock import MagicMock
 
 # Add parent directories to path for standalone execution
@@ -35,10 +35,9 @@ from app.training.promotion_controller import (
     PromotionType,
 )
 
-
 # Check if pytest-benchmark is available
 try:
-    import pytest_benchmark  # noqa
+    import pytest_benchmark
     HAS_BENCHMARK = True
 except ImportError:
     HAS_BENCHMARK = False
@@ -264,7 +263,7 @@ class TestMetricsOverhead:
 
         # Metrics overhead should be <1ms
         print(f"\nPromotion evaluation with metrics: avg={avg_with*1000:.3f}ms")
-        print(f"Metrics overhead is acceptable if total time <10ms")
+        print("Metrics overhead is acceptable if total time <10ms")
 
         assert avg_with < 0.01, f"Metrics overhead too high: {avg_with*1000:.3f}ms"
 
@@ -383,6 +382,7 @@ class TestConcurrency:
     def test_concurrent_match_imports(self):
         """Test concurrent match imports with conflict resolution."""
         import concurrent.futures
+
         from app.training.elo_reconciliation import ConflictResolution
 
         self._create_db_with_data(10, 50)

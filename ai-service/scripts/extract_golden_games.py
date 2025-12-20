@@ -37,8 +37,8 @@ from typing import Any, Dict, List
 # Allow imports from app/
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.db import GameReplayDB  # noqa: E402
-from app.models import GameState, Move  # noqa: E402
+from app.db import GameReplayDB
+from app.models import GameState, Move
 
 
 def _load_final_state(
@@ -68,7 +68,7 @@ def _load_final_state(
     # Fallback: replay moves from the initial state using the current engine.
     # We use the stateless GameEngine.apply_move surface here so that we
     # match the semantics used in other training/replay helpers.
-    from app.game_engine import GameEngine  # noqa: E402
+    from app.game_engine import GameEngine
 
     state = initial_state
     for move in moves:

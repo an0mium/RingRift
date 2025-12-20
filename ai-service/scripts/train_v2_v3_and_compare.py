@@ -33,7 +33,6 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
-
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
 

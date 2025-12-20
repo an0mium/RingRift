@@ -21,11 +21,11 @@ from typing import Dict, List, Optional
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.models import AIConfig, BoardType, GameState, GameStatus, Move
 from app.ai.heuristic_ai import HeuristicAI
 from app.ai.heuristic_weights import BASE_V1_BALANCED_WEIGHTS, HEURISTIC_WEIGHT_KEYS
+from app.db import GameReplayDB, ParityValidationError, get_or_create_db, record_completed_game_with_parity_check
+from app.models import AIConfig, BoardType, GameState, GameStatus, Move
 from app.rules.default_engine import DefaultRulesEngine
-from app.db import GameReplayDB, get_or_create_db, record_completed_game_with_parity_check, ParityValidationError
 from app.training.env import get_theoretical_max_moves
 from app.training.initial_state import create_initial_state
 from scripts.lib.cli import BOARD_TYPE_MAP
@@ -231,7 +231,7 @@ def run_sensitivity_test(
     )
     print(f"Board: {board_type}, Max moves: {max_moves}", flush=True)
     if replay_db:
-        print(f"Recording games to database", flush=True)
+        print("Recording games to database", flush=True)
     print("", flush=True)
 
     global_game_num = 0
@@ -423,7 +423,7 @@ def main():
     results.sort(key=lambda r: r.win_rate, reverse=True)
 
     print(f"\n{'='*80}")
-    print(f"SENSITIVITY RESULTS (sorted by win rate)")
+    print("SENSITIVITY RESULTS (sorted by win rate)")
     print(f"{'='*80}")
     print(f"{'Weight':<45} {'WinRate':>8} {'Net':>5} {'AvgLen':>7}")
     print(f"{'-'*80}")
@@ -451,7 +451,7 @@ def main():
         print(f"{r.weight_name:<45} {r.win_rate:>7.0%} {r.net_wins:>+5d} {r.avg_game_length:>7.1f} {marker}")
 
     print(f"\n{'='*80}")
-    print(f"SUMMARY")
+    print("SUMMARY")
     print(f"{'='*80}")
     print(f"Total time: {elapsed:.1f}s ({elapsed/len(results):.2f}s per weight)")
     print(f"\nSignificant weights ({len(significant_weights)}):")

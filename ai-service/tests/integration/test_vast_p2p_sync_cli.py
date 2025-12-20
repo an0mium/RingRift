@@ -3,10 +3,9 @@
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # Path to the script
 SCRIPT_PATH = Path(__file__).parents[2] / "scripts" / "vast_p2p_sync.py"
@@ -54,8 +53,8 @@ class TestDryRunOutput:
         sys.path.insert(0, str(SCRIPT_PATH.parent.parent))
 
         from scripts.vast_p2p_sync import (
-            VastInstance,
             P2PNode,
+            VastInstance,
             match_vast_to_p2p,
         )
 

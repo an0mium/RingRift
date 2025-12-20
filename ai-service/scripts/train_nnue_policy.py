@@ -50,17 +50,16 @@ from torch.utils.data import DataLoader
 
 from app.ai.nnue import RingRiftNNUE, clear_nnue_cache, get_board_size
 from app.ai.nnue_policy import (
-    RingRiftNNUEWithPolicy,
-    NNUEPolicyTrainer,
-    NNUEPolicyDataset,
-    NNUEPolicyDatasetConfig,
-    get_hidden_dim_for_board,
     HexBoardAugmenter,
     LearningRateFinder,
+    NNUEPolicyDataset,
+    NNUEPolicyDatasetConfig,
+    NNUEPolicyTrainer,
+    RingRiftNNUEWithPolicy,
+    get_hidden_dim_for_board,
 )
 from app.models import BoardType
 from app.training.seed_utils import seed_all
-
 from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("train_nnue_policy")
@@ -512,7 +511,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def split_by_game_id(
-    dataset: "NNUEPolicyDataset",
+    dataset: NNUEPolicyDataset,
     val_split: float,
     seed: int,
 ) -> tuple:
@@ -578,7 +577,7 @@ def augment_batch_with_hex(
     target: torch.Tensor,
     sample_weights: torch.Tensor,
     mcts_probs: torch.Tensor | None,
-    augmenter: "HexBoardAugmenter",
+    augmenter: HexBoardAugmenter,
 ) -> tuple:
     """Apply D6 symmetry augmentation to a batch of hex board samples.
 

@@ -36,8 +36,8 @@ import sqlite3
 import subprocess
 import sys
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -493,7 +493,7 @@ def run_experiment(
     conn.execute("UPDATE experiments SET status = 'training' WHERE id = ?", (exp.id,))
     conn.commit()
 
-    print(f"\n[1/3] Training variant model...")
+    print("\n[1/3] Training variant model...")
     variant_path = train_variant_model(exp)
 
     if not variant_path:
@@ -510,7 +510,7 @@ def run_experiment(
     conn.execute("UPDATE experiments SET status = 'testing' WHERE id = ?", (exp.id,))
     conn.commit()
 
-    print(f"\n[2/3] Creating A/B test...")
+    print("\n[2/3] Creating A/B test...")
     ab_test_id = create_ab_test_for_experiment(exp)
 
     if not ab_test_id:

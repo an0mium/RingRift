@@ -1,9 +1,10 @@
 import unittest
 from unittest.mock import MagicMock
 
+from app.board_manager import BoardManager
+
 # Import from the local app package (tests adjust sys.path similarly elsewhere)
 from app.game_engine import GameEngine
-from app.board_manager import BoardManager
 
 
 class TestRulesGlobalStateGuard(unittest.TestCase):

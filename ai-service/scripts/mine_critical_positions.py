@@ -23,12 +23,14 @@ import json
 import os
 import sys
 import time
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Any
 from collections.abc import Iterator
+from dataclasses import asdict, dataclass, field
+from typing import Any, Dict, List, Optional
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app.ai.heuristic_ai import HeuristicAI
+from app.db import GameReplayDB
 from app.models import (
     AIConfig,
     BoardType,
@@ -36,9 +38,7 @@ from app.models import (
     GameStatus,
     Move,
 )
-from app.ai.heuristic_ai import HeuristicAI
 from app.rules.default_engine import DefaultRulesEngine
-from app.db import GameReplayDB
 from app.training.initial_state import create_initial_state
 from scripts.lib.cli import BOARD_TYPE_MAP
 
@@ -507,7 +507,7 @@ Examples:
         win_moves = [p for p in critical_positions if p.did_moving_player_win]
         lose_moves = [p for p in critical_positions if not p.did_moving_player_win]
 
-        print(f"\nSummary:")
+        print("\nSummary:")
         print(
             f"  Positions where moving player won:  {len(win_moves)} ({100*len(win_moves)/len(critical_positions):.1f}%)"
         )
@@ -521,7 +521,7 @@ Examples:
             for reason in p.criticality_reason.split("|"):
                 by_reason[reason] = by_reason.get(reason, 0) + 1
 
-        print(f"\n  By criticality reason:")
+        print("\n  By criticality reason:")
         for reason, count in sorted(by_reason.items(), key=lambda x: -x[1])[:10]:
             print(f"    {reason}: {count}")
 

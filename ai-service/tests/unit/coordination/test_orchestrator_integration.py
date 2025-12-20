@@ -8,8 +8,9 @@ Tests that events properly flow between orchestrators:
 """
 
 import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
 
 # Test fixtures for event bus mocking
 
@@ -220,8 +221,8 @@ class TestTaskLifecycleCoordinatorSubscriptions:
         """Test that HOST_OFFLINE marks node tasks as orphaned."""
         from app.coordination.task_lifecycle_coordinator import (
             TaskLifecycleCoordinator,
-            TrackedTask,
             TaskStatus,
+            TrackedTask,
         )
 
         coord = TaskLifecycleCoordinator()
@@ -266,8 +267,8 @@ class TestTaskLifecycleCoordinatorSubscriptions:
         """Test that NODE_RECOVERED restores orphaned tasks."""
         from app.coordination.task_lifecycle_coordinator import (
             TaskLifecycleCoordinator,
-            TrackedTask,
             TaskStatus,
+            TrackedTask,
         )
 
         coord = TaskLifecycleCoordinator()

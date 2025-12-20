@@ -7,7 +7,7 @@ import pytest
 # Ensure app and scripts packages are importable when running tests directly.
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 
-from scripts.run_self_play_soak import (  # type: ignore  # noqa: E402
+from scripts.run_self_play_soak import (  # type: ignore
   GameRecord,
   _has_anomalies,
 )

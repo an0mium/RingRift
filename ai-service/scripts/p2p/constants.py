@@ -16,8 +16,8 @@ from pathlib import Path
 # Import canonical Elo constants
 try:
     from app.config.thresholds import (
-        INITIAL_ELO_RATING,
         ELO_K_FACTOR,
+        INITIAL_ELO_RATING,
     )
 except ImportError:
     INITIAL_ELO_RATING = 1500.0

@@ -21,10 +21,10 @@ import json
 import os
 import sys
 import time
-from pathlib import Path
-from typing import Any, Optional
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Optional
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -33,7 +33,6 @@ if PROJECT_ROOT not in sys.path:
 
 from app.game_engine import GameEngine
 from app.models import BoardType, GamePhase
-
 
 # Board size to BoardType mapping
 BOARD_SIZE_TO_TYPE = {
@@ -311,7 +310,7 @@ def process_file(
     """Process a single JSONL file."""
     games_to_write = []
 
-    with open(input_path, 'r') as f:
+    with open(input_path) as f:
         for line_num, line in enumerate(f, 1):
             line = line.strip()
             if not line:
@@ -427,7 +426,7 @@ def main():
     elapsed = time.time() - start_time
 
     # Print summary
-    print(f"\n=== Replay Inference Summary ===")
+    print("\n=== Replay Inference Summary ===")
     print(f"Time elapsed: {elapsed:.1f}s")
     print(f"Total games: {stats['total']}")
     print(f"Already had termination: {stats['already_has_termination']}")
@@ -440,7 +439,7 @@ def main():
         print(f"Parse errors: {stats['parse_errors']}")
         print(f"Other errors: {stats['other_errors']}")
 
-        print(f"\n=== Inferred Termination Reasons ===")
+        print("\n=== Inferred Termination Reasons ===")
         for key, count in sorted(stats.items()):
             if key.startswith("inferred:"):
                 print(f"  {count:>8}  {key[9:]}")

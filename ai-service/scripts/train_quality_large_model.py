@@ -99,7 +99,7 @@ def train_model(
     patience = hp.get("early_stopping_patience", 20)
     warmup_epochs = hp.get("warmup_epochs", 5)
 
-    print(f"\nTraining config:")
+    print("\nTraining config:")
     print(f"  Epochs: {epochs}")
     print(f"  Learning rate: {lr}")
     print(f"  Weight decay: {weight_decay}")

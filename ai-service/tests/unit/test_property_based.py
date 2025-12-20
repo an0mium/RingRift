@@ -6,18 +6,22 @@ hold for all valid inputs, catching edge cases that unit tests might miss.
 Run with: pytest tests/unit/test_property_based.py -v --hypothesis-show-statistics
 """
 
+import numpy as np
 import pytest
 import torch
-import numpy as np
-from hypothesis import given, strategies as st, assume, settings
+from hypothesis import (
+    assume,
+    given,
+    settings,
+    strategies as st,
+)
 
 from app.ai.neural_losses import (
     MAX_PLAYERS,
-    masked_policy_kl,
     build_rank_targets,
+    masked_policy_kl,
     multi_player_value_loss,
 )
-
 
 # =============================================================================
 # Custom Strategies
@@ -224,11 +228,11 @@ class TestHeuristicWeightProperties:
     @settings(max_examples=30, deadline=None)
     def test_flatten_reconstruct_roundtrip(self, seed):
         """Flatten and reconstruct should preserve all weights."""
+        from app.ai.heuristic_weights import HEURISTIC_WEIGHT_KEYS
         from app.training.train import (
             _flatten_heuristic_weights,
             _reconstruct_heuristic_profile,
         )
-        from app.ai.heuristic_weights import HEURISTIC_WEIGHT_KEYS
 
         # Create a profile with random values
         np.random.seed(seed)
@@ -252,8 +256,8 @@ class TestHeuristicWeightProperties:
     @settings(max_examples=30, deadline=None)
     def test_flatten_produces_correct_length(self, weights):
         """Flattening should produce list of same length as input profile."""
-        from app.training.train import _flatten_heuristic_weights
         from app.ai.heuristic_weights import HEURISTIC_WEIGHT_KEYS
+        from app.training.train import _flatten_heuristic_weights
 
         profile = {key: weights[i % len(weights)] for i, key in enumerate(HEURISTIC_WEIGHT_KEYS)}
 

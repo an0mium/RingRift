@@ -62,9 +62,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 
-from app.ai.gpu_batch import get_device, clear_gpu_memory
+from app.ai.gpu_batch import clear_gpu_memory, get_device
 from app.ai.gpu_parallel_games import ParallelGameRunner
-
 
 # Board type mapping
 BOARD_SIZE_MAP = {

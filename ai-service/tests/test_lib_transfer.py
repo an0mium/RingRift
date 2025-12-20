@@ -18,8 +18,8 @@ import pytest
 from scripts.lib.transfer import (
     TransferConfig,
     TransferResult,
-    compute_checksum,
     compress_file,
+    compute_checksum,
     copy_local,
     decompress_file,
     get_remote_checksum,

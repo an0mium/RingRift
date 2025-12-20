@@ -21,14 +21,14 @@ import argparse
 import json
 import os
 import subprocess
+import threading
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Any
-import threading
-import urllib.request
-import urllib.error
+from typing import Any, Dict, List, Optional
 
 try:
     import yaml
@@ -45,7 +45,10 @@ except ImportError:
     USE_UNIFIED_HOSTS = False
 
 try:
-    from scripts.monitor.alerting import send_alert as unified_send_alert, AlertSeverity
+    from scripts.monitor.alerting import (
+        AlertSeverity,
+        send_alert as unified_send_alert,
+    )
     USE_UNIFIED_ALERTING = True
 except ImportError:
     USE_UNIFIED_ALERTING = False
@@ -502,7 +505,7 @@ def cmd_monitor(args, config: ClusterConfig):
         nodes = config.get_active_nodes()
 
     print(f"\n{'='*60}")
-    print(f"  RingRift GPU Cluster Monitor")
+    print("  RingRift GPU Cluster Monitor")
     print(f"  Duration: {duration_hours} hours | Interval: {interval_sec}s")
     print(f"  Monitoring {len(nodes)} nodes until {end_time.strftime('%H:%M:%S')}")
     print(f"{'='*60}\n")

@@ -1,14 +1,14 @@
-from datetime import datetime
 import os
 import sys
+from datetime import datetime
 
 # Ensure `app.*` imports resolve when running pytest from ai-service/
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.board_manager import BoardManager  # noqa: E402
-from app.models import (  # noqa: E402
+from app.board_manager import BoardManager
+from app.models import (
     BoardState,
     BoardType,
     MarkerInfo,

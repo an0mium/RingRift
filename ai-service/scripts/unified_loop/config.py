@@ -39,8 +39,8 @@ import yaml
 # Import canonical threshold constants
 try:
     from app.config.thresholds import (
-        INITIAL_ELO_RATING,
         ELO_DROP_ROLLBACK,
+        INITIAL_ELO_RATING,
     )
 except ImportError:
     INITIAL_ELO_RATING = 1500.0
@@ -49,13 +49,13 @@ except ImportError:
 # Re-export migrated classes from canonical location for backward compatibility
 try:
     from app.config.unified_config import (
-        PBTConfig,
-        NASConfig,
-        PERConfig,
         FeedbackConfig,
-        P2PClusterConfig,
-        ModelPruningConfig,
         IntegratedEnhancementsConfig,  # Canonical location as of 2025-12-17
+        ModelPruningConfig,
+        NASConfig,
+        P2PClusterConfig,
+        PBTConfig,
+        PERConfig,
     )
     _HAS_CANONICAL_ENHANCEMENTS = True
 except ImportError:
@@ -63,8 +63,7 @@ except ImportError:
     _HAS_CANONICAL_ENHANCEMENTS = False
 
 # Import DataEventType and DataEvent from canonical location
-from app.distributed.data_events import DataEventType, DataEvent
-
+from app.distributed.data_events import DataEvent, DataEventType
 
 # =============================================================================
 # Configuration Dataclasses
@@ -477,7 +476,7 @@ class TrainingConfig:
 
         # Raise all errors at once
         if errors:
-            raise ValueError(f"TrainingConfig validation failed:\n  " + "\n  ".join(errors))
+            raise ValueError("TrainingConfig validation failed:\n  " + "\n  ".join(errors))
 
 
 @dataclass
@@ -640,7 +639,7 @@ class UnifiedLoopConfig:
     dry_run: bool = False
 
     @classmethod
-    def from_yaml(cls, path: Path) -> "UnifiedLoopConfig":
+    def from_yaml(cls, path: Path) -> UnifiedLoopConfig:
         """Load configuration from YAML file."""
         if not path.exists():
             return cls()
@@ -953,7 +952,7 @@ def create_integrated_manager_from_config(
     training_config: TrainingConfig,
     model: Any | None = None,
     board_type: str = "square8",
-) -> "IntegratedTrainingManager" | None:
+) -> IntegratedTrainingManager | None:
     """Create an IntegratedTrainingManager from TrainingConfig.
 
     Args:
@@ -969,8 +968,8 @@ def create_integrated_manager_from_config(
 
     try:
         from app.training.integrated_enhancements import (
-            IntegratedTrainingManager,
             IntegratedEnhancementsConfig,
+            IntegratedTrainingManager,
         )
 
         # Map TrainingConfig to IntegratedEnhancementsConfig

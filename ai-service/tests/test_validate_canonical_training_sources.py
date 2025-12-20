@@ -5,11 +5,10 @@ from pathlib import Path
 
 import pytest
 
-
 # Ensure we can import from ai-service/ when pytest is invoked from repo root.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from scripts.validate_canonical_training_sources import validate_canonical_sources  # noqa: E402
+from scripts.validate_canonical_training_sources import validate_canonical_sources
 
 
 def _write_registry(

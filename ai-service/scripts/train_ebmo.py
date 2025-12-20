@@ -62,16 +62,16 @@ from app.ai.ebmo_network import (
 # Distributed training utilities
 try:
     from app.training.distributed import (
-        setup_distributed,
         cleanup_distributed,
-        is_distributed,
-        is_main_process,
+        get_device_for_rank,
+        get_distributed_sampler,
         get_rank,
         get_world_size,
-        get_device_for_rank,
-        wrap_model_ddp,
-        get_distributed_sampler,
+        is_distributed,
+        is_main_process,
         scale_learning_rate,
+        setup_distributed,
+        wrap_model_ddp,
     )
     HAS_DISTRIBUTED = True
 except ImportError:

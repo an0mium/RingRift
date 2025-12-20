@@ -41,6 +41,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 import sqlite3
+
 import torch
 
 from app.ai.nnue import extract_features_from_gamestate, get_board_size
@@ -526,14 +527,14 @@ def main(argv: list[str] | None = None) -> int:
     print("POLICY BENCHMARK RESULTS")
     print("=" * 60)
     print(f"Total positions evaluated: {total}")
-    print(f"\nOverall Accuracy:")
+    print("\nOverall Accuracy:")
     print(f"  Top-1: {top_1_acc:.1%}")
     print(f"  Top-3: {top_3_acc:.1%}")
     print(f"  Top-5: {top_5_acc:.1%}")
     print(f"  Mean rank: {mean_rank:.2f}")
     print(f"  Median rank: {median_rank:.1f}")
 
-    print(f"\nAccuracy by Game Phase:")
+    print("\nAccuracy by Game Phase:")
     for phase in ["early", "mid", "late"]:
         data = all_results["by_phase"].get(phase, {"total": 0, "top_1": 0, "top_3": 0})
         if data["total"] > 0:
@@ -541,7 +542,7 @@ def main(argv: list[str] | None = None) -> int:
             t3 = data["top_3"] / data["total"]
             print(f"  {phase:6s}: Top-1={t1:.1%}, Top-3={t3:.1%} (n={data['total']})")
 
-    print(f"\nAccuracy by Move Type (top 5):")
+    print("\nAccuracy by Move Type (top 5):")
     sorted_types = sorted(
         all_results["by_move_type"].items(),
         key=lambda x: x[1]["total"],

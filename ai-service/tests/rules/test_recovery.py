@@ -4,36 +4,37 @@ Unit tests for the recovery action implementation.
 Tests the Python recovery module against the canonical RR-CANON-R110–R115 rules.
 """
 
-import pytest
 from datetime import datetime
 
+import pytest
+
 from app.models import (
-    GameState,
-    Move,
-    Position,
-    MoveType,
-    GamePhase,
-    GameStatus,
     BoardState,
     BoardType,
-    RingStack,
+    GamePhase,
+    GameState,
+    GameStatus,
     MarkerInfo,
+    Move,
+    MoveType,
     Player,
+    Position,
+    RingStack,
     TimeControl,
 )
 from app.rules.core import (
     count_buried_rings,
-    player_has_markers,
-    player_controls_any_stack,
     is_eligible_for_recovery,
+    player_controls_any_stack,
+    player_has_markers,
 )
 from app.rules.recovery import (
+    apply_recovery_slide,
     calculate_recovery_cost,
     enumerate_recovery_slide_targets,
+    get_recovery_moves,
     has_any_recovery_move,
     validate_recovery_slide,
-    apply_recovery_slide,
-    get_recovery_moves,
 )
 
 
@@ -461,7 +462,7 @@ class TestExpandedRecovery:
 
     def test_fallback_mode_when_no_line_possible(self):
         """Test that fallback repositioning is available when no line can be formed."""
-        from app.rules.recovery import get_expanded_recovery_moves, enumerate_expanded_recovery_targets
+        from app.rules.recovery import enumerate_expanded_recovery_targets, get_expanded_recovery_moves
 
         state = create_test_state()
         # Add markers that can't form a line (need 4 for square8 2P)

@@ -53,10 +53,10 @@ import os
 import random
 import sys
 import time
+from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
-from collections.abc import Callable, Generator
 
 import numpy as np
 
@@ -84,28 +84,27 @@ except ImportError:
 
     tqdm = tqdm_fallback
 
-from app.models import (  # noqa: E402
+from app.ai.base import BaseAI
+from app.ai.descent_ai import DescentAI
+from app.ai.heuristic_ai import HeuristicAI
+from app.ai.heuristic_weights import (
+    BASE_V1_BALANCED_WEIGHTS,
+    HEURISTIC_WEIGHT_PROFILES,
+)
+from app.ai.minimax_ai import MinimaxAI
+from app.ai.random_ai import RandomAI
+from app.models import (
     AIConfig,
     BoardType,
     GameState,
     GameStatus,
 )
-from app.ai.base import BaseAI  # noqa: E402
-from app.ai.heuristic_ai import HeuristicAI  # noqa: E402
-from app.ai.heuristic_weights import (  # noqa: E402
-    BASE_V1_BALANCED_WEIGHTS,
-    HEURISTIC_WEIGHT_PROFILES,
-)
-from app.ai.random_ai import RandomAI  # noqa: E402
-from app.ai.minimax_ai import MinimaxAI  # noqa: E402
-from app.ai.descent_ai import DescentAI  # noqa: E402
-from app.training.env import (  # noqa: E402
+from app.training.env import (
     TrainingEnvConfig,
     make_env,
 )
-from app.utils.progress_reporter import ProgressReporter  # noqa: E402
-from scripts.lib.cli import BOARD_TYPE_MAP  # noqa: E402
-
+from app.utils.progress_reporter import ProgressReporter
+from scripts.lib.cli import BOARD_TYPE_MAP
 
 # AI Type Constants
 AI_TYPE_BASELINE_HEURISTIC = "baseline_heuristic"
@@ -229,7 +228,7 @@ def load_cmaes_weights(path: str = "heuristic_weights_optimized.json") -> dict[s
 
     for p in paths_to_try:
         if os.path.exists(p):
-            with open(p, "r") as f:
+            with open(p) as f:
                 data = json.load(f)
                 return data.get("weights", data)
 

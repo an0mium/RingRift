@@ -21,22 +21,22 @@ import sys
 # Add parent directory to path for imports (must be before local imports)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import time  # noqa: E402
-import tracemalloc  # noqa: E402
-from dataclasses import dataclass  # noqa: E402
-from datetime import datetime  # noqa: E402
-from typing import List, Tuple  # noqa: E402
+import time
+import tracemalloc
+from dataclasses import dataclass
+from datetime import datetime
+from typing import List, Tuple
 
-from app.ai.minimax_ai import MinimaxAI  # noqa: E402
-from app.models import (  # noqa: E402
+from app.ai.minimax_ai import MinimaxAI
+from app.models import (
     AIConfig,
-    GameState,
     BoardState,
     BoardType,
+    GamePhase,
+    GameState,
+    GameStatus,
     Player,
     TimeControl,
-    GamePhase,
-    GameStatus,
 )
 
 
@@ -146,7 +146,7 @@ def create_midgame_state() -> GameState:
     This provides a more realistic benchmark scenario with stacks,
     markers, and various move options available.
     """
-    from app.models import RingStack, MarkerInfo, Position
+    from app.models import MarkerInfo, Position, RingStack
 
     state = create_starting_state()
 
@@ -388,8 +388,8 @@ def run_make_unmake_roundtrip_test() -> tuple[bool, list[str]]:
     Returns:
         Tuple of (passed, list_of_messages).
     """
-    from app.rules.mutable_state import MutableGameState
     from app.game_engine import GameEngine
+    from app.rules.mutable_state import MutableGameState
 
     messages: list[str] = []
     passed = True

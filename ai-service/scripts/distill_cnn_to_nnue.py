@@ -28,7 +28,7 @@ import sqlite3
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 import torch
 
@@ -38,10 +38,10 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from app.models import BoardType, GameState, Move, MoveType, Position, AIConfig
 from app.ai.neural_net import NeuralNetAI, get_policy_size_for_board
 from app.ai.nnue import get_board_size
 from app.game_engine import GameEngine
+from app.models import AIConfig, BoardType, GameState, Move, MoveType, Position
 from app.training.generate_data import create_initial_state
 
 logging.basicConfig(
@@ -392,7 +392,7 @@ def main():
     # Detect input type
     is_db_input = input_path.suffix.lower() == '.db'
 
-    logger.info(f"CNN Policy Distillation")
+    logger.info("CNN Policy Distillation")
     logger.info(f"  Input: {args.input} ({'SQLite DB' if is_db_input else 'JSONL'})")
     logger.info(f"  Output: {output_path}")
     logger.info(f"  Board: {board_type.value}, Players: {args.num_players}")
@@ -441,7 +441,7 @@ def main():
                     logger.warning(f"Failed to process game {game_idx}: {e}")
     else:
         # Process JSONL file
-        with open(args.input, 'r') as fin, open(output_path, 'w') as fout:
+        with open(args.input) as fin, open(output_path, 'w') as fout:
             for line_num, line in enumerate(fin):
                 if args.max_games and games_processed >= args.max_games:
                     break

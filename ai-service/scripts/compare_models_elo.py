@@ -25,7 +25,7 @@ import math
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -36,9 +36,9 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.lib.logging_config import (
-    setup_script_logging,
     get_logger,
     get_metrics_logger,
+    setup_script_logging,
 )
 
 logger = get_logger(__name__)
@@ -148,11 +148,11 @@ def play_single_game(
     Returns:
         MatchResult with game outcome
     """
-    from app.game_engine import GameEngine
-    from app.ai.nnue import NNUEEvaluator
     from app.ai.mcts_ai import MCTSAI
-    from app.training.generate_data import create_initial_state
+    from app.ai.nnue import NNUEEvaluator
+    from app.game_engine import GameEngine
     from app.models import AIConfig, BoardType, GameStatus
+    from app.training.generate_data import create_initial_state
 
     start_time = time.time()
 
@@ -250,7 +250,7 @@ class ModelComparator:
         """
         config_key = f"{self.board_type}_{self.num_players}p"
 
-        logger.info(f"Starting model comparison")
+        logger.info("Starting model comparison")
         logger.info(f"  Model A: {self.model_a_path}")
         logger.info(f"  Model B: {self.model_b_path}")
         logger.info(f"  Config: {config_key}")
@@ -418,21 +418,21 @@ class ComparisonReporter:
         total = result.total_games
 
         print(f"\n{'=' * 60}")
-        print(f"  MODEL COMPARISON RESULTS")
+        print("  MODEL COMPARISON RESULTS")
         print(f"{'=' * 60}")
         print(f"  Model A: {result.model_a_path}")
         print(f"  Model B: {result.model_b_path}")
         print(f"  Config:  {result.board_type}_{result.num_players}p")
         print(f"{'=' * 60}")
-        print(f"")
+        print("")
         print(f"  Model A wins: {result.model_a_wins:>4} ({result.model_a_wins/total*100:.1f}%)")
         print(f"  Model B wins: {result.model_b_wins:>4} ({result.model_b_wins/total*100:.1f}%)")
         print(f"  Draws:        {result.draws:>4} ({result.draws/total*100:.1f}%)")
-        print(f"")
+        print("")
         print(f"  Model A win rate: {result.model_a_win_rate:.1%}")
         print(f"  Elo difference:   {result.elo_difference:+.0f} (A vs B)")
         print(f"  95% CI:           [{result.confidence_interval[0]:+.0f}, {result.confidence_interval[1]:+.0f}]")
-        print(f"")
+        print("")
         print(f"  Avg game length:  {result.avg_game_length:.1f} moves")
         print(f"  Total time:       {result.total_time:.1f}s ({result.total_time/total:.1f}s/game)")
         print(f"{'=' * 60}")

@@ -17,7 +17,7 @@ forced elimination:
 
 import os
 import sys
-from typing import Dict, List, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, List, Tuple
 
 import pytest
 
@@ -26,23 +26,23 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import (  # noqa: E402
+from app.game_engine import GameEngine
+from app.models import (
     GamePhase,
     GameStatus,
     MoveType,
     Position,
     RingStack,
 )
-from app.game_engine import GameEngine  # noqa: E402
-from app.rules import global_actions as ga  # noqa: E402
-from tests.rules.helpers import _make_base_game_state  # noqa: E402
+from app.rules import global_actions as ga
+from tests.rules.helpers import _make_base_game_state
 
 if TYPE_CHECKING:
-    from app.models import GameState  # noqa: F401
+    from app.models import GameState
 
 
 def _block_all_positions_except(
-    state: "GameState",
+    state: GameState,
     allowed: list[Position],
 ) -> None:
     """Collapse all positions except the given ones to block movement/capture.
@@ -69,7 +69,7 @@ def _block_all_positions_except(
 
 
 def _enumerate_forced_elimination_options(
-    state: "GameState",
+    state: GameState,
     player: int,
 ) -> dict[str, tuple[int, int]]:
     """Return {pos_key: (cap_height, stack_height)} for all FE candidates.
@@ -93,7 +93,7 @@ def _enumerate_forced_elimination_options(
 
 
 def _build_mixed_caps_forced_elimination_state() -> tuple[
-    "GameState",
+    GameState,
     Position,
     list[Position],
 ]:
@@ -163,7 +163,7 @@ def _build_mixed_caps_forced_elimination_state() -> tuple[
 
 
 def _build_all_zero_caps_forced_elimination_state() -> tuple[
-    "GameState",
+    GameState,
     Position,
     list[Position],
 ]:

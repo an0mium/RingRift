@@ -14,9 +14,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+import scripts.apply_tier_promotion_plan as apply_plan  # type: ignore[import]
 from app.config.ladder_config import get_ladder_tier_config  # type: ignore[import]
 from app.models import BoardType  # type: ignore[import]
-import scripts.apply_tier_promotion_plan as apply_plan  # type: ignore[import]  # noqa: E402
 
 
 def _make_promotion_plan(tier: str, candidate_id: str) -> dict[str, Any]:

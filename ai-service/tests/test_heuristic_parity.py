@@ -40,7 +40,6 @@ from app.models.core import (
     TimeControl,
 )
 
-
 # Repository root: ai-service/tests/.. -> ai-service/.. (project root)
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _HEURISTIC_FIXTURE_DIR = _REPO_ROOT / "tests" / "fixtures" / "heuristic" / "v1"

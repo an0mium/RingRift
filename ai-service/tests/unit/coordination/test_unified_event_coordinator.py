@@ -8,35 +8,35 @@ Tests the unified event coordination system that bridges events between:
 """
 
 import asyncio
-import pytest
 from datetime import datetime
 from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from app.coordination.unified_event_coordinator import (
+    CROSS_PROCESS_TO_DATA_MAP,
+    # Event type mappings
+    DATA_TO_CROSS_PROCESS_MAP,
+    STAGE_TO_CROSS_PROCESS_MAP,
     # Data classes
     CoordinatorStats,
     # Main class
     UnifiedEventCoordinator,
+    emit_evaluation_completed,
+    emit_model_promoted,
+    emit_selfplay_batch_completed,
+    emit_sync_completed,
+    emit_training_completed,
+    emit_training_failed,
+    # Async event emitters
+    emit_training_started,
+    get_coordinator_stats,
     # Functions
     get_event_coordinator,
     start_coordinator,
     stop_coordinator,
-    get_coordinator_stats,
-    # Event type mappings
-    DATA_TO_CROSS_PROCESS_MAP,
-    STAGE_TO_CROSS_PROCESS_MAP,
-    CROSS_PROCESS_TO_DATA_MAP,
-    # Async event emitters
-    emit_training_started,
-    emit_training_completed,
-    emit_training_failed,
-    emit_evaluation_completed,
-    emit_sync_completed,
-    emit_model_promoted,
-    emit_selfplay_batch_completed,
 )
-
 
 # ============================================
 # Test Fixtures

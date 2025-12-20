@@ -39,11 +39,11 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
-from collections.abc import Callable, Generator, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +184,7 @@ class SingletonLock:
             pass
         return None
 
-    def __enter__(self) -> "SingletonLock":
+    def __enter__(self) -> SingletonLock:
         self.acquire()
         return self
 

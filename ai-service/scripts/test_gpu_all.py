@@ -30,8 +30,8 @@ import torch
 # Ensure ai-service is in path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from scripts.test_gpu_minimax import GPUMinimaxTester
 from scripts.test_gpu_data_generation import GPUDataGenTester
+from scripts.test_gpu_minimax import GPUMinimaxTester
 
 
 def get_system_info() -> dict:
@@ -153,7 +153,7 @@ def run_all_tests(mode: str = "quick", verbose: bool = True) -> dict:
 
     print(f"\nGPU Minimax:        {minimax_pass}/{minimax_count} tests passed")
     print(f"GPU Data Generation: {datagen_pass}/{datagen_count} tests passed")
-    print(f"---")
+    print("---")
     print(f"Total:              {total_pass}/{total_tests} tests passed")
     print(f"Duration:           {total_duration:.1f}s")
 

@@ -48,32 +48,31 @@ from __future__ import annotations
 import argparse
 import json
 import os
+
+# Allow imports from app/ when run as a script.
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-# Allow imports from app/ when run as a script.
-import sys
-
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.models import BoardType  # type: ignore  # noqa: E402
-from app.ai.heuristic_weights import (  # type: ignore  # noqa: E402
+from app.ai.heuristic_weights import (  # type: ignore
     BASE_V1_BALANCED_WEIGHTS,
     HeuristicWeights,
 )
-from scripts.run_cmaes_optimization import (  # type: ignore  # noqa: E402
-    BOARD_NAME_TO_TYPE,
-    evaluate_fitness,
-    evaluate_fitness_over_boards,
-    FitnessDebugCallback,
-)
-from app.utils.progress_reporter import (  # noqa: E402
+from app.models import BoardType  # type: ignore
+from app.utils.progress_reporter import (
     OptimizationProgressReporter,
 )
-
+from scripts.run_cmaes_optimization import (  # type: ignore
+    BOARD_NAME_TO_TYPE,
+    FitnessDebugCallback,
+    evaluate_fitness,
+    evaluate_fitness_over_boards,
+)
 
 BOARD_CHOICES = ["square8", "square19", "hex"]
 

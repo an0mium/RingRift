@@ -16,25 +16,25 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.training.elo_service import (
-    EloService,
     EloRating,
+    EloService,
+    LeaderboardEntry,
     MatchResult,
     TrainingFeedback,
-    LeaderboardEntry,
+    get_database_stats,
     get_elo_service,
+    get_head_to_head,
+    get_leaderboard,
+    get_match_history,
+    get_rating_history,
     init_elo_database,
     register_models,
     update_elo_after_match,
-    get_leaderboard,
-    get_head_to_head,
-    get_database_stats,
-    get_match_history,
-    get_rating_history,
 )
 
 

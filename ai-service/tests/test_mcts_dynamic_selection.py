@@ -7,6 +7,7 @@ import pytest
 from app.ai.mcts_ai import MCTSAI, MCTSNode
 from app.models import AIConfig, GamePhase
 
+
 def test_dynamic_c_puct_scales_with_entropy() -> None:
     ai = MCTSAI(player_number=1, config=AIConfig(difficulty=5, use_neural_net=False))
     cpuct_uniform = ai._dynamic_c_puct(0, [0.25, 0.25, 0.25, 0.25])

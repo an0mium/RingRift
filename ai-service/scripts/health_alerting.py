@@ -152,7 +152,7 @@ class AlertState:
         return {"last_alerts": self.last_alerts}
 
     @classmethod
-    def from_dict(cls, data: dict) -> "AlertState":
+    def from_dict(cls, data: dict) -> AlertState:
         return cls(last_alerts=data.get("last_alerts", {}))
 
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import sys
-
 from typing import Any, Dict
 
 import pytest
@@ -14,12 +13,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
   sys.path.insert(0, ROOT)
 
-from app.config.perf_budgets import TierPerfBudget  # noqa: E402
-from app.models import BoardType  # noqa: E402
-from app.training.tier_perf_benchmark import (  # noqa: E402
+from app.config.perf_budgets import TierPerfBudget
+from app.models import BoardType
+from app.training.tier_perf_benchmark import (
   TierPerfResult,
 )
-from scripts.run_tier_perf_benchmark import _eval_budget  # type: ignore[import]  # noqa: E402
+from scripts.run_tier_perf_benchmark import _eval_budget  # type: ignore[import]
 
 
 def _make_dummy_budget(max_avg: float, max_p95: float) -> TierPerfBudget:

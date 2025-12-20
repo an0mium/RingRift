@@ -3,14 +3,14 @@
 Tests the vectorized move selection functions extracted from gpu_parallel_games.py.
 """
 
-import pytest
-import torch
 from dataclasses import dataclass
 from typing import Optional
 
-from app.ai.gpu_selection import select_moves_vectorized, select_moves_heuristic
-from app.ai.gpu_game_types import MoveType
+import pytest
+import torch
 
+from app.ai.gpu_game_types import MoveType
+from app.ai.gpu_selection import select_moves_heuristic, select_moves_vectorized
 
 # =============================================================================
 # Mock Classes

@@ -174,6 +174,7 @@ class TestGameReplayDBBasic:
             moves=moves,
             metadata={"source": "test"},
             store_history_entries=False,  # Skip phase validation for test fixtures
+            snapshot_interval=0,  # Disable state tracking for synthetic moves
         )
 
         # Retrieve metadata
@@ -264,6 +265,7 @@ class TestGameReplayDBBasic:
             final_state=final_state,
             moves=moves,
             store_history_entries=False,  # Skip phase validation for test fixtures
+            snapshot_interval=0,  # Disable state tracking for synthetic moves
         )
 
         stats = db.get_stats()

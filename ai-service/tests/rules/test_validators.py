@@ -1,14 +1,14 @@
-import pytest
 from datetime import datetime
-from app.models import (
-    GameState, Move, MoveType, GamePhase, BoardType, BoardState, Player,
-    TimeControl, Position
-)
-from app.rules.validators.placement import PlacementValidator
-from app.rules.validators.movement import MovementValidator
+
+import pytest
+
+from app.models import BoardState, BoardType, GamePhase, GameState, Move, MoveType, Player, Position, TimeControl
 from app.rules.validators.capture import CaptureValidator
 from app.rules.validators.line import LineValidator
+from app.rules.validators.movement import MovementValidator
+from app.rules.validators.placement import PlacementValidator
 from app.rules.validators.territory import TerritoryValidator
+
 
 @pytest.fixture
 def empty_game_state():

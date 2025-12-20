@@ -23,16 +23,16 @@ import argparse
 import json
 import shlex
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
-from collections.abc import Sequence
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 if str(AI_SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(AI_SERVICE_ROOT))
 
-from app.distributed.hosts import HostConfig, SSHExecutor, load_remote_hosts  # noqa: E402
+from app.distributed.hosts import HostConfig, SSHExecutor, load_remote_hosts
 
 
 def _shell_join(parts: Sequence[str]) -> str:

@@ -30,7 +30,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 # Diverse selfplay profiles for high-quality training data
 # Based on benchmark results: MaxN >> Descent in 3P/4P, Gumbel >> all in 2P

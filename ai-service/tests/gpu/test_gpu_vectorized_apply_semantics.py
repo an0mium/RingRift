@@ -1,6 +1,7 @@
 import pytest
 import torch
 
+from app.ai.gpu_game_types import MoveType
 from app.ai.gpu_parallel_games import (
     BatchGameState,
     BatchMoves,
@@ -9,7 +10,6 @@ from app.ai.gpu_parallel_games import (
     apply_single_chain_capture,
     generate_chain_capture_moves_from_position,
 )
-from app.ai.gpu_game_types import MoveType
 
 
 def _single_move_batch(

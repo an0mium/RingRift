@@ -30,7 +30,7 @@ import json
 import os
 from typing import Any, Dict, List, Optional
 
-from app.db.game_replay import GameReplayDB, BoardType
+from app.db.game_replay import BoardType, GameReplayDB
 
 try:
     # Reuse the existing structural classifier for consistency with cleanup_useless_replay_dbs.

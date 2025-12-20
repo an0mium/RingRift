@@ -25,16 +25,16 @@ from __future__ import annotations
 
 import os
 import random
-from typing import Dict
-from collections.abc import Iterable
 
 # Allow imports from app/ when run as a script.
 import sys
+from collections.abc import Iterable
+from typing import Dict
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.models import BoardType  # type: ignore
 from app.ai.heuristic_weights import BASE_V1_BALANCED_WEIGHTS, HeuristicWeights  # type: ignore
+from app.models import BoardType  # type: ignore
 from scripts.run_cmaes_optimization import evaluate_fitness  # type: ignore
 
 

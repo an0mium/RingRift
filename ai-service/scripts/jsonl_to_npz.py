@@ -74,17 +74,16 @@ if ROOT not in sys.path:
 # Force CPU to avoid MPS/OMP issues during batch conversion
 os.environ.setdefault("RINGRIFT_FORCE_CPU", "1")
 
-from scripts.lib.logging_config import setup_script_logging
 from scripts.lib.cli import BOARD_TYPE_MAP
+from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("jsonl_to_npz")
 
-from app.models import AIConfig, BoardType, GameState, Move, MoveType, Position
+from app.ai.neural_net import INVALID_MOVE_INDEX, NeuralNetAI, encode_move_for_board
 from app.game_engine import GameEngine
-from app.ai.neural_net import NeuralNetAI, INVALID_MOVE_INDEX, encode_move_for_board
+from app.models import AIConfig, BoardType, GameState, Move, MoveType, Position
 from app.rules.serialization import deserialize_game_state
 from app.training.encoding import HexStateEncoder, HexStateEncoderV3
-
 
 # Phase transition moves for completing turns
 NO_ACTION_MOVES = {
@@ -605,7 +604,7 @@ class CheckpointManager:
             return {"games_completed": 0, "chunks": [], "stats": {}}
 
         try:
-            with open(self.progress_file, "r") as f:
+            with open(self.progress_file) as f:
                 self.progress = json.load(f)
                 logger.info(f"Loaded checkpoint: {self.progress.get('games_completed', 0)} games completed")
                 return self.progress
@@ -804,7 +803,7 @@ def process_jsonl_file(
     stats = ConversionStats()
     games_in_file = 0
 
-    with open(filepath, "r") as f:
+    with open(filepath) as f:
         for line in f:
             if max_games and (current_games + games_in_file) >= max_games:
                 break

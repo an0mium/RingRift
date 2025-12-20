@@ -39,24 +39,24 @@ import random
 import sys
 import time
 from collections import Counter
+from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
-from collections.abc import Generator
 
 # Add project root to path
 SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.lib.logging_config import setup_script_logging, get_logger, get_metrics_logger
 from scripts.lib.data_quality import (
+    GameQuality,
     GameQualityScorer,
     QualityFilter,
-    GameQuality,
     QualityStats,
     compute_quality_stats,
 )
+from scripts.lib.logging_config import get_logger, get_metrics_logger, setup_script_logging
 
 logger = get_logger(__name__)
 
@@ -79,7 +79,7 @@ def find_jsonl_files(data_dir: Path, board_type: str, num_players: int) -> list[
     patterns = [
         f"**/*{config_pattern}*/*.jsonl",
         f"**/*{board_type}*{num_players}p*/*.jsonl",
-        f"**/selfplay/**/*.jsonl",
+        "**/selfplay/**/*.jsonl",
     ]
 
     seen = set()
@@ -111,7 +111,7 @@ def stream_games_from_file(
         Game dictionaries that match the filter
     """
     try:
-        with open(file_path, "r") as f:
+        with open(file_path) as f:
             for line in f:
                 # Random sampling
                 if sample_rate < 1.0 and random.random() > sample_rate:

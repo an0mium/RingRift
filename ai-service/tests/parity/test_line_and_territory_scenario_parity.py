@@ -10,7 +10,9 @@ import pytest
 # Ensure app package is importable when running tests directly
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../"))
 
-from app.models import (  # noqa: E402
+from app.board_manager import BoardManager
+from app.game_engine import GameEngine
+from app.models import (
     BoardState,
     BoardType,
     GamePhase,
@@ -24,14 +26,11 @@ from app.models import (  # noqa: E402
     Territory,
     TimeControl,
 )
-from app.game_engine import GameEngine  # noqa: E402
-from app.board_manager import BoardManager  # noqa: E402
-from tests.parity.test_ts_seed_plateau_snapshot_parity import (  # noqa: E402
+from tests.parity.test_ts_seed_plateau_snapshot_parity import (
     _build_game_state_from_snapshot,
     _normalise_for_comparison,
     _python_comparable_snapshot,
 )
-
 
 BASE_DIR = Path(__file__).resolve().parent
 PARITY_DIR = BASE_DIR

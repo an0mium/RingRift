@@ -3,14 +3,14 @@ import pytest
 
 from app.models import BoardType
 from app.utils.canonical_naming import (
-    normalize_board_type,
-    get_board_type_enum,
-    make_config_key,
-    parse_config_key,
-    is_valid_board_type,
-    get_all_config_keys,
-    normalize_database_filename,
     CANONICAL_CONFIG_KEYS,
+    get_all_config_keys,
+    get_board_type_enum,
+    is_valid_board_type,
+    make_config_key,
+    normalize_board_type,
+    normalize_database_filename,
+    parse_config_key,
 )
 
 

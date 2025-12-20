@@ -153,7 +153,7 @@ def get_original_assertions(vector_id: str) -> dict[str, Any]:
     if not bundle_path.exists():
         return {}
 
-    with open(bundle_path, 'r', encoding='utf-8') as f:
+    with open(bundle_path, encoding='utf-8') as f:
         bundle = json.load(f)
 
     for vector in bundle['vectors']:
@@ -196,7 +196,7 @@ def regenerate_vector(vector_id: str) -> dict[str, Any]:
             vector.input_move,
             trace_mode=True,
         )
-        print(f"After apply_move:")
+        print("After apply_move:")
         print(f"  currentPlayer: {result_state.current_player}")
         print(f"  currentPhase: {result_state.current_phase.value}")
         print(f"  gameStatus: {result_state.game_status.value}")
@@ -208,7 +208,7 @@ def regenerate_vector(vector_id: str) -> dict[str, Any]:
 
     # Complete automatic turn phases
     result_state = complete_turn_phases(result_state)
-    print(f"\nAfter complete_turn_phases:")
+    print("\nAfter complete_turn_phases:")
     print(f"  currentPlayer: {result_state.current_player}")
     print(f"  currentPhase: {result_state.current_phase.value}")
     print(f"  gameStatus: {result_state.game_status.value}")
@@ -220,7 +220,7 @@ def regenerate_vector(vector_id: str) -> dict[str, Any]:
     marker_count = compute_marker_count(result_state)
     collapsed_count = compute_collapsed_count(result_state)
 
-    print(f"\nComputed metrics:")
+    print("\nComputed metrics:")
     print(f"  stackCount: {stack_count}")
     print(f"  markerCount: {marker_count}")
     print(f"  collapsedCount: {collapsed_count}")
@@ -267,7 +267,7 @@ def update_vector_in_bundle(bundle_path: Path, vector_id: str, new_assertions: d
     print(f"\nUpdating {bundle_path.name}...")
 
     # Load the bundle
-    with open(bundle_path, 'r', encoding='utf-8') as f:
+    with open(bundle_path, encoding='utf-8') as f:
         bundle = json.load(f)
 
     # Find and update the vector

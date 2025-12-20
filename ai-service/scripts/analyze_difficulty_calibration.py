@@ -27,12 +27,12 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from app.config.ladder_config import (  # noqa: E402
+from app.config.ladder_config import (
     LadderTierConfig,
     get_ladder_tier_config,
 )
-from app.models import AIType, BoardType  # noqa: E402
-from app.training.tier_promotion_registry import (  # noqa: E402
+from app.models import AIType, BoardType
+from app.training.tier_promotion_registry import (
     DEFAULT_SQUARE8_2P_REGISTRY_PATH,
     load_square8_two_player_registry,
 )

@@ -99,18 +99,18 @@ def run_regression_test(
         Dict with test results
     """
     import os
-    import torch
     from datetime import datetime
-    from app.game_engine import GameEngine
-    from app.ai.heuristic_ai import HeuristicAI
+
+    import torch
+
     from app.ai.descent_ai import DescentAI
-    from app.models import (
-        BoardType, BoardState, GamePhase, GameState, GameStatus, Player, AIConfig, TimeControl
-    )
+    from app.ai.heuristic_ai import HeuristicAI
+    from app.game_engine import GameEngine
+    from app.models import AIConfig, BoardState, BoardType, GamePhase, GameState, GameStatus, Player, TimeControl
     from app.rules.core import (
         BOARD_CONFIGS,
-        get_victory_threshold,
         get_territory_victory_threshold,
+        get_victory_threshold,
     )
 
     print(f"  Running {test.name}: {test.games} games, min_win_rate={test.min_win_rate:.0%}")

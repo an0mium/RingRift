@@ -48,7 +48,7 @@ import numpy as np
 import yaml
 
 # Ramdrive utilities for high-speed I/O
-from app.utils.ramdrive import add_ramdrive_args, get_config_from_args, get_data_directory, RamdriveSyncer
+from app.utils.ramdrive import RamdriveSyncer, add_ramdrive_args, get_config_from_args, get_data_directory
 
 # Set up path for imports
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -64,42 +64,42 @@ from torch.utils.data import DataLoader, random_split
 
 from app.ai.nnue import (
     RingRiftNNUE,
+    clear_nnue_cache,
     get_feature_dim,
     get_nnue_model_path,
-    clear_nnue_cache,
 )
 from app.models import BoardType
-from app.training.nnue_dataset import (
-    NNUESQLiteDataset,
-    NNUEStreamingDataset,
-    NNUEDatasetConfig,
-    PrioritizedExperienceSampler,
-    count_available_samples,
-)
 from app.training.distributed import (
-    setup_distributed,
     cleanup_distributed,
-    is_main_process,
+    get_device_for_rank,
+    get_distributed_sampler,
     get_rank,
     get_world_size,
-    get_device_for_rank,
-    wrap_model_ddp,
-    get_distributed_sampler,
-    scale_learning_rate,
+    is_main_process,
     reduce_tensor,
+    scale_learning_rate,
+    setup_distributed,
     synchronize,
+    wrap_model_ddp,
+)
+from app.training.nnue_dataset import (
+    NNUEDatasetConfig,
+    NNUESQLiteDataset,
+    NNUEStreamingDataset,
+    PrioritizedExperienceSampler,
+    count_available_samples,
 )
 from app.training.seed_utils import seed_all
 
 # Unified resource guard - 80% utilization limits (enforced 2025-12-16)
 try:
     from app.utils.resource_guard import (
+        OperationPriority,
         check_disk_space,
         check_memory,
         get_degradation_level,
-        should_proceed_with_priority,
-        OperationPriority,
         get_resource_status,
+        should_proceed_with_priority,
     )
     HAS_RESOURCE_GUARD = True
 except ImportError:
@@ -114,10 +114,10 @@ except ImportError:
 # Training Coordination - cluster-wide training lock
 try:
     from app.coordination.training_coordinator import (
-        get_training_coordinator,
         can_train,
-        request_training_slot,
+        get_training_coordinator,
         release_training_slot,
+        request_training_slot,
         update_training_progress,
     )
     HAS_TRAINING_COORDINATOR = True
@@ -144,6 +144,7 @@ def _cleanup_training_slot():
         _active_training_job_id = None
 
 import atexit
+
 atexit.register(_cleanup_training_slot)
 
 from scripts.lib.logging_config import setup_script_logging
@@ -1450,10 +1451,10 @@ class ModelEMA:
 # TrainingAnomalyDetector: NaN/Inf detection, loss spike detection, gradient explosion
 try:
     from app.training.training_enhancements import (
-        HardExampleMiner,
-        TrainingAnomalyDetector,
-        SeedManager,
         AdaptiveGradientClipper,
+        HardExampleMiner,
+        SeedManager,
+        TrainingAnomalyDetector,
     )
 except ImportError:
     # Fallback for standalone execution
@@ -5205,7 +5206,7 @@ def main(argv: list[str] | None = None) -> int:
     # Train
     logger.info(f"Starting NNUE training with {args.lr_schedule} LR schedule...")
     if args.distributed:
-        logger.info(f"Distributed training enabled (launch with: torchrun --nproc_per_node=N train_nnue.py ...)")
+        logger.info("Distributed training enabled (launch with: torchrun --nproc_per_node=N train_nnue.py ...)")
     if args.gradient_accumulation > 1:
         logger.info(f"Gradient accumulation: {args.gradient_accumulation} steps")
 

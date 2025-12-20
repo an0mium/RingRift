@@ -14,10 +14,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from app.training.tier_perf_benchmark import TierPerfResult  # noqa: E402
-from app.config.perf_budgets import get_tier_perf_budget  # noqa: E402
-import scripts.run_tier_training_pipeline as tier_train  # noqa: E402
-import scripts.run_full_tier_gating as full_gate  # noqa: E402
+import scripts.run_full_tier_gating as full_gate
+import scripts.run_tier_training_pipeline as tier_train
+from app.config.perf_budgets import get_tier_perf_budget
+from app.training.tier_perf_benchmark import TierPerfResult
 
 
 def test_run_tier_training_pipeline_demo_writes_report(tmp_path) -> None:

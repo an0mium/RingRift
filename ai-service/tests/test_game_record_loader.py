@@ -21,15 +21,15 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import (  # type: ignore  # noqa: E402
+from app.models import (  # type: ignore
     BoardType,
     MoveType,
 )
-from app.models.game_record import (  # type: ignore  # noqa: E402
+from app.models.game_record import (  # type: ignore
     GameOutcome,
     GameRecord,
 )
-from app.training.game_record_loader import (  # type: ignore  # noqa: E402
+from app.training.game_record_loader import (  # type: ignore
     RecordedEpisode,
     game_record_to_recorded_episode,
     iter_game_records_from_jsonl,

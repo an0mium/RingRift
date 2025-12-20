@@ -2,8 +2,9 @@
 """Fast database consolidation using SQL ATTACH and INSERT OR IGNORE."""
 
 import sqlite3
-from pathlib import Path
 import time
+from pathlib import Path
+
 
 def get_schema(conn):
     """Get column names from games table."""
@@ -102,7 +103,7 @@ def main():
         FROM games GROUP BY board_type, num_players ORDER BY count DESC
     """)
 
-    print(f"\n=== Consolidation Complete ===")
+    print("\n=== Consolidation Complete ===")
     print(f"Total unique games: {final_count}")
     print(f"Time: {time.time() - start_time:.1f}s")
     print("\nBreakdown by config:")

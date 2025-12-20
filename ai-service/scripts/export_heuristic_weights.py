@@ -27,7 +27,7 @@ from pathlib import Path
 # Add the parent directory to the path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.ai.heuristic_weights import (  # noqa: E402
+from app.ai.heuristic_weights import (
     HEURISTIC_WEIGHT_PROFILES,
     HeuristicWeights,
     load_trained_profiles_if_available,

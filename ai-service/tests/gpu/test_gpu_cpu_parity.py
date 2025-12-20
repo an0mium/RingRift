@@ -11,33 +11,34 @@ Test organization:
 - TestBoardConfigParity: Board configuration values
 """
 
+from typing import List, Optional, Tuple
+
+import numpy as np
 import pytest
 import torch
-import numpy as np
-from typing import List, Tuple, Optional
 
 from app.models import BoardType, GamePhase, MoveType
 from app.rules.core import (
     BOARD_CONFIGS,
     get_effective_line_length,
-    get_victory_threshold,
-    get_territory_victory_threshold,
-    get_territory_victory_minimum,
     get_rings_per_player,
+    get_territory_victory_minimum,
+    get_territory_victory_threshold,
+    get_victory_threshold,
 )
 
 # Conditional imports - tests skip if GPU modules unavailable
 try:
-    from app.ai.gpu_parallel_games import (
-        BatchGameState,
-        detect_lines_vectorized as detect_lines_batch,
-    )
     from app.ai.gpu_heuristic import evaluate_positions_batch
     from app.ai.gpu_kernels import (
         generate_placement_mask_kernel,
     )
     from app.ai.gpu_move_generation import (
         generate_placement_moves_batch,
+    )
+    from app.ai.gpu_parallel_games import (
+        BatchGameState,
+        detect_lines_vectorized as detect_lines_batch,
     )
     GPU_MODULES_AVAILABLE = True
 except ImportError as e:
@@ -50,6 +51,7 @@ FROM_GAME_STATES_ERROR = ""
 if GPU_MODULES_AVAILABLE:
     try:
         import torch
+
         from app.training.initial_state import create_initial_state
         # Actually test the method works
         test_gs = create_initial_state(num_players=2)
@@ -504,5 +506,5 @@ class TestVictoryThresholdInGPU:
 
         # Score should be positive (some progress toward victory)
         assert scores[0, 1].item() > 0, (
-            f"Player with eliminated rings should have positive score"
+            "Player with eliminated rings should have positive score"
         )

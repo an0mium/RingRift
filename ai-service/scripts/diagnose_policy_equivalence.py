@@ -30,31 +30,29 @@ import json
 import math
 import os
 import sys
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
-from collections.abc import Iterable, Mapping, Sequence
 
 # Ensure app.* imports resolve when run from the ai-service root.
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import (  # type: ignore  # noqa: E402
+from app.ai.heuristic_ai import HeuristicAI  # type: ignore
+from app.ai.heuristic_weights import (  # type: ignore
+    BASE_V1_BALANCED_WEIGHTS,
+    HEURISTIC_WEIGHT_KEYS,
+    HeuristicWeights,
+)
+from app.models import (  # type: ignore
     AIConfig,
     BoardType,
     GameState,
     Move,
 )
-from app.ai.heuristic_ai import HeuristicAI  # type: ignore  # noqa: E402
-from app.ai.heuristic_weights import (  # type: ignore  # noqa: E402
-    BASE_V1_BALANCED_WEIGHTS,
-    HEURISTIC_WEIGHT_KEYS,
-    HeuristicWeights,
-)
-
-from app.utils.progress_reporter import ProgressReporter  # type: ignore  # noqa: E402
-
+from app.utils.progress_reporter import ProgressReporter  # type: ignore
 
 DEFAULT_STATE_POOL = os.path.join("data", "eval_pools", "square8", "pool_v1.jsonl")
 DEFAULT_MAX_STATES = 300
@@ -82,7 +80,7 @@ def load_state_pool(path: str, max_states: int) -> list[GameState]:
         return states
     if not os.path.isfile(path):
         raise FileNotFoundError(f"State pool file not found: {path!r}")
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             if len(states) >= max_states:
                 break
@@ -118,7 +116,7 @@ def _load_weights_payload(path: str) -> tuple[HeuristicWeights, dict[str, Any]]:
     """Load a weight dict and associated meta from a JSON file with 'weights'."""
     if not os.path.isfile(path):
         raise FileNotFoundError(f"Weights file not found: {path!r}")
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         payload = json.load(f)
     weights_obj = payload.get("weights")
     if not isinstance(weights_obj, dict):

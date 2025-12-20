@@ -240,7 +240,7 @@ class PrioritizedReplayBuffer:
         logger.info(f"Saved buffer ({len(self)} experiences) to {path}")
 
     @classmethod
-    def load(cls, path: Path) -> "PrioritizedReplayBuffer":
+    def load(cls, path: Path) -> PrioritizedReplayBuffer:
         """Load buffer from disk.
 
         NOTE: Uses pickle for internal training data serialization.

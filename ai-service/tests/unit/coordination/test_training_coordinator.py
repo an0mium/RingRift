@@ -9,27 +9,26 @@ import sqlite3
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any
-from unittest.mock import MagicMock, patch, PropertyMock
+from typing import Any, Dict
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
 from app.coordination.training_coordinator import (
-    # Data classes
-    TrainingJob,
-    # Main class
-    TrainingCoordinator,
-    # Module functions
-    get_training_coordinator,
-    can_train,
-    get_training_status,
+    HEARTBEAT_INTERVAL_SECONDS,
     # Constants
     MAX_CONCURRENT_TRAINING_SAME_CONFIG,
     MAX_TOTAL_CONCURRENT_TRAINING,
     TRAINING_TIMEOUT_HOURS,
-    HEARTBEAT_INTERVAL_SECONDS,
+    # Main class
+    TrainingCoordinator,
+    # Data classes
+    TrainingJob,
+    can_train,
+    # Module functions
+    get_training_coordinator,
+    get_training_status,
 )
-
 
 # =============================================================================
 # TrainingJob Tests

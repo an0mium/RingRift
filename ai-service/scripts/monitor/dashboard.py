@@ -42,8 +42,8 @@ class ClusterStatus:
 
 def get_node_status(host: str, port: int = 8770, timeout: int = 5) -> dict | None:
     """Get status from a single node's P2P orchestrator endpoint."""
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     url = f"http://{host}:{port}/status"
     try:
@@ -133,7 +133,7 @@ def get_cluster_status(entry_point: str = "localhost:8770") -> ClusterStatus:
 def print_cluster_status(status: ClusterStatus, verbose: bool = False) -> None:
     """Print cluster status in a readable table format."""
     print(f"\n{'='*80}")
-    print(f"  RINGRIFT CLUSTER STATUS")
+    print("  RINGRIFT CLUSTER STATUS")
     print(f"{'='*80}")
     print(f"  Nodes: {status.online_nodes}/{status.total_nodes} online")
     print(f"  Leader: {status.leader or 'None'}")

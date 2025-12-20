@@ -1,6 +1,6 @@
-import unittest
-import sys
 import os
+import sys
+import unittest
 from unittest.mock import patch
 
 import pytest
@@ -8,8 +8,8 @@ import pytest
 # Ensure app package is importable
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 
-from app.models import BoardType, GameStatus
 from app.game_engine import GameEngine
+from app.models import BoardType, GameStatus
 from app.training.env import RingRiftEnv, TrainingEnvConfig, make_env
 
 

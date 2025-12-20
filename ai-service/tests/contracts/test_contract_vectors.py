@@ -105,7 +105,7 @@ def load_vector_file(category: str) -> TestVectorBundle | None:
     if not filepath.exists():
         return None
 
-    with open(filepath, "r", encoding="utf-8") as f:
+    with open(filepath, encoding="utf-8") as f:
         data = json.load(f)
 
     return TestVectorBundle(data)

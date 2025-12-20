@@ -158,6 +158,7 @@ def compute_td_errors(
         Array of TD-errors for each sample
     """
     import torch
+
     from app.training.network import RingRiftNet
 
     # Load data
@@ -277,7 +278,7 @@ def main():
     print("Computing TD-errors...")
     td_errors = compute_td_errors(args.model, args.data)
 
-    print(f"\nTD-Error Statistics:")
+    print("\nTD-Error Statistics:")
     print(f"  Mean: {np.mean(td_errors):.4f}")
     print(f"  Std:  {np.std(td_errors):.4f}")
     print(f"  Min:  {np.min(td_errors):.4f}")
@@ -285,7 +286,7 @@ def main():
 
     # Distribution
     percentiles = [25, 50, 75, 90, 95, 99]
-    print(f"\n  Percentiles:")
+    print("\n  Percentiles:")
     for p in percentiles:
         val = np.percentile(td_errors, p)
         print(f"    P{p}: {val:.4f}")

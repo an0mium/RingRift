@@ -9,11 +9,10 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import GamePhase, Move, MoveType, Position, RingStack  # noqa: E402
-from app.game_engine import GameEngine  # noqa: E402
-from app.rules.default_engine import DefaultRulesEngine  # noqa: E402
-from tests.rules.helpers import _make_base_game_state  # noqa: E402
-
+from app.game_engine import GameEngine
+from app.models import GamePhase, Move, MoveType, Position, RingStack
+from app.rules.default_engine import DefaultRulesEngine
+from tests.rules.helpers import _make_base_game_state
 
 # Skip shadow contract tests when shadow contracts are disabled (default).
 # Shadow contracts are ENABLED only when RINGRIFT_SKIP_SHADOW_CONTRACTS is
@@ -147,15 +146,15 @@ def test_territory_mutator_shadow_contract_uses_diff_mapping_keys(
     output is threaded through to the error message.
     """
 
-    from app.board_manager import BoardManager  # noqa: WPS433,E402
-    from app.models import GamePhase, Territory  # noqa: WPS433,E402
+    from app.board_manager import BoardManager
+    from app.models import GamePhase, Territory
 
     # Patch TerritoryMutator in the DefaultRulesEngine module so that it first
     # applies the real mutator behaviour, then introduces a bogus stack entry
     # to force a mapping mismatch.
     class _BogusTerritoryMutator:  # pragma: no cover - behaviour tested via engine
         def apply(self, state, move) -> None:  # type: ignore[no-untyped-def]
-            from app.rules.mutators.territory import (  # noqa: WPS433,E402
+            from app.rules.mutators.territory import (
                 TerritoryMutator as _RealTerritoryMutator,
             )
 

@@ -4,6 +4,10 @@ This module preserves the legacy import path used by scripts/tests while
 the implementation lives in app.monitoring.unified_cluster_monitor.
 """
 
+# Re-export urllib.request for test patching compatibility
+import urllib.request
+from urllib.request import urlopen
+
 from app.monitoring.unified_cluster_monitor import (
     CONFIG_PATH,
     ClusterConfig,
@@ -13,10 +17,6 @@ from app.monitoring.unified_cluster_monitor import (
     UnifiedClusterMonitor,
     print_cluster_status,
 )
-
-# Re-export urllib.request for test patching compatibility
-import urllib.request
-from urllib.request import urlopen
 
 __all__ = [
     "CONFIG_PATH",

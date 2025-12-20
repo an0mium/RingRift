@@ -27,20 +27,20 @@ import pytest
 # Ensure app.* imports resolve when running tests directly under ai-service/
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 
-from app.training.env import (  # type: ignore  # noqa: E402
-    RingRiftEnv,
+from app.ai.heuristic_weights import (  # type: ignore
+    BASE_V1_BALANCED_WEIGHTS,
 )
-from app.models import (  # type: ignore  # noqa: E402
+from app.models import (  # type: ignore
     BoardType,
     GameState,
 )
-from app.ai.heuristic_weights import (  # type: ignore  # noqa: E402
-    BASE_V1_BALANCED_WEIGHTS,
-)
-from app.training import (  # type: ignore  # noqa: E402
+from app.training import (  # type: ignore
     eval_pools,
 )
-from scripts.run_cmaes_optimization import (  # type: ignore  # noqa: E402
+from app.training.env import (  # type: ignore
+    RingRiftEnv,
+)
+from scripts.run_cmaes_optimization import (  # type: ignore
     evaluate_fitness,
 )
 

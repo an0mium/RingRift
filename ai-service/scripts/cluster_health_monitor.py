@@ -5,11 +5,11 @@
 Checks cluster health every 3-5 minutes and takes corrective actions.
 """
 
+import json
+import logging
+import random
 import subprocess
 import time
-import json
-import random
-import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 

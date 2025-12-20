@@ -30,13 +30,13 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from app.ai.factory import AIFactory
-from app.ai.heuristic_ai import HeuristicAI
-from app.ai.gumbel_mcts_ai import GumbelMCTSAI
-from app.ai.neural_net import NeuralNetAI
 from app.ai.ebmo_network import ActionFeatureExtractor
-from app.models.core import AIType, AIConfig, BoardType
+from app.ai.factory import AIFactory
+from app.ai.gumbel_mcts_ai import GumbelMCTSAI
+from app.ai.heuristic_ai import HeuristicAI
+from app.ai.neural_net import NeuralNetAI
 from app.game_engine import GameEngine
+from app.models.core import AIConfig, AIType, BoardType
 from app.training.generate_data import create_initial_state
 
 logging.basicConfig(

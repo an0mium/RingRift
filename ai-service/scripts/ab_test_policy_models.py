@@ -36,7 +36,7 @@ import math
 import os
 import sys
 import time
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -50,8 +50,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.ai.mcts_ai import MCTSAI
-from app.models import AIConfig, BoardType, GameStatus
 from app.game_engine import GameEngine
+from app.models import AIConfig, BoardType, GameStatus
 from app.training.initial_state import create_initial_state
 
 # Unified logging setup
@@ -178,9 +178,11 @@ def create_mcts_ai(
     # Manually load policy model if specified
     if policy_model_path and os.path.exists(policy_model_path):
         try:
-            from app.ai.nnue_policy import RingRiftNNUEWithPolicy
-            import torch
             import re
+
+            import torch
+
+            from app.ai.nnue_policy import RingRiftNNUEWithPolicy
 
             checkpoint = torch.load(policy_model_path, map_location="cpu", weights_only=False)
             state_dict = checkpoint

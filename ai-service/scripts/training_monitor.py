@@ -42,8 +42,8 @@ from typing import Any, Dict, List, Optional, Tuple
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.utils.paths import AI_SERVICE_ROOT
 from app.config.thresholds import get_threshold
+from app.utils.paths import AI_SERVICE_ROOT
 
 # Use shared logging from scripts/lib
 from scripts.lib.logging_config import setup_script_logging
@@ -55,9 +55,9 @@ logger = setup_script_logging("training_monitor", log_dir=str(LOG_DIR))
 # Unified resource checking utilities (80% max utilization)
 try:
     from app.utils.resource_guard import (
+        LIMITS as RESOURCE_LIMITS,
         get_disk_usage as unified_get_disk_usage,
         get_gpu_memory_usage as unified_get_gpu_usage,
-        LIMITS as RESOURCE_LIMITS,
     )
     HAS_RESOURCE_GUARD = True
 except ImportError:

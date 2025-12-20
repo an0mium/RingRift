@@ -4,18 +4,23 @@ Tests the global task coordination system that prevents uncoordinated
 task spawning across multiple orchestrators.
 """
 
-import pytest
 import tempfile
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.coordination.task_coordinator import (
-    TaskType,
     ResourceType,
+    TaskType,
 )
+
 # Use centralized JSON utilities (atomic write and safe read)
-from app.utils.json_utils import save_json as atomic_write_json, load_json as safe_read_json
+from app.utils.json_utils import (
+    load_json as safe_read_json,
+    save_json as atomic_write_json,
+)
 
 
 class TestTaskType:
@@ -293,25 +298,24 @@ import os
 import threading
 
 from app.coordination.task_coordinator import (
-    TaskLimits,
-    TaskInfo,
+    TASK_RESOURCE_MAP,
+    CoordinatedTask,
     CoordinatorState,
     OrchestratorLock,
     RateLimiter,
-    TaskRegistry,
-    TaskHeartbeatMonitor,
     TaskCoordinator,
-    CoordinatedTask,
-    get_task_resource_type,
-    is_gpu_task,
-    is_cpu_task,
-    get_queue_for_task,
-    get_coordinator,
+    TaskHeartbeatMonitor,
+    TaskInfo,
+    TaskLimits,
+    TaskRegistry,
     can_spawn,
     emergency_stop_all,
-    TASK_RESOURCE_MAP,
+    get_coordinator,
+    get_queue_for_task,
+    get_task_resource_type,
+    is_cpu_task,
+    is_gpu_task,
 )
-
 
 # ============================================
 # Tests for resource mapping functions

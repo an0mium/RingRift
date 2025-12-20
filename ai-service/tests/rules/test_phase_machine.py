@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime
 import os
 import sys
+from datetime import datetime
 
 # Ensure `app.*` imports resolve when running pytest from ai-service/
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.models import (  # type: ignore  # noqa: E402
+from app.models import (  # type: ignore
     BoardState,
     BoardType,
     GamePhase,
@@ -21,7 +21,7 @@ from app.models import (  # type: ignore  # noqa: E402
     Position,
     TimeControl,
 )
-from app.rules.phase_machine import PhaseTransitionInput, advance_phases  # noqa: E402
+from app.rules.phase_machine import PhaseTransitionInput, advance_phases
 
 
 def _make_minimal_state(

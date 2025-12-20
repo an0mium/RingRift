@@ -37,7 +37,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Try to import node policies (graceful fallback if not available)
 try:
-    from app.coordination.node_policies import is_work_allowed, get_best_work_type
+    from app.coordination.node_policies import get_best_work_type, is_work_allowed
     HAS_POLICIES = True
 except ImportError:
     HAS_POLICIES = False
@@ -319,7 +319,7 @@ def generate_utilization_report(nodes: list[NodeCapabilities], detect_external: 
         lines.append("MISROUTED WORK (GPU-heavy nodes running CPU work):")
         for n in misrouted:
             lines.append(f"  {n.node_id}: GPU idle ({n.gpu_percent:.0f}%) but CPU busy ({n.cpu_percent:.0f}%)")
-            lines.append(f"    -> Should stop CMA-ES and start TRAINING instead")
+            lines.append("    -> Should stop CMA-ES and start TRAINING instead")
 
     return "\n".join(lines)
 

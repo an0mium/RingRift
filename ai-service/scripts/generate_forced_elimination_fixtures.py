@@ -23,7 +23,6 @@ from typing import Any, Dict, List
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.lib.paths import REPO_ROOT
 from app.models import (
     BoardState,
     BoardType,
@@ -37,6 +36,7 @@ from app.models import (
     RingStack,
     TimeControl,
 )
+from scripts.lib.paths import REPO_ROOT
 
 
 def compute_simple_hash(state: GameState) -> str:

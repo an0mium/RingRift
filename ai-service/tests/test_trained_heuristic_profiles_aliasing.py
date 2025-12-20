@@ -7,7 +7,7 @@ import pytest
 # Ensure app package is importable when running tests directly.
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 
-from app.ai import heuristic_weights as hw  # noqa: E402
+from app.ai import heuristic_weights as hw
 
 
 def test_load_trained_profiles_propagates_legacy_player_count_aliases(

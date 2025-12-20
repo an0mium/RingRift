@@ -1,17 +1,18 @@
 """Tests for scripts.lib.config module."""
 
-import pytest
-from pathlib import Path
-from unittest.mock import patch, mock_open
 import json
+from pathlib import Path
+from unittest.mock import mock_open, patch
+
+import pytest
 
 from scripts.lib.config import (
-    TrainingConfig,
-    ModelConfig,
     BoardConfig,
     ConfigManager,
-    get_config,
+    ModelConfig,
+    TrainingConfig,
     get_board_config,
+    get_config,
 )
 
 

@@ -8,24 +8,25 @@ Tests the tracing infrastructure:
 """
 
 import os
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from app.tracing import (
-    setup_tracing,
-    shutdown_tracing,
-    get_tracer,
-    get_current_span,
-    is_tracing_enabled,
-    traced,
-    traced_async,
-    inject_trace_context,
-    extract_trace_context,
-    add_ai_move_attributes,
-    add_training_attributes,
+    HAS_OPENTELEMETRY,
     NoOpSpan,
     NoOpTracer,
-    HAS_OPENTELEMETRY,
+    add_ai_move_attributes,
+    add_training_attributes,
+    extract_trace_context,
+    get_current_span,
+    get_tracer,
+    inject_trace_context,
+    is_tracing_enabled,
+    setup_tracing,
+    shutdown_tracing,
+    traced,
+    traced_async,
 )
 
 

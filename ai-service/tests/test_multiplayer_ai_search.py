@@ -3,13 +3,13 @@ from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 from app.ai.descent_ai import DescentAI
-from app.ai.mcts_ai import MCTSAI, MCTSNode, MCTSNodeLite
-from app.ai.minimax_ai import MinimaxAI
 from app.ai.game_state_utils import (
     infer_rings_per_player,
     select_threat_opponent,
     victory_progress_for_player,
 )
+from app.ai.mcts_ai import MCTSAI, MCTSNode, MCTSNodeLite
+from app.ai.minimax_ai import MinimaxAI
 from app.models import (
     AIConfig,
     BoardState,

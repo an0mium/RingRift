@@ -15,14 +15,14 @@ import sqlite3
 import sys
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.db import (
-    validate_game_parity,
     ParityValidationError,
+    validate_game_parity,
 )
 from app.db.game_replay import GameReplayDB
 
@@ -257,7 +257,7 @@ def main():
     # Summary
     if not args.quiet:
         print(f"\n{'='*60}")
-        print(f"PARITY VALIDATION SUMMARY")
+        print("PARITY VALIDATION SUMMARY")
         print(f"{'='*60}")
         print(f"Databases processed: {aggregate['databases_processed']}")
         print(f"Total games checked: {aggregate['total_games_checked']}")

@@ -3,9 +3,10 @@
 import asyncio
 import hashlib
 import sqlite3
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestChecksumValidation:
@@ -33,7 +34,7 @@ class TestChecksumValidation:
 
     def test_compute_file_checksum(self, temp_db):
         """Should compute correct SHA256 checksum."""
-        from app.distributed.unified_data_sync import UnifiedDataSyncService, SyncConfig
+        from app.distributed.unified_data_sync import SyncConfig, UnifiedDataSyncService
 
         config = SyncConfig()
         service = UnifiedDataSyncService.__new__(UnifiedDataSyncService)
@@ -51,7 +52,7 @@ class TestChecksumValidation:
 
     def test_checksum_changes_with_content(self, tmp_path):
         """Checksum should change when file content changes."""
-        from app.distributed.unified_data_sync import UnifiedDataSyncService, SyncConfig
+        from app.distributed.unified_data_sync import SyncConfig, UnifiedDataSyncService
 
         config = SyncConfig()
         service = UnifiedDataSyncService.__new__(UnifiedDataSyncService)
@@ -72,7 +73,7 @@ class TestChecksumValidation:
     @pytest.mark.asyncio
     async def test_validate_synced_files_valid(self, tmp_path):
         """Should validate valid database files successfully."""
-        from app.distributed.unified_data_sync import UnifiedDataSyncService, SyncConfig
+        from app.distributed.unified_data_sync import SyncConfig, UnifiedDataSyncService
 
         # Create valid database
         db_path = tmp_path / "valid.db"
@@ -98,7 +99,7 @@ class TestChecksumValidation:
     @pytest.mark.asyncio
     async def test_validate_synced_files_corrupt(self, corrupt_db):
         """Should detect corrupted database files."""
-        from app.distributed.unified_data_sync import UnifiedDataSyncService, SyncConfig
+        from app.distributed.unified_data_sync import SyncConfig, UnifiedDataSyncService
 
         config = SyncConfig(checksum_validation=True)
         service = UnifiedDataSyncService.__new__(UnifiedDataSyncService)
@@ -115,7 +116,7 @@ class TestChecksumValidation:
     @pytest.mark.asyncio
     async def test_validate_synced_files_empty_dir(self, tmp_path):
         """Should handle empty directory gracefully."""
-        from app.distributed.unified_data_sync import UnifiedDataSyncService, SyncConfig
+        from app.distributed.unified_data_sync import SyncConfig, UnifiedDataSyncService
 
         config = SyncConfig(checksum_validation=True)
         service = UnifiedDataSyncService.__new__(UnifiedDataSyncService)
@@ -131,7 +132,7 @@ class TestChecksumValidation:
     @pytest.mark.asyncio
     async def test_validate_synced_files_stores_checksums(self, tmp_path):
         """Should store checksums in manifest if available."""
-        from app.distributed.unified_data_sync import UnifiedDataSyncService, SyncConfig
+        from app.distributed.unified_data_sync import SyncConfig, UnifiedDataSyncService
 
         # Create valid database
         db_path = tmp_path / "test.db"
@@ -159,7 +160,7 @@ class TestChecksumValidation:
     @pytest.mark.asyncio
     async def test_validate_synced_files_multiple_dbs(self, tmp_path):
         """Should validate multiple database files."""
-        from app.distributed.unified_data_sync import UnifiedDataSyncService, SyncConfig
+        from app.distributed.unified_data_sync import SyncConfig, UnifiedDataSyncService
 
         # Create multiple valid databases
         for i in range(3):

@@ -20,7 +20,7 @@ logger = setup_script_logging("run_partitioned_gauntlet")
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.tournament.distributed_gauntlet import get_gauntlet, GauntletConfig
+from app.tournament.distributed_gauntlet import GauntletConfig, get_gauntlet
 
 
 def hash_model_id(model_id: str) -> int:

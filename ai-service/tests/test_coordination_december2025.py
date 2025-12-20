@@ -13,6 +13,7 @@ import asyncio
 import os
 import tempfile
 import time
+
 import pytest
 
 # Skip if coordination modules not available
@@ -94,15 +95,15 @@ class TestEventEmitters:
     def test_emitters_importable(self):
         """Test all emitters are importable."""
         from app.coordination.event_emitters import (
-            emit_training_started,
-            emit_training_complete,
-            emit_training_complete_sync,
-            emit_selfplay_complete,
             emit_evaluation_complete,
             emit_promotion_complete,
-            emit_sync_complete,
             emit_quality_updated,
+            emit_selfplay_complete,
+            emit_sync_complete,
             emit_task_complete,
+            emit_training_complete,
+            emit_training_complete_sync,
+            emit_training_started,
         )
 
         # All should be callables
@@ -212,8 +213,8 @@ class TestAsyncBridgeManager:
     async def test_run_in_bridge_pool(self):
         """Test convenience function."""
         from app.coordination.async_bridge_manager import (
-            run_in_bridge_pool,
             reset_bridge_manager,
+            run_in_bridge_pool,
         )
 
         reset_bridge_manager()
@@ -342,8 +343,8 @@ class TestTaskDecorators:
     def test_task_context_manager(self):
         """Test context manager usage."""
         from app.coordination.task_decorators import (
-            task_context,
             get_current_task_context,
+            task_context,
         )
 
         with task_context(task_type="evaluation", board_type="square8", emit_events=False) as ctx:
@@ -521,11 +522,11 @@ class TestIntegrationScenarios:
     @pytest.mark.asyncio
     async def test_task_with_bridge_manager(self):
         """Test task decorator with bridge manager."""
-        from app.coordination.task_decorators import coordinate_async_task
         from app.coordination.async_bridge_manager import (
             get_bridge_manager,
             reset_bridge_manager,
         )
+        from app.coordination.task_decorators import coordinate_async_task
 
         reset_bridge_manager()
 
@@ -543,11 +544,11 @@ class TestIntegrationScenarios:
 
     def test_defaults_used_by_distributed_lock(self):
         """Test distributed lock uses centralized defaults."""
-        from app.coordination.distributed_lock import (
-            DEFAULT_LOCK_TIMEOUT,
-            DEFAULT_ACQUIRE_TIMEOUT,
-        )
         from app.config.coordination_defaults import LockDefaults
+        from app.coordination.distributed_lock import (
+            DEFAULT_ACQUIRE_TIMEOUT,
+            DEFAULT_LOCK_TIMEOUT,
+        )
 
         # Should use centralized defaults
         assert DEFAULT_LOCK_TIMEOUT == LockDefaults.LOCK_TIMEOUT

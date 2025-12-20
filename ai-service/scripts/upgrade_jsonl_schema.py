@@ -19,10 +19,9 @@ Usage:
 import argparse
 import json
 import sys
-from pathlib import Path
-from typing import Dict, Any
 from collections import Counter
-
+from pathlib import Path
+from typing import Any, Dict
 
 # Mapping from board_size to board_type
 BOARD_SIZE_TO_TYPE = {
@@ -169,7 +168,7 @@ def process_file(input_path: Path, output_path: Path, stats: Counter) -> int:
     """Process a single JSONL file."""
     upgraded_count = 0
 
-    with open(input_path, 'r') as f_in, open(output_path, 'w') as f_out:
+    with open(input_path) as f_in, open(output_path, 'w') as f_out:
         for line_num, line in enumerate(f_in, 1):
             line = line.strip()
             if not line:

@@ -24,21 +24,20 @@ import pytest
 # directly from the ai-service root.
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 
-from app.models import (  # type: ignore  # noqa: E402
+import scripts.run_cmaes_optimization as cmaes  # type: ignore
+import scripts.run_self_play_soak as soak  # type: ignore
+from app.ai.heuristic_ai import HeuristicAI  # type: ignore
+from app.ai.heuristic_weights import (  # type: ignore
+    BASE_V1_BALANCED_WEIGHTS,
+)
+from app.models import (  # type: ignore
     AIConfig,
     AIType,
     BoardType,
 )
-from app.ai.heuristic_ai import HeuristicAI  # type: ignore  # noqa: E402
-from app.ai.heuristic_weights import (  # type: ignore  # noqa: E402
-    BASE_V1_BALANCED_WEIGHTS,
-)
-from app.training.generate_data import (  # type: ignore  # noqa: E402
+from app.training.generate_data import (  # type: ignore
     create_initial_state,
 )
-import scripts.run_cmaes_optimization as cmaes  # type: ignore  # noqa: E402
-import scripts.run_self_play_soak as soak  # type: ignore  # noqa: E402
-
 
 TIER2_KEYS: list[str] = [
     "line_potential",

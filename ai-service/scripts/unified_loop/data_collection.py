@@ -17,14 +17,15 @@ from .config import DataEvent, DataEventType, DataIngestionConfig, HostState
 
 if TYPE_CHECKING:
     from unified_ai_loop import EventBus, UnifiedLoopState
+
     from app.training.hot_data_buffer import HotDataBuffer
 
 from app.utils.paths import AI_SERVICE_ROOT
 
 # Resource checking
 try:
-    from scripts.p2p.resource import check_disk_has_capacity
     from scripts.p2p.constants import MAX_DISK_USAGE_PERCENT
+    from scripts.p2p.resource import check_disk_has_capacity
 except ImportError:
     MAX_DISK_USAGE_PERCENT = 70.0
     def check_disk_has_capacity():
@@ -73,10 +74,10 @@ except ImportError:
 # Coordination features
 try:
     from app.coordination import (
-        sync_lock,
-        request_bandwidth,
-        release_bandwidth,
         TransferPriority,
+        release_bandwidth,
+        request_bandwidth,
+        sync_lock,
     )
     HAS_COORDINATION = True
 except ImportError:
@@ -96,7 +97,7 @@ except ImportError:
 
 # Prometheus metrics - avoid duplicate registration
 try:
-    from prometheus_client import Gauge, REGISTRY
+    from prometheus_client import REGISTRY, Gauge
     HAS_PROMETHEUS = True
     # Check if metric already registered (e.g., by unified_ai_loop.py)
     if 'ringrift_config_weight' in REGISTRY._names_to_collectors:
@@ -120,9 +121,9 @@ class StreamingDataCollector:
     def __init__(
         self,
         config: DataIngestionConfig,
-        state: "UnifiedLoopState",
-        event_bus: "EventBus",
-        hot_buffer: "HotDataBuffer" | None = None,
+        state: UnifiedLoopState,
+        event_bus: EventBus,
+        hot_buffer: HotDataBuffer | None = None,
     ):
         self.config = config
         self.state = state
@@ -155,7 +156,7 @@ class StreamingDataCollector:
         if HAS_HOST_CLASSIFICATION:
             self._init_host_profiles()
 
-    def set_hot_buffer(self, hot_buffer: "HotDataBuffer") -> None:
+    def set_hot_buffer(self, hot_buffer: HotDataBuffer) -> None:
         """Set or update the hot buffer for in-memory game caching."""
         self.hot_buffer = hot_buffer
         print(f"[DataCollector] Hot buffer attached (max_size={hot_buffer.max_size})")
@@ -199,7 +200,7 @@ class StreamingDataCollector:
             return self._host_profiles[host_name].is_ephemeral
         return False
 
-    async def sync_host(self, host: "HostState") -> int:
+    async def sync_host(self, host: HostState) -> int:
         """Sync games from a single host. Returns count of new games."""
         if not host.enabled:
             return 0
@@ -279,7 +280,7 @@ class StreamingDataCollector:
             print(f"[DataCollector] Failed to sync {host.name}: {e}")
             return 0
 
-    async def _incremental_sync(self, host: "HostState"):
+    async def _incremental_sync(self, host: HostState):
         """Perform incremental rsync of new data.
 
         Uses sync_lock and bandwidth management when available for coordinated
@@ -290,7 +291,7 @@ class StreamingDataCollector:
         local_dir.mkdir(parents=True, exist_ok=True)
 
         # Base rsync command
-        base_cmd = f'rsync -avz --progress -e "ssh -o ConnectTimeout=10"'
+        base_cmd = 'rsync -avz --progress -e "ssh -o ConnectTimeout=10"'
 
         # Use new coordination if available: sync_lock + bandwidth
         if HAS_COORDINATION:
@@ -355,7 +356,7 @@ class StreamingDataCollector:
         # Also sync selfplay JSONL files during incremental sync
         await self._sync_selfplay_jsonl(host)
 
-    async def _sync_selfplay_jsonl(self, host: "HostState"):
+    async def _sync_selfplay_jsonl(self, host: HostState):
         """Sync GPU selfplay JSONL files from remote host.
 
         This syncs JSONL files from selfplay directories that are not covered
@@ -402,7 +403,7 @@ class StreamingDataCollector:
             except Exception as e:
                 print(f"[DataCollector] Selfplay sync error for {host.name}/{remote_pattern}: {e}")
 
-    async def _full_sync(self, host: "HostState"):
+    async def _full_sync(self, host: HostState):
         """Perform full sync (same as incremental for now)."""
         await self._incremental_sync(host)
         # Also sync selfplay JSONL files
@@ -518,7 +519,7 @@ class StreamingDataCollector:
 
         semaphore = asyncio.Semaphore(max_concurrent_syncs)
 
-        async def sync_with_limit(host: "HostState", current_count: int, new_games: int) -> int:
+        async def sync_with_limit(host: HostState, current_count: int, new_games: int) -> int:
             async with semaphore:
                 return await self._sync_host_data(host, current_count, new_games)
 
@@ -541,7 +542,7 @@ class StreamingDataCollector:
 
         return total_new
 
-    async def _fast_parallel_query(self, hosts: list["HostState"]) -> dict[str, int]:
+    async def _fast_parallel_query(self, hosts: list[HostState]) -> dict[str, int]:
         """Query all hosts in parallel with short timeout to get game counts.
 
         This is much faster than querying each host sequentially during sync_host.
@@ -550,7 +551,7 @@ class StreamingDataCollector:
         Returns:
             Dict mapping host name to game count (0 for failed queries)
         """
-        async def query_host_count(host: "HostState") -> tuple[str, int]:
+        async def query_host_count(host: HostState) -> tuple[str, int]:
             # Circuit breaker check
             if HAS_CIRCUIT_BREAKER:
                 breaker = get_host_breaker()
@@ -603,7 +604,7 @@ class StreamingDataCollector:
                 counts[result[0]] = result[1]
         return counts
 
-    async def _sync_host_data(self, host: "HostState", current_count: int, new_games: int) -> int:
+    async def _sync_host_data(self, host: HostState, current_count: int, new_games: int) -> int:
         """Sync data from a host that has new games.
 
         This is called after _fast_parallel_query has confirmed the host has new data.
@@ -715,7 +716,7 @@ class StreamingDataCollector:
                         if jsonl_path.exists():
                             try:
                                 # Count lines = count games
-                                with open(jsonl_path, 'r') as f:
+                                with open(jsonl_path) as f:
                                     count = sum(1 for _ in f)
                                 config_counts[config_key] = config_counts.get(config_key, 0) + count
                                 total_counted += count

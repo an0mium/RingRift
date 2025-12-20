@@ -43,14 +43,14 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 # Only import what we need directly - game_gauntlet handles the rest
-from app.models import BoardType, AIType, AIConfig
 from app.ai.policy_only_ai import PolicyOnlyAI
+from app.models import AIConfig, AIType, BoardType
 
 # Import canonical thresholds from single source of truth
 try:
     from app.config.thresholds import (
-        MIN_WIN_RATE_VS_RANDOM,
         MIN_WIN_RATE_VS_HEURISTIC,
+        MIN_WIN_RATE_VS_RANDOM,
     )
     DEFAULT_MIN_RANDOM_WIN_RATE = MIN_WIN_RATE_VS_RANDOM
     DEFAULT_MIN_HEURISTIC_WIN_RATE = MIN_WIN_RATE_VS_HEURISTIC
@@ -172,8 +172,8 @@ def evaluate_checkpoint(
     Raises CheckpointLoadError if checkpoint cannot be loaded.
     """
     from app.training.game_gauntlet import (
-        run_baseline_gauntlet,
         BaselineOpponent,
+        run_baseline_gauntlet,
     )
 
     # Pre-validate checkpoint is loadable

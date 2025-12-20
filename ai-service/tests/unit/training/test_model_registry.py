@@ -3,20 +3,21 @@
 Tests the model registry, versioning, and auto-promotion functionality.
 """
 
-import pytest
 import tempfile
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
+import pytest
 
 from app.training.model_registry import (
+    AutoPromoter,
+    ModelMetrics,
     ModelRegistry,
     ModelStage,
     ModelType,
-    ModelMetrics,
-    TrainingConfig,
     ModelVersion,
     RegistryDatabase,
-    AutoPromoter,
+    TrainingConfig,
 )
 
 

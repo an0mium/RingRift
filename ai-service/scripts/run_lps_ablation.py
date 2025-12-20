@@ -54,6 +54,7 @@ from __future__ import annotations
 
 # Disable FSM validation for faster experiments
 import os
+
 os.environ.setdefault("RINGRIFT_FSM_VALIDATION_MODE", "off")
 
 import argparse
@@ -72,6 +73,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
+from app.game_engine import GameEngine
 from app.main import _create_ai_instance
 from app.models import (
     AIConfig,
@@ -82,12 +84,10 @@ from app.models import (
 )
 from app.training.env import (
     TrainingEnvConfig,
-    make_env,
     get_theoretical_max_moves,
+    make_env,
 )
-from app.game_engine import GameEngine
 from scripts.lib.cli import BOARD_TYPE_MAP
-
 
 # Engine mode to AI type mapping
 ENGINE_MODE_TO_AI = {

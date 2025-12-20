@@ -8,10 +8,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.training.model_lifecycle import (
+    FullMaintenanceResult,
+    MaintenanceResult,
     ModelLifecycleManager,
     RetentionPolicy,
-    MaintenanceResult,
-    FullMaintenanceResult,
 )
 
 

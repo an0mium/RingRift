@@ -9,31 +9,31 @@ Tests cover:
 
 import argparse
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from scripts.lib.cli import (
-    add_verbose_arg,
-    add_dry_run_arg,
-    add_config_arg,
-    add_node_arg,
-    add_board_args,
-    add_output_arg,
-    add_limit_arg,
-    add_parallel_arg,
-    add_timeout_arg,
-    add_common_args,
-    setup_cli_logging,
-    get_config_key,
-    parse_config_key,
-    validate_path_arg,
-    confirm_action,
-    print_dry_run_notice,
-    print_summary,
-    create_subparser_with_common_args,
     BOARD_TYPES,
     VALID_PLAYER_COUNTS,
+    add_board_args,
+    add_common_args,
+    add_config_arg,
+    add_dry_run_arg,
+    add_limit_arg,
+    add_node_arg,
+    add_output_arg,
+    add_parallel_arg,
+    add_timeout_arg,
+    add_verbose_arg,
+    confirm_action,
+    create_subparser_with_common_args,
+    get_config_key,
+    parse_config_key,
+    print_dry_run_notice,
+    print_summary,
+    setup_cli_logging,
+    validate_path_arg,
 )
 
 

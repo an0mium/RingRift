@@ -25,7 +25,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -37,16 +36,16 @@ if str(PROJECT_ROOT) not in sys.path:
 os.environ.setdefault("RINGRIFT_PARALLEL_MIN_MOVES", "100000")
 os.environ.setdefault("RINGRIFT_FSM_VALIDATION_MODE", "off")
 
-from app.models import AIConfig, AIType, BoardType, GameState, GameStatus  # noqa: E402
-from app.main import _create_ai_instance, _get_difficulty_profile  # noqa: E402
-from app.training.env import TrainingEnvConfig, make_env  # noqa: E402
-from app.training.eval_pools import (  # noqa: E402
+from app.main import _create_ai_instance, _get_difficulty_profile
+from app.models import AIConfig, AIType, BoardType, GameState, GameStatus
+from app.training.env import TrainingEnvConfig, make_env
+from app.training.eval_pools import (
     EvalPoolConfig,
     EvalScenario,
     get_eval_pool_config,
     load_eval_pool,
 )
-from app.training.significance import wilson_score_interval  # noqa: E402
+from app.training.significance import wilson_score_interval
 
 
 @dataclass(frozen=True)

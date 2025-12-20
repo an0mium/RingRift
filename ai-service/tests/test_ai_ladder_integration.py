@@ -10,9 +10,9 @@ from fastapi.testclient import TestClient
 # Ensure app package is importable when running tests directly.
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 
-import app.main as main_mod  # noqa: E402
-from app.config.ladder_config import LadderTierConfig  # noqa: E402
-from app.models import (  # noqa: E402
+import app.main as main_mod
+from app.config.ladder_config import LadderTierConfig
+from app.models import (
     BoardState,
     BoardType,
     GamePhase,

@@ -4,16 +4,16 @@ import pytest
 
 from app.utils.assertions import (
     AssertionError,
-    PreconditionError,
-    PostconditionError,
     InvariantError,
-    require,
-    ensure,
+    PostconditionError,
+    PreconditionError,
     check,
-    require_type,
-    require_not_none,
+    ensure,
+    require,
     require_in_range,
     require_non_empty,
+    require_not_none,
+    require_type,
     unreachable,
 )
 

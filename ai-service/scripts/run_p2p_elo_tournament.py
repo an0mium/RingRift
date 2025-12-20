@@ -28,26 +28,26 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import aiohttp
 import random
 import sqlite3
 import sys
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+import aiohttp
 
 # Add ai-service to path
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
+from app.config.thresholds import ELO_K_FACTOR, INITIAL_ELO_RATING
 from app.models import BoardType
 from app.models.discovery import discover_models
-from app.config.thresholds import INITIAL_ELO_RATING, ELO_K_FACTOR
-
 
 # ============================================
 # AI Type Calibration Configurations
@@ -642,7 +642,7 @@ async def main():
 
     if args.status:
         nodes = await tournament.discover_nodes()
-        print(f"\n[Tournament] P2P Cluster Status")
+        print("\n[Tournament] P2P Cluster Status")
         print(f"[Tournament] Found {len(nodes)} nodes")
         for node in nodes:
             gpu_info = f"GPU: {node.gpu_name}" if node.has_gpu else "CPU only"
@@ -651,7 +651,7 @@ async def main():
 
     if args.calibrate_ai_types:
         agents = list(AI_TYPE_CONFIGS.keys())
-        print(f"\n[Tournament] AI Type Calibration Tournament")
+        print("\n[Tournament] AI Type Calibration Tournament")
         print(f"[Tournament] Agents: {agents}")
 
         if args.dry_run:

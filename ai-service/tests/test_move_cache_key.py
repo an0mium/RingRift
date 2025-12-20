@@ -4,10 +4,10 @@ from app.ai.move_cache import cache_moves, get_cached_moves
 from app.models import (
     BoardState,
     BoardType,
+    ChainCaptureState,
     GamePhase,
     GameState,
     GameStatus,
-    ChainCaptureState,
     Move,
     MoveType,
     Player,

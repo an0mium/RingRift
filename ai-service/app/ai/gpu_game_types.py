@@ -62,28 +62,68 @@ class GameStatus(IntEnum):
 class MoveType(IntEnum):
     """Types of moves that can be made.
 
-    Values match app.models.MoveType for compatibility.
+    Values 0-7 match legacy GPU types for backwards compatibility.
+    Values 8+ are canonical types added December 2025 for parity.
     """
+    # Legacy GPU types (0-7)
     PLACEMENT = 0
     MOVEMENT = 1
-    CAPTURE = 2
+    CAPTURE = 2              # Generic capture (legacy) - use OVERTAKING_CAPTURE for canonical
     LINE_FORMATION = 3
     TERRITORY_CLAIM = 4
-    SKIP = 5
-    NO_ACTION = 6
+    SKIP = 5                 # Generic skip (legacy)
+    NO_ACTION = 6            # Generic no-action (legacy) - use phase-specific for canonical
     RECOVERY_SLIDE = 7
+
+    # Canonical phase-specific no-action types (8-11)
+    NO_PLACEMENT_ACTION = 8
+    NO_MOVEMENT_ACTION = 9
+    NO_LINE_ACTION = 10
+    NO_TERRITORY_ACTION = 11
+
+    # Canonical capture types (12-14)
+    OVERTAKING_CAPTURE = 12      # First capture in sequence
+    CONTINUE_CAPTURE_SEGMENT = 13  # Chain capture continuation
+    SKIP_CAPTURE = 14            # Voluntarily skip available capture
+
+    # Canonical recovery types (15)
+    SKIP_RECOVERY = 15           # Skip recovery slide
+
+    # Canonical forced elimination (16)
+    FORCED_ELIMINATION = 16      # Player eliminated due to no real actions
+
+    # Canonical line/territory choice types (17-18)
+    CHOOSE_LINE_OPTION = 17      # Line reward selection
+    CHOOSE_TERRITORY_OPTION = 18  # Territory reward selection
+
+    # Canonical skip placement (19)
+    SKIP_PLACEMENT = 19          # Skip placement phase
 
 
 class GamePhase(IntEnum):
     """Current phase of a game.
 
     Order matters for phase progression logic.
+    Values 0-4 are legacy GPU phases for backwards compatibility.
+    Values 5+ are canonical phases added December 2025 for parity.
+
+    Canonical phase order:
+    ring_placement → movement → capture → chain_capture → recovery →
+    line_processing → territory_processing → forced_elimination → game_over
     """
-    RING_PLACEMENT = 0    # Initial ring placement
-    MOVEMENT = 1          # Normal movement/capture phase
-    LINE_PROCESSING = 2   # Processing formed lines
-    TERRITORY_PROCESSING = 3  # Processing territory claims
-    END_TURN = 4          # End of turn processing
+    # Legacy GPU phases (0-4)
+    RING_PLACEMENT = 0       # Initial ring placement
+    MOVEMENT = 1             # Normal movement phase (pre-capture)
+    LINE_PROCESSING = 2      # Processing formed lines
+    TERRITORY_PROCESSING = 3 # Processing territory claims
+    END_TURN = 4             # End of turn processing (legacy)
+
+    # Canonical phases (5-9) - December 2025
+    CAPTURE = 5              # First capture opportunity
+    CHAIN_CAPTURE = 6        # Continuation capture after first capture
+    RECOVERY = 7             # Recovery slide phase (after no movement)
+    FORCED_ELIMINATION = 8   # Player had no real actions this turn
+    GAME_OVER = 9            # Game has ended
 
 
 # =============================================================================

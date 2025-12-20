@@ -8,10 +8,10 @@ Tests cover:
 """
 
 import time
-import pytest
-from unittest.mock import MagicMock, patch
 from dataclasses import dataclass
+from unittest.mock import MagicMock, patch
 
+import pytest
 
 # =============================================================================
 # Test QualityLevel Enum
@@ -624,8 +624,8 @@ class TestModuleFunctions:
     def test_wire_quality_events(self):
         """Test wiring quality events."""
         from app.quality.data_quality_orchestrator import (
-            wire_quality_events,
             get_quality_orchestrator,
+            wire_quality_events,
         )
 
         mock_bus = MagicMock()
@@ -673,9 +673,9 @@ class TestModuleFunctions:
     def test_reset_quality_orchestrator(self):
         """Test resetting the orchestrator singleton."""
         from app.quality.data_quality_orchestrator import (
-            wire_quality_events,
             get_quality_orchestrator,
             reset_quality_orchestrator,
+            wire_quality_events,
         )
 
         mock_bus = MagicMock()

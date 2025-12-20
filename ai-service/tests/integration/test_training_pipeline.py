@@ -11,7 +11,6 @@ import sqlite3
 from datetime import datetime, timezone
 
 import pytest
-
 import torch
 
 
@@ -84,7 +83,7 @@ class TestDatabaseTrainingIntegration:
     @pytest.fixture
     def mock_db_path(self, tmp_path):
         """Create a temporary database with test data."""
-        from app.db.game_replay import GameReplayDB, SCHEMA_VERSION
+        from app.db.game_replay import SCHEMA_VERSION, GameReplayDB
         from app.models import GamePhase, GameStatus, Move, MoveType, Position
 
         db_path = tmp_path / "test_training.db"
@@ -266,8 +265,8 @@ class TestGPUModuleIntegration:
 
     def test_gpu_types_import_chain(self):
         """Test that gpu_game_types exports are accessible from correct modules."""
-        from app.ai.gpu_parallel_games import GameStatus, GamePhase
-        from app.ai.gpu_game_types import MoveType, get_required_line_length, get_int_dtype
+        from app.ai.gpu_game_types import MoveType, get_int_dtype, get_required_line_length
+        from app.ai.gpu_parallel_games import GamePhase, GameStatus
 
         # Verify they work
         assert GameStatus.ACTIVE == 0
@@ -278,12 +277,12 @@ class TestGPUModuleIntegration:
 
     def test_gpu_line_detection_import_chain(self):
         """Test that gpu_line_detection exports are accessible from correct modules."""
-        from app.ai.gpu_parallel_games import detect_lines_vectorized, process_lines_batch
         from app.ai.gpu_line_detection import (
-            has_lines_batch_vectorized,
-            detect_lines_with_metadata,
             detect_lines_batch,
+            detect_lines_with_metadata,
+            has_lines_batch_vectorized,
         )
+        from app.ai.gpu_parallel_games import detect_lines_vectorized, process_lines_batch
 
         # Just verify imports work
         assert callable(detect_lines_vectorized)
@@ -296,8 +295,8 @@ class TestGPUModuleIntegration:
         """Test BatchGameState uses extracted types correctly."""
         from app.ai.gpu_parallel_games import (
             BatchGameState,
-            GameStatus,
             GamePhase,
+            GameStatus,
         )
 
         state = BatchGameState.create_batch(

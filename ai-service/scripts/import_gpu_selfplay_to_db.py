@@ -590,7 +590,7 @@ def main():
     games_imported = 0
     games_failed = 0
 
-    with open(args.input, "r") as f:
+    with open(args.input) as f:
         for line_num, line in enumerate(f, 1):
             if args.limit > 0 and games_imported >= args.limit:
                 break
@@ -613,7 +613,7 @@ def main():
             else:
                 games_failed += 1
 
-    print(f"\nImport complete:")
+    print("\nImport complete:")
     print(f"  Successfully imported: {games_imported}")
     print(f"  Failed: {games_failed}")
     print(f"  Output: {args.output}")

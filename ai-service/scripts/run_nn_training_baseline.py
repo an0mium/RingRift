@@ -50,16 +50,17 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from app.models import BoardType  # noqa: E402
-from app.training.config import TrainConfig  # noqa: E402
-from app.training.config import (  # noqa: E402
-    get_training_config_for_board,
-)
-from app.training.seed_utils import seed_all  # noqa: E402
-from app.training.train import train_model  # noqa: E402
-from pathlib import Path  # noqa: E402
+from pathlib import Path
 
 import numpy as np
+
+from app.models import BoardType
+from app.training.config import (
+    TrainConfig,
+    get_training_config_for_board,
+)
+from app.training.seed_utils import seed_all
+from app.training.train import train_model
 
 # Model hygiene: validation at startup
 try:

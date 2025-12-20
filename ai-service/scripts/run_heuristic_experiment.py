@@ -61,20 +61,20 @@ import csv
 import json
 import os
 import sys
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Dict, List
-from collections.abc import Iterable
 
 # Ensure project root (containing ``app`` and ``scripts``) is on sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from scripts.run_cmaes_optimization import (  # type: ignore  # noqa: E402
-    CMAESConfig,
-    run_cmaes_optimization,
+from app.ai.heuristic_ai import HeuristicAI  # type: ignore
+from app.ai.heuristic_weights import (  # type: ignore
+    HEURISTIC_WEIGHT_PROFILES,
+    load_trained_profiles_if_available,
 )
-
-from app.models import (  # type: ignore  # noqa: E402
+from app.models import (  # type: ignore
     AIConfig,
     BoardState,
     BoardType,
@@ -84,19 +84,17 @@ from app.models import (  # type: ignore  # noqa: E402
     Player,
     TimeControl,
 )
-from app.ai.heuristic_ai import HeuristicAI  # type: ignore  # noqa: E402
-from app.ai.heuristic_weights import (  # type: ignore  # noqa: E402
-    HEURISTIC_WEIGHT_PROFILES,
-    load_trained_profiles_if_available,
-)
-from app.rules.default_engine import (  # type: ignore  # noqa: E402
+from app.rules.default_engine import (  # type: ignore
     DefaultRulesEngine,
 )
-from app.training.env import (  # type: ignore  # noqa: E402
+from app.training.env import (  # type: ignore
     get_two_player_training_kwargs,
 )
-from app.utils.progress_reporter import ProgressReporter  # type: ignore  # noqa: E402
-
+from app.utils.progress_reporter import ProgressReporter  # type: ignore
+from scripts.run_cmaes_optimization import (  # type: ignore
+    CMAESConfig,
+    run_cmaes_optimization,
+)
 
 BOARD_TYPES: dict[str, BoardType] = {
     "Square8": BoardType.SQUARE8,

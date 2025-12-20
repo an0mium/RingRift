@@ -53,11 +53,11 @@ import json
 import os
 import sys
 from collections import defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from collections.abc import Iterator
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -69,8 +69,10 @@ if PROJECT_ROOT not in sys.path:
 # script usable in partial environments / older checkouts.
 try:  # pragma: no cover
     from app.models.core import BoardType as _BoardType
-    from app.rules.core import BOARD_CONFIGS as _CANON_BOARD_CONFIGS
-    from app.rules.core import get_victory_threshold as _get_canon_victory_threshold
+    from app.rules.core import (
+        BOARD_CONFIGS as _CANON_BOARD_CONFIGS,
+        get_victory_threshold as _get_canon_victory_threshold,
+    )
 
     _BOARD_TYPE_TO_ENUM = {
         "square8": _BoardType.SQUARE8,
@@ -572,7 +574,7 @@ def load_stats_json(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except (json.JSONDecodeError, OSError) as e:
         print(f"Warning: Failed to load {path}: {e}", file=sys.stderr)
@@ -588,7 +590,7 @@ def load_recovery_analysis(path: Path) -> dict[str, Any] | None:
     for candidate in candidates:
         if candidate.exists():
             try:
-                with open(candidate, "r", encoding="utf-8") as f:
+                with open(candidate, encoding="utf-8") as f:
                     return json.load(f)
             except (json.JSONDecodeError, OSError):
                 continue
@@ -689,7 +691,7 @@ def iter_jsonl_games(
         if is_gzip:
             opener = gzip.open(path, "rt", encoding="utf-8")
         else:
-            opener = open(path, "r", encoding="utf-8")
+            opener = open(path, encoding="utf-8")
 
         with opener as f:
             line_num = 0
@@ -796,7 +798,7 @@ def fix_jsonl_in_place(
     modified_count = 0
 
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -874,7 +876,7 @@ def clean_jsonl_file(
 
     try:
         # Use errors="replace" to handle files with encoding issues (corrupted bytes)
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             for line in f:
                 line = line.strip()
                 if not line:

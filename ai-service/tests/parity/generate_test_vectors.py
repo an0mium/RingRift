@@ -1,27 +1,27 @@
-import sys
-import os
 import json
+import os
 import random
+import sys
 from datetime import datetime
 from typing import Any, Dict, List
 
 # Add app directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../'))
 
+from app.board_manager import BoardManager  # type: ignore[import]
+from app.db.game_replay import GameReplayDB  # type: ignore[import]
+from app.game_engine import GameEngine  # type: ignore[import]
 from app.models import (  # type: ignore[import]
-    GameState,
     BoardState,
     BoardType,
     GamePhase,
-    Player,
-    TimeControl,
+    GameState,
     GameStatus,
-    RingStack,
+    Player,
     Position,
+    RingStack,
+    TimeControl,
 )
-from app.game_engine import GameEngine  # type: ignore[import]
-from app.board_manager import BoardManager  # type: ignore[import]
-from app.db.game_replay import GameReplayDB  # type: ignore[import]
 
 
 def create_initial_state():
@@ -241,7 +241,7 @@ def _maybe_generate_parity_vectors(output_dir: str) -> None:
         return
 
     try:
-        with open(summary_path, "r", encoding="utf-8") as f:
+        with open(summary_path, encoding="utf-8") as f:
             summary = json.load(f)
     except Exception as exc:  # pragma: no cover - defensive
         print(f"Failed to load parity_summary.latest.json: {exc}")
@@ -331,7 +331,7 @@ if __name__ == "__main__":
         )
         if os.path.exists(recovery_src):
             recovery_dst = os.path.join(output_dir, "recovery_action.vectors.json")
-            with open(recovery_src, "r", encoding="utf-8") as f_in:
+            with open(recovery_src, encoding="utf-8") as f_in:
                 with open(recovery_dst, "w", encoding="utf-8") as f_out:
                     f_out.write(f_in.read())
             print(f"Copied recovery_action.vectors.json to {recovery_dst}")

@@ -20,7 +20,7 @@ import math
 import os
 import sys
 import tempfile
-from typing import Dict, Any
+from typing import Any, Dict
 
 import pytest
 
@@ -28,31 +28,31 @@ import pytest
 # directly (mirrors pattern used in other ai-service tests).
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 
-from app.models import (  # type: ignore  # noqa: E402
-    AIConfig,
-    BoardType,
-    GamePhase,
-    GameStatus,
-    GameState,
-)
-from app.ai.heuristic_ai import HeuristicAI  # type: ignore  # noqa: E402
-from app.ai.heuristic_weights import (  # type: ignore  # noqa: E402
+from app.ai.heuristic_ai import HeuristicAI  # type: ignore
+from app.ai.heuristic_weights import (  # type: ignore
     BASE_V1_BALANCED_WEIGHTS,
     HEURISTIC_WEIGHT_KEYS,
 )
-from app.training.generate_data import (  # type: ignore  # noqa: E402
+from app.models import (  # type: ignore
+    AIConfig,
+    BoardType,
+    GamePhase,
+    GameState,
+    GameStatus,
+)
+from app.training.generate_data import (  # type: ignore
     create_initial_state,
 )
-from scripts.run_cmaes_optimization import (  # type: ignore  # noqa: E402
-    evaluate_fitness,
-    create_heuristic_ai_with_weights,
-)
-from scripts.run_axis_aligned_tournament import (  # type: ignore  # noqa: E402
-    load_axis_aligned_participants,
-)
-from scripts import (  # noqa: E402
+from scripts import (
     generate_axis_aligned_profiles,  # type: ignore[attr-defined]
     run_genetic_heuristic_search as ga_search,  # type: ignore[attr-defined]
+)
+from scripts.run_axis_aligned_tournament import (  # type: ignore
+    load_axis_aligned_participants,
+)
+from scripts.run_cmaes_optimization import (  # type: ignore
+    create_heuristic_ai_with_weights,
+    evaluate_fitness,
 )
 
 

@@ -1,19 +1,20 @@
 """Tests for scripts.lib.validation module."""
 
-import pytest
-import numpy as np
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pytest
 
 from scripts.lib.validation import (
+    DataValidator,
     ValidationResult,
-    validate_npz_file,
     validate_jsonl_file,
     validate_model_file,
+    validate_npz_file,
     validate_training_config,
-    DataValidator,
 )
 
 

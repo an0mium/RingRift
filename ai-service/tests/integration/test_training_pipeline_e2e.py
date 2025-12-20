@@ -36,34 +36,33 @@ import pytest
 import torch
 import torch.nn as nn
 
-from app.training.data_loader import StreamingDataLoader
-from app.training.model_versioning import (
-    ModelVersionManager,
-    ChecksumMismatchError,
-    VersionMismatchError,
-    save_model_checkpoint,
-    load_model_with_validation,
+from app.ai.neural_net import (
+    HEX_BOARD_SIZE,
+    P_HEX,
+    HexNeuralNet_v2,
+    POLICY_SIZE_8x8,
+    RingRiftCNN_v2,
 )
+from app.models import BoardType
 from app.training.auto_tournament import AutoTournamentPipeline
+from app.training.data_loader import StreamingDataLoader
 from app.training.encoding import (
     HexStateEncoder,
     detect_board_type_from_features,
 )
+from app.training.model_versioning import (
+    ChecksumMismatchError,
+    ModelVersionManager,
+    VersionMismatchError,
+    load_model_with_validation,
+    save_model_checkpoint,
+)
 from app.training.train import (
-    RingRiftDataset,
     EarlyStopping,
-    save_checkpoint,
+    RingRiftDataset,
     load_checkpoint,
+    save_checkpoint,
 )
-from app.ai.neural_net import (
-    RingRiftCNN_v2,
-    HexNeuralNet_v2,
-    POLICY_SIZE_8x8,
-    HEX_BOARD_SIZE,
-    P_HEX,
-)
-from app.models import BoardType
-
 
 # =============================================================================
 # Test Fixtures
@@ -1668,8 +1667,8 @@ class TestRealModelIntegration:
         """
         try:
             from app.training.integrated_enhancements import (
-                IntegratedTrainingManager,
                 IntegratedEnhancementsConfig,
+                IntegratedTrainingManager,
             )
         except ImportError:
             pytest.skip("IntegratedTrainingManager not available")
@@ -1730,9 +1729,9 @@ class TestRealModelIntegration:
         """
         try:
             from app.training.parallel_selfplay import (
-                generate_dataset_parallel,
-                SelfplayConfig,
                 GameResult,
+                SelfplayConfig,
+                generate_dataset_parallel,
             )
         except ImportError:
             pytest.skip("parallel_selfplay module not available")

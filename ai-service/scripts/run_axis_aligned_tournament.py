@@ -47,7 +47,12 @@ from typing import Any, Dict, List, Optional, Tuple
 # Allow imports from app/ when run from the ai-service root.
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.models import (  # type: ignore  # noqa: E402
+from app.ai.heuristic_ai import HeuristicAI  # type: ignore
+from app.ai.heuristic_weights import (  # type: ignore
+    BASE_V1_BALANCED_WEIGHTS,
+    HeuristicWeights,
+)
+from app.models import (  # type: ignore
     AIConfig,
     BoardState,
     BoardType,
@@ -57,17 +62,11 @@ from app.models import (  # type: ignore  # noqa: E402
     Player,
     TimeControl,
 )
-from app.ai.heuristic_ai import HeuristicAI  # type: ignore  # noqa: E402
-from app.ai.heuristic_weights import (  # type: ignore  # noqa: E402
-    BASE_V1_BALANCED_WEIGHTS,
-    HeuristicWeights,
-)
-from app.rules.default_engine import (  # type: ignore  # noqa: E402
+from app.rules.core import BOARD_CONFIGS  # type: ignore
+from app.rules.default_engine import (  # type: ignore
     DefaultRulesEngine,
 )
-from app.rules.core import BOARD_CONFIGS  # type: ignore  # noqa: E402
-from app.utils.progress_reporter import SoakProgressReporter  # noqa: E402
-
+from app.utils.progress_reporter import SoakProgressReporter
 
 DEFAULT_PROFILES_DIR = os.path.join("logs", "axis_aligned", "profiles")
 DEFAULT_RESULTS_DIR = os.path.join("logs", "axis_aligned", "results")
@@ -313,7 +312,7 @@ def load_axis_aligned_participants(
         if not os.path.isfile(path):
             continue
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
 
         weights_obj = payload.get("weights")

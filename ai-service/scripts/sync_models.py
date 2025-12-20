@@ -66,10 +66,10 @@ sys.path.insert(0, str(ROOT))
 try:
     from app.distributed.hosts import (
         HostConfig,
-        load_remote_hosts,
-        load_ready_hosts,
         SSHExecutor,
         get_ssh_executor,
+        load_ready_hosts,
+        load_remote_hosts,
     )
     HOSTS_MODULE_AVAILABLE = True
 except ImportError:
@@ -78,13 +78,13 @@ except ImportError:
 
 # Import coordination helpers for sync lock and bandwidth management
 from app.coordination.helpers import (
-    has_sync_lock,
     acquire_sync_lock_safe,
-    release_sync_lock_safe,
-    has_bandwidth_manager,
-    request_bandwidth_safe,
-    release_bandwidth_safe,
     get_transfer_priorities,
+    has_bandwidth_manager,
+    has_sync_lock,
+    release_bandwidth_safe,
+    release_sync_lock_safe,
+    request_bandwidth_safe,
 )
 
 HAS_SYNC_LOCK = has_sync_lock()
@@ -94,9 +94,9 @@ TransferPriority = get_transfer_priorities()
 # Unified resource checking utilities (80% max utilization)
 try:
     from app.utils.resource_guard import (
-        get_disk_usage as unified_get_disk_usage,
-        check_disk_space as unified_check_disk,
         LIMITS as RESOURCE_LIMITS,
+        check_disk_space as unified_check_disk,
+        get_disk_usage as unified_get_disk_usage,
     )
     HAS_RESOURCE_GUARD = True
 except ImportError:
@@ -272,7 +272,7 @@ class ClusterModelState:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ClusterModelState":
+    def from_dict(cls, data: dict) -> ClusterModelState:
         state = cls(
             all_nn_models=set(data.get("all_nn_models", [])),
             all_nnue_models=set(data.get("all_nnue_models", [])),
@@ -299,7 +299,7 @@ class ClusterModelState:
             json.dump(self.to_dict(), f, indent=2)
 
     @classmethod
-    def load(cls, path: Path = SYNC_STATE_PATH) -> "ClusterModelState":
+    def load(cls, path: Path = SYNC_STATE_PATH) -> ClusterModelState:
         if path.exists():
             with open(path) as f:
                 return cls.from_dict(json.load(f))
@@ -740,7 +740,7 @@ def load_cluster_cull_manifests(hosts: dict[str, HostConfig]) -> set[str]:
     local_manifest = LOCAL_MODELS_DIR / "cull_manifest.json"
     if local_manifest.exists():
         try:
-            with open(local_manifest, "r") as f:
+            with open(local_manifest) as f:
                 data = json.load(f)
                 culled_ids.update(data.get("archived_ids", []))
                 logger.debug(f"Loaded {len(data.get('archived_ids', []))} culled models from local manifest")
@@ -760,7 +760,7 @@ def load_cluster_cull_manifests(hosts: dict[str, HostConfig]) -> set[str]:
 
             result = executor.scp_from(remote_path, str(local_tmp), host=host, timeout=10)
             if result.returncode == 0 and local_tmp.exists():
-                with open(local_tmp, "r") as f:
+                with open(local_tmp) as f:
                     data = json.load(f)
                     remote_culled = set(data.get("archived_ids", []))
                     culled_ids.update(remote_culled)

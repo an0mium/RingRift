@@ -16,7 +16,7 @@ import os
 import sys
 from datetime import datetime
 from typing import Any, Dict
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.encoders import jsonable_encoder
@@ -25,8 +25,8 @@ from fastapi.testclient import TestClient
 # Ensure app package is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.main import app  # noqa: E402
-from app.models import (  # noqa: E402
+from app.main import app
+from app.models import (
     AIType,
     BoardState,
     BoardType,

@@ -38,8 +38,8 @@ PROJECT_ROOT = AI_SERVICE_ROOT.parent
 if str(AI_SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(AI_SERVICE_ROOT))
 
-from app.config.ladder_config import get_effective_ladder_config, list_ladder_tiers  # noqa: E402
-from app.models import AIType, BoardType  # noqa: E402
+from app.config.ladder_config import get_effective_ladder_config, list_ladder_tiers
+from app.models import AIType, BoardType
 
 
 def _now_tag() -> str:

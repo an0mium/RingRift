@@ -9,9 +9,10 @@ per RR-CANON-R110 (3 conditions; eligibility is independent of rings in hand).
 
 import json
 from pathlib import Path
-from app.models import GameState, MoveType
+
 from app.game_engine import GameEngine
-from app.rules.core import is_eligible_for_recovery, count_buried_rings, player_has_markers, player_controls_any_stack
+from app.models import GameState, MoveType
+from app.rules.core import count_buried_rings, is_eligible_for_recovery, player_controls_any_stack, player_has_markers
 from app.training.generate_data import create_initial_state
 
 
@@ -78,7 +79,7 @@ def get_move_position(move, attr_name):
 def main():
     # Load game
     games_file = Path("data/selfplay/test_recovery/games.jsonl")
-    with open(games_file, 'r') as f:
+    with open(games_file) as f:
         games = [json.loads(line.strip()) for line in f]
 
     # Find games with forced elimination
@@ -195,14 +196,14 @@ def main():
                 print(f"    -> IS ELIGIBLE: {analysis['is_eligible']}")
 
                 if analysis['buried_ring_locations']:
-                    print(f"    Buried ring locations:")
+                    print("    Buried ring locations:")
                     for loc in analysis['buried_ring_locations']:
                         print(f"      - At {loc['position']} (depth {loc['depth']}, controlled by P{loc['controller']})")
 
             # Show all non-empty stacks
             # Note: stack.rings is already a list of player numbers (ints)
             # Note: pos can be string or Position object
-            print(f"\n  Board state (all stacks):")
+            print("\n  Board state (all stacks):")
             for pos, stack in state.board.stacks.items():
                 if stack.stack_height > 0:
                     ring_owners = list(stack.rings)  # Already ints

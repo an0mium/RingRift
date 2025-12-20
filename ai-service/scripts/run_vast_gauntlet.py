@@ -14,6 +14,7 @@ Usage:
     python run_vast_gauntlet.py --config square8_2p --parallel 128
 """
 import warnings
+
 warnings.warn(
     "run_vast_gauntlet.py is deprecated. Use run_gauntlet.py --parallel instead.",
     DeprecationWarning,
@@ -32,7 +33,7 @@ logger = setup_script_logging("run_vast_gauntlet")
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.tournament.distributed_gauntlet import get_gauntlet, GauntletConfig
+from app.tournament.distributed_gauntlet import GauntletConfig, get_gauntlet
 
 
 async def run_vast_gauntlet(

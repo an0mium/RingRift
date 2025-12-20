@@ -328,7 +328,7 @@ def train_on_selfplay(
     records = []
     for data_file in data_files:
         try:
-            with open(data_file, "r") as f:
+            with open(data_file) as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -475,7 +475,7 @@ def run_pipeline(
     2. Train on new data
     3. Evaluate against baselines
     """
-    logger.info(f"Starting GMO training pipeline")
+    logger.info("Starting GMO training pipeline")
     logger.info(f"  Games per iteration: {num_games}")
     logger.info(f"  Epochs per iteration: {epochs}")
     logger.info(f"  Total iterations: {iterations}")

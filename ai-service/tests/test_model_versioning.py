@@ -11,25 +11,26 @@ Tests cover:
 
 import os
 import tempfile
+
 import pytest
 import torch
 import torch.nn as nn
 
+from app.ai import neural_net as neural_net_mod
+from app.ai.neural_net import RingRiftCNN_v2
 from app.training.model_versioning import (
+    RINGRIFT_CNN_V2_VERSION,
+    ChecksumMismatchError,
+    LegacyCheckpointError,
     ModelMetadata,
     ModelVersionManager,
     VersionMismatchError,
-    ChecksumMismatchError,
-    LegacyCheckpointError,
     compute_state_dict_checksum,
-    get_model_version,
     get_model_config,
-    save_model_checkpoint,
+    get_model_version,
     load_model_with_validation,
-    RINGRIFT_CNN_V2_VERSION,
+    save_model_checkpoint,
 )
-from app.ai.neural_net import RingRiftCNN_v2
-from app.ai import neural_net as neural_net_mod
 
 
 class SimpleModel(nn.Module):
@@ -673,8 +674,8 @@ class TestRingRiftCNN_v2Versioning:
         # Clear global model cache so we don't pick up a cached real model.
         neural_net_mod._MODEL_CACHE.clear()
 
-        from app.models import AIConfig, BoardType
         from app.ai.neural_net import NeuralNetAI
+        from app.models import AIConfig, BoardType
 
         cfg = AIConfig(
             difficulty=6,

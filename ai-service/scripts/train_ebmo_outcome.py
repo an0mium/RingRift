@@ -9,31 +9,32 @@ This script trains EBMO to:
 Can run on cluster GPU nodes.
 """
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import argparse
 import logging
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 # Check if we can import the app modules
 try:
-    from app.ai.ebmo_network import EBMONetwork, EBMOConfig, ActionFeatureExtractor
     from app.ai.ebmo_ai import EBMO_AI
+    from app.ai.ebmo_network import ActionFeatureExtractor, EBMOConfig, EBMONetwork
     from app.ai.heuristic_ai import HeuristicAI
-    from app.ai.random_ai import RandomAI
     from app.ai.neural_net import NeuralNetAI
+    from app.ai.random_ai import RandomAI
     from app.game_engine import GameEngine
-    from app.training.initial_state import create_initial_state
     from app.models.core import AIConfig, BoardType, GameStatus
+    from app.training.initial_state import create_initial_state
     HAS_APP = True
 except ImportError as e:
     print(f"Warning: Could not import app modules: {e}")

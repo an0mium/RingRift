@@ -1,6 +1,6 @@
-from datetime import datetime
 import os
 import sys
+from datetime import datetime
 
 import pytest
 
@@ -9,9 +9,9 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.board_manager import BoardManager  # noqa: E402
-from app.game_engine import GameEngine  # noqa: E402
-from app.models import (  # noqa: E402
+from app.board_manager import BoardManager
+from app.game_engine import GameEngine
+from app.models import (
     BoardState,
     BoardType,
     GamePhase,
@@ -23,7 +23,7 @@ from app.models import (  # noqa: E402
     Position,
     TimeControl,
 )
-from app.rules.default_engine import DefaultRulesEngine  # noqa: E402
+from app.rules.default_engine import DefaultRulesEngine
 
 
 def _make_swap_enabled_state() -> GameState:

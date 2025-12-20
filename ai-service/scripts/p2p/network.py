@@ -34,9 +34,9 @@ SOCKS_PROXY = os.environ.get("RINGRIFT_SOCKS_PROXY", "")
 # Circuit breaker for fault-tolerant peer communication
 try:
     from app.distributed.circuit_breaker import (
-        get_host_breaker,
         CircuitOpenError,
         CircuitState,
+        get_host_breaker,
     )
     HAS_CIRCUIT_BREAKER = True
 except ImportError:
@@ -75,7 +75,7 @@ class AsyncLockWrapper:
         return False
 
 
-def get_client_session(timeout: "ClientTimeout" = None) -> "ClientSession":
+def get_client_session(timeout: ClientTimeout = None) -> ClientSession:
     """Create an aiohttp ClientSession with optional SOCKS proxy support.
 
     Args:
@@ -133,7 +133,7 @@ def record_peer_failure(peer_host: str, error: Exception | None = None) -> None:
 
 
 async def peer_request(
-    session: "ClientSession",
+    session: ClientSession,
     method: str,
     url: str,
     peer_host: str,

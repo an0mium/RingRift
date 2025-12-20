@@ -10,23 +10,23 @@ Tests the coordinator state persistence system including:
 
 import gzip
 import json
-import pytest
 import sqlite3
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.coordination.coordinator_persistence import (
+    SnapshotCoordinator,
+    StatePersistenceMixin,
     StateSerializer,
     StateSnapshot,
-    StatePersistenceMixin,
-    SnapshotCoordinator,
     get_snapshot_coordinator,
     reset_snapshot_coordinator,
 )
-
 
 # ============================================
 # Test Fixtures

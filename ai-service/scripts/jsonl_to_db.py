@@ -61,7 +61,7 @@ def convert_jsonl_to_db(input_path: str, output_path: str) -> int:
     # Get basename of input file for source tracking
     source_name = Path(input_path).stem
 
-    with open(input_path, "r") as f:
+    with open(input_path) as f:
         for line_num, line in enumerate(f, 1):
             line = line.strip()
             if not line:

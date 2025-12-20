@@ -22,11 +22,11 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple
-from collections.abc import Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ class VictoryType(Enum):
     UNKNOWN = "unknown"
 
     @classmethod
-    def from_string(cls, value: str) -> "VictoryType":
+    def from_string(cls, value: str) -> VictoryType:
         """Parse victory type from string."""
         value = value.lower().strip()
         for vt in cls:
@@ -82,7 +82,7 @@ class GameLengthConfig:
     ideal_max: int
 
     @classmethod
-    def for_config(cls, config_key: str) -> "GameLengthConfig":
+    def for_config(cls, config_key: str) -> GameLengthConfig:
         """Get optimal length config for a board/player configuration."""
         configs = {
             "square8_2p": cls(min_moves=15, max_moves=200, ideal_min=25, ideal_max=120),
@@ -150,7 +150,7 @@ class QualityWeights:
     source_elo: float = 0.10
     tactical_content: float = 0.05
 
-    def normalize(self) -> "QualityWeights":
+    def normalize(self) -> QualityWeights:
         """Normalize weights to sum to 1.0."""
         total = (
             self.decisive_win + self.game_length + self.victory_type +

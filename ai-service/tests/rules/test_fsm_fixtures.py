@@ -32,7 +32,7 @@ from app.models import (
     Position,
     TimeControl,
 )
-from app.rules.fsm import validate_move_for_phase, FSMValidationResult
+from app.rules.fsm import FSMValidationResult, validate_move_for_phase
 
 # Path to shared fixtures (relative to ai-service/)
 FIXTURES_PATH = Path(__file__).parent.parent.parent.parent / "tests" / "fixtures" / "fsm-parity" / "v1" / "fsm_transitions.vectors.json"
@@ -40,7 +40,7 @@ FIXTURES_PATH = Path(__file__).parent.parent.parent.parent / "tests" / "fixtures
 
 def _load_fixtures() -> dict[str, Any]:
     """Load the cross-language FSM fixtures."""
-    with open(FIXTURES_PATH, "r") as f:
+    with open(FIXTURES_PATH) as f:
         return json.load(f)
 
 

@@ -4,6 +4,7 @@ import json
 import shutil
 from pathlib import Path
 
+
 def main():
     manifest_path = Path.home() / "ringrift/ai-service/data/models/cull_manifest.json"
     models_dir = Path.home() / "ringrift/ai-service/models"

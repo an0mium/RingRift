@@ -297,7 +297,7 @@ def print_stats(stats: dict[str, ModelStats], canonical: set[str]):
     print(f"Total size: {total_size:.1f} MB ({total_size/1024:.2f} GB)")
     print(f"Total games played: {total_games}")
     print(f"Canonical models: {len(canonical)}")
-    print(f"\nElo distribution:")
+    print("\nElo distribution:")
     print(f"  Min: {min_elo:.0f}")
     print(f"  Avg: {avg_elo:.0f}")
     print(f"  Max: {max_elo:.0f}")
@@ -372,7 +372,7 @@ def main():
     print_stats(stats, canonical)
 
     # Determine what to prune
-    print(f"\nPruning criteria:")
+    print("\nPruning criteria:")
     print(f"  Min Elo: {args.min_elo}")
     print(f"  Min games: {args.min_games}")
     print(f"  Min age: {args.min_age_days} days")

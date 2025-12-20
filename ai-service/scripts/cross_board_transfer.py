@@ -70,9 +70,10 @@ def transfer_and_finetune(
         Training results dict
     """
     import torch
-    from app.training.train import train_from_file
-    from app.training.config import TrainConfig
+
     from app.models import BoardType
+    from app.training.config import TrainConfig
+    from app.training.train import train_from_file
 
     # Find source model
     source_model_path = find_best_source_model(source_board, num_players)

@@ -227,7 +227,7 @@ def main():
         print(f"  Original:  {results['original_time_ms']:.3f} ms/inference")
         print(f"  Quantized: {results['quantized_time_ms']:.3f} ms/inference")
         print(f"  Speedup:   {results['speedup']:.2f}x")
-        print(f"\nAccuracy:")
+        print("\nAccuracy:")
         print(f"  Original output:  {results['original_output']:.6f}")
         print(f"  Quantized output: {results['quantized_output']:.6f}")
         print(f"  Difference:       {results['output_diff']:.6f}")
@@ -259,7 +259,7 @@ def main():
         # Show size comparison
         original_size = os.path.getsize(args.model_path) / 1024
         quantized_size = os.path.getsize(output_path) / 1024
-        print(f"\nSize comparison:")
+        print("\nSize comparison:")
         print(f"  Original:  {original_size:.1f} KB")
         print(f"  Quantized: {quantized_size:.1f} KB")
         print(f"  Reduction: {(1 - quantized_size/original_size)*100:.1f}%")

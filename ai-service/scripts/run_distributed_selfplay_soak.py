@@ -50,18 +50,18 @@ After completion, run parity checks on all generated databases:
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import re
+import shlex
 import shutil
 import subprocess
 import sys
 import time
-import json
-import shlex
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Dict, Tuple, Optional
-import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Optional, Tuple
 
 try:
     import yaml
@@ -89,11 +89,11 @@ except ImportError:
 # Unified resource guard - 80% utilization limits (enforced 2025-12-16)
 try:
     from app.utils.resource_guard import (
+        LIMITS as RESOURCE_LIMITS,
         can_proceed as resource_can_proceed,
         check_disk_space,
         check_memory,
         require_resources,
-        LIMITS as RESOURCE_LIMITS,
     )
     HAS_RESOURCE_GUARD = True
 except ImportError:
@@ -169,11 +169,11 @@ def load_remote_hosts(config_path: str | None = None) -> dict[str, dict]:
     for path in paths_to_try:
         if os.path.exists(path):
             if not HAS_YAML:
-                print(f"Warning: PyYAML not installed. Install with: pip install pyyaml")
+                print("Warning: PyYAML not installed. Install with: pip install pyyaml")
                 print(f"         Cannot load config from {path}")
                 return {}
 
-            with open(path, "r") as f:
+            with open(path) as f:
                 config = yaml.safe_load(f)
 
             hosts = config.get("hosts", {})
@@ -184,10 +184,10 @@ def load_remote_hosts(config_path: str | None = None) -> dict[str, dict]:
     # No config found - print helpful message
     template_path = os.path.join(ai_service_dir, TEMPLATE_CONFIG_PATH)
     if os.path.exists(template_path):
-        print(f"No host configuration found.")
+        print("No host configuration found.")
         print(f"Copy {template_path}")
         print(f"  to {os.path.join(ai_service_dir, CONFIG_FILE_PATH)}")
-        print(f"and fill in your host details.")
+        print("and fill in your host details.")
 
     return {}
 
@@ -357,7 +357,7 @@ def get_local_memory_gb() -> tuple[int, int]:
 
     try:
         # Linux: read /proc/meminfo
-        with open("/proc/meminfo", "r") as f:
+        with open("/proc/meminfo") as f:
             for line in f:
                 if line.startswith("MemTotal:"):
                     kb = int(line.split()[1])
@@ -1192,10 +1192,10 @@ def run_parity_checks(db_paths: list[str], ringrift_ai_dir: str) -> tuple[int, i
             )
 
             if result.returncode == 0:
-                print(f"  ✓ PASSED")
+                print("  ✓ PASSED")
                 passed += 1
             else:
-                print(f"  ✗ FAILED")
+                print("  ✗ FAILED")
                 # Print last few lines of error
                 error_lines = result.stderr.strip().split("\n")[-5:]
                 for line in error_lines:
@@ -1203,7 +1203,7 @@ def run_parity_checks(db_paths: list[str], ringrift_ai_dir: str) -> tuple[int, i
                 failed += 1
 
         except subprocess.TimeoutExpired:
-            print(f"  ✗ TIMEOUT (exceeded 10 minutes)")
+            print("  ✗ TIMEOUT (exceeded 10 minutes)")
             failed += 1
         except Exception as e:
             print(f"  ✗ ERROR: {e}")
@@ -1411,7 +1411,7 @@ def main():
             print(f"Error: Unknown host '{host}'.")
             print(f"Available hosts: {', '.join(available)}")
             if not REMOTE_HOSTS:
-                print(f"\nNo remote hosts configured. See: config/distributed_hosts.template.yaml")
+                print("\nNo remote hosts configured. See: config/distributed_hosts.template.yaml")
             sys.exit(1)
 
     # Determine ai-service directory
@@ -1466,7 +1466,7 @@ def main():
     )
 
     print(f"\n{'='*60}")
-    print(f"Distributed Self-Play Soak Configuration")
+    print("Distributed Self-Play Soak Configuration")
     print(f"{'='*60}")
     print(f"Games per config: {args.games_per_config}")
     print(f"Difficulty band: {args.difficulty_band}")
@@ -1537,7 +1537,7 @@ def main():
     # Summary
     print()
     print("=" * 60)
-    print(f"Distributed Self-Play Complete")
+    print("Distributed Self-Play Complete")
     print("=" * 60)
     print(f"Elapsed time: {elapsed/60:.1f} minutes")
 
@@ -1602,7 +1602,7 @@ def main():
     else:
         print("Next steps:")
         print("  1. Run parity checks on generated databases:")
-        print(f"     cd ai-service && python scripts/check_ts_python_replay_parity.py \\")
+        print("     cd ai-service && python scripts/check_ts_python_replay_parity.py \\")
         print(f"         --db {args.output_dir}/*.db")
         print()
         print("  Or re-run with --run-parity to check automatically.")

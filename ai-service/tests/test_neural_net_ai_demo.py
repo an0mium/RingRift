@@ -12,12 +12,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from app.main import _create_ai_instance  # noqa: E402
-from app.models import AIConfig, AIType, BoardType  # noqa: E402
-from app.training.generate_data import create_initial_state  # noqa: E402
-from app.rules.default_engine import DefaultRulesEngine  # noqa: E402
-from app.ai.neural_net import NeuralNetAI  # noqa: E402
-
+from app.ai.neural_net import NeuralNetAI
+from app.main import _create_ai_instance
+from app.models import AIConfig, AIType, BoardType
+from app.rules.default_engine import DefaultRulesEngine
+from app.training.generate_data import create_initial_state
 
 TEST_TIMEOUT_SECONDS = 60
 

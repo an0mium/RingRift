@@ -4,15 +4,16 @@ Tests the central signal computation engine that all training decision
 systems use for consistent decisions.
 """
 
-import pytest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.training.unified_signals import (
-    UnifiedSignalComputer,
+    ConfigTrainingState,
     TrainingSignals,
     TrainingUrgency,
-    ConfigTrainingState,
+    UnifiedSignalComputer,
     get_signal_computer,
 )
 

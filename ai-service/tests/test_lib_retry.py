@@ -3,13 +3,14 @@
 Tests retry decorators and utilities.
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
 import time
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from scripts.lib.retry import (
-    RetryConfig,
     RetryAttempt,
+    RetryConfig,
     retry,
     retry_on_exception,
 )

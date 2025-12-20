@@ -460,7 +460,7 @@ def main():
             skip_existing=not args.no_skip_existing,
         )
 
-        print(f"\nConversion Summary:")
+        print("\nConversion Summary:")
         print(f"  Files converted: {result['files_converted']}")
         print(f"  Files skipped: {result['files_skipped']}")
         print(f"  Files failed: {result['files_failed']}")

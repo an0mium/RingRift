@@ -8,12 +8,12 @@ Deploy: scp scripts/remote_watchdog.py ubuntu@host:~/ringrift/ai-service/scripts
 Run: nohup python3 scripts/remote_watchdog.py > /tmp/watchdog.log 2>&1 &
 """
 
-import subprocess
-import time
 import os
+import subprocess
 import sys
-from pathlib import Path
+import time
 from datetime import datetime
+from pathlib import Path
 
 # Add project to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -23,8 +23,8 @@ from scripts.lib.state_manager import load_json_state, save_json_state
 # Unified resource guard - 80% utilization limits (enforced 2025-12-16)
 try:
     from app.utils.resource_guard import (
-        get_disk_usage as unified_get_disk_usage,
         LIMITS as RESOURCE_LIMITS,
+        get_disk_usage as unified_get_disk_usage,
     )
     HAS_RESOURCE_GUARD = True
 except ImportError:

@@ -20,7 +20,7 @@ import argparse
 import json
 import re
 import sys
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -30,16 +30,16 @@ SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.lib.logging_config import (
-    setup_script_logging,
-    get_logger,
-    get_metrics_logger,
-)
 from scripts.lib.alerts import (
     Alert,
     AlertSeverity,
     AlertType,
     create_alert,
+)
+from scripts.lib.logging_config import (
+    get_logger,
+    get_metrics_logger,
+    setup_script_logging,
 )
 
 logger = get_logger(__name__)

@@ -4,13 +4,14 @@ Tests the complete flow of training components working together.
 These tests verify that modules integrate correctly.
 """
 
-import pytest
-import tempfile
 import shutil
+import tempfile
+from pathlib import Path
+
 import numpy as np
+import pytest
 import torch
 import torch.nn as nn
-from pathlib import Path
 
 
 class SimpleTestModel(nn.Module):
@@ -77,11 +78,12 @@ class TestCheckpointMetadata:
 
     def test_metadata_serialization(self):
         """Test CheckpointMetadata serialization."""
+        from datetime import datetime
+
         from app.training.checkpoint_unified import (
             CheckpointMetadata,
             CheckpointType,
         )
-        from datetime import datetime
 
         metadata = CheckpointMetadata(
             checkpoint_id="ckpt_12345",
@@ -214,13 +216,13 @@ class TestHeuristicWeightIntegration:
 
     def test_flatten_reconstruct_roundtrip(self):
         """Test flatten and reconstruct preserve weights."""
-        from app.training.train import (
-            _flatten_heuristic_weights,
-            _reconstruct_heuristic_profile,
-        )
         from app.ai.heuristic_weights import (
             HEURISTIC_WEIGHT_KEYS,
             HEURISTIC_WEIGHT_PROFILES,
+        )
+        from app.training.train import (
+            _flatten_heuristic_weights,
+            _reconstruct_heuristic_profile,
         )
 
         if not HEURISTIC_WEIGHT_PROFILES:
@@ -375,9 +377,9 @@ class TestEventBusIntegration:
         """Test event can be emitted and handled."""
         try:
             from app.distributed.data_events import (
-                get_event_bus,
                 DataEvent,
                 DataEventType,
+                get_event_bus,
             )
         except ImportError:
             pytest.skip("Event bus not available")

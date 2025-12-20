@@ -7,32 +7,32 @@ This module tests the make/unmake move pattern implementation:
 - Make/unmake preserves state equality
 """
 
-import pytest
 from datetime import datetime
 
+import pytest
+
 from app.models import (
-    GameState,
     BoardState,
     BoardType,
     GamePhase,
+    GameState,
     GameStatus,
+    LineInfo,
+    MarkerInfo,
     Move,
     MoveType,
+    Player,
     Position,
     RingStack,
-    MarkerInfo,
-    Player,
-    TimeControl,
-    LineInfo,
     Territory,
+    TimeControl,
 )
 from app.rules.mutable_state import (
-    MutableGameState,
-    MutableStack,
-    MutablePlayerState,
     MoveUndo,
+    MutableGameState,
+    MutablePlayerState,
+    MutableStack,
 )
-
 
 # =============================================================================
 # Test Fixtures

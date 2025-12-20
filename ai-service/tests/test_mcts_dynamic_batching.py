@@ -15,9 +15,9 @@ sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
 
-from app.ai.mcts_ai import DynamicBatchSizer, MCTSAI, MCTSNode
-from app.utils.memory_config import MemoryConfig
+from app.ai.mcts_ai import MCTSAI, DynamicBatchSizer, MCTSNode
 from app.models import AIConfig, GameState
+from app.utils.memory_config import MemoryConfig
 
 
 class TestDynamicBatchSizer:

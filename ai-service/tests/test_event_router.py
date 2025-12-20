@@ -7,19 +7,20 @@ Tests the event routing layer that consolidates:
 """
 
 import asyncio
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from typing import List
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 # Import the module under test
 from app.coordination.event_router import (
-    UnifiedEventRouter,
-    RouterEvent,
     EventSource,
+    RouterEvent,
+    UnifiedEventRouter,
     get_router,
-    reset_router,
     publish,
     publish_sync,
+    reset_router,
     subscribe,
     unsubscribe,
 )

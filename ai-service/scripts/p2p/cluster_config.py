@@ -17,7 +17,6 @@ from typing import Dict, List, Optional
 
 import yaml
 
-
 # Default config path relative to ai-service root
 DEFAULT_CONFIG_PATH = Path(__file__).parent.parent.parent / "config" / "cluster.yaml"
 
