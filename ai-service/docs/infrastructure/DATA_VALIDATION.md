@@ -77,23 +77,39 @@ python scripts/build_canonical_training_pool_db.py --dry-run --verbose
 Generates and validates canonical self-play data.
 
 ```bash
-# Generate with validation
-python scripts/generate_canonical_selfplay.py --games 1000 --validate
+# Generate + gate (alias: --board-type)
+PYTHONPATH=. python scripts/generate_canonical_selfplay.py \
+  --board square8 \
+  --num-games 200 \
+  --num-players 2 \
+  --difficulty-band light \
+  --db data/games/canonical_square8_2p.db \
+  --summary data/games/db_health.canonical_square8_2p.json
 
-# Validate existing data
-python scripts/generate_canonical_selfplay.py --validate-only --input data/selfplay/
+# Gate existing DB only (skip soak)
+PYTHONPATH=. python scripts/generate_canonical_selfplay.py \
+  --board square19 \
+  --num-games 0 \
+  --db data/games/canonical_square19.db \
+  --summary data/games/db_health.canonical_square19.json
 
-# Run FE/territory fixture tests
-python scripts/generate_canonical_selfplay.py --fixtures
+# Scale to a minimum total game count
+PYTHONPATH=. python scripts/generate_canonical_selfplay.py \
+  --board hexagonal \
+  --num-games 100 \
+  --min-recorded-games 500 \
+  --max-soak-attempts 5 \
+  --db data/games/canonical_hexagonal.db \
+  --summary data/games/db_health.canonical_hexagonal.json
 ```
 
 **Validation Steps:**
 
-1. Generate games via self-play
-2. Replay games in both TS and Python
-3. Compare final states
-4. Run feature extraction validation
-5. Territory calculation verification
+1. Run a self-play soak (skipped when `--num-games 0`)
+2. Replay games in TS and Python (parity gate)
+3. Validate canonical config + canonical history (trace-mode)
+4. Run FE/territory fixtures and ANM invariants
+5. Optionally run post-soak analyses unless `--skip-analyses` is set
 
 ### holdout_validation.py (Overfitting Detection)
 

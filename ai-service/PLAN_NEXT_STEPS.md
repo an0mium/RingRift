@@ -3,7 +3,7 @@
 This plan prioritizes long-term correctness, data integrity, and cluster utilization.
 All items assume canonical rules and TS engine parity are non-negotiable.
 
-## Lane 1: Orchestration Truth and State Reconciliation (In Progress)
+## Lane 1: Orchestration Truth and State Reconciliation (Complete)
 
 Goal: One authoritative view of job states and utilization across Slurm/Vast/P2P.
 
