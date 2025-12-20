@@ -4,11 +4,13 @@ Technical documentation for the RingRift AI training service.
 
 ## Quick Links
 
-| Document                                                       | Description                    |
-| -------------------------------------------------------------- | ------------------------------ |
-| [Developer Guide](DEVELOPER_GUIDE.md)                          | Getting started for developers |
-| [Architecture Overview](architecture/ARCHITECTURE_OVERVIEW.md) | System architecture            |
-| [Training Pipeline](training/TRAINING_PIPELINE.md)             | Training pipeline overview     |
+| Document                                                       | Description                   |
+| -------------------------------------------------------------- | ----------------------------- |
+| [Quick Start](QUICK_START.md)                                  | Get up and running quickly    |
+| [Developer Guide](DEVELOPER_GUIDE.md)                          | Coding patterns and standards |
+| [Config Reference](CONFIG_REFERENCE.md)                        | All configuration options     |
+| [Architecture Overview](architecture/ARCHITECTURE_OVERVIEW.md) | System architecture           |
+| [Training Pipeline](training/TRAINING_PIPELINE.md)             | Training pipeline overview    |
 
 ## Documentation Structure
 
@@ -65,16 +67,26 @@ Active development roadmaps and plans.
 - Consolidation roadmap
 - Integration migration plan
 
+### [runbooks/](runbooks/)
+
+Operational runbooks for incident response.
+
+- Cluster health critical
+- Coordinator errors
+- Sync host issues
+
 ### [archive/](archive/)
 
 Historical documentation and status reports.
 
 ## Root Level Docs
 
-| Document                                                | Description                |
-| ------------------------------------------------------- | -------------------------- |
-| [DEVELOPER_GUIDE](DEVELOPER_GUIDE.md)                   | Developer onboarding       |
-| [HEX_ARTIFACTS_DEPRECATED](HEX_ARTIFACTS_DEPRECATED.md) | Deprecated hex data notice |
+| Document                                                | Description                   |
+| ------------------------------------------------------- | ----------------------------- |
+| [QUICK_START](QUICK_START.md)                           | Quick start guide             |
+| [DEVELOPER_GUIDE](DEVELOPER_GUIDE.md)                   | Coding patterns and standards |
+| [CONFIG_REFERENCE](CONFIG_REFERENCE.md)                 | Complete config reference     |
+| [HEX_ARTIFACTS_DEPRECATED](HEX_ARTIFACTS_DEPRECATED.md) | Deprecated hex data notice    |
 
 ## See Also
 
