@@ -84,28 +84,26 @@ from app.ai.neural_net.hex_encoding import (
 from app.ai.neural_net.square_architectures import (
     RingRiftCNN_v2,
     RingRiftCNN_v2_Lite,
+    RingRiftCNN_v3,
+    RingRiftCNN_v3_Lite,
+    RingRiftCNN_v4,
 )
 
 # Hex architectures - migrated to hex_architectures.py (Phase 2)
 from app.ai.neural_net.hex_architectures import (
     HexNeuralNet_v2,
     HexNeuralNet_v2_Lite,
+    HexNeuralNet_v3,
+    HexNeuralNet_v3_Lite,
 )
 
-# Classes and functions still in legacy module (to be migrated in Phase 2)
+# Classes and functions still in legacy module (to be migrated in later phases)
 from app.ai._neural_net_legacy import (
     _MODEL_CACHE,
     # Dataclasses
     DecodedPolicyIndex,
-    # Hex architectures (v3 still in legacy)
-    HexNeuralNet_v3,
-    HexNeuralNet_v3_Lite,
     # Main AI class
     NeuralNetAI,
-    # CNN architectures (v3/v4 still in legacy)
-    RingRiftCNN_v3,
-    RingRiftCNN_v3_Lite,
-    RingRiftCNN_v4,
     _decode_move_square8,
     _encode_move_square8,
     # Cache functions
