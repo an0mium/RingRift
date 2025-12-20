@@ -550,7 +550,7 @@ def load_checkpoint(
             # Check for separate early stopping file
             es_path = path.replace('.pth', '_early_stopping.pth')
             if os.path.exists(es_path):
-                es_state = torch.load(es_path, map_location=device)
+                es_state = safe_load_checkpoint(es_path, map_location=device, warn_on_unsafe=False)
                 early_stopping.best_loss = es_state['best_loss']
                 early_stopping.counter = es_state['counter']
                 early_stopping.best_state = es_state.get('best_state')
