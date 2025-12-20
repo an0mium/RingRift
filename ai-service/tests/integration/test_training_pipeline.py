@@ -277,13 +277,12 @@ class TestGPUModuleIntegration:
         assert get_int_dtype(torch.device('cpu')) == torch.int16
 
     def test_gpu_line_detection_import_chain(self):
-        """Test that gpu_line_detection exports are accessible from main module."""
-        from app.ai.gpu_parallel_games import (
-            detect_lines_vectorized,
+        """Test that gpu_line_detection exports are accessible from correct modules."""
+        from app.ai.gpu_parallel_games import detect_lines_vectorized, process_lines_batch
+        from app.ai.gpu_line_detection import (
             has_lines_batch_vectorized,
             detect_lines_with_metadata,
             detect_lines_batch,
-            process_lines_batch,
         )
 
         # Just verify imports work
