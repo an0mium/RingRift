@@ -502,7 +502,7 @@ else:
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    cur.execute('''
+    cur.execute(\"\"\"
         SELECT match_id, player1_id, player2_id, winner_id,
                player1_rating_before, player2_rating_before,
                player1_rating_after, player2_rating_after,
@@ -511,7 +511,7 @@ else:
         WHERE timestamp > datetime('now', '-7 days')
         ORDER BY timestamp DESC
         LIMIT 10000
-    ''')
+    \"\"\")
     matches = [dict(row) for row in cur.fetchall()]
     conn.close()
     print(json.dumps(dict(matches=matches)))

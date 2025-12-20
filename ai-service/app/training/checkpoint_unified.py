@@ -529,8 +529,6 @@ class UnifiedCheckpointManager:
         Raises:
             ValueError: If strict_version=True and version/class mismatch detected
         """
-        torch = get_torch()
-
         metadata = None
 
         if checkpoint_id:

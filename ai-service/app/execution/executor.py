@@ -553,21 +553,38 @@ async def run_command(
 
 
 def run_command_sync(
-    command: str,
+    command: str | list[str],
     timeout: int | None = None,
     cwd: str | None = None,
     env: dict[str, str] | None = None,
     capture_output: bool = True,
+    shell: bool = False,
 ) -> ExecutionResult:
-    """Synchronous version of run_command for non-async contexts."""
+    """Synchronous version of run_command for non-async contexts.
+
+    Args:
+        command: Command to run. If string, will be parsed with shlex.split()
+                 unless shell=True is specified.
+        timeout: Timeout in seconds.
+        cwd: Working directory.
+        env: Additional environment variables.
+        capture_output: Whether to capture stdout/stderr.
+        shell: If True, run command through shell (security risk, use sparingly).
+    """
     effective_env = {**os.environ, **(env or {})}
     start_time = time.time()
     timed_out = False
 
+    # Parse command string to list unless shell=True or already a list
+    if isinstance(command, str) and not shell:
+        cmd_args = shlex.split(command)
+    else:
+        cmd_args = command
+
     try:
         result = subprocess.run(
-            command,
-            shell=True,
+            cmd_args,
+            shell=shell,
             capture_output=capture_output,
             text=True,
             timeout=timeout,

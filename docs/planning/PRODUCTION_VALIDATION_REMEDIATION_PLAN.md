@@ -61,6 +61,8 @@
 export BASE_URL=http://localhost:3000
 export WS_URL=ws://localhost:3001
 export AI_SERVICE_URL=http://localhost:8001
+export RATE_LIMIT_BYPASS_ENABLED=true
+export RATE_LIMIT_BYPASS_TOKEN="<staging_bypass_token>"
 ```
 
 **For Production (ringrift.ai):**
@@ -133,31 +135,33 @@ Disable immediately after the run.
 
 #### Token TTL alignment
 
-If the API does not return `expiresIn`, set:
-
-- `LOADTEST_AUTH_TOKEN_TTL_S` to the real JWT TTL.
-- `LOADTEST_AUTH_REFRESH_WINDOW_S` (default 60).
+If the API does not return `expiresIn`, k6 derives TTL from the JWT `exp` claim when available.
+Set `LOADTEST_AUTH_TOKEN_TTL_S` only when `exp` is missing or you need an override, and keep
+`LOADTEST_AUTH_REFRESH_WINDOW_S` (default 60) below the effective TTL.
 
 ### Ready-to-Run Environment Block
 
 ```bash
 # Remote staging (documented in docs/runbooks/DEPLOYMENT_ROUTINE.md)
-export STAGING_URL="https://staging.ringrift.com"
+export BASE_URL="https://staging.ringrift.com"
+export STAGING_URL="$BASE_URL"
 export WS_URL="wss://staging.ringrift.com"
 
 # AI service health is optional; use an internal endpoint if reachable.
 # For docker-based staging, this is typically:
 export AI_SERVICE_URL="http://ai-service:8001"
 
-export LOADTEST_EMAIL="loadtest_user_1@loadtest.local"
-export LOADTEST_PASSWORD="TestPassword123!"
-
 export LOADTEST_USER_POOL_SIZE=400
 export LOADTEST_USER_POOL_PASSWORD="TestPassword123!"
 export LOADTEST_USER_POOL_PREFIX="loadtest_user_"
 export LOADTEST_USER_POOL_DOMAIN="loadtest.local"
 
+# Optional single-user overrides:
+# export LOADTEST_EMAIL="loadtest_user_1@loadtest.local"
+# export LOADTEST_PASSWORD="TestPassword123!"
+
 export RATE_LIMIT_BYPASS_ENABLED=true
+export RATE_LIMIT_BYPASS_TOKEN="<staging_bypass_token>"
 ```
 
 ### Execution Plan
@@ -306,15 +310,15 @@ Test Phase (30min) → token expires at minute 15
 All VUs → 401 Unauthorized for remaining 15 minutes
 ```
 
-**Existing Mitigation (Partial):**
+**Existing Mitigation (Improved):**
 
-The [`concurrent-games.js`](../../tests/load/scenarios/concurrent-games.js:250) scenario now calls `getValidToken()` which uses the per-VU auth cache in [`helpers.js`](../../tests/load/auth/helpers.js:207). However:
+The [`concurrent-games.js`](../../tests/load/scenarios/concurrent-games.js:250) scenario now calls `getValidToken()` which uses the per-VU auth cache in [`helpers.js`](../../tests/load/auth/helpers.js:207). It refreshes within a safety window (with jitter) and derives TTL from `expiresIn` or JWT `exp` when present. However:
 
 1. Token refresh still requires a successful login, which may itself be rate-limited
-2. Multi-VU token refresh can cause login endpoint saturation
-3. No proactive refresh before expiry is currently tuned
+2. Multi-VU token refresh can cause login endpoint saturation if the pool is undersized
+3. Preflight can warn on TTL mismatches but does not prevent login storms at scale
 
-**Gap:** While auth refresh is wired, it competes with rate limiting and may itself cause capacity signals.
+**Gap:** Auth refresh is wired but still competes with rate limiting; validation runs must confirm low 401/429 noise.
 
 ### 2.2 Rate Limiting Calibration Issues
 
@@ -1384,6 +1388,222 @@ However, **AI-specific SLOs could not be validated** because the Python AI servi
 2. Modify the existing scenario to use AI types that route to the Python service (minimax/mcts/descent)
 
 **Next step:** PV-10 - AI Service Degradation Drill (can proceed, will exercise AI service directly)
+
+---
+
+## PV-10 Execution Report (2025-12-20)
+
+### Summary
+
+**Status: ✅ PASS - AI Service Degradation Drill Successfully Executed**
+
+PV-10 AI Service Degradation Drill completed on 2025-12-20 05:17 UTC. The drill successfully validated the AI service health monitoring, graceful degradation detection, and recovery mechanisms. All three phases (baseline, degraded, recovery) executed correctly.
+
+### Execution Timeline
+
+| Time (UTC) | Phase    | Event                                                                    |
+| ---------- | -------- | ------------------------------------------------------------------------ |
+| 05:16:03   | Baseline | Docker services verified (AI service healthy, app healthy)               |
+| 05:16:11   | Baseline | App `/ready` confirms all dependencies healthy (aiService latency=103ms) |
+| 05:16:23   | Baseline | Drill script baseline phase - **PASS**                                   |
+| 05:16:35   | Degraded | AI service container stopped                                             |
+| 05:16:42   | Degraded | App `/ready` shows aiService as degraded (error: "fetch failed")         |
+| 05:16:52   | Degraded | Drill script degraded phase - **DETECTED** (expected behavior)           |
+| 05:17:08   | Recovery | AI service container restarted                                           |
+| 05:17:19   | Recovery | AI service healthy (10 seconds recovery time)                            |
+| 05:17:19   | Recovery | App `/ready` shows aiService restored to healthy (latency=6ms)           |
+| 05:17:28   | Recovery | Drill script recovery phase - **PASS**                                   |
+
+### Drill Phases
+
+#### Phase 1: Baseline (AI Service Healthy)
+
+**Pre-conditions verified:**
+
+- AI service `/health` returns `{"status":"healthy"}`
+- App `/health` returns `{"status":"healthy"}`
+- App `/ready` shows all dependencies healthy:
+  ```json
+  {
+    "status": "healthy",
+    "checks": {
+      "database": { "status": "healthy", "latency": 77 },
+      "redis": { "status": "healthy", "latency": 59 },
+      "aiService": { "status": "healthy", "latency": 103 }
+    }
+  }
+  ```
+
+**Drill Script Results:**
+
+```json
+{
+  "drillType": "ai_service_degradation",
+  "environment": "staging",
+  "phase": "baseline",
+  "checks": [
+    { "name": "backend_http_health", "status": "pass" },
+    { "name": "ai_service_health", "status": "pass" },
+    { "name": "ai_fallback_behaviour", "status": "pass" }
+  ],
+  "overallPass": true
+}
+```
+
+#### Phase 2: Degraded (AI Service Stopped)
+
+**Degradation injection:**
+
+```bash
+docker compose -f docker-compose.staging.yml stop ai-service
+```
+
+**Observed behavior:**
+
+- AI service container stopped successfully
+- App `/ready` correctly detects degradation:
+  ```json
+  {
+    "status": "degraded",
+    "checks": {
+      "database": { "status": "healthy", "latency": 7 },
+      "redis": { "status": "healthy", "latency": 6 },
+      "aiService": { "status": "degraded", "latency": 68, "error": "fetch failed" }
+    }
+  }
+  ```
+- Database and Redis remain healthy (no cascading failures)
+- App `/health` still returns 200 (core service available)
+
+**Drill Script Results:**
+
+```json
+{
+  "drillType": "ai_service_degradation",
+  "environment": "staging",
+  "phase": "degraded",
+  "checks": [
+    { "name": "backend_http_health", "status": "pass" },
+    {
+      "name": "ai_service_health",
+      "status": "fail",
+      "details": { "aiService": { "status": "degraded", "error": "fetch failed" } }
+    },
+    { "name": "ai_fallback_behaviour", "status": "pass" }
+  ],
+  "overallPass": false
+}
+```
+
+**Note:** The `overallPass: false` is **expected behavior** - the drill correctly detects that the AI service is down.
+
+#### Phase 3: Recovery (AI Service Restarted)
+
+**Recovery action:**
+
+```bash
+docker compose -f docker-compose.staging.yml start ai-service
+```
+
+**Observed behavior:**
+
+- AI service container started
+- Health check passed after ~10 seconds
+- AI service `/health` returns `{"status":"healthy"}`
+- App `/ready` shows full recovery:
+  ```json
+  {
+    "status": "healthy",
+    "checks": {
+      "database": { "status": "healthy", "latency": 6 },
+      "redis": { "status": "healthy", "latency": 4 },
+      "aiService": { "status": "healthy", "latency": 6 }
+    }
+  }
+  ```
+
+**Drill Script Results:**
+
+```json
+{
+  "drillType": "ai_service_degradation",
+  "environment": "staging",
+  "phase": "recovery",
+  "checks": [
+    { "name": "backend_http_health", "status": "pass" },
+    { "name": "ai_service_health", "status": "pass" },
+    { "name": "ai_fallback_behaviour", "status": "pass" }
+  ],
+  "overallPass": true
+}
+```
+
+### Success Criteria Evaluation
+
+| Criterion                                     | Target              | Result               | Status      |
+| --------------------------------------------- | ------------------- | -------------------- | ----------- |
+| AI service responds to /health endpoint       | HTTP 200            | HTTP 200             | ✅ **PASS** |
+| App gracefully handles AI service being down  | Shows degradation   | "status": "degraded" | ✅ **PASS** |
+| App detects AI service recovery               | Returns to healthy  | "status": "healthy"  | ✅ **PASS** |
+| No cascading failures (DB/Redis stay healthy) | Both remain healthy | Both healthy         | ✅ **PASS** |
+| Drill completes without manual intervention   | Automated           | Automated            | ✅ **PASS** |
+| Recovery time                                 | < 60 seconds        | ~10 seconds          | ✅ **PASS** |
+
+### Key Observations
+
+#### ✅ What Worked
+
+1. **Health check integration** - The `/ready` endpoint correctly differentiates between healthy and degraded AI service states
+2. **No cascading failures** - PostgreSQL and Redis remain healthy when AI service is down
+3. **Fast recovery** - AI service returns to healthy status within 10 seconds of restart
+4. **Core app remains available** - `/health` returns 200 even when AI is degraded
+5. **Drill script automation** - Three-phase drill executed programmatically with JSON reports
+
+#### Findings
+
+1. **Recovery time is excellent** - 10 seconds from `docker compose start` to healthy status
+2. **Graceful degradation works** - App correctly reports "degraded" status, not "unhealthy"
+3. **Error messaging is clear** - `"error": "fetch failed"` provides actionable information
+4. **Latency detection** - The system tracks AI service latency in health checks
+
+### Artifacts Created
+
+| Artifact        | Path                                                                | Size   |
+| --------------- | ------------------------------------------------------------------- | ------ |
+| Drill log       | `results/load-test/pv10-ai-degradation-drill-20251220.log`          | ~4 KB  |
+| Baseline report | `results/ops/ai_degradation.staging.baseline.20251220T051623Z.json` | 0.6 KB |
+| Degraded report | `results/ops/ai_degradation.staging.degraded.20251220T051652Z.json` | 0.6 KB |
+| Recovery report | `results/ops/ai_degradation.staging.recovery.20251220T051728Z.json` | 0.6 KB |
+
+### Relation to PV-09 Gap
+
+This drill addresses the gap identified in PV-09 by **directly exercising the AI service** through its health endpoint. While PV-09 revealed that the WebSocket gameplay test didn't invoke the Python AI service (heuristic AI runs locally), PV-10 confirms:
+
+1. The AI service health monitoring infrastructure works correctly
+2. The app can detect when the AI service is unavailable
+3. Recovery is automatic and fast once the AI service restarts
+
+For complete AI SLO validation (response latency, fallback rate), a separate load test targeting `POST /ai/move` would be needed.
+
+### Recommendations
+
+1. **Document the drill in runbook results** - Add this execution to `docs/runbooks/OPERATIONAL_DRILLS_RESULTS_2025_12_03.md` or create a new results document
+2. **Schedule periodic drills** - Consider running this drill quarterly in staging
+3. **Extend to production** - Adapt this drill for production with appropriate change management
+
+### Conclusion
+
+**PV-10 PASSES.** The AI Service Degradation Drill successfully validated:
+
+- ✅ AI service health endpoint monitoring
+- ✅ Graceful degradation detection (`/ready` shows degraded status)
+- ✅ No cascading failures to other services
+- ✅ Automatic recovery detection (~10 seconds)
+- ✅ Core app availability maintained during AI outage
+
+The drill script and runbook ([`AI_SERVICE_DEGRADATION_DRILL.md`](../runbooks/AI_SERVICE_DEGRADATION_DRILL.md)) are validated and ready for future use.
+
+**Next step:** PV-12 - Create Production Validation Gate Checklist
 
 ---
 
