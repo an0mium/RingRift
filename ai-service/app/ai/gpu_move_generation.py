@@ -463,7 +463,7 @@ def _validate_paths_vectorized(
 
         dy = 0 if to_y == from_y else (1 if to_y > from_y else -1)
         dx = 0 if to_x == from_x else (1 if to_x > from_x else -1)
-        dist = max(abs(to_y - from_y), abs(to_x - from_x))
+        dist = int(max(abs(to_y - from_y), abs(to_x - from_x)))
 
         # Check each INTERMEDIATE path cell (excluding destination)
         # Per RR-CANON-R091: intermediate cells must contain no stack (any owner)

@@ -1,0 +1,787 @@
+"""GPU batch game state for parallel games.
+
+This module provides the BatchGameState class for GPU-accelerated parallel
+game simulation. Extracted from gpu_parallel_games.py for modularity.
+
+December 2025: Extracted as part of R21 refactoring.
+
+BatchGameState is the core data structure that holds:
+- Board state tensors (stacks, markers, territory)
+- Player state tensors (rings, elimination status)
+- Game metadata (phase, turn, winner)
+- Move history for training data
+
+All tensors have shape (batch_size, ...) and are stored on GPU.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+
+import torch
+
+from .gpu_batch import get_device
+from .gpu_game_types import (
+    GameStatus,
+    MoveType,
+    GamePhase,
+)
+
+if TYPE_CHECKING:
+    from app.models import BoardType, GameState
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Batch Game State
+# =============================================================================
+
+
+@dataclass
+class BatchGameState:
+    """Batched game state representation for parallel simulation.
+
+    All tensors have shape (batch_size, ...) and are stored on GPU.
+    """
+
+    # Board state: (batch_size, board_size, board_size)
+    stack_owner: torch.Tensor      # 0=empty, 1-4=player
+    stack_height: torch.Tensor     # 0-5 (total rings in stack)
+    cap_height: torch.Tensor       # 0-5 (consecutive top rings of owner's color per RR-CANON-R101)
+    marker_owner: torch.Tensor     # 0=none, 1-4=player
+    territory_owner: torch.Tensor  # 0=neutral, 1-4=player
+    is_collapsed: torch.Tensor     # bool
+
+    # Player state: (batch_size, num_players)
+    rings_in_hand: torch.Tensor
+    territory_count: torch.Tensor
+    is_eliminated: torch.Tensor    # bool
+    eliminated_rings: torch.Tensor # Rings LOST BY this player (not for victory check)
+    buried_rings: torch.Tensor     # Rings buried in stacks (captured but not removed)
+    rings_caused_eliminated: torch.Tensor  # Rings CAUSED TO BE ELIMINATED BY this player (RR-CANON-R060)
+
+    # Game metadata: (batch_size,)
+    current_player: torch.Tensor   # 1-4
+    current_phase: torch.Tensor    # GamePhase enum
+    move_count: torch.Tensor
+    game_status: torch.Tensor      # GameStatus enum
+    winner: torch.Tensor           # 0=none, 1-4=player
+    swap_offered: torch.Tensor     # bool: whether swap_sides (pie rule) was offered to P2
+
+    # Per-turn movement constraint (RR-CANON-R090):
+    # When a placement occurs, the subsequent movement/capture must originate
+    # from that exact stack. -1 indicates "no constraint".
+    must_move_from_y: torch.Tensor  # int16 (batch_size,)
+    must_move_from_x: torch.Tensor  # int16 (batch_size,)
+
+    # LPS tracking (RR-CANON-R172): tensor mirrors of GameState fields.
+    # We track a full-round cycle over all non-permanently-eliminated players.
+    lps_round_index: torch.Tensor  # int32 (batch_size,)
+    lps_current_round_first_player: torch.Tensor  # int8 (batch_size,) 0=unset
+    lps_current_round_seen_mask: torch.Tensor  # bool (batch_size, num_players+1)
+    lps_current_round_real_action_mask: torch.Tensor  # bool (batch_size, num_players+1)
+    lps_exclusive_player_for_completed_round: torch.Tensor  # int8 (batch_size,) 0=none
+    lps_consecutive_exclusive_rounds: torch.Tensor  # int16 (batch_size,)
+    lps_consecutive_exclusive_player: torch.Tensor  # int8 (batch_size,) 0=none
+
+    # Move history: (batch_size, max_moves, 6) - [move_type, player, from_y, from_x, to_y, to_x]
+    # -1 indicates unused slot
+    move_history: torch.Tensor
+    max_history_moves: int
+
+    # LPS configuration: consecutive exclusive rounds required for victory.
+    lps_rounds_required: int
+
+    # Configuration
+    device: torch.device
+    batch_size: int
+    board_size: int
+    num_players: int
+
+    @classmethod
+    def create_batch(
+        cls,
+        batch_size: int,
+        board_size: int = 8,
+        num_players: int = 2,
+        device: Optional[torch.device] = None,
+        max_history_moves: int = 500,
+        lps_rounds_required: int = 3,
+        rings_per_player: Optional[int] = None,
+        board_type: Optional[str] = None,
+    ) -> "BatchGameState":
+        """Create a batch of initialized game states.
+
+        Args:
+            batch_size: Number of parallel games
+            board_size: Board dimension (8, 19) or hex embedding (25)
+            num_players: Number of players (2-4)
+            device: GPU device (auto-detected if None)
+            max_history_moves: Maximum moves to track in history
+            rings_per_player: Starting rings per player (None = board default)
+            board_type: Board type string ("square8", "square19", "hexagonal")
+                        If "hexagonal", marks out-of-bounds cells as collapsed.
+
+        Returns:
+            Initialized BatchGameState with all games ready to start
+        """
+        if device is None:
+            device = get_device()
+
+        # Determine starting rings based on board size
+        if rings_per_player is None:
+            if board_size <= 8:
+                rings_per_player = 18
+            elif board_size <= 13:
+                rings_per_player = 24
+            else:
+                rings_per_player = 36
+
+        # Create tensors
+        state = cls(
+            # Board state
+            stack_owner=torch.zeros((batch_size, board_size, board_size), dtype=torch.int8, device=device),
+            stack_height=torch.zeros((batch_size, board_size, board_size), dtype=torch.int8, device=device),
+            cap_height=torch.zeros((batch_size, board_size, board_size), dtype=torch.int8, device=device),
+            marker_owner=torch.zeros((batch_size, board_size, board_size), dtype=torch.int8, device=device),
+            territory_owner=torch.zeros((batch_size, board_size, board_size), dtype=torch.int8, device=device),
+            is_collapsed=torch.zeros((batch_size, board_size, board_size), dtype=torch.bool, device=device),
+
+            # Player state (index 0 unused, 1-4 for players)
+            rings_in_hand=torch.zeros((batch_size, num_players + 1), dtype=torch.int8, device=device),
+            territory_count=torch.zeros((batch_size, num_players + 1), dtype=torch.int32, device=device),
+            is_eliminated=torch.zeros((batch_size, num_players + 1), dtype=torch.bool, device=device),
+            eliminated_rings=torch.zeros((batch_size, num_players + 1), dtype=torch.int32, device=device),
+            buried_rings=torch.zeros((batch_size, num_players + 1), dtype=torch.int32, device=device),
+            rings_caused_eliminated=torch.zeros((batch_size, num_players + 1), dtype=torch.int32, device=device),
+
+            # Game metadata
+            current_player=torch.ones(batch_size, dtype=torch.int8, device=device),
+            current_phase=torch.full((batch_size,), GamePhase.RING_PLACEMENT, dtype=torch.int8, device=device),
+            move_count=torch.zeros(batch_size, dtype=torch.int32, device=device),
+            game_status=torch.full((batch_size,), GameStatus.ACTIVE, dtype=torch.int8, device=device),
+            winner=torch.zeros(batch_size, dtype=torch.int8, device=device),
+            swap_offered=torch.zeros(batch_size, dtype=torch.bool, device=device),
+
+            # Movement constraints
+            must_move_from_y=torch.full((batch_size,), -1, dtype=torch.int16, device=device),
+            must_move_from_x=torch.full((batch_size,), -1, dtype=torch.int16, device=device),
+
+            # LPS tracking tensors (RR-CANON-R172)
+            lps_round_index=torch.zeros(batch_size, dtype=torch.int32, device=device),
+            lps_current_round_first_player=torch.zeros(batch_size, dtype=torch.int8, device=device),
+            lps_current_round_seen_mask=torch.zeros((batch_size, num_players + 1), dtype=torch.bool, device=device),
+            lps_current_round_real_action_mask=torch.zeros((batch_size, num_players + 1), dtype=torch.bool, device=device),
+            lps_exclusive_player_for_completed_round=torch.zeros(batch_size, dtype=torch.int8, device=device),
+            lps_consecutive_exclusive_rounds=torch.zeros(batch_size, dtype=torch.int16, device=device),
+            lps_consecutive_exclusive_player=torch.zeros(batch_size, dtype=torch.int8, device=device),
+
+            # Move history
+            move_history=torch.full((batch_size, max_history_moves, 6), -1, dtype=torch.int16, device=device),
+            max_history_moves=max_history_moves,
+
+            # LPS configuration
+            lps_rounds_required=lps_rounds_required,
+
+            # Configuration
+            device=device,
+            batch_size=batch_size,
+            board_size=board_size,
+            num_players=num_players,
+        )
+
+        # Initialize rings per player
+        for p in range(1, num_players + 1):
+            state.rings_in_hand[:, p] = rings_per_player
+
+        # Mark hex out-of-bounds cells as collapsed if using hexagonal board
+        if board_type == "hexagonal":
+            # Hexagonal board uses a 25x25 grid with corners cut off
+            # Standard hex board has radius 8, so cells > distance 8 from center are OOB
+            center = board_size // 2
+            for r in range(board_size):
+                for c in range(board_size):
+                    # Axial distance from center for hex grid
+                    dr = r - center
+                    dc = c - center
+                    # Hex distance
+                    hex_dist = max(abs(dr), abs(dc), abs(dr + dc))
+                    if hex_dist > 8:
+                        state.is_collapsed[:, r, c] = True
+
+        return state
+
+    @classmethod
+    def from_single_game(
+        cls,
+        game_state: "GameState",
+        device: Optional[torch.device] = None,
+        max_history_moves: int = 500,
+        lps_rounds_required: int = 3,
+    ) -> "BatchGameState":
+        """Create a BatchGameState from a single CPU GameState.
+
+        Args:
+            game_state: CPU GameState to convert
+            device: GPU device (auto-detected if None)
+            max_history_moves: Maximum moves to track in history
+
+        Returns:
+            BatchGameState with batch_size=1 matching the input state
+        """
+        if device is None:
+            device = get_device()
+
+        from app.models import BoardType
+
+        board_size = game_state.board.size
+        num_players = game_state.rules.player_count
+
+        # Use from_game_states for the actual conversion
+        return cls.from_game_states([game_state], device, max_history_moves, lps_rounds_required)
+
+    @classmethod
+    def from_game_states(
+        cls,
+        game_states: List["GameState"],
+        device: Optional[torch.device] = None,
+        max_history_moves: int = 500,
+        lps_rounds_required: int = 3,
+    ) -> "BatchGameState":
+        """Create a BatchGameState from multiple CPU GameStates.
+
+        Args:
+            game_states: List of CPU GameStates to convert
+            device: GPU device (auto-detected if None)
+            max_history_moves: Maximum moves to track in history
+
+        Returns:
+            BatchGameState with batch_size=len(game_states)
+        """
+        if device is None:
+            device = get_device()
+
+        if not game_states:
+            raise ValueError("game_states list cannot be empty")
+
+        from app.models import BoardType, CellContent
+        from app.rules.core import get_ring_count
+
+        batch_size = len(game_states)
+        first_game = game_states[0]
+        board_size = first_game.board.size
+        num_players = first_game.rules.player_count
+
+        # Detect board type
+        board_type = None
+        if hasattr(first_game.rules, 'board_type'):
+            bt = first_game.rules.board_type
+            if bt == BoardType.HEXAGONAL:
+                board_type = "hexagonal"
+            elif bt == BoardType.SQUARE19:
+                board_type = "square19"
+            else:
+                board_type = "square8"
+
+        # Get rings per player from rules
+        rings_per_player = get_ring_count(first_game.rules.board_type, num_players)
+
+        # Create empty batch
+        batch = cls.create_batch(
+            batch_size=batch_size,
+            board_size=board_size,
+            num_players=num_players,
+            device=device,
+            max_history_moves=max_history_moves,
+            lps_rounds_required=lps_rounds_required,
+            rings_per_player=rings_per_player,
+            board_type=board_type,
+        )
+
+        # Helper to convert grid coordinates
+        def grid_to_tensor_coords(row: int, col: int) -> Tuple[int, int]:
+            """Convert grid (row, col) to tensor (y, x) coordinates."""
+            return row, col
+
+        # Copy state from each game
+        for g, game_state in enumerate(game_states):
+            # Copy board state
+            for row in range(board_size):
+                for col in range(board_size):
+                    cell = game_state.board.grid[row][col]
+                    y, x = grid_to_tensor_coords(row, col)
+
+                    # Handle collapsed/territory
+                    if cell.content == CellContent.COLLAPSED:
+                        batch.is_collapsed[g, y, x] = True
+                        if cell.territory_owner:
+                            batch.territory_owner[g, y, x] = cell.territory_owner
+
+                    # Handle stacks
+                    if cell.stack:
+                        batch.stack_owner[g, y, x] = cell.stack.owner
+                        batch.stack_height[g, y, x] = cell.stack.height
+                        # Compute cap height from ring colors
+                        cap_h = 0
+                        owner = cell.stack.owner
+                        for ring in reversed(cell.stack.rings):
+                            if ring == owner:
+                                cap_h += 1
+                            else:
+                                break
+                        batch.cap_height[g, y, x] = cap_h
+
+                    # Handle markers
+                    if cell.marker_owner:
+                        batch.marker_owner[g, y, x] = cell.marker_owner
+
+            # Copy player state
+            for p in range(1, num_players + 1):
+                player = game_state.players.get(p)
+                if player:
+                    batch.rings_in_hand[g, p] = player.rings_in_hand
+                    batch.is_eliminated[g, p] = player.is_eliminated
+                    # eliminated_rings may not exist in older states
+                    if hasattr(player, 'eliminated_rings'):
+                        batch.eliminated_rings[g, p] = player.eliminated_rings
+                    if hasattr(player, 'buried_rings'):
+                        batch.buried_rings[g, p] = player.buried_rings
+                    if hasattr(player, 'rings_caused_eliminated'):
+                        batch.rings_caused_eliminated[g, p] = player.rings_caused_eliminated
+
+            # Count territory
+            for row in range(board_size):
+                for col in range(board_size):
+                    cell = game_state.board.grid[row][col]
+                    if cell.territory_owner and cell.territory_owner > 0:
+                        batch.territory_count[g, cell.territory_owner] += 1
+
+            # Copy game metadata
+            batch.current_player[g] = game_state.current_player
+            batch.move_count[g] = len(game_state.move_history)
+
+            # Map phase
+            from app.models import GamePhase as CPUGamePhase
+            phase_map = {
+                CPUGamePhase.PLACEMENT: GamePhase.RING_PLACEMENT,
+                CPUGamePhase.MOVEMENT: GamePhase.MOVEMENT,
+                CPUGamePhase.LINE: GamePhase.LINE_PROCESSING,
+                CPUGamePhase.TERRITORY: GamePhase.TERRITORY_PROCESSING,
+                CPUGamePhase.END_TURN: GamePhase.END_TURN,
+            }
+            # GAME_OVER and RECOVERY don't exist in GPU GamePhase, use END_TURN as fallback
+            if hasattr(CPUGamePhase, 'GAME_OVER'):
+                phase_map[CPUGamePhase.GAME_OVER] = GamePhase.END_TURN
+            if hasattr(CPUGamePhase, 'RECOVERY'):
+                phase_map[CPUGamePhase.RECOVERY] = GamePhase.MOVEMENT  # Recovery is part of movement
+            batch.current_phase[g] = phase_map.get(game_state.current_phase, GamePhase.RING_PLACEMENT)
+
+            # Game status
+            if game_state.winner:
+                batch.game_status[g] = GameStatus.COMPLETED
+                batch.winner[g] = game_state.winner
+            else:
+                batch.game_status[g] = GameStatus.ACTIVE
+
+            # Copy must_move_from constraint if present
+            if hasattr(game_state, 'must_move_from') and game_state.must_move_from:
+                batch.must_move_from_y[g] = game_state.must_move_from[0]
+                batch.must_move_from_x[g] = game_state.must_move_from[1]
+
+            # Copy LPS tracking state if present
+            if hasattr(game_state, 'lps_round_index'):
+                batch.lps_round_index[g] = game_state.lps_round_index
+            if hasattr(game_state, 'lps_current_round_first_player') and game_state.lps_current_round_first_player:
+                batch.lps_current_round_first_player[g] = game_state.lps_current_round_first_player
+            if hasattr(game_state, 'lps_current_round_seen'):
+                for p in game_state.lps_current_round_seen:
+                    batch.lps_current_round_seen_mask[g, p] = True
+            if hasattr(game_state, 'lps_current_round_real_action'):
+                for p in game_state.lps_current_round_real_action:
+                    batch.lps_current_round_real_action_mask[g, p] = True
+            if hasattr(game_state, 'lps_exclusive_player_for_completed_round') and game_state.lps_exclusive_player_for_completed_round:
+                batch.lps_exclusive_player_for_completed_round[g] = game_state.lps_exclusive_player_for_completed_round
+            if hasattr(game_state, 'lps_consecutive_exclusive_rounds'):
+                batch.lps_consecutive_exclusive_rounds[g] = game_state.lps_consecutive_exclusive_rounds
+            if hasattr(game_state, 'lps_consecutive_exclusive_player') and game_state.lps_consecutive_exclusive_player:
+                batch.lps_consecutive_exclusive_player[g] = game_state.lps_consecutive_exclusive_player
+
+            # Copy move history
+            for i, move in enumerate(game_state.move_history[:max_history_moves]):
+                batch.move_history[g, i, 0] = move.move_type.value if hasattr(move.move_type, 'value') else move.move_type
+                batch.move_history[g, i, 1] = move.player
+                if move.from_pos:
+                    batch.move_history[g, i, 2] = move.from_pos[0]
+                    batch.move_history[g, i, 3] = move.from_pos[1]
+                if move.to_pos:
+                    batch.move_history[g, i, 4] = move.to_pos[0]
+                    batch.move_history[g, i, 5] = move.to_pos[1]
+
+        return batch
+
+    def to_game_state(self, game_idx: int) -> "GameState":
+        """Convert a single game from the batch back to a CPU GameState.
+
+        Args:
+            game_idx: Index of the game in the batch
+
+        Returns:
+            CPU GameState matching the batch state
+        """
+        from app.models import (
+            GameState, Board, Cell, CellContent, Stack, PlayerState,
+            GameRules, BoardType, GamePhase as CPUGamePhase
+        )
+        from app.rules.core import get_ring_count
+
+        # Determine board type from size
+        if self.board_size == 19:
+            board_type = BoardType.SQUARE19
+        elif self.board_size == 25:
+            board_type = BoardType.HEXAGONAL
+        else:
+            board_type = BoardType.SQUARE8
+
+        rings_per_player = get_ring_count(board_type, self.num_players)
+
+        # Helper to convert tensor coords back to grid
+        def grid_to_cpu_coords(row: int, col: int):
+            """Convert tensor (y, x) to CPU grid (row, col) coordinates."""
+            return row, col
+
+        # Create board
+        grid = []
+        for row in range(self.board_size):
+            grid_row = []
+            for col in range(self.board_size):
+                y, x = row, col  # Tensor coords
+
+                cell = Cell(row=row, col=col, content=CellContent.EMPTY)
+
+                # Check collapsed
+                if self.is_collapsed[game_idx, y, x].item():
+                    cell.content = CellContent.COLLAPSED
+                    terr_owner = self.territory_owner[game_idx, y, x].item()
+                    if terr_owner > 0:
+                        cell.territory_owner = terr_owner
+
+                # Check stack
+                stack_owner = self.stack_owner[game_idx, y, x].item()
+                stack_height = self.stack_height[game_idx, y, x].item()
+                if stack_owner > 0 and stack_height > 0:
+                    cell.content = CellContent.STACK
+                    # Reconstruct rings - cap rings on top, buried on bottom
+                    cap_h = self.cap_height[game_idx, y, x].item()
+                    rings = []
+                    # Bottom rings (buried from opponent)
+                    buried_count = stack_height - cap_h
+                    # We don't know exact buried ring owners, assume alternating
+                    # In practice this is an approximation
+                    for _ in range(buried_count):
+                        rings.append(3 - stack_owner if stack_owner <= 2 else 1)
+                    # Top rings (owner's color)
+                    for _ in range(cap_h):
+                        rings.append(stack_owner)
+                    cell.stack = Stack(owner=stack_owner, rings=rings)
+
+                # Check marker
+                marker_owner = self.marker_owner[game_idx, y, x].item()
+                if marker_owner > 0:
+                    cell.marker_owner = marker_owner
+                    if cell.content == CellContent.EMPTY:
+                        cell.content = CellContent.MARKER
+
+                grid_row.append(cell)
+            grid.append(grid_row)
+
+        board = Board(size=self.board_size, grid=grid)
+
+        # Create player states
+        players = {}
+        for p in range(1, self.num_players + 1):
+            players[p] = PlayerState(
+                player_id=p,
+                rings_in_hand=int(self.rings_in_hand[game_idx, p].item()),
+                is_eliminated=bool(self.is_eliminated[game_idx, p].item()),
+                eliminated_rings=int(self.eliminated_rings[game_idx, p].item()),
+                buried_rings=int(self.buried_rings[game_idx, p].item()),
+                rings_caused_eliminated=int(self.rings_caused_eliminated[game_idx, p].item()),
+            )
+
+        # Map phase back
+        gpu_phase_val = int(self.current_phase[game_idx].item())
+        phase_map = {
+            GamePhase.RING_PLACEMENT.value: CPUGamePhase.PLACEMENT,
+            GamePhase.MOVEMENT.value: CPUGamePhase.MOVEMENT,
+            GamePhase.LINE_PROCESSING.value: CPUGamePhase.LINE,
+            GamePhase.TERRITORY_PROCESSING.value: CPUGamePhase.TERRITORY,
+            GamePhase.END_TURN.value: CPUGamePhase.END_TURN,
+        }
+        cpu_phase = phase_map.get(gpu_phase_val, CPUGamePhase.PLACEMENT)
+
+        # Create rules
+        rules = GameRules(
+            board_type=board_type,
+            player_count=self.num_players,
+            rings_per_player=rings_per_player,
+        )
+
+        # Create game state
+        game_state = GameState(
+            board=board,
+            players=players,
+            current_player=int(self.current_player[game_idx].item()),
+            current_phase=cpu_phase,
+            rules=rules,
+            move_history=[],
+            winner=int(self.winner[game_idx].item()) if self.winner[game_idx].item() > 0 else None,
+        )
+
+        # Set must_move_from constraint
+        mmy = self.must_move_from_y[game_idx].item()
+        mmx = self.must_move_from_x[game_idx].item()
+        if mmy >= 0 and mmx >= 0:
+            game_state.must_move_from = (mmy, mmx)
+
+        # Set LPS tracking state
+        game_state.lps_round_index = int(self.lps_round_index[game_idx].item())
+        fp = self.lps_current_round_first_player[game_idx].item()
+        game_state.lps_current_round_first_player = int(fp) if fp > 0 else None
+        game_state.lps_current_round_seen = set()
+        game_state.lps_current_round_real_action = set()
+        for p in range(1, self.num_players + 1):
+            if self.lps_current_round_seen_mask[game_idx, p].item():
+                game_state.lps_current_round_seen.add(p)
+            if self.lps_current_round_real_action_mask[game_idx, p].item():
+                game_state.lps_current_round_real_action.add(p)
+        excl = self.lps_exclusive_player_for_completed_round[game_idx].item()
+        game_state.lps_exclusive_player_for_completed_round = int(excl) if excl > 0 else None
+        game_state.lps_consecutive_exclusive_rounds = int(self.lps_consecutive_exclusive_rounds[game_idx].item())
+        consec_p = self.lps_consecutive_exclusive_player[game_idx].item()
+        game_state.lps_consecutive_exclusive_player = int(consec_p) if consec_p > 0 else None
+
+        return game_state
+
+    def get_active_mask(self) -> torch.Tensor:
+        """Return a boolean mask of games still in progress.
+
+        Returns:
+            (batch_size,) bool tensor, True for active games
+        """
+        return self.game_status == GameStatus.ACTIVE
+
+    def count_active(self) -> int:
+        """Return the number of games still in progress."""
+        return int(self.get_active_mask().sum().item())
+
+    def to_feature_tensor(self, history_length: int = 4) -> torch.Tensor:
+        """Convert batch state to neural network input tensor.
+
+        Creates a multi-channel representation suitable for CNN input:
+        - Channels 0-4: Current player stack ownership (one-hot)
+        - Channels 5-9: Stack heights (normalized)
+        - Channels 10-14: Marker ownership
+        - Channels 15-19: Territory ownership
+        - Channel 20: Collapsed cells
+        - Channels 21+: Historical board states
+
+        Args:
+            history_length: Number of historical states to include
+
+        Returns:
+            (batch_size, channels, board_size, board_size) float tensor
+        """
+        device = self.device
+        bs = self.batch_size
+        bz = self.board_size
+        np = self.num_players
+
+        # Base channels without history
+        base_channels = 5 + 5 + 5 + 5 + 1  # 21 channels
+        total_channels = base_channels + history_length * 5  # Add history
+
+        features = torch.zeros((bs, total_channels, bz, bz), dtype=torch.float32, device=device)
+
+        # Stack ownership (one-hot encoded)
+        for p in range(np + 1):
+            features[:, p, :, :] = (self.stack_owner == p).float()
+
+        # Stack heights (normalized to 0-1)
+        features[:, 5, :, :] = self.stack_height.float() / 5.0
+
+        # Cap heights (normalized)
+        features[:, 6, :, :] = self.cap_height.float() / 5.0
+
+        # Marker ownership
+        for p in range(np + 1):
+            features[:, 10 + p, :, :] = (self.marker_owner == p).float()
+
+        # Territory ownership
+        for p in range(np + 1):
+            features[:, 15 + p, :, :] = (self.territory_owner == p).float()
+
+        # Collapsed cells
+        features[:, 20, :, :] = self.is_collapsed.float()
+
+        return features
+
+    def extract_move_history(self, game_idx: int) -> List[Dict[str, Any]]:
+        """Extract move history for a single game as a list of dictionaries.
+
+        Args:
+            game_idx: Index of the game in the batch
+
+        Returns:
+            List of move dictionaries with keys: move_type, player, from_pos, to_pos
+        """
+        moves = []
+        for i in range(self.max_history_moves):
+            move_type = self.move_history[game_idx, i, 0].item()
+            if move_type < 0:
+                break
+
+            player = self.move_history[game_idx, i, 1].item()
+            from_y = self.move_history[game_idx, i, 2].item()
+            from_x = self.move_history[game_idx, i, 3].item()
+            to_y = self.move_history[game_idx, i, 4].item()
+            to_x = self.move_history[game_idx, i, 5].item()
+
+            move = {
+                "move_type": MoveType(move_type).name,
+                "player": player,
+                "from_pos": (from_y, from_x) if from_y >= 0 else None,
+                "to_pos": (to_y, to_x) if to_y >= 0 else None,
+            }
+            moves.append(move)
+
+        return moves
+
+    def derive_victory_type(self, game_idx: int, max_moves: int) -> Tuple[str, Optional[str]]:
+        """Derive the victory type and tiebreaker for a finished game.
+
+        This analyzes the final game state to determine how the winner won,
+        which is needed for accurate training data labeling.
+
+        Args:
+            game_idx: Index of the game in the batch
+            max_moves: Maximum moves allowed (for stalemate detection)
+
+        Returns:
+            Tuple of (victory_type, tiebreaker_used) where:
+            - victory_type: "territory", "elimination", "line", "stalemate", "lps", etc.
+            - tiebreaker_used: "territory", "eliminations", "markers", etc. or None
+        """
+        from app.models import BoardType
+        from app.rules.core import get_territory_victory_minimum, get_victory_threshold
+
+        # Map board size to board type
+        if self.board_size == 19:
+            board_type = BoardType.SQUARE19
+        elif self.board_size == 25:
+            board_type = BoardType.HEXAGONAL
+        else:
+            board_type = BoardType.SQUARE8
+
+        territory_threshold = get_territory_victory_minimum(board_type, self.num_players)
+        elim_threshold = get_victory_threshold(board_type, self.num_players)
+
+        winner = self.winner[game_idx].item()
+        if winner <= 0:
+            return "in_progress", None
+
+        # Check for LPS victory (RR-CANON-R172)
+        if self.lps_consecutive_exclusive_rounds[game_idx].item() >= self.lps_rounds_required:
+            lps_winner = self.lps_consecutive_exclusive_player[game_idx].item()
+            if lps_winner == winner:
+                return "lps", None
+
+        # Check territory victory
+        if self.territory_count[game_idx, winner].item() >= territory_threshold:
+            return "territory", None
+
+        # Check elimination victory
+        if self.rings_caused_eliminated[game_idx, winner].item() >= elim_threshold:
+            return "elimination", None
+
+        # Check if stalemate (move count at max)
+        if self.move_count[game_idx].item() >= max_moves:
+            tiebreaker = self._determine_tiebreaker(game_idx)
+            return "stalemate", tiebreaker
+
+        # Check line victory (need to look at board state)
+        # This is a simplified check - actual line detection would need the full algorithm
+        from app.ai.gpu_line_detection import detect_lines_vectorized
+        line_results = detect_lines_vectorized(self, self.board_size)
+        if line_results is not None:
+            has_line, line_lengths = line_results
+            if has_line[game_idx, winner].item():
+                return "line", None
+
+        # Default fallback
+        return "unknown", None
+
+    def _determine_tiebreaker(self, game_idx: int) -> str:
+        """Determine which tiebreaker was used for a stalemate.
+
+        Args:
+            game_idx: Index of the game in the batch
+
+        Returns:
+            Tiebreaker type: "territory", "eliminations", "markers", "last_actor"
+        """
+        winner = self.winner[game_idx].item()
+        if winner <= 0:
+            return "none"
+
+        # Check territory advantage
+        max_territory = 0
+        territory_leader = 0
+        for p in range(1, self.num_players + 1):
+            t = self.territory_count[game_idx, p].item()
+            if t > max_territory:
+                max_territory = t
+                territory_leader = p
+        if territory_leader == winner and max_territory > 0:
+            # Check if other players have same territory
+            others_same = False
+            for p in range(1, self.num_players + 1):
+                if p != winner and self.territory_count[game_idx, p].item() == max_territory:
+                    others_same = True
+                    break
+            if not others_same:
+                return "territory"
+
+        # Check eliminations advantage
+        max_elims = 0
+        elim_leader = 0
+        for p in range(1, self.num_players + 1):
+            e = self.rings_caused_eliminated[game_idx, p].item()
+            if e > max_elims:
+                max_elims = e
+                elim_leader = p
+        if elim_leader == winner and max_elims > 0:
+            others_same = False
+            for p in range(1, self.num_players + 1):
+                if p != winner and self.rings_caused_eliminated[game_idx, p].item() == max_elims:
+                    others_same = True
+                    break
+            if not others_same:
+                return "eliminations"
+
+        # Check marker counts
+        marker_counts = []
+        for p in range(1, self.num_players + 1):
+            marker_counts.append((self.marker_owner[game_idx] == p).sum().item())
+        if len(set(marker_counts)) > 1:
+            return "markers"
+
+        # Default to last_actor
+        return "last_actor"
+
+
+__all__ = [
+    'BatchGameState',
+]

@@ -739,6 +739,16 @@ from app.coordination.utils import (
     CallbackRegistry,
 )
 
+# Module-level singleton placeholders for cleanup in shutdown_all_coordinators
+_selfplay_orchestrator = None
+_pipeline_orchestrator = None
+_task_lifecycle_coordinator = None
+_optimization_coordinator = None
+_metrics_orchestrator = None
+_resource_coordinator = None
+_cache_orchestrator = None
+_event_coordinator = None
+
 
 def _init_with_retry(
     name: str,
