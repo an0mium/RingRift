@@ -57,7 +57,7 @@ from .model_cache import (
 
 # Re-export loss functions for backwards compatibility
 # These are imported by app.ai.neural_net.__init__ and external code
-from .neural_losses import (
+from .neural_losses import (  # noqa: F401
     multi_player_value_loss,
     rank_distribution_loss,
     ranks_from_game_result,

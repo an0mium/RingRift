@@ -168,8 +168,6 @@ class MinimaxAI(HeuristicAI):
         self._pending_policy_init = False
 
         try:
-            import torch
-
             from .nnue_policy import RingRiftNNUEWithPolicy
 
             # Try to load policy model checkpoint

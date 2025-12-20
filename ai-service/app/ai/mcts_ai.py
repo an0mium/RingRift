@@ -40,15 +40,14 @@ from .heuristic_ai import HeuristicAI
 # Lazy imports for neural network components to avoid loading torch when not needed
 # These are only imported when difficulty >= 6 (neural MCTS tiers)
 if TYPE_CHECKING:
-    import torch
-
-    from .async_nn_eval import AsyncNeuralBatcher
-    from .neural_net import (
-        ActionEncoderHex,
-        HexNeuralNet_v2,
-        NeuralNetAI,
-    )
     from .nnue_policy import RingRiftNNUEWithPolicy
+
+try:
+    import torch
+    HAS_TORCH = True
+except ImportError:
+    HAS_TORCH = False
+    torch = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +87,6 @@ def _get_cached_nnue_policy(board_type: BoardType, num_players: int) -> Any | No
 
         try:
             import re
-
-            import torch
 
             from .nnue_policy import RingRiftNNUEWithPolicy
 

@@ -22,12 +22,11 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from ..models import GameState, Move
 from .ebmo_network import ActionFeatureExtractor, EBMONetwork

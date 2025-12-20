@@ -230,6 +230,17 @@ DIFFICULTY_DESCRIPTIONS: dict[int, str] = {
 # Board types considered "large" (Minimax too slow)
 LARGE_BOARD_TYPES = {"square19", "hexagonal", "hex"}
 
+# Experimental EBMO override for D3
+# Enable via environment variable: RINGRIFT_USE_EBMO=1
+# EBMO uses gradient descent on action embeddings - novel energy-based approach
+EBMO_DIFFICULTY_OVERRIDE: DifficultyProfile = {
+    "ai_type": AIType.EBMO,
+    "randomness": 0.1,
+    "think_time_ms": 1000,
+    "profile_id": "v3-ebmo-3-experimental",
+    "use_neural_net": True,
+}
+
 
 # -----------------------------------------------------------------------------
 # Helper functions
@@ -250,6 +261,7 @@ def get_difficulty_profile(
     The profile may be adjusted based on:
     - num_players: For 3-4 players, uses MaxN/BRS instead of Minimax at D4-5
     - board_type: For large boards, uses Descent instead of Minimax at D4-5
+    - RINGRIFT_USE_EBMO env var: For D3, uses EBMO instead of PolicyOnly
 
     Args:
         difficulty: Difficulty level (1-11, clamped if out of range)
@@ -263,6 +275,12 @@ def get_difficulty_profile(
 
     # Start with canonical profile
     profile = CANONICAL_DIFFICULTY_PROFILES[effective]
+
+    # Check for experimental EBMO override at D3
+    # Enabled via RINGRIFT_USE_EBMO=1 environment variable
+    if effective == 3 and os.environ.get("RINGRIFT_USE_EBMO", "").lower() in {"1", "true", "yes"}:
+        logger.debug("Using experimental EBMO at D3 (RINGRIFT_USE_EBMO=1)")
+        return EBMO_DIFFICULTY_OVERRIDE
 
     # Check for multiplayer override (3-4 players)
     if num_players >= 3 and effective in MULTIPLAYER_DIFFICULTY_OVERRIDES:
