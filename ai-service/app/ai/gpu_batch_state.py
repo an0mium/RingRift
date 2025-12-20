@@ -267,27 +267,27 @@ class BatchGameState:
         if not game_states:
             raise ValueError("game_states list cannot be empty")
 
-        from app.models import BoardType, CellContent
+        from app.models import BoardType
         from app.rules.core import get_ring_count
 
         batch_size = len(game_states)
         first_game = game_states[0]
         board_size = first_game.board.size
-        num_players = first_game.rules.player_count
+        # Get num_players from max_players attribute or count active players
+        num_players = first_game.max_players if hasattr(first_game, 'max_players') else len(first_game.players)
 
-        # Detect board type
-        board_type = None
-        if hasattr(first_game.rules, 'board_type'):
-            bt = first_game.rules.board_type
-            if bt == BoardType.HEXAGONAL:
-                board_type = "hexagonal"
-            elif bt == BoardType.SQUARE19:
-                board_type = "square19"
-            else:
-                board_type = "square8"
+        # Detect board type string from enum
+        board_type_str = None
+        board_type_enum = first_game.board_type if hasattr(first_game, 'board_type') else first_game.board.type
+        if board_type_enum == BoardType.HEXAGONAL:
+            board_type_str = "hexagonal"
+        elif board_type_enum == BoardType.SQUARE19:
+            board_type_str = "square19"
+        else:
+            board_type_str = "square8"
 
         # Get rings per player from rules
-        rings_per_player = get_ring_count(first_game.rules.board_type, num_players)
+        rings_per_player = get_ring_count(board_type_enum, num_players)
 
         # Create empty batch
         batch = cls.create_batch(
@@ -298,52 +298,55 @@ class BatchGameState:
             max_history_moves=max_history_moves,
             lps_rounds_required=lps_rounds_required,
             rings_per_player=rings_per_player,
-            board_type=board_type,
+            board_type=board_type_str,
         )
 
-        # Helper to convert grid coordinates
-        def grid_to_tensor_coords(row: int, col: int) -> Tuple[int, int]:
-            """Convert grid (row, col) to tensor (y, x) coordinates."""
-            return row, col
+        def parse_position_key(key: str) -> Tuple[int, int]:
+            """Parse 'row,col' position key to (row, col) tuple."""
+            parts = key.split(',')
+            return int(parts[0]), int(parts[1])
 
         # Copy state from each game
         for g, game_state in enumerate(game_states):
-            # Copy board state
-            for row in range(board_size):
-                for col in range(board_size):
-                    cell = game_state.board.grid[row][col]
-                    y, x = grid_to_tensor_coords(row, col)
+            board = game_state.board
 
-                    # Handle collapsed/territory
-                    if cell.content == CellContent.COLLAPSED:
-                        batch.is_collapsed[g, y, x] = True
-                        if cell.territory_owner:
-                            batch.territory_owner[g, y, x] = cell.territory_owner
+            # Copy stacks from dictionary
+            for pos_key, stack in board.stacks.items():
+                row, col = parse_position_key(pos_key)
+                batch.stack_owner[g, row, col] = stack.controlling_player
+                batch.stack_height[g, row, col] = stack.stack_height
+                batch.cap_height[g, row, col] = stack.cap_height
 
-                    # Handle stacks
-                    if cell.stack:
-                        batch.stack_owner[g, y, x] = cell.stack.owner
-                        batch.stack_height[g, y, x] = cell.stack.height
-                        # Compute cap height from ring colors
-                        cap_h = 0
-                        owner = cell.stack.owner
-                        for ring in reversed(cell.stack.rings):
-                            if ring == owner:
-                                cap_h += 1
-                            else:
-                                break
-                        batch.cap_height[g, y, x] = cap_h
+            # Copy collapsed spaces
+            for pos_key, territory_owner in board.collapsed_spaces.items():
+                row, col = parse_position_key(pos_key)
+                batch.is_collapsed[g, row, col] = True
+                if territory_owner and territory_owner > 0:
+                    batch.territory_owner[g, row, col] = territory_owner
+                    batch.territory_count[g, territory_owner] += 1
 
-                    # Handle markers
-                    if cell.marker_owner:
-                        batch.marker_owner[g, y, x] = cell.marker_owner
+            # Copy markers if present
+            for pos_key, marker_info in board.markers.items():
+                row, col = parse_position_key(pos_key)
+                if hasattr(marker_info, 'player'):
+                    batch.marker_owner[g, row, col] = marker_info.player
+                elif hasattr(marker_info, 'owner'):
+                    batch.marker_owner[g, row, col] = marker_info.owner
 
-            # Copy player state
-            for p in range(1, num_players + 1):
-                player = game_state.players.get(p)
-                if player:
+            # Copy territories if present
+            for pos_key, territory in board.territories.items():
+                row, col = parse_position_key(pos_key)
+                if hasattr(territory, 'owner') and territory.owner > 0:
+                    batch.territory_owner[g, row, col] = territory.owner
+
+            # Copy player state - players is a list, find by player_number
+            for player in game_state.players:
+                p = player.player_number
+                if 1 <= p <= num_players:
                     batch.rings_in_hand[g, p] = player.rings_in_hand
-                    batch.is_eliminated[g, p] = player.is_eliminated
+                    # Check for is_eliminated attribute (may not exist in all versions)
+                    if hasattr(player, 'is_eliminated'):
+                        batch.is_eliminated[g, p] = player.is_eliminated
                     # eliminated_rings may not exist in older states
                     if hasattr(player, 'eliminated_rings'):
                         batch.eliminated_rings[g, p] = player.eliminated_rings
@@ -351,32 +354,25 @@ class BatchGameState:
                         batch.buried_rings[g, p] = player.buried_rings
                     if hasattr(player, 'rings_caused_eliminated'):
                         batch.rings_caused_eliminated[g, p] = player.rings_caused_eliminated
-
-            # Count territory
-            for row in range(board_size):
-                for col in range(board_size):
-                    cell = game_state.board.grid[row][col]
-                    if cell.territory_owner and cell.territory_owner > 0:
-                        batch.territory_count[g, cell.territory_owner] += 1
+                    if hasattr(player, 'territory_spaces'):
+                        batch.territory_count[g, p] = player.territory_spaces
 
             # Copy game metadata
             batch.current_player[g] = game_state.current_player
             batch.move_count[g] = len(game_state.move_history)
 
-            # Map phase
+            # Map phase from CPU to GPU enum
             from app.models import GamePhase as CPUGamePhase
             phase_map = {
-                CPUGamePhase.PLACEMENT: GamePhase.RING_PLACEMENT,
+                CPUGamePhase.RING_PLACEMENT: GamePhase.RING_PLACEMENT,
                 CPUGamePhase.MOVEMENT: GamePhase.MOVEMENT,
-                CPUGamePhase.LINE: GamePhase.LINE_PROCESSING,
-                CPUGamePhase.TERRITORY: GamePhase.TERRITORY_PROCESSING,
-                CPUGamePhase.END_TURN: GamePhase.END_TURN,
+                CPUGamePhase.CAPTURE: GamePhase.MOVEMENT,  # Capture is part of movement
+                CPUGamePhase.CHAIN_CAPTURE: GamePhase.MOVEMENT,  # Chain capture is part of movement
+                CPUGamePhase.LINE_PROCESSING: GamePhase.LINE_PROCESSING,
+                CPUGamePhase.TERRITORY_PROCESSING: GamePhase.TERRITORY_PROCESSING,
+                CPUGamePhase.FORCED_ELIMINATION: GamePhase.END_TURN,  # Map to END_TURN
+                CPUGamePhase.GAME_OVER: GamePhase.END_TURN,  # Map to END_TURN
             }
-            # GAME_OVER and RECOVERY don't exist in GPU GamePhase, use END_TURN as fallback
-            if hasattr(CPUGamePhase, 'GAME_OVER'):
-                phase_map[CPUGamePhase.GAME_OVER] = GamePhase.END_TURN
-            if hasattr(CPUGamePhase, 'RECOVERY'):
-                phase_map[CPUGamePhase.RECOVERY] = GamePhase.MOVEMENT  # Recovery is part of movement
             batch.current_phase[g] = phase_map.get(game_state.current_phase, GamePhase.RING_PLACEMENT)
 
             # Game status
