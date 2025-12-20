@@ -261,11 +261,8 @@ python scripts/auto_model_promotion.py \
 ## Step 6: Deploy to Production
 
 ```bash
-# Sync promoted model to production
-python scripts/sync_models.py \
-    --source models/hex/promoted_latest.pt \
-    --destination /var/www/ringrift/models/hex_production.pt \
-    --board hexagonal
+# Sync promoted models to production nodes (ensure production host is in distributed_hosts.yaml)
+python scripts/sync_models.py --sync --use-sync-coordinator
 
 # Verify deployment
 curl -X POST http://localhost:3001/api/ai/inference \

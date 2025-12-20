@@ -230,7 +230,7 @@ python scripts/cli.py health
 
 ### Model Management
 
-- `sync_models.py` - Model synchronization across cluster
+- `sync_models.py` - Model synchronization across cluster (use `--use-sync-coordinator` for aria2/SSH/P2P + NFS-aware)
 - `prune_models.py` - Old model cleanup
 - `model_promotion_manager.py` - Automated model promotion
 - `validate_models.py` - Validate model files for corruption

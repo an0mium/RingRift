@@ -95,7 +95,7 @@ ssh gpu-primary 'cd ~/ringrift/ai-service && \
 
 ```bash
 ssh gpu-primary 'cd ~/ringrift/ai-service && \
-  venv/bin/python scripts/sync_models.py --sync'
+  venv/bin/python scripts/sync_models.py --sync --use-sync-coordinator'
 ```
 
 ## Troubleshooting

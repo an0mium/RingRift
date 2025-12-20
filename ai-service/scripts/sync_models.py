@@ -27,6 +27,9 @@ Usage:
     # Sync (collect + distribute) with deduplication
     python scripts/sync_models.py --sync
 
+    # Sync using SyncCoordinator (aria2/SSH/P2P + NFS-aware)
+    python scripts/sync_models.py --sync --use-sync-coordinator
+
     # Dry run
     python scripts/sync_models.py --sync --dry-run
 
@@ -1023,7 +1026,11 @@ def _sync_via_coordinator() -> bool:
     return True
 
 
-def run_daemon(interval_minutes: int = 30, use_sync_coordinator: bool = False):
+def run_daemon(
+    interval_minutes: int = 30,
+    use_sync_coordinator: bool = False,
+    config_path: str | None = None,
+):
     """Run sync daemon that syncs every N minutes."""
     logger.info(f"Starting model sync daemon (interval: {interval_minutes}min)")
 
@@ -1040,7 +1047,7 @@ def run_daemon(interval_minutes: int = 30, use_sync_coordinator: bool = False):
     while not shutdown:
         try:
             logger.info("Running sync cycle...")
-            hosts = load_remote_hosts() if HOSTS_MODULE_AVAILABLE else {}
+            hosts = load_remote_hosts(config_path=config_path) if HOSTS_MODULE_AVAILABLE else {}
             coordinator_used = False
             if use_sync_coordinator:
                 coordinator_used = _sync_via_coordinator()
@@ -1081,6 +1088,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Show what would be done")
     parser.add_argument("--host", type=str, help="Only sync to specific host")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    parser.add_argument("--config", type=str, help="Path to distributed_hosts.yaml override")
     parser.add_argument("--no-lock", action="store_true", help="Skip singleton lock (for testing)")
     parser.add_argument(
         "--use-sync-coordinator",
@@ -1131,7 +1139,7 @@ def _main_impl(args):
         return 1
 
     # Load hosts
-    hosts = load_remote_hosts()
+    hosts = load_remote_hosts(config_path=args.config)
     logger.info(f"Loaded {len(hosts)} remote hosts")
 
     if args.host:
@@ -1142,7 +1150,11 @@ def _main_impl(args):
 
     # Daemon mode
     if args.daemon:
-        run_daemon(args.interval, use_sync_coordinator=args.use_sync_coordinator)
+        run_daemon(
+            args.interval,
+            use_sync_coordinator=args.use_sync_coordinator,
+            config_path=args.config,
+        )
         return 0
 
     coordinator_used = False

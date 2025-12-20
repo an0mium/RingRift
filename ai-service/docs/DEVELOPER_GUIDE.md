@@ -434,22 +434,22 @@ The codebase has canonical sync scripts for different data domains. Always use t
 
 ### Canonical Sync Scripts
 
-| Domain       | Canonical Script              | Description                                      |
-| ------------ | ----------------------------- | ------------------------------------------------ |
-| Game Data    | `unified_data_sync.py`        | Rsync-based game database sync with P2P fallback |
-| Models       | `sync_models.py`              | Hash-based model distribution with deduplication |
-| ELO Ratings  | `elo_db_sync.py`              | ELO database synchronization                     |
-| Coordination | `cluster_sync_coordinator.py` | Meta-orchestrator for all sync operations        |
-| Vast.ai P2P  | `vast_p2p_sync.py`            | Specialized P2P sync for Vast.ai nodes           |
+| Domain       | Canonical Script              | Description                                                                                                       |
+| ------------ | ----------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Game Data    | `unified_data_sync.py`        | Rsync-based game database sync with P2P fallback                                                                  |
+| Models       | `sync_models.py`              | Hash-based model distribution with deduplication; use `--use-sync-coordinator` for aria2/SSH/P2P + NFS-aware sync |
+| ELO Ratings  | `elo_db_sync.py`              | ELO database synchronization                                                                                      |
+| Coordination | `cluster_sync_coordinator.py` | Meta-orchestrator for all sync operations                                                                         |
+| Vast.ai P2P  | `vast_p2p_sync.py`            | Specialized P2P sync for Vast.ai nodes                                                                            |
 
 ### Deprecated Sync Scripts
 
 The following scripts are deprecated and will be removed in a future release:
 
-| Deprecated            | Replacement            | Migration                                    |
-| --------------------- | ---------------------- | -------------------------------------------- |
-| `simple_game_sync.py` | `unified_data_sync.py` | `python scripts/unified_data_sync.py --once` |
-| `model_sync_aria2.py` | `sync_models.py`       | `python scripts/sync_models.py --sync`       |
+| Deprecated            | Replacement            | Migration                                                     |
+| --------------------- | ---------------------- | ------------------------------------------------------------- |
+| `simple_game_sync.py` | `unified_data_sync.py` | `python scripts/unified_data_sync.py --once`                  |
+| `model_sync_aria2.py` | `sync_models.py`       | `python scripts/sync_models.py --sync --use-sync-coordinator` |
 
 These deprecated scripts emit `DeprecationWarning` on import.
 

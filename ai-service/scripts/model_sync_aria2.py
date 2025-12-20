@@ -11,7 +11,7 @@ DEPRECATED: Use sync_models.py instead, which provides:
 
 Migration:
     # Sync all models (equivalent to --sync-to-all):
-    python scripts/sync_models.py --sync
+    python scripts/sync_models.py --sync --use-sync-coordinator
 
     # Check status:
     python scripts/sync_models.py --dry-run
