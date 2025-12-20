@@ -22,7 +22,7 @@ This document tracks the provenance and canonical status of all self-play databa
 | `canonical_square8.db`    | square8    | 2       | **canonical**    | db_health.canonical_square8.json                  | 2025-12-12 distributed regeneration (12 games) and re-gate after TS territory-control parity fix; `canonical_ok=true` (only end-of-game-only current_player mismatch).                        |
 | `canonical_square8_3p.db` | square8    | 3       | **canonical**    | db_health.canonical_square8_3p.json               | 2025-12-12 initial 3P canonical DB (2 games) gated successfully (`canonical_ok=true`; parity only end-of-game-only current_player mismatch).                                                  |
 | `canonical_square8_4p.db` | square8    | 4       | **canonical**    | db_health.canonical_square8_4p.json               | 2025-12-12 4P canonical DB (2 games) gated successfully (`canonical_ok=true`). Scale up for training.                                                                                         |
-| `canonical_square19.db`   | square19   | 2       | **pending_gate** | db_health.canonical_square19.json                 | 2025-12-20 regen with schema-complete DB (1 game recorded). Parity gate fails on `forced_elimination` recorded during `territory_processing`; fix phase invariant and regenerate.             |
+| `canonical_square19.db`   | square19   | 2       | **canonical**    | db_health.canonical_square19.json                 | 2025-12-20 regenerated (5 games, 2,588+ moves). Parity PASSED with 0 semantic divergences after `no_territory_action` fix (b8175468).                                                         |
 | `canonical_hexagonal.db`  | hexagonal  | 2       | **pending_gate** | db_health.canonical_hexagonal.json                | 2025-12-20 regen with schema-complete DB (1 game recorded). Canonical history + parity gate fail on phase invariant (`forced_elimination` / `no_placement_action` in `territory_processing`). |
 
 The `Status` column uses `canonical` only for DBs whose latest gate summary JSON has `canonical_ok == true`. For supported board types (`square8`, `square19`, and `hexagonal`), this also implies `fe_territory_fixtures_ok == true` as well as a passing parity gate and canonical phase history.
@@ -38,10 +38,9 @@ These targets define when large-board datasets are considered ready for training
 
 ### Pending Re-Gate / Needs Regeneration
 
-| Database                 | Board Type | Players | Status           | Gate Summary                       | Notes                                                                                                                                                                    |
-| ------------------------ | ---------- | ------- | ---------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `canonical_square19.db`  | square19   | 2       | **pending_gate** | db_health.canonical_square19.json  | 1 game recorded; parity gate fails on phase invariant (`forced_elimination` in `territory_processing`). Regenerate after fixing self-play phase transitions.             |
-| `canonical_hexagonal.db` | hexagonal  | 2       | **pending_gate** | db_health.canonical_hexagonal.json | 1 game recorded; canonical history + parity gate fail on phase invariant (`forced_elimination` / `no_placement_action` in `territory_processing`). Regenerate after fix. |
+| Database                 | Board Type | Players | Status           | Gate Summary                       | Notes                                                                                                                                       |
+| ------------------------ | ---------- | ------- | ---------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `canonical_hexagonal.db` | hexagonal  | 2       | **pending_gate** | db_health.canonical_hexagonal.json | Regenerate with post-fix selfplay. Previous data has phase invariant issues (`forced_elimination` / `no_placement_action` in wrong phases). |
 
 ### Legacy / Non-Canonical
 
