@@ -129,7 +129,8 @@ Runner scripts call this automatically unless `SKIP_PREFLIGHT_CHECKS=true`.
 To remove 429 noise during capacity validation, enable staging bypass for load-test users:
 
 - `RATE_LIMIT_BYPASS_ENABLED=true`
-- `RATE_LIMIT_BYPASS_USER_PATTERN='loadtest.*@loadtest\\.local'`
+- `RATE_LIMIT_BYPASS_TOKEN="<staging_bypass_token>"` (preferred; sent as `X-RateLimit-Bypass-Token`)
+- `RATE_LIMIT_BYPASS_USER_PATTERN='loadtest.*@loadtest\\.local'` (fallback)
 
 Disable immediately after the run.
 
@@ -543,10 +544,10 @@ cp .env.staging.example .env.staging
 ./scripts/deploy-staging.sh --build
 
 # 3. Verify health
-npm run load:preflight
+BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3001 npm run load:preflight
 
 # 4. Run target-scale load test (rate limit bypass enabled for staging)
-BASE_URL=http://localhost:3000 npm run load:test -- --scenario=target-scale
+BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3001 tests/load/scripts/run-target-scale.sh --staging
 ```
 
 #### Production Validation
@@ -558,10 +559,16 @@ rsync -avz --delete dist/ ubuntu@ringrift.ai:/home/ubuntu/ringrift/dist/
 ssh ubuntu@ringrift.ai "pm2 restart ringrift-server"
 
 # 2. Verify health
-BASE_URL=https://ringrift.ai npm run load:preflight
+AI_SERVICE_URL=https://ringrift.ai:8765 \
+  BASE_URL=https://ringrift.ai WS_URL=wss://ringrift.ai \
+  npm run load:preflight
 
-# 3. Run production target-scale test (NO rate limit bypass!)
-BASE_URL=https://ringrift.ai npm run load:test -- --scenario=target-scale
+# 3. Run production target-scale test (runner scripts block production; use explicit k6)
+BASE_URL=https://ringrift.ai WS_URL=wss://ringrift.ai THRESHOLD_ENV=production \
+  LOAD_PROFILE=target_scale k6 run tests/load/scenarios/concurrent-games.js
+
+BASE_URL=https://ringrift.ai WS_URL=wss://ringrift.ai THRESHOLD_ENV=production \
+  WS_SCENARIO_PRESET=target k6 run tests/load/scenarios/websocket-stress.js
 ```
 
 ### PV-09: Execute Clean AI-Heavy Run
@@ -586,10 +593,10 @@ cp .env.staging.example .env.staging
 ./scripts/deploy-staging.sh --build
 
 # 3. Verify health
-npm run load:preflight
+BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3001 npm run load:preflight
 
 # 4. Run AI-heavy load test (rate limit bypass enabled for staging)
-BASE_URL=http://localhost:3000 npm run load:test -- --scenario=ai-heavy
+BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3001 tests/load/scripts/run-ai-heavy.sh --staging
 ```
 
 #### Production Validation
@@ -601,10 +608,22 @@ rsync -avz --delete dist/ ubuntu@ringrift.ai:/home/ubuntu/ringrift/dist/
 ssh ubuntu@ringrift.ai "pm2 restart ringrift-server"
 
 # 2. Verify health
-BASE_URL=https://ringrift.ai npm run load:preflight
+AI_SERVICE_URL=https://ringrift.ai:8765 \
+  BASE_URL=https://ringrift.ai WS_URL=wss://ringrift.ai \
+  npm run load:preflight
 
-# 3. Run production AI-heavy test (NO rate limit bypass!)
-BASE_URL=https://ringrift.ai npm run load:test -- --scenario=ai-heavy
+# 3. Run production AI-heavy test (runner scripts block production; use explicit k6)
+BASE_URL=https://ringrift.ai WS_URL=wss://ringrift.ai THRESHOLD_ENV=production \
+  LOAD_PROFILE=target_scale \
+  k6 run \
+    --stage "2m:25" \
+    --stage "3m:75" \
+    --stage "5m:75" \
+    --stage "3m:0" \
+    tests/load/scenarios/concurrent-games.js
+
+BASE_URL=https://ringrift.ai WS_URL=wss://ringrift.ai THRESHOLD_ENV=production \
+  WS_SCENARIO_PRESET=target k6 run tests/load/scenarios/websocket-stress.js
 ```
 
 ### PV-10: Rehearse AI Service Degradation Drill
