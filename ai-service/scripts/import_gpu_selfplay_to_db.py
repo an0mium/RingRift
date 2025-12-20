@@ -30,6 +30,18 @@ from app.game_engine import GameEngine
 from app.models import BoardType, GameState, Move, MoveType, Position
 from app.training.generate_data import create_initial_state
 
+# Import canonical export module for GPU->canonical translation (December 2025)
+try:
+    from app.ai.gpu_canonical_export import (
+        gpu_move_type_to_canonical,
+        gpu_phase_to_canonical,
+    )
+    HAS_CANONICAL_EXPORT = True
+except ImportError:
+    HAS_CANONICAL_EXPORT = False
+    gpu_move_type_to_canonical = None
+    gpu_phase_to_canonical = None
+
 
 def parse_position(pos_dict: dict[str, Any], board_type: BoardType = None) -> Position:
     """Parse a position dict into a Position object.

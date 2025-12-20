@@ -37,16 +37,15 @@ logger = setup_script_logging("db_to_training_npz")
 
 def get_encoder(board_type: str, num_players: int):
     """Get the appropriate state encoder for the board type."""
-    from app.ai.neural.hexagonal_encoder import HexStateEncoderV3
-    from app.ai.neural_net_ai import NeuralNetAI
     from app.models import BoardType
+    from app.training.encoding import HexStateEncoderV3, SquareStateEncoder
 
     bt = BOARD_TYPE_MAP.get(board_type, BoardType.SQUARE8)
 
     if bt in (BoardType.HEXAGONAL, BoardType.HEX8):
         return HexStateEncoderV3(board_type=bt, num_players=num_players)
     else:
-        return NeuralNetAI._get_state_encoder(bt, num_players)
+        return SquareStateEncoder(board_type=bt, num_players=num_players)
 
 
 def export_db_to_npz(
