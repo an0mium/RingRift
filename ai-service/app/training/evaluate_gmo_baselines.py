@@ -84,49 +84,64 @@ def play_game(
     return state.winner if state.winner else 0
 
 
+def create_baseline_ai(baseline_type: str, player_number: int):
+    """Create a baseline AI with the specified player number."""
+    if baseline_type == "mcts":
+        config = AIConfig(difficulty=7, think_time=6000, use_neural_net=True)
+        return AIFactory.create(AIType.MCTS, player_number=player_number, config=config), "MCTS (D7)"
+    elif baseline_type == "gumbel":
+        try:
+            return AIFactory.create_for_tournament(
+                "gumbel_100", player_number=player_number, board_type="square8"
+            ), "Gumbel MCTS (100 sims)"
+        except Exception as e:
+            logger.warning(f"Failed to create Gumbel MCTS: {e}, using MCTS instead")
+            config = AIConfig(difficulty=8, think_time=9000, use_neural_net=True)
+            return AIFactory.create(AIType.MCTS, player_number=player_number, config=config), "MCTS (D8)"
+    elif baseline_type == "policy":
+        return AIFactory.create_for_tournament(
+            "policy_only", player_number=player_number, board_type="square8"
+        ), "Policy Only"
+    elif baseline_type == "descent":
+        config = AIConfig(difficulty=6, think_time=4500, use_neural_net=True)
+        return AIFactory.create(AIType.DESCENT, player_number=player_number, config=config), "Descent (D6)"
+    else:
+        raise ValueError(f"Unknown baseline: {baseline_type}")
+
+
+def create_gmo_ai(player_number: int, checkpoint_path: Optional[str] = None) -> GMOAI:
+    """Create a GMO AI with the specified player number."""
+    ai_config = AIConfig(difficulty=6)
+    gmo_config = GMOConfig()
+    gmo_ai = GMOAI(player_number=player_number, config=ai_config, gmo_config=gmo_config)
+
+    if checkpoint_path:
+        gmo_ai.load_checkpoint(checkpoint_path)
+    else:
+        default_path = "models/gmo/gmo_best.pt"
+        if Path(default_path).exists():
+            gmo_ai.load_checkpoint(default_path)
+
+    return gmo_ai
+
+
 def evaluate_against_baseline(
-    gmo_ai: GMOAI,
+    checkpoint_path: Optional[str],
     baseline_type: str,
     num_games: int = 20,
 ) -> Dict:
     """Evaluate GMO against a baseline AI.
 
     Args:
-        gmo_ai: The GMO AI instance
+        checkpoint_path: Path to GMO checkpoint
         baseline_type: Type of baseline ("mcts", "gumbel", "policy", "descent")
         num_games: Number of games to play
 
     Returns:
         Results dict with win/loss/draw counts
     """
-    # Create baseline AI
-    if baseline_type == "mcts":
-        config = AIConfig(difficulty=7, think_time=6000, use_neural_net=True)
-        baseline = AIFactory.create(AIType.MCTS, player_number=2, config=config)
-        baseline_name = "MCTS (D7)"
-    elif baseline_type == "gumbel":
-        try:
-            config = AIConfig(difficulty=9, gumbel_simulation_budget=100)
-            baseline = AIFactory.create_for_tournament(
-                "gumbel_100", player_number=2, board_type="square8"
-            )
-            baseline_name = "Gumbel MCTS (100 sims)"
-        except Exception as e:
-            logger.warning(f"Failed to create Gumbel MCTS: {e}, using MCTS instead")
-            config = AIConfig(difficulty=8, think_time=9000, use_neural_net=True)
-            baseline = AIFactory.create(AIType.MCTS, player_number=2, config=config)
-            baseline_name = "MCTS (D8)"
-    elif baseline_type == "policy":
-        baseline = AIFactory.create_for_tournament(
-            "policy_only", player_number=2, board_type="square8"
-        )
-        baseline_name = "Policy Only"
-    elif baseline_type == "descent":
-        config = AIConfig(difficulty=6, think_time=4500, use_neural_net=True)
-        baseline = AIFactory.create(AIType.DESCENT, player_number=2, config=config)
-        baseline_name = "Descent (D6)"
-    else:
-        raise ValueError(f"Unknown baseline: {baseline_type}")
+    # Get baseline name
+    _, baseline_name = create_baseline_ai(baseline_type, 1)
 
     logger.info(f"Evaluating GMO vs {baseline_name}: {num_games} games")
 
@@ -136,12 +151,13 @@ def evaluate_against_baseline(
     wins_as_p2 = 0
     losses_as_p2 = 0
 
-    # Half games as player 1
+    # Half games as player 1 (GMO=P1, baseline=P2)
     games_per_side = num_games // 2
     for i in range(games_per_side):
         game_id = f"gmo_p1_{baseline_type}_{i}"
-        gmo_ai.reset_for_new_game()
-        baseline.reset_for_new_game()
+        # Create fresh AIs with correct player numbers
+        gmo_ai = create_gmo_ai(player_number=1, checkpoint_path=checkpoint_path)
+        baseline, _ = create_baseline_ai(baseline_type, player_number=2)
         winner = play_game(gmo_ai, baseline, game_id)
 
         if winner == 1:
@@ -149,14 +165,15 @@ def evaluate_against_baseline(
         elif winner == 2:
             losses_as_p1 += 1
 
-        if (i + 1) % 5 == 0:
+        if (i + 1) % 4 == 0:
             logger.info(f"  Game {i+1}/{games_per_side} (as P1): {wins_as_p1}W/{losses_as_p1}L")
 
-    # Half games as player 2
+    # Half games as player 2 (baseline=P1, GMO=P2)
     for i in range(games_per_side):
         game_id = f"gmo_p2_{baseline_type}_{i}"
-        gmo_ai.reset_for_new_game()
-        baseline.reset_for_new_game()
+        # Create fresh AIs with correct player numbers
+        baseline, _ = create_baseline_ai(baseline_type, player_number=1)
+        gmo_ai = create_gmo_ai(player_number=2, checkpoint_path=checkpoint_path)
         winner = play_game(baseline, gmo_ai, game_id)
 
         if winner == 2:
@@ -207,25 +224,18 @@ def run_baseline_evaluation(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # Load GMO AI
-    ai_config = AIConfig(difficulty=6)
-    gmo_config = GMOConfig()
-    gmo_ai = GMOAI(player_number=1, config=ai_config, gmo_config=gmo_config)
-
-    if checkpoint_path:
-        gmo_ai.load_checkpoint(checkpoint_path)
-        logger.info(f"Loaded checkpoint from {checkpoint_path}")
-    else:
+    # Resolve checkpoint path
+    if checkpoint_path is None:
         default_path = "models/gmo/gmo_best.pt"
         if Path(default_path).exists():
-            gmo_ai.load_checkpoint(default_path)
-            logger.info(f"Loaded checkpoint from {default_path}")
+            checkpoint_path = default_path
+            logger.info(f"Using default checkpoint: {checkpoint_path}")
 
     # Evaluate against each baseline
     all_results = []
     for baseline in baselines:
         try:
-            result = evaluate_against_baseline(gmo_ai, baseline, num_games)
+            result = evaluate_against_baseline(checkpoint_path, baseline, num_games)
             all_results.append(result)
             logger.info(f"\n{result['baseline']}: {result['win_rate']:.1f}% win rate "
                        f"({result['wins']}W/{result['losses']}L/{result['draws']}D)")

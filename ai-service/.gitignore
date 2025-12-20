@@ -176,3 +176,9 @@ scripts/deploy_gpu_acceleration.sh
 scripts/generate_gpu_training_data.py
 scripts/run_cluster_ab_test.sh
 scripts/run_cluster_multitime_ab_test.sh
+# GMO evaluation outputs
+data/gmo_evaluation/
+
+# Mutation testing artifacts
+mutants/
+.mutmut-cache/

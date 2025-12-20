@@ -206,10 +206,10 @@ if HAS_PROMETHEUS:
 
 @dataclass(frozen=True)
 class ResourceLimits:
-    """Unified resource limits - 80% max utilization."""
-    # Disk at 80% - we have 269GB free, plenty of headroom
-    DISK_MAX_PERCENT: float = 80.0
-    DISK_WARN_PERCENT: float = 75.0
+    """Unified resource limits - 90% max utilization for disk."""
+    # Disk at 90% - increased from 80% to allow selfplay generation
+    DISK_MAX_PERCENT: float = 90.0
+    DISK_WARN_PERCENT: float = 85.0
 
     # CPU/GPU/Memory at 80% hard limit
     CPU_MAX_PERCENT: float = 80.0
