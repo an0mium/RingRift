@@ -1001,7 +1001,7 @@ def _generate_capture_moves_batch_legacy(
                 continue
 
             for dy, dx in directions:
-                target_y, _target_x = None, None
+                target_y = None
                 target_dist = 0
 
                 for step in range(1, board_size):

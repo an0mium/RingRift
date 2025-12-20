@@ -1023,7 +1023,6 @@ def apply_capture_moves_batch_vectorized(
         ray_has_stack = (ray_owners != 0) & within_landing
 
         # Get index of first target (argmax returns first True)
-        _has_any_target = ray_has_stack.any(dim=1)
         target_step_idx = ray_has_stack.to(torch.int32).argmax(dim=1)  # (n_games,)
 
         # Compute target positions

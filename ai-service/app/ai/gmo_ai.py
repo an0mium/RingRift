@@ -1028,9 +1028,9 @@ class OnlineLearner:
 
         # Get next state value (max over legal moves)
         with torch.no_grad():
-            next_state_embed = self.state_encoder.encode_state(next_state)
             # Simplified: use state value as average over random moves
             # For full accuracy, would need to evaluate all legal moves
+            # TODO: Use self.state_encoder.encode_state(next_state) for proper TD
             next_value = torch.tensor([0.0], device=device)  # Placeholder
 
         # TD target

@@ -707,7 +707,7 @@ class GumbelMCTSAI(BaseAI):
             return actions[0]
 
         # Check GPU availability (lazy initialization)
-        use_batch = self._ensure_gpu_available()
+        self._ensure_gpu_available()  # Side effect: sets self._gpu_available
 
         # Number of phases = ceil(log2(m))
         num_phases = int(np.ceil(np.log2(m)))
