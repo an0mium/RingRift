@@ -769,7 +769,6 @@ Re-ran with the trace-mode fix in place; parity gate now passes for hexagonal. R
 - `ai-service/data/games/canonical_hexagonal.db` (new, with correct schema)
 - `ai-service/data/games/db_health.canonical_hexagonal.json` (health summary)
 - `ai-service/data/games/canonical_hexagonal.db.parity_gate.json` (parity gate output)
-- `ai-service/data/games/canonical_hexagonal.db.parity_summary.json` (parity summary)
 
 ### AI-02: Regenerate canonical_square19.db (2025-12-20)
 

@@ -31,10 +31,10 @@ The following artifacts were produced under the old radius-10 geometry and have 
 
 ## Current Canonical Hex Data
 
-A new `canonical_hex.db` was regenerated on 2025-12-13 under the radius-12 geometry:
+A new `canonical_hexagonal.db` was regenerated under the radius-12 geometry:
 
-- Location: `data/games/canonical_hex.db`
-- Gate summary: `db_health.canonical_hex.json`
+- Location: `data/games/canonical_hexagonal.db`
+- Gate summary: `data/games/db_health.canonical_hexagonal.json`
 - Status: `canonical_ok=true`, `fe_territory_fixtures_ok=true`
 
 See `TRAINING_DATA_REGISTRY.md` for canonical status of all databases.

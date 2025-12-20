@@ -107,12 +107,11 @@ the latest gate summaries under `ai-service/data/games/` and the registry in
 - **done** Regenerated and gated `canonical_square19.db` (2P); parity + canonical
   history pass (`canonical_ok=true`). Scale up for training once large-board
   throughput is acceptable.
-- **done** Regenerated and gated `canonical_hex.db` (radius‑12); parity + canonical
+- **done** Regenerated and gated `canonical_hexagonal.db` (radius‑12); parity + canonical
   history + hex FE/territory fixtures pass (`canonical_ok=true`). Scale up for
   training once large-board throughput is acceptable.
-- **blocked** Large-board scale-up DBs (`canonical_square19.db`, `canonical_hexagonal.db`) lack
-  the `game_moves` table, so parity/history gates fail. Regenerate with canonical self-play
-  before treating them as canonical.
+- **blocked** Large-board scale-up remains low volume (`canonical_square19.db`, `canonical_hexagonal.db`).
+  Scale up with canonical self-play and re-run gates before training use.
 - **done** Canonical dataset export path fixed (`build_canonical_dataset.py`
   - programmatic `export_replay_dataset.py`) and neural tier training now
     defaults to `canonical_square8_2p.npz` for non-demo runs.
