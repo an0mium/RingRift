@@ -761,8 +761,12 @@ def generate_capture_moves_batch_vectorized(
     blocker_cumsum = torch.cumsum(is_blocker.to(torch.int32), dim=2)
     before_blocker = blocker_cumsum == 0  # True for cells before any blocker
 
-    # Find cells with stacks (potential targets) that are before any blocker
-    has_stack = (ray_owner != 0) & before_blocker
+    # Get current player for each stack, expanded to ray shape (N_stacks, n_dirs, max_dist)
+    stack_player = state.current_player[stack_game_idx]
+    stack_player_exp = stack_player.unsqueeze(1).unsqueeze(2).expand(-1, n_dirs, max_dist)
+
+    # Find cells with OPPONENT stacks (not own stacks) that are before any blocker
+    has_stack = (ray_owner != 0) & (ray_owner != stack_player_exp) & before_blocker
 
     # Find target: first stack along ray where my_cap_height >= target_cap_height
     my_cap_exp = stack_cap_heights_dir.unsqueeze(2).expand(-1, -1, max_dist)

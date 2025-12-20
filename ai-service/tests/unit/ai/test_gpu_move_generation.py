@@ -302,14 +302,8 @@ class TestGenerateCaptureMovesBatch:
 
         assert moves.moves_per_game[0].item() == 0
 
-    @pytest.mark.xfail(reason="GPU capture generation doesn't filter own stacks - known issue")
     def test_cannot_capture_own_stacks(self, device, board_size, num_players):
-        """Should not generate captures to own stacks.
-
-        KNOWN ISSUE: GPU engine generates captures to all adjacent stacks
-        without properly filtering by ownership. This is a bug in the GPU
-        move generation that should be fixed.
-        """
+        """Should not generate captures to own stacks."""
         state = create_test_state(2, board_size, num_players, device)
         state.current_phase[:] = GamePhase.MOVEMENT
 
