@@ -14,62 +14,68 @@ Module Structure:
     - unified_loop/promotion.py: Model promotion with holdout validation
 """
 
-# Re-export configuration classes from unified_loop subpackage
-from .unified_loop.config import (
-    # Configuration dataclasses
-    DataIngestionConfig,
-    TrainingConfig,
-    EvaluationConfig,
-    PromotionConfig,
-    CurriculumConfig,
-    PBTConfig,
-    NASConfig,
-    PERConfig,
-    FeedbackConfig,
-    P2PClusterConfig,
-    ModelPruningConfig,
-    UnifiedLoopConfig,
-    # Event types
-    DataEventType,
-    DataEvent,
-    # State classes
-    HostState,
-    ConfigState,
-)
+import os
 
-# Re-export service classes (Phase 2 refactoring)
-from .unified_loop.evaluation import ModelPruningService
-from .unified_loop.curriculum import AdaptiveCurriculum
-from .unified_loop.promotion import ModelPromoter
-from .unified_loop.tournament import ShadowTournamentService
-from .unified_loop.data_collection import StreamingDataCollector
-from .unified_loop.training import TrainingScheduler
+_skip = os.getenv("RINGRIFT_SKIP_SCRIPT_INIT_IMPORTS", "").strip().lower()
+if _skip in ("1", "true", "yes", "on"):
+    __all__ = []
+else:
+    # Re-export configuration classes from unified_loop subpackage
+    from .unified_loop.config import (
+        # Configuration dataclasses
+        DataIngestionConfig,
+        TrainingConfig,
+        EvaluationConfig,
+        PromotionConfig,
+        CurriculumConfig,
+        PBTConfig,
+        NASConfig,
+        PERConfig,
+        FeedbackConfig,
+        P2PClusterConfig,
+        ModelPruningConfig,
+        UnifiedLoopConfig,
+        # Event types
+        DataEventType,
+        DataEvent,
+        # State classes
+        HostState,
+        ConfigState,
+    )
 
-__all__ = [
-    'AdaptiveCurriculum',
-    'ConfigState',
-    'CurriculumConfig',
-    'DataEvent',
-    # Events
-    'DataEventType',
-    # Configuration
-    'DataIngestionConfig',
-    'EvaluationConfig',
-    'FeedbackConfig',
-    # State
-    'HostState',
-    'ModelPromoter',
-    'ModelPruningConfig',
-    # Services (Phase 2)
-    'ModelPruningService',
-    'NASConfig',
-    'P2PClusterConfig',
-    'PBTConfig',
-    'PERConfig',
-    'PromotionConfig',
-    'ShadowTournamentService',
-    'StreamingDataCollector',
-    'TrainingConfig',
-    'TrainingScheduler',
-    'UnifiedLoopConfig',
-]
+    # Re-export service classes (Phase 2 refactoring)
+    from .unified_loop.evaluation import ModelPruningService
+    from .unified_loop.curriculum import AdaptiveCurriculum
+    from .unified_loop.promotion import ModelPromoter
+    from .unified_loop.tournament import ShadowTournamentService
+    from .unified_loop.data_collection import StreamingDataCollector
+    from .unified_loop.training import TrainingScheduler
+
+    __all__ = [
+        'AdaptiveCurriculum',
+        'ConfigState',
+        'CurriculumConfig',
+        'DataEvent',
+        # Events
+        'DataEventType',
+        # Configuration
+        'DataIngestionConfig',
+        'EvaluationConfig',
+        'FeedbackConfig',
+        # State
+        'HostState',
+        'ModelPromoter',
+        'ModelPruningConfig',
+        # Services (Phase 2)
+        'ModelPruningService',
+        'NASConfig',
+        'P2PClusterConfig',
+        'PBTConfig',
+        'PERConfig',
+        'PromotionConfig',
+        'ShadowTournamentService',
+        'StreamingDataCollector',
+        'TrainingConfig',
+        'TrainingScheduler',
+        'UnifiedLoopConfig',
+    ]

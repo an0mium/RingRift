@@ -23,7 +23,6 @@ This document tracks the provenance and canonical status of all self-play databa
 | `canonical_square8_3p.db` | square8    | 3       | **canonical** | db_health.canonical_square8_3p.json | 2025-12-12 initial 3P canonical DB (2 games) gated successfully (`canonical_ok=true`; parity only end-of-game-only current_player mismatch).                                          |
 | `canonical_square8_4p.db` | square8    | 4       | **canonical** | db_health.canonical_square8_4p.json | 2025-12-12 4P canonical DB (2 games) gated successfully (`canonical_ok=true`). Scale up for training.                                                                                 |
 | `canonical_square19.db`   | square19   | 2       | **canonical** | db_health.canonical_square19.json   | 2025-12-20 regenerated via direct soak (3 games, 1,903 moves) with `RINGRIFT_USE_MAKE_UNMAKE=true` (light band). Parity + canonical history gates passed; still below volume targets. |
-| `canonical_hexagonal.db`  | hexagonal  | 2       | **canonical** | db_health.canonical_hexagonal.json  | 2025-12-20 regenerated via direct soak (1 game, 1,113 moves) with `RINGRIFT_USE_MAKE_UNMAKE=true` (light band). Parity + canonical history gates passed; still below volume targets.  |
 
 The `Status` column uses `canonical` only for DBs whose latest gate summary JSON has `canonical_ok == true`. For supported board types (`square8`, `square19`, and `hexagonal`), this also implies `fe_territory_fixtures_ok == true` as well as a passing parity gate and canonical phase history.
 
@@ -38,7 +37,9 @@ These targets define when large-board datasets are considered ready for training
 
 ### Pending Re-Gate / Needs Regeneration
 
-None at the moment (large-board DBs are canonical but still low-volume).
+| Database                 | Board Type | Players | Status           | Gate Summary                       | Issue                                                                                                                                                                                                                                                |
+| ------------------------ | ---------- | ------- | ---------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `canonical_hexagonal.db` | hexagonal  | 2       | **pending_gate** | db_health.canonical_hexagonal.json | 2025-12-20 PAR-02b audit: Gate summary shows `canonical_ok=false`, `passed_canonical_parity_gate=false`, `games_with_structural_issues=1`. Structural error at k=709: "Invalid recovery slide: No buried ring for player 2". **NEEDS REGENERATION.** |
 
 ### Legacy / Non-Canonical
 
@@ -56,6 +57,14 @@ _None retained._ All legacy/non-canonical DBs were deleted as part of the 2025-1
 ---
 
 ### Gate Notes (2025-12-07)
+
+- 2025-12-20 PAR-02b hex parity audit: Verified that the PAR-01 self-capture fix (removal of
+  `controlling_player != player` check in [`capture_chain.py:266-272`](app/rules/capture_chain.py:266))
+  applies universally to all board types including hexagonal. However, `canonical_hexagonal.db`
+  failed parity verification with structural error: "Invalid recovery slide: No buried ring for
+  player 2 at -12,1,11" at k=709. The `db_health.canonical_hexagonal.json` shows `canonical_ok=false`.
+  **This DB needs regeneration with the fixed code.** The registry entry erroneously claimed the
+  DB was canonical; this has been corrected to `pending_gate` status.
 
 - 2025-12-20 GPU canonical upgrade: GPU batch selfplay now produces canonical-quality data with:
   - 7-column move history tensor (added phase column)
@@ -192,10 +201,11 @@ The legacy and pending DBs listed earlier have been removed. For any new replay 
 
 ---
 
-## Parity Gate Results
+## Canonical Gate Results
 
 When `generate_canonical_selfplay.py` is used to generate and gate a new DB,
-its canonical gate summary is written to `data/games/db_health.<db>.json`.
+its canonical gate summary (parity + canonical history + FE/ANM checks) is
+written to `data/games/db_health.<db>.json`.
 If `run_canonical_selfplay_parity_gate.py` is used directly, store its JSON
 summary alongside this document (for example as `parity_gate.<board>.json`).
 Lower-level parity sweeps invoked directly by `check_ts_python_replay_parity.py`
@@ -219,8 +229,8 @@ Each parity summary contains:
 }
 ```
 
-For DBs that **fail** the gate (structural issues or semantic divergence), it is
-often useful to also persist:
+For DBs that **fail** the parity gate (structural issues or semantic divergence),
+it is often useful to also persist:
 
 - Parity fixtures:
 
@@ -336,7 +346,7 @@ Two critical parity bugs were fixed:
 **Impact:**
 
 - All existing DBs (jsonl*converted*\*, staging/improvement_loop) generated before these fixes are non-canonical
-- New selfplay data (post-fix) should pass parity gates
+- New selfplay data (post-fix) should pass canonical gates
 - Legacy DBs with v1 schema (missing `game_moves` table) cannot be parity-checked
 
 **Verification:** ✅ COMPLETE (2025-12-20)
