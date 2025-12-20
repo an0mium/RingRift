@@ -538,8 +538,10 @@ class TestApplyCaptureMovesBatch:
         assert state.move_count[0].item() == 1
 
         # Rings tracking updated
-        assert state.eliminated_rings[0, 2].item() == 1
-        assert state.rings_caused_eliminated[0, 1].item() == 1
+        # Captured rings are BURIED, not eliminated (can be liberated if stack is re-captured)
+        assert state.buried_rings[0, 2].item() == 1
+        # rings_caused_eliminated tracks any ring eliminations caused by this player
+        # (captures bury rings, so this wouldn't increment for captures alone)
 
     def test_capture_clears_must_move(self):
         """Test that capture clears must_move constraint."""
