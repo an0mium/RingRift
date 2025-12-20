@@ -156,3 +156,31 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+
+[tool.mutmut]
+# Mutation testing configuration
+# Run with: mutmut run
+# View results: mutmut results
+# Generate HTML report: mutmut html
+
+# Paths to mutate (start with small, critical modules)
+paths_to_mutate = [
+    "app/ai/neural_losses.py",
+    "app/training/selfplay_config.py",
+    "app/training/temperature_scheduling.py",
+]
+
+# Tests to run for mutation verification
+tests_dir = "tests/"
+
+# Runner configuration
+runner = "python -m pytest -x -q --tb=no"
+
+# Skip slow/integration tests during mutation runs
+dict_synonyms = ["Struct", "NamedStruct"]
+
+# Exclude patterns
+exclude_files = [
+    "**/test_*.py",
+    "**/__pycache__/*",
+]
