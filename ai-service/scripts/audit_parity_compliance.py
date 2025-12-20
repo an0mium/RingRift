@@ -4,13 +4,13 @@ Audit databases for parity compliance.
 Identifies training-grade data vs buggy data that should be deleted.
 """
 
-import os
-import sys
-import sqlite3
 import argparse
 import json
-from pathlib import Path
+import os
+import sqlite3
+import sys
 from datetime import datetime
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("RINGRIFT_FORCE_CPU", "1")

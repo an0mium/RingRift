@@ -19,7 +19,12 @@ import time
 from pathlib import Path
 
 LOG_FILE = Path("logs/simple_monitor.log")
+ALERT_FILE = Path("logs/cluster_alerts.json")
 CHECK_INTERVAL = 300  # 5 minutes
+
+# Alert thresholds
+ALERT_THRESHOLD_UNHEALTHY_NODES = 3  # Alert if this many nodes are unhealthy
+ALERT_THRESHOLD_SLURM_JOBS = 0  # Alert if fewer than this many jobs
 
 
 def log(msg: str):
@@ -32,7 +37,7 @@ def log(msg: str):
         f.write(line + "\n")
 
 
-def ssh_check(host: str, port: str = None, cmd: str = "echo OK", timeout: int = 10) -> tuple[str, bool, str]:
+def ssh_check(host: str, port: str | None = None, cmd: str = "echo OK", timeout: int = 10) -> tuple[str, bool, str]:
     """Quick SSH check with strict timeout."""
     ssh_cmd = ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
     if port:
@@ -98,7 +103,7 @@ def check_vast_nodes() -> dict:
         futures = {executor.submit(check_vast_instance, inst): inst["id"] for inst in instances}
         for future in concurrent.futures.as_completed(futures, timeout=30):
             try:
-                host, ok, out = future.result()
+                _host, ok, out = future.result()
                 id = futures[future]
                 if ok:
                     gpu_util = out.strip() if out.strip().isdigit() else "?"
@@ -139,7 +144,7 @@ def fill_idle_nodes():
         if "Submitted" in result.stdout:
             log(f"Filled idle nodes: {result.stdout.split('Submitted')[-1][:100]}")
         else:
-            log(f"No idle nodes or fill failed")
+            log("No idle nodes or fill failed")
     except Exception as e:
         log(f"Fill-idle error: {e}")
 

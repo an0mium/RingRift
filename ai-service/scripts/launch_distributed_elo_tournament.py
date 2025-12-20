@@ -836,7 +836,7 @@ def run_match_on_node(
 
     # SSH fallback only works for 2-player games with simple AI types
     if num_players != 2:
-        return None, p2p_error or f"P2P failed and SSH fallback only supports 2-player games"
+        return None, p2p_error or "P2P failed and SSH fallback only supports 2-player games"
 
     # Fallback to SSH for nodes without P2P (limited AI type support)
     user = config["user"]

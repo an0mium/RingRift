@@ -12,8 +12,8 @@ import numpy as np
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.models import BoardType, Move, Position
 from app.ai.ebmo_network import ActionFeatureExtractor
+from app.models import BoardType, Move, Position
 
 
 def dict_to_move(move_dict: dict) -> Move:
@@ -22,14 +22,14 @@ def dict_to_move(move_dict: dict) -> Move:
     to_pos = None
     from_pos = None
 
-    if "to" in move_dict and move_dict["to"]:
+    if move_dict.get("to"):
         to_data = move_dict["to"]
         to_pos = Position(x=to_data["x"], y=to_data["y"])
 
-    if "from_pos" in move_dict and move_dict["from_pos"]:
+    if move_dict.get("from_pos"):
         from_data = move_dict["from_pos"]
         from_pos = Position(x=from_data["x"], y=from_data["y"])
-    elif "from" in move_dict and move_dict["from"]:
+    elif move_dict.get("from"):
         from_data = move_dict["from"]
         from_pos = Position(x=from_data["x"], y=from_data["y"])
 
@@ -75,7 +75,6 @@ def extract_samples(games: list[dict], board_type: BoardType = BoardType.SQUARE8
     board_size = get_board_size(board_type)
     extractor = ActionFeatureExtractor(board_size)
 
-    states = []
     actions = []
     outcomes = []
 
