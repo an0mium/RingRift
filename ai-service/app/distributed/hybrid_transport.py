@@ -763,8 +763,8 @@ async def diagnose_node_connectivity(
         "host": host,
         "port": port,
         "probes": {
-            t: {"reachable": r, "latency_ms": round(l, 1)}
-            for t, (r, l) in probes.items()
+            t: {"reachable": r, "latency_ms": round(latency, 1)}
+            for t, (r, latency) in probes.items()
         },
         "best_transport": best_transport,
         "best_latency_ms": round(best_latency, 1) if best_transport else None,

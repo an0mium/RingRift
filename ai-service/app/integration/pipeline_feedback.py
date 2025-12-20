@@ -815,7 +815,7 @@ class PipelineFeedbackController:
             if len(self.data_monitor.game_lengths) > 1000:
                 self.data_monitor.game_lengths = self.data_monitor.game_lengths[-1000:]
 
-            outlier_count = sum(1 for l in game_lengths if l > 1000)
+            outlier_count = sum(1 for length in game_lengths if length > 1000)
             outlier_rate = outlier_count / len(game_lengths) if game_lengths else 0
             if outlier_rate > 0.01:  # More than 1% outliers
                 outlier_penalty = min(0.2, outlier_rate * 10)

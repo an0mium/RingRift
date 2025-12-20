@@ -848,8 +848,8 @@ class AutoTournamentPipeline:
 
         champion = self.get_champion()
         if champion:
-            w, l, d = champion.wins, champion.losses, champion.draws
-            record = f"{w}W / {l}L / {d}D"
+            wins, losses, draws = champion.wins, champion.losses, champion.draws
+            record = f"{wins}W / {losses}L / {draws}D"
             arch_ver = champion.metadata.architecture_version
             lines.extend([
                 f"**{champion.model_id}**",

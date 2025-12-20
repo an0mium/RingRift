@@ -282,7 +282,7 @@ def generate_diverse_games(
     gmo_ai: GMOAI,
     dataset: DiverseOpponentDataset,
     games_per_opponent: int = 20,
-    opponent_types: list[str] = None,
+    opponent_types: list[str] | None = None,
 ) -> dict[str, dict]:
     """Generate games against diverse opponents.
 
@@ -451,7 +451,7 @@ def run_diverse_training(
     rounds: int = 5,
     games_per_opponent: int = 20,
     epochs_per_round: int = 10,
-    opponent_types: list[str] = None,
+    opponent_types: list[str] | None = None,
     output_dir: str = "models/gmo/diverse",
 ):
     """Run training against diverse opponents.
