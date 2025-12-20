@@ -253,7 +253,8 @@ class EBMOConfig:
     num_restarts: int = 8        # Multi-restart count
     projection_temperature: float = 0.3
     project_every_n_steps: int = 10
-    use_direct_eval: bool = True  # Skip gradient descent, score legal moves
+    use_direct_eval: bool = False  # Skip gradient descent, score legal moves
+    use_manifold_optim: bool = True  # Constrain optimization to legal-move manifold
     skip_penalty: float = 5.0     # Penalize skip/pass moves when alternatives exist
 
     # Training
@@ -267,9 +268,12 @@ class EBMOConfig:
     board_type: BoardType = BoardType.SQUARE8
 ```
 
+**Manifold-constrained optimization (default):** When `use_manifold_optim=True`, EBMO
+optimizes weights over legal moves so the action embedding stays on the convex hull
+of legal actions.
+
 **Direct evaluation mode:** When `use_direct_eval=True`, EBMO skips gradient descent
-and directly scores every legal move, picking the lowest-energy option. Set it to
-`False` if you want the original gradient-descent projection pipeline. `skip_penalty`
+and directly scores every legal move, picking the lowest-energy option. `skip_penalty`
 adds an energy offset to skip/pass moves when non-skip alternatives exist.
 
 ### AIConfig Integration

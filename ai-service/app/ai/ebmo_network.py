@@ -82,7 +82,8 @@ class EBMOConfig:
     num_restarts: int = 8  # Increased from 5
     projection_temperature: float = 0.3  # Lower for sharper projection
     project_every_n_steps: int = 10
-    use_direct_eval: bool = True  # Skip gradient descent, directly evaluate all moves
+    use_direct_eval: bool = False  # Skip gradient descent, directly evaluate all moves
+    use_manifold_optim: bool = True  # Use manifold-constrained optimization (recommended)
     skip_penalty: float = 5.0  # Energy penalty for skip/pass moves when alternatives exist
 
     # Training

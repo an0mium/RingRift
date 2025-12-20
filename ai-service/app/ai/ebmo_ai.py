@@ -233,14 +233,21 @@ class EBMO_AI(BaseAI):
             # Encode all legal moves for projection
             legal_embeddings = self._encode_legal_moves(valid_moves)
 
-        # Check if we should use direct evaluation (skip gradient descent)
+        # Check optimization mode
         use_direct_eval = getattr(self.ebmo_config, 'use_direct_eval', False)
+        use_manifold_optim = getattr(self.ebmo_config, 'use_manifold_optim', True)
 
         if use_direct_eval:
             # Direct evaluation: just score all legal moves and pick lowest energy
             return self._direct_eval_move(state_embed, valid_moves, legal_embeddings)
 
-        # Multi-restart optimization
+        if use_manifold_optim:
+            # Manifold-constrained optimization: stay on convex hull of legal moves
+            return self._manifold_constrained_optimization(
+                state_embed, valid_moves, legal_embeddings
+            )
+
+        # Original multi-restart optimization (can escape manifold)
         best_move = valid_moves[0]
         best_energy = float('inf')
 
@@ -468,6 +475,101 @@ class EBMO_AI(BaseAI):
             nearest_idx = distances.argmin().item()
 
         return valid_moves[nearest_idx]
+
+    def _manifold_constrained_optimization(
+        self,
+        state_embed: torch.Tensor,
+        valid_moves: List[Move],
+        legal_embeddings: torch.Tensor,
+    ) -> Move:
+        """Optimize on the legal move manifold using convex combinations.
+
+        Instead of optimizing a free action embedding (which can escape the
+        legal manifold), we optimize weights over legal moves. The action
+        embedding is always a weighted combination of legal move embeddings:
+
+            a = softmax(w) @ legal_embeddings
+
+        This guarantees we stay on the convex hull of legal moves.
+
+        Args:
+            state_embed: Encoded state (state_embed_dim,)
+            valid_moves: List of legal moves
+            legal_embeddings: (N, action_embed_dim) legal move embeddings
+
+        Returns:
+            Best move found by constrained optimization
+        """
+        num_moves = len(valid_moves)
+        state_for_energy = state_embed.detach()
+
+        # Apply skip penalty to bias initialization away from skips
+        skip_penalty = getattr(self.ebmo_config, 'skip_penalty', 5.0)
+        skip_mask = torch.zeros(num_moves, device=self.device)
+        has_non_skip = False
+        for i, move in enumerate(valid_moves):
+            if move.type.value in self.SKIP_MOVE_TYPES:
+                skip_mask[i] = -skip_penalty  # Negative logit = lower probability
+            else:
+                has_non_skip = True
+
+        # Only apply skip penalty if there are non-skip alternatives
+        if not has_non_skip:
+            skip_mask.zero_()
+
+        best_move = valid_moves[0]
+        best_energy = float('inf')
+
+        for restart in range(self.ebmo_config.num_restarts):
+            # Initialize weights uniformly (with skip penalty bias)
+            weights = torch.zeros(num_moves, device=self.device, requires_grad=True)
+            # Add some noise for diversity across restarts
+            with torch.no_grad():
+                noise = torch.randn(num_moves, device=self.device) * 0.1
+                weights.data = noise + skip_mask
+
+            optimizer = torch.optim.Adam([weights], lr=self.ebmo_config.optim_lr)
+
+            for step in range(self.ebmo_config.optim_steps):
+                optimizer.zero_grad()
+
+                # Compute action as convex combination of legal embeddings
+                probs = F.softmax(weights, dim=0)  # (N,)
+                action_embed = (probs.unsqueeze(1) * legal_embeddings).sum(dim=0)  # (action_dim,)
+
+                # Compute energy
+                energy = self.network.compute_energy(
+                    state_for_energy.unsqueeze(0),
+                    action_embed.unsqueeze(0),
+                )
+
+                # Add entropy regularization to encourage exploration
+                entropy = -(probs * (probs + 1e-10).log()).sum()
+                entropy_weight = 0.01 * max(0, 1 - step / self.ebmo_config.optim_steps)
+                loss = energy - entropy_weight * entropy
+
+                loss.backward()
+                optimizer.step()
+
+                self._total_optim_steps += 1
+
+            # Get final probabilities and select move
+            with torch.no_grad():
+                final_probs = F.softmax(weights + skip_mask, dim=0)
+                best_idx = final_probs.argmax().item()
+
+                # Compute actual energy of selected move
+                move_embed = legal_embeddings[best_idx]
+                actual_energy = self.network.compute_energy(
+                    state_for_energy.unsqueeze(0),
+                    move_embed.unsqueeze(0),
+                ).item()
+
+            if actual_energy < best_energy:
+                best_energy = actual_energy
+                best_move = valid_moves[best_idx]
+
+        return best_move
 
     def evaluate_position(self, game_state: GameState) -> float:
         """Evaluate position using average energy of top moves.
