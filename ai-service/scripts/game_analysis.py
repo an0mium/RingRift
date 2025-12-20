@@ -540,7 +540,7 @@ def find_loss_patterns(
     patterns = []
 
     # Pattern 1: Opening blunders
-    opening_losses = [l for loss in losses if loss.phase_at_loss == "opening"]
+    opening_losses = [loss for loss in losses if loss.phase_at_loss == "opening"]
     if len(opening_losses) >= min_frequency:
         patterns.append(LossPattern(
             pattern_type="opening_collapse",
@@ -553,7 +553,7 @@ def find_loss_patterns(
         ))
 
     # Pattern 2: Endgame failures
-    endgame_losses = [l for loss in losses if loss.phase_at_loss == "endgame"]
+    endgame_losses = [loss for loss in losses if loss.phase_at_loss == "endgame"]
     if len(endgame_losses) >= min_frequency:
         patterns.append(LossPattern(
             pattern_type="endgame_failure",
@@ -566,7 +566,7 @@ def find_loss_patterns(
         ))
 
     # Pattern 3: Single blunder losses
-    single_blunder = [l for loss in losses if loss.blunders == 1 and loss.mistakes <= 1]
+    single_blunder = [loss for loss in losses if loss.blunders == 1 and loss.mistakes <= 1]
     if len(single_blunder) >= min_frequency:
         patterns.append(LossPattern(
             pattern_type="single_blunder",
@@ -579,7 +579,7 @@ def find_loss_patterns(
         ))
 
     # Pattern 4: Gradual decline (many small mistakes)
-    gradual_losses = [l for loss in losses if loss.blunders == 0 and loss.mistakes >= 3]
+    gradual_losses = [loss for loss in losses if loss.blunders == 0 and loss.mistakes >= 3]
     if len(gradual_losses) >= min_frequency:
         patterns.append(LossPattern(
             pattern_type="gradual_decline",
@@ -592,7 +592,7 @@ def find_loss_patterns(
         ))
 
     # Pattern 5: Quick losses (short games)
-    quick_losses = [l for loss in losses if loss.total_moves < 30]
+    quick_losses = [loss for loss in losses if loss.total_moves < 30]
     if len(quick_losses) >= min_frequency:
         patterns.append(LossPattern(
             pattern_type="quick_loss",

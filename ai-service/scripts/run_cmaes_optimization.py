@@ -765,18 +765,20 @@ def evaluate_fitness(
                 ) -> None:
                     # Emit time-based progress during long games (e.g. 19x19),
                     # without changing the completed-games counter.
+                    # Note: total_moves, wins, draws, losses are intentionally read from
+                    # outer scope to get their CURRENT values at callback time.
                     games_completed = _game_index
                     elapsed = time.time() - _start_time
                     games_so_far = games_completed if games_completed > 0 else 1
-                    avg_moves_so_far = total_moves / games_so_far if total_moves > 0 else 0.0
+                    avg_moves_so_far = total_moves / games_so_far if total_moves > 0 else 0.0  # noqa: B023
                     sec_per_game = elapsed / games_so_far if games_so_far > 0 else 0.0
-                    sec_per_move = elapsed / total_moves if total_moves > 0 else 0.0
+                    sec_per_move = elapsed / total_moves if total_moves > 0 else 0.0  # noqa: B023
                     _progress.update(
                         completed=games_completed,
                         extra_metrics={
-                            "wins": wins,
-                            "draws": draws,
-                            "losses": losses,
+                            "wins": wins,  # noqa: B023
+                            "draws": draws,  # noqa: B023
+                            "losses": losses,  # noqa: B023
                             "avg_moves": avg_moves_so_far,
                             "sec_per_game": sec_per_game,
                             "sec_per_move": sec_per_move,

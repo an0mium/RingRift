@@ -237,8 +237,8 @@ def print_report(stats: dict[str, Any]) -> None:
         lps = term_counts.get("lps", 0)
         other = total - territory - elimination - lps
 
-        def pct(v):
-            return f"{100*v/total:.0f}%" if total else "-"
+        def pct(v, *, _total: int = total):
+            return f"{100*v/_total:.0f}%" if _total else "-"
 
         print(f"{config:<35} {pct(territory):>10} {pct(elimination):>12} {pct(lps):>8} {pct(other):>8}")
 

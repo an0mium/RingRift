@@ -119,9 +119,9 @@ class TestNeuralNetBenchmarks:
                 for _ in range(10):
                     model(x)
 
-            def forward():
+            def forward(*, _x=x):
                 with torch.no_grad():
-                    model(x)
+                    model(_x)
 
             min_t, avg_t, max_t = simple_benchmark(forward, iterations=100)
             throughput = (batch_size / avg_t) * 1000  # samples/sec
@@ -444,9 +444,9 @@ if __name__ == "__main__":
             for _ in range(10):
                 model(x)
 
-        def forward():
+        def forward(*, _x=x):
             with torch.no_grad():
-                model(x)
+                model(_x)
 
         min_t, avg_t, max_t = simple_benchmark(forward, iterations=100)
         throughput = (batch_size / avg_t) * 1000

@@ -1510,10 +1510,10 @@ def generate_markdown_report(report: AnalysisReport) -> str:
         stalemate = stats.victory_types.get("stalemate", 0)
         timeout = stats.victory_types.get("timeout", 0)
 
-        def fmt_pct(count: int, width: int = 11) -> str:
+        def fmt_pct(count: int, width: int = 11, *, _total_games: int = stats.total_games) -> str:
             if count == 0:
                 return "-".center(width)
-            val = f"{count} ({100 * count / stats.total_games:.0f}%)"
+            val = f"{count} ({100 * count / _total_games:.0f}%)"
             return val.ljust(width)
 
         board_col = f"{board_type} {num_players}p".ljust(14)

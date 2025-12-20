@@ -1309,16 +1309,16 @@ def sync_to_cluster_ssh(
                 ringrift_path_str = ringrift_path_str[: -len("/ai-service")]
             remote_models_dir = f"{ringrift_path_str}/ai-service/models"
 
-            def _build_ssh_base_args() -> list[str]:
+            def _build_ssh_base_args(*, _ssh_port: int = ssh_port, _ssh_key: Path | None = ssh_key) -> list[str]:
                 args = [
                     "-o", "ConnectTimeout=10",
                     "-o", "BatchMode=yes",
                     "-o", "StrictHostKeyChecking=no",
                 ]
-                if ssh_port != 22:
-                    args.extend(["-p", str(ssh_port)])
-                if ssh_key:
-                    args.extend(["-i", os.path.expanduser(str(ssh_key))])
+                if _ssh_port != 22:
+                    args.extend(["-p", str(_ssh_port)])
+                if _ssh_key:
+                    args.extend(["-i", os.path.expanduser(str(_ssh_key))])
                 return args
 
             synced = False

@@ -225,7 +225,7 @@ def play_game(ai1, ai2, max_moves: int = 500) -> tuple[int | None, int]:
         state = GameEngine.apply_move(state, move)
 
     winner = state.winner if state.game_status == GameStatus.COMPLETED else None
-    return winner, move_num + 1
+    return winner, _move_num + 1
 
 
 def run_ablation(

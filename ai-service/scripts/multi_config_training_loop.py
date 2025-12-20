@@ -1736,9 +1736,9 @@ def main():
 
                 # Sort by: (1) fewest models ASCENDING, (2) lowest ELO ASCENDING, (3) most new games DESCENDING
                 # This prioritizes under-trained configs, then weaker models
-                def sort_key(candidate):
+                def sort_key(candidate, *, _elo_scores: dict = elo_scores):
                     config, _, _, _, new_games, models = candidate
-                    elo = elo_scores.get(config, 1500.0)
+                    elo = _elo_scores.get(config, 1500.0)
                     return (models, elo, -new_games)
 
                 training_candidates.sort(key=sort_key)
