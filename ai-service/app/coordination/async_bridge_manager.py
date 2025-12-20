@@ -239,7 +239,7 @@ class AsyncBridgeManager:
 
             return result
 
-        except Exception as e:
+        except Exception:
             with self._lock:
                 self._stats.total_tasks_failed += 1
             raise

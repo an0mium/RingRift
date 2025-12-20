@@ -1151,7 +1151,9 @@ def load_ebmo_model(
     # Use saved config unless overridden
     model_config = config or checkpoint.get("config", EBMOConfig())
     model = EBMONetwork(model_config)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    # Use strict=False for backward compatibility with older models
+    # (e.g., models without value_head)
+    model.load_state_dict(checkpoint["model_state_dict"], strict=False)
 
     if device is not None:
         model = model.to(device)

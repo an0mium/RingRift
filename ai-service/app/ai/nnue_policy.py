@@ -2601,3 +2601,200 @@ class NNUEPolicyDataset(Dataset):
             stats["mcts_coverage"] >= min_coverage and
             stats["samples_with_mcts"] >= min_samples
         )
+
+
+class NNUEPolicyAgent:
+    """Agent that uses a trained NNUE policy network for move selection.
+
+    This agent loads a trained RingRiftNNUEWithPolicy model and uses
+    the policy head to score legal moves, returning the highest-scoring move.
+
+    Usage:
+        agent = NNUEPolicyAgent(
+            model_path="models/ringrift_hex8_2p_v8.pth",
+            board_type="hex8",
+            num_players=2,
+        )
+        best_move = agent.get_best_move(state, legal_moves)
+    """
+
+    def __init__(
+        self,
+        model_path: str,
+        board_type: str = "hex8",
+        num_players: int = 2,
+        device: Optional[str] = None,
+        temperature: float = 0.0,
+    ):
+        """Initialize the NNUE policy agent.
+
+        Args:
+            model_path: Path to the trained model checkpoint (.pth file)
+            board_type: Board type string (e.g., "hex8", "square8")
+            num_players: Number of players in the game
+            device: Device to run inference on (auto-detected if None)
+            temperature: Softmax temperature for move selection (0.0 = greedy)
+        """
+        self.model_path = model_path
+        self.board_type_str = board_type
+        self.num_players = num_players
+        self.temperature = temperature
+
+        # Parse board type
+        board_type_map = {
+            "hex8": BoardType.HEX8,
+            "hexagonal": BoardType.HEXAGONAL,
+            "square8": BoardType.SQUARE8,
+            "square19": BoardType.SQUARE19,
+        }
+        self.board_type = board_type_map.get(board_type.lower(), BoardType.HEX8)
+        self.board_size = get_board_size(self.board_type)
+
+        # Set device
+        if device is None:
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        else:
+            self.device = device
+
+        # Load model
+        self.model = self._load_model()
+        self.model.eval()
+
+    def _load_model(self) -> RingRiftNNUEWithPolicy:
+        """Load the model from checkpoint."""
+        logger = logging.getLogger(__name__)
+
+        checkpoint = torch.load(self.model_path, map_location=self.device, weights_only=False)
+
+        # Handle different checkpoint formats
+        if isinstance(checkpoint, dict):
+            if "model_state_dict" in checkpoint:
+                state_dict = checkpoint["model_state_dict"]
+            elif "state_dict" in checkpoint:
+                state_dict = checkpoint["state_dict"]
+            else:
+                state_dict = checkpoint
+        else:
+            # Assume it's a state dict directly
+            state_dict = checkpoint
+
+        # Infer model architecture from state_dict
+        hidden_dim = None
+        if "accumulator.weight" in state_dict:
+            hidden_dim = state_dict["accumulator.weight"].shape[0]
+
+        # Create model with inferred or default parameters
+        model = RingRiftNNUEWithPolicy(
+            board_type=self.board_type,
+            hidden_dim=hidden_dim,
+        )
+
+        # Load weights (handle DataParallel prefix if present)
+        if any(k.startswith("module.") for k in state_dict.keys()):
+            state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
+
+        model.load_state_dict(state_dict)
+        model = model.to(self.device)
+        logger.info(f"Loaded NNUE policy model from {self.model_path} (device={self.device})")
+        return model
+
+    def get_best_move(self, state, legal_moves):
+        """Get the best move according to the policy network.
+
+        Args:
+            state: GameState or MutableGameState
+            legal_moves: List of legal moves
+
+        Returns:
+            The highest-scoring legal move
+        """
+        if not legal_moves:
+            return None
+
+        # Extract features
+        from .nnue import extract_features_from_gamestate, extract_features_from_mutable
+
+        # Handle both GameState and MutableGameState
+        if hasattr(state, "current_player"):
+            player = state.current_player
+        else:
+            player = 0
+
+        try:
+            # Try MutableGameState first (faster)
+            features = extract_features_from_mutable(state, player)
+        except (AttributeError, TypeError):
+            # Fall back to GameState
+            features = extract_features_from_gamestate(state, player)
+
+        # Encode legal moves
+        max_moves = len(legal_moves)
+        from_indices, to_indices, move_mask = _encode_legal_moves_static(
+            legal_moves, self.board_size, max_moves, self.board_type
+        )
+
+        # Convert to tensors
+        features_t = torch.from_numpy(features[None, ...]).float().to(self.device)
+        from_t = torch.from_numpy(from_indices[None, ...]).long().to(self.device)
+        to_t = torch.from_numpy(to_indices[None, ...]).long().to(self.device)
+        mask_t = torch.from_numpy(move_mask[None, ...]).bool().to(self.device)
+
+        # Score moves
+        with torch.no_grad():
+            if self.temperature > 0:
+                probs = self.model.get_move_probabilities(
+                    features_t, from_t, to_t, mask_t, temperature=self.temperature
+                )
+                # Sample from distribution
+                move_idx = torch.multinomial(probs[0], 1).item()
+            else:
+                # Greedy selection
+                scores = self.model.score_moves(features_t, from_t, to_t, mask_t)
+                move_idx = torch.argmax(scores[0]).item()
+
+        return legal_moves[move_idx]
+
+    def get_move_scores(self, state, legal_moves) -> List[Tuple]:
+        """Get all moves with their policy scores.
+
+        Args:
+            state: GameState or MutableGameState
+            legal_moves: List of legal moves
+
+        Returns:
+            List of (move, score) tuples sorted by score descending
+        """
+        if not legal_moves:
+            return []
+
+        from .nnue import extract_features_from_gamestate, extract_features_from_mutable
+
+        if hasattr(state, "current_player"):
+            player = state.current_player
+        else:
+            player = 0
+
+        try:
+            features = extract_features_from_mutable(state, player)
+        except (AttributeError, TypeError):
+            features = extract_features_from_gamestate(state, player)
+
+        max_moves = len(legal_moves)
+        from_indices, to_indices, move_mask = _encode_legal_moves_static(
+            legal_moves, self.board_size, max_moves, self.board_type
+        )
+
+        features_t = torch.from_numpy(features[None, ...]).float().to(self.device)
+        from_t = torch.from_numpy(from_indices[None, ...]).long().to(self.device)
+        to_t = torch.from_numpy(to_indices[None, ...]).long().to(self.device)
+        mask_t = torch.from_numpy(move_mask[None, ...]).bool().to(self.device)
+
+        with torch.no_grad():
+            scores = self.model.score_moves(features_t, from_t, to_t, mask_t)
+            scores_np = scores[0].cpu().numpy()
+
+        move_scores = [
+            (legal_moves[i], float(scores_np[i]))
+            for i in range(len(legal_moves))
+        ]
+        return sorted(move_scores, key=lambda x: x[1], reverse=True)

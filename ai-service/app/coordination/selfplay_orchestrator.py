@@ -390,7 +390,7 @@ class SelfplayOrchestrator:
         # If games were generated before abandonment, they may still be usable
         if task.games_generated > 0:
             logger.info(
-                f"[SelfplayOrchestrator] Selfplay task abandoned with partial results: "
+                "[SelfplayOrchestrator] Selfplay task abandoned with partial results: "
                 f"{task_id}, games={task.games_generated}"
             )
         else:
@@ -451,7 +451,7 @@ class SelfplayOrchestrator:
                     games_per_second=task.games_per_second,
                 )
                 if result:
-                    logger.debug(f"[SelfplayOrchestrator] Emitted via centralized emitter")
+                    logger.debug("[SelfplayOrchestrator] Emitted via centralized emitter")
                 return result
 
             except Exception as e:
@@ -508,21 +508,21 @@ class SelfplayOrchestrator:
     async def _on_selfplay_stage_complete(self, result) -> None:
         """Handle SELFPLAY_COMPLETE stage event."""
         logger.debug(
-            f"[SelfplayOrchestrator] Stage event: SELFPLAY_COMPLETE "
+            "[SelfplayOrchestrator] Stage event: SELFPLAY_COMPLETE "
             f"success={result.success}, games={result.games_generated}"
         )
 
     async def _on_gpu_selfplay_stage_complete(self, result) -> None:
         """Handle GPU_SELFPLAY_COMPLETE stage event."""
         logger.debug(
-            f"[SelfplayOrchestrator] Stage event: GPU_SELFPLAY_COMPLETE "
+            "[SelfplayOrchestrator] Stage event: GPU_SELFPLAY_COMPLETE "
             f"success={result.success}, games={result.games_generated}"
         )
 
     async def _on_canonical_selfplay_stage_complete(self, result) -> None:
         """Handle CANONICAL_SELFPLAY_COMPLETE stage event."""
         logger.debug(
-            f"[SelfplayOrchestrator] Stage event: CANONICAL_SELFPLAY_COMPLETE "
+            "[SelfplayOrchestrator] Stage event: CANONICAL_SELFPLAY_COMPLETE "
             f"success={result.success}, games={result.games_generated}"
         )
 
@@ -545,7 +545,7 @@ class SelfplayOrchestrator:
         if level in ("critical", "high"):
             logger.warning(
                 f"[SelfplayOrchestrator] Backpressure {level.upper()} on {node_id} - "
-                f"selfplay may be throttled"
+                "selfplay may be throttled"
             )
         else:
             logger.info(

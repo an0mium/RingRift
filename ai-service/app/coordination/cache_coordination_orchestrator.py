@@ -534,7 +534,7 @@ class CacheCoordinationOrchestrator:
             import asyncio
 
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 asyncio.create_task(emit_cache_invalidated(
                     invalidation_type=invalidation_type,
                     target_id=target_id,

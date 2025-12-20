@@ -351,7 +351,7 @@ async def collect_all_coordinator_metrics() -> Dict[str, Any]:
 def collect_all_coordinator_metrics_sync() -> Dict[str, Any]:
     """Synchronous wrapper for collect_all_coordinator_metrics."""
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         # If there's a running loop, use the sync versions
         return _collect_sync()
     except RuntimeError:

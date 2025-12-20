@@ -441,7 +441,7 @@ class BandwidthManager(CoordinatorBase, SQLitePersistenceMixin):
             # Find next off-peak window
             hours_until_offpeak = (2 - current_hour) % 24
             optimal = now + timedelta(hours=hours_until_offpeak)
-            return optimal, f"Scheduling for off-peak hours (2-6 AM)"
+            return optimal, "Scheduling for off-peak hours (2-6 AM)"
 
         # Find best hour based on historical rates
         best_hour = max(hourly_rates.keys(), key=lambda h: hourly_rates[h])

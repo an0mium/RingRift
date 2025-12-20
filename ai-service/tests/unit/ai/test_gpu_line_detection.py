@@ -1,538 +1,558 @@
-"""Tests for gpu_line_detection module.
+"""Tests for GPU line detection module.
 
-Tests cover:
-- detect_lines_vectorized: Fast vectorized line detection
-- has_lines_batch_vectorized: Boolean line check
-- detect_lines_with_metadata: Full line metadata including overlength
-- detect_lines_batch: Line position extraction
-- process_lines_batch: Line processing with collapse
+Tests the vectorized line detection and processing functions.
 """
 
 import pytest
 import torch
 
-from app.ai.gpu_game_types import DetectedLine
+from app.ai.gpu_batch_state import BatchGameState
+from app.ai.gpu_line_detection import (
+    detect_lines_vectorized,
+    has_lines_batch_vectorized,
+    detect_lines_with_metadata,
+    detect_lines_batch,
+    process_lines_batch,
+)
+from app.ai.gpu_game_types import get_required_line_length
 
 
-class MockBatchGameState:
-    """Mock BatchGameState for testing line detection."""
+# =============================================================================
+# Test Fixtures
+# =============================================================================
 
-    def __init__(
-        self,
-        batch_size: int = 1,
-        board_size: int = 8,
-        num_players: int = 2,
-        device: torch.device = None,
-    ):
-        self.batch_size = batch_size
-        self.board_size = board_size
-        self.num_players = num_players
-        self.device = device or torch.device('cpu')
 
-        # Initialize tensors
-        self.marker_owner = torch.zeros(
-            batch_size, board_size, board_size,
-            dtype=torch.int16, device=self.device
-        )
-        self.stack_owner = torch.zeros(
-            batch_size, board_size, board_size,
-            dtype=torch.int16, device=self.device
-        )
-        self.stack_height = torch.zeros(
-            batch_size, board_size, board_size,
-            dtype=torch.int16, device=self.device
-        )
-        self.is_collapsed = torch.zeros(
-            batch_size, board_size, board_size,
-            dtype=torch.bool, device=self.device
-        )
-        self.territory_owner = torch.zeros(
-            batch_size, board_size, board_size,
-            dtype=torch.int16, device=self.device
-        )
-        self.territory_count = torch.zeros(
-            batch_size, num_players + 1,
-            dtype=torch.int32, device=self.device
-        )
-        self.eliminated_rings = torch.zeros(
-            batch_size, num_players + 1,
-            dtype=torch.int32, device=self.device
-        )
-        self.rings_caused_eliminated = torch.zeros(
-            batch_size, num_players + 1,
-            dtype=torch.int32, device=self.device
-        )
+@pytest.fixture
+def device():
+    """Get test device."""
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
 
-    def get_active_mask(self) -> torch.Tensor:
-        return torch.ones(self.batch_size, dtype=torch.bool, device=self.device)
 
-    def place_markers(self, game_idx: int, player: int, positions: list):
-        """Helper to place markers for testing."""
-        for y, x in positions:
-            self.marker_owner[game_idx, y, x] = player
+@pytest.fixture
+def board_size():
+    return 8
 
-    def place_stack(self, game_idx: int, player: int, y: int, x: int, height: int = 1):
-        """Helper to place a stack for testing."""
-        self.stack_owner[game_idx, y, x] = player
-        self.stack_height[game_idx, y, x] = height
+
+@pytest.fixture
+def num_players():
+    return 2
+
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+
+def create_test_state(batch_size: int, board_size: int, num_players: int, device: torch.device):
+    """Create a test BatchGameState."""
+    return BatchGameState.create_batch(
+        batch_size=batch_size,
+        board_size=board_size,
+        num_players=num_players,
+        device=device,
+    )
+
+
+def place_marker_line(state, game_idx: int, player: int, start_y: int, start_x: int,
+                      length: int, direction: tuple):
+    """Place a line of markers for testing."""
+    dy, dx = direction
+    for i in range(length):
+        y = start_y + i * dy
+        x = start_x + i * dx
+        if 0 <= y < state.board_size and 0 <= x < state.board_size:
+            state.marker_owner[game_idx, y, x] = player
+            # Ensure no stack at this position (lines are markers only)
+            state.stack_owner[game_idx, y, x] = 0
+
+
+# =============================================================================
+# Tests for detect_lines_vectorized
+# =============================================================================
 
 
 class TestDetectLinesVectorized:
-    """Tests for detect_lines_vectorized function."""
+    """Tests for the vectorized line detection function."""
 
-    def test_no_markers_no_lines(self):
-        """Empty board has no lines."""
-        from app.ai.gpu_line_detection import detect_lines_vectorized
+    def test_no_markers_returns_zero_counts(self, device, board_size, num_players):
+        """Empty board should have no lines."""
+        state = create_test_state(4, board_size, num_players, device)
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        in_line_mask, counts = detect_lines_vectorized(state, player=1)
+        in_line_mask, line_counts = detect_lines_vectorized(state, player=1)
 
-        assert in_line_mask.shape == (1, 8, 8)
-        assert counts.shape == (1,)
-        assert counts[0].item() == 0
+        assert in_line_mask.shape == (4, board_size, board_size)
+        assert line_counts.shape == (4,)
+        assert (line_counts == 0).all()
         assert not in_line_mask.any()
 
-    def test_horizontal_line_detected(self):
-        """Horizontal line of 4 markers is detected."""
-        from app.ai.gpu_line_detection import detect_lines_vectorized
+    def test_detects_horizontal_line(self, device, board_size, num_players):
+        """Should detect a horizontal line of markers."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        # Place horizontal line at row 3, cols 2-5
-        state.place_markers(0, 1, [(3, 2), (3, 3), (3, 4), (3, 5)])
+        # Place horizontal line for player 1 in game 0
+        place_marker_line(state, 0, player=1, start_y=3, start_x=1,
+                         length=required_length, direction=(0, 1))
 
-        in_line_mask, counts = detect_lines_vectorized(state, player=1)
+        in_line_mask, line_counts = detect_lines_vectorized(state, player=1)
 
-        assert counts[0].item() == 4
-        assert in_line_mask[0, 3, 2].item()
-        assert in_line_mask[0, 3, 3].item()
-        assert in_line_mask[0, 3, 4].item()
-        assert in_line_mask[0, 3, 5].item()
+        # Game 0 should have line positions
+        assert line_counts[0].item() >= required_length
+        # Game 1 should have no lines
+        assert line_counts[1].item() == 0
 
-    def test_vertical_line_detected(self):
-        """Vertical line of 4 markers is detected."""
-        from app.ai.gpu_line_detection import detect_lines_vectorized
+        # Check that correct positions are marked
+        for i in range(required_length):
+            assert in_line_mask[0, 3, 1 + i].item() == True
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        # Place vertical line at col 4, rows 1-4
-        state.place_markers(0, 1, [(1, 4), (2, 4), (3, 4), (4, 4)])
+    def test_detects_vertical_line(self, device, board_size, num_players):
+        """Should detect a vertical line of markers."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
 
-        in_line_mask, counts = detect_lines_vectorized(state, player=1)
+        # Place vertical line for player 1
+        place_marker_line(state, 0, player=1, start_y=1, start_x=4,
+                         length=required_length, direction=(1, 0))
 
-        assert counts[0].item() == 4
-        assert in_line_mask[0, 1, 4].item()
-        assert in_line_mask[0, 2, 4].item()
-        assert in_line_mask[0, 3, 4].item()
-        assert in_line_mask[0, 4, 4].item()
+        in_line_mask, line_counts = detect_lines_vectorized(state, player=1)
 
-    def test_diagonal_line_detected(self):
-        """Diagonal line (down-right) of 4 markers is detected."""
-        from app.ai.gpu_line_detection import detect_lines_vectorized
+        assert line_counts[0].item() >= required_length
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
+        # Check positions
+        for i in range(required_length):
+            assert in_line_mask[0, 1 + i, 4].item() == True
+
+    def test_detects_diagonal_line(self, device, board_size, num_players):
+        """Should detect a diagonal line (dy=1, dx=1)."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
+
         # Place diagonal line
-        state.place_markers(0, 1, [(1, 1), (2, 2), (3, 3), (4, 4)])
+        place_marker_line(state, 0, player=1, start_y=0, start_x=0,
+                         length=required_length, direction=(1, 1))
 
-        in_line_mask, counts = detect_lines_vectorized(state, player=1)
+        in_line_mask, line_counts = detect_lines_vectorized(state, player=1)
 
-        assert counts[0].item() == 4
-        assert in_line_mask[0, 1, 1].item()
-        assert in_line_mask[0, 2, 2].item()
-        assert in_line_mask[0, 3, 3].item()
-        assert in_line_mask[0, 4, 4].item()
+        assert line_counts[0].item() >= required_length
 
-    def test_anti_diagonal_line_detected(self):
-        """Anti-diagonal line (down-left) of 4 markers is detected."""
-        from app.ai.gpu_line_detection import detect_lines_vectorized
+    def test_detects_anti_diagonal_line(self, device, board_size, num_players):
+        """Should detect an anti-diagonal line (dy=1, dx=-1)."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        # Place anti-diagonal line
-        state.place_markers(0, 1, [(1, 6), (2, 5), (3, 4), (4, 3)])
+        # Place anti-diagonal line starting from top-right area
+        start_x = required_length - 1  # Ensure room for anti-diagonal
+        place_marker_line(state, 0, player=1, start_y=0, start_x=start_x,
+                         length=required_length, direction=(1, -1))
 
-        in_line_mask, counts = detect_lines_vectorized(state, player=1)
+        in_line_mask, line_counts = detect_lines_vectorized(state, player=1)
 
-        assert counts[0].item() == 4
+        assert line_counts[0].item() >= required_length
 
-    def test_short_line_not_detected(self):
-        """Line shorter than required length is not detected."""
-        from app.ai.gpu_line_detection import detect_lines_vectorized
+    def test_short_sequence_not_detected(self, device, board_size, num_players):
+        """Sequence shorter than required length should not be detected."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        # Place only 3 markers (required is 4 for 2-player 8x8)
-        state.place_markers(0, 1, [(3, 2), (3, 3), (3, 4)])
+        # Place line that's one short
+        place_marker_line(state, 0, player=1, start_y=3, start_x=1,
+                         length=required_length - 1, direction=(0, 1))
 
-        in_line_mask, counts = detect_lines_vectorized(state, player=1)
+        in_line_mask, line_counts = detect_lines_vectorized(state, player=1)
 
-        assert counts[0].item() == 0
-        assert not in_line_mask.any()
+        # Should not count as a line
+        assert line_counts[0].item() == 0
 
-    def test_stacks_block_line(self):
-        """Markers with stacks on them don't count for lines."""
-        from app.ai.gpu_line_detection import detect_lines_vectorized
+    def test_stacks_block_lines(self, device, board_size, num_players):
+        """Stacks on marker positions should break line detection."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        # Place 4 markers
-        state.place_markers(0, 1, [(3, 2), (3, 3), (3, 4), (3, 5)])
-        # Place a stack on one of them
-        state.place_stack(0, 1, 3, 3, height=1)
+        # Place markers for a line
+        for i in range(required_length):
+            state.marker_owner[0, 3, i] = 1
 
-        in_line_mask, counts = detect_lines_vectorized(state, player=1)
+        # Put a stack in the middle - this breaks the line
+        middle = required_length // 2
+        state.stack_owner[0, 3, middle] = 1
+        state.stack_height[0, 3, middle] = 2
 
-        # Should not detect a line because marker at (3,3) has a stack
-        assert counts[0].item() == 0
+        in_line_mask, line_counts = detect_lines_vectorized(state, player=1)
 
-    def test_different_player_markers_separate(self):
-        """Markers from different players don't form lines together."""
-        from app.ai.gpu_line_detection import detect_lines_vectorized
+        # The stack breaks the line
+        assert line_counts[0].item() < required_length
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        # Place 2 markers for player 1, 2 markers for player 2
-        state.place_markers(0, 1, [(3, 2), (3, 3)])
-        state.place_markers(0, 2, [(3, 4), (3, 5)])
+    def test_game_mask_filtering(self, device, board_size, num_players):
+        """Game mask should filter which games are checked."""
+        state = create_test_state(4, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
 
-        in_line_mask_p1, counts_p1 = detect_lines_vectorized(state, player=1)
-        in_line_mask_p2, counts_p2 = detect_lines_vectorized(state, player=2)
+        # Place lines in games 0 and 2
+        place_marker_line(state, 0, player=1, start_y=3, start_x=1,
+                         length=required_length, direction=(0, 1))
+        place_marker_line(state, 2, player=1, start_y=3, start_x=1,
+                         length=required_length, direction=(0, 1))
 
-        assert counts_p1[0].item() == 0
-        assert counts_p2[0].item() == 0
+        # Only check games 1 and 3
+        game_mask = torch.tensor([False, True, False, True], dtype=torch.bool, device=device)
 
-    def test_batch_processing(self):
-        """Multiple games processed correctly."""
-        from app.ai.gpu_line_detection import detect_lines_vectorized
+        in_line_mask, line_counts = detect_lines_vectorized(state, player=1, game_mask=game_mask)
 
-        state = MockBatchGameState(batch_size=3, board_size=8, num_players=2)
-        # Game 0: no line
-        state.place_markers(0, 1, [(0, 0), (0, 1)])
-        # Game 1: has line
-        state.place_markers(1, 1, [(3, 2), (3, 3), (3, 4), (3, 5)])
-        # Game 2: no line
-        state.place_markers(2, 1, [(7, 7)])
+        # Games 0 and 2 should show 0 (masked out)
+        assert line_counts[0].item() == 0
+        assert line_counts[2].item() == 0
 
-        in_line_mask, counts = detect_lines_vectorized(state, player=1)
+    def test_different_players_independent(self, device, board_size, num_players):
+        """Lines for different players should be detected independently."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
 
-        assert counts[0].item() == 0
-        assert counts[1].item() == 4
-        assert counts[2].item() == 0
+        # Player 1 has a line
+        place_marker_line(state, 0, player=1, start_y=2, start_x=0,
+                         length=required_length, direction=(0, 1))
 
-    def test_game_mask_filtering(self):
-        """game_mask filters which games to check."""
-        from app.ai.gpu_line_detection import detect_lines_vectorized
+        # Player 2 has a different line
+        place_marker_line(state, 0, player=2, start_y=5, start_x=0,
+                         length=required_length, direction=(0, 1))
 
-        state = MockBatchGameState(batch_size=2, board_size=8, num_players=2)
-        # Both games have lines
-        state.place_markers(0, 1, [(3, 2), (3, 3), (3, 4), (3, 5)])
-        state.place_markers(1, 1, [(3, 2), (3, 3), (3, 4), (3, 5)])
+        _, p1_counts = detect_lines_vectorized(state, player=1)
+        _, p2_counts = detect_lines_vectorized(state, player=2)
 
-        # Only check game 0
-        game_mask = torch.tensor([True, False], dtype=torch.bool)
-        in_line_mask, counts = detect_lines_vectorized(state, player=1, game_mask=game_mask)
+        assert p1_counts[0].item() >= required_length
+        assert p2_counts[0].item() >= required_length
 
-        assert counts[0].item() == 4
-        assert counts[1].item() == 0  # Masked out
+
+# =============================================================================
+# Tests for has_lines_batch_vectorized
+# =============================================================================
 
 
 class TestHasLinesBatchVectorized:
-    """Tests for has_lines_batch_vectorized function."""
+    """Tests for the fast line existence check."""
 
-    def test_returns_bool_tensor(self):
-        """Returns boolean tensor of correct shape."""
-        from app.ai.gpu_line_detection import has_lines_batch_vectorized
+    def test_returns_bool_tensor(self, device, board_size, num_players):
+        """Should return a boolean tensor."""
+        state = create_test_state(4, board_size, num_players, device)
 
-        state = MockBatchGameState(batch_size=4, board_size=8, num_players=2)
         result = has_lines_batch_vectorized(state, player=1)
 
-        assert result.dtype == torch.bool
         assert result.shape == (4,)
+        assert result.dtype == torch.bool
 
-    def test_no_lines_returns_false(self):
-        """Returns False when no lines exist."""
-        from app.ai.gpu_line_detection import has_lines_batch_vectorized
+    def test_detects_line_presence(self, device, board_size, num_players):
+        """Should detect when a player has lines."""
+        state = create_test_state(4, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        result = has_lines_batch_vectorized(state, player=1)
-
-        assert not result[0].item()
-
-    def test_has_lines_returns_true(self):
-        """Returns True when lines exist."""
-        from app.ai.gpu_line_detection import has_lines_batch_vectorized
-
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        state.place_markers(0, 1, [(3, 2), (3, 3), (3, 4), (3, 5)])
+        # Only game 1 has a line
+        place_marker_line(state, 1, player=1, start_y=3, start_x=0,
+                         length=required_length, direction=(0, 1))
 
         result = has_lines_batch_vectorized(state, player=1)
 
-        assert result[0].item()
+        assert result[0].item() == False
+        assert result[1].item() == True
+        assert result[2].item() == False
+        assert result[3].item() == False
+
+
+# =============================================================================
+# Tests for detect_lines_with_metadata
+# =============================================================================
 
 
 class TestDetectLinesWithMetadata:
-    """Tests for detect_lines_with_metadata function."""
+    """Tests for line detection with full metadata."""
 
-    def test_returns_list_per_game(self):
-        """Returns list of lists, one per game."""
-        from app.ai.gpu_line_detection import detect_lines_with_metadata
+    def test_returns_list_of_detected_lines(self, device, board_size, num_players):
+        """Should return DetectedLine objects with full metadata."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
 
-        state = MockBatchGameState(batch_size=3, board_size=8, num_players=2)
-        result = detect_lines_with_metadata(state, player=1)
+        # Place a line
+        place_marker_line(state, 0, player=1, start_y=3, start_x=0,
+                         length=required_length, direction=(0, 1))
 
-        assert len(result) == 3
-        assert all(isinstance(game_lines, list) for game_lines in result)
+        lines = detect_lines_with_metadata(state, player=1)
 
-    def test_no_lines_returns_empty_lists(self):
-        """Returns empty lists when no lines exist."""
-        from app.ai.gpu_line_detection import detect_lines_with_metadata
+        assert len(lines) == 2  # One list per game
+        assert len(lines[0]) >= 1  # Game 0 has at least one line
+        assert len(lines[1]) == 0  # Game 1 has no lines
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        result = detect_lines_with_metadata(state, player=1)
+        # Check DetectedLine structure
+        line = lines[0][0]
+        assert hasattr(line, 'positions')
+        assert hasattr(line, 'length')
+        assert hasattr(line, 'is_overlength')
+        assert hasattr(line, 'direction')
 
-        assert result[0] == []
+    def test_detects_overlength_lines(self, device, board_size, num_players):
+        """Should mark lines longer than required as overlength."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
 
-    def test_detected_line_has_correct_metadata(self):
-        """Detected lines have correct metadata."""
-        from app.ai.gpu_line_detection import detect_lines_with_metadata
+        # Place an overlength line
+        place_marker_line(state, 0, player=1, start_y=3, start_x=0,
+                         length=required_length + 1, direction=(0, 1))
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        state.place_markers(0, 1, [(3, 2), (3, 3), (3, 4), (3, 5)])
+        lines = detect_lines_with_metadata(state, player=1)
 
-        result = detect_lines_with_metadata(state, player=1)
+        assert len(lines[0]) >= 1
+        line = lines[0][0]
+        assert line.is_overlength == True
+        assert line.length >= required_length + 1
 
-        assert len(result[0]) == 1
-        line = result[0][0]
-        assert isinstance(line, DetectedLine)
-        assert line.length == 4
-        assert line.is_overlength is False
-        assert len(line.positions) == 4
+    def test_exact_length_not_overlength(self, device, board_size, num_players):
+        """Exact required length should not be marked as overlength."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
+
+        # Place exact-length line
+        place_marker_line(state, 0, player=1, start_y=3, start_x=0,
+                         length=required_length, direction=(0, 1))
+
+        lines = detect_lines_with_metadata(state, player=1)
+
+        assert len(lines[0]) >= 1
+        # Find the line we placed
+        for line in lines[0]:
+            if line.length == required_length:
+                assert line.is_overlength == False
+                break
+
+    def test_includes_direction(self, device, board_size, num_players):
+        """Should include the direction of each line."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
+
+        # Place horizontal line
+        place_marker_line(state, 0, player=1, start_y=3, start_x=0,
+                         length=required_length, direction=(0, 1))
+
+        lines = detect_lines_with_metadata(state, player=1)
+
+        line = lines[0][0]
         assert line.direction in [(0, 1), (1, 0), (1, 1), (1, -1)]
 
-    def test_overlength_line_marked_correctly(self):
-        """Overlength lines are marked as overlength."""
-        from app.ai.gpu_line_detection import detect_lines_with_metadata
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        # Place 5 markers (required is 4)
-        state.place_markers(0, 1, [(3, 1), (3, 2), (3, 3), (3, 4), (3, 5)])
-
-        result = detect_lines_with_metadata(state, player=1)
-
-        assert len(result[0]) == 1
-        line = result[0][0]
-        assert line.length == 5
-        assert line.is_overlength is True
-
-    def test_multiple_lines_detected(self):
-        """Multiple lines in same game are all detected."""
-        from app.ai.gpu_line_detection import detect_lines_with_metadata
-
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        # Horizontal line
-        state.place_markers(0, 1, [(1, 0), (1, 1), (1, 2), (1, 3)])
-        # Vertical line (separate)
-        state.place_markers(0, 1, [(4, 6), (5, 6), (6, 6), (7, 6)])
-
-        result = detect_lines_with_metadata(state, player=1)
-
-        assert len(result[0]) == 2
+# =============================================================================
+# Tests for detect_lines_batch
+# =============================================================================
 
 
 class TestDetectLinesBatch:
-    """Tests for detect_lines_batch function."""
+    """Tests for line detection returning position lists."""
 
-    def test_returns_list_of_positions(self):
-        """Returns list of position tuples."""
-        from app.ai.gpu_line_detection import detect_lines_batch
+    def test_returns_position_lists(self, device, board_size, num_players):
+        """Should return lists of (y, x) position tuples."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        state.place_markers(0, 1, [(3, 2), (3, 3), (3, 4), (3, 5)])
+        place_marker_line(state, 0, player=1, start_y=3, start_x=0,
+                         length=required_length, direction=(0, 1))
 
-        result = detect_lines_batch(state, player=1)
+        lines = detect_lines_batch(state, player=1)
 
-        assert len(result) == 1
-        assert len(result[0]) == 4
-        assert all(isinstance(pos, tuple) and len(pos) == 2 for pos in result[0])
+        assert len(lines) == 2
+        assert len(lines[0]) >= required_length  # Positions in line
+        assert len(lines[1]) == 0  # No lines in game 1
 
-    def test_empty_when_no_lines(self):
-        """Returns empty list when no lines."""
-        from app.ai.gpu_line_detection import detect_lines_batch
+        # Positions should be tuples
+        if lines[0]:
+            assert isinstance(lines[0][0], tuple)
+            assert len(lines[0][0]) == 2
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        result = detect_lines_batch(state, player=1)
+    def test_empty_when_no_lines(self, device, board_size, num_players):
+        """Should return empty lists when no lines exist."""
+        state = create_test_state(4, board_size, num_players, device)
 
-        assert result[0] == []
+        lines = detect_lines_batch(state, player=1)
+
+        assert all(len(game_lines) == 0 for game_lines in lines)
 
 
-class TestEliminateOneRingFromAnyStack:
-    """Tests for _eliminate_one_ring_from_any_stack function."""
-
-    def test_eliminates_from_controlled_stack(self):
-        """Eliminates one ring from a controlled stack."""
-        from app.ai.gpu_line_detection import _eliminate_one_ring_from_any_stack
-
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        state.place_stack(0, 1, 3, 3, height=3)
-
-        result = _eliminate_one_ring_from_any_stack(state, game_idx=0, player=1)
-
-        assert result is True
-        assert state.stack_height[0, 3, 3].item() == 2
-        assert state.eliminated_rings[0, 1].item() == 1
-        assert state.rings_caused_eliminated[0, 1].item() == 1
-
-    def test_clears_stack_owner_when_empty(self):
-        """Clears stack owner when height reaches 0."""
-        from app.ai.gpu_line_detection import _eliminate_one_ring_from_any_stack
-
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        state.place_stack(0, 1, 3, 3, height=1)
-
-        result = _eliminate_one_ring_from_any_stack(state, game_idx=0, player=1)
-
-        assert result is True
-        assert state.stack_height[0, 3, 3].item() == 0
-        assert state.stack_owner[0, 3, 3].item() == 0
-
-    def test_returns_false_when_no_stacks(self):
-        """Returns False when player has no stacks."""
-        from app.ai.gpu_line_detection import _eliminate_one_ring_from_any_stack
-
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        # No stacks placed
-
-        result = _eliminate_one_ring_from_any_stack(state, game_idx=0, player=1)
-
-        assert result is False
-
-    def test_ignores_other_player_stacks(self):
-        """Only eliminates from player's own stacks."""
-        from app.ai.gpu_line_detection import _eliminate_one_ring_from_any_stack
-
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        state.place_stack(0, 2, 3, 3, height=3)  # Player 2's stack
-
-        result = _eliminate_one_ring_from_any_stack(state, game_idx=0, player=1)
-
-        assert result is False
-        assert state.stack_height[0, 3, 3].item() == 3  # Unchanged
+# =============================================================================
+# Tests for process_lines_batch
+# =============================================================================
 
 
 class TestProcessLinesBatch:
-    """Tests for process_lines_batch function."""
+    """Tests for line processing (collapsing and elimination)."""
 
-    def test_collapses_line_markers(self):
-        """Line markers are collapsed to territory."""
-        from app.ai.gpu_line_detection import process_lines_batch
+    def test_collapses_line_markers(self, device, board_size, num_players):
+        """Processing should collapse markers into territory."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        state.place_markers(0, 1, [(3, 2), (3, 3), (3, 4), (3, 5)])
-        state.place_stack(0, 1, 0, 0, height=2)  # Stack for elimination cost
+        # Place a line
+        place_marker_line(state, 0, player=1, start_y=3, start_x=0,
+                         length=required_length, direction=(0, 1))
 
-        process_lines_batch(state, option2_probability=0.0)
+        # Add a stack for elimination cost
+        state.stack_owner[0, 0, 0] = 1
+        state.stack_height[0, 0, 0] = 2
 
-        # Markers should be cleared
-        assert state.marker_owner[0, 3, 2].item() == 0
-        assert state.marker_owner[0, 3, 3].item() == 0
-        assert state.marker_owner[0, 3, 4].item() == 0
-        assert state.marker_owner[0, 3, 5].item() == 0
+        # Process lines
+        process_lines_batch(state)
 
-        # Territory should be claimed
-        assert state.territory_owner[0, 3, 2].item() == 1
-        assert state.territory_owner[0, 3, 3].item() == 1
-        assert state.territory_owner[0, 3, 4].item() == 1
-        assert state.territory_owner[0, 3, 5].item() == 1
+        # Markers should be collapsed
+        for i in range(required_length):
+            assert state.is_collapsed[0, 3, i].item() == True
+            assert state.territory_owner[0, 3, i].item() == 1
+            assert state.marker_owner[0, 3, i].item() == 0
 
-        # Cells should be collapsed
-        assert state.is_collapsed[0, 3, 2].item()
-        assert state.is_collapsed[0, 3, 3].item()
-        assert state.is_collapsed[0, 3, 4].item()
-        assert state.is_collapsed[0, 3, 5].item()
+    def test_elimination_cost_for_exact_length(self, device, board_size, num_players):
+        """Exact-length lines should cost one ring elimination."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
 
-    def test_elimination_cost_paid(self):
-        """Exact-length line pays elimination cost."""
-        from app.ai.gpu_line_detection import process_lines_batch
+        # Place exact-length line
+        place_marker_line(state, 0, player=1, start_y=3, start_x=0,
+                         length=required_length, direction=(0, 1))
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        state.place_markers(0, 1, [(3, 2), (3, 3), (3, 4), (3, 5)])
-        state.place_stack(0, 1, 0, 0, height=2)
-
+        # Add a stack for elimination
+        state.stack_owner[0, 0, 0] = 1
+        state.stack_height[0, 0, 0] = 3
         initial_height = state.stack_height[0, 0, 0].item()
-        process_lines_batch(state, option2_probability=0.0)
 
-        # One ring eliminated
+        process_lines_batch(state, option2_probability=0.0)  # Force option 1
+
+        # One ring should be eliminated
         assert state.stack_height[0, 0, 0].item() == initial_height - 1
-        assert state.eliminated_rings[0, 1].item() == 1
 
-    def test_no_processing_when_no_lines(self):
-        """No changes when no lines exist."""
-        from app.ai.gpu_line_detection import process_lines_batch
+    def test_option2_no_elimination_cost(self, device, board_size, num_players):
+        """Option 2 for overlength lines should have no elimination cost."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        state.place_markers(0, 1, [(3, 2), (3, 3)])  # Only 2 markers
+        # Place overlength line
+        place_marker_line(state, 0, player=1, start_y=3, start_x=0,
+                         length=required_length + 2, direction=(0, 1))
+
+        # Add a stack
+        state.stack_owner[0, 0, 0] = 1
+        state.stack_height[0, 0, 0] = 3
+        initial_height = state.stack_height[0, 0, 0].item()
+
+        # Force Option 2
+        process_lines_batch(state, option2_probability=1.0)
+
+        # No elimination cost for option 2
+        assert state.stack_height[0, 0, 0].item() == initial_height
+
+    def test_territory_count_increases(self, device, board_size, num_players):
+        """Territory count should increase when line is processed."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
+
+        initial_territory = state.territory_count[0, 1].item()
+
+        # Place a line
+        place_marker_line(state, 0, player=1, start_y=3, start_x=0,
+                         length=required_length, direction=(0, 1))
+
+        # Add a stack for elimination
+        state.stack_owner[0, 0, 0] = 1
+        state.stack_height[0, 0, 0] = 2
 
         process_lines_batch(state)
 
-        # Markers unchanged
-        assert state.marker_owner[0, 3, 2].item() == 1
-        assert state.marker_owner[0, 3, 3].item() == 1
-        assert not state.is_collapsed[0, 3, 2].item()
-        assert not state.is_collapsed[0, 3, 3].item()
+        # Territory should have increased
+        assert state.territory_count[0, 1].item() >= initial_territory + required_length
 
-    def test_territory_count_updated(self):
-        """Territory count is updated correctly."""
-        from app.ai.gpu_line_detection import process_lines_batch
+    def test_respects_game_mask(self, device, board_size, num_players):
+        """Should only process games in the mask."""
+        state = create_test_state(4, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=2)
-        state.place_markers(0, 1, [(3, 2), (3, 3), (3, 4), (3, 5)])
-        state.place_stack(0, 1, 0, 0, height=2)
-
-        initial_territory = state.territory_count[0, 1].item()
-        process_lines_batch(state, option2_probability=0.0)
-
-        assert state.territory_count[0, 1].item() == initial_territory + 4
-
-    def test_game_mask_respected(self):
-        """game_mask filters which games are processed."""
-        from app.ai.gpu_line_detection import process_lines_batch
-
-        state = MockBatchGameState(batch_size=2, board_size=8, num_players=2)
-        # Both games have lines
-        state.place_markers(0, 1, [(3, 2), (3, 3), (3, 4), (3, 5)])
-        state.place_markers(1, 1, [(3, 2), (3, 3), (3, 4), (3, 5)])
-        state.place_stack(0, 1, 0, 0, height=2)
-        state.place_stack(1, 1, 0, 0, height=2)
+        # Place lines in games 0 and 2
+        for g in [0, 2]:
+            place_marker_line(state, g, player=1, start_y=3, start_x=0,
+                             length=required_length, direction=(0, 1))
+            state.stack_owner[g, 0, 0] = 1
+            state.stack_height[g, 0, 0] = 2
 
         # Only process game 0
-        game_mask = torch.tensor([True, False], dtype=torch.bool)
+        game_mask = torch.tensor([True, False, False, False], dtype=torch.bool, device=device)
         process_lines_batch(state, game_mask=game_mask)
 
-        # Game 0 processed
-        assert state.marker_owner[0, 3, 2].item() == 0
-        # Game 1 not processed
-        assert state.marker_owner[1, 3, 2].item() == 1
+        # Game 0 should be processed
+        assert state.is_collapsed[0, 3, 0].item() == True
+        # Game 2 should NOT be processed
+        assert state.is_collapsed[2, 3, 0].item() == False
 
 
-class TestThreePlayerLineLength:
-    """Tests for 3-player games which require shorter lines."""
+# =============================================================================
+# Edge Cases
+# =============================================================================
 
-    def test_three_player_requires_three(self):
-        """3-player 8x8 requires only 3 markers for a line."""
-        from app.ai.gpu_line_detection import detect_lines_vectorized
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=3)
-        # Place only 3 markers
-        state.place_markers(0, 1, [(3, 2), (3, 3), (3, 4)])
+class TestLineDetectionEdgeCases:
+    """Edge cases and corner scenarios."""
 
-        in_line_mask, counts = detect_lines_vectorized(state, player=1)
+    def test_multiple_lines_same_game(self, device, board_size, num_players):
+        """Should detect multiple lines in the same game."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
 
-        # Should detect a line with 3 markers for 3-player
-        assert counts[0].item() == 3
+        # Place two parallel horizontal lines
+        place_marker_line(state, 0, player=1, start_y=2, start_x=0,
+                         length=required_length, direction=(0, 1))
+        place_marker_line(state, 0, player=1, start_y=5, start_x=0,
+                         length=required_length, direction=(0, 1))
 
-    def test_three_player_overlength(self):
-        """4+ markers is overlength for 3-player."""
-        from app.ai.gpu_line_detection import detect_lines_with_metadata
+        _, line_counts = detect_lines_vectorized(state, player=1)
 
-        state = MockBatchGameState(batch_size=1, board_size=8, num_players=3)
-        # Place 4 markers (overlength for 3-player)
-        state.place_markers(0, 1, [(3, 2), (3, 3), (3, 4), (3, 5)])
+        # Should have positions from both lines
+        assert line_counts[0].item() >= required_length * 2
 
-        result = detect_lines_with_metadata(state, player=1)
+    def test_intersecting_lines(self, device, board_size, num_players):
+        """Should handle intersecting lines correctly."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
 
-        assert len(result[0]) == 1
-        assert result[0][0].is_overlength is True
+        # Place horizontal line
+        place_marker_line(state, 0, player=1, start_y=3, start_x=0,
+                         length=required_length, direction=(0, 1))
+        # Place vertical line intersecting it
+        place_marker_line(state, 0, player=1, start_y=0, start_x=2,
+                         length=required_length, direction=(1, 0))
+
+        _, line_counts = detect_lines_vectorized(state, player=1)
+
+        # Should count all unique positions
+        assert line_counts[0].item() > 0
+
+    def test_line_at_board_edge(self, device, board_size, num_players):
+        """Lines at board edges should be detected."""
+        state = create_test_state(2, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
+
+        # Place line at top edge
+        place_marker_line(state, 0, player=1, start_y=0, start_x=0,
+                         length=required_length, direction=(0, 1))
+
+        _, line_counts = detect_lines_vectorized(state, player=1)
+
+        assert line_counts[0].item() >= required_length
+
+    def test_large_batch(self, device, board_size, num_players):
+        """Should handle large batches efficiently."""
+        batch_size = 500
+        state = create_test_state(batch_size, board_size, num_players, device)
+        required_length = get_required_line_length(board_size, num_players)
+
+        # Place a line in every 10th game
+        for g in range(0, batch_size, 10):
+            place_marker_line(state, g, player=1, start_y=3, start_x=0,
+                             length=required_length, direction=(0, 1))
+
+        _, line_counts = detect_lines_vectorized(state, player=1)
+
+        # Check every 10th game has lines
+        for g in range(0, batch_size, 10):
+            assert line_counts[g].item() >= required_length

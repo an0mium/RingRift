@@ -208,7 +208,7 @@ class UnifiedEventRouter:
         )
         # Run async dispatch in sync context
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
             loop.create_task(self._dispatch(router_event, exclude_origin=True))
         except RuntimeError:
             # No running loop - use sync dispatch
@@ -350,7 +350,7 @@ class UnifiedEventRouter:
         Returns a RouterEvent when no loop is running, otherwise a scheduled Future.
         """
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
             future = asyncio.ensure_future(
                 self.publish(event_type, payload, source)
             )

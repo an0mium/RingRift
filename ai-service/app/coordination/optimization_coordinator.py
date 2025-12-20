@@ -45,7 +45,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -481,7 +481,7 @@ class OptimizationCoordinator:
             optimization_type = run.optimization_type.value
 
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 asyncio.create_task(emit_optimization_triggered(
                     optimization_type=optimization_type,
                     run_id=run.run_id,
@@ -502,7 +502,7 @@ class OptimizationCoordinator:
                     population_size=run.population_size,
                 ))
 
-            logger.debug(f"[OptimizationCoordinator] Emitted optimization triggered event")
+            logger.debug("[OptimizationCoordinator] Emitted optimization triggered event")
         except ImportError:
             pass
         except Exception as e:

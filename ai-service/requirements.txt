@@ -34,8 +34,8 @@ mypy==1.13.0  # Static type checking for Python/TS parity
 vulture==2.14  # Dead code detection
 
 # Core ML/Data Science libraries (Latest versions with numpy 2.x)
-numpy==2.2.1
-scipy==1.15.1
+numpy==2.2.6
+scipy==1.15.3
 scikit-learn==1.6.1
 
 # Deep Learning for Self-Improving AI

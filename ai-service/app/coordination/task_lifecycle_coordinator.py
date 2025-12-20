@@ -521,7 +521,7 @@ class TaskLifecycleCoordinator:
             import asyncio
 
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 asyncio.create_task(emit_task_orphaned(
                     task_id=task.task_id,
                     task_type=task.task_type,

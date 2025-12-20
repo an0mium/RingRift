@@ -1104,7 +1104,7 @@ class CrossCoordinatorHealthProtocol:
             bus = get_event_bus()
             import asyncio
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 asyncio.create_task(bus.publish(event))
             except RuntimeError:
                 if hasattr(bus, 'publish_sync'):

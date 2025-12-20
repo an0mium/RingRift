@@ -42,7 +42,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -484,7 +484,7 @@ class ResourceMonitoringCoordinator:
                 from app.coordination.event_emitters import emit_backpressure_activated
 
                 try:
-                    loop = asyncio.get_running_loop()
+                    asyncio.get_running_loop()
                     asyncio.create_task(emit_backpressure_activated(
                         node_id=node_id,
                         level=level.value,
@@ -504,7 +504,7 @@ class ResourceMonitoringCoordinator:
                 from app.coordination.event_emitters import emit_backpressure_released
 
                 try:
-                    loop = asyncio.get_running_loop()
+                    asyncio.get_running_loop()
                     asyncio.create_task(emit_backpressure_released(
                         node_id=node_id,
                         previous_level=level.value,

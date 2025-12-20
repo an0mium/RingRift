@@ -48,14 +48,9 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Protocol, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Protocol, TYPE_CHECKING
 
-from app.coordination.coordinator_base import (
-    CoordinatorBase,
-    CoordinatorRegistry,
-    CoordinatorStatus,
-    SQLitePersistenceMixin,
-)
+from app.coordination.coordinator_base import SQLitePersistenceMixin
 
 if TYPE_CHECKING:
     from app.distributed.db_utils import ThreadLocalConnectionPool

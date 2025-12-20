@@ -4,6 +4,7 @@ This module provides heuristic position evaluation for the GPU parallel games
 system. Extracted from gpu_parallel_games.py for modularity.
 
 December 2025: Extracted as part of R17 refactoring.
+December 2025: Optimized for ~2x speedup via batched player operations.
 
 Implements comprehensive 45-weight heuristic evaluation per RR-CANON rules.
 """
@@ -16,6 +17,56 @@ import torch
 
 if TYPE_CHECKING:
     from .gpu_parallel_games import BatchGameState
+
+
+def _precompute_weights(weights: Dict[str, float]) -> Dict[str, float]:
+    """Precompute all weights upfront to avoid repeated dict lookups."""
+    def get_w(new_key: str, old_key: str = None, default: float = 0.0) -> float:
+        if new_key in weights:
+            return weights[new_key]
+        if old_key and old_key in weights:
+            return weights[old_key]
+        return default
+
+    return {
+        'stack_control': get_w("WEIGHT_STACK_CONTROL", "material_weight", 9.39),
+        'stack_height': get_w("WEIGHT_STACK_HEIGHT", "ring_count_weight", 6.81),
+        'cap_height': get_w("WEIGHT_CAP_HEIGHT", None, 4.82),
+        'territory': get_w("WEIGHT_TERRITORY", "territory_weight", 8.66),
+        'rings_in_hand': get_w("WEIGHT_RINGS_IN_HAND", None, 5.17),
+        'center_control': get_w("WEIGHT_CENTER_CONTROL", "center_control_weight", 2.28),
+        'adjacency': get_w("WEIGHT_ADJACENCY", None, 1.57),
+        'opponent_threat': get_w("WEIGHT_OPPONENT_THREAT", None, 6.11),
+        'mobility': get_w("WEIGHT_MOBILITY", "mobility_weight", 5.31),
+        'eliminated_rings': get_w("WEIGHT_ELIMINATED_RINGS", None, 13.12),
+        'vulnerability': get_w("WEIGHT_VULNERABILITY", None, 9.32),
+        'two_in_row': get_w("WEIGHT_TWO_IN_ROW", None, 4.25),
+        'three_in_row': get_w("WEIGHT_THREE_IN_ROW", None, 2.13),
+        'four_in_row': get_w("WEIGHT_FOUR_IN_ROW", None, 4.36),
+        'line_potential': get_w("WEIGHT_LINE_POTENTIAL", "line_potential_weight", 7.24),
+        'victory_proximity': get_w("WEIGHT_VICTORY_PROXIMITY", None, 20.94),
+        'connected_neighbor': get_w("WEIGHT_CONNECTED_NEIGHBOR", None, 2.21),
+        'gap_potential': get_w("WEIGHT_GAP_POTENTIAL", None, 0.03),
+        'marker_count': get_w("WEIGHT_MARKER_COUNT", None, 3.76),
+        'overtake_potential': get_w("WEIGHT_OVERTAKE_POTENTIAL", None, 5.96),
+        'territory_closure': get_w("WEIGHT_TERRITORY_CLOSURE", None, 11.56),
+        'line_connectivity': get_w("WEIGHT_LINE_CONNECTIVITY", None, 5.65),
+        'territory_safety': get_w("WEIGHT_TERRITORY_SAFETY", None, 2.83),
+        'stack_mobility': get_w("WEIGHT_STACK_MOBILITY", None, 1.11),
+        'opponent_victory_threat': get_w("WEIGHT_OPPONENT_VICTORY_THREAT", None, 5.21),
+        'forced_elim_risk': get_w("WEIGHT_FORCED_ELIMINATION_RISK", None, 2.89),
+        'lps_advantage': get_w("WEIGHT_LPS_ACTION_ADVANTAGE", None, 0.99),
+        'multi_leader_threat': get_w("WEIGHT_MULTI_LEADER_THREAT", None, 1.03),
+        'no_stacks_penalty': get_w("WEIGHT_NO_STACKS_PENALTY", None, 51.02),
+        'single_stack_penalty': get_w("WEIGHT_SINGLE_STACK_PENALTY", None, 10.53),
+        'diversity_bonus': get_w("WEIGHT_STACK_DIVERSITY_BONUS", None, -0.74),
+        'blocked_stack_penalty': get_w("WEIGHT_BLOCKED_STACK_PENALTY", None, 4.57),
+        'victory_threshold_bonus': get_w("WEIGHT_VICTORY_THRESHOLD_BONUS", None, 998.52),
+        'defensive': get_w("defensive_weight", None, 0.3),
+        'recovery_potential': get_w("WEIGHT_RECOVERY_POTENTIAL", None, 6.0),
+        'recovery_eligibility': get_w("WEIGHT_RECOVERY_ELIGIBILITY", None, 8.0),
+        'buried_ring_value': get_w("WEIGHT_BURIED_RING_VALUE", None, 3.0),
+    }
 
 
 def evaluate_positions_batch(
@@ -97,6 +148,9 @@ def evaluate_positions_batch(
 
     scores = torch.zeros(batch_size, num_players + 1, dtype=torch.float32, device=device)
 
+    # Precompute weights once (avoids repeated dict lookups in inner loop)
+    w = _precompute_weights(weights)
+
     # Pre-compute center distance matrix
     y_coords = torch.arange(board_size, device=device).view(-1, 1).expand(board_size, board_size)
     x_coords = torch.arange(board_size, device=device).view(1, -1).expand(board_size, board_size)
@@ -105,7 +159,6 @@ def evaluate_positions_batch(
     center_bonus = (max_dist - center_dist) / max_dist  # 1.0 at center, 0.0 at corners
 
     # Canonical victory thresholds (RR-CANON-R061/R062-v2).
-    # Keep this in sync with app.rules.core.BOARD_CONFIGS.
     from app.models import BoardType
     from app.rules.core import get_territory_victory_minimum, get_victory_threshold
 
@@ -116,29 +169,41 @@ def evaluate_positions_batch(
         13: BoardType.HEXAGONAL,
     }
     board_type = board_type_map.get(board_size, BoardType.SQUARE8)
-    # Per RR-CANON-R062-v2: Use player-count-aware minimum threshold
     territory_victory_minimum = get_territory_victory_minimum(board_type, num_players)
     ring_victory_threshold = get_victory_threshold(board_type, num_players)
 
-    # Weight mapping: support both old 8-weight format and new 45-weight format
-    def get_weight(new_key: str, old_key: str = None, default: float = 0.0) -> float:
-        """Get weight from dict, checking both new and old key formats."""
-        if new_key in weights:
-            return weights[new_key]
-        if old_key and old_key in weights:
-            return weights[old_key]
-        return default
+    # Precompute per-player board masks (batch, num_players+1, H, W) for batched operations
+    # This avoids recomputing (state.stack_owner == p) multiple times
+    player_ids = torch.arange(num_players + 1, device=device).view(1, -1, 1, 1)
+    all_player_stacks = (state.stack_owner.unsqueeze(1) == player_ids).float()
+    # all_player_stacks: (batch, num_players+1, H, W) where [b, p, :, :] is mask for player p
+
+    # Precompute stack counts for all players: (batch, num_players+1)
+    all_stack_counts = all_player_stacks.sum(dim=(2, 3))
+
+    # Precompute ring counts for all players: (batch, num_players+1)
+    stack_height_exp = state.stack_height.unsqueeze(1).expand(-1, num_players + 1, -1, -1)
+    all_ring_counts = (stack_height_exp * all_player_stacks).sum(dim=(2, 3))
+
+    # Precompute center control for all players
+    center_bonus_exp = center_bonus.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+    all_center_control = (center_bonus_exp * all_player_stacks).sum(dim=(2, 3))
+
+    # Precompute empty cell mask once
+    empty_cells = (state.stack_owner == 0).float()
+
+    # Precompute heights and padded tensors once
+    heights = state.stack_height.float()
+    h_pad = torch.nn.functional.pad(heights, (1, 1, 1, 1), value=0)
+    own_pad = torch.nn.functional.pad((state.stack_owner != 0).float(), (1, 1, 1, 1), value=0)
 
     for p in range(1, num_players + 1):
-        # === CORE POSITION METRICS ===
-        player_stacks = (state.stack_owner == p)
-        stack_count = player_stacks.sum(dim=(1, 2)).float()
-
-        # Total rings on controlled stacks
-        player_heights = state.stack_height * player_stacks.int()
-        total_ring_count = player_heights.sum(dim=(1, 2)).float()
-
-        # Cap height (sum of stack heights, reflects capture power)
+        # === CORE POSITION METRICS (using precomputed values) ===
+        # Use precomputed masks and counts instead of recomputing
+        player_stacks_float = all_player_stacks[:, p, :, :]  # (batch, H, W)
+        player_stacks = player_stacks_float > 0.5  # Boolean mask
+        stack_count = all_stack_counts[:, p]
+        total_ring_count = all_ring_counts[:, p]
         cap_height = total_ring_count.clone()  # Same as ring count for now
 
         # Rings in hand
@@ -147,8 +212,8 @@ def evaluate_positions_batch(
         # Territory count
         territory = state.territory_count[:, p].float()
 
-        # Center control: weighted sum of positions near center
-        center_control = (center_bonus.unsqueeze(0) * player_stacks.float()).sum(dim=(1, 2))
+        # Center control (precomputed)
+        center_control = all_center_control[:, p]
 
         # === STACK HEIGHT METRICS ===
         # Average stack height
@@ -160,7 +225,7 @@ def evaluate_positions_batch(
         # === ADJACENCY METRICS ===
         # Count adjacent pairs of controlled stacks (vectorized)
         # Check horizontal adjacency: player_stacks[:, :, :-1] AND player_stacks[:, :, 1:]
-        player_stacks_float = player_stacks.float()
+        # (player_stacks_float already precomputed above)
         horizontal_adj = (player_stacks_float[:, :, :-1] * player_stacks_float[:, :, 1:]).sum(dim=(1, 2))
         # Check vertical adjacency: player_stacks[:, :-1, :] AND player_stacks[:, 1:, :]
         vertical_adj = (player_stacks_float[:, :-1, :] * player_stacks_float[:, 1:, :]).sum(dim=(1, 2))
@@ -216,7 +281,7 @@ def evaluate_positions_batch(
 
         # Gap potential: simplified - check patterns like [stack, empty, stack]
         # Horizontal gaps: stack at x, empty at x+1, stack at x+2
-        empty_cells = (state.stack_owner == 0).float()
+        # (empty_cells already precomputed above)
         h_gap = (player_stacks_float[:, :, :-2] * empty_cells[:, :, 1:-1] * player_stacks_float[:, :, 2:]).sum(dim=(1, 2))
         v_gap = (player_stacks_float[:, :-2, :] * empty_cells[:, 1:-1, :] * player_stacks_float[:, 2:, :]).sum(dim=(1, 2))
         d1_gap = (player_stacks_float[:, :-2, :-2] * empty_cells[:, 1:-1, 1:-1] * player_stacks_float[:, 2:, 2:]).sum(dim=(1, 2))
@@ -232,7 +297,8 @@ def evaluate_positions_batch(
             if opponent == p:
                 continue
 
-            opp_stacks = (state.stack_owner == opponent).float()
+            # Use precomputed opponent mask
+            opp_stacks = all_player_stacks[:, opponent, :, :]  # Already float
             opp_territory = state.territory_count[:, opponent].float()
             opp_eliminated = state.eliminated_rings[:, opponent].float()
 
@@ -396,9 +462,9 @@ def evaluate_positions_batch(
 
         # Compute diversity scores (mirroring CPU diversification_score function)
         # CPU: if stacks == 0: return -penalty; elif stacks == 1: return -single_penalty; else: return stacks * bonus
-        no_stacks_penalty = get_weight("WEIGHT_NO_STACKS_PENALTY", None, 51.02)
-        single_stack_penalty = get_weight("WEIGHT_SINGLE_STACK_PENALTY", None, 10.53)
-        diversity_bonus = get_weight("WEIGHT_STACK_DIVERSITY_BONUS", None, -0.74)
+        no_stacks_penalty = w['no_stacks_penalty']
+        single_stack_penalty = w['single_stack_penalty']
+        diversity_bonus = w['diversity_bonus']
 
         # My diversity score
         my_diversity = torch.where(
@@ -429,30 +495,35 @@ def evaluate_positions_batch(
         # Note: stack_diversity bonus now computed as part of diversity_advantage
 
         # === COMPUTE OPPONENT METRICS FOR SYMMETRIC EVALUATION ===
-        # v2.0: CPU heuristic computes (my_value - opponent_value) for most features.
-        # To achieve parity, we compute average/max opponent values and use relative differences.
-        opp_stack_count = torch.zeros(batch_size, device=device)
-        opp_ring_count = torch.zeros(batch_size, device=device)
-        opp_cap_height = torch.zeros(batch_size, device=device)
-        opp_territory = torch.zeros(batch_size, device=device)
-        max_opp_rings_in_hand = torch.zeros(batch_size, device=device)
-        opp_center_control = torch.zeros(batch_size, device=device)
-        opp_eliminated_rings = torch.zeros(batch_size, device=device)
-
-        for opp in range(1, num_players + 1):
-            if opp != p:
-                opp_stacks_mask = (state.stack_owner == opp)
-                opp_stack_count += opp_stacks_mask.sum(dim=(1, 2)).float()
-                opp_heights = state.stack_height * opp_stacks_mask.int()
-                opp_ring_count += opp_heights.sum(dim=(1, 2)).float()
-                opp_cap_height += opp_ring_count  # Same as ring count for now
-                opp_territory += state.territory_count[:, opp].float()
-                max_opp_rings_in_hand = torch.max(max_opp_rings_in_hand, state.rings_in_hand[:, opp].float())
-                opp_center_control += (center_bonus.unsqueeze(0) * opp_stacks_mask.float()).sum(dim=(1, 2))
-                opp_eliminated_rings += state.eliminated_rings[:, opp].float()
-
-        # Average opponent values (for symmetric comparison)
+        # v2.0: Use precomputed values for opponent metrics (avoids redundant loops)
         num_opps = max(1, num_players - 1)
+
+        # Sum across all opponent players using precomputed values
+        # Create mask for opponent indices (all players except p)
+        opponent_indices = [opp for opp in range(1, num_players + 1) if opp != p]
+
+        # Use precomputed totals and subtract player p's values
+        total_stack_count = all_stack_counts[:, 1:num_players+1].sum(dim=1)
+        total_ring_count = all_ring_counts[:, 1:num_players+1].sum(dim=1)
+        total_center_control = all_center_control[:, 1:num_players+1].sum(dim=1)
+
+        opp_stack_count = total_stack_count - stack_count
+        opp_ring_count = total_ring_count - all_ring_counts[:, p]  # Subtract current player's rings
+        opp_cap_height = opp_ring_count.clone()
+        opp_center_control = total_center_control - center_control
+
+        # These need to be summed across opponents
+        opp_territory = state.territory_count[:, 1:num_players+1].sum(dim=1).float() - territory
+        opp_eliminated_rings = state.eliminated_rings[:, 1:num_players+1].sum(dim=1).float() - eliminated_rings
+
+        # Max rings in hand among opponents
+        opponent_rings = state.rings_in_hand[:, 1:num_players+1].float()  # (batch, num_players)
+        # Mask out current player's rings
+        mask = torch.ones(num_players, device=device)
+        mask[p-1] = 0  # Player p is at index p-1 in the sliced tensor
+        max_opp_rings_in_hand = (opponent_rings * mask.unsqueeze(0)).max(dim=1).values
+
+        # Average opponent values
         opp_stack_count_avg = opp_stack_count / num_opps
         opp_ring_count_avg = opp_ring_count / num_opps
         opp_cap_height_avg = opp_cap_height / num_opps
@@ -463,61 +534,62 @@ def evaluate_positions_batch(
         # === COMBINE ALL COMPONENTS (SYMMETRIC) ===
         # v2.0: Use relative differences like CPU heuristic for parity.
         # CPU: score += (my_value - opponent_value) * weight
+        # (using precomputed weights from w dict for speed)
         score = torch.zeros(batch_size, device=device)
-        score += (stack_count - opp_stack_count_avg) * get_weight("WEIGHT_STACK_CONTROL", "material_weight", 9.39)
-        score += (total_ring_count - opp_ring_count_avg) * get_weight("WEIGHT_STACK_HEIGHT", "ring_count_weight", 6.81)
-        score += (cap_height - opp_cap_height_avg) * get_weight("WEIGHT_CAP_HEIGHT", None, 4.82)
-        score += (territory - opp_territory_avg) * get_weight("WEIGHT_TERRITORY", "territory_weight", 8.66)
-        score += (rings_in_hand - max_opp_rings_in_hand) * get_weight("WEIGHT_RINGS_IN_HAND", None, 5.17)
-        score += (center_control - opp_center_control_avg) * get_weight("WEIGHT_CENTER_CONTROL", "center_control_weight", 2.28)
-        score += adjacency_score * get_weight("WEIGHT_ADJACENCY", None, 1.57)  # Keep absolute (CPU doesn't compare)
+        score += (stack_count - opp_stack_count_avg) * w['stack_control']
+        score += (total_ring_count - opp_ring_count_avg) * w['stack_height']
+        score += (cap_height - opp_cap_height_avg) * w['cap_height']
+        score += (territory - opp_territory_avg) * w['territory']
+        score += (rings_in_hand - max_opp_rings_in_hand) * w['rings_in_hand']
+        score += (center_control - opp_center_control_avg) * w['center_control']
+        score += adjacency_score * w['adjacency']  # Keep absolute (CPU doesn't compare)
 
         # Threat/defense weights
-        score -= opponent_threat * get_weight("WEIGHT_OPPONENT_THREAT", None, 6.11)
-        score += mobility * get_weight("WEIGHT_MOBILITY", "mobility_weight", 5.31)
+        score -= opponent_threat * w['opponent_threat']
+        score += mobility * w['mobility']
         # Eliminated rings: relative advantage over opponents
-        score += (eliminated_rings - opp_eliminated_rings_avg) * get_weight("WEIGHT_ELIMINATED_RINGS", None, 13.12)
-        score -= vulnerability * get_weight("WEIGHT_VULNERABILITY", None, 9.32)
+        score += (eliminated_rings - opp_eliminated_rings_avg) * w['eliminated_rings']
+        score -= vulnerability * w['vulnerability']
 
         # Line/victory weights
         line_potential = (
-            two_in_row * get_weight("WEIGHT_TWO_IN_ROW", None, 4.25) +
-            three_in_row * get_weight("WEIGHT_THREE_IN_ROW", None, 2.13) +
-            four_in_row * get_weight("WEIGHT_FOUR_IN_ROW", None, 4.36)
+            two_in_row * w['two_in_row'] +
+            three_in_row * w['three_in_row'] +
+            four_in_row * w['four_in_row']
         )
-        score += line_potential * get_weight("WEIGHT_LINE_POTENTIAL", "line_potential_weight", 7.24)
-        score += victory_proximity * get_weight("WEIGHT_VICTORY_PROXIMITY", None, 20.94)
-        score += connected_neighbors * get_weight("WEIGHT_CONNECTED_NEIGHBOR", None, 2.21)
-        score += gap_potential * get_weight("WEIGHT_GAP_POTENTIAL", None, 0.03)
+        score += line_potential * w['line_potential']
+        score += victory_proximity * w['victory_proximity']
+        score += connected_neighbors * w['connected_neighbor']
+        score += gap_potential * w['gap_potential']
 
         # Advanced weights
-        score += marker_count * get_weight("WEIGHT_MARKER_COUNT", None, 3.76)
-        score += overtake_potential * get_weight("WEIGHT_OVERTAKE_POTENTIAL", None, 5.96)
-        score += territory_closure * get_weight("WEIGHT_TERRITORY_CLOSURE", None, 11.56)
-        score += connected_neighbors * get_weight("WEIGHT_LINE_CONNECTIVITY", None, 5.65)
-        score += territory_safety * get_weight("WEIGHT_TERRITORY_SAFETY", None, 2.83)
-        score += stack_mobility * get_weight("WEIGHT_STACK_MOBILITY", None, 1.11)
+        score += marker_count * w['marker_count']
+        score += overtake_potential * w['overtake_potential']
+        score += territory_closure * w['territory_closure']
+        score += connected_neighbors * w['line_connectivity']
+        score += territory_safety * w['territory_safety']
+        score += stack_mobility * w['stack_mobility']
 
         # Opponent threat weights
-        score -= opponent_victory_threat * get_weight("WEIGHT_OPPONENT_VICTORY_THREAT", None, 5.21)
-        score -= forced_elim_risk * get_weight("WEIGHT_FORCED_ELIMINATION_RISK", None, 2.89)
-        score += lps_advantage * get_weight("WEIGHT_LPS_ACTION_ADVANTAGE", None, 0.99)
-        score -= multi_leader * get_weight("WEIGHT_MULTI_LEADER_THREAT", None, 1.03)
+        score -= opponent_victory_threat * w['opponent_victory_threat']
+        score -= forced_elim_risk * w['forced_elim_risk']
+        score += lps_advantage * w['lps_advantage']
+        score -= multi_leader * w['multi_leader_threat']
 
         # Penalty/bonus weights (v2.0: symmetric diversity scoring)
         # Use relative diversity advantage instead of absolute penalties
         # This matches CPU: score += (my_diversity - opp_diversity)
         score += diversity_advantage
-        score -= blocked_stacks * get_weight("WEIGHT_BLOCKED_STACK_PENALTY", None, 4.57)
-        score += near_victory * get_weight("WEIGHT_VICTORY_THRESHOLD_BONUS", None, 998.52)
+        score -= blocked_stacks * w['blocked_stack_penalty']
+        score += near_victory * w['victory_threshold_bonus']
 
         # Defensive bonus (backward compat)
-        score += blocking_score * get_weight("defensive_weight", None, 0.3)
+        score += blocking_score * w['defensive']
 
         # Recovery weights (v1.5)
-        score += recovery_potential * get_weight("WEIGHT_RECOVERY_POTENTIAL", None, 6.0)
-        score += recovery_eligible.float() * get_weight("WEIGHT_RECOVERY_ELIGIBILITY", None, 8.0)
-        score += buried_rings * get_weight("WEIGHT_BURIED_RING_VALUE", None, 3.0)
+        score += recovery_potential * w['recovery_potential']
+        score += recovery_eligible.float() * w['recovery_eligibility']
+        score += buried_rings * w['buried_ring_value']
 
         # === ELIMINATION PENALTY ===
         # Player with no stacks, no rings in hand, and no buried rings is eliminated

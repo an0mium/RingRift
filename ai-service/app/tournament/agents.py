@@ -19,6 +19,7 @@ class AgentType(str, Enum):
     MCTS = "mcts"
     RANDOM = "random"
     HYBRID = "hybrid"
+    NEURAL = "neural"  # Neural network policy/value model
 
 
 @dataclass
@@ -34,10 +35,13 @@ class AIAgent:
     description: str = ""
     version: str = "1.0"
     metadata: Dict[str, Any] = field(default_factory=dict)
+    model_path: Optional[str] = None  # Path to neural network weights for NEURAL agents
+    board_type: Optional[str] = None  # Board type the model was trained for
+    num_players: Optional[int] = None  # Number of players the model supports
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize agent to dictionary."""
-        return {
+        data = {
             "agent_id": self.agent_id,
             "name": self.name,
             "agent_type": self.agent_type.value,
@@ -48,6 +52,13 @@ class AIAgent:
             "version": self.version,
             "metadata": self.metadata,
         }
+        if self.model_path:
+            data["model_path"] = self.model_path
+        if self.board_type:
+            data["board_type"] = self.board_type
+        if self.num_players:
+            data["num_players"] = self.num_players
+        return data
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AIAgent":
@@ -62,6 +73,9 @@ class AIAgent:
             description=data.get("description", ""),
             version=data.get("version", "1.0"),
             metadata=data.get("metadata", {}),
+            model_path=data.get("model_path"),
+            board_type=data.get("board_type"),
+            num_players=data.get("num_players"),
         )
 
 
@@ -210,6 +224,66 @@ class AIAgentRegistry:
             weights=weights,
             search_depth=search_depth,
             description=description,
+        )
+        self.register(agent)
+        return agent
+
+    def create_from_model(
+        self,
+        model_path: str,
+        agent_id: Optional[str] = None,
+        name: Optional[str] = None,
+        board_type: Optional[str] = None,
+        num_players: Optional[int] = None,
+        description: str = "",
+    ) -> AIAgent:
+        """Create and register a neural network agent from model file.
+
+        Args:
+            model_path: Path to the .pth model file
+            agent_id: Optional agent ID (derived from model filename if not provided)
+            name: Optional display name (derived from agent_id if not provided)
+            board_type: Board type the model was trained for (e.g., "hex8", "square8")
+            num_players: Number of players the model supports
+            description: Optional description
+
+        Returns:
+            The registered AIAgent
+        """
+        path = Path(model_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+
+        # Derive agent_id from filename if not provided
+        if agent_id is None:
+            # e.g., "ringrift_hex8_2p_v8.pth" -> "hex8_2p_v8_nn"
+            stem = path.stem
+            agent_id = f"{stem}_nn"
+
+        # Derive name from agent_id if not provided
+        if name is None:
+            name = agent_id.replace("_", " ").title()
+
+        # Try to extract board_type and num_players from filename
+        if board_type is None or num_players is None:
+            stem = path.stem.lower()
+            # Common patterns: hex8_2p, square8_3p, hexagonal_2p
+            import re
+            match = re.search(r'(hex8|hexagonal|square\d+)_(\d+)p', stem)
+            if match:
+                if board_type is None:
+                    board_type = match.group(1)
+                if num_players is None:
+                    num_players = int(match.group(2))
+
+        agent = AIAgent(
+            agent_id=agent_id,
+            name=name,
+            agent_type=AgentType.NEURAL,
+            model_path=str(path.resolve()),
+            board_type=board_type,
+            num_players=num_players,
+            description=description or f"Neural network agent from {path.name}",
         )
         self.register(agent)
         return agent

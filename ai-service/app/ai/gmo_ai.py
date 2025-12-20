@@ -49,25 +49,28 @@ logger = logging.getLogger(__name__)
 class GMOConfig:
     """Configuration for GMO AI.
 
-    Defaults tuned based on ablation study (2024-12):
-    - optim_steps reduced from 10 to 2 (fewer steps performed better)
-    - beta reduced from 0.3 to 0.1 (less aggressive exploration)
-    - gamma reduced from 0.1 to 0.05 (less novelty bonus)
-    - mc_samples kept at 10 (critical for performance - 0% without it)
+    Defaults tuned based on hyperparameter sweep (2024-12):
+    - optim_steps=5 (optimal balance of quality and speed)
+    - top_k=5 (more candidates for optimization)
+    - beta=0.1 (low uncertainty bonus - exploitation focused)
+    - gamma=0.0 (no novelty bonus - pure value optimization)
+    - mc_samples=10 (critical for performance - 0% win rate without it)
+
+    Best sweep result: 100% vs Random, 62.5% vs Heuristic
     """
     # Embedding dimensions
     state_dim: int = 128
     move_dim: int = 128
     hidden_dim: int = 256
 
-    # Optimization parameters (tuned from ablation)
-    top_k: int = 3  # Number of candidates to optimize (reduced from 5)
-    optim_steps: int = 2  # Gradient steps per candidate (reduced from 10)
+    # Optimization parameters (tuned from sweep)
+    top_k: int = 5  # Number of candidates to optimize
+    optim_steps: int = 5  # Gradient steps per candidate
     lr: float = 0.1  # Learning rate for move optimization
 
-    # Information-theoretic parameters (tuned from ablation)
-    beta: float = 0.1  # Exploration coefficient (reduced from 0.3)
-    gamma: float = 0.05  # Novelty coefficient (reduced from 0.1)
+    # Information-theoretic parameters (tuned from sweep)
+    beta: float = 0.1  # Exploration coefficient (low = exploitation focused)
+    gamma: float = 0.0  # Novelty coefficient (disabled - not beneficial)
     exploration_temp: float = 1.0  # Base exploration temperature
 
     # MC Dropout parameters (critical - do not reduce mc_samples)

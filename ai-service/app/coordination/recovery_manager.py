@@ -501,7 +501,7 @@ class RecoveryManager(CoordinatorBase):
         """
         import asyncio
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
             # If there's a running loop, we can't use run_until_complete
             # Return a simplified version
             return self._get_recovery_stats_sync()

@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -440,21 +440,21 @@ class GameBalanceAnalyzer:
             ))
 
         # Check for significant player imbalances (other than first player)
-        for player, stats in player_win_rates.items():
+        for player, player_stats in player_win_rates.items():
             if player == 0:
                 continue  # Already checked
 
-            deviation = abs(stats.advantage)
-            if stats.is_significant and deviation > self.MODERATE_DEVIATION:
+            deviation = abs(player_stats.advantage)
+            if player_stats.is_significant and deviation > self.MODERATE_DEVIATION:
                 issues.append(BalanceIssue(
                     category="player_position",
                     severity="moderate" if deviation < self.MAJOR_DEVIATION else "major",
-                    description=f"Player {player} has {deviation:.1%} {'advantage' if stats.advantage > 0 else 'disadvantage'}",
+                    description=f"Player {player} has {deviation:.1%} {'advantage' if player_stats.advantage > 0 else 'disadvantage'}",
                     affected_group=f"Player {player}",
-                    win_rate=stats.win_rate,
-                    expected_rate=stats.expected_rate,
+                    win_rate=player_stats.win_rate,
+                    expected_rate=player_stats.expected_rate,
                     p_value=0.0,
-                    confidence_interval=stats.confidence_interval,
+                    confidence_interval=player_stats.confidence_interval,
                     recommendation="Investigate position-specific advantages",
                 ))
 
@@ -507,11 +507,11 @@ class GameBalanceAnalyzer:
 
         # Win rates
         summary_parts.append("Win Rates:")
-        for player, stats in sorted(player_win_rates.items()):
-            marker = " *" if stats.is_significant else ""
+        for player, player_stats in sorted(player_win_rates.items()):
+            marker = " *" if player_stats.is_significant else ""
             summary_parts.append(
-                f"  Player {player}: {stats.win_rate:.1%} "
-                f"(CI: {stats.confidence_interval[0]:.1%}-{stats.confidence_interval[1]:.1%}){marker}"
+                f"  Player {player}: {player_stats.win_rate:.1%} "
+                f"(CI: {player_stats.confidence_interval[0]:.1%}-{player_stats.confidence_interval[1]:.1%}){marker}"
             )
 
         summary_parts.append("")

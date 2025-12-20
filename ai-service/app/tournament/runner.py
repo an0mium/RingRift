@@ -12,7 +12,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from app.models import BoardType, GameStatus
 
-from .agents import AIAgent, AIAgentRegistry
+from .agents import AIAgent, AIAgentRegistry, AgentType
 from .elo import EloCalculator
 from .scheduler import Match, TournamentScheduler
 
@@ -327,6 +327,71 @@ class TournamentRunner:
         # Store result
         self.results.add_result(result)
 
+    def _create_ai_instance(
+        self,
+        agent: AIAgent,
+        board_type: str,
+        num_players: int,
+    ) -> Any:
+        """Create an AI instance based on agent type.
+
+        Args:
+            agent: The agent configuration
+            board_type: Board type for the game
+            num_players: Number of players in the game
+
+        Returns:
+            An AI instance that can provide moves via get_best_move()
+        """
+        from app.ai.search import MinimaxSearch
+
+        if agent.agent_type == AgentType.NEURAL:
+            # Create neural network agent
+            try:
+                from app.ai.nnue_policy import NNUEPolicyAgent
+                return NNUEPolicyAgent(
+                    model_path=agent.model_path,
+                    board_type=board_type,
+                    num_players=num_players,
+                )
+            except ImportError:
+                logger.warning(
+                    f"NNUEPolicyAgent not available, falling back to minimax for {agent.agent_id}"
+                )
+                return MinimaxSearch(
+                    weights=agent.weights,
+                    max_depth=agent.search_depth,
+                )
+        elif agent.agent_type == AgentType.RANDOM:
+            # Random agent - returns random legal move
+            class RandomAgent:
+                def get_best_move(self, state, legal_moves):
+                    import random
+                    return random.choice(legal_moves) if legal_moves else None
+            return RandomAgent()
+        elif agent.agent_type == AgentType.MCTS:
+            # MCTS agent
+            try:
+                from app.ai.mcts import MCTSSearch
+                return MCTSSearch(
+                    simulations=agent.mcts_simulations,
+                    weights=agent.weights,
+                )
+            except ImportError:
+                logger.warning(
+                    f"MCTSSearch not available, falling back to minimax for {agent.agent_id}"
+                )
+                return MinimaxSearch(
+                    weights=agent.weights,
+                    max_depth=agent.search_depth,
+                )
+        else:
+            # Default to minimax
+            return MinimaxSearch(
+                weights=agent.weights,
+                max_depth=agent.search_depth,
+            )
+
     def _execute_match_local(
         self,
         match: Match,
@@ -358,10 +423,7 @@ class TournamentRunner:
         ai_instances = []
         for agent_id in match.agent_ids:
             agent = agents[agent_id]
-            ai = MinimaxSearch(
-                weights=agent.weights,
-                max_depth=agent.search_depth,
-            )
+            ai = self._create_ai_instance(agent, match.board_type, match.num_players)
             ai_instances.append(ai)
 
         # Play the game

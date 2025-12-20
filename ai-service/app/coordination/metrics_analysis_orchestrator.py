@@ -399,7 +399,7 @@ class MetricsAnalysisOrchestrator:
             plateau_type = "loss" if "loss" in metric_name else "elo" if "elo" in metric_name else "metric"
 
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 asyncio.create_task(emit_plateau_detected(
                     metric_name=metric_name,
                     current_value=current_value,
@@ -447,7 +447,7 @@ class MetricsAnalysisOrchestrator:
             previous_value = tracker._best_value if tracker else 0.0
 
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 asyncio.create_task(emit_regression_detected(
                     metric_name=metric_name,
                     current_value=current_value,
@@ -531,20 +531,20 @@ class MetricsAnalysisOrchestrator:
             metrics_to_reset = ["train_loss", "val_loss", "loss", "accuracy", "policy_accuracy", "value_mse"]
             logger.info(
                 f"[MetricsAnalysisOrchestrator] Model cache invalidated ({target_id}): "
-                f"resetting training metrics"
+                "resetting training metrics"
             )
         elif invalidation_type == "evaluation":
             # Evaluation invalidation: reset ELO and win rate
             metrics_to_reset = ["elo", "win_rate"]
             logger.info(
-                f"[MetricsAnalysisOrchestrator] Evaluation cache invalidated: "
-                f"resetting evaluation metrics"
+                "[MetricsAnalysisOrchestrator] Evaluation cache invalidated: "
+                "resetting evaluation metrics"
             )
         elif invalidation_type == "full" or count > 100:
             # Full flush or large invalidation: reset all metrics
             logger.warning(
-                f"[MetricsAnalysisOrchestrator] Full cache invalidation: "
-                f"resetting ALL metric windows"
+                "[MetricsAnalysisOrchestrator] Full cache invalidation: "
+                "resetting ALL metric windows"
             )
             self.reset_all_windows()
             return
