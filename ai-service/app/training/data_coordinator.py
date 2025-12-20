@@ -510,7 +510,6 @@ class TrainingDataCoordinator:
         try:
             from app.metrics.orchestrator import (
                 collect_quality_metrics_from_bridge,
-                update_quality_bridge_status,
             )
 
             # Collect from quality bridge

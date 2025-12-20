@@ -36,8 +36,7 @@ except ImportError:
     _unified_elo_weights = None
 
 try:
-    import torch
-    from torch.utils.data import Dataset, Sampler
+    from torch.utils.data import Dataset
     HAS_TORCH = True
 except ImportError:
     HAS_TORCH = False

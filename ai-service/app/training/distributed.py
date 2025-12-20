@@ -77,7 +77,7 @@ try:
     import torch.distributed as dist
     import torch.nn as nn
     from torch.nn.parallel import DistributedDataParallel as DDP
-    from torch.utils.data import DataLoader, DistributedSampler
+    from torch.utils.data import DistributedSampler
     HAS_TORCH_DISTRIBUTED = True
 except ImportError:
     HAS_TORCH_DISTRIBUTED = False

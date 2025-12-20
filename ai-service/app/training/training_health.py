@@ -43,7 +43,6 @@ try:
     from app.monitoring.base import (
         Alert as BaseAlert,
         HealthMonitor as BaseHealthMonitor,
-        HealthStatus,
         MonitoringResult,
     )
     from app.monitoring.thresholds import AlertLevel
@@ -72,7 +71,9 @@ MIN_WIN_RATE = 0.35  # Alert if win rate drops below this
 
 # HealthStatus is imported from app.monitoring.base when available
 # For backwards compatibility, define a fallback if monitoring framework not available
-if not HAS_MONITORING_FRAMEWORK:
+if HAS_MONITORING_FRAMEWORK:
+    from app.monitoring.base import HealthStatus
+else:
     class HealthStatus(Enum):  # type: ignore
         """Overall health status (fallback when monitoring framework unavailable)."""
         HEALTHY = "healthy"
@@ -387,7 +388,7 @@ class TrainingHealthMonitor(BaseHealthMonitor):
             self._alerts[alert_id].resolved_at = time.time()
             logger.info(f"Alert resolved: {alert_id}")
 
-    def check_health(self) -> None:
+    def run_health_checks(self) -> None:
         """Run health checks and update alerts."""
         now = time.time()
 
@@ -433,7 +434,7 @@ class TrainingHealthMonitor(BaseHealthMonitor):
 
     def get_health_status(self) -> HealthReport:
         """Get overall health status."""
-        self.check_health()
+        self.run_health_checks()
 
         active_alerts = self.get_active_alerts()
         critical_count = sum(1 for a in active_alerts if a.severity == AlertSeverity.CRITICAL)

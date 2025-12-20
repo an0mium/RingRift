@@ -388,7 +388,7 @@ class RollbackManager:
     def _emit_rollback_metric(self, model_id: str, triggered_by: str):
         """Emit Prometheus metric for rollback event."""
         try:
-            from prometheus_client import REGISTRY, Counter
+            from prometheus_client import REGISTRY
 
             # Try to get existing metric or create new
             metric_name = "ringrift_model_rollbacks_total"

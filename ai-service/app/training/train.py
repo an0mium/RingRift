@@ -24,10 +24,8 @@ Recommended Usage (December 2025):
             pass
 """
 
-import argparse
 import contextlib
 import glob
-import json
 import logging
 import math
 import os
@@ -35,7 +33,6 @@ import random
 import sys
 import time
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import (
     Any,
@@ -108,7 +105,7 @@ from app.ai.neural_net import (
     multi_player_value_loss,
 )
 from app.models import BoardType
-from app.training.config import TrainConfig, get_model_version_for_board
+from app.training.config import TrainConfig
 from app.training.data_loader import (
     StreamingDataLoader,
     WeightedStreamingDataLoader,
@@ -538,13 +535,7 @@ def run_cmaes_heuristic_optimization(
 from app.training.training_enhancements import EarlyStopping
 
 # Checkpointing utilities - use unified module (2025-12)
-try:
-    from app.training.checkpoint_unified import (
-        UnifiedCheckpointManager,
-    )
-    HAS_UNIFIED_CHECKPOINT = True
-except ImportError:
-    HAS_UNIFIED_CHECKPOINT = False
+HAS_UNIFIED_CHECKPOINT = False
 
 # Legacy checkpointing functions (still available for backward compatibility)
 # Migrated to import from checkpoint_unified (December 2025)
@@ -556,7 +547,7 @@ from app.training.checkpoint_unified import (
 )
 
 # LR scheduler utilities extracted to dedicated module (2025-12)
-from app.training.schedulers import create_lr_scheduler, get_warmup_scheduler
+from app.training.schedulers import create_lr_scheduler
 
 # Dataset classes extracted to dedicated module (2025-12)
 # RingRiftDataset and WeightedRingRiftDataset are imported from app.training.datasets
@@ -3336,8 +3327,8 @@ def train_model(
                     )
 
                     # Save timestamped checkpoint for history tracking
-                    from datetime import datetime
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    from datetime import datetime as dt
+                    timestamp = dt.now().strftime("%Y%m%d_%H%M%S")
                     version_path = save_path.replace(
                         ".pth",
                         f"_{timestamp}.pth",
@@ -3528,7 +3519,7 @@ def train_from_file(
 
 # Re-export CLI functions for backwards compatibility
 # The actual implementations are in train_cli.py
-from app.training.train_cli import main, parse_args  # noqa: E402, F401
+from app.training.train_cli import main  # noqa: E402, F401
 
 
 if __name__ == "__main__":

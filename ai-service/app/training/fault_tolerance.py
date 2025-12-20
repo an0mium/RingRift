@@ -27,9 +27,6 @@ logger = logging.getLogger(__name__)
 # All checkpoint management is consolidated in checkpoint_unified.py
 try:
     from app.training.checkpoint_unified import (
-        CheckpointMetadata,
-        CheckpointType,
-        TrainingProgress,
         UnifiedCheckpointConfig,
         UnifiedCheckpointManager,
         create_checkpoint_manager,
@@ -583,7 +580,9 @@ class TrainingErrorHandler:
 
 
 # Only define CheckpointType if not imported from checkpoint_unified
-if not _HAS_UNIFIED_CHECKPOINT:
+if _HAS_UNIFIED_CHECKPOINT:
+    from app.training.checkpoint_unified import CheckpointType
+else:
     class CheckpointType(Enum):
         """Types of checkpoints."""
         REGULAR = "regular"          # Periodic checkpoint
@@ -666,7 +665,9 @@ class PipelineStage(Enum):
 
 
 # Only define CheckpointMetadata and TrainingProgress if not imported from checkpoint_unified
-if not _HAS_UNIFIED_CHECKPOINT:
+if _HAS_UNIFIED_CHECKPOINT:
+    from app.training.checkpoint_unified import CheckpointMetadata, TrainingProgress
+else:
     @dataclass
     class CheckpointMetadata:
         """Metadata for a checkpoint."""
@@ -1566,25 +1567,8 @@ def main():
 
 try:
     from app.training.exception_integration import (
-        # Error aggregation
-        TrainingErrorAggregator,
         # Training-specific retry policies
         TrainingRetryPolicies,
-        checkpoint_error_context,
-        evaluation_error_context,
-        retry_checkpoint_load,
-        # Decorators
-        retry_checkpoint_save,
-        retry_data_load,
-        retry_evaluation,
-        retry_selfplay,
-        retry_training_step,
-        safe_checkpoint_save,
-        safe_evaluation,
-        # Safe execution wrappers
-        safe_training_step,
-        # Context managers
-        training_error_context,
     )
     _HAS_EXCEPTION_INTEGRATION = True
 except ImportError:

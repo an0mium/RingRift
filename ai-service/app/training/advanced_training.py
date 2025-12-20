@@ -2042,7 +2042,7 @@ class MemoryEfficientAttention:
             if hasattr(torch.nn.functional, 'scaled_dot_product_attention'):
                 return True
             # Check for flash-attn package
-            import flash_attn
+            import flash_attn  # noqa: F401
             return True
         except ImportError:
             return False

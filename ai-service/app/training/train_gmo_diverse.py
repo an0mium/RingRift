@@ -499,7 +499,7 @@ def run_diverse_training(
         logger.info(f"{'='*60}")
 
         # Generate games against diverse opponents
-        stats = generate_diverse_games(
+        generate_diverse_games(
             gmo_ai,
             dataset,
             games_per_opponent=games_per_opponent,

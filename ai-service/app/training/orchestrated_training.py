@@ -155,7 +155,6 @@ class TrainingOrchestrator:
                 from app.training.model_registry import get_model_registry
                 from app.training.rollback_manager import (
                     RollbackManager,
-                    get_auto_rollback_handler,
                     wire_regression_to_rollback,
                 )
 

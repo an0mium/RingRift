@@ -396,10 +396,6 @@ class PromotionController:
         # Load tier registry
         try:
             from app.config.ladder_config import get_tier_threshold
-            from app.training.tier_promotion_registry import (
-                get_current_ladder_model_for_tier,
-                load_square8_two_player_registry,
-            )
 
             # Get current model stats
             current_elo = None

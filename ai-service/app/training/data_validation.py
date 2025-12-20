@@ -506,7 +506,7 @@ def validate_training_data(
 # =============================================================================
 
 try:
-    from prometheus_client import Counter, Gauge, Histogram
+    from prometheus_client import Counter, Gauge
 
     VALIDATION_RUNS = Counter(
         'ringrift_data_validation_runs_total',
