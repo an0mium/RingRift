@@ -87,7 +87,7 @@ from app.models import BoardType
 from app.rules import global_actions as ga
 from app.rules.history_validation import validate_canonical_history_for_game
 from app.rules.serialization import serialize_game_state
-from app.training.generate_data import create_initial_state
+from app.training.initial_state import create_initial_state
 
 
 @dataclass

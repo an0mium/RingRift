@@ -52,7 +52,7 @@ def get_encoder(board_type: str, num_players: int):
     from app.ai.base import AIConfig
     from app.ai.neural_net import NeuralNetAI
     from app.models import BoardType
-    from app.training.encoding import HexStateEncoderV3, POLICY_SIZE_HEX8, P_HEX
+    from app.training.encoding import P_HEX, POLICY_SIZE_HEX8, HexStateEncoderV3
 
     bt = BOARD_TYPE_MAP.get(board_type, BoardType.SQUARE8)
 

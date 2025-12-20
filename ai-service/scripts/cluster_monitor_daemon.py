@@ -86,12 +86,12 @@ def check_node_health_ssh() -> dict:
         check_cmd = node.get("check", "uptime")
         port = node.get("port")
 
-        ssh_cmd = ["ssh", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no"]
+        ssh_cmd = ["ssh", "-o", "ConnectTimeout=20", "-o", "StrictHostKeyChecking=no"]
         if port:
             ssh_cmd.extend(["-p", port])
         ssh_cmd.extend([host, check_cmd])
 
-        rc, stdout, stderr = run_command(ssh_cmd, timeout=30)
+        rc, stdout, stderr = run_command(ssh_cmd, timeout=45)
 
         if rc == 0:
             healthy_count += 1

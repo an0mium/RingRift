@@ -8,6 +8,7 @@ This script:
 4. Coordinates match distribution for maximum parallelism
 5. Aggregates results into central Elo leaderboard
 6. Supports ramdrive for faster game execution
+7. Can pause selfplay jobs to free nodes for tournament
 
 Usage:
     # Run full calibration tournament
@@ -18,11 +19,18 @@ Usage:
 
     # With ramdrive optimization
     python scripts/launch_distributed_elo_tournament.py --games 50 --ramdrive
+
+    # Pause selfplay during tournament (recommended for clean results)
+    python scripts/launch_distributed_elo_tournament.py --games 50 --pause-selfplay
+
+    # Heavyweight tournament with pause
+    python scripts/launch_distributed_elo_tournament.py --games 20 --heavyweight --pause-selfplay
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import subprocess
@@ -127,6 +135,184 @@ def get_auth_headers() -> dict[str, str]:
     if token:
         return {"Authorization": f"Bearer {token}"}
     return {}
+
+
+def get_slurm_head_node() -> tuple[str, str] | None:
+    """Get SSH connection info for Slurm head node from config.
+
+    Returns:
+        Tuple of (user@host, ssh_key) or None if not found
+    """
+    import yaml
+    config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
+
+    try:
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+
+        # Look for the Slurm coordinator (lambda-gh200-e is typically the head)
+        for name in ["lambda-gh200-e", "lambda-gh200-a", "lambda-2xh100"]:
+            if name in config.get("hosts", {}):
+                host_info = config["hosts"][name]
+                ip = host_info.get("tailscale_ip") or host_info.get("ssh_host")
+                user = host_info.get("ssh_user", "ubuntu")
+                ssh_key = host_info.get("ssh_key", "~/.ssh/id_cluster")
+                if ip:
+                    return f"{user}@{ip}", ssh_key
+    except Exception:
+        pass
+
+    return None
+
+
+def run_slurm_command(cmd: str, timeout: int = 60) -> tuple[int, str, str]:
+    """Run a Slurm command, either locally or via SSH to head node.
+
+    Returns:
+        Tuple of (returncode, stdout, stderr)
+    """
+    # Try local first
+    try:
+        result = subprocess.run(
+            cmd.split(),
+            capture_output=True, text=True, timeout=timeout
+        )
+        return result.returncode, result.stdout, result.stderr
+    except FileNotFoundError:
+        pass  # Slurm not available locally, try SSH
+
+    # Try via SSH to head node
+    head_node = get_slurm_head_node()
+    if not head_node:
+        return -1, "", "No Slurm head node configured"
+
+    user_host, ssh_key = head_node
+    ssh_cmd = ["ssh", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no"]
+    if ssh_key:
+        ssh_cmd.extend(["-i", os.path.expanduser(ssh_key)])
+    ssh_cmd.extend([user_host, cmd])
+
+    try:
+        result = subprocess.run(
+            ssh_cmd,
+            capture_output=True, text=True, timeout=timeout
+        )
+        return result.returncode, result.stdout, result.stderr
+    except Exception as e:
+        return -1, "", str(e)
+
+
+def pause_selfplay_jobs() -> tuple[int, list[str]]:
+    """Cancel all pending Slurm selfplay jobs to free nodes for tournament.
+
+    Returns:
+        Tuple of (number of jobs cancelled, list of job IDs)
+    """
+    print("\n[Tournament] Pausing selfplay jobs...")
+
+    try:
+        # Get list of pending/running selfplay jobs from Slurm
+        rc, stdout, stderr = run_slurm_command("squeue -h -o %i_%j --state=PENDING,RUNNING")
+
+        if rc != 0:
+            print(f"[Tournament] Warning: squeue failed: {stderr}")
+            return 0, []
+
+        job_ids = []
+        for line in stdout.strip().split("\n"):
+            if not line.strip():
+                continue
+            # Format is job_id_job_name (we use _ as separator to avoid space issues over SSH)
+            parts = line.split("_", 1)
+            if len(parts) >= 2:
+                job_id, job_name = parts[0], parts[1]
+                # Only cancel selfplay-related jobs
+                if "selfplay" in job_name.lower() or "fill-" in job_name.lower():
+                    job_ids.append(job_id)
+
+        if not job_ids:
+            print("[Tournament] No selfplay jobs to pause")
+            return 0, []
+
+        # Cancel all selfplay jobs
+        print(f"[Tournament] Cancelling {len(job_ids)} selfplay jobs...")
+        rc, stdout, stderr = run_slurm_command(f"scancel {' '.join(job_ids)}")
+
+        if rc != 0:
+            print(f"[Tournament] Warning: scancel failed: {stderr}")
+        else:
+            print(f"[Tournament] Cancelled {len(job_ids)} jobs: {', '.join(job_ids[:5])}{'...' if len(job_ids) > 5 else ''}")
+
+        # Wait for jobs to fully clear
+        time.sleep(5)
+
+        return len(job_ids), job_ids
+
+    except subprocess.TimeoutExpired:
+        print("[Tournament] Warning: Slurm command timed out")
+        return 0, []
+    except Exception as e:
+        print(f"[Tournament] Warning: Failed to pause selfplay: {e}")
+        return 0, []
+
+
+def resume_selfplay_jobs(board_type: str = "square19", player_count: int = 3) -> int:
+    """Resume selfplay jobs after tournament by filling idle nodes.
+
+    Args:
+        board_type: Board type for selfplay (default: square19)
+        player_count: Number of players (default: 3)
+
+    Returns:
+        Number of jobs submitted
+    """
+    print(f"\n[Tournament] Resuming selfplay ({board_type}, {player_count}p)...")
+
+    try:
+        # Try local cluster_submit.py first
+        result = subprocess.run(
+            [sys.executable, "scripts/cluster_submit.py", "fill-idle",
+             "--board", board_type, "--players", str(player_count), "--games", "100"],
+            capture_output=True, text=True, timeout=120,
+            cwd=str(AI_SERVICE_ROOT)
+        )
+
+        if result.returncode == 0:
+            # Count submitted jobs from output
+            submitted = result.stdout.count("Submitted")
+            print(f"[Tournament] Resumed {submitted} selfplay jobs")
+            print(result.stdout[:500] if result.stdout else "")
+            return submitted
+
+        # If local failed, try via SSH to head node
+        head_node = get_slurm_head_node()
+        if head_node:
+            user_host, ssh_key = head_node
+            ssh_cmd = ["ssh", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no"]
+            if ssh_key:
+                ssh_cmd.extend(["-i", os.path.expanduser(ssh_key)])
+
+            # Run cluster_submit.py on head node
+            remote_cmd = f"cd ~/ringrift/ai-service && PYTHONPATH=.. python scripts/cluster_submit.py fill-idle --board {board_type} --players {player_count} --games 100"
+            ssh_cmd.extend([user_host, remote_cmd])
+
+            result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=120)
+
+            if result.returncode == 0:
+                submitted = result.stdout.count("Submitted")
+                print(f"[Tournament] Resumed {submitted} selfplay jobs via SSH")
+                print(result.stdout[:500] if result.stdout else "")
+                return submitted
+
+        print(f"[Tournament] Warning: fill-idle failed: {result.stderr}")
+        return 0
+
+    except subprocess.TimeoutExpired:
+        print("[Tournament] Warning: fill-idle timed out")
+        return 0
+    except Exception as e:
+        print(f"[Tournament] Warning: Failed to resume selfplay: {e}")
+        return 0
 
 
 def load_hosts_from_config() -> dict[str, dict]:
@@ -1025,6 +1211,12 @@ def main():
     parser.add_argument("--min-ram", type=int, default=0, help="Minimum RAM in GB for nodes (filters to high-capacity nodes)")
     parser.add_argument("--no-retry", action="store_true", help="Don't retry failed matches")
     parser.add_argument("--max-node-failures", type=int, default=10, help="Disable node after N failures")
+    parser.add_argument("--pause-selfplay", action="store_true",
+                        help="Cancel selfplay jobs before tournament, resume after")
+    parser.add_argument("--selfplay-board", type=str, default="square19",
+                        help="Board type for resumed selfplay (default: square19)")
+    parser.add_argument("--selfplay-players", type=int, default=3,
+                        help="Player count for resumed selfplay (default: 3)")
 
     args = parser.parse_args()
 
@@ -1047,41 +1239,53 @@ def main():
     print(f"[Tournament] Ramdrive: {'enabled' if args.ramdrive else 'disabled'}")
     print(f"[Tournament] Retry failed: {not args.no_retry}")
     print(f"[Tournament] Min RAM filter: {args.min_ram}GB" if args.min_ram > 0 else "[Tournament] Min RAM filter: disabled")
+    print(f"[Tournament] Pause selfplay: {'enabled' if args.pause_selfplay else 'disabled'}")
 
-    results, ratings = run_distributed_tournament(
-        agents=agents,
-        games_per_pairing=args.games,
-        board_type=args.board,
-        use_ramdrive=args.ramdrive,
-        max_parallel_per_node=args.max_parallel,
-        min_ram_gb=args.min_ram,
-        retry_failed=not args.no_retry,
-        max_node_failures=args.max_node_failures,
-    )
+    # Pause selfplay jobs if requested
+    paused_jobs = 0
+    if args.pause_selfplay:
+        paused_jobs, _ = pause_selfplay_jobs()
 
-    if ratings:
-        print_leaderboard(ratings, results)
+    try:
+        results, ratings = run_distributed_tournament(
+            agents=agents,
+            games_per_pairing=args.games,
+            board_type=args.board,
+            use_ramdrive=args.ramdrive,
+            max_parallel_per_node=args.max_parallel,
+            min_ram_gb=args.min_ram,
+            retry_failed=not args.no_retry,
+            max_node_failures=args.max_node_failures,
+        )
 
-        # Save results
-        output_dir = Path("results/elo_calibration")
-        output_dir.mkdir(parents=True, exist_ok=True)
+        if ratings:
+            print_leaderboard(ratings, results)
 
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        results_file = output_dir / f"calibration_{timestamp}.json"
+            # Save results
+            output_dir = Path("results/elo_calibration")
+            output_dir.mkdir(parents=True, exist_ok=True)
 
-        with open(results_file, "w") as f:
-            json.dump({
-                "ratings": ratings,
-                "results": [{"match_id": r.match_id, "agent_a": r.agent_a, "agent_b": r.agent_b,
-                            "winner": r.winner, "game_length": r.game_length,
-                            "duration_sec": r.duration_sec, "worker_node": r.worker_node}
-                           for r in results],
-                "timestamp": timestamp,
-            }, f, indent=2)
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            results_file = output_dir / f"calibration_{timestamp}.json"
 
-        print(f"\n[Tournament] Results saved to {results_file}")
-    else:
-        print("\n[Tournament] No results collected")
+            with open(results_file, "w") as f:
+                json.dump({
+                    "ratings": ratings,
+                    "results": [{"match_id": r.match_id, "agent_a": r.agent_a, "agent_b": r.agent_b,
+                                "winner": r.winner, "game_length": r.game_length,
+                                "duration_sec": r.duration_sec, "worker_node": r.worker_node}
+                               for r in results],
+                    "timestamp": timestamp,
+                }, f, indent=2)
+
+            print(f"\n[Tournament] Results saved to {results_file}")
+        else:
+            print("\n[Tournament] No results collected")
+
+    finally:
+        # Resume selfplay jobs if we paused them
+        if args.pause_selfplay and paused_jobs > 0:
+            resume_selfplay_jobs(args.selfplay_board, args.selfplay_players)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Verify MPS (Metal Performance Shaders) availability for training."""
 
-import torch
 import sys
+
+import torch
 
 print("=" * 60)
 print("MPS Environment Verification")

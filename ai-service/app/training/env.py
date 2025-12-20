@@ -469,9 +469,9 @@ class RingRiftEnv:
             # all initialised consistently for this environment.
             seed_all(seed)
 
-        # Reuse a shared helper from generate_data.
+        # Reuse a shared helper from initial_state.
         # Avoid circular import by importing inside method.
-        from app.training.generate_data import create_initial_state
+        from app.training.initial_state import create_initial_state
 
         self._state = create_initial_state(
             board_type=self.board_type,

@@ -1,6 +1,6 @@
 # Resource Management Architecture
 
-This document describes the resource management system for RingRift AI, ensuring consistent 80% utilization limits across all components.
+This document describes the resource management system for RingRift AI, ensuring consistent utilization limits across all components.
 
 ## Overview
 
@@ -8,12 +8,12 @@ The resource management system prevents CPU, GPU, RAM, and disk overloading by e
 
 ## Resource Limits
 
-| Resource | Max Utilization | Warning Threshold | Reason                                   |
-| -------- | --------------- | ----------------- | ---------------------------------------- |
-| CPU      | 80%             | 70%               | Standard operating margin                |
-| Memory   | 80%             | 70%               | Standard operating margin                |
-| GPU      | 80%             | 70%               | Standard operating margin                |
-| Disk     | 70%             | 65%               | Tighter limit because cleanup takes time |
+| Resource | Max Utilization | Warning Threshold | Reason                                                   |
+| -------- | --------------- | ----------------- | -------------------------------------------------------- |
+| CPU      | 80%             | 70%               | Standard operating margin                                |
+| Memory   | 90%             | 80%               | Higher limit to reduce false aborts under sustained load |
+| GPU      | 80%             | 70%               | Standard operating margin                                |
+| Disk     | 95%             | 90%               | Higher limit to avoid aborting long selfplay runs        |
 
 ## Core Module: `app/utils/resource_guard.py`
 
@@ -148,7 +148,7 @@ async def train_model():
 All major scripts should import and use resource_guard:
 
 ```python
-# Unified resource guard - 80% utilization limits
+# Unified resource guard - shared utilization limits
 try:
     from app.utils.resource_guard import (
         can_proceed as resource_can_proceed,
@@ -186,7 +186,7 @@ Provides circuit breakers and backpressure mechanisms:
 
 - Circuit breaker: Prevents spawning after repeated failures
 - Spawn rate tracking: Limits new process creation rate
-- Resource thresholds: Enforces 80% limits
+- Resource thresholds: Enforces shared limits (see `LIMITS`)
 
 ### `app/config/config_validator.py`
 
@@ -217,9 +217,9 @@ PYTHONPATH=. python -c "from app.config.config_validator import validate_all_con
 Resource limits were unified and enforced starting 2025-12-16:
 
 - CPU: 80% max
-- Memory: 80% max
+- Memory: 90% max
 - GPU: 80% max
-- Disk: 70% max
+- Disk: 95% max
 
 All scripts were updated to use the unified resource_guard module.
 
@@ -284,7 +284,8 @@ Graceful degradation exposes Prometheus metrics for monitoring:
 
 ### Alerting Rules
 
-Prometheus alerts are configured in `monitoring/prometheus/rules/utilization_alerts.yml`:
+Prometheus alerts are configured in `monitoring/prometheus/rules/utilization_alerts.yml`.
+Alert thresholds are intentionally conservative compared to `resource_guard` limits.
 
 | Alert                       | Threshold | Severity |
 | --------------------------- | --------- | -------- |

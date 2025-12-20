@@ -59,6 +59,7 @@ from app.db.game_replay import GameReplayDB
 from app.game_engine import GameEngine
 from app.rules.history_validation import validate_canonical_config_for_game
 from app.training.selfplay_config import SelfplayConfig, create_argument_parser
+
 try:
     from app.utils.resource_guard import can_proceed, wait_for_resources
     HAS_RESOURCE_GUARD = True
