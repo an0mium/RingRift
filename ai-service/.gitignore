@@ -65,6 +65,9 @@ data/archived_*/
 # Fresh sync directories (temporary data synced from cluster)
 data/fresh_sync_*/
 
+# Collected cluster selfplay artifacts (per-node JSONL/JSON dumps)
+data/collected/
+
 # Deprecated data directories (moved during cleanup)
 data/deprecated_*/
 
