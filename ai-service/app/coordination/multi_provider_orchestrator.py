@@ -95,10 +95,23 @@ class ClusterNode:
     current_job: str | None = None
 
     def ssh_command(self, cmd: str) -> str:
-        """Generate SSH command for this node."""
+        """Generate SSH command for this node (deprecated, use ssh_command_list)."""
         host = self.tailscale_ip or self.public_ip or self.ssh_host
         port = self.ssh_port if not self.tailscale_ip else 22
         return f"ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -p {port} {self.ssh_user}@{host} '{cmd}'"
+
+    def ssh_command_list(self, cmd: str) -> list[str]:
+        """Generate SSH command as a list for subprocess (no shell=True needed)."""
+        host = self.tailscale_ip or self.public_ip or self.ssh_host
+        port = self.ssh_port if not self.tailscale_ip else 22
+        return [
+            "ssh",
+            "-o", "ConnectTimeout=10",
+            "-o", "StrictHostKeyChecking=no",
+            "-p", str(port),
+            f"{self.ssh_user}@{host}",
+            cmd,
+        ]
 
 
 class MultiProviderOrchestrator:

@@ -172,6 +172,14 @@ class OrchestratorRegistry:
                     cls._instance = cls()
         return cls._instance
 
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset the singleton (for testing)."""
+        with cls._lock:
+            if cls._instance is not None:
+                cls._instance._cleanup_on_exit()
+                cls._instance = None
+
     def _init_db(self):
         """Initialize the SQLite database with schema."""
         REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
