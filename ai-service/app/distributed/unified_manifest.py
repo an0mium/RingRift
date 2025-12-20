@@ -712,6 +712,8 @@ class DataManifest:
         limit: int = 1000,
         board_type: Optional[str] = None,
         num_players: Optional[int] = None,
+        prefer_recent: bool = True,
+        prefer_high_elo: bool = True,
     ) -> List[GameQualityMetadata]:
         """Get high-quality games for training.
 
@@ -720,9 +722,11 @@ class DataManifest:
             limit: Maximum number of games to return
             board_type: Optional filter by board type
             num_players: Optional filter by player count
+            prefer_recent: If True, prioritize recently created games
+            prefer_high_elo: If True, prioritize games from high-Elo players
 
         Returns:
-            List of GameQualityMetadata sorted by quality score descending
+            List of GameQualityMetadata sorted by specified criteria
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -743,7 +747,13 @@ class DataManifest:
             query += " AND num_players = ?"
             params.append(num_players)
 
-        query += " ORDER BY quality_score DESC LIMIT ?"
+        # Build ORDER BY clause based on preferences
+        order_parts = ["quality_score DESC"]  # Always include quality
+        if prefer_high_elo:
+            order_parts.insert(0, "avg_player_elo DESC")
+        if prefer_recent:
+            order_parts.insert(0, "created_at DESC")
+        query += f" ORDER BY {', '.join(order_parts)} LIMIT ?"
         params.append(limit)
 
         cursor.execute(query, params)

@@ -301,8 +301,8 @@ class DataCatalog:
         max_games: int = 100000,
         board_type: Optional[str] = None,
         num_players: Optional[int] = None,
-        _prefer_recent: bool = True,
-        _prefer_high_elo: bool = True,
+        prefer_recent: bool = True,
+        prefer_high_elo: bool = True,
     ) -> List[GameQualityMetadata]:
         """Get high-quality games for training.
 
@@ -326,6 +326,8 @@ class DataCatalog:
             limit=max_games,
             board_type=board_type,
             num_players=num_players,
+            prefer_recent=prefer_recent,
+            prefer_high_elo=prefer_high_elo,
         )
 
     def get_synced_db_paths(

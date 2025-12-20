@@ -555,7 +555,7 @@ class SyncOrchestrator:
             result: The full sync result
         """
         # Use centralized event emitter (December 2025)
-        if HAS_CENTRALIZED_EMITTERS and _emit_sync_event:
+        if HAS_CENTRALIZED_EMITTERS and _emit_sync_event is not None:
             try:
                 emitted = await _emit_sync_event(
                     sync_type="full",
