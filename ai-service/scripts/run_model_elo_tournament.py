@@ -28,6 +28,7 @@ import json
 import sqlite3
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
@@ -103,6 +104,48 @@ else:
 # When --training-mode is used, this is changed to "elo_selfplay" so games
 # feed into training pool instead of being filtered as holdout
 GAME_SOURCE_TAG = "run_model_elo_tournament"
+
+
+# ============================================
+# JSON Serialization Helpers
+# ============================================
+
+class GameRecordEncoder(json.JSONEncoder):
+    """Custom JSON encoder for game records with non-serializable types."""
+
+    def default(self, obj):
+        # Handle datetime objects
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        # Handle Pydantic models
+        if hasattr(obj, "model_dump"):
+            return obj.model_dump(mode="json")
+        if hasattr(obj, "dict"):
+            return obj.dict()
+        # Handle enums
+        if hasattr(obj, "value"):
+            return obj.value
+        # Handle Path objects
+        if isinstance(obj, Path):
+            return str(obj)
+        # Handle sets
+        if isinstance(obj, set):
+            return list(obj)
+        # Handle bytes
+        if isinstance(obj, bytes):
+            return obj.decode("utf-8", errors="replace")
+        return super().default(obj)
+
+
+def serialize_game_state(state) -> dict[str, Any]:
+    """Serialize a GameState to a JSON-compatible dict."""
+    if hasattr(state, "model_dump"):
+        return state.model_dump(mode="json")
+    if hasattr(state, "dict"):
+        # Convert the dict and handle any remaining non-serializable values
+        raw = state.dict()
+        return json.loads(json.dumps(raw, cls=GameRecordEncoder))
+    return {}
 
 
 # ============================================
