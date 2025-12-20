@@ -265,14 +265,9 @@ class TestGPUModuleIntegration:
     """Test GPU module extractions work together."""
 
     def test_gpu_types_import_chain(self):
-        """Test that gpu_game_types exports are accessible from main module."""
-        from app.ai.gpu_parallel_games import (
-            GameStatus,
-            MoveType,
-            GamePhase,
-            get_required_line_length,
-            get_int_dtype,
-        )
+        """Test that gpu_game_types exports are accessible from correct modules."""
+        from app.ai.gpu_parallel_games import GameStatus, GamePhase
+        from app.ai.gpu_game_types import MoveType, get_required_line_length, get_int_dtype
 
         # Verify they work
         assert GameStatus.ACTIVE == 0
