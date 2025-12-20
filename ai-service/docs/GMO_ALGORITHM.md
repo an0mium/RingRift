@@ -25,7 +25,8 @@ GMO combines several well-known ML/RL techniques into a practical move-selection
 13. [IG-GMO (Experimental)](#ig-gmo-experimental)
 14. [File Reference](#file-reference)
 15. [Training Infrastructure Integration](#training-infrastructure-integration)
-16. [References](#references)
+16. [Cluster Smoke Run (pending)](#cluster-smoke-run-pending)
+17. [References](#references)
 
 ---
 
@@ -582,6 +583,13 @@ Usage examples:
 - `AIFactory.create(AIType.IG_GMO, player_number, AIConfig(...))`
 - `create_tournament_ai("ig_gmo", player_number, ...)`
 
+Entry points:
+
+- `app/ai/ig_gmo.py` (`IGGMO`)
+- `app/ai/factory.py` via `AIType.IG_GMO` or tournament agent ID `ig_gmo`
+- For evaluation, reuse the GMO harnesses by swapping candidate creation
+  to IG-GMO in `scripts/gmo_eval_strong.py` (see `create_gmo`)
+
 ---
 
 ## File Reference
@@ -676,6 +684,28 @@ from app.ai.factory import AIFactory
 # Create GMO for tournament
 gmo = AIFactory.create_for_tournament("gmo", player_number=1)
 ```
+
+---
+
+## Cluster Smoke Run (pending)
+
+These runs should be executed on a cluster host; results are not yet recorded.
+
+### GMO Baseline Smoke Run
+
+```bash
+python scripts/gmo_eval_strong.py \
+    --opponents random,heuristic,mcts_100 \
+    --games 20 \
+    --device cuda \
+    --output results/gmo_smoke.json
+```
+
+Record results here:
+
+| Date (UTC) | Host | Opponents | Games | Win rate | Notes |
+| ---------- | ---- | --------- | ----- | -------- | ----- |
+| pending    |      |           |       |          |       |
 
 ---
 

@@ -10,6 +10,7 @@ from app.ai.mcts_ai import MCTSAI
 from app.ai.heuristic_ai import HeuristicAI
 from app.ai.random_ai import RandomAI
 from app.ai.descent_ai import DescentAI
+from app.ai.ig_gmo import IGGMO
 
 # Test timeout guards to prevent hanging in CI
 TEST_TIMEOUT_SECONDS = 30
@@ -94,6 +95,10 @@ def test_create_ai_instance(monkeypatch):
     # Test MCTS
     ai = _create_ai_instance(AIType.MCTS, 1, config)
     assert isinstance(ai, MCTSAI)
+
+    # Test IG-GMO (experimental)
+    ai = _create_ai_instance(AIType.IG_GMO, 1, config)
+    assert isinstance(ai, IGGMO)
 
     # Patch NeuralNetAI used by DescentAI to a lightweight stub so that
     # constructing a DescentAI instance does not allocate large tensors.

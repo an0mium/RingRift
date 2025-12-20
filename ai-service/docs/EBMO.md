@@ -150,6 +150,41 @@ python scripts/train_ebmo_expert.py \
   --output-dir models/ebmo
 ```
 
+### Evaluation & Diagnostics
+
+```bash
+# Quick win-rate sanity check (direct eval mode)
+python scripts/eval_ebmo_quick.py
+
+# Inspect energy distribution and gradient behavior
+python scripts/diagnose_ebmo.py --model models/ebmo/ebmo_improved_best.pt
+```
+
+Direct evaluation mode can also be enabled via:
+
+```python
+from app.ai.ebmo_network import EBMOConfig
+
+ebmo_config = EBMOConfig(use_direct_eval=True)
+```
+
+---
+
+## Cluster Smoke Run (pending)
+
+These runs should be executed on a cluster host; results are not yet recorded.
+
+```bash
+python scripts/eval_ebmo_quick.py
+python scripts/diagnose_ebmo.py --model models/ebmo/ebmo_improved_best.pt
+```
+
+Record results here:
+
+| Date (UTC) | Host | Models | Notes | Result summary |
+| ---------- | ---- | ------ | ----- | -------------- |
+| pending    |      |        |       |                |
+
 ## Architecture
 
 ### Network Components

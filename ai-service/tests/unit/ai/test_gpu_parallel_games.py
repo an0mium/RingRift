@@ -17,19 +17,20 @@ import torch
 
 from app.ai.gpu_parallel_games import (
     # Helper functions
-    get_int_dtype,
     select_moves_vectorized,
-    # Enums
+    # Core classes
+    BatchGameState,
+)
+from app.ai.gpu_game_types import (
+    get_int_dtype,
     GameStatus,
     MoveType,
     GamePhase,
-    # Core classes
-    BatchGameState,
-    BatchMoves,
-    # Move generation
-    generate_placement_moves_batch,
-    # Utility functions
     get_required_line_length,
+)
+from app.ai.gpu_move_generation import (
+    BatchMoves,
+    generate_placement_moves_batch,
     _empty_batch_moves,
 )
 from app.ai.gpu_batch import get_device
