@@ -479,10 +479,10 @@ class TestBackwardCompatibility:
 class TestParseArgs:
     """Tests for command-line argument parsing."""
     
-    def test_default_scheduler_is_cosine(self):
-        """Test that default scheduler is 'cosine' (changed from 'none' in Dec 2025)."""
+    def test_default_scheduler_is_none(self):
+        """Test that default scheduler is None (set by config or training logic)."""
         args = parse_args([])
-        assert args.lr_scheduler == 'cosine'
+        assert args.lr_scheduler is None
     
     def test_cosine_scheduler_args(self):
         """Test parsing cosine scheduler arguments."""
@@ -496,20 +496,20 @@ class TestParseArgs:
     def test_warm_restarts_scheduler_args(self):
         """Test parsing warm restarts scheduler arguments."""
         args = parse_args([
-            '--lr-scheduler', 'cosine-warm-restarts',
+            '--lr-scheduler', 'warmrestart',
             '--lr-t0', '15',
             '--lr-t-mult', '3',
             '--lr-min', '0.0001',
         ])
-        assert args.lr_scheduler == 'cosine-warm-restarts'
+        assert args.lr_scheduler == 'warmrestart'
         assert args.lr_t0 == 15
         assert args.lr_t_mult == 3
         assert args.lr_min == 0.0001
     
     def test_default_lr_min(self):
-        """Test default value for lr_min."""
+        """Test default value for lr_min is None (set by training logic)."""
         args = parse_args([])
-        assert args.lr_min == 1e-6
+        assert args.lr_min is None
     
     def test_default_t0_and_t_mult(self):
         """Test default values for T_0 and T_mult."""

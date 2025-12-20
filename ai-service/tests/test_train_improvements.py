@@ -362,11 +362,12 @@ class TestCliArguments(unittest.TestCase):
         """Test default argument values."""
         args = parse_args([])
 
-        self.assertEqual(args.early_stopping_patience, 10)
+        # These are None by default, to be filled by config or other logic
+        self.assertIsNone(args.early_stopping_patience)
         self.assertEqual(args.checkpoint_dir, "checkpoints")
         self.assertEqual(args.checkpoint_interval, 5)
-        self.assertEqual(args.warmup_epochs, 1)  # Default changed to 1
-        self.assertEqual(args.lr_scheduler, "cosine")  # Default changed to cosine
+        self.assertIsNone(args.warmup_epochs)  # None by default
+        self.assertIsNone(args.lr_scheduler)  # None by default
         self.assertIsNone(args.resume)
 
     def test_early_stopping_disabled(self) -> None:
@@ -399,7 +400,7 @@ class TestCliArguments(unittest.TestCase):
 
     def test_scheduler_choices(self) -> None:
         """Test valid scheduler choices."""
-        for choice in ["none", "step", "cosine"]:
+        for choice in ["cosine", "step", "plateau", "warmrestart"]:
             args = parse_args(["--lr-scheduler", choice])
             self.assertEqual(args.lr_scheduler, choice)
 
