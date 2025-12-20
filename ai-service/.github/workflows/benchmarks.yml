@@ -1,0 +1,58 @@
+name: Performance Benchmarks
+
+on:
+  workflow_dispatch:
+    inputs:
+      benchmark_type:
+        description: 'Type of benchmark to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - neural_net
+          - training
+          - data_loading
+
+defaults:
+  run:
+    working-directory: ai-service
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'ai-service/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-benchmark
+
+      - name: Run benchmarks
+        run: |
+          if [ "${{ inputs.benchmark_type }}" = "all" ]; then
+            pytest tests/benchmarks/ -v --benchmark-only --benchmark-autosave
+          elif [ "${{ inputs.benchmark_type }}" = "neural_net" ]; then
+            pytest tests/benchmarks/test_training_benchmarks.py::TestNeuralNetBenchmarks -v --benchmark-only
+          elif [ "${{ inputs.benchmark_type }}" = "training" ]; then
+            pytest tests/benchmarks/test_training_benchmarks.py::TestAdvancedTrainingBenchmarks -v --benchmark-only
+          elif [ "${{ inputs.benchmark_type }}" = "data_loading" ]; then
+            pytest tests/benchmarks/test_training_benchmarks.py::TestDataLoadingBenchmarks -v --benchmark-only
+          fi
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: ai-service/.benchmarks/
+          retention-days: 30
