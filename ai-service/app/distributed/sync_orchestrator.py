@@ -221,7 +221,6 @@ class SyncOrchestrator:
         # Wire DataQualityOrchestrator for holistic quality state (December 2025)
         try:
             from app.quality.data_quality_orchestrator import (
-                get_quality_orchestrator,
                 wire_quality_events,
             )
 

@@ -46,9 +46,7 @@ from typing import Any
 # Event bus integration for training feedback (December 2025)
 try:
     from app.distributed.data_events import (
-        DataEventType,
         emit_elo_updated,
-        get_event_bus,
     )
     HAS_EVENT_BUS = True
 except ImportError:
