@@ -351,8 +351,24 @@ k6 run \
   - `ws_reconnect_attempts_total`
   - `ws_reconnect_success_rate`
   - `ws_reconnect_latency_ms`
+  - `ws_spectator_join_attempts_total`
+  - `ws_spectator_join_success_rate`
+  - `ws_spectator_sessions_total`
+  - `ws_spectator_session_ms`
+  - `ws_decision_timeout_skipped_total`
+  - `ws_decision_timeout_auto_resolved_total`
+  - `ws_decision_timeout_failed_total`
+  - `ws_decision_timeout_latency_ms`
 
 This scenario is implemented in [`websocket-gameplay.js`](scenarios/websocket-gameplay.js:1) and follows the strategy described in [`LOAD_TEST_WEBSOCKET_MOVE_STRATEGY.md`](../../docs/LOAD_TEST_WEBSOCKET_MOVE_STRATEGY.md:1) and the transport decision ADR [`PLAYER_MOVE_TRANSPORT_DECISION.md`](../../docs/PLAYER_MOVE_TRANSPORT_DECISION.md:1).
+
+**Optional spectator/timeout simulation:**
+
+- Set `LOADTEST_USER_POOL_SIZE >= 2` and `WS_SPECTATOR_PROBABILITY > 0` to have each VU
+  open a short spectator WebSocket session against its newly created game before gameplay.
+- Set `WS_DECISION_TIMEOUT_PROBABILITY > 0` to intentionally skip some line/territory
+  decisions and observe server-side auto-resolve behavior (tracked via the decision timeout
+  metrics listed above).
 
 **Usage Modes:**
 

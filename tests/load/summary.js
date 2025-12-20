@@ -344,6 +344,23 @@ function buildSummaryObject(scenarioName, environmentLabel, thresholdsEnvLabel, 
     ws_reconnect_attempts_total: extractCounterSummary('ws_reconnect_attempts_total', data),
     ws_reconnect_success_rate: extractRate('ws_reconnect_success_rate', data),
     ws_reconnect_latency_ms: extractPercentiles('ws_reconnect_latency_ms', data),
+    ws_spectator_join_success_rate: extractRate('ws_spectator_join_success_rate', data),
+    ws_spectator_join_attempts_total: extractCounterSummary('ws_spectator_join_attempts_total', data),
+    ws_spectator_sessions_total: extractCounterSummary('ws_spectator_sessions_total', data),
+    ws_spectator_session_ms: extractPercentiles('ws_spectator_session_ms', data),
+    ws_decision_timeout_skipped_total: extractCounterSummary(
+      'ws_decision_timeout_skipped_total',
+      data
+    ),
+    ws_decision_timeout_auto_resolved_total: extractCounterSummary(
+      'ws_decision_timeout_auto_resolved_total',
+      data
+    ),
+    ws_decision_timeout_failed_total: extractCounterSummary(
+      'ws_decision_timeout_failed_total',
+      data
+    ),
+    ws_decision_timeout_latency_ms: extractPercentiles('ws_decision_timeout_latency_ms', data),
   };
 
   const ai = {
