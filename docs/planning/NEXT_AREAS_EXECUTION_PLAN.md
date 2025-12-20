@@ -1,7 +1,7 @@
 # Next Areas Execution Plan
 
 > **Created:** 2025-12-17
-> **Updated:** 2025-12-19
+> **Updated:** 2025-12-20
 > **Owner:** Tool-driven agent
 > **Goal:** Execute the next slices from the Overall Assessment with tight scope per lane.
 
@@ -182,6 +182,8 @@ This plan assumes the working tree is unstable due to other agents. Each lane is
 
 - [x] Define volume targets and update registry placeholders.
 - [x] Sample parity/history gate attempts surfaced missing `game_moves` tables (schema not gateable).
+- [x] Ran parity on active P2P square8 DBs; TS replay failed with phase-move invariant errors (place_ring in line_processing), so P2P outputs are non-canonical.
+- [x] Started canonical selfplay gate runs (square8 on lambda-gh200-e, square19 on lambda-gh200-m, hexagonal on lambda-2xh100); parity summaries will be in `data/games/*.parity_gate.json`.
 - [ ] Regenerate canonical DBs with `game_moves` via canonical self-play and rerun gates.
 - [ ] Update registry entries with full gate summaries.
 

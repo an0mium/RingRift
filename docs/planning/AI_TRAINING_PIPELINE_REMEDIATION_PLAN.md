@@ -579,6 +579,8 @@ The AI Training Pipeline Remediation is complete when:
 | 1.1     | 2025-12-20 | AI-02 (hexagonal): Schema regenerated, parity blocker identified                     |
 | 1.2     | 2025-12-20 | Updated large-board status: schema complete, parity failures due to phase invariants |
 | 1.3     | 2025-12-20 | Aligned Python territory eligibility with canonical elimination rules (height-1 ok)  |
+| 1.4     | 2025-12-20 | Disabled fast territory detection for large-board canonical selfplay gates           |
+| 1.5     | 2025-12-20 | Forced phase/move invariant checks on canonical selfplay runs                        |
 
 ---
 
@@ -598,6 +600,34 @@ The AI Training Pipeline Remediation is complete when:
 **Files Modified:**
 
 - `ai-service/app/_game_engine_legacy.py`
+
+### AI-02: Disable fast territory detection for large-board canonical selfplay (2025-12-20)
+
+**Status:** ✅ CONFIG UPDATED (awaiting regeneration + gate re-run)
+
+**Context:** Large-board parity failures are territory-processing sensitive. To avoid masking a fast-path divergence during canonical gating, disable the fast territory cache for square19/hex selfplay until parity passes.
+
+**Actions Completed:**
+
+1. ✅ Set `RINGRIFT_USE_FAST_TERRITORY=false` for square19/hex in the canonical parity gate runner.
+
+**Files Modified:**
+
+- `ai-service/scripts/run_canonical_selfplay_parity_gate.py`
+
+### AI-02: Enforce phase invariants during canonical selfplay (2025-12-20)
+
+**Status:** ✅ CONFIG UPDATED (awaiting regeneration + gate re-run)
+
+**Context:** Canonical gates must always run with phase/move invariants enabled, even if the host environment sets `RINGRIFT_SKIP_PHASE_INVARIANT=1` for local testing.
+
+**Actions Completed:**
+
+1. ✅ Forced `RINGRIFT_SKIP_PHASE_INVARIANT=0` in the canonical selfplay parity gate runner.
+
+**Files Modified:**
+
+- `ai-service/scripts/run_canonical_selfplay_parity_gate.py`
 
 ### AI-02: Regenerate canonical_hexagonal.db (2025-12-20)
 

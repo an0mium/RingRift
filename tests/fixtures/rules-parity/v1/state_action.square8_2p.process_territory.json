@@ -126,10 +126,10 @@
       "victoryThreshold": 18,
       "territoryVictoryThreshold": 33,
       "markers": 0,
-      "collapsed": 0,
+      "collapsed": 1,
       "eliminated": 0,
-      "S": 0,
-      "stateHash": "1:territory_processing:waiting#1:18:0:0|2:18:0:0#7,7:1:1:1##"
+      "S": 1,
+      "stateHash": "1:territory_processing:waiting#1:18:0:1|2:18:0:0#7,7:1:1:1##0,0:1"
     }
   }
 }
