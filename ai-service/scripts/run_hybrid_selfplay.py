@@ -709,6 +709,24 @@ def run_hybrid_selfplay(
                             # Failed to synthesize - check for endgame
                             GameEngine._check_victory(game_state)
                             break
+                        # Apply the bookkeeping move and continue the game loop
+                        move_timestamp = datetime.now(timezone.utc)
+                        stamped_move = best_move.model_copy(
+                            update={
+                                "id": f"move-{move_count + 1}",
+                                "timestamp": move_timestamp,
+                                "think_time": 0,
+                                "move_number": move_count + 1,
+                            }
+                        )
+                        game_state = GameEngine.apply_move(game_state, stamped_move)
+                        moves_for_db.append(stamped_move)
+                        moves_played.append({
+                            "type": stamped_move.type.value if hasattr(stamped_move.type, 'value') else str(stamped_move.type),
+                            "player": stamped_move.player,
+                        })
+                        move_count += 1
+                        continue  # Continue to next iteration of the game loop
                     else:
                         # No valid moves and no phase requirement - trigger victory check
                         GameEngine._check_victory(game_state)
