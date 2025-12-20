@@ -1171,12 +1171,14 @@ def generate_chain_capture_moves_from_position(
 
             cell_owner = stack_owner_np[check_y, check_x]
             if cell_owner != 0:
-                target_cap = cap_height_np[check_y, check_x]
-                if my_cap_height >= target_cap:
-                    target_y = check_y
-                    target_x = check_x
-                    target_dist = step
-                # Any stack stops the search along this ray.
+                # Can only capture ENEMY stacks, not own stacks
+                if cell_owner != player:
+                    target_cap = cap_height_np[check_y, check_x]
+                    if my_cap_height >= target_cap:
+                        target_y = check_y
+                        target_x = check_x
+                        target_dist = step
+                # Any stack (own or enemy) stops the search along this ray.
                 break
 
         if target_y is None or target_x is None:

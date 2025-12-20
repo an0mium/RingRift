@@ -307,76 +307,103 @@ class PreflightChecker:
                 ),
             )
 
-        # Canonical parity gate for Square-8 self-play data.
+        # Canonical gate check for Square-8 self-play data.
         #
-        # We treat canonical_square8.db as the primary training source for
-        # Square-8; before running serious training, its parity summary must
-        # show:
-        #   - games_with_semantic_divergence == 0
-        #   - games_with_structural_issues == 0
-        #   - total_games_checked > 0
+        # We treat canonical_square8_2p.db as the primary training source for
+        # Square-8; before running serious training, its db_health summary must
+        # show canonical_ok == true.
         try:
             from pathlib import Path
 
             root = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            summary_path = root / "parity_summary.canonical_square8.json"
+            candidates = [
+                root / "data" / "games" / "canonical_square8_2p.db",
+                root / "data" / "games" / "canonical_square8.db",
+            ]
+            db_path = next((p for p in candidates if p.exists()), None)
 
-            if not summary_path.exists():
+            if db_path is None:
                 self.add_check(
                     cat,
                     CheckResult(
-                        name="Canonical square8 parity summary",
+                        name="Canonical square8 gate summary",
                         passed=False,
-                        error="parity_summary.canonical_square8.json not found",
+                        error="No canonical Square-8 DB found",
                         suggestion=(
-                            "Run scripts/check_ts_python_replay_parity.py "
-                            "--db data/games/canonical_square8.db and keep the "
-                            "summary JSON alongside TRAINING_DATA_REGISTRY.md "
-                            "before training on canonical_square8.db."
+                            "Generate canonical Square-8 data with "
+                            "scripts/generate_canonical_selfplay.py and ensure "
+                            "data/games/canonical_square8_2p.db exists."
                         ),
                     ),
                 )
             else:
-                with summary_path.open("r", encoding="utf-8") as f:
-                    summary = json.load(f)
-
-                sem = int(summary.get("games_with_semantic_divergence", 1))
-                struct = int(summary.get("games_with_structural_issues", 1))
-                total = int(summary.get("total_games_checked", 0))
-
-                if sem == 0 and struct == 0 and total > 0:
+                summary_path = db_path.parent / f"db_health.{db_path.stem}.json"
+                if not summary_path.exists():
                     self.add_check(
                         cat,
                         CheckResult(
-                            name="Canonical square8 parity summary",
-                            passed=True,
-                            message=f"OK ({total} games parity-checked, no semantic divergences)",
+                            name="Canonical square8 gate summary",
+                            passed=False,
+                            error=f"{summary_path.name} not found",
+                            suggestion=(
+                                "Run scripts/generate_canonical_selfplay.py --board square8 "
+                                f"--num-games 0 --db {db_path} --summary {summary_path} "
+                                "from ai-service/ before training."
+                            ),
                         ),
                     )
                 else:
-                    self.add_check(
-                        cat,
-                        CheckResult(
-                            name="Canonical square8 parity summary",
-                            passed=False,
-                            error=(
-                                f"Parity summary reports semantic_divergences={sem}, "
-                                f"structural_issues={struct}, total_games_checked={total}"
+                    with summary_path.open("r", encoding="utf-8") as f:
+                        summary = json.load(f)
+
+                    canonical_ok = bool(summary.get("canonical_ok"))
+                    parity_gate = summary.get("parity_gate") or {}
+                    canonical_history = summary.get("canonical_history") or {}
+                    db_stats = summary.get("db_stats") or {}
+
+                    sem = int(parity_gate.get("games_with_semantic_divergence", 1))
+                    struct = int(parity_gate.get("games_with_structural_issues", 1))
+                    total = int(canonical_history.get("games_checked", 0))
+                    non_canonical = int(canonical_history.get("non_canonical_games", 0))
+                    games_total = int(db_stats.get("games_total", 0))
+
+                    if canonical_ok:
+                        self.add_check(
+                            cat,
+                            CheckResult(
+                                name="Canonical square8 gate summary",
+                                passed=True,
+                                message=(
+                                    f"OK ({db_path.name}, games_total={games_total}, "
+                                    f"history_checked={total})"
+                                ),
                             ),
-                            suggestion=(
-                                "Investigate TS↔Python replay parity for "
-                                "canonical_square8.db and rerun the parity gate "
-                                "before training."
+                        )
+                    else:
+                        self.add_check(
+                            cat,
+                            CheckResult(
+                                name="Canonical square8 gate summary",
+                                passed=False,
+                                error=(
+                                    f"canonical_ok={canonical_ok}, "
+                                    f"semantic_divergences={sem}, "
+                                    f"structural_issues={struct}, "
+                                    f"non_canonical_games={non_canonical}"
+                                ),
+                                suggestion=(
+                                    "Investigate TS↔Python replay parity or canonical history for "
+                                    f"{db_path.name} and rerun the canonical gate before training."
+                                ),
                             ),
-                        ),
-                    )
+                        )
         except Exception as e:  # pragma: no cover - defensive
             self.add_check(
                 cat,
                 CheckResult(
-                    name="Canonical square8 parity summary",
+                    name="Canonical square8 gate summary",
                     passed=False,
-                    error=f"Failed to load parity summary: {e}",
+                    error=f"Failed to load canonical gate summary: {e}",
                 ),
             )
 

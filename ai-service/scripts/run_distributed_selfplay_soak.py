@@ -71,15 +71,20 @@ except ImportError:
     HAS_YAML = False
 
 # Import sync_lock for coordinated file transfers
-try:
-    from app.coordination.sync_lock import (
-        acquire_sync_lock,
-        release_sync_lock,
-    )
-    HAS_SYNC_LOCK = True
-except ImportError:
+skip_sync_lock = os.getenv("RINGRIFT_SKIP_SYNC_LOCK_IMPORT", "").strip().lower()
+if skip_sync_lock in ("1", "true", "yes", "on"):
     HAS_SYNC_LOCK = False
+else:
+    try:
+        from app.coordination.sync_lock import (
+            acquire_sync_lock,
+            release_sync_lock,
+        )
+        HAS_SYNC_LOCK = True
+    except Exception:
+        HAS_SYNC_LOCK = False
 
+if not HAS_SYNC_LOCK:
     def acquire_sync_lock(host: str, timeout: float = 30.0) -> bool:
         return True
 
@@ -109,13 +114,19 @@ except ImportError:
     RESOURCE_LIMITS = None  # type: ignore
 
 # Unified selfplay configuration
-try:
-    from app.training.selfplay_config import SelfplayConfig, create_argument_parser
-    HAS_SELFPLAY_CONFIG = True
-except ImportError:
+_skip_selfplay = os.getenv("RINGRIFT_SKIP_SELFPLAY_CONFIG", "").strip().lower()
+if _skip_selfplay in ("1", "true", "yes", "on"):
     HAS_SELFPLAY_CONFIG = False
     SelfplayConfig = None  # type: ignore
     create_argument_parser = None  # type: ignore
+else:
+    try:
+        from app.training.selfplay_config import SelfplayConfig, create_argument_parser
+        HAS_SELFPLAY_CONFIG = True
+    except BaseException:
+        HAS_SELFPLAY_CONFIG = False
+        SelfplayConfig = None  # type: ignore
+        create_argument_parser = None  # type: ignore
 
 # Board configurations with appropriate max moves
 BOARD_CONFIGS: dict[str, dict[int, int]] = {

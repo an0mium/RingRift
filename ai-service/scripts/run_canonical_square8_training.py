@@ -3,18 +3,20 @@
 Run a small, canonical Square-8 training job for v2 models.
 
 This script is intended as a safe entrypoint for the first round of
-training experiments on the parity-gated `canonical_square8.db` data.
+training experiments on canonical Square-8 data (default:
+`canonical_square8_2p.db`).
 
 It assumes that:
-  - Training data (.npz) has been exported from `canonical_square8.db`
+  - Training data (.npz) has been exported from a canonical Square-8 DB
     (for example via `scripts/export_replay_dataset.py`), and
-  - TS↔Python replay parity for `canonical_square8.db` has been verified
-    and summarised in `parity_summary.canonical_square8.json`.
+  - The canonical gate summary for the source DB has been refreshed
+    via `scripts/generate_canonical_selfplay.py` and written to
+    `data/games/db_health.<db>.json` with `canonical_ok=true`.
 
 Usage (from ai-service/):
 
   PYTHONPATH=. python scripts/run_canonical_square8_training.py \\
-    --data-path data/training/from_canonical_square8.npz \\
+    --data-path data/training/canonical_square8_2p.npz \\
     --save-path checkpoints/ringrift_v2_square8_demo.pth \\
     --demo
 """
@@ -37,27 +39,39 @@ from app.training.config import TrainConfig, get_training_config_for_board  # ty
 from app.training.train import train_model  # type: ignore[import]
 
 
+def _resolve_db_path(db_path: Path) -> Path:
+    if db_path.is_absolute():
+        return db_path
+    return (PROJECT_ROOT / db_path).resolve()
+
+
 def _validate_source_db(db_path: Path) -> None:
-    """Best-effort guard: ensure source DB is canonical_square8.db with clean parity.
+    """Best-effort guard: ensure source DB is canonical Square-8 with clean gate.
 
     This mirrors the policy documented in TRAINING_DATA_REGISTRY.md and
     AI_IMPROVEMENT_PLAN.md §1.3.8 without attempting to parse the registry
     markdown at runtime.
     """
-    if db_path.name != "canonical_square8.db":
+    db_path = _resolve_db_path(db_path)
+    if not db_path.name.startswith("canonical_square8"):
         raise SystemExit(
             f"[canonical-training] Refusing to train from non-canonical DB: {db_path}\n"
-            "Expected basename 'canonical_square8.db'. Update TRAINING_DATA_REGISTRY.md "
-            "and this script together if you intend to promote a new canonical DB."
+            "Expected basename starting with 'canonical_square8'. Update "
+            "TRAINING_DATA_REGISTRY.md and this script together if you intend to "
+            "promote a new canonical DB."
+        )
+    if not db_path.exists():
+        raise SystemExit(
+            f"[canonical-training] Source DB not found: {db_path}\n"
+            "Generate canonical Square-8 data before training."
         )
 
-    summary_path = PROJECT_ROOT / "ai-service" / "parity_summary.canonical_square8.json"
+    summary_path = db_path.parent / f"db_health.{db_path.stem}.json"
     if not summary_path.exists():
         raise SystemExit(
-            "[canonical-training] parity_summary.canonical_square8.json not found.\n"
-            "Run scripts/check_ts_python_replay_parity.py --db data/games/canonical_square8.db "
-            "from ai-service/ and keep the summary JSON alongside TRAINING_DATA_REGISTRY.md "
-            "before training."
+            f"[canonical-training] {summary_path.name} not found.\n"
+            "Run scripts/generate_canonical_selfplay.py --board square8 --num-games 0 "
+            f"--db {db_path} --summary {summary_path} from ai-service/ before training."
         )
 
     try:
@@ -66,29 +80,37 @@ def _validate_source_db(db_path: Path) -> None:
     except Exception as exc:  # pragma: no cover - defensive
         raise SystemExit(f"[canonical-training] Failed to parse {summary_path}: {exc}") from exc
 
-    sem = int(summary.get("games_with_semantic_divergence", 1))
-    struct = int(summary.get("games_with_structural_issues", 1))
-    total = int(summary.get("total_games_checked", 0))
+    canonical_ok = bool(summary.get("canonical_ok"))
+    parity_gate = summary.get("parity_gate") or {}
+    sem = int(parity_gate.get("games_with_semantic_divergence", 1))
+    struct = int(parity_gate.get("games_with_structural_issues", 1))
+    total = int((summary.get("canonical_history") or {}).get("games_checked", 0))
+    non_canonical = int((summary.get("canonical_history") or {}).get("non_canonical_games", 0))
 
-    if not (sem == 0 and struct == 0 and total > 0):
+    if not canonical_ok:
         raise SystemExit(
-            "[canonical-training] Parity summary for canonical_square8.db is not clean:\n"
+            "[canonical-training] Canonical gate summary is not clean:\n"
+            f"  canonical_ok={canonical_ok}\n"
             f"  games_with_semantic_divergence={sem}\n"
             f"  games_with_structural_issues={struct}\n"
-            f"  total_games_checked={total}\n"
-            "Investigate TS↔Python replay parity for canonical_square8.db and rerun "
-            "the parity gate before training."
+            f"  canonical_history.games_checked={total}\n"
+            f"  canonical_history.non_canonical_games={non_canonical}\n"
+            "Investigate TS↔Python replay parity and canonical history for the "
+            "source DB and rerun the canonical gate before training."
         )
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=("Run a small, canonical Square-8 training job on data exported " "from canonical_square8.db."),
+        description=(
+            "Run a small, canonical Square-8 training job on data exported "
+            "from a canonical Square-8 DB."
+        ),
     )
     parser.add_argument(
         "--data-path",
         required=True,
-        help="Path to .npz training data exported from canonical_square8.db.",
+        help="Path to .npz training data exported from a canonical Square-8 DB.",
     )
     parser.add_argument(
         "--save-path",
@@ -97,11 +119,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--source-db",
-        default="data/games/canonical_square8.db",
+        default="data/games/canonical_square8_2p.db",
         help=(
             "Source GameReplayDB used to generate data-path. Defaults to "
-            "data/games/canonical_square8.db and is validated against the "
-            "canonical parity summary."
+            "data/games/canonical_square8_2p.db and is validated against the "
+            "canonical gate summary."
         ),
     )
     parser.add_argument(

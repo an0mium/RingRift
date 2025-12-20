@@ -16,14 +16,14 @@ This document tracks the provenance and canonical status of all self-play databa
 
 ### Canonical (Parity + Canonical-History Gated)
 
-| Database                  | Board Type | Players | Status        | Gate Summary                                      | Notes                                                                                                                                                                                 |
-| ------------------------- | ---------- | ------- | ------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `canonical_square8_2p.db` | square8    | 2       | **canonical** | canonical_square8_2p_200games.parity_summary.json | 2025-12-16 Vast.ai regeneration (200 games, 12,642 samples); 100% semantic parity verified; NPZ exported to `data/training/canonical_square8_2p.npz`                                  |
-| `canonical_square8.db`    | square8    | 2       | **canonical** | db_health.canonical_square8.json                  | 2025-12-12 distributed regeneration (12 games) and re-gate after TS territory-control parity fix; `canonical_ok=true` (only end-of-game-only current_player mismatch).                |
-| `canonical_square8_3p.db` | square8    | 3       | **canonical** | db_health.canonical_square8_3p.json               | 2025-12-12 initial 3P canonical DB (2 games) gated successfully (`canonical_ok=true`; parity only end-of-game-only current_player mismatch).                                          |
-| `canonical_square8_4p.db` | square8    | 4       | **canonical** | db_health.canonical_square8_4p.json               | 2025-12-12 4P canonical DB (2 games) gated successfully (`canonical_ok=true`). Scale up for training.                                                                                 |
-| `canonical_square19.db`   | square19   | 2       | **canonical** | db_health.canonical_square19.json                 | 2025-12-20 regenerated via direct soak (3 games, 1,903 moves) with `RINGRIFT_USE_MAKE_UNMAKE=true` (light band). Parity + canonical history gates passed; still below volume targets. |
-| `canonical_hexagonal.db`  | hexagonal  | 2       | **canonical** | db_health.canonical_hexagonal.json                | 2025-12-20 regenerated via direct soak (1 game, 1,113 moves) with `RINGRIFT_USE_MAKE_UNMAKE=true` (light band). Parity + canonical history gates passed; still below volume targets.  |
+| Database                  | Board Type | Players | Status        | Gate Summary                        | Notes                                                                                                                                                                                 |
+| ------------------------- | ---------- | ------- | ------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `canonical_square8_2p.db` | square8    | 2       | **canonical** | db_health.canonical_square8_2p.json | 2025-12-16 Vast.ai regeneration (200 games, 12,642 samples); 100% semantic parity verified; NPZ exported to `data/training/canonical_square8_2p.npz`                                  |
+| `canonical_square8.db`    | square8    | 2       | **canonical** | db_health.canonical_square8.json    | 2025-12-12 distributed regeneration (12 games) and re-gate after TS territory-control parity fix; `canonical_ok=true` (only end-of-game-only current_player mismatch).                |
+| `canonical_square8_3p.db` | square8    | 3       | **canonical** | db_health.canonical_square8_3p.json | 2025-12-12 initial 3P canonical DB (2 games) gated successfully (`canonical_ok=true`; parity only end-of-game-only current_player mismatch).                                          |
+| `canonical_square8_4p.db` | square8    | 4       | **canonical** | db_health.canonical_square8_4p.json | 2025-12-12 4P canonical DB (2 games) gated successfully (`canonical_ok=true`). Scale up for training.                                                                                 |
+| `canonical_square19.db`   | square19   | 2       | **canonical** | db_health.canonical_square19.json   | 2025-12-20 regenerated via direct soak (3 games, 1,903 moves) with `RINGRIFT_USE_MAKE_UNMAKE=true` (light band). Parity + canonical history gates passed; still below volume targets. |
+| `canonical_hexagonal.db`  | hexagonal  | 2       | **canonical** | db_health.canonical_hexagonal.json  | 2025-12-20 regenerated via direct soak (1 game, 1,113 moves) with `RINGRIFT_USE_MAKE_UNMAKE=true` (light band). Parity + canonical history gates passed; still below volume targets.  |
 
 The `Status` column uses `canonical` only for DBs whose latest gate summary JSON has `canonical_ok == true`. For supported board types (`square8`, `square19`, and `hexagonal`), this also implies `fe_territory_fixtures_ok == true` as well as a passing parity gate and canonical phase history.
 
@@ -194,12 +194,12 @@ The legacy and pending DBs listed earlier have been removed. For any new replay 
 
 ## Parity Gate Results
 
-When `run_canonical_selfplay_parity_gate.py` is used to generate and gate a new DB,
-its summary should be stored alongside this document (for example as
-`parity_gate.<board>.json`). The lower-level parity sweeps invoked directly by
-`check_ts_python_replay_parity.py` can also be captured as
-`parity_summary.<label>.json` for ad-hoc debugging (for example,
-`parity_summary.canonical_square8.json`).
+When `generate_canonical_selfplay.py` is used to generate and gate a new DB,
+its canonical gate summary is written to `data/games/db_health.<db>.json`.
+If `run_canonical_selfplay_parity_gate.py` is used directly, store its JSON
+summary alongside this document (for example as `parity_gate.<board>.json`).
+Lower-level parity sweeps invoked directly by `check_ts_python_replay_parity.py`
+can also be captured as `parity_summary.<label>.json` for ad-hoc debugging.
 
 The example below shows the inner `parity_summary` structure used both in historical `parity_gate.*.json` artefacts and inside the newer canonical gate summaries emitted by `scripts/generate_canonical_selfplay.py` (under the `parity_gate` key alongside `canonical_history`, `fe_territory_fixtures_ok`, and `canonical_ok`).
 

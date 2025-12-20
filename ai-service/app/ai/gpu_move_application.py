@@ -192,6 +192,8 @@ def apply_capture_moves_vectorized(
         # Track captured ring as "buried" for the ring's owner (when capturing an opponent).
         if target_owner != 0 and target_owner != player:
             state.buried_rings[g, target_owner] += 1
+            # December 2025: Also track buried ring position for recovery extraction
+            state.buried_at[g, target_owner, to_y, to_x] = True
 
         # Move attacker to landing and apply net height change:
         # +1 captured ring (to bottom) - landing marker elimination cost.
@@ -211,6 +213,13 @@ def apply_capture_moves_vectorized(
         state.stack_owner[g, from_y, from_x] = 0
         state.cap_height[g, from_y, from_x] = 0
         state.marker_owner[g, from_y, from_x] = player
+
+        # December 2025: Move buried_at tracking from origin to landing
+        # Any buried rings under the attacker move with it
+        for p in range(1, state.num_players + 1):
+            if state.buried_at[g, p, from_y, from_x]:
+                state.buried_at[g, p, to_y, to_x] = True
+                state.buried_at[g, p, from_y, from_x] = False
 
 
 def apply_movement_moves_vectorized(
@@ -331,6 +340,13 @@ def apply_movement_moves_vectorized(
         state.cap_height[g, from_y, from_x] = 0
         # Leave a marker on the departure space (RR-CANON-R092).
         state.marker_owner[g, from_y, from_x] = player
+
+        # December 2025: Move buried_at tracking from origin to destination
+        # Any buried rings under the stack move with it
+        for p in range(1, state.num_players + 1):
+            if state.buried_at[g, p, from_y, from_x]:
+                state.buried_at[g, p, to_y, to_x] = True
+                state.buried_at[g, p, from_y, from_x] = False
 
 
 def apply_recovery_moves_vectorized(

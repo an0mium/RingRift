@@ -1733,17 +1733,13 @@ class ParallelGameRunner:
             if games_with_captures.any():
                 mark_real_action_batch(self.state, games_with_captures)
 
-        # December 2025: Emit skip_capture ONLY for post-movement captures
-        # Per CPU phase machine (RR-CANON-R073/R093):
-        # - Direct captures during MOVEMENT phase: CPU advances directly to LINE_PROCESSING
-        #   after the capture chain completes (no skip_capture needed)
-        # - Post-movement captures (after MOVE_STACK): CPU enters CAPTURE phase, and
-        #   skip_capture is required to exit CAPTURE phase and proceed to LINE_PROCESSING
-        #
-        # games_with_captures: took captures at the START of movement (direct captures during MOVEMENT)
-        # games_with_post_captures: took MOVE_STACK first, then captures from landing (entered CAPTURE phase)
-        if 'games_with_post_captures' in dir() and games_with_post_captures.any():
-            self._record_skip_capture_moves(games_with_post_captures)
+        # December 2025: SKIP_CAPTURE is NOT needed after completing captures
+        # Per CPU phase machine (lines 298-313 in phase_machine.py):
+        # After ANY capture (OVERTAKING_CAPTURE, CONTINUE_CAPTURE_SEGMENT, etc.),
+        # if no more captures exist, CPU auto-advances to LINE_PROCESSING.
+        # SKIP_CAPTURE is only for explicitly DECLINING available captures (when
+        # player does MOVE_STACK but chooses not to take available captures).
+        # Since GPU always takes available captures, SKIP_CAPTURE should never be emitted.
 
         # December 2025: Reset capture chain tracking before advancing phase
         reset_capture_chain_batch(self.state, mask)
