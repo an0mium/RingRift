@@ -318,6 +318,7 @@ __all__ = [
     "detect_host_memory",
     "detect_storage_provider",
     "discover_workers",
+    "emit_elo_updated_safe",
     "emit_error_safe",
     "emit_evaluation_completed_safe",
     "emit_event_safe",
