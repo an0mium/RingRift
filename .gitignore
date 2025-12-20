@@ -231,3 +231,4 @@ scripts/tunnel_manager.sh
 
 # Status documents with cluster details
 CURRENT_STATE_ASSESSMENT.md
+results/load-test/
