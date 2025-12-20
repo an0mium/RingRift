@@ -755,6 +755,7 @@ def build_soak_command(job: JobConfig, is_remote: bool = False) -> str:
     cmd_parts = [
         "PYTHONPATH=.",
         "RINGRIFT_SKIP_SHADOW_CONTRACTS=true",
+        "RINGRIFT_SKIP_OPTIONAL_IMPORTS=true",
         # Canonical self-play invariants / parity enforcement.
         # Keep these strict by default so distributed soaks produce debuggable,
         # parity-safe recordings (especially for training data).
@@ -1234,8 +1235,11 @@ def run_parity_checks(db_paths: list[str], ringrift_ai_dir: str) -> tuple[int, i
 
 
 def main():
-    # Use unified parser if available, otherwise fall back to standard argparse
-    if HAS_SELFPLAY_CONFIG and create_argument_parser is not None:
+    # The unified parser defines single-value --num-players/--board flags that
+    # conflict with the list-style arguments used here, so keep this script
+    # on the bespoke parser until the unified API supports lists.
+    use_unified_parser = False
+    if HAS_SELFPLAY_CONFIG and create_argument_parser is not None and use_unified_parser:
         parser = create_argument_parser(
             description="Run distributed self-play soaks across multiple machines",
             include_gpu=False,

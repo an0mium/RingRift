@@ -14,18 +14,26 @@ Security Note:
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # Try to import torch - this module should work even without torch
-try:
-    import torch
-    HAS_TORCH = True
-except ImportError:
+skip_torch = os.getenv("RINGRIFT_SKIP_TORCH_IMPORT", "").strip().lower()
+skip_optional = os.getenv("RINGRIFT_SKIP_OPTIONAL_IMPORTS", "").strip().lower()
+if skip_torch in ("1", "true", "yes", "on") or skip_optional in ("1", "true", "yes", "on"):
     HAS_TORCH = False
     torch = None  # type: ignore[assignment]
+else:
+    try:
+        import torch
+        HAS_TORCH = True
+    except Exception as exc:
+        HAS_TORCH = False
+        torch = None  # type: ignore[assignment]
+        logger.debug("PyTorch import failed: %s", exc)
 
 
 def safe_load_checkpoint(

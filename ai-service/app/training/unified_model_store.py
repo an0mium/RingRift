@@ -52,6 +52,58 @@ from app.utils.torch_utils import safe_load_checkpoint
 
 logger = logging.getLogger(__name__)
 
+# Composite ELO integration (Sprint 5)
+try:
+    from app.training.elo_service import get_elo_service
+    HAS_COMPOSITE_ELO = True
+except ImportError:
+    HAS_COMPOSITE_ELO = False
+    get_elo_service = None
+
+
+def _parse_config_from_name(name: str) -> tuple[str, int] | None:
+    """Extract board_type and num_players from model name.
+
+    Parses naming conventions like:
+    - sq8_2p_model_v1 -> ("square8", 2)
+    - square19_4p_best -> ("square19", 4)
+    - hex_3p_trained -> ("hexagonal", 3)
+
+    Returns:
+        Tuple of (board_type, num_players) or None if not parseable
+    """
+    import re
+
+    name_lower = name.lower()
+
+    # Common board type mappings (check longer patterns first)
+    board_patterns = [
+        ('square19', 'square19'),
+        ('square8', 'square8'),
+        ('hexagonal', 'hexagonal'),
+        ('sq19', 'square19'),
+        ('sq8', 'square8'),
+        ('hex', 'hexagonal'),
+    ]
+
+    # Find board type
+    board_type = None
+    for pattern, bt in board_patterns:
+        if pattern in name_lower:
+            board_type = bt
+            break
+
+    if not board_type:
+        return None
+
+    # Find player count (e.g., 2p, 3p, 4p, _2p_, etc.)
+    player_match = re.search(r'(\d)p(?:_|$|\b)', name_lower)
+    if player_match:
+        num_players = int(player_match.group(1))
+        return (board_type, num_players)
+
+    return None
+
 
 class ModelStoreStage(Enum):
     """Model lifecycle stages."""
@@ -227,6 +279,14 @@ class UnifiedModelStore:
                 "stage": initial_stage.value,
                 "elo": elo,
             })
+
+            # Auto-register as composite participant (Sprint 5)
+            self._register_composite_participant(
+                model_id=model_id,
+                name=name,
+                model_path=model_path,
+                elo=elo,
+            )
 
             logger.info(f"[UnifiedModelStore] Registered {model_id} v{version}")
             return model_id, version
@@ -484,6 +544,57 @@ class UnifiedModelStore:
             return mapping.get(model_type, ModelStoreType.POLICY_VALUE)
         except ImportError:
             return ModelStoreType.POLICY_VALUE
+
+    def _register_composite_participant(
+        self,
+        model_id: str,
+        name: str,
+        model_path: Path,
+        elo: float | None = None,
+    ) -> None:
+        """Auto-register model as composite participant for ELO tracking.
+
+        Parses board_type and num_players from model name and registers
+        with the EloService for composite participant tracking.
+
+        Args:
+            model_id: The model identifier
+            name: Model name (used to parse config)
+            model_path: Path to model file
+            elo: Optional initial Elo rating
+        """
+        if not HAS_COMPOSITE_ELO or get_elo_service is None:
+            return
+
+        # Parse config from name
+        config = _parse_config_from_name(name)
+        if config is None:
+            logger.debug(f"[CompositeELO] Could not parse config from name: {name}")
+            return
+
+        board_type, num_players = config
+
+        try:
+            elo_service = get_elo_service()
+
+            # Register as composite participant with default algorithm (policy_only)
+            participant_id = elo_service.register_composite_participant(
+                nn_id=model_id,
+                ai_type="policy_only",  # Default, can be updated later
+                board_type=board_type,
+                num_players=num_players,
+                nn_model_path=str(model_path),
+                initial_elo=elo,
+            )
+
+            logger.info(
+                f"[CompositeELO] Registered {model_id} as composite participant "
+                f"({board_type}/{num_players}p): {participant_id}"
+            )
+
+        except Exception as e:
+            # Don't fail model registration if composite registration fails
+            logger.debug(f"[CompositeELO] Failed to register composite participant: {e}")
 
     def _emit_model_event(
         self,

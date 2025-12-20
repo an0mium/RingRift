@@ -4289,7 +4289,8 @@ class GameEngine:
                 for y in range(19):
                     positions.append(Position(x=x, y=y))
         elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
-            radius = size - 1
+            # For hex boards, size = 2*radius + 1, so radius = (size - 1) // 2
+            radius = (size - 1) // 2
             for x in range(-radius, radius + 1):
                 for y in range(-radius, radius + 1):
                     z = -x - y
@@ -4318,7 +4319,8 @@ class GameEngine:
 
         elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             hex_directions = [(1, 0, -1), (-1, 0, 1), (0, 1, -1), (0, -1, 1), (1, -1, 0), (-1, 1, 0)]
-            radius = size - 1
+            # For hex boards, size = 2*radius + 1, so radius = (size - 1) // 2
+            radius = (size - 1) // 2
             for dx, dy, dz in hex_directions:
                 if pos.z is None:
                     continue
@@ -4352,7 +4354,8 @@ class GameEngine:
             directions = [(1, 0, -1), (-1, 0, 1), (0, 1, -1), (0, -1, 1), (1, -1, 0), (-1, 1, 0)]
 
         limit = 8 if board_type == BoardType.SQUARE8 else 19
-        radius = size - 1
+        # For hex boards, size = 2*radius + 1, so radius = (size - 1) // 2
+        radius = (size - 1) // 2
 
         for dx, dy, dz in directions:
             curr_x, curr_y = pos.x, pos.y

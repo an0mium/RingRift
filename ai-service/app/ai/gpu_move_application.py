@@ -1018,6 +1018,13 @@ def apply_movement_moves_batch_vectorized(
     state.stack_height[game_indices, to_y, to_x] = new_height.to(state.stack_height.dtype)
     state.cap_height[game_indices, to_y, to_x] = new_cap_height.to(state.cap_height.dtype)
 
+    # Clear must_move_from constraint after movement (RR-CANON-R090)
+    # The player has fulfilled their movement obligation.
+    # BUG FIX 2025-12-20: This was missing in the vectorized path, causing post-movement
+    # capture checks to fail because they still looked at the old position.
+    state.must_move_from_y[game_indices] = -1
+    state.must_move_from_x[game_indices] = -1
+
     # Advance move counter only (NOT current_player - that's handled by END_TURN phase)
     # BUG FIX 2025-12-15: Removing player rotation here - it was causing players to
     # advance mid-turn, then advance again in END_TURN, resulting in players getting
@@ -1180,12 +1187,27 @@ def apply_capture_moves_batch_vectorized(
         torch.full((n_games,), MoveType.OVERTAKING_CAPTURE, dtype=torch.int16, device=device),
     )
 
-    # Determine canonical phase based on capture chain state
-    # First capture → CAPTURE phase, chain captures → CHAIN_CAPTURE phase
+    # Determine canonical phase based on capture chain state and current game phase
+    # Per RR-CANON phase machine:
+    # - Direct capture during MOVEMENT phase → record with MOVEMENT phase
+    # - First capture after entering CAPTURE phase (via MOVE_STACK) → CAPTURE phase
+    # - Chain captures → CHAIN_CAPTURE phase
+    #
+    # The key distinction is: captures ARE valid during MOVEMENT phase, and when
+    # taken directly (without prior MOVE_STACK), they should be recorded with
+    # MOVEMENT phase. CAPTURE phase is only entered after a non-capture MOVE_STACK
+    # lands where captures are available.
+    is_first_capture_during_movement = ~is_chain_capture & (
+        state.current_phase[game_indices] == GamePhase.MOVEMENT
+    )
     canonical_phase = torch.where(
         is_chain_capture,
         torch.full((n_games,), GamePhase.CHAIN_CAPTURE, dtype=torch.int8, device=device),
-        torch.full((n_games,), GamePhase.CAPTURE, dtype=torch.int8, device=device),
+        torch.where(
+            is_first_capture_during_movement,
+            torch.full((n_games,), GamePhase.MOVEMENT, dtype=torch.int8, device=device),
+            torch.full((n_games,), GamePhase.CAPTURE, dtype=torch.int8, device=device),
+        ),
     )
 
     # Record move history
@@ -1234,7 +1256,11 @@ def apply_capture_moves_batch_vectorized(
     # Update capture chain tracking
     state.in_capture_chain[game_indices] = True
     state.capture_chain_depth[game_indices] += 1
-    state.current_phase[game_indices] = canonical_phase
+    # After any capture, subsequent captures are chain captures (per CPU phase machine).
+    # We transition to CHAIN_CAPTURE regardless of whether the first capture was
+    # during MOVEMENT or CAPTURE phase. The chain capture loop in _step_movement_phase
+    # will check for more captures and either continue the chain or advance phase.
+    state.current_phase[game_indices] = GamePhase.CHAIN_CAPTURE
 
     # Get attacker stack info
     attacker_height = state.stack_height[game_indices, from_y, from_x]

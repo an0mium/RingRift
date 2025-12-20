@@ -1381,6 +1381,148 @@ def apply_single_chain_capture(
     return to_y, to_x
 
 
+def apply_single_initial_capture(
+    state: BatchGameState,
+    game_idx: int,
+    from_y: int,
+    from_x: int,
+    to_y: int,
+    to_x: int,
+) -> tuple[int, int]:
+    """Apply a single INITIAL capture (not chain capture) from a position.
+
+    This is similar to apply_single_chain_capture but uses:
+    - MoveType.OVERTAKING_CAPTURE (not CONTINUE_CAPTURE_SEGMENT)
+    - GamePhase.CAPTURE (not CHAIN_CAPTURE)
+
+    Used for post-movement captures where we need to record the correct phase.
+
+    December 2025: Added for post-movement capture parity with CPU phase machine.
+
+    Args:
+        state: BatchGameState to modify
+        game_idx: Game index in batch
+        from_y, from_x: Origin position
+        to_y, to_x: Landing position
+
+    Returns:
+        (new_y, new_x) landing position for potential chain continuation
+    """
+    player = int(state.current_player[game_idx].item())
+    stack_owner_np = state.stack_owner[game_idx].cpu().numpy()
+    stack_height_np = state.stack_height[game_idx].cpu().numpy()
+    cap_height_np = state.cap_height[game_idx].cpu().numpy()
+    marker_owner_np = state.marker_owner[game_idx].cpu().numpy()
+    is_collapsed_np = state.is_collapsed[game_idx].cpu().numpy()
+
+    attacker_height = int(stack_height_np[from_y, from_x])
+    attacker_cap_height = int(cap_height_np[from_y, from_x])
+
+    dy = 0 if to_y == from_y else (1 if to_y > from_y else -1)
+    dx = 0 if to_x == from_x else (1 if to_x > from_x else -1)
+    dist = max(abs(to_y - from_y), abs(to_x - from_x))
+
+    # Find target
+    target_y = None
+    target_x = None
+    for step in range(1, dist):
+        check_y = from_y + dy * step
+        check_x = from_x + dx * step
+        if stack_owner_np[check_y, check_x] != 0:
+            target_y = check_y
+            target_x = check_x
+            break
+
+    if target_y is None or target_x is None:
+        import logging
+        logging.warning(
+            f"apply_single_initial_capture: No target found from ({from_y},{from_x}) to ({to_y},{to_x})"
+        )
+        return to_y, to_x
+
+    # Record in history with OVERTAKING_CAPTURE and CAPTURE phase
+    mc = int(state.move_count[game_idx].item())
+    if mc < state.max_history_moves:
+        state.move_history[game_idx, mc, 0] = MoveType.OVERTAKING_CAPTURE
+        state.move_history[game_idx, mc, 1] = player
+        state.move_history[game_idx, mc, 2] = from_y
+        state.move_history[game_idx, mc, 3] = from_x
+        state.move_history[game_idx, mc, 4] = to_y
+        state.move_history[game_idx, mc, 5] = to_x
+        state.move_history[game_idx, mc, 6] = GamePhase.CAPTURE
+        state.move_history[game_idx, mc, 7] = target_y
+        state.move_history[game_idx, mc, 8] = target_x
+    state.move_count[game_idx] += 1
+
+    # Process markers along path (same as chain capture)
+    for step in range(1, dist):
+        check_y = from_y + dy * step
+        check_x = from_x + dx * step
+        if check_y == target_y and check_x == target_x:
+            continue
+
+        marker_owner_val = marker_owner_np[check_y, check_x]
+        if marker_owner_val == 0:
+            continue
+        if marker_owner_val != player:
+            state.marker_owner[game_idx, check_y, check_x] = player
+            continue
+        state.marker_owner[game_idx, check_y, check_x] = 0
+        if not is_collapsed_np[check_y, check_x]:
+            state.is_collapsed[game_idx, check_y, check_x] = True
+            state.territory_owner[game_idx, check_y, check_x] = player
+            state.territory_count[game_idx, player] += 1
+
+    # Landing marker handling
+    dest_marker = marker_owner_np[to_y, to_x]
+    landing_ring_cost = 1 if dest_marker != 0 else 0
+    if landing_ring_cost:
+        state.marker_owner[game_idx, to_y, to_x] = 0
+        state.eliminated_rings[game_idx, player] += 1
+        state.rings_caused_eliminated[game_idx, player] += 1
+
+    # Pop top ring from target
+    target_owner = int(stack_owner_np[target_y, target_x])
+    target_height = int(stack_height_np[target_y, target_x])
+    target_cap_height = int(cap_height_np[target_y, target_x])
+
+    state.marker_owner[game_idx, target_y, target_x] = 0
+
+    new_target_height = max(0, target_height - 1)
+    state.stack_height[game_idx, target_y, target_x] = new_target_height
+    if new_target_height <= 0:
+        state.stack_owner[game_idx, target_y, target_x] = 0
+        state.cap_height[game_idx, target_y, target_x] = 0
+    else:
+        new_target_cap = max(1, min(target_cap_height - 1, new_target_height))
+        state.cap_height[game_idx, target_y, target_x] = new_target_cap
+
+    if target_owner != 0 and target_owner != player:
+        state.buried_rings[game_idx, target_owner] += 1
+
+    # Set up landing stack
+    new_height = attacker_height + 1 - landing_ring_cost
+    state.stack_height[game_idx, to_y, to_x] = new_height
+    state.stack_owner[game_idx, to_y, to_x] = player
+    new_cap = max(1, min(attacker_cap_height - landing_ring_cost, new_height))
+    state.cap_height[game_idx, to_y, to_x] = new_cap
+
+    # Clear origin
+    state.stack_height[game_idx, from_y, from_x] = 0
+    state.stack_owner[game_idx, from_y, from_x] = 0
+    state.cap_height[game_idx, from_y, from_x] = 0
+    state.marker_owner[game_idx, from_y, from_x] = player
+
+    # Mark as being in a capture chain (for subsequent chain captures)
+    # After the initial capture, we transition to CHAIN_CAPTURE phase for any
+    # subsequent captures, matching CPU phase machine behavior.
+    state.in_capture_chain[game_idx] = True
+    state.capture_chain_depth[game_idx] = 1
+    state.current_phase[game_idx] = GamePhase.CHAIN_CAPTURE
+
+    return to_y, to_x
+
+
 # =============================================================================
 # Recovery Slide Move Generation (RR-CANON-R110-R115)
 # =============================================================================
@@ -1659,6 +1801,7 @@ __all__ = [
     '_validate_paths_vectorized',
     '_validate_paths_vectorized_fast',
     'apply_single_chain_capture',
+    'apply_single_initial_capture',
     'generate_capture_moves_batch',
     'generate_capture_moves_batch_vectorized',
     'generate_chain_capture_moves_from_position',

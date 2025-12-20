@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.game_engine import GameEngine
 from app.models.core import BoardType, GameState, Move
 from app.training.encoding import P_HEX, POLICY_SIZE_HEX8, HexStateEncoderV3
-from app.training.generate_data import create_initial_state
+from app.training.initial_state import create_initial_state
 
 
 class HexEncoderWrapper:

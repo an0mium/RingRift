@@ -54,7 +54,8 @@ class BoardGeometryCache:
         positions = []
 
         if self.board_type == "hexagonal":
-            radius = self.size - 1
+            # For hex boards, size = 2*radius + 1, so radius = (size - 1) // 2
+            radius = (self.size - 1) // 2
             for x in range(-radius, radius + 1):
                 for y in range(-radius, radius + 1):
                     z = -x - y

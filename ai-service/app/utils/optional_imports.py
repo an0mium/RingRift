@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -88,10 +89,17 @@ def _try_import(module_name: str, package: str | None = None) -> tuple[Any, bool
     Returns:
         Tuple of (module or None, is_available).
     """
+    skip_optional = os.getenv("RINGRIFT_SKIP_OPTIONAL_IMPORTS", "").strip().lower()
+    if skip_optional in ("1", "true", "yes", "on"):
+        logger.debug("Skipping optional import %s (RINGRIFT_SKIP_OPTIONAL_IMPORTS)", module_name)
+        return None, False
     try:
         module = importlib.import_module(module_name, package)
         return module, True
     except ImportError:
+        return None, False
+    except Exception as exc:
+        logger.debug("Optional import failed for %s: %s", module_name, exc)
         return None, False
 
 

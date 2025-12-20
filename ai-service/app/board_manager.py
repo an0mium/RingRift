@@ -324,7 +324,8 @@ class BoardManager:
                 for y in range(19):
                     positions.append(Position(x=x, y=y))
         elif board.type in (BoardType.HEXAGONAL, BoardType.HEX8):
-            radius = board.size - 1
+            # For hex boards, size = 2*radius + 1, so radius = (size - 1) // 2
+            radius = (board.size - 1) // 2
             for x in range(-radius, radius + 1):
                 for y in range(-radius, radius + 1):
                     z = -x - y

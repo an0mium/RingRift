@@ -60,8 +60,8 @@ class BoardArrays:
 
         # Calculate number of positions based on board type
         if board_type == BOARD_HEX:
-            # Hex board with radius = size - 1
-            radius = board_size - 1
+            # For hex boards, size = 2*radius + 1, so radius = (size - 1) // 2
+            radius = (board_size - 1) // 2
             self.num_positions = 3 * radius * (radius + 1) + 1
         else:
             # Square board
@@ -105,7 +105,8 @@ class BoardArrays:
         idx = 0
 
         if self.board_type == BOARD_HEX:
-            radius = self.board_size - 1
+            # For hex boards, size = 2*radius + 1, so radius = (size - 1) // 2
+            radius = (self.board_size - 1) // 2
             for x in range(-radius, radius + 1):
                 for y in range(-radius, radius + 1):
                     z = -x - y

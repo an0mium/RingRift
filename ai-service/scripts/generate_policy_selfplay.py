@@ -24,6 +24,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -129,16 +131,28 @@ def generate_game(
         legal_moves = engine.get_valid_moves(state, current_player)
         move = ai.select_move(state)
 
-        # Get policy distribution from PolicyOnlyAI
+        # Get policy distribution from PolicyOnlyAI with integer indices
         policy_probs = {}
-        if hasattr(ai, 'get_policy_distribution') and legal_moves:
+        if hasattr(ai, '_get_policy_scores') and legal_moves:
             try:
-                probs = ai.get_policy_distribution(state)
-                if probs is not None:
-                    # probs is a dict {str(idx): prob}
-                    for idx_str, prob in probs.items():
+                scores = ai._get_policy_scores(state, legal_moves)
+                if scores is not None and len(scores) > 0:
+                    # Convert to probabilities with temperature
+                    temp = getattr(ai, 'temperature', 1.0)
+                    if temp <= 0.01:
+                        probs = np.zeros_like(scores)
+                        probs[np.argmax(scores)] = 1.0
+                    else:
+                        # Softmax with temperature
+                        x_scaled = np.log(np.maximum(scores, 1e-10)) / temp
+                        x_scaled = x_scaled - np.max(x_scaled)
+                        exp_x = np.exp(x_scaled)
+                        probs = exp_x / np.sum(exp_x)
+
+                    # Store with integer indices (matching legal_moves order)
+                    for idx, prob in enumerate(probs):
                         if prob > 1e-6:
-                            policy_probs[idx_str] = float(prob)
+                            policy_probs[str(idx)] = float(prob)
             except Exception:
                 pass  # Fall through to one-hot encoding
 

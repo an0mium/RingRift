@@ -141,7 +141,9 @@ class FastGeometry:
         all_keys: list[str],
     ) -> None:
         """Pre-compute adjacency table for hexagonal board."""
-        radius = size - 1  # canonical: size=13 -> radius=12
+        # For hex boards, size = 2*radius + 1, so radius = (size - 1) // 2
+        # HEX8: size=9 -> radius=4, HEXAGONAL: size=25 -> radius=12
+        radius = (size - 1) // 2
 
         for x in range(-radius, radius + 1):
             for y in range(-radius, radius + 1):

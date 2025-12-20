@@ -59,6 +59,7 @@ from .gpu_move_application import (
 from .gpu_move_generation import (
     BatchMoves,
     apply_single_chain_capture,
+    apply_single_initial_capture,
     generate_capture_moves_batch,
     generate_chain_capture_moves_from_position,
     generate_movement_moves_batch,
@@ -1633,6 +1634,17 @@ class ParallelGameRunner:
             # Apply movement moves for games without captures
             if games_movement_only.any():
                 selected_movements = self._select_moves(movement_moves, games_movement_only)
+
+                # Extract landing positions BEFORE applying (needed for post-movement capture check)
+                movement_game_indices = torch.where(games_movement_only)[0]
+                movement_local_indices = selected_movements[movement_game_indices]
+                movement_offsets = movement_moves.move_offsets[movement_game_indices]
+                movement_global_indices = movement_offsets + movement_local_indices
+                movement_valid = (movement_local_indices >= 0) & (movement_global_indices < movement_moves.total_moves)
+                movement_global_clamped = movement_global_indices.clamp(0, max(0, movement_moves.total_moves - 1))
+                movement_landing_y = movement_moves.to_y[movement_global_clamped]
+                movement_landing_x = movement_moves.to_x[movement_global_clamped]
+
                 apply_movement_moves_batch(
                     self.state, selected_movements, movement_moves
                 )
@@ -1640,59 +1652,64 @@ class ParallelGameRunner:
                 mark_real_action_batch(self.state, games_movement_only)
 
                 # December 2025: CPU phase machine parity - check for captures AFTER movement
-                # Per RR-CANON fsm.py:560-566: After MOVE_STACK, if captures are available,
-                # CPU enters CAPTURE phase. GPU must match this by generating and applying
-                # post-movement captures before proceeding to LINE_PROCESSING.
-                post_movement_captures = generate_capture_moves_batch(self.state, games_movement_only)
-                games_with_post_captures = games_movement_only & (post_movement_captures.moves_per_game > 0)
+                # Per RR-CANON fsm.py:560-566: After MOVE_STACK, if captures are available
+                # FROM THE MOVED STACK, CPU enters CAPTURE phase. GPU must match this by
+                # generating captures ONLY from the new landing position.
+                #
+                # CRITICAL: We must check captures ONLY from the stack that just moved,
+                # not from all player stacks. Using generate_chain_capture_moves_from_position
+                # ensures we only look at captures from the specific landing position.
+                games_with_post_captures = torch.zeros_like(games_movement_only)
+                post_capture_landings = {}  # game_idx -> (landing_y, landing_x)
+
+                for idx, g in enumerate(movement_game_indices.tolist()):
+                    if not movement_valid[idx]:
+                        continue
+                    landing_y = int(movement_landing_y[idx].item())
+                    landing_x = int(movement_landing_x[idx].item())
+
+                    # Check captures from the moved stack's new position only
+                    captures_from_landing = generate_chain_capture_moves_from_position(
+                        self.state, g, landing_y, landing_x
+                    )
+                    if captures_from_landing:
+                        games_with_post_captures[g] = True
+                        post_capture_landings[g] = (landing_y, landing_x)
 
 
                 if games_with_post_captures.any():
-                    # Apply captures from the new position (mandatory per RR-CANON)
-                    selected_post_captures = self._select_moves(post_movement_captures, games_with_post_captures)
-                    apply_capture_moves_batch(
-                        self.state, selected_post_captures, post_movement_captures
-                    )
+                    # Apply post-movement captures from the new position (mandatory per RR-CANON)
+                    # We process each game individually since we need to capture from
+                    # specific landing positions, not all player stacks.
+                    for g, (from_y, from_x) in post_capture_landings.items():
+                        # Get first available capture from the landing position
+                        captures = generate_chain_capture_moves_from_position(
+                            self.state, g, from_y, from_x
+                        )
+                        if not captures:
+                            continue
 
-                    # Chain capture loop for post-movement captures
-                    post_game_indices = torch.where(games_with_post_captures)[0]
-                    if post_game_indices.numel() > 0:
-                        # Batch extract landing positions
-                        post_local_indices = selected_post_captures[post_game_indices]
-                        post_valid_local = post_local_indices >= 0
-                        post_offsets = post_movement_captures.move_offsets[post_game_indices]
-                        post_global_indices = post_offsets + post_local_indices
-                        post_valid_global = post_valid_local & (post_global_indices < post_movement_captures.total_moves)
-                        post_clamped_global = post_global_indices.clamp(0, max(0, post_movement_captures.total_moves - 1))
-                        post_landing_y_batch = post_movement_captures.to_y[post_clamped_global]
-                        post_landing_x_batch = post_movement_captures.to_x[post_clamped_global]
+                        # Apply the initial capture (uses OVERTAKING_CAPTURE + CAPTURE phase)
+                        to_y, to_x = captures[0]
+                        landing_y, landing_x = apply_single_initial_capture(
+                            self.state, g, from_y, from_x, to_y, to_x
+                        )
 
-                        # Convert to numpy for iteration
-                        post_game_indices_np = post_game_indices.cpu().numpy()
-                        post_valid_global_np = post_valid_global.cpu().numpy()
-                        post_landing_y_np = post_landing_y_batch.cpu().numpy()
-                        post_landing_x_np = post_landing_x_batch.cpu().numpy()
-
-                        # Chain capture loop for each game
-                        for idx, g in enumerate(post_game_indices_np):
-                            if not post_valid_global_np[idx]:
-                                continue
-                            landing_y = int(post_landing_y_np[idx])
-                            landing_x = int(post_landing_x_np[idx])
-                            max_chain_depth = 10
-                            chain_depth = 0
-                            while chain_depth < max_chain_depth:
-                                chain_depth += 1
-                                chain_captures = generate_chain_capture_moves_from_position(
-                                    self.state, int(g), landing_y, landing_x
-                                )
-                                if not chain_captures:
-                                    break
-                                to_y, to_x = chain_captures[0]
-                                new_y, new_x = apply_single_chain_capture(
-                                    self.state, int(g), landing_y, landing_x, to_y, to_x
-                                )
-                                landing_y, landing_x = new_y, new_x
+                        # Chain capture loop
+                        max_chain_depth = 10
+                        chain_depth = 0
+                        while chain_depth < max_chain_depth:
+                            chain_depth += 1
+                            chain_captures = generate_chain_capture_moves_from_position(
+                                self.state, g, landing_y, landing_x
+                            )
+                            if not chain_captures:
+                                break
+                            to_y, to_x = chain_captures[0]
+                            new_y, new_x = apply_single_chain_capture(
+                                self.state, g, landing_y, landing_x, to_y, to_x
+                            )
+                            landing_y, landing_x = new_y, new_x
 
                     # Track post-movement captures as real actions
                     mark_real_action_batch(self.state, games_with_post_captures)
@@ -1705,14 +1722,17 @@ class ParallelGameRunner:
             if games_with_captures.any():
                 mark_real_action_batch(self.state, games_with_captures)
 
-        # December 2025: Emit skip_capture for games that had captures
-        # Per canonical contract, captures must end with explicit skip_capture before line_processing
-        # This tracks all games that performed any captures (initial or post-movement)
-        games_had_any_captures = games_with_captures.clone() if 'games_with_captures' in dir() else torch.zeros_like(mask)
+        # December 2025: Emit skip_capture ONLY for post-movement captures
+        # Per CPU phase machine (RR-CANON-R073/R093):
+        # - Direct captures during MOVEMENT phase: CPU advances directly to LINE_PROCESSING
+        #   after the capture chain completes (no skip_capture needed)
+        # - Post-movement captures (after MOVE_STACK): CPU enters CAPTURE phase, and
+        #   skip_capture is required to exit CAPTURE phase and proceed to LINE_PROCESSING
+        #
+        # games_with_captures: took captures at the START of movement (direct captures during MOVEMENT)
+        # games_with_post_captures: took MOVE_STACK first, then captures from landing (entered CAPTURE phase)
         if 'games_with_post_captures' in dir() and games_with_post_captures.any():
-            games_had_any_captures = games_had_any_captures | games_with_post_captures
-        if games_had_any_captures.any():
-            self._record_skip_capture_moves(games_had_any_captures)
+            self._record_skip_capture_moves(games_with_post_captures)
 
         # December 2025: Reset capture chain tracking before advancing phase
         reset_capture_chain_batch(self.state, mask)
@@ -2117,9 +2137,19 @@ class ParallelGameRunner:
             state.move_history[g, move_count, 3] = from_x
             state.move_history[g, move_count, 4] = to_y
             state.move_history[g, move_count, 5] = to_x
-            # Record phase (CAPTURE for first capture, CHAIN_CAPTURE for chain)
+            # Record phase based on capture chain state and current phase:
+            # - Direct capture during MOVEMENT phase → MOVEMENT phase
+            # - First capture after MOVE_STACK (CAPTURE phase) → CAPTURE phase
+            # - Chain captures → CHAIN_CAPTURE phase
             is_chain = state.in_capture_chain[g].item()
-            state.move_history[g, move_count, 6] = GamePhase.CHAIN_CAPTURE if is_chain else GamePhase.CAPTURE
+            current_phase = state.current_phase[g].item()
+            if is_chain:
+                record_phase = GamePhase.CHAIN_CAPTURE
+            elif current_phase == GamePhase.MOVEMENT:
+                record_phase = GamePhase.MOVEMENT  # Direct capture during MOVEMENT
+            else:
+                record_phase = GamePhase.CAPTURE  # First capture after MOVE_STACK
+            state.move_history[g, move_count, 6] = record_phase
             # December 2025: Record capture target for canonical export
             # Note: This function uses to_y/to_x as target directly (not landing)
             state.move_history[g, move_count, 7] = to_y
