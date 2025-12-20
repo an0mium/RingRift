@@ -21,21 +21,13 @@ import sys
 import time
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.lib.logging_config import setup_script_logging, get_logger
-from scripts.lib.alerts import (
-    Alert,
-    AlertSeverity,
-    AlertType,
-    AlertThresholds,
-    create_alert,
-)
+from scripts.lib.logging_config import get_logger
 
 logger = get_logger(__name__)
 
@@ -185,8 +177,6 @@ def check_cluster() -> List[dict]:
         return []
 
     idle_nodes = []
-    now = time.time()
-
     # Check self
     self_info = status.get("self", {})
     if self_info.get("has_gpu") and is_gpu_heavy(self_info.get("gpu_name", "")):

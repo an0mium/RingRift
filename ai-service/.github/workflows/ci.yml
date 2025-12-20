@@ -259,6 +259,51 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  mutation-testing:
+    runs-on: ubuntu-latest
+    # Only run on main branch to save CI time
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'ai-service/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-timeout mutmut
+
+      - name: Run mutation testing on critical modules
+        run: |
+          # Run mutation testing on small, critical modules
+          # This validates that our tests actually catch bugs
+          mutmut run \
+            --paths-to-mutate=app/ai/neural_losses.py \
+            --tests-dir=tests/ \
+            --runner="python -m pytest tests/unit/ai/test_neural_losses.py -x -q --tb=no" \
+            --no-progress || true
+
+          # Report results
+          echo "=== Mutation Testing Results ==="
+          mutmut results
+
+          # Check survival rate (warn if >30% survive)
+          SURVIVED=$(mutmut results 2>/dev/null | grep -oP 'Survived: \K\d+' || echo "0")
+          TOTAL=$(mutmut results 2>/dev/null | grep -oP 'Total: \K\d+' || echo "1")
+          if [ "$TOTAL" -gt 0 ]; then
+            RATE=$((SURVIVED * 100 / TOTAL))
+            echo "Mutation survival rate: ${RATE}%"
+            if [ "$RATE" -gt 30 ]; then
+              echo "::warning::High mutation survival rate (${RATE}%) - consider adding more thorough tests"
+            fi
+          fi
+
   sanity-check:
     runs-on: ubuntu-latest
     steps:

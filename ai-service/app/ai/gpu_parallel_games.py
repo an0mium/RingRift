@@ -54,6 +54,7 @@ from .gpu_move_generation import (
 )
 from .gpu_selection import select_moves_vectorized, select_moves_heuristic
 from .gpu_batch_state import BatchGameState
+from .gpu_heuristic import evaluate_positions_batch
 from .gpu_move_application import (
     apply_recovery_moves_vectorized,
     apply_no_action_moves_batch,
