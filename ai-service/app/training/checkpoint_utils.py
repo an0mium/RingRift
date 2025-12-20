@@ -206,10 +206,7 @@ def load_with_validation(
         FileNotFoundError: If file doesn't exist
         ValueError: If hash doesn't match expected
     """
-    try:
-        import torch
-    except ImportError:
-        raise ImportError("PyTorch required for load_with_validation")
+    from app.utils.torch_utils import safe_load_checkpoint
 
     file_path = Path(file_path)
 
@@ -226,8 +223,8 @@ def load_with_validation(
             f"got {actual_hash[:16]}..."
         )
 
-    # Load the checkpoint
-    data = torch.load(file_path, weights_only=False)
+    # Load the checkpoint using safe loading utility
+    data = safe_load_checkpoint(file_path, map_location="cpu", warn_on_unsafe=False)
 
     return data, actual_hash
 

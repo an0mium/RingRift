@@ -1088,14 +1088,15 @@ class SnapshotCoordinator:
         )
         deleted_by_age = result.rowcount
 
-        # Delete by count
+        # Delete by count - use NOT IN with LIMIT to keep the newest max_count
+        # SQLite doesn't support OFFSET without LIMIT, so we invert the logic
         conn.execute(
             """
             DELETE FROM snapshot_members
-            WHERE system_snapshot_id IN (
+            WHERE system_snapshot_id NOT IN (
                 SELECT id FROM system_snapshots
                 ORDER BY timestamp DESC
-                OFFSET ?
+                LIMIT ?
             )
             """,
             (max_count,),
@@ -1104,10 +1105,10 @@ class SnapshotCoordinator:
         result = conn.execute(
             """
             DELETE FROM system_snapshots
-            WHERE id IN (
+            WHERE id NOT IN (
                 SELECT id FROM system_snapshots
                 ORDER BY timestamp DESC
-                OFFSET ?
+                LIMIT ?
             )
             """,
             (max_count,),

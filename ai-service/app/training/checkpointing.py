@@ -65,6 +65,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from app.utils.torch_utils import safe_load_checkpoint
+
 from app.training.model_versioning import (
     LegacyCheckpointError,
     ModelVersionManager,
@@ -490,7 +492,9 @@ def load_checkpoint(
     Raises:
         VersionMismatchError: If strict_versioning and version mismatch
     """
-    checkpoint = torch.load(path, map_location=device, weights_only=False)
+    # Use safe loading utility - tries weights_only=True first
+    map_loc = str(device) if device else "cpu"
+    checkpoint = safe_load_checkpoint(path, map_location=map_loc, warn_on_unsafe=False)
 
     # Check if this is a versioned checkpoint
     manager = ModelVersionManager(default_device=device)
