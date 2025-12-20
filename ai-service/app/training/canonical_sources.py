@@ -103,15 +103,25 @@ def validate_canonical_sources(
         if gate_summary_name and gate_summary_name != "-":
             gate_data = load_gate_summary(registry_dir, gate_summary_name)
             if gate_data:
-                parity_gate = gate_data.get("parity_gate", {})
-                if parity_gate and not parity_gate.get(
-                    "passed_canonical_parity_gate", True
-                ):
-                    problems.append(
-                        f"Database '{db_name}' failed parity gate "
-                        f"(gate_summary: {gate_summary_name})"
-                    )
-                    continue
+                if "canonical_ok" in gate_data:
+                    if not bool(gate_data.get("canonical_ok")):
+                        problems.append(
+                            f"Database '{db_name}' failed canonical gate "
+                            f"(gate_summary: {gate_summary_name})"
+                        )
+                        continue
+                else:
+                    parity_gate = gate_data.get("parity_gate", {})
+                    if parity_gate:
+                        passed = bool(parity_gate.get("passed_canonical_parity_gate", True))
+                    else:
+                        passed = bool(gate_data.get("passed_canonical_parity_gate", True))
+                    if not passed:
+                        problems.append(
+                            f"Database '{db_name}' failed parity gate "
+                            f"(gate_summary: {gate_summary_name})"
+                        )
+                        continue
 
         checked.append(db_name)
 

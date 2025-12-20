@@ -37,7 +37,7 @@ BOARD_CONFIGS: dict[BoardType, BoardConfig] = {
         line_length=4,
     ),
     BoardType.HEX8: BoardConfig(
-        size=5,                  # radius + 1 for radius=4 (bounding box = 9)
+        size=9,                  # 2*radius + 1 for radius=4 (hex8 bounding box)
         total_spaces=61,         # 3r² + 3r + 1 = 61 for r=4
         rings_per_player=18,     # Same as square8
         line_length=4,           # Standard line length for hex boards

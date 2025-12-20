@@ -98,3 +98,63 @@ def test_validate_canonical_sources_allows_pending_gate_when_configured(tmp_path
     )
     assert result["ok"] is True
 
+
+def test_validate_canonical_sources_rejects_failed_canonical_gate(tmp_path: Path) -> None:
+    registry_path = tmp_path / "TRAINING_DATA_REGISTRY.md"
+    db_path = tmp_path / "data" / "games" / "canonical_square8.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path.write_bytes(b"")
+
+    gate_summary_name = "db_health.canonical_square8.json"
+    gate_summary_path = tmp_path / gate_summary_name
+    gate_summary_path.write_text(
+        json.dumps(
+            {
+                "canonical_ok": False,
+                "parity_gate": {"passed_canonical_parity_gate": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    _write_registry(
+        registry_path,
+        db_name=db_path.name,
+        status="canonical",
+        gate_summary=gate_summary_name,
+    )
+
+    result = validate_canonical_sources(registry_path, [db_path])
+    assert result["ok"] is False
+    problems = "\n".join(result.get("problems", []))
+    assert "failed canonical gate" in problems
+
+
+def test_validate_canonical_sources_rejects_parity_gate_fallback(tmp_path: Path) -> None:
+    registry_path = tmp_path / "TRAINING_DATA_REGISTRY.md"
+    db_path = tmp_path / "data" / "games" / "canonical_square8.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path.write_bytes(b"")
+
+    gate_summary_name = "parity_gate.square8.json"
+    gate_summary_path = tmp_path / gate_summary_name
+    gate_summary_path.write_text(
+        json.dumps(
+            {
+                "passed_canonical_parity_gate": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    _write_registry(
+        registry_path,
+        db_name=db_path.name,
+        status="canonical",
+        gate_summary=gate_summary_name,
+    )
+
+    result = validate_canonical_sources(registry_path, [db_path])
+    assert result["ok"] is False
+    problems = "\n".join(result.get("problems", []))
+    assert "failed parity gate" in problems

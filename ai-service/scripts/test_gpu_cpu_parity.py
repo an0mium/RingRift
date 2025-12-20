@@ -37,7 +37,8 @@ def advance_cpu_through_phases(state, target_phase_str: str, target_player: int)
     phase/player, CPU might still be in an earlier phase. This function advances CPU
     by applying bookkeeping moves until it reaches the target phase/player.
     """
-    from app.models import GamePhase
+    from app.models import GamePhase, Move
+    from app.board_manager import BoardManager
     max_iterations = 10  # Prevent infinite loops
 
     for _ in range(max_iterations):
@@ -59,7 +60,29 @@ def advance_cpu_through_phases(state, target_phase_str: str, target_player: int)
             synth = GameEngine.synthesize_bookkeeping_move(req, state)
             state = GameEngine.apply_move(state, synth)
         else:
-            # No bookkeeping needed, but we're not at target - might be desync
+            # CPU bug workaround: CPU allows self-captures (capturing own stacks) which
+            # are invalid. If we're stuck in capture phase with only self-captures available,
+            # manually apply skip_capture to advance.
+            if current_phase == 'capture':
+                valid = GameEngine.get_valid_moves(state, state.current_player)
+                skip_moves = [v for v in valid if v.type == MoveType.SKIP_CAPTURE]
+                captures = [v for v in valid if v.type in (MoveType.OVERTAKING_CAPTURE, MoveType.CONTINUE_CAPTURE_SEGMENT)]
+
+                # Check if all captures are self-captures (invalid)
+                all_self_captures = True
+                for c in captures:
+                    if c.capture_target:
+                        target_stack = BoardManager.get_stack(c.capture_target, state.board)
+                        if target_stack and target_stack.controlling_player != state.current_player:
+                            all_self_captures = False
+                            break
+
+                if all_self_captures and skip_moves:
+                    # Apply skip_capture to advance past invalid capture options
+                    state = GameEngine.apply_move(state, skip_moves[0])
+                    continue
+
+            # No bookkeeping available and no workaround applied
             break
 
     return state
