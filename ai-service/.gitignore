@@ -182,3 +182,4 @@ data/gmo_evaluation/
 # Mutation testing artifacts
 mutants/
 .mutmut-cache/
+data/diversity/
