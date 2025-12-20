@@ -626,6 +626,24 @@ class GMOv2AI(BaseAI):
 
         return best_move
 
+    def evaluate_position(self, game_state: GameState) -> float:
+        """Evaluate the current position from this AI's perspective.
+
+        Uses the value network to estimate position value.
+
+        Args:
+            game_state: Current game state
+
+        Returns:
+            Position evaluation from -1.0 (losing) to 1.0 (winning)
+        """
+        with torch.no_grad():
+            state_embed = self.state_encoder(game_state).to(self.device)
+            # Use a null move embedding for position evaluation
+            null_move = torch.zeros(self.gmo_config.embed_dim, device=self.device)
+            value, _ = self.value_net(state_embed.unsqueeze(0), null_move.unsqueeze(0))
+            return value.item()
+
     def load_checkpoint(self, checkpoint_path: str) -> None:
         """Load trained model from checkpoint."""
         checkpoint = torch.load(

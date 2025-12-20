@@ -41,7 +41,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -103,9 +103,9 @@ class PrometheusBackend(MetricsBackend):
     def __init__(self, prefix: str, histogram_buckets: tuple):
         self.prefix = prefix
         self.histogram_buckets = histogram_buckets
-        self._counters: Dict[str, Any] = {}
-        self._gauges: Dict[str, Any] = {}
-        self._histograms: Dict[str, Any] = {}
+        self._counters: Dict[Tuple[str, Tuple[str, ...]], Any] = {}
+        self._gauges: Dict[Tuple[str, Tuple[str, ...]], Any] = {}
+        self._histograms: Dict[Tuple[str, Tuple[str, ...]], Any] = {}
 
     def _get_counter(self, name: str, labels: Dict[str, str]) -> Any:
         """Get or create a counter."""

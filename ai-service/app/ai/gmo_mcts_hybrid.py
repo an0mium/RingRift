@@ -335,6 +335,28 @@ class GMOMCTSHybrid(BaseAI):
             idx = np.random.choice(len(moves), p=probs)
             return moves[idx]
 
+    def evaluate_position(self, game_state: GameState) -> float:
+        """Evaluate the current position from this AI's perspective.
+
+        Uses GMO value estimation or simulation if GMO not available.
+
+        Args:
+            game_state: Current game state
+
+        Returns:
+            Position evaluation from -1.0 (losing) to 1.0 (winning)
+        """
+        if self._gmo_trained:
+            # Use GMO value network
+            with torch.no_grad():
+                state_embed = self.gmo_state_encoder(game_state).to(self.device)
+                null_move = torch.zeros(self.hybrid_config.gmo_embed_dim, device=self.device)
+                value, _ = self.gmo_value_net(state_embed.unsqueeze(0), null_move.unsqueeze(0))
+                return value.item()
+        else:
+            # Fallback to simulation
+            return self._simulate(game_state)
+
 
 def create_gmo_mcts_hybrid(
     player_number: int,
