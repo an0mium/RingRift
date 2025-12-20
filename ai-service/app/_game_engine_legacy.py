@@ -688,7 +688,11 @@ class GameEngine:
         # current player, resolve immediately via forced elimination and/or
         # bare-board stalemate evaluation so no externally visible ACTIVE state
         # satisfies ANM.
-        if new_state.game_status == GameStatus.ACTIVE:
+        #
+        # In trace_mode we must NOT auto-resolve ANM, because forced elimination
+        # is required to be recorded as an explicit move. Trace replays need
+        # the state to remain in forced_elimination until the move is applied.
+        if new_state.game_status == GameStatus.ACTIVE and not trace_mode:
             GameEngine._resolve_anm_for_current_player(new_state)
 
         # Strict no-move invariant: after any move that leaves the game ACTIVE,

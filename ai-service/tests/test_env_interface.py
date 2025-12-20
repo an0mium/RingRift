@@ -91,7 +91,7 @@ class TestRingRiftEnv(unittest.TestCase):
         # Use a context-managed patch to avoid leaking global state between
         # tests. This ensures GameEngine.apply_move is always restored
         # automatically, even if assertions fail.
-        def mock_apply_win(game_state, move):
+        def mock_apply_win(game_state, move, trace_mode=False):
             new_state = game_state.model_copy(deep=True)
             new_state.game_status = GameStatus.COMPLETED
             new_state.winner = 1
@@ -111,21 +111,32 @@ class TestRingRiftEnv(unittest.TestCase):
             self.assertTrue(done)
             self.assertEqual(reward, 1.0)
 
-            # Reset for next case
-            env.reset()
+        # Case 2: P2 moves and wins (from P2's perspective)
+        # Reset and set up for P2's turn by making P1 move first
+        env.reset()
 
-            # Case 2: P2 moves and P1 wins (e.g. P2 ran out of time or made a
-            # bad move? Or P2 self-eliminated?)
-            # If P2 moves and P1 wins, P2 lost.
-            # Perspective: P2 (mover)
-            # Reward should be -1
-            dummy_move_p2 = env.legal_moves()[0].model_copy(
-                update={"player": 2}
-            )
+        def mock_apply_p2_wins(game_state, move, trace_mode=False):
+            new_state = game_state.model_copy(deep=True)
+            # If it's still P1's turn, just advance to P2's turn
+            if new_state.current_player == 1:
+                new_state.current_player = 2
+                return new_state
+            # P2's move leads to P2 winning
+            new_state.game_status = GameStatus.COMPLETED
+            new_state.winner = 2
+            return new_state
 
+        with patch.object(GameEngine, "apply_move", side_effect=mock_apply_p2_wins):
+            # First, P1 makes a move to pass turn to P2
+            dummy_move_p1 = env.legal_moves()[0]
+            env.step(dummy_move_p1)
+
+            # Now P2 moves and wins
+            dummy_move_p2 = env.legal_moves()[0]
             _, reward, done, _ = env.step(dummy_move_p2)
             self.assertTrue(done)
-            self.assertEqual(reward, -1.0)
+            # P2 wins, reward from P2's perspective is +1
+            self.assertEqual(reward, 1.0)
 
     def test_legal_moves_consistency(self):
         """

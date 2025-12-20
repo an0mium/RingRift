@@ -684,7 +684,11 @@ class RingRiftEnv:
         # This ensures all bookkeeping moves (no_line_action, no_territory_action,
         # forced_elimination) are explicitly emitted and recorded for replay parity.
         if self._rules_engine is not None:
-            self._state = self._rules_engine.apply_move(self.state, move)
+            self._state = self._rules_engine.apply_move(
+                self.state,
+                move,
+                trace_mode=True,
+            )
         else:
             self._state = GameEngine.apply_move(self.state, move, trace_mode=True)
 
@@ -744,7 +748,11 @@ class RingRiftEnv:
                                 self._state.current_phase, auto_move, self._state
                             )
                         self._state = (
-                            self._rules_engine.apply_move(self._state, auto_move)
+                            self._rules_engine.apply_move(
+                                self._state,
+                                auto_move,
+                                trace_mode=True,
+                            )
                             if self._rules_engine is not None
                             else GameEngine.apply_move(
                                 self._state, auto_move, trace_mode=True
@@ -789,7 +797,11 @@ class RingRiftEnv:
             # requirements (e.g., entering territory_processing, or the new
             # player needing no_placement_action).
             self._state = (
-                self._rules_engine.apply_move(self._state, auto_move)
+                self._rules_engine.apply_move(
+                    self._state,
+                    auto_move,
+                    trace_mode=True,
+                )
                 if self._rules_engine is not None
                 else GameEngine.apply_move(self._state, auto_move, trace_mode=True)
             )

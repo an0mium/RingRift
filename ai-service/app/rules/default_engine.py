@@ -540,7 +540,13 @@ class DefaultRulesEngine(RulesEngine):
 
         return new_state
 
-    def apply_move(self, state: GameState, move: Move) -> GameState:
+    def apply_move(
+        self,
+        state: GameState,
+        move: Move,
+        *,
+        trace_mode: bool = False,
+    ) -> GameState:
         """Apply ``move`` to ``state`` and return the resulting GameState.
 
         Canonical semantics are always provided by ``GameEngine.apply_move``,
@@ -552,11 +558,14 @@ class DefaultRulesEngine(RulesEngine):
         additionally run a full mutator-driven orchestration pass and assert
         full-state equivalence (board, players, current_player, phase, status,
         chain_capture_state, must_move_from_stack_key).
+
+        ``trace_mode`` forwards to ``GameEngine.apply_move`` to keep replay
+        traces canonical (no implicit ANM/forced-elimination shortcuts).
         """
         from app.game_engine import GameEngine
 
         # Canonical result: always computed via GameEngine.apply_move.
-        next_via_engine = GameEngine.apply_move(state, move)
+        next_via_engine = GameEngine.apply_move(state, move, trace_mode=trace_mode)
 
         # NOTE: Post-move bookkeeping (no_line_action, no_territory_action) is
         # intentionally NOT applied here. That's the host's responsibility

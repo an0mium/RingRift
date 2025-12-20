@@ -39,7 +39,13 @@ class RulesEngine(Protocol):
         """Return all legal moves for `player` given `state`."""
         ...
 
-    def apply_move(self, state: GameState, move: Move) -> GameState:
+    def apply_move(
+        self,
+        state: GameState,
+        move: Move,
+        *,
+        trace_mode: bool = False,
+    ) -> GameState:
         """
         Apply `move` to `state` and return the resulting GameState.
 
