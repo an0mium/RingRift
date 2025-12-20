@@ -1286,20 +1286,23 @@ class StateValidator:
         cpu_board: Any,
         details: dict[str, Any],
     ) -> bool:
-        """Compare board states, returning True if identical."""
+        """Compare board states, returning True if identical.
+
+        BoardState uses dict-based representation:
+        - stacks: dict[str, RingStack] where key is "x,y"
+        - markers: dict[str, MarkerInfo] where key is "x,y"
+        """
         is_valid = True
 
         # Compare stack owners
-        gpu_owners = {}
-        cpu_owners = {}
-
-        for pos, cell in gpu_board.cells.items():
-            if cell.stack:
-                gpu_owners[pos] = cell.stack.owner
-
-        for pos, cell in cpu_board.cells.items():
-            if cell.stack:
-                cpu_owners[pos] = cell.stack.owner
+        gpu_owners = {
+            pos: stack.controlling_player
+            for pos, stack in gpu_board.stacks.items()
+        }
+        cpu_owners = {
+            pos: stack.controlling_player
+            for pos, stack in cpu_board.stacks.items()
+        }
 
         if gpu_owners != cpu_owners:
             is_valid = False
@@ -1309,16 +1312,14 @@ class StateValidator:
             }
 
         # Compare stack heights
-        gpu_heights = {}
-        cpu_heights = {}
-
-        for pos, cell in gpu_board.cells.items():
-            if cell.stack:
-                gpu_heights[pos] = cell.stack.height
-
-        for pos, cell in cpu_board.cells.items():
-            if cell.stack:
-                cpu_heights[pos] = cell.stack.height
+        gpu_heights = {
+            pos: stack.stack_height
+            for pos, stack in gpu_board.stacks.items()
+        }
+        cpu_heights = {
+            pos: stack.stack_height
+            for pos, stack in cpu_board.stacks.items()
+        }
 
         if gpu_heights != cpu_heights:
             is_valid = False
@@ -1328,16 +1329,14 @@ class StateValidator:
             }
 
         # Compare marker owners
-        gpu_markers = {}
-        cpu_markers = {}
-
-        for pos, cell in gpu_board.cells.items():
-            if cell.marker:
-                gpu_markers[pos] = cell.marker.owner
-
-        for pos, cell in cpu_board.cells.items():
-            if cell.marker:
-                cpu_markers[pos] = cell.marker.owner
+        gpu_markers = {
+            pos: marker.player
+            for pos, marker in gpu_board.markers.items()
+        }
+        cpu_markers = {
+            pos: marker.player
+            for pos, marker in cpu_board.markers.items()
+        }
 
         if gpu_markers != cpu_markers:
             is_valid = False

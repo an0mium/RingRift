@@ -482,18 +482,21 @@ class BatchGameState:
             game_idx: Index of the game in the batch
 
         Returns:
-            CPU GameState matching the batch state
+            CPU GameState matching the batch state for shadow validation
         """
+        from datetime import datetime
+
         from app.models import (
-            Board,
+            BoardState,
             BoardType,
-            Cell,
-            CellContent,
             GamePhase as CPUGamePhase,
-            GameRules,
             GameState,
-            PlayerState,
-            Stack,
+            GameStatus as CPUGameStatus,
+            MarkerInfo,
+            Player,
+            Position,
+            RingStack,
+            TimeControl,
         )
         from app.rules.core import get_ring_count
 
@@ -507,121 +510,157 @@ class BatchGameState:
 
         rings_per_player = get_ring_count(board_type, self.num_players)
 
-        # Helper to convert tensor coords back to grid
-        def grid_to_cpu_coords(row: int, col: int):
-            """Convert tensor (y, x) to CPU grid (row, col) coordinates."""
-            return row, col
+        # Build stacks dict from GPU tensors
+        stacks: dict[str, RingStack] = {}
+        markers: dict[str, MarkerInfo] = {}
+        collapsed_spaces: dict[str, int] = {}
 
-        # Create board
-        grid = []
         for row in range(self.board_size):
-            grid_row = []
             for col in range(self.board_size):
                 y, x = row, col  # Tensor coords
+                pos_key = f"{col},{row}"  # CPU uses x,y format for keys
 
-                cell = Cell(row=row, col=col, content=CellContent.EMPTY)
-
-                # Check collapsed
-                if self.is_collapsed[game_idx, y, x].item():
-                    cell.content = CellContent.COLLAPSED
-                    terr_owner = self.territory_owner[game_idx, y, x].item()
-                    if terr_owner > 0:
-                        cell.territory_owner = terr_owner
-
-                # Check stack
+                # Check for stack
                 stack_owner = self.stack_owner[game_idx, y, x].item()
                 stack_height = self.stack_height[game_idx, y, x].item()
                 if stack_owner > 0 and stack_height > 0:
-                    cell.content = CellContent.STACK
-                    # Reconstruct rings - cap rings on top, buried on bottom
                     cap_h = self.cap_height[game_idx, y, x].item()
+                    # Reconstruct rings - cap rings on top, buried on bottom
                     rings = []
-                    # Bottom rings (buried from opponent)
                     buried_count = stack_height - cap_h
-                    # We don't know exact buried ring owners, assume alternating
-                    # In practice this is an approximation
+                    # Bottom rings (buried from opponent) - approximation
                     for _ in range(buried_count):
                         rings.append(3 - stack_owner if stack_owner <= 2 else 1)
                     # Top rings (owner's color)
                     for _ in range(cap_h):
                         rings.append(stack_owner)
-                    cell.stack = Stack(owner=stack_owner, rings=rings)
 
-                # Check marker
+                    stacks[pos_key] = RingStack(
+                        position=Position(x=col, y=row),
+                        rings=rings,
+                        stackHeight=stack_height,
+                        capHeight=cap_h,
+                        controllingPlayer=stack_owner,
+                    )
+
+                # Check for marker
                 marker_owner = self.marker_owner[game_idx, y, x].item()
                 if marker_owner > 0:
-                    cell.marker_owner = marker_owner
-                    if cell.content == CellContent.EMPTY:
-                        cell.content = CellContent.MARKER
+                    markers[pos_key] = MarkerInfo(
+                        player=marker_owner,
+                        position=Position(x=col, y=row),
+                        type="regular",
+                    )
 
-                grid_row.append(cell)
-            grid.append(grid_row)
+                # Check for collapsed space
+                if self.is_collapsed[game_idx, y, x].item():
+                    terr_owner = self.territory_owner[game_idx, y, x].item()
+                    if terr_owner > 0:
+                        collapsed_spaces[pos_key] = terr_owner
 
-        board = Board(size=self.board_size, grid=grid)
+        # Create BoardState
+        board = BoardState(
+            type=board_type,
+            size=self.board_size,
+            stacks=stacks,
+            markers=markers,
+            collapsedSpaces=collapsed_spaces,
+        )
 
-        # Create player states
-        players = {}
+        # Create Player objects
+        players: list[Player] = []
+        total_rings_eliminated = 0
         for p in range(1, self.num_players + 1):
-            players[p] = PlayerState(
-                player_id=p,
-                rings_in_hand=int(self.rings_in_hand[game_idx, p].item()),
-                is_eliminated=bool(self.is_eliminated[game_idx, p].item()),
-                eliminated_rings=int(self.eliminated_rings[game_idx, p].item()),
-                buried_rings=int(self.buried_rings[game_idx, p].item()),
-                rings_caused_eliminated=int(self.rings_caused_eliminated[game_idx, p].item()),
+            elim_rings = int(self.eliminated_rings[game_idx, p].item())
+            total_rings_eliminated += elim_rings
+            players.append(
+                Player(
+                    id=f"player-{p}",
+                    username=f"Player{p}",
+                    type="ai",
+                    playerNumber=p,
+                    isReady=True,
+                    timeRemaining=600000,  # 10 min default
+                    ringsInHand=int(self.rings_in_hand[game_idx, p].item()),
+                    eliminatedRings=elim_rings,
+                    territorySpaces=0,  # Not tracked in GPU state
+                )
             )
 
-        # Map phase back
+        # Map GPU phase to CPU phase
         gpu_phase_val = int(self.current_phase[game_idx].item())
         phase_map = {
-            GamePhase.RING_PLACEMENT.value: CPUGamePhase.PLACEMENT,
+            GamePhase.RING_PLACEMENT.value: CPUGamePhase.RING_PLACEMENT,
             GamePhase.MOVEMENT.value: CPUGamePhase.MOVEMENT,
-            GamePhase.LINE_PROCESSING.value: CPUGamePhase.LINE,
-            GamePhase.TERRITORY_PROCESSING.value: CPUGamePhase.TERRITORY,
+            GamePhase.LINE_PROCESSING.value: CPUGamePhase.LINE_PROCESSING,
+            GamePhase.TERRITORY_PROCESSING.value: CPUGamePhase.TERRITORY_PROCESSING,
             GamePhase.END_TURN.value: CPUGamePhase.END_TURN,
+            GamePhase.CAPTURE.value: CPUGamePhase.CAPTURE,
+            GamePhase.CHAIN_CAPTURE.value: CPUGamePhase.CHAIN_CAPTURE,
+            GamePhase.FORCED_ELIMINATION.value: CPUGamePhase.FORCED_ELIMINATION,
+            GamePhase.RECOVERY.value: CPUGamePhase.RECOVERY,
         }
-        cpu_phase = phase_map.get(gpu_phase_val, CPUGamePhase.PLACEMENT)
+        cpu_phase = phase_map.get(gpu_phase_val, CPUGamePhase.RING_PLACEMENT)
 
-        # Create rules
-        rules = GameRules(
-            board_type=board_type,
-            player_count=self.num_players,
-            rings_per_player=rings_per_player,
-        )
+        # Map GPU game status to CPU status
+        gpu_status = int(self.game_status[game_idx].item())
+        status_map = {
+            GameStatus.ACTIVE.value: CPUGameStatus.ACTIVE,
+            GameStatus.COMPLETE.value: CPUGameStatus.COMPLETE,
+        }
+        cpu_status = status_map.get(gpu_status, CPUGameStatus.ACTIVE)
 
-        # Create game state
+        # Compute total rings in play
+        total_rings_in_play = 0
+        for stack in stacks.values():
+            total_rings_in_play += len(stack.rings)
+
+        # Current timestamp for metadata
+        now = datetime.now()
+
+        # Create GameState with all required fields
+        winner_val = int(self.winner[game_idx].item())
         game_state = GameState(
+            id=f"gpu-game-{game_idx}",
+            boardType=board_type,
             board=board,
             players=players,
-            current_player=int(self.current_player[game_idx].item()),
-            current_phase=cpu_phase,
-            rules=rules,
-            move_history=[],
-            winner=int(self.winner[game_idx].item()) if self.winner[game_idx].item() > 0 else None,
+            currentPhase=cpu_phase,
+            currentPlayer=int(self.current_player[game_idx].item()),
+            moveHistory=[],
+            timeControl=TimeControl(initialTime=600000, increment=0, type="none"),
+            gameStatus=cpu_status,
+            winner=winner_val if winner_val > 0 else None,
+            createdAt=now,
+            lastMoveAt=now,
+            isRated=False,
+            maxPlayers=self.num_players,
+            totalRingsInPlay=total_rings_in_play,
+            totalRingsEliminated=total_rings_eliminated,
+            victoryThreshold=rings_per_player,
+            territoryVictoryThreshold=50,  # Default 50%
         )
 
-        # Set must_move_from constraint
+        # Set must_move_from constraint via stack key
         mmy = self.must_move_from_y[game_idx].item()
         mmx = self.must_move_from_x[game_idx].item()
         if mmy >= 0 and mmx >= 0:
-            game_state.must_move_from = (mmy, mmx)
+            game_state.must_move_from_stack_key = f"{mmx},{mmy}"
 
         # Set LPS tracking state
         game_state.lps_round_index = int(self.lps_round_index[game_idx].item())
         fp = self.lps_current_round_first_player[game_idx].item()
         game_state.lps_current_round_first_player = int(fp) if fp > 0 else None
-        game_state.lps_current_round_seen = set()
-        game_state.lps_current_round_real_action = set()
+
+        # LPS actor mask (dict[int, bool])
+        lps_mask: dict[int, bool] = {}
         for p in range(1, self.num_players + 1):
-            if self.lps_current_round_seen_mask[game_idx, p].item():
-                game_state.lps_current_round_seen.add(p)
             if self.lps_current_round_real_action_mask[game_idx, p].item():
-                game_state.lps_current_round_real_action.add(p)
+                lps_mask[p] = True
+        game_state.lps_current_round_actor_mask = lps_mask
+
         excl = self.lps_exclusive_player_for_completed_round[game_idx].item()
         game_state.lps_exclusive_player_for_completed_round = int(excl) if excl > 0 else None
-        game_state.lps_consecutive_exclusive_rounds = int(self.lps_consecutive_exclusive_rounds[game_idx].item())
-        consec_p = self.lps_consecutive_exclusive_player[game_idx].item()
-        game_state.lps_consecutive_exclusive_player = int(consec_p) if consec_p > 0 else None
 
         return game_state
 
