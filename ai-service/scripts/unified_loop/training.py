@@ -2379,25 +2379,6 @@ class TrainingScheduler:
             import traceback
             traceback.print_exc()
 
-    def get_pfsp_opponent(self, config_key: str) -> str | None:
-        """Get a PFSP-selected opponent for selfplay."""
-        if self._pfsp_pool is None:
-            return None
-        try:
-            opponent = self._pfsp_pool.sample_opponent()
-            return opponent.model_path if opponent else None
-        except Exception:
-            return None
-
-    def update_pfsp_stats(self, model_id: str, win_rate: float, elo: float) -> None:
-        """Update PFSP stats after evaluation games."""
-        if self._pfsp_pool is None:
-            return
-        try:
-            self._pfsp_pool.update_stats(model_id, win_rate=win_rate, elo=elo)
-        except Exception as e:
-            print(f"[PFSP] Error updating stats: {e}")
-
     def get_temperature_for_move(self, move_number: int, game_state: Any | None = None) -> float:
         """Get exploration temperature for a given move in self-play."""
         if self._temp_scheduler is None:

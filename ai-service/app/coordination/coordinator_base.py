@@ -335,22 +335,18 @@ class CoordinatorBase(ABC):
             "last_error": self._last_error,
         }
 
-    # Hooks for subclasses - override these
-    async def _do_initialize(self) -> None:
+    # Hooks for subclasses - override these (optional, not abstract)
+    async def _do_initialize(self) -> None:  # noqa: B027 - optional hook
         """Custom initialization logic. Override in subclass."""
-        ...
 
-    async def _do_start(self) -> None:
+    async def _do_start(self) -> None:  # noqa: B027 - optional hook
         """Custom start logic. Override in subclass."""
-        ...
 
-    async def _do_stop(self) -> None:
+    async def _do_stop(self) -> None:  # noqa: B027 - optional hook
         """Custom stop logic. Override in subclass."""
-        ...
 
-    async def _do_shutdown(self) -> None:
+    async def _do_shutdown(self) -> None:  # noqa: B027 - optional hook
         """Custom shutdown/cleanup logic. Override in subclass."""
-        ...
 
 
 class SQLitePersistenceMixin:

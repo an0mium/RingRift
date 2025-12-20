@@ -168,12 +168,11 @@ class Initializable(ABC):
             InitializationError: If initialization fails
         """
 
-    async def shutdown(self) -> None:
+    async def shutdown(self) -> None:  # noqa: B027 - optional hook
         """Shutdown the component and release resources.
 
         Override to implement cleanup. Default does nothing.
         """
-        ...
 
     def _set_dependency(self, name: str, instance: Any) -> None:
         """Set a resolved dependency (called by registry)."""
