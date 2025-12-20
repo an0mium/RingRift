@@ -1572,11 +1572,70 @@ class ParallelGameRunner:
         Per RR-CANON-R121-R122: Process all eligible lines for the current player.
         After line processing, check for new lines formed by territory collapse
         (cascade processing per RR-CANON-R144).
+
+        December 2025: Records canonical line processing moves to move_history.
         """
+        # Check which games have lines BEFORE processing (for move recording)
+        games_with_lines = torch.zeros(self.batch_size, dtype=torch.bool, device=self.device)
+        for p in range(1, self.num_players + 1):
+            _, line_counts = detect_lines_vectorized(self.state, p, mask)
+            games_with_lines = games_with_lines | (line_counts > 0)
+
+        # Process the lines
         process_lines_batch(self.state, mask)
+
+        # Record canonical moves to move_history
+        # Games WITH lines: record CHOOSE_LINE_OPTION (player "chose" to process lines)
+        # Games WITHOUT lines: record NO_LINE_ACTION
+        self._record_line_phase_moves(mask, games_with_lines)
 
         # After line processing, advance to TERRITORY_PROCESSING phase
         self.state.current_phase[mask] = GamePhase.TERRITORY_PROCESSING
+
+    def _record_line_phase_moves(
+        self, mask: torch.Tensor, games_with_lines: torch.Tensor
+    ) -> None:
+        """Record canonical line processing moves to move_history.
+
+        Per canonical contract, LINE_PROCESSING phase must emit either:
+        - CHOOSE_LINE_OPTION: when lines were processed
+        - NO_LINE_ACTION: when no lines were available
+
+        Args:
+            mask: Games being processed in this phase
+            games_with_lines: Which games had lines to process
+        """
+        from .gpu_game_types import MoveType
+
+        active_mask = mask & self.state.get_active_mask()
+        if not active_mask.any():
+            return
+
+        game_indices = torch.where(active_mask)[0]
+        players = self.state.current_player[game_indices]
+
+        # Determine move type for each game
+        had_lines = games_with_lines[game_indices]
+
+        # Record moves
+        for i, g in enumerate(game_indices.tolist()):
+            move_count = int(self.state.move_count[g].item())
+            if move_count >= self.state.max_history_moves:
+                continue
+
+            player = int(players[i].item())
+            move_type = MoveType.CHOOSE_LINE_OPTION if had_lines[i] else MoveType.NO_LINE_ACTION
+
+            # Record to move_history (7 columns: move_type, player, from_y, from_x, to_y, to_x, phase)
+            self.state.move_history[g, move_count, 0] = move_type
+            self.state.move_history[g, move_count, 1] = player
+            self.state.move_history[g, move_count, 2] = -1  # No position for line moves
+            self.state.move_history[g, move_count, 3] = -1
+            self.state.move_history[g, move_count, 4] = -1
+            self.state.move_history[g, move_count, 5] = -1
+            self.state.move_history[g, move_count, 6] = GamePhase.LINE_PROCESSING
+
+            self.state.move_count[g] += 1
 
     def _step_territory_phase(self, mask: torch.Tensor) -> None:
         """Handle TERRITORY_PROCESSING phase for games in mask.
@@ -1591,9 +1650,23 @@ class ParallelGameRunner:
         SIMPLIFICATION (GPU training): We implement a limited cascade check.
         Full cascade would iteratively process line->territory->line until stable.
         For training efficiency, we do one round of cascade check.
+
+        December 2025: Records canonical territory processing moves to move_history.
         """
+        # Capture territory counts BEFORE processing (to detect if territory was claimed)
+        territory_before = self.state.territory_count.clone()
+
         # Process territory claims
         compute_territory_batch(self.state, mask)
+
+        # Check which games claimed territory
+        territory_after = self.state.territory_count
+        # Sum across players to get total territory change per game
+        territory_changed = (territory_after.sum(dim=1) != territory_before.sum(dim=1))
+        games_with_territory = mask & territory_changed
+
+        # Record canonical territory moves
+        self._record_territory_phase_moves(mask, games_with_territory)
 
         # Cascade check: Did territory processing create new marker lines?
         # This can happen if territory collapse removes stacks that were blocking
@@ -1619,6 +1692,51 @@ class ParallelGameRunner:
             # Games still in TERRITORY_PROCESSING advance to END_TURN
             still_territory = mask & (self.state.current_phase == GamePhase.TERRITORY_PROCESSING)
             self.state.current_phase[still_territory] = GamePhase.END_TURN
+
+    def _record_territory_phase_moves(
+        self, mask: torch.Tensor, games_with_territory: torch.Tensor
+    ) -> None:
+        """Record canonical territory processing moves to move_history.
+
+        Per canonical contract, TERRITORY_PROCESSING phase must emit either:
+        - CHOOSE_TERRITORY_OPTION: when territory was claimed
+        - NO_TERRITORY_ACTION: when no territory was available
+
+        Args:
+            mask: Games being processed in this phase
+            games_with_territory: Which games had territory to claim
+        """
+        from .gpu_game_types import MoveType
+
+        active_mask = mask & self.state.get_active_mask()
+        if not active_mask.any():
+            return
+
+        game_indices = torch.where(active_mask)[0]
+        players = self.state.current_player[game_indices]
+
+        # Determine move type for each game
+        had_territory = games_with_territory[game_indices]
+
+        # Record moves
+        for i, g in enumerate(game_indices.tolist()):
+            move_count = int(self.state.move_count[g].item())
+            if move_count >= self.state.max_history_moves:
+                continue
+
+            player = int(players[i].item())
+            move_type = MoveType.CHOOSE_TERRITORY_OPTION if had_territory[i] else MoveType.NO_TERRITORY_ACTION
+
+            # Record to move_history (7 columns: move_type, player, from_y, from_x, to_y, to_x, phase)
+            self.state.move_history[g, move_count, 0] = move_type
+            self.state.move_history[g, move_count, 1] = player
+            self.state.move_history[g, move_count, 2] = -1  # No position for territory moves
+            self.state.move_history[g, move_count, 3] = -1
+            self.state.move_history[g, move_count, 4] = -1
+            self.state.move_history[g, move_count, 5] = -1
+            self.state.move_history[g, move_count, 6] = GamePhase.TERRITORY_PROCESSING
+
+            self.state.move_count[g] += 1
 
     def _check_for_new_lines(self, mask: torch.Tensor) -> torch.Tensor:
         """Check which games have new marker lines after territory processing.
