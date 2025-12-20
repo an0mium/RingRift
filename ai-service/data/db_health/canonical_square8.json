@@ -64,5 +64,11 @@
     "pending_check": 5000,
     "pass_rate": "TBD"
   },
-  "recommendation": "Legacy JSONL-converted DBs need migration. Staging improvement_loop DBs have correct schema but need parity verification. TS replay harness requires better-sqlite3 npm package (now installed)."
+  "recommendation": "Legacy JSONL-converted DBs need migration. Staging improvement_loop DBs have correct schema but need parity verification. TS replay harness requires better-sqlite3 npm package (now installed).",
+  "parity_fix": {
+    "commit": "b8175468",
+    "fix_description": "no_territory_action now handles phase transition inline",
+    "deployed_at": "2025-12-20",
+    "note": "Pre-fix data is non-canonical due to phase transition bug. Post-fix data should pass parity gates."
+  }
 }

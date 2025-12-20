@@ -66,12 +66,16 @@ def test_ssh_executor_builds_port_key_and_venv(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(hosts.subprocess, "run", fake_run)
 
+    # Create the key file so SSHExecutor includes -i flag
+    key_file = tmp_path / "id_rsa"
+    key_file.touch()
+
     cfg = hosts.HostConfig(
         name="h",
         ssh_host="example.com",
         ssh_user="alice",
         ssh_port=2222,
-        ssh_key=str(tmp_path / "id_rsa"),
+        ssh_key=str(key_file),
         work_dir="~/Development/RingRift",
         venv_activate="source ~/venv/bin/activate",
     )
@@ -108,12 +112,16 @@ def test_ssh_executor_scp_from_uses_port_and_key(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(hosts.subprocess, "run", fake_run)
 
+    # Create the key file so SSHExecutor includes -i flag
+    key_file = tmp_path / "id_rsa"
+    key_file.touch()
+
     cfg = hosts.HostConfig(
         name="h",
         ssh_host="example.com",
         ssh_user="alice",
         ssh_port=2222,
-        ssh_key=str(tmp_path / "id_rsa"),
+        ssh_key=str(key_file),
     )
     executor = hosts.SSHExecutor(cfg)
     executor.scp_from("/remote/file.txt", str(tmp_path / "file.txt"), timeout=7)
