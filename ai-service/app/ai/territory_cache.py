@@ -343,7 +343,9 @@ def _find_regions_with_border_color_fast(
             if idx in stack_at:
                 players_in_region.add(stack_at[idx])
 
-        if players_in_region and players_in_region < active_players:
+        # Match TS + slow-path semantics: empty regions still count as
+        # disconnected if they exclude at least one active player.
+        if players_in_region < active_players:
             regions.append(region)
 
     return regions
@@ -410,7 +412,9 @@ def _find_regions_without_marker_border_fast(
                 if idx in stack_at:
                     players_in_region.add(stack_at[idx])
 
-            if players_in_region and players_in_region < active_players:
+            # Match TS + slow-path semantics: empty regions still count as
+            # disconnected if they exclude at least one active player.
+            if players_in_region < active_players:
                 # Additional check: region must be bordered only by collapsed
                 # spaces or edges, mirroring TS isRegionBorderedByCollapsedOnly.
                 is_valid = True
