@@ -44,11 +44,26 @@ cd ai-service/scripts
 ./vast_canonical_selfplay.sh \
   --instance-id YOUR_INSTANCE_ID \
   --num-games 200 \
-  --board-type square8
+  --board-type square8 \
+  --min-recorded-games 200 \
+  --max-soak-attempts 2 \
+  --summary data/games/db_health.canonical_square8_2p.json
+
+# Large-board scale-up (batch size 100, target 500 total games)
+./vast_canonical_selfplay.sh \
+  --instance-id YOUR_INSTANCE_ID \
+  --num-games 100 \
+  --board-type square19 \
+  --min-recorded-games 500 \
+  --max-soak-attempts 5 \
+  --db data/games/canonical_square19.db \
+  --summary data/games/db_health.canonical_square19.json
 
 # Or create a new instance first
 ./vast_canonical_selfplay.sh --create-instance
 ```
+
+`--min-recorded-games` targets total games in the DB; `--num-games` is the per-soak batch size. The script will retry up to `--max-soak-attempts` until the target is met.
 
 ### Option B: Manual Setup
 
@@ -135,8 +150,20 @@ python scripts/generate_canonical_selfplay.py \
   --num-players 2 \
   --difficulty-band light \
   --db data/games/canonical_square8_2p.db \
-  --summary data/games/canonical_square8_2p.summary.json \
+  --summary data/games/db_health.canonical_square8_2p.json \
   2>&1 | tee logs/selfplay/canonical_square8_2p.log
+
+# Large-board scale-up (batch size 100, target 500 total games)
+python scripts/generate_canonical_selfplay.py \
+  --board-type square19 \
+  --num-games 100 \
+  --num-players 2 \
+  --difficulty-band light \
+  --min-recorded-games 500 \
+  --max-soak-attempts 5 \
+  --db data/games/canonical_square19.db \
+  --summary data/games/db_health.canonical_square19.json \
+  2>&1 | tee logs/selfplay/canonical_square19.log
 ```
 
 ## Target Game Counts
@@ -146,8 +173,8 @@ Per AI Training Pipeline requirements:
 | Board Type | Players | Target Games | Status       |
 | ---------- | ------- | ------------ | ------------ |
 | square8    | 2P      | 200+         | **PRIORITY** |
-| square19   | 2P      | 50+          | Secondary    |
-| hexagonal  | 2P      | 50+          | Secondary    |
+| square19   | 2P      | 200+         | Scale-up     |
+| hexagonal  | 2P      | 200+         | Scale-up     |
 
 ## Expected Output
 
@@ -156,7 +183,7 @@ After successful completion:
 ```
 ai-service/data/games/
 ├── canonical_square8_2p.db              # Game replay database
-├── canonical_square8_2p.summary.json    # Gate summary (canonical_ok: true/false)
+├── db_health.canonical_square8_2p.json  # Gate summary (canonical_ok: true/false)
 └── canonical_square8_2p.db.parity_gate.json  # Detailed parity report
 ```
 
@@ -164,7 +191,7 @@ ai-service/data/games/
 
 ```bash
 # Check summary
-cat data/games/canonical_square8_2p.summary.json | python3 -m json.tool
+cat data/games/db_health.canonical_square8_2p.json | python3 -m json.tool
 
 # Should show:
 # {
@@ -183,7 +210,7 @@ cat data/games/canonical_square8_2p.summary.json | python3 -m json.tool
 scp -P YOUR_PORT root@sshX.vast.ai:~/ringrift/ai-service/data/games/canonical_square8_2p.db \
   ./ai-service/data/games/
 
-scp -P YOUR_PORT root@sshX.vast.ai:~/ringrift/ai-service/data/games/canonical_square8_2p.summary.json \
+scp -P YOUR_PORT root@sshX.vast.ai:~/ringrift/ai-service/data/games/db_health.canonical_square8_2p.json \
   ./ai-service/data/games/
 ```
 
@@ -213,6 +240,11 @@ Check `sample_issues` in the summary JSON for details. Common causes:
 - Missing `--difficulty-band light` (heavy MCTS/Descent can cause issues)
 - Outdated repo version (run `git pull`)
 - Python dependency version mismatch
+
+### "Resource guard timeout" or disk full
+
+- Free disk space on the instance (old logs/selfplay data, stale DBs).
+- As a last resort, set `--skip-resource-guard` to bypass the guard for a one-off run.
 
 ### SSH Connection Refused / Timeout
 

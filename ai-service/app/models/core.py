@@ -356,6 +356,11 @@ class Move(BaseModel):
     think_time: int | None = Field(default=None, alias="thinkTime")
     move_number: int | None = Field(default=None, alias="moveNumber")
 
+    # Phase at which this move was made (optional - for canonical export/import)
+    # This is stored alongside the move to preserve phase information from GPU
+    # selfplay exports without requiring full state reconstruction during import.
+    phase: str | None = None
+
 
 class BoardState(BaseModel):
     """Current board state"""

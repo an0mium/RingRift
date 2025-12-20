@@ -1096,14 +1096,20 @@ class GameReplayDB:
 
                 # Phase derivation: record the actual phase-at-move-time.
                 # This lets canonical history checks detect phase/move mismatches.
+                # Priority: use move.phase if provided (from JSONL import), else derive from state.
                 phase_hint: str | None = None
-                current_phase = getattr(prev_state, "current_phase", None)
-                if current_phase is not None:
-                    phase_hint = (
-                        current_phase.value
-                        if hasattr(current_phase, "value")
-                        else str(current_phase)
-                    )
+                if hasattr(move, "phase") and move.phase is not None:
+                    # Phase explicitly provided on the move (e.g., from canonical JSONL export)
+                    phase_hint = move.phase if isinstance(move.phase, str) else str(move.phase)
+                else:
+                    # Fall back to deriving from current state
+                    current_phase = getattr(prev_state, "current_phase", None)
+                    if current_phase is not None:
+                        phase_hint = (
+                            current_phase.value
+                            if hasattr(current_phase, "value")
+                            else str(current_phase)
+                        )
 
                 self._store_move_conn(
                     conn,

@@ -367,13 +367,22 @@ run_on_remote() {
         "root@$(echo "$SSH_CMD" | grep -oP '@\K[^\s]+'):~/$SCRIPT_NAME"
     
     log_info "Running canonical selfplay on instance..."
-    
-    $SSH_CMD "chmod +x ~/$SCRIPT_NAME && ~/$SCRIPT_NAME \
-        --run-on-instance \
-        --num-games $NUM_GAMES \
-        --board-type $BOARD_TYPE \
-        --num-players $NUM_PLAYERS \
-        --difficulty-band $DIFFICULTY_BAND"
+
+    REMOTE_ARGS="--run-on-instance --num-games $NUM_GAMES --board-type $BOARD_TYPE --num-players $NUM_PLAYERS --difficulty-band $DIFFICULTY_BAND --min-recorded-games $MIN_RECORDED_GAMES --max-soak-attempts $MAX_SOAK_ATTEMPTS"
+    if [ -n "$DB_PATH_OVERRIDE" ]; then
+        REMOTE_ARGS="$REMOTE_ARGS --db $DB_PATH_OVERRIDE"
+    fi
+    if [ -n "$SUMMARY_PATH_OVERRIDE" ]; then
+        REMOTE_ARGS="$REMOTE_ARGS --summary $SUMMARY_PATH_OVERRIDE"
+    fi
+    if $RESET_DB; then
+        REMOTE_ARGS="$REMOTE_ARGS --reset-db"
+    fi
+    if $SKIP_RESOURCE_GUARD; then
+        REMOTE_ARGS="$REMOTE_ARGS --skip-resource-guard"
+    fi
+
+    $SSH_CMD "chmod +x ~/$SCRIPT_NAME && ~/$SCRIPT_NAME $REMOTE_ARGS"
     
     RC=$?
     
@@ -398,15 +407,30 @@ retrieve_results() {
     mkdir -p "$LOCAL_DIR"
     
     # Copy database and summary
-    DB_PATH="ringrift/ai-service/data/games/canonical_${BOARD_TYPE}_${NUM_PLAYERS}p.db"
-    SUMMARY_PATH="ringrift/ai-service/data/games/canonical_${BOARD_TYPE}_${NUM_PLAYERS}p.summary.json"
+    DB_PATH="$DB_PATH_OVERRIDE"
+    SUMMARY_PATH="$SUMMARY_PATH_OVERRIDE"
+    if [ -z "$DB_PATH" ]; then
+        DB_PATH="data/games/canonical_${BOARD_TYPE}_${NUM_PLAYERS}p.db"
+    fi
+    if [ -z "$SUMMARY_PATH" ]; then
+        SUMMARY_PATH="data/games/canonical_${BOARD_TYPE}_${NUM_PLAYERS}p.summary.json"
+    fi
+
+    DB_REMOTE_PATH="$DB_PATH"
+    SUMMARY_REMOTE_PATH="$SUMMARY_PATH"
+    if [[ "$DB_REMOTE_PATH" != /* && "$DB_REMOTE_PATH" != "~"* ]]; then
+        DB_REMOTE_PATH="ringrift/ai-service/$DB_REMOTE_PATH"
+    fi
+    if [[ "$SUMMARY_REMOTE_PATH" != /* && "$SUMMARY_REMOTE_PATH" != "~"* ]]; then
+        SUMMARY_REMOTE_PATH="ringrift/ai-service/$SUMMARY_REMOTE_PATH"
+    fi
     
     scp -o StrictHostKeyChecking=no -P "$SSH_PORT" \
-        "root@$SSH_HOST:~/$DB_PATH" \
+        "root@$SSH_HOST:$DB_REMOTE_PATH" \
         "$LOCAL_DIR/" 2>/dev/null && log_info "Downloaded database" || log_warn "No database found"
     
     scp -o StrictHostKeyChecking=no -P "$SSH_PORT" \
-        "root@$SSH_HOST:~/$SUMMARY_PATH" \
+        "root@$SSH_HOST:$SUMMARY_REMOTE_PATH" \
         "$LOCAL_DIR/" 2>/dev/null && log_info "Downloaded summary" || log_warn "No summary found"
     
     log_info "Results saved to: $LOCAL_DIR"
