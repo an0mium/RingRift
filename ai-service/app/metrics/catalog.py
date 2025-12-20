@@ -576,6 +576,74 @@ class MetricCatalog:
             module="app.metrics.coordinator",
         ))
 
+        # =================================================================
+        # Health/Parity Metrics
+        # =================================================================
+        self.register(MetricInfo(
+            name="ringrift_parity_validations_total",
+            description="Total parity validations performed.",
+            metric_type=MetricType.COUNTER,
+            category=MetricCategory.HEALTH,
+            labels=["config", "result"],
+            module="scripts.unified_ai_loop",
+        ))
+        self.register(MetricInfo(
+            name="ringrift_parity_games_checked",
+            description="Number of games checked in last parity validation.",
+            metric_type=MetricType.GAUGE,
+            category=MetricCategory.HEALTH,
+            labels=["config"],
+            module="scripts.unified_ai_loop",
+        ))
+        self.register(MetricInfo(
+            name="ringrift_parity_failure_rate",
+            description="Parity failure rate (0-1) from last validation.",
+            metric_type=MetricType.GAUGE,
+            category=MetricCategory.HEALTH,
+            labels=["config"],
+            module="scripts.unified_ai_loop",
+        ))
+        self.register(MetricInfo(
+            name="ringrift_parity_validation_in_progress",
+            description="Whether parity validation is currently running (1=yes, 0=no).",
+            metric_type=MetricType.GAUGE,
+            category=MetricCategory.HEALTH,
+            labels=[],
+            module="scripts.unified_ai_loop",
+        ))
+        self.register(MetricInfo(
+            name="ringrift_training_blocked_parity_total",
+            description="Training runs blocked due to parity validation failure.",
+            metric_type=MetricType.COUNTER,
+            category=MetricCategory.HEALTH,
+            labels=["config"],
+            module="scripts.unified_ai_loop",
+        ))
+        self.register(MetricInfo(
+            name="ringrift_parity_mismatches_total",
+            description="Total parity mismatches by type and suite.",
+            metric_type=MetricType.COUNTER,
+            category=MetricCategory.HEALTH,
+            labels=["mismatch_type", "suite"],
+            module="scripts.run_parity_healthcheck",
+        ))
+        self.register(MetricInfo(
+            name="ringrift_parity_healthcheck_cases_total",
+            description="Total parity healthcheck cases executed.",
+            metric_type=MetricType.COUNTER,
+            category=MetricCategory.HEALTH,
+            labels=["suite", "result"],
+            module="scripts.run_parity_healthcheck",
+        ))
+        self.register(MetricInfo(
+            name="ringrift_parity_healthcheck_pass_rate",
+            description="Parity healthcheck pass rate per suite (0-1).",
+            metric_type=MetricType.GAUGE,
+            category=MetricCategory.HEALTH,
+            labels=["suite"],
+            module="scripts.run_parity_healthcheck",
+        ))
+
 
 def get_metric_catalog() -> MetricCatalog:
     """Get the global metric catalog instance."""

@@ -393,6 +393,14 @@ __all__ = [
     "update_selfplay_queue_size",
     "update_sync_sources_count",
     "update_sync_stats",
+    # Parity metrics (December 2025)
+    "PARITY_HEALTHCHECK_CASES_TOTAL",
+    "PARITY_HEALTHCHECK_PASS_RATE",
+    "PARITY_MISMATCHES_TOTAL",
+    "emit_parity_summary_metrics",
+    "record_parity_case",
+    "record_parity_mismatch",
+    "update_parity_pass_rate",
 ]
 
 # Import catalog (December 2025)
@@ -415,4 +423,15 @@ from app.metrics.registry import (
     safe_histogram,
     safe_metric,
     safe_summary,
+)
+
+# Import parity metrics (December 2025)
+from app.metrics.parity import (
+    PARITY_HEALTHCHECK_CASES_TOTAL,
+    PARITY_HEALTHCHECK_PASS_RATE,
+    PARITY_MISMATCHES_TOTAL,
+    emit_parity_summary_metrics,
+    record_parity_case,
+    record_parity_mismatch,
+    update_parity_pass_rate,
 )
