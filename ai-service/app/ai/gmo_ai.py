@@ -692,7 +692,7 @@ class GMOAI(BaseAI):
         )
         optim_config.exploration_temp = exploration_temp
 
-        for idx, _, initial_embed in top_k:
+        for _idx, _, initial_embed in top_k:
             # Gradient optimization
             optimized_embed = optimize_move_with_entropy(
                 state_embed,
@@ -1028,7 +1028,7 @@ class OnlineLearner:
     ) -> float:
         """Perform TD(0) update after a single transition.
 
-        V(s,a) ← V(s,a) + α * (r + γ*V(s') - V(s,a))
+        V(s,a) <- V(s,a) + alpha * (r + gamma*V(s') - V(s,a))
 
         Args:
             current_state: State before move
@@ -1111,7 +1111,7 @@ class OnlineLearner:
         # Compute discounted targets (from end of game backward)
         n_moves = len(self.trajectory)
         targets = []
-        for i, sample in enumerate(self.trajectory):
+        for i, _sample in enumerate(self.trajectory):
             # Discount: later moves (closer to outcome) get higher weight
             steps_from_end = n_moves - i - 1
             discounted_outcome = outcome * (self.discount ** steps_from_end)
@@ -1152,7 +1152,7 @@ class OnlineLearner:
         self.optimizer.step()
 
         # Add to buffer for future updates
-        for sample, target in zip(self.trajectory, targets):
+        for sample, target in zip(self.trajectory, targets, strict=True):
             self._add_to_buffer(sample.state_features, sample.move, target)
 
         # Clear trajectory

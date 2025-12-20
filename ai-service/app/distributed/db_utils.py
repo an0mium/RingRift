@@ -24,6 +24,7 @@ Usage:
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import sqlite3
@@ -920,6 +921,4 @@ def close_all_connections() -> None:
 
 
 # Register cleanup on module unload
-import atexit
-
 atexit.register(close_all_connections)
