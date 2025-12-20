@@ -162,7 +162,7 @@ def run_selfplay_soak(
     board_type: str,
     num_games: int,
     db_path: Path,
-    seed: int,
+    seed: int | None,
     max_moves: int,
     num_players: int,
     difficulty_band: str,
@@ -198,8 +198,6 @@ def run_selfplay_soak(
         str(num_players),
         "--max-moves",
         str(max_moves),
-        "--seed",
-        str(seed),
         "--difficulty-band",
         difficulty_band,
         "--record-db",
@@ -211,6 +209,8 @@ def run_selfplay_soak(
         "--fail-on-anomaly",
         *extra_args,
     ]
+    if seed is not None:
+        cmd += ["--seed", str(seed)]
     if include_training_data_jsonl:
         cmd.append("--include-training-data")
 
