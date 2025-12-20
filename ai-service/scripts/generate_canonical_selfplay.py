@@ -59,6 +59,17 @@ from app.db.game_replay import GameReplayDB
 from app.game_engine import GameEngine
 from app.rules.history_validation import validate_canonical_config_for_game
 from app.training.selfplay_config import SelfplayConfig, create_argument_parser
+try:
+    from app.utils.resource_guard import can_proceed, wait_for_resources
+    HAS_RESOURCE_GUARD = True
+except Exception:  # pragma: no cover - optional guard for minimal envs
+    HAS_RESOURCE_GUARD = False
+
+    def can_proceed(*_args, **_kwargs) -> bool:  # type: ignore[override]
+        return True
+
+    def wait_for_resources(*_args, **_kwargs) -> bool:  # type: ignore[override]
+        return True
 
 
 def _build_env() -> dict[str, str]:
@@ -814,6 +825,22 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Archive existing destination DB before generating new games.",
     )
+    parser.add_argument(
+        "--min-recorded-games",
+        type=int,
+        default=0,
+        help=(
+            "Optional minimum total games required in the destination DB. "
+            "When set (>0), the script will rerun soaks until the DB reaches "
+            "this count or --max-soak-attempts is exhausted."
+        ),
+    )
+    parser.add_argument(
+        "--max-soak-attempts",
+        type=int,
+        default=1,
+        help="Maximum soak attempts when --min-recorded-games is set (default: 1).",
+    )
 
     parsed = parser.parse_args(argv)
 
@@ -839,6 +866,8 @@ def main(argv: list[str] | None = None) -> int:
             "distributed_job_timeout_seconds": parsed.distributed_job_timeout_seconds,
             "distributed_fetch_timeout_seconds": parsed.distributed_fetch_timeout_seconds,
             "reset_db": parsed.reset_db,
+            "min_recorded_games": parsed.min_recorded_games,
+            "max_soak_attempts": parsed.max_soak_attempts,
         },
     )
 
@@ -858,6 +887,8 @@ def main(argv: list[str] | None = None) -> int:
         "distributed_job_timeout_seconds": selfplay_config.extra_options["distributed_job_timeout_seconds"],
         "distributed_fetch_timeout_seconds": selfplay_config.extra_options["distributed_fetch_timeout_seconds"],
         "reset_db": selfplay_config.extra_options["reset_db"],
+        "min_recorded_games": selfplay_config.extra_options["min_recorded_games"],
+        "max_soak_attempts": selfplay_config.extra_options["max_soak_attempts"],
     })()
 
     board_type: str = args.board_type
@@ -866,6 +897,13 @@ def main(argv: list[str] | None = None) -> int:
     hosts: str | None = args.hosts
     difficulty_band: str = args.difficulty_band
     parity_limit_games_per_db: int = args.parity_limit_games_per_db
+    skip_resource_guard = os.environ.get("RINGRIFT_SKIP_RESOURCE_GUARD", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    min_recorded_games: int = int(args.min_recorded_games or 0)
+    max_soak_attempts: int = max(1, int(args.max_soak_attempts or 1))
     parity_timeout_seconds: int | None = (
         int(args.parity_timeout_seconds)
         if int(args.parity_timeout_seconds) > 0
@@ -888,20 +926,102 @@ def main(argv: list[str] | None = None) -> int:
         archived = archive_db_in_place(db_path)
         archived_dest_db = str(archived)
 
+    soak_attempts_used = 0
+    parity_summary: dict[str, Any] | None = None
+
     try:
-        parity_summary = run_selfplay_and_parity(
-            board_type,
-            num_games,
-            db_path,
-            num_players,
-            hosts,
-            difficulty_band=difficulty_band,
-            parity_limit_games_per_db=parity_limit_games_per_db,
-            parity_timeout_seconds=parity_timeout_seconds,
-            include_training_data_jsonl=run_analyses and num_games > 0,
-            distributed_job_timeout_seconds=distributed_job_timeout_seconds,
-            distributed_fetch_timeout_seconds=distributed_fetch_timeout_seconds,
-        )
+        attempt_limit = max_soak_attempts if min_recorded_games > 0 and num_games > 0 else 1
+        while soak_attempts_used < attempt_limit:
+            if HAS_RESOURCE_GUARD and not skip_resource_guard:
+                if not can_proceed(disk_required_gb=2.0, mem_required_gb=2.0):
+                    print(
+                        "[generate_canonical_selfplay] Waiting for resources to free up "
+                        "(disk/memory thresholds exceeded).",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    if not wait_for_resources(timeout=300.0, disk_required_gb=2.0, mem_required_gb=2.0):
+                        raise RuntimeError(
+                            "Resource guard timeout: disk/memory limits exceeded. "
+                            "Set RINGRIFT_SKIP_RESOURCE_GUARD=1 to override."
+                        )
+
+            games_before = _count_games_in_db_ro(db_path) or 0
+            if min_recorded_games > 0 and games_before >= min_recorded_games:
+                if parity_summary is None:
+                    parity_summary = run_selfplay_and_parity(
+                        board_type,
+                        0,
+                        db_path,
+                        num_players,
+                        hosts,
+                        difficulty_band=difficulty_band,
+                        parity_limit_games_per_db=parity_limit_games_per_db,
+                        parity_timeout_seconds=parity_timeout_seconds,
+                        include_training_data_jsonl=False,
+                        distributed_job_timeout_seconds=distributed_job_timeout_seconds,
+                        distributed_fetch_timeout_seconds=distributed_fetch_timeout_seconds,
+                    )
+                break
+
+            games_to_play = num_games
+            if min_recorded_games > 0:
+                remaining = max(0, min_recorded_games - games_before)
+                games_to_play = min(num_games, remaining)
+                if games_to_play <= 0:
+                    if parity_summary is None:
+                        parity_summary = run_selfplay_and_parity(
+                            board_type,
+                            0,
+                            db_path,
+                            num_players,
+                            hosts,
+                            difficulty_band=difficulty_band,
+                            parity_limit_games_per_db=parity_limit_games_per_db,
+                            parity_timeout_seconds=parity_timeout_seconds,
+                            include_training_data_jsonl=False,
+                            distributed_job_timeout_seconds=distributed_job_timeout_seconds,
+                            distributed_fetch_timeout_seconds=distributed_fetch_timeout_seconds,
+                        )
+                    break
+
+                print(
+                    f"[generate_canonical_selfplay] Soak attempt {soak_attempts_used + 1}/{attempt_limit} "
+                    f"(games before={games_before}, target={min_recorded_games}, batch={games_to_play})",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+            parity_summary = run_selfplay_and_parity(
+                board_type,
+                games_to_play,
+                db_path,
+                num_players,
+                hosts,
+                difficulty_band=difficulty_band,
+                parity_limit_games_per_db=parity_limit_games_per_db,
+                parity_timeout_seconds=parity_timeout_seconds,
+                include_training_data_jsonl=run_analyses and games_to_play > 0,
+                distributed_job_timeout_seconds=distributed_job_timeout_seconds,
+                distributed_fetch_timeout_seconds=distributed_fetch_timeout_seconds,
+            )
+            if games_to_play > 0:
+                soak_attempts_used += 1
+
+            if parity_summary is None:
+                break
+
+            passed_gate = bool(parity_summary.get("passed_canonical_parity_gate"))
+            soak_rc = int(parity_summary.get("soak_returncode", 0) or 0)
+            if not passed_gate or soak_rc != 0:
+                break
+
+            if min_recorded_games <= 0:
+                break
+
+            games_after = _count_games_in_db_ro(db_path) or 0
+            if games_after >= min_recorded_games:
+                break
     except Exception as e:  # pragma: no cover - debug hook
         payload = {
             "board_type": board_type,
@@ -912,6 +1032,9 @@ def main(argv: list[str] | None = None) -> int:
         }
         print(json.dumps(payload, indent=2, sort_keys=True))
         raise
+
+    if parity_summary is None:
+        raise RuntimeError("No parity summary produced; soak did not run or failed to emit summary.")
 
     # Determine if the parity gate itself passed.
     passed_gate = bool(parity_summary.get("passed_canonical_parity_gate"))
@@ -982,6 +1105,11 @@ def main(argv: list[str] | None = None) -> int:
     anm_invariants = run_anm_invariants(board_type)
     anm_ok = bool(anm_invariants.get("passed"))
 
+    db_stats = collect_db_stats(db_path)
+    games_total = int(db_stats.get("games_total", 0) or 0)
+    meets_min_recorded_games = (
+        min_recorded_games <= 0 or games_total >= min_recorded_games
+    )
     canonical_ok = (
         base_ok
         and config_non_canonical == 0
@@ -989,21 +1117,24 @@ def main(argv: list[str] | None = None) -> int:
         and non_canonical == 0
         and fe_territory_fixtures_ok
         and anm_ok
+        and meets_min_recorded_games
     )
-
-    db_stats = collect_db_stats(db_path)
 
     summary: dict[str, Any] = {
         "board_type": board_type,
         "num_players": num_players,
         "db_path": str(db_path),
         "num_games_requested": num_games,
+        "min_recorded_games": min_recorded_games,
+        "max_soak_attempts": max_soak_attempts,
+        "soak_attempts_used": soak_attempts_used,
         "db_stats": db_stats,
         "parity_gate": parity_summary,
         "archived_dest_db": archived_dest_db,
         "merge_result": merge_result,
         "canonical_config": canonical_config,
         "canonical_history": canonical_history,
+        "meets_min_recorded_games": bool(meets_min_recorded_games),
         "fe_territory_fixtures_ok": bool(fe_territory_fixtures_ok),
         "anm_invariants": anm_invariants,
         "anm_ok": bool(anm_ok),
