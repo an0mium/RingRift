@@ -975,6 +975,41 @@ These issues have been addressed but are kept here for context:
   tests now complete successfully. 3P/4P games with recovery actions now
   maintain correct `controllingPlayer` state after extraction.
 
+- **Phase Transition Parity Bug Fix (Dec 20, 2025 – FIXED)** –
+  Fixed critical phase transition bug in TS engine's `no_territory_action` handler.
+
+  **Root Cause:**
+  - `no_territory_action` case in `applyMoveWithChainInfo` returned state without
+    advancing phase/player
+  - `applyMoveForReplay` does NOT call `processPostMovePhases`, so phase transition
+    must be handled inline
+  - Python correctly advanced to next player's `ring_placement` or `forced_elimination`
+  - TS was staying in `territory_processing` for the same player
+
+  **Fix (commit b8175468):**
+  - Added inline phase transition handling in `no_territory_action` case
+  - Checks `computeHadAnyActionThisTurn()` and `playerHasStacksOnBoard()` for forced elimination
+  - If no forced elimination needed, rotates to next player's `ring_placement`
+  - Added `no_territory_action` to `isTurnEndingTerritoryMove` check (lines 1522-1523)
+    to prevent `processPostMovePhases` from running after inline handler
+
+  **Validation:** All canonical parity tests pass (5/5 games, 0 semantic divergence).
+
+- **FORCED_ELIMINATION GPU Selfplay Parity Fix (Dec 20, 2025 – FIXED)** –
+  Fixed missing FORCED_ELIMINATION phase handling in GPU selfplay scripts.
+
+  **Root Cause:**
+  - `run_gpu_selfplay.py` and `import_gpu_selfplay_to_db.py` were not handling
+    FORCED_ELIMINATION phase transitions
+  - This caused TS replay to diverge when Python recorded forced elimination moves
+
+  **Fix:**
+  - Added proper FORCED_ELIMINATION phase handling in GPU selfplay pipeline
+  - Synced fix to all Lambda cluster nodes
+
+  **Validation:** 138 parity tests pass, 0 failures. Fresh canonical selfplay data
+  passes parity gate with 0 semantic divergence.
+
 ---
 
 ## 🟢 P3 – Test Alignment Items (Dec 12, 2025) – RESOLVED

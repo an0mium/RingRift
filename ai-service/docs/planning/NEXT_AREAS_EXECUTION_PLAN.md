@@ -155,10 +155,13 @@ handler in `applyMoveWithChainInfo` already handles:
 
 ## Lane 4: Documentation Audit
 
-- [ ] Search docs for outdated parity/canonical DB notes
-- [ ] Update docs to reflect current gating flow and new IG-GMO tier
+- [x] Search docs for outdated parity/canonical DB notes
+- [x] Update docs to reflect current gating flow and new IG-GMO tier
+  - Added Dec 20, 2025 parity fix entries to KNOWN_ISSUES.md (lines 978-1011)
+  - DATA_VALIDATION.md already accurate (describes parity gating workflow)
+  - EXPERIMENTAL_AI.md already documents IG-GMO at tier 14 (lines 62-106)
 
-**Status:** Pending
+**Status:** COMPLETE
 
 ---
 
