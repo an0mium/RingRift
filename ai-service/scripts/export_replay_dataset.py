@@ -89,6 +89,29 @@ BOARD_TYPE_MAP: Dict[str, BoardType] = {
 }
 
 
+def _enforce_canonical_db_policy(
+    db_paths: List[str],
+    output_path: str,
+    *,
+    allow_noncanonical: bool,
+) -> None:
+    """Refuse to label outputs as canonical when source DBs are non-canonical."""
+    if allow_noncanonical:
+        return
+
+    if not os.path.basename(output_path).startswith("canonical_"):
+        return
+
+    noncanonical = [path for path in db_paths if not os.path.basename(path).startswith("canonical_")]
+    if noncanonical:
+        joined = ", ".join(noncanonical)
+        raise SystemExit(
+            "[export-replay-dataset] Refusing to export canonical_* dataset from non-canonical DB(s): "
+            f"{joined}\n"
+            "Use --allow-noncanonical to override, or rename the output to avoid canonical_ prefix."
+        )
+
+
 def build_encoder(
     board_type: BoardType,
     encoder_version: str = "default",
@@ -1002,6 +1025,14 @@ def _parse_args(argv: List[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Number of worker processes for parallel mode (default: CPU count - 1)",
     )
+    parser.add_argument(
+        "--allow-noncanonical",
+        action="store_true",
+        help=(
+            "Allow exporting from non-canonical DBs even when the output name "
+            "starts with canonical_. Use for legacy/experimental datasets only."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -1013,6 +1044,12 @@ def main(argv: List[str] | None = None) -> int:
         raise ValueError("--history-length must be >= 0")
     if args.sample_every < 1:
         raise ValueError("--sample-every must be >= 1")
+
+    _enforce_canonical_db_policy(
+        args.db_paths,
+        args.output,
+        allow_noncanonical=bool(args.allow_noncanonical),
+    )
 
     # Use parallel export if requested
     if args.parallel:
