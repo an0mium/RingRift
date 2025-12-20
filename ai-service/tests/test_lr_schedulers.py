@@ -479,10 +479,10 @@ class TestBackwardCompatibility:
 class TestParseArgs:
     """Tests for command-line argument parsing."""
     
-    def test_default_scheduler_is_none(self):
-        """Test that default scheduler is 'none' for backward compat."""
+    def test_default_scheduler_is_cosine(self):
+        """Test that default scheduler is 'cosine' (changed from 'none' in Dec 2025)."""
         args = parse_args([])
-        assert args.lr_scheduler == 'none'
+        assert args.lr_scheduler == 'cosine'
     
     def test_cosine_scheduler_args(self):
         """Test parsing cosine scheduler arguments."""

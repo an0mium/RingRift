@@ -49,7 +49,7 @@ class TestEarlyStopping(unittest.TestCase):
         self.assertEqual(es.counter, 0)
         self.assertEqual(es.best_loss, float("inf"))
         self.assertIsNone(es.best_state)
-        self.assertFalse(es.should_stop)
+        self.assertFalse(es._stopped)  # Check internal stopped flag
 
     def test_custom_patience(self) -> None:
         """Test custom patience parameter."""
@@ -82,16 +82,16 @@ class TestEarlyStopping(unittest.TestCase):
         model = SimpleModel()
 
         es(1.0, model)  # Best so far
-        self.assertFalse(es.should_stop)
+        self.assertFalse(es._stopped)
 
         es(1.1, model)  # Worse - counter 1
-        self.assertFalse(es.should_stop)
+        self.assertFalse(es._stopped)
 
         es(1.2, model)  # Worse - counter 2
-        self.assertFalse(es.should_stop)
+        self.assertFalse(es._stopped)
 
         es(1.3, model)  # Worse - counter 3, triggers
-        self.assertTrue(es.should_stop)
+        self.assertTrue(es._stopped)
 
     def test_min_delta_threshold(self) -> None:
         """Test min_delta threshold for improvement detection."""
@@ -365,8 +365,8 @@ class TestCliArguments(unittest.TestCase):
         self.assertEqual(args.early_stopping_patience, 10)
         self.assertEqual(args.checkpoint_dir, "checkpoints")
         self.assertEqual(args.checkpoint_interval, 5)
-        self.assertEqual(args.warmup_epochs, 0)
-        self.assertEqual(args.lr_scheduler, "none")
+        self.assertEqual(args.warmup_epochs, 1)  # Default changed to 1
+        self.assertEqual(args.lr_scheduler, "cosine")  # Default changed to cosine
         self.assertIsNone(args.resume)
 
     def test_early_stopping_disabled(self) -> None:
