@@ -16,7 +16,7 @@
   - Created: `data/db_health/canonical_square19.json`
   - Created: `data/db_health/canonical_hexagonal.json`
   - Created: `data/db_health/canonical_square8.json`
-- [ ] Update `TRAINING_DATA_REGISTRY.md` with `canonical_ok` status and provenance
+- [x] Update `TRAINING_DATA_REGISTRY.md` with `canonical_ok` status and provenance
 - [x] **FIXED: Phase transition parity bug (commit b8175468)**
 
 **Status:** Ready for re-validation. Issues addressed:
