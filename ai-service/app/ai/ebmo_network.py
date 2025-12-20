@@ -888,6 +888,122 @@ def combined_ebmo_loss(
     }
 
 
+def manifold_boundary_loss(
+    network: "EBMONetwork",
+    state_embeds: torch.Tensor,
+    legal_action_embeds: torch.Tensor,
+    num_random_samples: int = 10,
+    boundary_margin: float = 5.0,
+) -> torch.Tensor:
+    """Loss to push random embeddings to high energy, keeping legal moves low.
+
+    This creates a "barrier" around the legal move manifold, preventing
+    gradient descent from escaping to low-energy illegal regions.
+
+    Args:
+        network: EBMO network for energy computation
+        state_embeds: (B, state_dim) encoded states
+        legal_action_embeds: (B, action_dim) legal move embeddings
+        num_random_samples: Number of random points to sample per state
+        boundary_margin: How much higher random energies should be
+
+    Returns:
+        Scalar loss value
+    """
+    batch_size, action_dim = legal_action_embeds.shape
+    device = legal_action_embeds.device
+
+    # Compute energy of legal moves (should be low)
+    legal_energies = network.compute_energy(state_embeds, legal_action_embeds)
+
+    # Generate random embeddings in the action space
+    # Sample uniformly in hypercube [-2, 2] (slightly outside normalized range)
+    random_embeds = torch.rand(
+        batch_size, num_random_samples, action_dim, device=device
+    ) * 4 - 2  # Range [-2, 2]
+
+    # Compute energy of random embeddings (should be high)
+    random_energies_list = []
+    for i in range(num_random_samples):
+        rand_energy = network.compute_energy(
+            state_embeds, random_embeds[:, i, :]
+        )
+        random_energies_list.append(rand_energy)
+
+    random_energies = torch.stack(random_energies_list, dim=1)  # (B, num_random)
+
+    # Loss: push random energies to be at least boundary_margin higher than legal
+    # margin_loss = max(0, legal_energy - random_energy + margin)
+    legal_expanded = legal_energies.unsqueeze(1).expand(-1, num_random_samples)
+    margin_violations = F.relu(legal_expanded - random_energies + boundary_margin)
+
+    return margin_violations.mean()
+
+
+def quality_weighted_energy_loss(
+    energies: torch.Tensor,
+    quality_scores: torch.Tensor,
+    temperature: float = 1.0,
+) -> torch.Tensor:
+    """Loss using continuous quality scores (e.g., from MCTS visit fractions).
+
+    Args:
+        energies: (B,) energy predictions for moves
+        quality_scores: (B,) quality scores in [0, 1], higher = better move
+        temperature: Scaling factor
+
+    Returns:
+        Scalar loss value
+    """
+    # Higher quality moves should have lower energy
+    # Target energy: inverse of quality (-1 for best, +1 for worst)
+    target_energies = (1 - 2 * quality_scores) * temperature
+
+    return F.mse_loss(energies, target_energies)
+
+
+def ranking_loss_from_quality(
+    energies: torch.Tensor,
+    quality_scores: torch.Tensor,
+    margin: float = 0.5,
+) -> torch.Tensor:
+    """Pairwise ranking loss from quality scores.
+
+    For each pair of moves in a batch, ensures higher-quality moves
+    have lower energy by the specified margin.
+
+    Args:
+        energies: (B,) energy predictions
+        quality_scores: (B,) quality scores in [0, 1]
+        margin: Minimum energy gap required
+
+    Returns:
+        Scalar loss value
+    """
+    batch_size = energies.shape[0]
+    if batch_size < 2:
+        return torch.tensor(0.0, device=energies.device)
+
+    # Create all pairs
+    losses = []
+    for i in range(batch_size):
+        for j in range(i + 1, batch_size):
+            if quality_scores[i] > quality_scores[j]:
+                # i is better, should have lower energy
+                loss = F.relu(energies[i] - energies[j] + margin)
+            elif quality_scores[j] > quality_scores[i]:
+                # j is better, should have lower energy
+                loss = F.relu(energies[j] - energies[i] + margin)
+            else:
+                loss = torch.tensor(0.0, device=energies.device)
+            losses.append(loss)
+
+    if not losses:
+        return torch.tensor(0.0, device=energies.device)
+
+    return torch.stack(losses).mean()
+
+
 # =============================================================================
 # Model Loading/Saving
 # =============================================================================

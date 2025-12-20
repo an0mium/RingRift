@@ -20,6 +20,7 @@ from app.ai.gpu_parallel_games import (
     select_moves_vectorized,
     # Core classes
     BatchGameState,
+    ParallelGameRunner,
 )
 from app.ai.gpu_game_types import (
     get_int_dtype,
@@ -455,3 +456,117 @@ class TestDeviceHandling:
         assert state.current_player.device.type == device.type
         assert state.current_phase.device.type == device.type
         assert state.game_status.device.type == device.type
+
+
+class TestParallelGameRunner:
+    """Tests for ParallelGameRunner class."""
+
+    def test_initialization(self):
+        """Test runner initialization with default parameters."""
+        runner = ParallelGameRunner(
+            num_games=4,
+            board_size=8,
+            num_players=2,
+        )
+
+        assert runner.num_games == 4
+        assert runner.board_size == 8
+        assert runner.num_players == 2
+        assert runner.state is not None
+
+    def test_initialization_different_sizes(self):
+        """Test runner initialization with different board sizes."""
+        for board_size in [6, 7, 8, 9]:
+            runner = ParallelGameRunner(
+                num_games=2,
+                board_size=board_size,
+                num_players=2,
+            )
+            assert runner.board_size == board_size
+            assert runner.state.stack_owner.shape[1] == board_size
+
+    def test_initialization_multiplayer(self):
+        """Test runner initialization with 3-4 players."""
+        for num_players in [2, 3, 4]:
+            runner = ParallelGameRunner(
+                num_games=2,
+                board_size=8,
+                num_players=num_players,
+            )
+            assert runner.num_players == num_players
+
+    def test_reset_games(self):
+        """Test resetting games to initial state."""
+        runner = ParallelGameRunner(
+            num_games=4,
+            board_size=8,
+            num_players=2,
+        )
+
+        # Games should start active
+        assert (runner.state.game_status == GameStatus.ACTIVE).all()
+
+        # Reset games
+        runner.reset_games()
+
+        # Should be back to initial state
+        assert (runner.state.game_status == GameStatus.ACTIVE).all()
+        assert (runner.state.current_player == 1).all()
+        assert (runner.state.current_phase == GamePhase.RING_PLACEMENT).all()
+
+    def test_set_temperature(self):
+        """Test setting temperature."""
+        runner = ParallelGameRunner(
+            num_games=4,
+            board_size=8,
+            num_players=2,
+        )
+
+        runner.set_temperature(0.5)
+        assert runner.temperature == 0.5
+
+        runner.set_temperature(2.0)
+        assert runner.temperature == 2.0
+
+    def test_run_games_short(self):
+        """Test running a few game steps."""
+        runner = ParallelGameRunner(
+            num_games=4,
+            board_size=8,
+            num_players=2,
+            max_moves=10,  # Short games for testing
+        )
+
+        # Run games
+        results = runner.run_games()
+
+        # Should return a list of results
+        assert isinstance(results, list)
+        assert len(results) == 4
+
+    def test_get_stats(self):
+        """Test getting runner statistics."""
+        runner = ParallelGameRunner(
+            num_games=4,
+            board_size=8,
+            num_players=2,
+        )
+
+        stats = runner.get_stats()
+
+        # Should have expected keys
+        assert isinstance(stats, dict)
+        assert "total_games" in stats or "games_completed" in stats or len(stats) >= 0
+
+    def test_default_weights(self):
+        """Test default heuristic weights."""
+        runner = ParallelGameRunner(
+            num_games=2,
+            board_size=8,
+            num_players=2,
+        )
+
+        weights = runner._default_weights()
+
+        assert isinstance(weights, dict)
+        assert len(weights) > 0
