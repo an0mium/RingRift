@@ -81,9 +81,11 @@ class MatchResult:
     timestamp: str
     seed: int | None = None
     game_index: int | None = None
+    # Optional full game record for training data export
+    game_record: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "tier_a": self.tier_a,
             "tier_b": self.tier_b,
             "winner": self.winner,
@@ -95,6 +97,12 @@ class MatchResult:
             "seed": self.seed,
             "game_index": self.game_index,
         }
+        # Don't include game_record in basic dict (it's large)
+        return result
+
+    def to_training_record(self) -> dict[str, Any] | None:
+        """Return full game record for training data export."""
+        return self.game_record
 
 
 @dataclass
@@ -351,6 +359,7 @@ def run_single_game(
     num_players: int = 2,
     filler_ai_type: str = "Random",
     filler_difficulty: int = 1,
+    record_training_data: bool = False,
 ) -> MatchResult:
     """Run a single game between two AI tiers (with optional filler AIs for 3-4 player games).
 
@@ -360,6 +369,9 @@ def run_single_game(
     - Players 3-4: filler_ai_type (Random/Heuristic)
 
     Winner is reported as 1 if tier_a won, 2 if tier_b won, None for filler/draw.
+
+    Args:
+        record_training_data: If True, capture full game history for training export.
     """
     def _tiebreak_winner(final_state: Any) -> int | None:
         players = getattr(final_state, "players", None) or []
