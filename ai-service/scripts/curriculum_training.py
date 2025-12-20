@@ -35,6 +35,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
+# Canonical DB gating
+from app.training.canonical_sources import enforce_canonical_sources
+
 # Import event bus for pipeline integration
 try:
     HAS_EVENT_BUS = True
@@ -696,6 +699,22 @@ def main():
         help="Output directory",
     )
     parser.add_argument(
+        "--allow-noncanonical",
+        action="store_true",
+        help="Allow training from non-canonical DBs for legacy/experimental runs.",
+    )
+    parser.add_argument(
+        "--allow-pending-gate",
+        action="store_true",
+        help="Allow DBs marked pending_gate in TRAINING_DATA_REGISTRY.md.",
+    )
+    parser.add_argument(
+        "--registry",
+        type=str,
+        default=None,
+        help="Path to TRAINING_DATA_REGISTRY.md (default: repo root)",
+    )
+    parser.add_argument(
         "--list-stages",
         action="store_true",
         help="List all curriculum stages and exit",
@@ -801,6 +820,16 @@ def main():
     if not db_paths:
         logger.error("No database files found")
         return 1
+
+    enforce_canonical_sources(
+        [Path(p) for p in db_paths],
+        registry_path=Path(args.registry) if args.registry else None,
+        allowed_statuses=["canonical", "pending_gate"]
+        if args.allow_pending_gate
+        else ["canonical"],
+        allow_noncanonical=args.allow_noncanonical,
+        error_prefix="curriculum-training",
+    )
 
     output_dir = Path(args.output_dir)
 

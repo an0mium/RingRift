@@ -44,7 +44,7 @@ cd ai-service/scripts
 ./vast_canonical_selfplay.sh \
   --instance-id YOUR_INSTANCE_ID \
   --num-games 200 \
-  --board-type square8 \
+  --board square8 \
   --min-recorded-games 200 \
   --max-soak-attempts 2 \
   --summary data/games/db_health.canonical_square8_2p.json
@@ -53,7 +53,7 @@ cd ai-service/scripts
 ./vast_canonical_selfplay.sh \
   --instance-id YOUR_INSTANCE_ID \
   --num-games 100 \
-  --board-type square19 \
+  --board square19 \
   --min-recorded-games 500 \
   --max-soak-attempts 5 \
   --db data/games/canonical_square19.db \
@@ -145,7 +145,7 @@ mkdir -p data/games logs/selfplay
 
 # Run canonical selfplay for square8 2-player (200 games)
 python scripts/generate_canonical_selfplay.py \
-  --board-type square8 \
+  --board square8 \
   --num-games 200 \
   --num-players 2 \
   --difficulty-band light \
@@ -155,7 +155,7 @@ python scripts/generate_canonical_selfplay.py \
 
 # Large-board scale-up (batch size 100, target 500 total games)
 python scripts/generate_canonical_selfplay.py \
-  --board-type square19 \
+  --board square19 \
   --num-games 100 \
   --num-players 2 \
   --difficulty-band light \

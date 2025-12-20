@@ -372,7 +372,8 @@ def apply_recovery_moves_vectorized(
         state.move_history[hist_games, hist_move_idx, 3] = from_x[history_mask].to(hist_dtype)
         state.move_history[hist_games, hist_move_idx, 4] = to_y[history_mask].to(hist_dtype)
         state.move_history[hist_games, hist_move_idx, 5] = to_x[history_mask].to(hist_dtype)
-        # Always use MOVEMENT phase for recovery slides (canonical contract)
+        # Recovery slides are part of MOVEMENT phase per history_contract.py
+        # (recovery_slide is in movement phase allowed types, not a separate phase)
         state.move_history[hist_games, hist_move_idx, 6] = GamePhase.MOVEMENT
 
     state.move_count[game_indices] += 1

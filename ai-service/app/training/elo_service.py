@@ -768,6 +768,356 @@ class EloService:
         win_rate = wins / total if total > 0 else 0.5
         return win_rate, total
 
+    # =========================================================================
+    # Composite Participant Methods (Sprint 1)
+    # =========================================================================
+
+    def register_composite_participant(
+        self,
+        nn_id: str | None,
+        ai_type: str,
+        config: dict[str, Any] | None = None,
+        board_type: str = "square8",
+        num_players: int = 2,
+        nn_model_path: str | None = None,
+    ) -> str:
+        """Register a composite (NN, Algorithm) participant.
+
+        Creates a composite participant ID and registers it with full metadata.
+
+        Args:
+            nn_id: Neural network identifier, or None for non-NN participants
+            ai_type: Search algorithm type (e.g., "gumbel_mcts", "mcts")
+            config: Algorithm configuration (uses defaults if None)
+            board_type: Board type for rating
+            num_players: Number of players
+            nn_model_path: Path to NN model file
+
+        Returns:
+            Composite participant ID
+        """
+        from app.training.composite_participant import (
+            encode_config_hash,
+            get_standard_config,
+            make_composite_participant_id,
+        )
+
+        # Create composite ID
+        actual_config = config or get_standard_config(ai_type)
+        participant_id = make_composite_participant_id(nn_id, ai_type, actual_config)
+        config_hash = encode_config_hash(actual_config, ai_type)
+
+        # Register as participant with extended metadata
+        with self._transaction() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO participants
+                (participant_id, participant_type, ai_type, use_neural_net, model_path,
+                 nn_model_id, nn_model_path, ai_algorithm, algorithm_config, is_composite,
+                 created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                participant_id,
+                "composite",
+                ai_type,
+                int(nn_id is not None),
+                nn_model_path,
+                nn_id,
+                nn_model_path,
+                ai_type,
+                json.dumps(actual_config),
+                1,  # is_composite = True
+                time.time(),
+            ))
+
+        # Initialize rating for this config
+        self.get_rating(participant_id, board_type, num_players)
+
+        return participant_id
+
+    def get_nn_performance_summary(
+        self,
+        nn_model_id: str,
+        board_type: str,
+        num_players: int,
+    ) -> dict[str, Any] | None:
+        """Get aggregated performance summary for an NN across algorithms.
+
+        Args:
+            nn_model_id: Neural network identifier
+            board_type: Board type
+            num_players: Number of players
+
+        Returns:
+            Dict with best_algorithm, best_elo, avg_elo, algorithms_tested
+            or None if no data
+        """
+        conn = self._get_connection()
+        cursor = conn.execute("""
+            SELECT best_algorithm, best_elo, avg_elo, algorithms_tested, last_updated
+            FROM nn_performance_summary
+            WHERE nn_model_id = ? AND board_type = ? AND num_players = ?
+        """, (nn_model_id, board_type, num_players))
+
+        row = cursor.fetchone()
+        if not row:
+            return None
+
+        return {
+            "nn_model_id": nn_model_id,
+            "board_type": board_type,
+            "num_players": num_players,
+            "best_algorithm": row["best_algorithm"],
+            "best_elo": row["best_elo"],
+            "avg_elo": row["avg_elo"],
+            "algorithms_tested": row["algorithms_tested"],
+            "last_updated": row["last_updated"],
+        }
+
+    def get_algorithm_baseline(
+        self,
+        ai_algorithm: str,
+        board_type: str,
+        num_players: int,
+    ) -> dict[str, Any] | None:
+        """Get baseline rating for an algorithm.
+
+        Args:
+            ai_algorithm: Algorithm type
+            board_type: Board type
+            num_players: Number of players
+
+        Returns:
+            Dict with baseline_elo, games_played or None if not found
+        """
+        conn = self._get_connection()
+        cursor = conn.execute("""
+            SELECT baseline_elo, games_played, last_updated
+            FROM algorithm_baselines
+            WHERE ai_algorithm = ? AND board_type = ? AND num_players = ?
+        """, (ai_algorithm, board_type, num_players))
+
+        row = cursor.fetchone()
+        if not row:
+            return None
+
+        return {
+            "ai_algorithm": ai_algorithm,
+            "board_type": board_type,
+            "num_players": num_players,
+            "baseline_elo": row["baseline_elo"],
+            "games_played": row["games_played"],
+            "last_updated": row["last_updated"],
+        }
+
+    def update_algorithm_baseline(
+        self,
+        ai_algorithm: str,
+        board_type: str,
+        num_players: int,
+        baseline_elo: float,
+        games_played: int = 0,
+    ) -> None:
+        """Update baseline rating for an algorithm.
+
+        Args:
+            ai_algorithm: Algorithm type
+            board_type: Board type
+            num_players: Number of players
+            baseline_elo: New baseline Elo rating
+            games_played: Number of games played
+        """
+        with self._transaction() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO algorithm_baselines
+                (ai_algorithm, board_type, num_players, baseline_elo, games_played, last_updated)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (ai_algorithm, board_type, num_players, baseline_elo, games_played, time.time()))
+
+    def get_composite_leaderboard(
+        self,
+        board_type: str,
+        num_players: int,
+        ai_algorithm: str | None = None,
+        nn_model_id: str | None = None,
+        limit: int = 50,
+        min_games: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Get leaderboard filtered by algorithm or NN.
+
+        Args:
+            board_type: Board type
+            num_players: Number of players
+            ai_algorithm: Filter by algorithm (optional)
+            nn_model_id: Filter by NN model (optional)
+            limit: Maximum entries
+            min_games: Minimum games required
+
+        Returns:
+            List of leaderboard entries
+        """
+        conn = self._get_connection()
+
+        query = """
+            SELECT
+                e.participant_id,
+                p.nn_model_id,
+                p.ai_algorithm,
+                e.rating,
+                e.games_played,
+                e.wins,
+                e.losses,
+                e.draws,
+                e.last_update
+            FROM elo_ratings e
+            JOIN participants p ON e.participant_id = p.participant_id
+            WHERE e.board_type = ? AND e.num_players = ? AND e.games_played >= ?
+        """
+        params: list[Any] = [board_type, num_players, min_games]
+
+        if ai_algorithm:
+            query += " AND p.ai_algorithm = ?"
+            params.append(ai_algorithm)
+
+        if nn_model_id:
+            query += " AND p.nn_model_id = ?"
+            params.append(nn_model_id)
+
+        query += " ORDER BY e.rating DESC LIMIT ?"
+        params.append(limit)
+
+        cursor = conn.execute(query, params)
+
+        entries = []
+        for rank, row in enumerate(cursor.fetchall(), 1):
+            games = row["games_played"]
+            win_rate = (row["wins"] + 0.5 * row["draws"]) / games if games > 0 else 0.5
+            entries.append({
+                "rank": rank,
+                "participant_id": row["participant_id"],
+                "nn_model_id": row["nn_model_id"],
+                "ai_algorithm": row["ai_algorithm"],
+                "rating": row["rating"],
+                "games_played": games,
+                "wins": row["wins"],
+                "losses": row["losses"],
+                "draws": row["draws"],
+                "win_rate": win_rate,
+                "last_update": row["last_update"],
+            })
+
+        return entries
+
+    def get_algorithm_rankings(
+        self,
+        board_type: str,
+        num_players: int,
+        min_games: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Get algorithm rankings based on average performance.
+
+        Aggregates ratings across all NNs for each algorithm.
+
+        Args:
+            board_type: Board type
+            num_players: Number of players
+            min_games: Minimum games for inclusion
+
+        Returns:
+            List of algorithm rankings with avg_elo, best_elo, nn_count
+        """
+        conn = self._get_connection()
+        cursor = conn.execute("""
+            SELECT
+                p.ai_algorithm,
+                AVG(e.rating) as avg_elo,
+                MAX(e.rating) as best_elo,
+                MIN(e.rating) as worst_elo,
+                COUNT(DISTINCT p.nn_model_id) as nn_count,
+                SUM(e.games_played) as total_games
+            FROM elo_ratings e
+            JOIN participants p ON e.participant_id = p.participant_id
+            WHERE e.board_type = ? AND e.num_players = ?
+                AND e.games_played >= ?
+                AND p.ai_algorithm IS NOT NULL
+            GROUP BY p.ai_algorithm
+            ORDER BY avg_elo DESC
+        """, (board_type, num_players, min_games))
+
+        rankings = []
+        for rank, row in enumerate(cursor.fetchall(), 1):
+            rankings.append({
+                "rank": rank,
+                "ai_algorithm": row["ai_algorithm"],
+                "avg_elo": row["avg_elo"],
+                "best_elo": row["best_elo"],
+                "worst_elo": row["worst_elo"],
+                "nn_count": row["nn_count"],
+                "total_games": row["total_games"],
+                "elo_spread": row["best_elo"] - row["worst_elo"],
+            })
+
+        return rankings
+
+    def get_nn_rankings(
+        self,
+        board_type: str,
+        num_players: int,
+        min_games: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Get NN rankings based on best performance across algorithms.
+
+        Args:
+            board_type: Board type
+            num_players: Number of players
+            min_games: Minimum games for inclusion
+
+        Returns:
+            List of NN rankings with best_elo, best_algorithm, algorithm_count
+        """
+        conn = self._get_connection()
+        cursor = conn.execute("""
+            SELECT
+                p.nn_model_id,
+                MAX(e.rating) as best_elo,
+                AVG(e.rating) as avg_elo,
+                COUNT(DISTINCT p.ai_algorithm) as algorithm_count,
+                SUM(e.games_played) as total_games
+            FROM elo_ratings e
+            JOIN participants p ON e.participant_id = p.participant_id
+            WHERE e.board_type = ? AND e.num_players = ?
+                AND e.games_played >= ?
+                AND p.nn_model_id IS NOT NULL
+                AND p.nn_model_id != 'none'
+            GROUP BY p.nn_model_id
+            ORDER BY best_elo DESC
+        """, (board_type, num_players, min_games))
+
+        rankings = []
+        for rank, row in enumerate(cursor.fetchall(), 1):
+            # Get best algorithm for this NN
+            best_algo_cursor = conn.execute("""
+                SELECT p.ai_algorithm
+                FROM elo_ratings e
+                JOIN participants p ON e.participant_id = p.participant_id
+                WHERE p.nn_model_id = ? AND e.board_type = ? AND e.num_players = ?
+                ORDER BY e.rating DESC
+                LIMIT 1
+            """, (row["nn_model_id"], board_type, num_players))
+            best_algo_row = best_algo_cursor.fetchone()
+            best_algorithm = best_algo_row["ai_algorithm"] if best_algo_row else None
+
+            rankings.append({
+                "rank": rank,
+                "nn_model_id": row["nn_model_id"],
+                "best_elo": row["best_elo"],
+                "avg_elo": row["avg_elo"],
+                "best_algorithm": best_algorithm,
+                "algorithm_count": row["algorithm_count"],
+                "total_games": row["total_games"],
+            })
+
+        return rankings
+
 
 def get_elo_service(db_path: Path | None = None) -> EloService:
     """Get the singleton EloService instance."""

@@ -241,17 +241,23 @@ def validate_canonical_move_sequence(
     if not moves:
         return True, []
 
-    # Phase to allowed move types mapping (simplified)
+    # Phase to allowed move types mapping - must match history_contract.py
     allowed_moves_by_phase = {
-        "ring_placement": {"place_ring", "skip_placement", "no_placement_action"},
-        "movement": {"move_stack", "move_ring", "no_movement_action"},
-        "capture": {"overtaking_capture", "skip_capture"},
-        "chain_capture": {"continue_capture_segment", "skip_capture"},
-        "recovery": {"recovery_slide", "skip_recovery"},
+        "ring_placement": {"place_ring", "skip_placement", "no_placement_action", "swap_sides"},
+        "movement": {
+            "move_stack", "move_ring", "build_stack",
+            "overtaking_capture", "continue_capture_segment",  # captures in movement phase
+            "recovery_slide", "skip_recovery",  # recovery in movement phase
+            "no_movement_action",
+        },
+        "capture": {"overtaking_capture", "continue_capture_segment", "skip_capture"},
+        "chain_capture": {"continue_capture_segment"},
+        "recovery": {"recovery_slide", "skip_recovery"},  # Legacy GPU phase
         "line_processing": {"process_line", "choose_line_option", "no_line_action"},
         "territory_processing": {
             "process_territory_region",
             "choose_territory_option",
+            "eliminate_rings_from_stack",
             "no_territory_action",
             "skip_territory_processing",
         },

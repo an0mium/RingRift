@@ -73,7 +73,7 @@ Primary metrics:
 
 Driver (local):
 
-`PYTHONPATH=ai-service RINGRIFT_RECOVERY_STACK_STRIKE_V1=1 python ai-service/scripts/generate_canonical_selfplay.py ...`
+`cd ai-service && PYTHONPATH=. RINGRIFT_RECOVERY_STACK_STRIKE_V1=1 python scripts/generate_canonical_selfplay.py ...`
 
 Use the distributed host config and orchestration described in
 `ai-service/docs/AI_TRAINING_PIPELINE_PLAN.md`. Store parity‑gate summaries

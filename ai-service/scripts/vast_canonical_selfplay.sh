@@ -60,7 +60,7 @@ while [[ $# -gt 0 ]]; do
         --instance-id) INSTANCE_ID="$2"; shift 2 ;;
         --ssh) SSH_CMD="$2"; shift 2 ;;
         --num-games) NUM_GAMES="$2"; shift 2 ;;
-        --board-type) BOARD_TYPE="$2"; shift 2 ;;
+        --board-type|--board) BOARD_TYPE="$2"; shift 2 ;;
         --num-players) NUM_PLAYERS="$2"; shift 2 ;;
         --difficulty-band) DIFFICULTY_BAND="$2"; shift 2 ;;
         --min-recorded-games) MIN_RECORDED_GAMES="$2"; shift 2 ;;
@@ -79,6 +79,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --ssh 'ssh cmd'             SSH command for connecting to instance"
             echo "  --num-games N               Number of games to generate (default: 200)"
             echo "  --board-type TYPE           Board type: square8|square19|hexagonal (default: square8)"
+            echo "  --board TYPE                Alias for --board-type"
             echo "  --num-players N             Number of players: 2|3|4 (default: 2)"
             echo "  --difficulty-band BAND      AI difficulty: light|canonical (default: light)"
             echo "  --min-recorded-games N      Ensure at least N games are recorded (default: 0)"

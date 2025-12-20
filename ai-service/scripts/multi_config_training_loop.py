@@ -19,6 +19,9 @@ Version: v7 (OPTIMIZED HP + ADAPTIVE CURRICULUM)
 Environment Variables:
     RINGRIFT_ENABLE_AUTO_HP_TUNING: Set to "1" to enable automatic HP tuning (default: disabled)
     RINGRIFT_MIN_GAMES_FOR_HP_TUNING: Min games before HP tuning is considered (default: 500)
+    RINGRIFT_ALLOW_NONCANONICAL_DB: Allow non-canonical DBs in training (default: disabled)
+    RINGRIFT_ALLOW_PENDING_GATE: Allow pending_gate DBs in training (default: disabled)
+    RINGRIFT_TRAINING_REGISTRY: Path to TRAINING_DATA_REGISTRY.md (default: repo root)
 """
 import glob
 import json
@@ -119,9 +122,23 @@ except ImportError:
     IntegratedTrainingManager = None
     IntegratedEnhancementsConfig = None
 
+from app.training.canonical_sources import load_gate_summary, parse_registry
+
 # Base paths - auto-detect from script location or use env var
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.environ.get("RINGRIFT_BASE_DIR", os.path.dirname(SCRIPT_DIR))
+
+def _env_flag(name: str, default: str = "0") -> bool:
+    return os.environ.get(name, default).strip().lower() in {"1", "true", "yes"}
+
+ALLOW_NONCANONICAL_DB = _env_flag("RINGRIFT_ALLOW_NONCANONICAL_DB", "0")
+ALLOW_PENDING_GATE = _env_flag("RINGRIFT_ALLOW_PENDING_GATE", "0")
+CANONICAL_REGISTRY_PATH = Path(
+    os.environ.get(
+        "RINGRIFT_TRAINING_REGISTRY",
+        os.path.join(BASE_DIR, "TRAINING_DATA_REGISTRY.md"),
+    )
+)
 
 # HP tuning settings
 ENABLE_AUTO_HP_TUNING = os.environ.get("RINGRIFT_ENABLE_AUTO_HP_TUNING", "0") == "1"
@@ -141,6 +158,88 @@ ENABLE_INCREMENTAL_EXPORT = os.environ.get("RINGRIFT_ENABLE_INCREMENTAL_EXPORT",
 # Track HP tuning recommendations
 _hp_tuning_recommendations: dict[tuple[str, int], bool] = {}
 DATA_DIR = os.path.join(BASE_DIR, "data")
+
+_CANONICAL_REGISTRY: dict[str, dict[str, str]] | None = None
+_CANONICAL_REGISTRY_DIR: Path | None = None
+
+
+def _load_registry() -> tuple[dict[str, dict[str, str]], Path]:
+    global _CANONICAL_REGISTRY, _CANONICAL_REGISTRY_DIR
+    if _CANONICAL_REGISTRY is None:
+        if not CANONICAL_REGISTRY_PATH.exists():
+            if ALLOW_NONCANONICAL_DB:
+                _CANONICAL_REGISTRY = {}
+                _CANONICAL_REGISTRY_DIR = CANONICAL_REGISTRY_PATH.parent
+            else:
+                raise SystemExit(
+                    f"[multi-config-training] Registry not found: {CANONICAL_REGISTRY_PATH}. "
+                    "Set RINGRIFT_ALLOW_NONCANONICAL_DB=1 to bypass."
+                )
+        else:
+            _CANONICAL_REGISTRY = parse_registry(CANONICAL_REGISTRY_PATH)
+            _CANONICAL_REGISTRY_DIR = CANONICAL_REGISTRY_PATH.parent
+    return _CANONICAL_REGISTRY or {}, _CANONICAL_REGISTRY_DIR or CANONICAL_REGISTRY_PATH.parent
+
+
+def _canonical_flag_args() -> list[str]:
+    if ALLOW_NONCANONICAL_DB and not ALLOW_PENDING_GATE and not CANONICAL_REGISTRY_PATH:
+        return []
+    flags: list[str] = []
+    if ALLOW_NONCANONICAL_DB:
+        flags.append("--allow-noncanonical")
+    if ALLOW_PENDING_GATE:
+        flags.append("--allow-pending-gate")
+    if CANONICAL_REGISTRY_PATH:
+        flags.extend(["--registry", str(CANONICAL_REGISTRY_PATH)])
+    return flags
+
+
+def _filter_canonical_db_paths(db_paths: list[str], *, config_key: str) -> list[str]:
+    if ALLOW_NONCANONICAL_DB:
+        return db_paths
+
+    registry_info, registry_dir = _load_registry()
+    if not registry_info:
+        raise SystemExit(
+            f"[multi-config-training] Registry is empty: {CANONICAL_REGISTRY_PATH}. "
+            "Set RINGRIFT_ALLOW_NONCANONICAL_DB=1 to bypass."
+        )
+
+    allowed_statuses = {"canonical"}
+    if ALLOW_PENDING_GATE:
+        allowed_statuses.add("pending_gate")
+
+    filtered: list[str] = []
+    problems: list[str] = []
+
+    for db_path in db_paths:
+        db_name = os.path.basename(db_path)
+        info = registry_info.get(db_name)
+        if not info:
+            problems.append(f"{db_name}: not in registry")
+            continue
+        status = info.get("status", "").lower()
+        if status not in allowed_statuses:
+            problems.append(f"{db_name}: status={status}")
+            continue
+        gate_summary = info.get("gate_summary", "")
+        if gate_summary and gate_summary != "-":
+            gate_data = load_gate_summary(registry_dir, gate_summary)
+            if gate_data:
+                parity_gate = gate_data.get("parity_gate", {})
+                if parity_gate and not parity_gate.get("passed_canonical_parity_gate", True):
+                    problems.append(f"{db_name}: parity gate failed")
+                    continue
+        filtered.append(db_path)
+
+    if problems:
+        print(
+            f"[canonical] {config_key}: skipping non-canonical DBs: "
+            + "; ".join(problems),
+            flush=True,
+        )
+
+    return filtered
 
 
 def merge_npz_files(npz_files: list[str], output_path: str) -> int:
@@ -1084,12 +1183,20 @@ def get_config_counts() -> dict[tuple[str, int], tuple[int, list[str], int, list
         dbs_with_games = []
 
         # Count DB games
+        expanded_db_paths: list[str] = []
         for path in db_paths:
-            for db_path in find_databases(path):
-                count = count_games_with_moves(db_path, board_type, num_players)
-                if count > 0:
-                    db_count += count
-                    dbs_with_games.append(db_path)
+            expanded_db_paths.extend(find_databases(path))
+
+        expanded_db_paths = _filter_canonical_db_paths(
+            expanded_db_paths,
+            config_key=f"{board_type}_{num_players}p",
+        )
+
+        for db_path in expanded_db_paths:
+            count = count_games_with_moves(db_path, board_type, num_players)
+            if count > 0:
+                db_count += count
+                dbs_with_games.append(db_path)
 
         # Count JSONL games
         jsonl_count, jsonl_with_games = get_jsonl_counts(board_type, num_players)
@@ -1325,6 +1432,7 @@ def run_training(board_type: str, num_players: int, db_paths: list[str],
 
         for db_path in db_paths:
             exp_cmd.extend(["--db", db_path])
+        exp_cmd.extend(_canonical_flag_args())
 
         print(f"  Exporting from {export_mode}...", flush=True)
         try:
@@ -1584,6 +1692,7 @@ def run_policy_training(board_type: str, num_players: int, db_paths: list[str],
     # Add database sources
     for db_path in db_paths:
         train_cmd.extend(["--db", db_path])
+    train_cmd.extend(_canonical_flag_args())
 
     # Add JSONL sources (for MCTS policy data)
     for jsonl_path in jsonl_paths:

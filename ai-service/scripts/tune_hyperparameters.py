@@ -41,6 +41,9 @@ import numpy as np
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 HYPERPARAMS_PATH = AI_SERVICE_ROOT / "config" / "hyperparameters.json"
 
+# Canonical DB gating
+from app.training.canonical_sources import enforce_canonical_sources
+
 # Unified logging setup
 from scripts.lib.logging_config import setup_script_logging
 
@@ -142,6 +145,10 @@ def train_model_with_params(
     db_paths: list[Path],
     epochs: int = 10,
     output_dir: Path | None = None,
+    *,
+    allow_noncanonical: bool = False,
+    allow_pending_gate: bool = False,
+    registry_path: Path | None = None,
 ) -> tuple[float | None, Path | None, dict[str, Any]]:
     """Train a model with given hyperparameters.
 
@@ -171,6 +178,12 @@ def train_model_with_params(
         "--save-path", str(model_path),
         "--max-samples", "50000",  # Limit samples for faster trials
     ]
+    if allow_noncanonical:
+        cmd.append("--allow-noncanonical")
+    if allow_pending_gate:
+        cmd.append("--allow-pending-gate")
+    if registry_path is not None:
+        cmd.extend(["--registry", str(registry_path)])
 
     logger.info(f"Training with params: lr={params.get('learning_rate', 0.001):.6f}, "
                 f"bs={params.get('batch_size', 256)}, "
@@ -312,6 +325,10 @@ def run_tuning_session(
     elo_games_per_trial: int = 20,
     resume: bool = False,
     output_dir: Path | None = None,
+    *,
+    allow_noncanonical: bool = False,
+    allow_pending_gate: bool = False,
+    registry_path: Path | None = None,
 ) -> TuningSession:
     """Run a hyperparameter tuning session.
 
@@ -369,6 +386,16 @@ def run_tuning_session(
         logger.error("No training databases found")
         return session
 
+    enforce_canonical_sources(
+        db_paths,
+        registry_path=registry_path,
+        allowed_statuses=["canonical", "pending_gate"]
+        if allow_pending_gate
+        else ["canonical"],
+        allow_noncanonical=allow_noncanonical,
+        error_prefix="tune-hyperparameters",
+    )
+
     logger.info("=" * 60)
     logger.info(f"HYPERPARAMETER TUNING: {config_key}")
     logger.info("=" * 60)
@@ -401,6 +428,9 @@ def run_tuning_session(
             db_paths=db_paths,
             epochs=epochs_per_trial,
             output_dir=trial_dir,
+            allow_noncanonical=allow_noncanonical,
+            allow_pending_gate=allow_pending_gate,
+            registry_path=registry_path,
         )
 
         training_time = time.time() - start_time
@@ -545,6 +575,22 @@ def main():
         help="Training database paths",
     )
     parser.add_argument(
+        "--allow-noncanonical",
+        action="store_true",
+        help="Allow training from non-canonical DBs for legacy/experimental runs.",
+    )
+    parser.add_argument(
+        "--allow-pending-gate",
+        action="store_true",
+        help="Allow DBs marked pending_gate in TRAINING_DATA_REGISTRY.md.",
+    )
+    parser.add_argument(
+        "--registry",
+        type=str,
+        default=None,
+        help="Path to TRAINING_DATA_REGISTRY.md (default: repo root)",
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
         help="Resume interrupted tuning session",
@@ -590,6 +636,9 @@ def main():
                 elo_games_per_trial=args.elo_games,
                 resume=args.resume,
                 output_dir=output_dir / f"{board_type}_{num_players}p" if output_dir else None,
+                allow_noncanonical=args.allow_noncanonical,
+                allow_pending_gate=args.allow_pending_gate,
+                registry_path=Path(args.registry) if args.registry else None,
             )
     else:
         # Tune single configuration
@@ -602,6 +651,9 @@ def main():
             elo_games_per_trial=args.elo_games,
             resume=args.resume,
             output_dir=output_dir,
+            allow_noncanonical=args.allow_noncanonical,
+            allow_pending_gate=args.allow_pending_gate,
+            registry_path=Path(args.registry) if args.registry else None,
         )
 
     return 0

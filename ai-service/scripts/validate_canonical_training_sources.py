@@ -17,6 +17,8 @@ import sys
 from pathlib import Path
 
 from app.training.canonical_sources import (
+    load_gate_summary,
+    parse_registry,
     resolve_registry_path,
     validate_canonical_sources,
 )
@@ -54,6 +56,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Output JSON result",
     )
+    parser.add_argument(
+        "--details",
+        action="store_true",
+        help="Include registry and gate summary details per DB",
+    )
 
     args = parser.parse_args(argv)
     if not args.dbs:
@@ -67,15 +74,48 @@ def main(argv: list[str] | None = None) -> int:
         allowed_statuses=args.allowed_statuses,
     )
 
+    if args.details:
+        registry_info = parse_registry(registry_path)
+        registry_dir = registry_path.parent
+        details = []
+        for db_path in args.dbs:
+            db_name = Path(db_path).name
+            info = registry_info.get(db_name, {})
+            gate_summary = info.get("gate_summary", "")
+            gate_data = load_gate_summary(registry_dir, gate_summary) if gate_summary else None
+            details.append(
+                {
+                    "db": str(db_path),
+                    "name": db_name,
+                    "status": info.get("status"),
+                    "gate_summary": gate_summary,
+                    "canonical_ok": gate_data.get("canonical_ok") if gate_data else None,
+                    "parity_gate": gate_data.get("parity_gate") if gate_data else None,
+                }
+            )
+        result["details"] = details
+
     if args.json:
         print(json.dumps(result, indent=2))
     else:
         if result["ok"]:
             print(f"OK: All DBs are canonical: {', '.join(result['checked'])}")
+            if args.details:
+                for detail in result.get("details", []):
+                    print(
+                        f"  - {detail['name']}: status={detail.get('status')} "
+                        f"gate_summary={detail.get('gate_summary')}"
+                    )
         else:
             print("ERROR: Non-canonical DBs detected:")
             for problem in result["problems"]:
                 print(f"  - {problem}")
+            if args.details:
+                for detail in result.get("details", []):
+                    print(
+                        f"  - {detail['name']}: status={detail.get('status')} "
+                        f"gate_summary={detail.get('gate_summary')}"
+                    )
 
     return 0 if result["ok"] else 1
 

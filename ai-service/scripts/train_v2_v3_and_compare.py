@@ -34,6 +34,10 @@ from pathlib import Path
 from typing import Optional
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
+if str(AI_SERVICE_ROOT) not in sys.path:
+    sys.path.insert(0, str(AI_SERVICE_ROOT))
+
+from app.training.canonical_sources import enforce_canonical_sources
 
 
 def _run_cmd(
@@ -175,6 +179,7 @@ def _maybe_rebuild_canonical_dataset(
     output_path: Path,
     allow_pending_gate: bool,
     legacy_maxn_encoding: bool,
+    registry_path: Path | None,
 ) -> int:
     cmd = [
         sys.executable,
@@ -190,6 +195,8 @@ def _maybe_rebuild_canonical_dataset(
         cmd += ["--db", str(db_path)]
     if allow_pending_gate:
         cmd.append("--allow-pending-gate")
+    if registry_path is not None:
+        cmd += ["--registry", str(registry_path)]
     if legacy_maxn_encoding:
         cmd.append("--legacy-maxn-encoding")
 
@@ -228,6 +235,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Allow using datasets whose basename does not start with 'canonical_'.",
     )
     parser.add_argument(
+        "--allow-noncanonical-db",
+        action="store_true",
+        help="Allow rebuilding datasets from non-canonical DBs (not recommended).",
+    )
+    parser.add_argument(
         "--rebuild-dataset",
         action="store_true",
         help="Rebuild the canonical dataset via scripts/build_canonical_dataset.py before training.",
@@ -242,6 +254,12 @@ def main(argv: list[str] | None = None) -> int:
         "--allow-pending-gate",
         action="store_true",
         help="Allow Status=pending_gate in TRAINING_DATA_REGISTRY.md when rebuilding datasets (still requires canonical_ok=true).",
+    )
+    parser.add_argument(
+        "--registry",
+        type=str,
+        default=None,
+        help="Path to TRAINING_DATA_REGISTRY.md (default: repo root).",
     )
     parser.add_argument(
         "--legacy-maxn-encoding",
@@ -324,6 +342,16 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.rebuild_dataset:
         db_path = Path(args.db).resolve() if args.db else None
+        if db_path and not args.allow_noncanonical_db:
+            enforce_canonical_sources(
+                [db_path],
+                registry_path=Path(args.registry) if args.registry else None,
+                allowed_statuses=["canonical", "pending_gate"]
+                if args.allow_pending_gate
+                else ["canonical"],
+                allow_noncanonical=args.allow_noncanonical_db,
+                error_prefix="train-v2-v3",
+            )
         rc = _maybe_rebuild_canonical_dataset(
             board_type=board_type,
             num_players=num_players,
@@ -331,6 +359,7 @@ def main(argv: list[str] | None = None) -> int:
             output_path=data_path,
             allow_pending_gate=bool(args.allow_pending_gate),
             legacy_maxn_encoding=bool(args.legacy_maxn_encoding),
+            registry_path=Path(args.registry) if args.registry else None,
         )
         if rc != 0:
             raise SystemExit(f"[train-v2-v3] Dataset rebuild failed (rc={rc}).")

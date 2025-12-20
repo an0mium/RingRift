@@ -35,6 +35,8 @@ Goal: Canonical data only enters training, everywhere.
 - Consolidated `validate_canonical_training_sources.py` to use the shared helper.
 - Gated distributed and multi-config NNUE training entrypoints on canonical DBs.
 - Preserve canonical DB filenames when collecting remote training data.
+- Gated curriculum, tuning, and v2/v3 compare training entrypoints on canonical DBs.
+- Added canonical filters and pass-through flags in the multi-config training loop.
 
 ### Next Tasks
 
