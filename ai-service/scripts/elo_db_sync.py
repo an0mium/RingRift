@@ -73,6 +73,80 @@ ARIA2_TIMEOUT = 120
 
 
 # ============================================
+# Safe Database Operations (WAL-aware)
+# ============================================
+
+def safe_replace_wal_database(source_path: Path, dest_path: Path, backup: bool = True) -> bool:
+    """Safely replace a WAL-mode SQLite database.
+
+    SQLite WAL mode uses 3 files: .db, .db-wal, .db-shm
+    All must be handled together to prevent corruption.
+
+    Args:
+        source_path: Path to source database file
+        dest_path: Path to destination database file
+        backup: Whether to create a backup of existing destination
+
+    Returns:
+        True if replacement succeeded, False otherwise
+    """
+    wal_path = Path(str(dest_path) + '-wal')
+    shm_path = Path(str(dest_path) + '-shm')
+
+    try:
+        # Create backup if requested
+        if backup and dest_path.exists():
+            backup_path = Path(str(dest_path) + '.backup')
+            shutil.copy(dest_path, backup_path)
+
+        # Delete stale WAL/SHM files BEFORE replacing main DB
+        if wal_path.exists():
+            wal_path.unlink()
+        if shm_path.exists():
+            shm_path.unlink()
+
+        # Copy or move source to destination
+        if source_path != dest_path:
+            shutil.copy(source_path, dest_path)
+
+        # Verify integrity
+        conn = sqlite3.connect(str(dest_path))
+        result = conn.execute("PRAGMA integrity_check").fetchone()[0]
+        conn.close()
+
+        if result != "ok":
+            print(f"Warning: Database integrity check returned: {result}")
+            return False
+
+        return True
+
+    except Exception as e:
+        print(f"Error replacing database: {e}")
+        return False
+
+
+def checkpoint_wal_database(db_path: Path) -> bool:
+    """Checkpoint WAL to ensure all data is in main database file.
+
+    This should be called before copying/syncing a WAL-mode database.
+
+    Args:
+        db_path: Path to database file
+
+    Returns:
+        True if checkpoint succeeded, False otherwise
+    """
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Warning: WAL checkpoint failed: {e}")
+        return False
+
+
+# ============================================
 # Host Configuration Loading
 # ============================================
 
