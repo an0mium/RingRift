@@ -1,6 +1,11 @@
-# Board-Specific Training Hyperparameters
+# Board-Specific Training Hyperparameters (NNUE Policy Training)
 # Configure different training settings for each board type
-# Used by train_nnue.py and run_improvement_loop.py
+# Used by train_nnue.py for NNUE policy network training
+#
+# NOTE: For CNN training hyperparameters (used by unified_ai_loop.py,
+# multi_config_training_loop.py), see config/hyperparameters.json instead.
+# This file is specifically for NNUE policy training which has different
+# requirements than the main CNN architecture.
 
 # Default settings (used as fallback)
 default:
