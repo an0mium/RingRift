@@ -37,6 +37,7 @@ Goal: Canonical data only enters training, everywhere.
 - Preserve canonical DB filenames when collecting remote training data.
 - Gated curriculum, tuning, and v2/v3 compare training entrypoints on canonical DBs.
 - Added canonical filters and pass-through flags in the multi-config training loop.
+- Added canonical enforcement flags to auto training and canonical training entrypoints.
 
 ### Next Tasks
 

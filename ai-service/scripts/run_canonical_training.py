@@ -31,6 +31,7 @@ from app.training.config import TrainConfig, get_training_config_for_board  # ty
 from app.training.generate_data import (  # type: ignore[import]
     _assert_db_is_canonical_if_summary_exists,
 )
+from app.training.canonical_sources import enforce_canonical_sources  # type: ignore[import]
 from app.training.train import train_model  # type: ignore[import]
 from scripts.export_replay_dataset import export_replay_dataset  # type: ignore[import]
 from scripts.lib.cli import BOARD_TYPE_MAP
@@ -151,6 +152,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Allow non-canonical DBs (use for experiments only).",
     )
+    parser.add_argument(
+        "--allow-pending-gate",
+        action="store_true",
+        help="Allow DBs marked pending_gate in TRAINING_DATA_REGISTRY.md.",
+    )
+    parser.add_argument(
+        "--registry",
+        type=str,
+        default=None,
+        help="Path to TRAINING_DATA_REGISTRY.md (default: repo root).",
+    )
     return parser.parse_args(argv)
 
 
@@ -160,6 +172,15 @@ def main(argv: list[str] | None = None) -> int:
     db_path = Path(args.db)
 
     _validate_canonical_db(db_path, args.allow_noncanonical)
+    enforce_canonical_sources(
+        [db_path],
+        registry_path=Path(args.registry) if args.registry else None,
+        allowed_statuses=["canonical", "pending_gate"]
+        if args.allow_pending_gate
+        else ["canonical"],
+        allow_noncanonical=args.allow_noncanonical,
+        error_prefix="canonical-training",
+    )
     try:
         _assert_db_is_canonical_if_summary_exists(
             db_path,

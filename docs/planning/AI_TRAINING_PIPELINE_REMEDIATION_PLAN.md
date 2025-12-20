@@ -1186,9 +1186,40 @@ cd ai-service && PYTHONPATH=. RINGRIFT_SKIP_RESOURCE_GUARD=1 python scripts/gene
 - `ai-service/data/games/canonical_hexagonal.db` - Cleaned up 1 bad game
 - `ai-service/data/games/canonical_square19.db` - Cleaned up 1 bad game
 
+**Parity Verification Results (After Cleanup):**
+
+Both databases now pass parity validation with 0 semantic divergences:
+
+| Database            | Games | Semantic Divergences | Structural Issues | Parity Gate |
+| ------------------- | ----- | -------------------- | ----------------- | ----------- |
+| canonical_hexagonal | 14    | 0                    | 0                 | ✅ PASS     |
+| canonical_square19  | 26    | 0                    | 0                 | ✅ PASS     |
+
+```json
+// canonical_hexagonal.db parity summary
+{
+  "games_with_semantic_divergence": 0,
+  "games_with_structural_issues": 0,
+  "passed_canonical_parity_gate": true,
+  "total_games_checked": 14
+}
+
+// canonical_square19.db parity summary
+{
+  "games_with_semantic_divergence": 0,
+  "games_with_structural_issues": 0,
+  "passed_canonical_parity_gate": true,
+  "total_games_checked": 26
+}
+```
+
 **Next Steps:**
 
 1. Run generation scripts for longer duration (overnight)
 2. After completion, verify parity gates with standalone parity check
 3. Update TRAINING_DATA_REGISTRY.md with final counts
 4. If 400+ games achieved, proceed to AI-08 (neural training)
+
+**Summary:**
+
+The parity fixes from AI-02c and AI-04b are working correctly. The sporadic edge-case bugs (recovery_slide on hexagonal, state_hash divergence on square19) affect ~5% of generated games. These can be cleaned up after generation completes, leaving a canonical dataset. The target of 400+ games per board type is achievable with extended generation runs.
