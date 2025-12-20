@@ -351,4 +351,16 @@ Test details:
 - Structural issues: 0
 - End-of-game only divergence: 1 (minor current_player mismatch at game_over, acceptable)
 
+**Scale Verification (2025-12-20):**
+
+Additional parity verification on improvement loop data confirms fixes work at scale:
+
+- `selfplay_iter84_square8_2p.db`: 190 games, 50 sampled → **0 semantic divergence**
+- `selfplay_iter86_square8_2p.db`: 207 games (in progress)
+- All games generated with `--difficulty-band canonical --fail-on-anomaly`
+- Gate summary: `passed_canonical_parity_gate: true`
+
+The improvement loop generates canonical-quality data and can be ingested via
+`scripts/build_canonical_training_pool_db.py`.
+
 _Last updated: 2025-12-20_

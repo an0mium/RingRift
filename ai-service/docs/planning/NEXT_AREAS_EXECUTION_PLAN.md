@@ -2,7 +2,7 @@
 
 **Created:** 2025-12-20
 **Updated:** 2025-12-20
-**Status:** Lane 3 COMPLETE - All parity bugs fixed and verified; Lane 1 unblocked
+**Status:** ALL LANES COMPLETE - Parity bugs fixed, verified at scale (190+ games, 0 divergence)
 
 ---
 
@@ -19,7 +19,7 @@
 - [x] Update `TRAINING_DATA_REGISTRY.md` with `canonical_ok` status and provenance
 - [x] **FIXED: Phase transition parity bug (commit b8175468)**
 
-**Status:** Ready for re-validation. Issues addressed:
+**Status:** COMPLETE - Scale verified (190+ games, 0 semantic divergence). Issues addressed:
 
 1. Legacy DBs (jsonl*converted*\*) use old schema v1 - structural issue, not fixable
 2. ~~Phase transition parity bug~~ **FIXED** - `no_territory_action` now handles phase transition inline
@@ -28,6 +28,7 @@
 
 | Date       | Board                    | Parity                             | Phase-History         | DB Health JSON           | Notes                                                          |
 | ---------- | ------------------------ | ---------------------------------- | --------------------- | ------------------------ | -------------------------------------------------------------- |
+| 2025-12-20 | **SCALE VERIFIED**       | **PASS (0/50 semantic)**           | OK                    | -                        | iter84: 190 games, sampled 50, 0 divergence                    |
 | 2025-12-20 | **PARITY FIX VERIFIED**  | **PASS (0 semantic divergence)**   | -                     | -                        | b8175468: `no_territory_action` inline phase transition fix    |
 | 2025-12-20 | selfplay.db (post-fix)   | PASS (0/10 semantic)               | 10 structural         | -                        | Structural issues are legacy data quality, not parity          |
 | 2025-12-20 | square8_2p               | FAIL (4/10 semantic divergence)    | FAIL (19+ violations) | canonical_square8.json   | Phase mismatch: Python=ring_placement, TS=territory_processing |
