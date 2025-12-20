@@ -48,6 +48,7 @@ sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 from app.tournament.elo import EloCalculator, EloRating
 from app.models import AIType, BoardType
+from app.models.discovery import discover_models, ModelInfo
 from app.config.thresholds import INITIAL_ELO_RATING, ELO_K_FACTOR
 
 

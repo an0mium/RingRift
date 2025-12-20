@@ -158,6 +158,7 @@ Preflight checks (recommended for long runs):
 
 - `npm run load:preflight -- --expected-vus 300 --expected-duration-s 1800`
 - Validates backend health, auth `expiresIn`/TTL alignment, and user pool sizing.
+- If `expiresIn` is missing, the preflight derives TTL from the JWT `exp` claim before falling back to `LOADTEST_AUTH_TOKEN_TTL_S`.
 - You can set `LOADTEST_EXPECTED_VUS` / `LOADTEST_EXPECTED_DURATION_S` instead of flags.
 - Runner scripts under `tests/load/scripts/` call this automatically unless `SKIP_PREFLIGHT_CHECKS=true`.
 
