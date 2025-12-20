@@ -2224,16 +2224,38 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
     }
 
     case 'no_territory_action': {
-      // Explicit no-op in territory_processing phase when no regions exist
-      // for the current player (RR-CANON-R075). Do NOT rotate immediately -
-      // the post-move processing needs to check for forced elimination first.
-      // If no forced elimination is needed, processPostMovePhases will handle
-      // the turn rotation.
-      // Update currentPlayer from move.player to handle turn boundary cases.
+      // Explicit no-op in territory_processing phase when no regions exist (RR-CANON-R075).
+      // RR-PARITY-FIX-2025-12-20: Must complete phase transition inline for replay parity.
+      // applyMoveForReplay does NOT call processPostMovePhases, so we must handle
+      // forced elimination check and turn rotation here.
+      //
+      // Per RR-CANON-R070: If player had NO actions this turn AND still has stacks,
+      // go to forced_elimination. Otherwise, rotate to next player.
+      const hadAnyAction = computeHadAnyActionThisTurn(state, move);
+      const hasStacks = playerHasStacksOnBoard(state, move.player);
+
+      if (!hadAnyAction && hasStacks) {
+        return {
+          nextState: {
+            ...state,
+            currentPlayer: move.player,
+            currentPhase: 'forced_elimination' as GamePhase,
+          },
+        };
+      }
+
+      // No forced elimination needed - rotate to next player
+      const noTerritoryPlayers = state.players;
+      const noTerritoryPlayerIndex = noTerritoryPlayers.findIndex((p) => p.playerNumber === move.player);
+      const { nextPlayer: noTerritoryNextPlayer } = computeNextNonEliminatedPlayer(state, noTerritoryPlayerIndex, noTerritoryPlayers);
+
       return {
         nextState: {
           ...state,
-          currentPlayer: move.player,
+          currentPlayer: noTerritoryNextPlayer,
+          currentPhase: 'ring_placement' as GamePhase,
+          mustMoveFromStackKey: undefined,
+          chainCapturePosition: undefined,
         },
       };
     }
