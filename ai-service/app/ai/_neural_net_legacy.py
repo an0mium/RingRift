@@ -4073,10 +4073,19 @@ class NeuralNetAI(BaseAI):
         # - HexNeuralNet_v3 models expect 64 channels (16 base × 4 frames), use HexStateEncoderV3
         if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             # Check if we need V2 encoder (for 40-channel models)
-            use_v2_encoder = (
-                (model_class_name and "v2" in model_class_name.lower() and "v3" not in model_class_name.lower())
-                or (in_channels_override is not None and in_channels_override == 40)
-            )
+            # Prioritize actual channel count from config over model class name
+            # (handles cases where model class name doesn't match trained architecture)
+            if in_channels_override is not None:
+                # 40 channels = V2 encoder (10 base × 4 frames)
+                # 64 channels = V3 encoder (16 base × 4 frames)
+                use_v2_encoder = in_channels_override == 40
+            else:
+                # Fallback to model class name heuristic
+                use_v2_encoder = (
+                    model_class_name
+                    and "v2" in model_class_name.lower()
+                    and "v3" not in model_class_name.lower()
+                )
 
             if use_v2_encoder:
                 # Use V2 encoder (10 base channels) for older models
