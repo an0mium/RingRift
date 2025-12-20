@@ -381,15 +381,18 @@ class TestTierSpecIntegrity:
         import warnings
 
         for spec in HEURISTIC_TIER_SPECS:
-            if spec.candidate_profile_id and spec.candidate_profile_id not in HEURISTIC_WEIGHT_PROFILES:
-                if not spec.candidate_profile_id.startswith("cmaes_"):
-                    # Warn about missing profile (may be registered at runtime)
-                    warnings.warn(
-                        f"Tier '{spec.id}' references candidate_profile_id "
-                        f"'{spec.candidate_profile_id}' which is not currently "
-                        f"registered. This may be intentional for runtime "
-                        f"registration.", stacklevel=2
-                    )
+            # Warn about missing profile (may be registered at runtime)
+            if (
+                spec.candidate_profile_id
+                and spec.candidate_profile_id not in HEURISTIC_WEIGHT_PROFILES
+                and not spec.candidate_profile_id.startswith("cmaes_")
+            ):
+                warnings.warn(
+                    f"Tier '{spec.id}' references candidate_profile_id "
+                    f"'{spec.candidate_profile_id}' which is not currently "
+                    f"registered. This may be intentional for runtime "
+                    f"registration.", stacklevel=2
+                )
             if spec.baseline_profile_id and spec.baseline_profile_id not in HEURISTIC_WEIGHT_PROFILES:
                 # Warn about missing profile
                 warnings.warn(

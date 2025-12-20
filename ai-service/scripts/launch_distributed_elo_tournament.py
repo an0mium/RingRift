@@ -1113,12 +1113,10 @@ def run_distributed_tournament(
 
     # Distribute work across nodes
     max_workers = len(nodes) * max_parallel_per_node
-    node_cycle = 0
     work_items = []
 
     for idx, matchup in enumerate(matchups):
-        node = nodes[node_cycle % len(nodes)]
-        node_cycle += 1
+        node = nodes[idx % len(nodes)]
         work_items.append((idx, matchup, node))
 
     print(f"\n[Tournament] Running {len(matchups)} matches with {max_workers} parallel workers...")

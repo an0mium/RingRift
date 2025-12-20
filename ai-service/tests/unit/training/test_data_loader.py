@@ -340,11 +340,9 @@ class TestStreamingDataLoader:
         files = [str(f) for f in sample_data_files]
         loader = StreamingDataLoader(files, batch_size=batch_size)
 
-        batch_count = 0
-        for (features, _), _ in loader:
+        for batch_count, ((features, _), _) in enumerate(loader):
             if batch_count < len(loader) - 1:  # All but last batch
                 assert features.shape[0] == batch_size
-            batch_count += 1
 
     def test_shuffle_with_set_epoch(self, single_data_file):
         """Should shuffle indices differently between epochs."""

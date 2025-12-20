@@ -687,14 +687,12 @@ class TestTrainingPipelineIntegration:
         )
 
         model.train()
-        batches_before_save = 0
-        for (features, globals_tensor), (_values, _policies) in loader:
+        for batches_before_save, ((features, globals_tensor), (_values, _policies)) in enumerate(loader, 1):
             optimizer.zero_grad()
             value_pred, _policy_pred = model(features, globals_tensor)
             loss = value_pred.sum()  # Dummy loss
             loss.backward()
             optimizer.step()
-            batches_before_save += 1
 
             if batches_before_save >= 3:
                 break
@@ -1272,7 +1270,6 @@ class TestPerformanceBaseline:
 
         # Timed run
         start_time = time.perf_counter()
-        batch_count = 0
         samples_processed = 0
 
         for (features, globals_tensor), (_values, _policies) in loader:
@@ -1281,7 +1278,6 @@ class TestPerformanceBaseline:
             loss = value_pred.sum()
             loss.backward()
             optimizer.step()
-            batch_count += 1
             samples_processed += features.shape[0]
 
         elapsed = time.perf_counter() - start_time

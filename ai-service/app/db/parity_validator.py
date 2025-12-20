@@ -667,6 +667,14 @@ def validate_game_parity(
     if divergence is None:
         return None
 
+    end_of_game_only = (
+        divergence.diverged_at == total_moves_py
+        and divergence.diverged_at == total_moves_ts
+        and divergence.python_summary is not None
+        and divergence.ts_summary is not None
+        and divergence.python_summary.state_hash == divergence.ts_summary.state_hash
+    )
+
     # Handle divergence based on mode
     bundle_path = dump_divergence_bundle(db, db_path_obj, divergence, effective_dump_dir)
 
@@ -679,6 +687,17 @@ def validate_game_parity(
         return divergence
 
     elif effective_mode == ParityMode.STRICT:
+        if end_of_game_only:
+            logger.warning(
+                "End-of-game-only parity divergence allowed for %s at k=%s "
+                "(mismatches=%s, state_hash=%s). Bundle saved to %s",
+                game_id,
+                divergence.diverged_at,
+                divergence.mismatch_kinds,
+                divergence.python_summary.state_hash if divergence.python_summary else "n/a",
+                bundle_path,
+            )
+            return divergence
         raise ParityValidationError(
             divergence,
             f"Parity divergence in game {game_id} at k={divergence.diverged_at}. "

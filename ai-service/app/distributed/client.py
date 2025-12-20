@@ -663,8 +663,7 @@ class DistributedEvaluator:
                 )
                 futures[future] = task["candidate_id"]
 
-            completed = 0
-            for future in as_completed(futures):
+            for completed, future in enumerate(as_completed(futures), 1):
                 candidate_id = futures[future]
                 try:
                     result = future.result()
@@ -684,7 +683,6 @@ class DistributedEvaluator:
                     )
                     stats.failed_evaluations += 1
 
-                completed += 1
                 if progress_callback:
                     progress_callback(completed, len(population))
 

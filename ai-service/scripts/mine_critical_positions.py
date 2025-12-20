@@ -226,12 +226,10 @@ def iterate_db_trajectories(
     if bt_enum is not None:
         filters["board_type"] = bt_enum
 
-    count = 0
-    for game_meta, initial_state, moves in db.iterate_games(**filters):
+    for count, (game_meta, initial_state, moves) in enumerate(db.iterate_games(**filters)):
         if count >= limit:
             break
         yield load_trajectory_from_db(db, game_meta, initial_state, moves)
-        count += 1
 
 
 def extract_critical_positions(

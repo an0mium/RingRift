@@ -761,12 +761,9 @@ def generate_capture_moves_batch_vectorized(
     blocker_cumsum = torch.cumsum(is_blocker.to(torch.int32), dim=2)
     before_blocker = blocker_cumsum == 0  # True for cells before any blocker
 
-    # Get current player for each stack, expanded to ray shape (N_stacks, n_dirs, max_dist)
-    stack_player = state.current_player[stack_game_idx]
-    stack_player_exp = stack_player.unsqueeze(1).unsqueeze(2).expand(-1, n_dirs, max_dist)
-
-    # Find cells with OPPONENT stacks (not own stacks) that are before any blocker
-    has_stack = (ray_owner != 0) & (ray_owner != stack_player_exp) & before_blocker
+    # Find cells with ANY stacks (including own stacks - self-capture/build is valid)
+    # Per RR-CANON and CPU capture_chain.py: target can be any stack, not just opponent
+    has_stack = (ray_owner != 0) & before_blocker
 
     # Find target: first stack along ray where my_cap_height >= target_cap_height
     my_cap_exp = stack_cap_heights_dir.unsqueeze(2).expand(-1, -1, max_dist)
@@ -810,11 +807,11 @@ def generate_capture_moves_batch_vectorized(
     sd_dir_dx = dir_dx.expand(n_stacks, -1).reshape(-1)[valid_sd_indices]
 
     # Landing distance constraints per RR-CANON-R100-R103:
-    # - Min landing = target_dist + 1 (must land past target)
-    # - Max landing = stack_height (can only move as far as rings in stack)
-    # If min > max, no valid capture is possible
-    sd_min_landing = sd_target_dist + 1
-    sd_max_landing = sd_height
+    # - Landing must be past target: landing_dist >= target_dist + 1
+    # - Landing distance must be >= stack_height (overtaking rule)
+    # So min_landing = max(stack_height, target_dist + 1)
+    # There is NO upper bound - captures can land anywhere >= min_landing
+    sd_min_landing = torch.maximum(sd_height, sd_target_dist + 1)
 
     # Expand for all possible landing distances: (n_valid_sd, max_dist)
     landing_dists = torch.arange(1, max_dist + 1, device=device).view(1, -1)  # (1, max_dist)
@@ -825,7 +822,6 @@ def generate_capture_moves_batch_vectorized(
     sd_from_x_exp = sd_from_x.unsqueeze(1).expand(-1, max_dist)
     sd_target_dist.unsqueeze(1).expand(-1, max_dist)
     sd_min_landing_exp = sd_min_landing.unsqueeze(1).expand(-1, max_dist)
-    sd_max_landing_exp = sd_max_landing.unsqueeze(1).expand(-1, max_dist)
     sd_dir_dy_exp = sd_dir_dy.unsqueeze(1).expand(-1, max_dist)
     sd_dir_dx_exp = sd_dir_dx.unsqueeze(1).expand(-1, max_dist)
 
@@ -833,9 +829,9 @@ def generate_capture_moves_batch_vectorized(
     landing_y = sd_from_y_exp + sd_dir_dy_exp * landing_dists
     landing_x = sd_from_x_exp + sd_dir_dx_exp * landing_dists
 
-    # Filter 1: landing_dist in valid range [min_landing, max_landing]
-    # This ensures: landing > target AND landing <= stack_height
-    valid_landing_dist = (landing_dists >= sd_min_landing_exp) & (landing_dists <= sd_max_landing_exp)
+    # Filter 1: landing_dist >= min_landing (no upper bound)
+    # This ensures: landing > target AND landing >= stack_height
+    valid_landing_dist = landing_dists >= sd_min_landing_exp
 
     # Filter 2: landing in bounds
     landing_in_bounds = (
@@ -1308,6 +1304,9 @@ def apply_single_chain_capture(
         state.move_history[game_idx, mc, 4] = to_y
         state.move_history[game_idx, mc, 5] = to_x
         state.move_history[game_idx, mc, 6] = GamePhase.CHAIN_CAPTURE
+        # December 2025: Added capture_target columns for canonical export
+        state.move_history[game_idx, mc, 7] = target_y
+        state.move_history[game_idx, mc, 8] = target_x
     state.move_count[game_idx] += 1
 
     # Process markers along the full path excluding the implicit target cell.

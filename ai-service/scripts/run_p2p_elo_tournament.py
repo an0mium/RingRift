@@ -490,13 +490,11 @@ class P2PEloTournament:
         # Run matches in parallel
         if use_distributed and len(self.nodes) > 0:
             # Distribute across nodes
-            node_cycle = 0
             tasks = []
 
             for i, (agent_a, agent_b) in enumerate(matchups):
                 match_id = f"{tournament_id}_match_{i}"
-                node = self.nodes[node_cycle % len(self.nodes)]
-                node_cycle += 1
+                node = self.nodes[i % len(self.nodes)]
 
                 task = self.run_match_on_node(node, agent_a, agent_b, match_id)
                 tasks.append(task)

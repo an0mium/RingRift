@@ -190,14 +190,13 @@ def check_game_status(state: dict[str, Any], move_index: int) -> list[InvariantV
     winner = state.get("winner")
     status = state.get("gameStatus", "")
 
-    if winner is not None:
-        # Canonical terminal status is "completed"
-        if status != "completed":
-            violations.append(InvariantViolation(
-                "INV-GAME-STATUS",
-                move_index,
-                f"Winner is set ({winner}) but status is {status}"
-            ))
+    # Canonical terminal status is "completed" when winner is set
+    if winner is not None and status != "completed":
+        violations.append(InvariantViolation(
+            "INV-GAME-STATUS",
+            move_index,
+            f"Winner is set ({winner}) but status is {status}"
+        ))
 
     return violations
 

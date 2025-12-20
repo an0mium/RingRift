@@ -153,9 +153,11 @@ class BatchGameState:
     lps_consecutive_exclusive_rounds: torch.Tensor  # int16 (batch_size,)
     lps_consecutive_exclusive_player: torch.Tensor  # int8 (batch_size,) 0=none
 
-    # Move history: (batch_size, max_moves, 7) - [move_type, player, from_y, from_x, to_y, to_x, phase]
-    # -1 indicates unused slot
+    # Move history: (batch_size, max_moves, 9)
+    # Columns: [move_type, player, from_y, from_x, to_y, to_x, phase, capture_target_y, capture_target_x]
+    # -1 indicates unused slot or N/A (e.g., capture_target for non-capture moves)
     # Phase column enables canonical export with phase tracking (December 2025)
+    # Capture target columns enable canonical export of capture moves (December 2025)
     move_history: torch.Tensor
     max_history_moves: int
 
@@ -258,8 +260,8 @@ class BatchGameState:
             lps_consecutive_exclusive_rounds=torch.zeros(batch_size, dtype=torch.int16, device=device),
             lps_consecutive_exclusive_player=torch.zeros(batch_size, dtype=torch.int8, device=device),
 
-            # Move history (7 columns: move_type, player, from_y, from_x, to_y, to_x, phase)
-            move_history=torch.full((batch_size, max_history_moves, 7), -1, dtype=torch.int16, device=device),
+            # Move history (9 columns: move_type, player, from_y, from_x, to_y, to_x, phase, capture_target_y, capture_target_x)
+            move_history=torch.full((batch_size, max_history_moves, 9), -1, dtype=torch.int16, device=device),
             max_history_moves=max_history_moves,
 
             # LPS configuration
@@ -532,7 +534,7 @@ class BatchGameState:
             RingStack,
             TimeControl,
         )
-        from app.rules.core import get_ring_count
+        from app.rules.core import get_rings_per_player
 
         # Determine board type from size
         if self.board_size == 19:
@@ -542,7 +544,7 @@ class BatchGameState:
         else:
             board_type = BoardType.SQUARE8
 
-        rings_per_player = get_ring_count(board_type, self.num_players)
+        rings_per_player = get_rings_per_player(board_type)
 
         # Build stacks dict from GPU tensors
         stacks: dict[str, RingStack] = {}
@@ -642,7 +644,7 @@ class BatchGameState:
         gpu_status = int(self.game_status[game_idx].item())
         status_map = {
             GameStatus.ACTIVE.value: CPUGameStatus.ACTIVE,
-            GameStatus.COMPLETE.value: CPUGameStatus.COMPLETE,
+            GameStatus.COMPLETED.value: CPUGameStatus.COMPLETED,
         }
         cpu_status = status_map.get(gpu_status, CPUGameStatus.ACTIVE)
 

@@ -156,11 +156,10 @@ class RoundRobinScheduler(TournamentScheduler):
             )
 
         matches = []
-        round_num = 0
         now = datetime.now()
 
         # Generate all combinations of agents for this player count
-        for combination in itertools.combinations(agent_ids, num_players):
+        for round_num, combination in enumerate(itertools.combinations(agent_ids, num_players)):
             agent_list = list(combination)
 
             # Generate multiple games per pairing
@@ -178,8 +177,6 @@ class RoundRobinScheduler(TournamentScheduler):
                     metadata={"game_num": game_num},
                 )
                 matches.append(match)
-
-            round_num += 1
 
         # Shuffle match order if requested
         if self.shuffle_order:

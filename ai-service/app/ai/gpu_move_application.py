@@ -87,17 +87,6 @@ def apply_capture_moves_vectorized(
         state.must_move_from_y[g] = -1
         state.must_move_from_x[g] = -1
 
-        # Record in history (7 columns: move_type, player, from_y, from_x, to_y, to_x, phase)
-        if mc < state.max_history_moves:
-            state.move_history[g, mc, 0] = MoveType.CAPTURE
-            state.move_history[g, mc, 1] = player
-            state.move_history[g, mc, 2] = from_y
-            state.move_history[g, mc, 3] = from_x
-            state.move_history[g, mc, 4] = to_y
-            state.move_history[g, mc, 5] = to_x
-            state.move_history[g, mc, 6] = int(state.current_phase[g].item())
-        state.move_count[g] += 1
-
         # Get attacker stack info at origin.
         attacker_height = int(state.stack_height[g, from_y, from_x].item())
         attacker_cap_height = int(state.cap_height[g, from_y, from_x].item())
@@ -118,6 +107,21 @@ def apply_capture_moves_vectorized(
                 target_y = check_y
                 target_x = check_x
                 break
+
+        # Record in history AFTER finding target
+        # 9 columns: move_type, player, from_y, from_x, to_y, to_x, phase, capture_target_y, capture_target_x
+        if mc < state.max_history_moves:
+            state.move_history[g, mc, 0] = MoveType.CAPTURE
+            state.move_history[g, mc, 1] = player
+            state.move_history[g, mc, 2] = from_y
+            state.move_history[g, mc, 3] = from_x
+            state.move_history[g, mc, 4] = to_y
+            state.move_history[g, mc, 5] = to_x
+            state.move_history[g, mc, 6] = int(state.current_phase[g].item())
+            # December 2025: Record capture target for canonical export
+            state.move_history[g, mc, 7] = target_y if target_y is not None else -1
+            state.move_history[g, mc, 8] = target_x if target_x is not None else -1
+        state.move_count[g] += 1
 
         if target_y is None or target_x is None:
             # Defensive fallback: treat this as a movement to landing.
@@ -1184,9 +1188,34 @@ def apply_capture_moves_batch_vectorized(
         torch.full((n_games,), GamePhase.CAPTURE, dtype=torch.int8, device=device),
     )
 
-    # Record move history (7 columns: move_type, player, from_y, from_x, to_y, to_x, phase)
+    # Record move history
+    # 9 columns: move_type, player, from_y, from_x, to_y, to_x, phase, capture_target_y, capture_target_x
+    # Note: capture_target columns added December 2025 for canonical export parity
     move_idx = state.move_count[game_indices]
     history_mask = move_idx < state.max_history_moves
+    # Compute target positions BEFORE recording history (needed for columns 7, 8)
+    # NOTE: `to` is the LANDING position, not the target. We must scan the ray to find the target.
+    dy_hist = torch.sign(to_y - from_y)
+    dx_hist = torch.sign(to_x - from_x)
+    dist_hist = torch.maximum(torch.abs(to_y - from_y), torch.abs(to_x - from_x))
+    max_dist_hist = dist_hist.max().item() if n_games > 0 else 0
+    if max_dist_hist > 0:
+        steps_hist = torch.arange(1, max_dist_hist + 1, device=device).view(1, -1)
+        ray_y_hist = from_y.unsqueeze(1) + dy_hist.unsqueeze(1) * steps_hist
+        ray_x_hist = from_x.unsqueeze(1) + dx_hist.unsqueeze(1) * steps_hist
+        ray_y_safe_hist = torch.clamp(ray_y_hist, 0, board_size - 1).long()
+        ray_x_safe_hist = torch.clamp(ray_x_hist, 0, board_size - 1).long()
+        game_indices_exp_hist = game_indices.unsqueeze(1).expand(-1, max_dist_hist)
+        ray_owners_hist = state.stack_owner[game_indices_exp_hist, ray_y_safe_hist, ray_x_safe_hist]
+        dist_exp_hist = dist_hist.unsqueeze(1).expand(-1, max_dist_hist)
+        within_landing_hist = steps_hist < dist_exp_hist
+        ray_has_stack_hist = (ray_owners_hist != 0) & within_landing_hist
+        target_step_idx_hist = ray_has_stack_hist.to(torch.int32).argmax(dim=1)
+        target_y_hist = from_y + dy_hist * (target_step_idx_hist + 1)
+        target_x_hist = from_x + dx_hist * (target_step_idx_hist + 1)
+    else:
+        target_y_hist = to_y
+        target_x_hist = to_x
     if history_mask.any():
         hist_games = game_indices[history_mask]
         hist_move_idx = move_idx[history_mask].long()
@@ -1198,6 +1227,9 @@ def apply_capture_moves_batch_vectorized(
         state.move_history[hist_games, hist_move_idx, 4] = to_y[history_mask].to(hist_dtype)
         state.move_history[hist_games, hist_move_idx, 5] = to_x[history_mask].to(hist_dtype)
         state.move_history[hist_games, hist_move_idx, 6] = canonical_phase[history_mask].to(hist_dtype)
+        # December 2025: Record capture target for canonical export
+        state.move_history[hist_games, hist_move_idx, 7] = target_y_hist[history_mask].to(hist_dtype)
+        state.move_history[hist_games, hist_move_idx, 8] = target_x_hist[history_mask].to(hist_dtype)
 
     # Update capture chain tracking
     state.in_capture_chain[game_indices] = True

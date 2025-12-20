@@ -933,19 +933,18 @@ def main(argv: list[str] | None = None) -> int:
     try:
         attempt_limit = max_soak_attempts if min_recorded_games > 0 and num_games > 0 else 1
         while soak_attempts_used < attempt_limit:
-            if HAS_RESOURCE_GUARD and not skip_resource_guard:
-                if not can_proceed(disk_required_gb=2.0, mem_required_gb=2.0):
-                    print(
-                        "[generate_canonical_selfplay] Waiting for resources to free up "
-                        "(disk/memory thresholds exceeded).",
-                        file=sys.stderr,
-                        flush=True,
+            if HAS_RESOURCE_GUARD and not skip_resource_guard and not can_proceed(disk_required_gb=2.0, mem_required_gb=2.0):
+                print(
+                    "[generate_canonical_selfplay] Waiting for resources to free up "
+                    "(disk/memory thresholds exceeded).",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                if not wait_for_resources(timeout=300.0, disk_required_gb=2.0, mem_required_gb=2.0):
+                    raise RuntimeError(
+                        "Resource guard timeout: disk/memory limits exceeded. "
+                        "Set RINGRIFT_SKIP_RESOURCE_GUARD=1 to override."
                     )
-                    if not wait_for_resources(timeout=300.0, disk_required_gb=2.0, mem_required_gb=2.0):
-                        raise RuntimeError(
-                            "Resource guard timeout: disk/memory limits exceeded. "
-                            "Set RINGRIFT_SKIP_RESOURCE_GUARD=1 to override."
-                        )
 
             games_before = _count_games_in_db_ro(db_path) or 0
             if min_recorded_games > 0 and games_before >= min_recorded_games:

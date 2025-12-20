@@ -635,10 +635,25 @@ def import_game(
         # Random/CPU selfplay already has canonical moves with bookkeeping - replay to get final state
         # GPU canonical export may have incorrect captureTarget (computed as one step back from landing),
         # so we fix it by scanning the actual board state to find the first stack along the ray.
+        #
+        # December 2025: The CPU's phase machine automatically transitions after captures.
+        # GPU emits explicit skip_capture moves, but the CPU may already be past capture phase.
+        # We skip redundant phase moves when the CPU has auto-transitioned.
+        from app.models.core import GamePhase
         canonical_moves = []
         state = initial_state
         try:
             for move in moves:
+                # Skip redundant skip_capture if CPU auto-transitioned past capture phase
+                if move.type == MoveType.SKIP_CAPTURE and state.current_phase not in (
+                    GamePhase.CAPTURE, GamePhase.CHAIN_CAPTURE
+                ):
+                    continue  # CPU already transitioned, skip this
+
+                # Skip redundant skip_placement if CPU auto-transitioned past placement phase
+                if move.type == MoveType.SKIP_PLACEMENT and state.current_phase != GamePhase.RING_PLACEMENT:
+                    continue
+
                 # Fix captureTarget for capture moves by scanning the board
                 if move.type in (MoveType.OVERTAKING_CAPTURE, MoveType.CONTINUE_CAPTURE_SEGMENT) and move.from_pos and move.to:
                     fixed_move = _fix_capture_target_from_board(move, state)

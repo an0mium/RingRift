@@ -231,7 +231,6 @@ def run_single_benchmark(config: BenchmarkConfig) -> MemoryProfile:
         )
 
         total_moves = config.warmup_moves + config.moves_to_benchmark
-        move_count = 0
 
         for i in range(total_moves):
             if game_state.game_status != GameStatus.ACTIVE:
@@ -260,8 +259,6 @@ def run_single_benchmark(config: BenchmarkConfig) -> MemoryProfile:
             except Exception as e:
                 logger.warning(f"  Move application error: {e}")
                 break
-
-            move_count += 1
 
             if i >= config.warmup_moves and i % 2 == 0:
                 current_rss = get_current_rss_mb()

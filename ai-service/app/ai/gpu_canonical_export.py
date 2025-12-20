@@ -136,6 +136,8 @@ def convert_gpu_move_to_canonical(
     to_x: int,
     phase: int,
     board_type: str = "square8",
+    capture_target_y: int = -1,
+    capture_target_x: int = -1,
 ) -> dict[str, Any]:
     """Convert a single GPU move to canonical format.
 
@@ -148,6 +150,8 @@ def convert_gpu_move_to_canonical(
         to_x: Destination X coordinate (-1 if N/A)
         phase: GPU GamePhase enum value
         board_type: Board type string for coordinate conversion
+        capture_target_y: Capture target Y coordinate (-1 if N/A)
+        capture_target_x: Capture target X coordinate (-1 if N/A)
 
     Returns:
         Canonical move dictionary compatible with import scripts
@@ -167,6 +171,10 @@ def convert_gpu_move_to_canonical(
 
     if to_y >= 0 and to_x >= 0:
         move["to"] = {"x": to_x, "y": to_y}
+
+    # Add capture_target for capture moves (December 2025)
+    if capture_target_y >= 0 and capture_target_x >= 0:
+        move["captureTarget"] = {"x": capture_target_x, "y": capture_target_y}
 
     return move
 
@@ -192,6 +200,11 @@ def convert_gpu_history_to_canonical(
     """
     moves = []
 
+    # Move history now has 9 columns (December 2025):
+    # [move_type, player, from_y, from_x, to_y, to_x, phase, capture_target_y, capture_target_x]
+    history_cols = state.move_history.shape[2] if len(state.move_history.shape) > 2 else 7
+    has_capture_target_cols = history_cols >= 9
+
     for i in range(state.max_history_moves):
         move_type = state.move_history[game_idx, i, 0].item()
         if move_type < 0:
@@ -204,6 +217,13 @@ def convert_gpu_history_to_canonical(
         to_x = int(state.move_history[game_idx, i, 5].item())
         phase = int(state.move_history[game_idx, i, 6].item())
 
+        # Read capture target columns if available (December 2025)
+        capture_target_y = -1
+        capture_target_x = -1
+        if has_capture_target_cols:
+            capture_target_y = int(state.move_history[game_idx, i, 7].item())
+            capture_target_x = int(state.move_history[game_idx, i, 8].item())
+
         canonical_move = convert_gpu_move_to_canonical(
             move_type=int(move_type),
             player=player,
@@ -213,6 +233,8 @@ def convert_gpu_history_to_canonical(
             to_x=to_x,
             phase=phase,
             board_type=board_type,
+            capture_target_y=capture_target_y,
+            capture_target_x=capture_target_x,
         )
         moves.append(canonical_move)
 
@@ -276,17 +298,9 @@ def validate_canonical_move_sequence(
 
         # Check move type is valid for phase
         allowed = allowed_moves_by_phase.get(phase, set())
-        if move_type not in allowed and allowed:
-            # Allow some flexibility for generic types
-            if move_type not in {
-                "place_ring",
-                "move_stack",
-                "overtaking_capture",
-                "continue_capture_segment",
-            }:
-                errors.append(
-                    f"Move {i}: {move_type} not valid in {phase} phase"
-                )
+        generic_types = {"place_ring", "move_stack", "overtaking_capture", "continue_capture_segment"}
+        if move_type not in allowed and allowed and move_type not in generic_types:
+            errors.append(f"Move {i}: {move_type} not valid in {phase} phase")
 
     is_valid = len(errors) == 0
     return is_valid, errors

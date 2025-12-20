@@ -208,13 +208,10 @@ def iter_recorded_episodes_from_jsonl(
     if limit is not None and limit <= 0:
         return
 
-    count = 0
-    for record in iter_game_records_from_jsonl(
-        path,
-        skip_invalid=skip_invalid,
+    for count, record in enumerate(
+        iter_game_records_from_jsonl(path, skip_invalid=skip_invalid), 1
     ):
         yield game_record_to_recorded_episode(record)
-        count += 1
         if limit is not None and count >= limit:
             break
 
