@@ -79,6 +79,7 @@ def test_gpu_hex_embedding_defaults_to_canonical_ring_supply() -> None:
         board_size=25,
         num_players=2,
         device=device,
+        board_type="hexagonal",  # Must specify board_type for canonical ring count
         shadow_validation=False,
         state_validation=False,
     )

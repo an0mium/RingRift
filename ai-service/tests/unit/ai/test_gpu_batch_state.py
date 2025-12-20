@@ -537,19 +537,12 @@ class TestDeriveVictoryType:
         # Set winner and give them territory
         state.winner[0] = 1
         state.game_status[0] = GameStatus.COMPLETED
-        # Territory threshold for 8x8 2-player is typically 12
-        state.territory_count[0, 1] = 15
+        # Territory threshold for 8x8 2-player is 33
+        state.territory_count[0, 1] = 35
 
-        # Note: derive_victory_type has a known issue with line detection indexing
-        # when no lines exist. We test only the territory detection path.
-        try:
-            victory_type, tiebreaker = state.derive_victory_type(0, max_moves=500)
-            assert victory_type == "territory"
-            assert tiebreaker is None
-        except RuntimeError:
-            # If line detection fails, skip this test - the territory path isn't reached
-            # due to early return from line detection bug
-            pytest.skip("derive_victory_type line detection bug - skipping")
+        victory_type, tiebreaker = state.derive_victory_type(0, max_moves=500)
+        assert victory_type == "territory"
+        assert tiebreaker is None
 
     def test_elimination_victory(self, device):
         """Should detect elimination victory."""
