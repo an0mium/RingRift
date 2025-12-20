@@ -276,6 +276,7 @@ def run_selfplay_soak(
 def run_parity_check(
     db_path: Path,
     *,
+    board_type: str | None = None,
     progress_every: int = 200,
     parity_timeout_seconds: int | None = None,
 ) -> dict[str, Any]:
@@ -307,6 +308,10 @@ def run_parity_check(
         "PYTHONPATH": str(AI_SERVICE_ROOT),
         "PYTHONUNBUFFERED": "1",
     }
+    if board_type in {"square19", "hexagonal"}:
+        env_overrides.setdefault("RINGRIFT_USE_FAST_TERRITORY", "false")
+        if "RINGRIFT_USE_MAKE_UNMAKE" not in os.environ:
+            env_overrides["RINGRIFT_USE_MAKE_UNMAKE"] = "true"
     print(
         f"[parity-gate] parity check: db={db_path.name}",
         file=sys.stderr,
@@ -342,12 +347,12 @@ def run_parity_check(
     return summary
 
 
-def run_parity_checks(db_paths: list[Path]) -> dict[str, Any]:
+def run_parity_checks(db_paths: list[Path], *, board_type: str | None = None) -> dict[str, Any]:
     """Run parity on multiple DBs and aggregate results."""
     summaries: list[dict[str, Any]] = []
     all_pass = True
     for db_path in db_paths:
-        summary = run_parity_check(db_path)
+        summary = run_parity_check(db_path, board_type=board_type)
         summaries.append({"db": str(db_path), "summary": summary})
         rc = summary.get("returncode", 1)
         struct = int(summary.get("games_with_structural_issues", 0))
@@ -533,6 +538,9 @@ def main() -> None:
         except ValueError:
             output_dir_arg = str(output_dir)
 
+        max_parallel = 2
+        if args.board_type in {"square19", "hexagonal"}:
+            max_parallel = 1
         cmd = [
             sys.executable,
             "scripts/run_distributed_selfplay_soak.py",
@@ -549,7 +557,7 @@ def main() -> None:
             "--difficulty-band",
             args.difficulty_band,
             "--max-parallel-per-host",
-            "2",
+            str(max_parallel),
             "--fetch-jsonl",
         ]
         if args.seed is not None:
@@ -585,7 +593,7 @@ def main() -> None:
         if not dbs_to_check:
             parity_summary = {"error": "no_db_produced", "returncode": 1}
         else:
-            parity_summary = run_parity_checks(dbs_to_check)
+            parity_summary = run_parity_checks(dbs_to_check, board_type=args.board_type)
     else:
         selfplay_heartbeat_stop: threading.Event | None = None
         if summary_path is not None:
@@ -659,6 +667,7 @@ def main() -> None:
         )
         parity_summary = run_parity_check(
             db_path,
+            board_type=args.board_type,
             progress_every=args.parity_progress_every,
             parity_timeout_seconds=args.parity_timeout_seconds or None,
         )

@@ -132,8 +132,8 @@ def print_culling_preview(board_type: str, num_players: int) -> None:
 
     report = run_hierarchical_culling(board_type, num_players, dry_run=True)
 
-    print(f"  Total Participants: {report.total_participants}")
-    print(f"  After Culling: {report.participants_kept}")
+    print(f"  Total Participants: {report.total_participants_before}")
+    print(f"  After Culling: {report.total_participants_after}")
     print(f"  Would Cull: {report.total_culled}")
     print()
     print(f"  Level 1 (Weak NNs):       {report.level1_nns_culled} NNs")
@@ -151,11 +151,12 @@ def print_culling_preview(board_type: str, num_players: int) -> None:
 
 def print_database_stats(board_type: str, num_players: int) -> None:
     """Print database statistics."""
-    from app.training.elo_service import get_database_stats
+    from app.training.elo_service import get_database_stats, get_elo_service
 
     print_header(f"Database Statistics", "-")
 
-    stats = get_database_stats()
+    elo_service = get_elo_service()
+    stats = get_database_stats(elo_service)
 
     print(f"  Total Participants: {stats.get('total_participants', 0)}")
     print(f"  Total Matches: {stats.get('total_matches', 0)}")
@@ -163,9 +164,6 @@ def print_database_stats(board_type: str, num_players: int) -> None:
     print(f"  Database Size: {stats.get('db_size_mb', 0):.2f} MB")
 
     # Config-specific stats
-    from app.training.elo_service import get_elo_service
-    elo_service = get_elo_service()
-
     leaderboard = elo_service.get_composite_leaderboard(
         board_type=board_type,
         num_players=num_players,

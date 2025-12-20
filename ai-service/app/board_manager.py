@@ -121,7 +121,9 @@ class BoardManager:
         elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             # Compute z from x,y if not provided (hex constraint: x + y + z = 0)
             z = position.z if position.z is not None else -position.x - position.y
-            radius = size - 1
+            # For hex boards, size = 2*radius + 1, so radius = (size - 1) // 2
+            # HEX8: size=9 -> radius=4, HEXAGONAL: size=25 -> radius=12
+            radius = (size - 1) // 2
             return (abs(position.x) <= radius and
                     abs(position.y) <= radius and
                     abs(z) <= radius and

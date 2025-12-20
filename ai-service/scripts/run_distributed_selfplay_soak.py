@@ -209,6 +209,18 @@ def _remote_ai_service_dir(host_config: dict) -> str:
     return f"{path}/ai-service"
 
 
+def _resolve_ssh_host(host_config: dict) -> str:
+    """Return the preferred SSH host for a config (tailscale first)."""
+    host = (
+        host_config.get("tailscale_ip")
+        or host_config.get("ssh_host")
+        or host_config.get("host")
+    )
+    if not host:
+        raise ValueError("Host config missing ssh_host/tailscale_ip")
+    return str(host)
+
+
 def _quote_remote_path(path: str) -> str:
     """Quote a remote filesystem path for use in a bash command.
 
@@ -384,7 +396,7 @@ def get_remote_memory_gb(host_name: str, host_config: dict) -> tuple[int, int]:
     Returns:
         Tuple of (total_gb, available_gb)
     """
-    ssh_host = host_config["ssh_host"]
+    ssh_host = _resolve_ssh_host(host_config)
     ssh_user = host_config.get("ssh_user")
     ssh_port = host_config.get("ssh_port")
     ssh_key = host_config.get("ssh_key")
@@ -525,7 +537,7 @@ def get_local_disk_gb(path: str) -> tuple[int, int]:
 
 def get_remote_disk_gb(host_name: str, host_config: dict) -> tuple[int, int]:
     """Get total and available disk on the filesystem backing the remote ai-service dir in GB."""
-    ssh_host = host_config["ssh_host"]
+    ssh_host = _resolve_ssh_host(host_config)
     ssh_user = host_config.get("ssh_user")
     ssh_port = host_config.get("ssh_port")
     ssh_key = host_config.get("ssh_key")
@@ -761,6 +773,10 @@ def build_soak_command(job: JobConfig, is_remote: bool = False) -> str:
         raw_parallel_workers = os.getenv("RINGRIFT_PARALLEL_WORKERS")
         if not (raw_parallel_workers or "").strip():
             cmd_parts.append("RINGRIFT_PARALLEL_WORKERS=8")
+        if not (os.getenv("RINGRIFT_USE_FAST_TERRITORY") or "").strip():
+            cmd_parts.append("RINGRIFT_USE_FAST_TERRITORY=false")
+        if not (os.getenv("RINGRIFT_USE_MAKE_UNMAKE") or "").strip():
+            cmd_parts.append("RINGRIFT_USE_MAKE_UNMAKE=true")
     # Propagate recovery-stack-strike flag across hosts when explicitly set.
     #
     # Canonical default is enabled; setting this to 0 is a non-canonical ablation
@@ -833,7 +849,7 @@ def run_local_job(job: JobConfig, ringrift_ai_dir: str, *, timeout_seconds: int)
 
 def run_remote_job(job: JobConfig, host_config: dict, *, timeout_seconds: int) -> tuple[str, bool, str]:
     """Run a self-play job on a remote machine via SSH."""
-    ssh_host = host_config["ssh_host"]
+    ssh_host = _resolve_ssh_host(host_config)
     ssh_user = host_config.get("ssh_user")
     ssh_port = host_config.get("ssh_port")
     ai_service_dir = _remote_ai_service_dir(host_config)
@@ -923,7 +939,7 @@ def cleanup_remote_job_artifacts(
     timeout_seconds: int,
 ) -> bool:
     """Delete per-job artifacts on the remote host to conserve disk space."""
-    ssh_host = host_config["ssh_host"]
+    ssh_host = _resolve_ssh_host(host_config)
     ssh_user = host_config.get("ssh_user")
     ssh_port = host_config.get("ssh_port")
     ssh_key = host_config.get("ssh_key")
@@ -1002,7 +1018,7 @@ def _fetch_single_job(
         return None
 
     host_config = REMOTE_HOSTS[job.host]
-    ssh_host = host_config["ssh_host"]
+    ssh_host = _resolve_ssh_host(host_config)
     ssh_user = host_config.get("ssh_user")
     ssh_port = host_config.get("ssh_port")
     ssh_key = host_config.get("ssh_key")
