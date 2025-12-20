@@ -133,7 +133,6 @@ class InferenceBenchmark(Benchmark):
     def run(self, model: Any, **kwargs) -> BenchmarkResult:
         """Run inference speed benchmark."""
         try:
-            import numpy as np
             import torch
         except ImportError:
             return BenchmarkResult(
@@ -328,7 +327,6 @@ class PolicyAccuracyBenchmark(Benchmark):
     def _get_policy(self, model: Any, state: Any, **kwargs) -> list[float]:
         """Get policy from model for a state."""
         try:
-            import numpy as np
             import torch
         except ImportError:
             return []
@@ -512,7 +510,6 @@ class TacticalBenchmark(Benchmark):
     def _get_best_move(self, model: Any, state: Any, **kwargs) -> int:
         """Get best move from model."""
         try:
-            import numpy as np
             import torch
         except ImportError:
             return 0
@@ -635,8 +632,8 @@ class RobustnessBenchmark(Benchmark):
     def run(self, model: Any, **kwargs) -> BenchmarkResult:
         """Run robustness benchmark."""
         try:
-            import numpy as np
-            import torch
+            import torch  # noqa: F401 - check availability
+            del torch  # Actual usage is in helper methods
         except ImportError:
             return BenchmarkResult(
                 benchmark_name=self.name,

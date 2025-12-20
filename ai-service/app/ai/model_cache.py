@@ -68,8 +68,6 @@ def evict_stale_models() -> int:
 
     Returns the number of models evicted.
     """
-    global _MODEL_CACHE
-
     now = time.time()
     evicted = 0
     keys_to_remove = []
@@ -116,7 +114,6 @@ def clear_model_cache() -> None:
     This is especially important for MPS where memory management is more
     aggressive than CUDA.
     """
-    global _MODEL_CACHE
     cache_size = len(_MODEL_CACHE)
 
     # Move models to CPU before clearing to release GPU memory

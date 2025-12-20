@@ -358,7 +358,6 @@ def get_move_cache() -> MoveCache:
 
 def clear_move_cache():
     """Clear the global move cache."""
-    global _global_cache
     if _global_cache is not None:
         _global_cache.clear()
 

@@ -19,7 +19,7 @@ import math
 import os
 import time
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ..models import AIConfig, BoardType, GameState, Move, MoveType
 from ..rules.mutable_state import MutableGameState
@@ -29,10 +29,6 @@ from .bounded_transposition_table import BoundedTranspositionTable
 from .game_state_utils import infer_num_players, victory_progress_for_player
 
 # Lazy imports for neural network components to avoid loading torch when not needed
-if TYPE_CHECKING:
-    from .async_nn_eval import AsyncNeuralBatcher
-    from .evaluation_provider import HeuristicEvaluator
-    from .neural_net import ActionEncoderHex, NeuralNetAI
 
 # Optional GPU heuristic evaluation - try but don't fail if unavailable
 GPU_HEURISTIC_AVAILABLE = False

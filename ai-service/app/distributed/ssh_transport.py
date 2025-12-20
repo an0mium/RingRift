@@ -54,7 +54,10 @@ try:
 except ImportError:
     HAS_CIRCUIT_BREAKER = False
     CircuitOpenError = Exception
+    get_operation_breaker = None  # type: ignore[assignment]
+
     def get_adaptive_timeout(operation: str, host: str, default: float) -> float:
+        """Fallback when circuit_breaker module not available."""
         return default
 
 # Try to load from unified config, with fallback defaults

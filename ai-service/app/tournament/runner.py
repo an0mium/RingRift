@@ -11,8 +11,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import torch
-
 from app.models import BoardType, GameStatus
 
 from .agents import AgentType, AIAgent, AIAgentRegistry
@@ -22,48 +20,115 @@ from .scheduler import Match, TournamentScheduler
 logger = logging.getLogger(__name__)
 
 
+def extract_model_metadata(model_path: str) -> dict[str, Any]:
+    """Extract comprehensive metadata from a model checkpoint.
+
+    Returns a dict with:
+        - model_type: "nnue", "cnn", or "unknown"
+        - model_class: Class name if available
+        - architecture_version: Version string if available
+        - board_type: Inferred board type if available
+        - num_players: Inferred player count if available
+        - created_at: Checkpoint creation timestamp if available
+        - training_config: Training configuration if available
+    """
+    result: dict[str, Any] = {
+        "model_type": "unknown",
+        "model_class": None,
+        "architecture_version": None,
+        "board_type": None,
+        "num_players": None,
+        "created_at": None,
+        "training_config": None,
+    }
+
+    try:
+        from app.utils.torch_utils import safe_load_checkpoint
+
+        checkpoint = safe_load_checkpoint(model_path, map_location="cpu", warn_on_unsafe=False)
+
+        if not isinstance(checkpoint, dict):
+            return result
+
+        # Extract from versioning metadata
+        meta = checkpoint.get("_versioning_metadata")
+        if isinstance(meta, dict):
+            result["model_class"] = meta.get("model_class")
+            result["architecture_version"] = meta.get("architecture_version")
+            result["created_at"] = meta.get("created_at")
+
+            # Check for model class to infer type
+            model_class = meta.get("model_class", "")
+            if isinstance(model_class, str):
+                lower_class = model_class.lower()
+                if "nnue" in lower_class:
+                    result["model_type"] = "nnue"
+                elif "cnn" in lower_class or "hexneuralnet" in lower_class:
+                    result["model_type"] = "cnn"
+
+            # Extract board_type and num_players from config
+            config = meta.get("config", {})
+            if isinstance(config, dict):
+                result["board_type"] = config.get("board_type")
+                result["num_players"] = config.get("num_players")
+                result["training_config"] = config
+
+        # Check direct keys for board_type/num_players
+        if result["board_type"] is None and "board_type" in checkpoint:
+            result["board_type"] = checkpoint["board_type"]
+        if result["num_players"] is None and "num_players" in checkpoint:
+            result["num_players"] = checkpoint["num_players"]
+
+        # Infer model type from state_dict keys if not yet determined
+        if result["model_type"] == "unknown":
+            state_dict = checkpoint.get("model_state_dict") or checkpoint.get("state_dict") or checkpoint
+            if isinstance(state_dict, dict):
+                keys = set(state_dict.keys())
+                if "accumulator.weight" in keys:
+                    result["model_type"] = "nnue"
+                elif "conv1.weight" in keys or any("res_blocks" in k for k in keys):
+                    result["model_type"] = "cnn"
+                elif "hex_mask" in keys:
+                    result["model_type"] = "cnn"
+
+        # Infer board_type from filename if not in metadata
+        if result["board_type"] is None:
+            path_lower = model_path.lower()
+            if "sq8" in path_lower or "square8" in path_lower:
+                result["board_type"] = "square8"
+            elif "sq19" in path_lower or "square19" in path_lower:
+                result["board_type"] = "square19"
+            elif "hex" in path_lower:
+                result["board_type"] = "hexagonal"
+
+        # Infer num_players from filename if not in metadata
+        if result["num_players"] is None:
+            import re
+            match = re.search(r"_(\d)p[_\.]", model_path.lower())
+            if match:
+                result["num_players"] = int(match.group(1))
+            elif "_2p" in model_path.lower():
+                result["num_players"] = 2
+            elif "_3p" in model_path.lower():
+                result["num_players"] = 3
+            elif "_4p" in model_path.lower():
+                result["num_players"] = 4
+
+        return result
+
+    except Exception as e:
+        logger.warning(f"Could not extract metadata from {model_path}: {e}")
+        return result
+
+
 def detect_model_type(model_path: str) -> str:
     """Detect the model type from a checkpoint file.
 
     Returns one of: "nnue", "cnn", or "unknown"
 
-    Checks _versioning_metadata.model_class first, then infers from state_dict keys.
+    This is a convenience wrapper around extract_model_metadata().
     """
-    try:
-        checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
-
-        if not isinstance(checkpoint, dict):
-            return "unknown"
-
-        # Check versioning metadata first
-        meta = checkpoint.get("_versioning_metadata")
-        if isinstance(meta, dict):
-            model_class = meta.get("model_class", "")
-            if isinstance(model_class, str):
-                lower_class = model_class.lower()
-                if "nnue" in lower_class:
-                    return "nnue"
-                if "cnn" in lower_class or "hexneuralnet" in lower_class:
-                    return "cnn"
-
-        # Infer from state_dict keys
-        state_dict = checkpoint.get("model_state_dict") or checkpoint.get("state_dict") or checkpoint
-        if isinstance(state_dict, dict):
-            keys = set(state_dict.keys())
-            # NNUE models have accumulator.weight
-            if "accumulator.weight" in keys:
-                return "nnue"
-            # CNN models have conv1.weight and res_blocks
-            if "conv1.weight" in keys or any("res_blocks" in k for k in keys):
-                return "cnn"
-            # Also check for hex_mask (HexNeuralNet indicator)
-            if "hex_mask" in keys:
-                return "cnn"
-
-        return "unknown"
-    except Exception as e:
-        logger.warning(f"Could not detect model type from {model_path}: {e}")
-        return "unknown"
+    return extract_model_metadata(model_path).get("model_type", "unknown")
 
 
 @dataclass
@@ -603,6 +668,28 @@ class TournamentRunner:
 
         duration = time.time() - start_time
 
+        # Build match metadata with agent information
+        match_metadata: dict[str, Any] = {
+            "board_type": match.board_type.value if hasattr(match.board_type, "value") else str(match.board_type),
+            "num_players": match.num_players,
+            "agents": {},
+        }
+        for agent_id in match.agent_ids:
+            agent = agents[agent_id]
+            agent_meta: dict[str, Any] = {
+                "agent_type": agent.agent_type.value if hasattr(agent.agent_type, "value") else str(agent.agent_type),
+                "version": agent.version,
+            }
+            if agent.model_path:
+                # Extract model metadata for neural agents
+                model_meta = extract_model_metadata(agent.model_path)
+                agent_meta["model_type"] = model_meta["model_type"]
+                agent_meta["model_class"] = model_meta["model_class"]
+                agent_meta["architecture_version"] = model_meta["architecture_version"]
+                agent_meta["training_board_type"] = model_meta["board_type"]
+                agent_meta["training_num_players"] = model_meta["num_players"]
+            match_metadata["agents"][agent_id] = agent_meta
+
         return MatchResult(
             match_id=match.match_id,
             agent_ids=match.agent_ids,
@@ -611,6 +698,7 @@ class TournamentRunner:
             game_length=move_count,
             termination_reason=termination_reason,
             duration_seconds=duration,
+            metadata=match_metadata,
         )
 
     def _compute_rankings(
