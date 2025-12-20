@@ -135,18 +135,20 @@ class DBHealthChecker:
             dump_path = db_path.with_suffix(".sql")
             try:
                 import subprocess
-                # Dump what we can
-                subprocess.run(
-                    f"sqlite3 {db_path} .dump > {dump_path}",
-                    shell=True, check=True, timeout=300
-                )
+                # Dump what we can (use list-form to avoid shell injection)
+                with open(dump_path, "w") as dump_file:
+                    subprocess.run(
+                        ["sqlite3", str(db_path), ".dump"],
+                        stdout=dump_file, check=True, timeout=300
+                    )
 
                 # Create new database
                 new_db_path = db_path.with_suffix(".db.new")
-                subprocess.run(
-                    f"sqlite3 {new_db_path} < {dump_path}",
-                    shell=True, check=True, timeout=300
-                )
+                with open(dump_path, "r") as dump_file:
+                    subprocess.run(
+                        ["sqlite3", str(new_db_path)],
+                        stdin=dump_file, check=True, timeout=300
+                    )
 
                 # Replace original
                 db_path.unlink()

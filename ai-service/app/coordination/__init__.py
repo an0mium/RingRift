@@ -1414,16 +1414,6 @@ def is_heartbeat_running() -> bool:
 
 
 __all__ = [
-    "ELO_CURRICULUM_ENABLED",
-    "HAS_AIOHTTP",
-    "MIN_MEMORY_GB_FOR_TASKS",
-    "P2P_DEFAULT_PORT",
-    "P2P_HTTP_TIMEOUT",
-    "TASK_RESOURCE_MAP",
-    "TARGET_CPU_UTILIZATION_MAX",
-    "TARGET_CPU_UTILIZATION_MIN",
-    "TARGET_GPU_UTILIZATION_MAX",
-    "TARGET_GPU_UTILIZATION_MIN",
     "AdjustmentStrategy",
     "AnalysisResult",
     # Async Bridge Manager (December 2025)
