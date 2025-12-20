@@ -709,7 +709,7 @@ The AI Training Pipeline Remediation is complete when:
 
 **Actions Completed:**
 
-1. ✅ Removed 0-byte placeholder file at `ai-service/data/canonical_hexagonal.db`
+1. ✅ Removed 0-byte placeholder file at `ai-service/data/games/canonical_hexagonal.db`
 2. ✅ Archived malformed DB to `ai-service/data/games/canonical_hexagonal.db.malformed.bak`
 3. ✅ Ran `generate_canonical_selfplay.py --board hexagonal --num-games 50`
 4. ✅ New DB created with correct schema v9 (all 9 tables present)
@@ -1085,6 +1085,8 @@ Cannot generate new selfplay games due to disk at 99.7% capacity (only 2.6GB fre
    ```bash
    cd ai-service && PYTHONPATH=. python scripts/generate_canonical_selfplay.py \
      --board hexagonal --num-games 300 \
+     --min-recorded-games 500 \
+     --max-soak-attempts 5 \
      --db data/games/canonical_hexagonal.db \
      --summary data/games/db_health.canonical_hexagonal.json
    ```
@@ -1096,8 +1098,10 @@ Cannot generate new selfplay games due to disk at 99.7% capacity (only 2.6GB fre
 ssh ubuntu@<cluster-ip> 'cd ~/ringrift/ai-service && source venv/bin/activate && \
   PYTHONPATH=. python scripts/generate_canonical_selfplay.py \
     --board hexagonal --num-games 300 \
-  --db data/games/canonical_hexagonal.db \
-  --summary data/games/db_health.canonical_hexagonal.json'
+    --min-recorded-games 500 \
+    --max-soak-attempts 5 \
+    --db data/games/canonical_hexagonal.db \
+    --summary data/games/db_health.canonical_hexagonal.json'
 ```
 
 **Conclusion:**

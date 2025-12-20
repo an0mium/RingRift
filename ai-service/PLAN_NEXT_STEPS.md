@@ -16,12 +16,13 @@ Goal: One authoritative view of job states and utilization across Slurm/Vast/P2P
 - Update status output + monitoring loop to surface backend counts.
 - Add a job-state sync daemon wrapper.
 - Add timestamps for job state transitions and unit tests for reconciliation.
+- Map Vast terminal states to explicit completed/cancelled outcomes.
+- Add JSON status integration test for `cluster_submit.py`.
+- Start job-state sync daemon in `scripts/start_cluster.sh`.
 
 ### Next Tasks
 
-1. Extend reconciliation to mark completed jobs explicitly when backend data allows it.
-2. Add integration tests for `cluster_submit.py status --json` alignment with backends.
-3. Wire the sync daemon into the default cluster startup flow.
+1. Extend reconciliation to capture additional terminal metadata (exit codes) when available.
 
 ## Lane 2: Canonical Data Pipeline Hardening
 
@@ -32,6 +33,8 @@ Goal: Canonical data only enters training, everywhere.
 - Added shared canonical source helper in `app/training/canonical_sources.py`.
 - Updated dataset export entrypoints to enforce registry-backed canonical checks.
 - Consolidated `validate_canonical_training_sources.py` to use the shared helper.
+- Gated distributed and multi-config NNUE training entrypoints on canonical DBs.
+- Preserve canonical DB filenames when collecting remote training data.
 
 ### Next Tasks
 
