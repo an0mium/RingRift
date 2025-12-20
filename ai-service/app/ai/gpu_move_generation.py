@@ -1348,12 +1348,24 @@ def apply_single_chain_capture(
 
     state.marker_owner[game_idx, target_y, target_x] = 0
 
+    # December 2025: BUG FIX - When capturing the target's entire cap, ownership
+    # transfers to the opponent.
     new_target_height = max(0, target_height - 1)
     state.stack_height[game_idx, target_y, target_x] = new_target_height
+
+    # Check if target's cap was fully captured
+    target_cap_fully_captured = target_cap_height <= 1  # Cap will be 0 after -1
+
     if new_target_height <= 0:
         state.stack_owner[game_idx, target_y, target_x] = 0
         state.cap_height[game_idx, target_y, target_x] = 0
+    elif target_cap_fully_captured:
+        # Cap captured, ownership transfers to opponent
+        opponent = 1 if target_owner == 2 else 2
+        state.stack_owner[game_idx, target_y, target_x] = opponent
+        state.cap_height[game_idx, target_y, target_x] = new_target_height
     else:
+        # Cap not fully captured, defender keeps ownership
         new_target_cap = target_cap_height - 1
         if new_target_cap <= 0:
             new_target_cap = 1
@@ -1511,12 +1523,24 @@ def apply_single_initial_capture(
 
     state.marker_owner[game_idx, target_y, target_x] = 0
 
+    # December 2025: BUG FIX - When capturing the target's entire cap, ownership
+    # transfers to the opponent.
     new_target_height = max(0, target_height - 1)
     state.stack_height[game_idx, target_y, target_x] = new_target_height
+
+    # Check if target's cap was fully captured
+    target_cap_fully_captured = target_cap_height <= 1  # Cap will be 0 after -1
+
     if new_target_height <= 0:
         state.stack_owner[game_idx, target_y, target_x] = 0
         state.cap_height[game_idx, target_y, target_x] = 0
+    elif target_cap_fully_captured:
+        # Cap captured, ownership transfers to opponent
+        opponent = 1 if target_owner == 2 else 2
+        state.stack_owner[game_idx, target_y, target_x] = opponent
+        state.cap_height[game_idx, target_y, target_x] = new_target_height
     else:
+        # Cap not fully captured, defender keeps ownership
         new_target_cap = max(1, min(target_cap_height - 1, new_target_height))
         state.cap_height[game_idx, target_y, target_x] = new_target_cap
 

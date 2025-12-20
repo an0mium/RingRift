@@ -176,12 +176,24 @@ def apply_capture_moves_vectorized(
         # Target cell should not contain a marker; clear defensively.
         state.marker_owner[g, target_y, target_x] = 0
 
+        # December 2025: BUG FIX - When capturing the target's entire cap, ownership
+        # transfers to the opponent.
         new_target_height = max(0, target_height - 1)
         state.stack_height[g, target_y, target_x] = new_target_height
+
+        # Check if target's cap was fully captured
+        target_cap_fully_captured = target_cap_height <= 1  # Cap will be 0 after -1
+
         if new_target_height <= 0:
             state.stack_owner[g, target_y, target_x] = 0
             state.cap_height[g, target_y, target_x] = 0
+        elif target_cap_fully_captured:
+            # Cap captured, ownership transfers to opponent
+            opponent = 1 if target_owner == 2 else 2
+            state.stack_owner[g, target_y, target_x] = opponent
+            state.cap_height[g, target_y, target_x] = new_target_height
         else:
+            # Cap not fully captured, defender keeps ownership
             new_target_cap = target_cap_height - 1
             if new_target_cap <= 0:
                 new_target_cap = 1
@@ -1462,19 +1474,42 @@ def apply_capture_moves_batch_vectorized(
     # We track buried_rings below, not eliminated_rings here.
 
     # === Update TARGET stack (reduce height by 1, capturing the top ring) ===
+    # December 2025: BUG FIX - When capturing the target's entire cap, ownership
+    # transfers to the opponent. The captured ring was the top of the cap, so if
+    # cap_height was 1 (only 1 ring of defender's color), all remaining rings
+    # belong to the opponent.
     new_target_height = torch.clamp(defender_height - 1, min=0)
     state.stack_height[game_indices, target_y, target_x] = new_target_height.to(state.stack_height.dtype)
 
-    # Clear owner if height becomes 0
+    # Check if target's cap was fully captured
+    target_cap_fully_captured = defender_cap_height <= 1  # Cap will be 0 after -1
     target_is_empty = new_target_height == 0
-    state.stack_owner[game_indices, target_y, target_x] = torch.where(
+
+    # Determine new owner: if cap fully captured and stack not empty, ownership transfers
+    # In 2-player game, if defender was player P, opponent is 3-P (player 1 or 2)
+    opponent = torch.where(
+        defender_owner == 1,
+        torch.full_like(defender_owner, 2),
+        torch.ones_like(defender_owner)
+    )
+    new_target_owner = torch.where(
         target_is_empty,
-        torch.zeros_like(defender_owner),
-        defender_owner
-    ).to(state.stack_owner.dtype)
+        torch.zeros_like(defender_owner),  # Empty stack has no owner
+        torch.where(
+            target_cap_fully_captured,
+            opponent,  # Cap captured, ownership transfers
+            defender_owner  # Cap not fully captured, defender keeps ownership
+        )
+    )
+    state.stack_owner[game_indices, target_y, target_x] = new_target_owner.to(state.stack_owner.dtype)
 
     # Update target cap height
-    new_target_cap = torch.clamp(defender_cap_height - 1, min=1)
+    # If cap fully captured, new cap is all remaining rings (owned by opponent)
+    new_target_cap = torch.where(
+        target_cap_fully_captured,
+        new_target_height,  # All remaining rings are opponent's cap
+        torch.clamp(defender_cap_height - 1, min=1)
+    )
     new_target_cap = torch.minimum(new_target_cap, new_target_height)
     new_target_cap = torch.where(target_is_empty, torch.zeros_like(new_target_cap), new_target_cap)
     state.cap_height[game_indices, target_y, target_x] = new_target_cap.to(state.cap_height.dtype)

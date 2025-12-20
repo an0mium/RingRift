@@ -769,7 +769,7 @@ python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}, Device: {tor
 3. **Canonical Dataset**: Verify training data exists:
 
 ```bash
-ls -la data/canonical_square8_2p.npz  # Or generate with build_canonical_dataset.py
+ls -la data/training/canonical_square8_2p.npz  # Or generate with build_canonical_dataset.py
 ```
 
 ### A.2 Full Calibration Workflow
