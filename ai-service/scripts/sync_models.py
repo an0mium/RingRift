@@ -64,6 +64,7 @@ try:
     from app.distributed.hosts import (
         HostConfig,
         load_remote_hosts,
+        load_ready_hosts,
         SSHExecutor,
         get_ssh_executor,
     )
@@ -1030,6 +1031,7 @@ def run_daemon(
     interval_minutes: int = 30,
     use_sync_coordinator: bool = False,
     config_path: str | None = None,
+    include_nonready: bool = False,
 ):
     """Run sync daemon that syncs every N minutes."""
     logger.info(f"Starting model sync daemon (interval: {interval_minutes}min)")
@@ -1047,7 +1049,14 @@ def run_daemon(
     while not shutdown:
         try:
             logger.info("Running sync cycle...")
-            hosts = load_remote_hosts(config_path=config_path) if HOSTS_MODULE_AVAILABLE else {}
+            if HOSTS_MODULE_AVAILABLE:
+                hosts = (
+                    load_remote_hosts(config_path=config_path)
+                    if include_nonready
+                    else load_ready_hosts(config_path=config_path)
+                )
+            else:
+                hosts = {}
             coordinator_used = False
             if use_sync_coordinator:
                 coordinator_used = _sync_via_coordinator()
@@ -1089,6 +1098,11 @@ def main():
     parser.add_argument("--host", type=str, help="Only sync to specific host")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     parser.add_argument("--config", type=str, help="Path to distributed_hosts.yaml override")
+    parser.add_argument(
+        "--include-nonready",
+        action="store_true",
+        help="Include non-ready hosts (offline/disabled/unstable) in sync operations",
+    )
     parser.add_argument("--no-lock", action="store_true", help="Skip singleton lock (for testing)")
     parser.add_argument(
         "--use-sync-coordinator",
@@ -1139,12 +1153,18 @@ def _main_impl(args):
         return 1
 
     # Load hosts
-    hosts = load_remote_hosts(config_path=args.config)
+    hosts = (
+        load_remote_hosts(config_path=args.config)
+        if args.include_nonready
+        else load_ready_hosts(config_path=args.config)
+    )
     logger.info(f"Loaded {len(hosts)} remote hosts")
 
     if args.host:
         if args.host not in hosts:
-            logger.error(f"Host '{args.host}' not found")
+            logger.error(
+                f"Host '{args.host}' not found (use --include-nonready to allow offline/disabled hosts)"
+            )
             return 1
         hosts = {args.host: hosts[args.host]}
 
@@ -1154,6 +1174,7 @@ def _main_impl(args):
             args.interval,
             use_sync_coordinator=args.use_sync_coordinator,
             config_path=args.config,
+            include_nonready=args.include_nonready,
         )
         return 0
 
