@@ -48,12 +48,8 @@ logger = logging.getLogger(__name__)
 try:
     from app.distributed.unified_wal import (
         IngestionWAL as UnifiedIngestionWAL,
-        UnifiedWAL,
         WALCheckpoint as UnifiedWALCheckpoint,
         WALEntry as UnifiedWALEntry,
-        WALEntryStatus,
-        WALEntryType,
-        get_unified_wal,
     )
     HAS_UNIFIED_WAL = True
 except ImportError:

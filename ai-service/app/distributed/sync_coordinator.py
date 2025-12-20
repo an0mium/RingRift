@@ -74,7 +74,7 @@ except ImportError:
         return False
 
 try:
-    from .p2p_sync_client import P2PFallbackSync, P2PSyncClient
+    from .p2p_sync_client import P2PSyncClient
     HAS_P2P = True
 except ImportError:
     HAS_P2P = False
