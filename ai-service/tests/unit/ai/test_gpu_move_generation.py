@@ -125,8 +125,8 @@ class TestGeneratePlacementMovesBatch:
         assert moves.moves_per_game[0].item() == expected_per_game
         assert moves.moves_per_game[1].item() == expected_per_game
 
-    def test_occupied_cells_still_available(self, device, board_size, num_players):
-        """Per RingRift rules, placement IS valid on occupied positions (place 1 ring on top)."""
+    def test_occupied_cells_not_available(self, device, board_size, num_players):
+        """Cells with stacks should not be available for placement."""
         state = create_test_state(2, board_size, num_players, device)
         state.current_phase[:] = GamePhase.RING_PLACEMENT
 
@@ -135,8 +135,8 @@ class TestGeneratePlacementMovesBatch:
 
         moves = generate_placement_moves_batch(state)
 
-        # All positions still available (occupied cells allow placement per rules)
-        expected = board_size * board_size
+        # Should have one less move than empty board
+        expected = board_size * board_size - 1
         assert moves.moves_per_game[0].item() == expected
 
     def test_collapsed_cells_not_available(self, device, board_size, num_players):
@@ -163,8 +163,8 @@ class TestGeneratePlacementMovesBatch:
 
         assert (moves.move_type == MoveType.PLACEMENT).all()
 
-    def test_rings_in_hand_not_checked_during_generation(self, device, board_size, num_players):
-        """rings_in_hand is NOT checked during move generation (deferred to application)."""
+    def test_no_rings_no_moves(self, device, board_size, num_players):
+        """Player with no rings should have no placement moves."""
         state = create_test_state(2, board_size, num_players, device)
         state.current_phase[:] = GamePhase.RING_PLACEMENT
 
@@ -173,9 +173,8 @@ class TestGeneratePlacementMovesBatch:
 
         moves = generate_placement_moves_batch(state)
 
-        # Moves still generated (rings_in_hand check is during application, not generation)
-        expected = board_size * board_size
-        assert moves.moves_per_game[0].item() == expected
+        # Game 0 should have 0 moves (player 1 has no rings)
+        assert moves.moves_per_game[0].item() == 0
 
 
 # =============================================================================
@@ -292,22 +291,19 @@ class TestGenerateCaptureMovesBatch:
 
         assert moves.moves_per_game[0].item() == 0
 
-    def test_capture_uses_cap_height_not_owner(self, device, board_size, num_players):
-        """Capture generation uses cap_height comparison, not owner filtering."""
+    def test_cannot_capture_own_stacks(self, device, board_size, num_players):
+        """Should not generate captures to own stacks."""
         state = create_test_state(2, board_size, num_players, device)
         state.current_phase[:] = GamePhase.MOVEMENT
 
-        # Place two adjacent stacks for same player with equal cap_height
-        # Both have cap_height=2 so can capture each other
+        # Place two adjacent stacks for same player
         place_stack(state, 0, 3, 3, owner=1, height=2)
         place_stack(state, 0, 3, 4, owner=1, height=2)
 
         moves = generate_capture_moves_batch_vectorized(state)
 
-        # Captures CAN be generated (cap_height check allows it)
-        # The owner filtering would be game-rule enforcement, not move generation
-        # At least one capture should be possible
-        assert moves.moves_per_game[0].item() >= 0  # May or may not have valid landings
+        # No capture moves to own stacks
+        assert moves.moves_per_game[0].item() == 0
 
 
 # =============================================================================
@@ -392,27 +388,21 @@ class TestMoveGenerationEdgeCases:
         state.current_phase[:] = GamePhase.RING_PLACEMENT
 
         # Game 0: empty
-        # Game 1: some stacks (placement still allowed on occupied)
+        # Game 1: some stacks
         place_stack(state, 1, 3, 3, owner=1, height=2)
         place_stack(state, 1, 4, 4, owner=2, height=2)
-        # Game 2: some collapsed cells (these DO reduce moves)
-        state.is_collapsed[2, 0, 0] = True
-        state.is_collapsed[2, 0, 1] = True
-        state.is_collapsed[2, 1, 0] = True
-        # Game 3: more collapsed cells
+        # Game 2: many stacks
         for i in range(5):
-            state.is_collapsed[3, i, 0] = True
+            place_stack(state, 2, i, i, owner=1, height=1)
+        # Game 3: no rings left
+        state.rings_in_hand[3, 1] = 0
 
         moves = generate_placement_moves_batch(state)
 
-        # Game 0: all cells available
         assert moves.moves_per_game[0].item() == board_size * board_size
-        # Game 1: occupied cells still allow placement
-        assert moves.moves_per_game[1].item() == board_size * board_size
-        # Game 2: 3 collapsed cells removed
-        assert moves.moves_per_game[2].item() == board_size * board_size - 3
-        # Game 3: 5 collapsed cells removed
-        assert moves.moves_per_game[3].item() == board_size * board_size - 5
+        assert moves.moves_per_game[1].item() == board_size * board_size - 2
+        assert moves.moves_per_game[2].item() == board_size * board_size - 5
+        assert moves.moves_per_game[3].item() == 0
 
     def test_tensors_on_correct_device(self, device, board_size, num_players):
         """Generated moves should be on the correct device."""
