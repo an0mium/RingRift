@@ -133,13 +133,13 @@ def load_hosts_config() -> dict[str, Any]:
                             value = int(value)
                         result["hosts"][current_host][key] = value
 
-                elif current_section == "elo_sync":
-                    if line.startswith('  ') and ':' in line and not line.startswith('    '):
-                        key, _, value = line.strip().partition(':')
-                        value = value.strip().strip('"\'')
-                        if value.isdigit():
-                            value = int(value)
-                        result["elo_sync"][key] = value
+                elif (current_section == "elo_sync"
+                        and line.startswith('  ') and ':' in line and not line.startswith('    ')):
+                    key, _, value = line.strip().partition(':')
+                    value = value.strip().strip('"\'')
+                    if value.isdigit():
+                        value = int(value)
+                    result["elo_sync"][key] = value
 
         return result
     except Exception:

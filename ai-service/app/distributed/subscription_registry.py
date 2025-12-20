@@ -178,10 +178,10 @@ class SubscriptionRegistry:
         # Find matching subscription
         found = None
         for sub in self._by_event.get(event_type, []):
-            if sub.subscriber_name == subscriber_name:
-                if handler_name is None or sub.handler_name == handler_name:
-                    found = sub
-                    break
+            if (sub.subscriber_name == subscriber_name
+                    and (handler_name is None or sub.handler_name == handler_name)):
+                found = sub
+                break
 
         if found is None:
             return False

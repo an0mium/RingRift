@@ -1516,41 +1516,40 @@ def integrate_selfplay_with_training(
                 source="selfplay_training_integration",
             ))
 
-        if decision.should_train:
+        if decision.should_train and config_key not in pending_training:
             # Check if already pending
-            if config_key not in pending_training:
-                pending_training.append(config_key)
+            pending_training.append(config_key)
 
-                # Emit TRAINING_THRESHOLD_REACHED event
-                if has_event_bus:
-                    await event_bus.publish(DataEvent(
-                        event_type=DataEventType.TRAINING_THRESHOLD_REACHED,
-                        payload={
-                            "config": config_key,
-                            "total_games": total_games,
-                            "priority": decision.priority,
-                            "reason": decision.reason,
-                            "signal_scores": decision.signal_scores,
-                        },
-                        source="selfplay_training_integration",
-                    ))
+            # Emit TRAINING_THRESHOLD_REACHED event
+            if has_event_bus:
+                await event_bus.publish(DataEvent(
+                    event_type=DataEventType.TRAINING_THRESHOLD_REACHED,
+                    payload={
+                        "config": config_key,
+                        "total_games": total_games,
+                        "priority": decision.priority,
+                        "reason": decision.reason,
+                        "signal_scores": decision.signal_scores,
+                    },
+                    source="selfplay_training_integration",
+                ))
 
-                logger.info(
-                    f"[Training↔Selfplay] TRAINING_THRESHOLD_REACHED for {config_key} "
-                    f"(priority={decision.priority:.2f}, reason={decision.reason})"
-                )
+            logger.info(
+                f"[Training↔Selfplay] TRAINING_THRESHOLD_REACHED for {config_key} "
+                f"(priority={decision.priority:.2f}, reason={decision.reason})"
+            )
 
-                # Auto-trigger training if enabled
-                if auto_trigger and training_scheduler:
-                    try:
-                        await training_scheduler.schedule_training(
-                            config_key=config_key,
-                            priority=decision.priority,
-                            reason=decision.reason,
-                        )
-                        logger.info(f"[Training↔Selfplay] Auto-triggered training for {config_key}")
-                    except Exception as e:
-                        logger.error(f"[Training↔Selfplay] Failed to auto-trigger training: {e}")
+            # Auto-trigger training if enabled
+            if auto_trigger and training_scheduler:
+                try:
+                    await training_scheduler.schedule_training(
+                        config_key=config_key,
+                        priority=decision.priority,
+                        reason=decision.reason,
+                    )
+                    logger.info(f"[Training↔Selfplay] Auto-triggered training for {config_key}")
+                except Exception as e:
+                    logger.error(f"[Training↔Selfplay] Failed to auto-trigger training: {e}")
 
     async def on_training_started(config_key: str, **kwargs):
         """Handler for when training actually starts (clears pending)."""

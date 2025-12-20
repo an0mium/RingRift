@@ -2519,7 +2519,7 @@ class MCTSAI(HeuristicAI):
             try:
                 # Batch evaluation - collect states
                 states: list[GameState] = []
-                for node, path_undos, played_moves in leaves:
+                for _node, path_undos, _played_moves in leaves:
                     # Replay path to reach this leaf
                     for undo in path_undos:
                         mutable_state.make_move(undo.move)

@@ -455,12 +455,12 @@ class TrainingTrigger:
             return (True, f"Sufficient new games: {conditions.new_games_count}")
 
         # Check staleness
-        if conditions.hours_since_last_training >= self.config.training_data_staleness_hours:
-            if conditions.new_games_count >= self.config.min_games_for_training // 2:
-                return (
-                    True,
-                    f"Data staleness ({conditions.hours_since_last_training:.1f}h) with {conditions.new_games_count} games"
-                )
+        if (conditions.hours_since_last_training >= self.config.training_data_staleness_hours
+                and conditions.new_games_count >= self.config.min_games_for_training // 2):
+            return (
+                True,
+                f"Data staleness ({conditions.hours_since_last_training:.1f}h) with {conditions.new_games_count} games"
+            )
 
         # Check for Elo plateau
         if conditions.elo_plateau_detected and conditions.new_games_count >= 100:

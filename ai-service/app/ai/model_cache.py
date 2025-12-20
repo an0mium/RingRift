@@ -73,7 +73,7 @@ def evict_stale_models() -> int:
     keys_to_remove = []
 
     # First pass: remove models older than TTL
-    for key, (model, _created_at, last_access) in _MODEL_CACHE.items():
+    for key, (_model, _created_at, last_access) in _MODEL_CACHE.items():
         if now - last_access > MODEL_CACHE_TTL_SECONDS:
             keys_to_remove.append(key)
 

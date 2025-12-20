@@ -992,7 +992,7 @@ def cleanup_old_checkpoints(keep_per_config: int = 5, dry_run: bool = False) -> 
     files_deleted = 0
     bytes_freed = 0
 
-    for config, models in models_by_config.items():
+    for _config, models in models_by_config.items():
         # Sort by timestamp, newest first
         models.sort(key=lambda x: x[1], reverse=True)
 

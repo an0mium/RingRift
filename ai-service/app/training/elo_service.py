@@ -212,15 +212,15 @@ class EloService:
             is_write: If True, check single-writer enforcement before proceeding
         """
         # Check single-writer enforcement for write operations
-        if is_write and self._enforce_single_writer and OrchestratorRole is not None:
+        if (is_write and self._enforce_single_writer and OrchestratorRole is not None
+                and has_role is not None and has_role(OrchestratorRole.TOURNAMENT_RUNNER)):
             # Check if tournament role is held (tournaments write to Elo DB)
-            if has_role is not None and has_role(OrchestratorRole.TOURNAMENT_RUNNER):
-                holder_info = get_role_holder(OrchestratorRole.TOURNAMENT_RUNNER) if get_role_holder is not None else None
-                if holder_info and hasattr(holder_info, 'pid') and holder_info.pid != os.getpid():
-                    raise RuntimeError(
-                        f"Elo write blocked: TOURNAMENT_RUNNER role held by PID {holder_info.pid}. "
-                        "Only one process should write to Elo DB at a time."
-                    )
+            holder_info = get_role_holder(OrchestratorRole.TOURNAMENT_RUNNER) if get_role_holder is not None else None
+            if holder_info and hasattr(holder_info, 'pid') and holder_info.pid != os.getpid():
+                raise RuntimeError(
+                    f"Elo write blocked: TOURNAMENT_RUNNER role held by PID {holder_info.pid}. "
+                    "Only one process should write to Elo DB at a time."
+                )
 
         conn = self._get_connection()
         try:

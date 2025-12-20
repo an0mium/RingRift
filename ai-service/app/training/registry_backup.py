@@ -407,12 +407,12 @@ class RegistryBackupManager:
         removed = 0
 
         for item in self.backup_dir.iterdir():
-            if item.is_dir() and item.name not in known_ids:
+            if (item.is_dir() and item.name not in known_ids
+                    and ((item / "registry.db").exists() or (item / "metadata.json").exists())):
                 # Check if it looks like a backup directory
-                if (item / "registry.db").exists() or (item / "metadata.json").exists():
-                    shutil.rmtree(item, ignore_errors=True)
-                    removed += 1
-                    logger.info(f"Removed orphaned backup: {item.name}")
+                shutil.rmtree(item, ignore_errors=True)
+                removed += 1
+                logger.info(f"Removed orphaned backup: {item.name}")
 
         return removed
 

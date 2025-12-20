@@ -397,7 +397,7 @@ def train_on_dataset(
     total_loss = 0.0
     num_batches = 0
 
-    for epoch in range(epochs):
+    for _epoch in range(epochs):
         epoch_loss = 0.0
         for state_features, move_embeds, outcomes in dataloader:
             optimizer.zero_grad()

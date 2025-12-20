@@ -384,9 +384,9 @@ class ModelLoader:
                 stage_enum = getattr(ModelStage, stage.upper(), ModelStage.PRODUCTION)
                 records = self.registry.get_models_by_stage(stage_enum)
                 for record in records:
-                    if record.board_type == board_type and record.num_players == num_players:
-                        if record.checkpoint_path and Path(record.checkpoint_path).exists():
-                            return Path(record.checkpoint_path)
+                    if (record.board_type == board_type and record.num_players == num_players
+                            and record.checkpoint_path and Path(record.checkpoint_path).exists()):
+                        return Path(record.checkpoint_path)
             except Exception as e:
                 logger.debug(f"Registry lookup failed: {e}")
 

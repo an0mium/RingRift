@@ -1826,11 +1826,11 @@ class RollbackMonitor:
             models = []
             for entry in history:
                 model_id = entry.get("model_id")
-                if model_id and model_id != exclude_model_id:
-                    if entry.get("stage") in ("production", "staging"):
-                        models.append(model_id)
-                        if len(models) >= count:
-                            break
+                if (model_id and model_id != exclude_model_id
+                        and entry.get("stage") in ("production", "staging")):
+                    models.append(model_id)
+                    if len(models) >= count:
+                        break
             return models
         except Exception:
             return []

@@ -996,7 +996,7 @@ def generate_dataset(
 
         # Track stats
         if engine_mix == "per_player":
-            for pn, eng in player_engines.items():
+            for _pn, eng in player_engines.items():
                 engine_stats[eng] += 1
         else:
             engine_stats[game_engine_type] += num_players

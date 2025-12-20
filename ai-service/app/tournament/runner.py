@@ -203,7 +203,7 @@ class TournamentResults:
                     stats["draws"] += 1
 
         # Compute derived stats
-        for agent_id, stats in self.agent_stats.items():
+        for _agent_id, stats in self.agent_stats.items():
             if stats["games_played"] > 0:
                 stats["win_rate"] = stats["wins"] / stats["games_played"]
                 stats["avg_game_length"] = (

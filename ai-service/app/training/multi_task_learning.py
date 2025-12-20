@@ -500,7 +500,7 @@ class MultiTaskLoss(nn.Module):
 
         elif self.config.task_weighting == "uncertainty" and log_vars is not None:
             # Uncertainty weighting: learn precision for each task
-            for i, (loss, name) in enumerate(zip(task_losses, task_names, strict=False)):
+            for i, (loss, _name) in enumerate(zip(task_losses, task_names, strict=False)):
                 precision = torch.exp(-log_vars[i])
                 weighted_loss = precision * loss + log_vars[i]
                 total_loss = total_loss + weighted_loss

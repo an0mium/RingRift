@@ -1658,16 +1658,16 @@ def merge_data_files(
                 break
 
             # Periodic memory check to prevent OOM
-            if total_count > 0 and total_count % memory_check_interval == 0:
-                if not check_memory(required_gb=1.0, log_warning=False):
-                    mem_pct, _, _ = get_memory_usage()
-                    logger.warning(
-                        f"Memory pressure at {mem_pct:.1f}% during merge "
-                        f"(stopping at {total_count} samples)"
-                    )
-                    handle.close()
-                    # Return with samples collected so far rather than crashing
-                    break
+            if (total_count > 0 and total_count % memory_check_interval == 0
+                    and not check_memory(required_gb=1.0, log_warning=False)):
+                mem_pct, _, _ = get_memory_usage()
+                logger.warning(
+                    f"Memory pressure at {mem_pct:.1f}% during merge "
+                    f"(stopping at {total_count} samples)"
+                )
+                handle.close()
+                # Return with samples collected so far rather than crashing
+                break
 
             feat, glob, val, pol_idx, pol_val = handle.get_sample(i)
             all_features.append(feat)

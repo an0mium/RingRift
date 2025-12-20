@@ -178,10 +178,10 @@ class MonitoringManager:
             hosts = []
             for name, info in config.get("hosts", {}).items():
                 ip = info.get("tailscale_ip")
-                if ip and info.get("status") == "ready":
+                if (ip and info.get("status") == "ready"
+                        and (info.get("p2p_voter") or "primary" in info.get("role", ""))):
                     # Prefer hosts with monitoring role or p2p_voter
-                    if info.get("p2p_voter") or "primary" in info.get("role", ""):
-                        hosts.append((ip, name))
+                    hosts.append((ip, name))
 
             return hosts[:3]  # Return top 3 as backup monitoring hosts
         except Exception as e:
