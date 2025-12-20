@@ -55,14 +55,13 @@ class TestOrchestratorRegistry:
         from app.coordination import (
             OrchestratorRole,
             OrchestratorRegistry,
-            acquire_orchestrator_role,
-            release_orchestrator_role,
         )
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = os.path.join(tmpdir, "test_registry.db")
+        # Reset singleton for clean test
+        OrchestratorRegistry.reset_instance()
 
-            registry = OrchestratorRegistry(db_path=db_path)
+        try:
+            registry = OrchestratorRegistry.get_instance()
 
             # Should not be held initially
             assert not registry.is_role_held(OrchestratorRole.TOURNAMENT_RUNNER)
@@ -82,6 +81,8 @@ class TestOrchestratorRegistry:
             # Release role
             registry.release_role()
             assert not registry.is_role_held(OrchestratorRole.TOURNAMENT_RUNNER)
+        finally:
+            OrchestratorRegistry.reset_instance()
 
 
 class TestDurationScheduler:
@@ -186,11 +187,11 @@ class TestBandwidthManager:
             os.environ["RINGRIFT_BANDWIDTH_DB"] = db_path
 
             try:
-                # Request bandwidth
+                # Request bandwidth (API: host, estimated_mb, priority)
                 allocation = request_bandwidth(
-                    "source_host", "dest_host",
-                    TransferPriority.NORMAL,
-                    estimated_bytes=1000000
+                    "test_host",
+                    estimated_mb=1,  # 1 MB
+                    priority=TransferPriority.NORMAL,
                 )
                 assert allocation is not None
 

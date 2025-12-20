@@ -49,14 +49,14 @@ logger = logging.getLogger(__name__)
 class GMOConfig:
     """Configuration for GMO AI.
 
-    Defaults tuned based on hyperparameter sweep (2024-12):
+    Defaults tuned based on hyperparameter sweep + diversity study (2024-12):
     - optim_steps=5 (optimal balance of quality and speed)
     - top_k=5 (more candidates for optimization)
-    - beta=0.1 (low uncertainty bonus - exploitation focused)
-    - gamma=0.0 (no novelty bonus - pure value optimization)
+    - beta=0.5 (higher exploration improves both diversity AND win rate)
+    - gamma=0.0 (no novelty bonus - not beneficial for win rate)
     - mc_samples=10 (critical for performance - 0% win rate without it)
 
-    Best sweep result: 100% vs Random, 62.5% vs Heuristic
+    Performance: 100% vs Random, 80% vs Heuristic, 68.8% vs MCTS(D7)
     """
     # Embedding dimensions
     state_dim: int = 128
@@ -68,8 +68,8 @@ class GMOConfig:
     optim_steps: int = 5  # Gradient steps per candidate
     lr: float = 0.1  # Learning rate for move optimization
 
-    # Information-theoretic parameters (tuned from sweep)
-    beta: float = 0.1  # Exploration coefficient (low = exploitation focused)
+    # Information-theoretic parameters (tuned from diversity study)
+    beta: float = 0.5  # Exploration coefficient (0.5 gives 80% win rate + 98% coverage)
     gamma: float = 0.0  # Novelty coefficient (disabled - not beneficial)
     exploration_temp: float = 1.0  # Base exploration temperature
 
