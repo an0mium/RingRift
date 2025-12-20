@@ -2,6 +2,6 @@
   "model": "nnue_square8_2p.pt",
   "board_type": "square8",
   "num_players": 2,
-  "deployed_at": "2025-12-14T05:27:20.978096",
-  "hash": "0f66b3cdcfab9474"
+  "deployed_at": "2025-12-20T02:12:00.541121",
+  "hash": "f69d294e66780b0a"
 }

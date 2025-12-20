@@ -355,22 +355,41 @@ profile = CANONICAL_DIFFICULTY_PROFILES[5]
 print(f"AI type: {profile['ai_type']}, simulations: {profile.get('simulations', 'N/A')}")
 ```
 
-**Difficulty Scale:**
+**Difficulty Scale (2P small boards):**
 
-| Level | AI Type     | Description                            |
-| ----- | ----------- | -------------------------------------- |
-| 1-2   | Random      | Random move selection                  |
-| 3-4   | Heuristic   | Simple evaluation functions            |
-| 5-6   | Minimax     | Tree search with limited depth         |
-| 7-8   | MCTS        | Monte Carlo Tree Search                |
-| 9-10  | Neural MCTS | Neural network guided MCTS             |
-| 11    | NNUE        | Efficiently updatable neural network   |
-| 12    | EBMO        | Energy-based move optimization         |
-| 13    | GMO         | Gradient move optimization             |
-| 14    | IG-GMO      | Information-gain GMO (experimental)    |
-| 15    | GPU Minimax | GPU-accelerated minimax (experimental) |
+| Level | AI Type       | Description                                  |
+| ----- | ------------- | -------------------------------------------- |
+| 1     | Random        | Pure random baseline                         |
+| 2     | Heuristic     | Shallow heuristic with randomness            |
+| 3     | Policy Only   | NN policy without search                     |
+| 4     | Minimax       | Paranoid minimax with heuristic eval         |
+| 5     | Minimax+NNUE  | Paranoid minimax with neural eval            |
+| 6     | Descent       | Descent search with neural guidance          |
+| 7     | MCTS          | Monte Carlo Tree Search + neural             |
+| 8     | MCTS+         | MCTS with larger search budget               |
+| 9     | Gumbel MCTS   | Gumbel AlphaZero (strongest)                 |
+| 10    | Gumbel MCTS+  | Extended Gumbel search                       |
+| 11    | Gumbel MCTS++ | Maximum think time                           |
+| 12    | EBMO          | Energy-based move optimization               |
+| 13    | GMO           | Gradient move optimization                   |
+| 14    | IG-GMO        | Information-gain GMO (experimental)          |
+| 15    | GPU Minimax   | GPU-accelerated minimax (CUDA/MPS)           |
+| 16    | CAGE          | Constraint-aware graph energy (experimental) |
 
-> **Note:** Tiers 12-15 are experimental. See `docs/EXPERIMENTAL_AI.md` for details.
+**Multiplayer Overrides (3-4P):**
+
+| Level | AI Type | Description                             |
+| ----- | ------- | --------------------------------------- |
+| 4     | BRS     | Best-Reply Search (faster, good for 3P) |
+| 5     | MaxN    | Max-N search (better for 4P)            |
+
+**Large Board Overrides (19x19+):**
+
+| Level | AI Type | Description                   |
+| ----- | ------- | ----------------------------- |
+| 4-5   | Descent | Descent+NN (Minimax too slow) |
+
+> **Note:** Tiers 12-16 are experimental. See `docs/EXPERIMENTAL_AI.md` for details.
 
 **Current Status:**
 

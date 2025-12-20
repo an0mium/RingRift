@@ -193,11 +193,9 @@ class GMOMCTSHybrid(BaseAI):
         priors: dict[str, float],
     ) -> None:
         """Expand a node with all legal moves."""
-        from ..game_engine import GameEngine
-
         for move in legal_moves:
             move_key = self._move_key(move)
-            new_state = GameEngine.apply_move(node.state, move)
+            new_state = self.rules_engine.apply_move(node.state, move)
 
             child = MCTSNode(
                 state=new_state,
@@ -214,7 +212,6 @@ class GMOMCTSHybrid(BaseAI):
 
         Returns value from perspective of current player.
         """
-        from ..game_engine import GameEngine
         from ..models import GameStatus
 
         current_state = state
@@ -225,17 +222,21 @@ class GMOMCTSHybrid(BaseAI):
                 break
 
             current_player = current_state.current_player
-            legal_moves = GameEngine.get_valid_moves(current_state, current_player)
+            legal_moves = self.rules_engine.get_valid_moves(current_state, current_player)
             if not legal_moves:
                 break
 
             # Use GMO for rollout policy if enabled, otherwise random
             if self.hybrid_config.use_gmo_rollout:
+                self.gmo.player_number = current_player
                 move = self.gmo.select_move(current_state)
             else:
                 move = np.random.choice(legal_moves)
 
-            current_state = GameEngine.apply_move(current_state, move)
+            if move is None:
+                break
+
+            current_state = self.rules_engine.apply_move(current_state, move)
 
         # Evaluate terminal state
         if current_state.game_status == GameStatus.COMPLETED and current_state.winner:
@@ -257,11 +258,10 @@ class GMOMCTSHybrid(BaseAI):
 
     def select_move(self, game_state: GameState) -> Move | None:
         """Select move using GMO-guided MCTS."""
-        from ..game_engine import GameEngine
         from ..models import GameStatus
 
-        current_player = game_state.current_player
-        legal_moves = GameEngine.get_valid_moves(game_state, current_player)
+        # Use inherited rules_engine for consistency
+        legal_moves = self.get_valid_moves(game_state)
 
         if not legal_moves:
             return None
@@ -298,7 +298,7 @@ class GMOMCTSHybrid(BaseAI):
             else:
                 # Expand if not expanded
                 node_current_player = node.state.current_player
-                node_legal_moves = GameEngine.get_valid_moves(node.state, node_current_player)
+                node_legal_moves = self.rules_engine.get_valid_moves(node.state, node_current_player)
                 if node_legal_moves and not node.is_expanded:
                     node_priors = self._get_gmo_priors(node.state, node_legal_moves)
                     self._expand(node, node_legal_moves, node_priors)
