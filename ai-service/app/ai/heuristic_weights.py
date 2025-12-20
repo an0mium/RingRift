@@ -528,6 +528,13 @@ HEURISTIC_WEIGHT_PROFILES: dict[str, HeuristicWeights] = {
     "v1-heuristic-3": HEURISTIC_V1_BALANCED,
     "v1-heuristic-4": HEURISTIC_V1_BALANCED,
     "v1-heuristic-5": HEURISTIC_V1_BALANCED,
+    # Higher difficulty levels use more aggressive/optimized profiles
+    # when HeuristicAI is explicitly instantiated at these levels.
+    "v1-heuristic-6": HEURISTIC_V1_AGGRESSIVE,
+    "v1-heuristic-7": HEURISTIC_V1_AGGRESSIVE,
+    "v1-heuristic-8": HEURISTIC_V1_AGGRESSIVE,
+    "v1-heuristic-9": HEURISTIC_V1_AGGRESSIVE,
+    "v1-heuristic-10": HEURISTIC_V1_AGGRESSIVE,
 }
 
 
