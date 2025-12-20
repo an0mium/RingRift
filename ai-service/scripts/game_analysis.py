@@ -540,66 +540,66 @@ def find_loss_patterns(
     patterns = []
 
     # Pattern 1: Opening blunders
-    opening_losses = [l for l in losses if l.phase_at_loss == "opening"]
+    opening_losses = [l for loss in losses if loss.phase_at_loss == "opening"]
     if len(opening_losses) >= min_frequency:
         patterns.append(LossPattern(
             pattern_type="opening_collapse",
             description="Lost control in the opening phase",
             frequency=len(opening_losses),
-            example_games=[l.game_id for l in opening_losses[:3]],
-            avg_move_number=np.mean([l.turning_point_move for l in opening_losses]),
+            example_games=[loss.game_id for loss in opening_losses[:3]],
+            avg_move_number=np.mean([loss.turning_point_move for loss in opening_losses]),
             phase="opening",
             severity="high",
         ))
 
     # Pattern 2: Endgame failures
-    endgame_losses = [l for l in losses if l.phase_at_loss == "endgame"]
+    endgame_losses = [l for loss in losses if loss.phase_at_loss == "endgame"]
     if len(endgame_losses) >= min_frequency:
         patterns.append(LossPattern(
             pattern_type="endgame_failure",
             description="Failed to convert or defend in endgame",
             frequency=len(endgame_losses),
-            example_games=[l.game_id for l in endgame_losses[:3]],
-            avg_move_number=np.mean([l.turning_point_move for l in endgame_losses]),
+            example_games=[loss.game_id for loss in endgame_losses[:3]],
+            avg_move_number=np.mean([loss.turning_point_move for loss in endgame_losses]),
             phase="endgame",
             severity="medium",
         ))
 
     # Pattern 3: Single blunder losses
-    single_blunder = [l for l in losses if l.blunders == 1 and l.mistakes <= 1]
+    single_blunder = [l for loss in losses if loss.blunders == 1 and loss.mistakes <= 1]
     if len(single_blunder) >= min_frequency:
         patterns.append(LossPattern(
             pattern_type="single_blunder",
             description="Lost due to one critical mistake",
             frequency=len(single_blunder),
-            example_games=[l.game_id for l in single_blunder[:3]],
-            avg_move_number=np.mean([l.turning_point_move for l in single_blunder]),
+            example_games=[loss.game_id for loss in single_blunder[:3]],
+            avg_move_number=np.mean([loss.turning_point_move for loss in single_blunder]),
             phase="midgame",
             severity="high",
         ))
 
     # Pattern 4: Gradual decline (many small mistakes)
-    gradual_losses = [l for l in losses if l.blunders == 0 and l.mistakes >= 3]
+    gradual_losses = [l for loss in losses if loss.blunders == 0 and loss.mistakes >= 3]
     if len(gradual_losses) >= min_frequency:
         patterns.append(LossPattern(
             pattern_type="gradual_decline",
             description="Accumulated small mistakes led to loss",
             frequency=len(gradual_losses),
-            example_games=[l.game_id for l in gradual_losses[:3]],
-            avg_move_number=np.mean([l.total_moves / 2 for l in gradual_losses]),
+            example_games=[loss.game_id for loss in gradual_losses[:3]],
+            avg_move_number=np.mean([loss.total_moves / 2 for loss in gradual_losses]),
             phase="midgame",
             severity="medium",
         ))
 
     # Pattern 5: Quick losses (short games)
-    quick_losses = [l for l in losses if l.total_moves < 30]
+    quick_losses = [l for loss in losses if loss.total_moves < 30]
     if len(quick_losses) >= min_frequency:
         patterns.append(LossPattern(
             pattern_type="quick_loss",
             description="Lost in a short game (< 30 moves)",
             frequency=len(quick_losses),
-            example_games=[l.game_id for l in quick_losses[:3]],
-            avg_move_number=np.mean([l.total_moves for l in quick_losses]),
+            example_games=[loss.game_id for loss in quick_losses[:3]],
+            avg_move_number=np.mean([loss.total_moves for loss in quick_losses]),
             phase="opening",
             severity="high",
         ))
@@ -618,13 +618,13 @@ def print_loss_analysis(losses: list[LossAnalysis], patterns: list[LossPattern])
 
     # Summary
     print(f"\nGames Analyzed: {len(losses)}")
-    total_blunders = sum(l.blunders for l in losses)
-    total_mistakes = sum(l.mistakes for l in losses)
+    total_blunders = sum(loss.blunders for loss in losses)
+    total_mistakes = sum(loss.mistakes for loss in losses)
     print(f"Total Blunders: {total_blunders} ({total_blunders / max(len(losses), 1):.1f}/game)")
     print(f"Total Mistakes: {total_mistakes} ({total_mistakes / max(len(losses), 1):.1f}/game)")
 
     # Phase breakdown
-    phase_counts = Counter(l.phase_at_loss for l in losses)
+    phase_counts = Counter(loss.phase_at_loss for loss in losses)
     print("\nLosses by Phase:")
     for phase in ["opening", "midgame", "endgame"]:
         count = phase_counts.get(phase, 0)
@@ -887,7 +887,7 @@ def main():
                         "timestamp": datetime.utcnow().isoformat() + "Z",
                         "losses_analyzed": len(losses),
                         "patterns": [asdict(p) for p in patterns],
-                        "losses": [asdict(l) for l in losses[:50]],
+                        "losses": [asdict(loss) for loss in losses[:50]],
                     }, f, indent=2, default=str)
                 print(f"\nReport saved: {output_path}")
         else:

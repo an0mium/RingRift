@@ -99,8 +99,8 @@ def check_tailscale_mesh() -> dict:
         return {"error": output}
 
     lines = output.strip().split("\n")
-    online = len([l for l in lines if l and "offline" not in l.lower() and not l.startswith("#")])
-    offline = len([l for l in lines if "offline" in l.lower()])
+    online = len([line for line in lines if line and "offline" not in line.lower() and not line.startswith("#")])
+    offline = len([line for line in lines if "offline" in line.lower()])
 
     logger.info(f"Tailscale: {online} online, {offline} offline")
     return {"online": online, "offline": offline}

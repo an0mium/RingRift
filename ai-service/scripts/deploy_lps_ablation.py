@@ -274,7 +274,7 @@ def run_experiment_on_host(
         return host.ssh_target, False, f"Experiment failed: {stderr[-500:] if stderr else 'unknown'}"
 
     # Extract results file path from output
-    results_line = [l for l in stdout.split('\n') if 'Results saved to:' in l]
+    results_line = [line for line in stdout.split('\n') if 'Results saved to:' in line]
     if results_line:
         return host.ssh_target, True, results_line[0].split(': ')[-1].strip()
 
