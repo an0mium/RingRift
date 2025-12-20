@@ -400,7 +400,12 @@ Player P wins by Last Player Standing if all of the following hold:
    - P remains the **only player** who has taken any legal real action and
      takes at least one such action on their turn.
 
-3. **Victory declared:** After the second round completes (including all
+3. **Round 3:** After the second round completes (including all
+   post-movement processing), on the following round:
+   - P remains the **only player** who has taken any legal real action and
+     takes at least one such action on their turn.
+
+4. **Victory declared:** After the third round completes (including all
    post-movement processing), P is declared the winner by Last Player
    Standing. This applies regardless of relative territory or rings eliminated.
 
@@ -426,7 +431,7 @@ action, for example:
   colour; or
 - Reducing the height of a stack they control so that it can move again.
 
-If any temporarily inactive player regains a real action before **both
+If any temporarily inactive player regains a real action before **all three
 rounds** in the LPS condition have been completed, the LPS condition is
 not met and must be re‑established over fresh rounds.
 
