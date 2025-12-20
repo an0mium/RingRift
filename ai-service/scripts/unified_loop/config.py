@@ -512,6 +512,7 @@ class PromotionConfig:
     min_games: int = 50
     significance_level: float = 0.05
     sync_to_cluster: bool = True
+    hosts_config_path: str | None = None
 
     # Aliases for compatibility with PromotionCriteria
     @property
@@ -712,6 +713,9 @@ class UnifiedLoopConfig:
                     "verbose", "metrics_port", "metrics_enabled", "dry_run"]:
             if key in data:
                 setattr(config, key, data[key])
+
+        if config.promotion.hosts_config_path is None:
+            config.promotion.hosts_config_path = config.hosts_config_path
 
         return config
 

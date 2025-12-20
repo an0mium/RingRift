@@ -408,6 +408,8 @@ class ModelPromoter:
                 "--sync",
                 "--use-sync-coordinator",
             ]
+            if self.config.hosts_config_path:
+                cmd.extend(["--config", self.config.hosts_config_path])
 
             process = await asyncio.create_subprocess_exec(
                 *cmd,

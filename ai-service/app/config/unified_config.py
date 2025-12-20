@@ -148,6 +148,7 @@ class PromotionConfig:
     min_games: int = 50
     significance_level: float = 0.05
     sync_to_cluster: bool = True
+    hosts_config_path: str | None = None
     cooldown_seconds: int = 1800  # 30 minutes
     max_promotions_per_day: int = 10
     regression_test: bool = True
@@ -894,6 +895,7 @@ class UnifiedConfig:
                 min_games=promo_data.get("min_games", 50),
                 significance_level=promo_data.get("significance_level", 0.05),
                 sync_to_cluster=promo_data.get("sync_to_cluster", True),
+                hosts_config_path=promo_data.get("hosts_config_path"),
                 cooldown_seconds=promo_data.get("cooldown_seconds", 1800),
                 max_promotions_per_day=promo_data.get("max_promotions_per_day", 10),
                 regression_test=promo_data.get("regression_test", True),
