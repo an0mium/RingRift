@@ -38,7 +38,6 @@ Usage:
 
 import argparse
 import shutil
-import socket
 import sqlite3
 import subprocess
 import sys
@@ -49,13 +48,11 @@ import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple, Any
+from typing import List, Dict, Tuple, Any
 from datetime import datetime
 import http.server
 import socketserver
-import threading
 import urllib.request
-from urllib.error import URLError
 
 # Add ai-service to path
 ROOT = Path(__file__).resolve().parent.parent
@@ -81,10 +78,7 @@ ARIA2_TIMEOUT = 120
 
 # Try to use unified hosts module
 try:
-    from scripts.lib.hosts import (
-        get_hosts, get_active_hosts, get_elo_sync_config,
-        get_host, HostConfig, EloSyncConfig
-    )
+    from scripts.lib.hosts import get_hosts, get_elo_sync_config, get_host
     USE_UNIFIED_HOSTS = True
 except ImportError:
     USE_UNIFIED_HOSTS = False
@@ -726,18 +720,18 @@ def run_coordinator(port: int, db_path: Path):
     with socketserver.TCPServer(("", port), SyncHandler) as httpd:
         print(f"Elo Sync Coordinator running on port {port}")
         print(f"Database: {db_path}")
-        print(f"Endpoints:")
-        print(f"  POST /sync - Submit new matches")
-        print(f"  GET /db - Download full database")
-        print(f"  GET /status - Get sync status")
-        print(f"  GET /metrics - Prometheus metrics")
-        print(f"  GET /health - Health check")
+        print("Endpoints:")
+        print("  POST /sync - Submit new matches")
+        print("  GET /db - Download full database")
+        print("  GET /status - Get sync status")
+        print("  GET /metrics - Prometheus metrics")
+        print("  GET /health - Health check")
         httpd.serve_forever()
 
 
 def run_worker(coordinator: str, interval: int, db_path: Path, port: int = DEFAULT_PORT):
     """Run as a sync worker, periodically pushing to coordinator."""
-    print(f"Elo Sync Worker started")
+    print("Elo Sync Worker started")
     print(f"Coordinator: {coordinator}:{port}")
     print(f"Sync interval: {interval}s")
     print(f"Database: {db_path}")
