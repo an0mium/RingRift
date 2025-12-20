@@ -107,7 +107,7 @@ class GameQuality:
 class GameQualityScorer:
     """Backwards-compatible wrapper around UnifiedQualityScorer."""
 
-    def __init__(self, weights=None, source_reputations=None):
+    def __init__(self, weights=None, _source_reputations=None):
         warnings.warn(
             "GameQualityScorer is deprecated. Use UnifiedQualityScorer instead.",
             DeprecationWarning,
@@ -124,7 +124,7 @@ class GameQualityScorer:
         total_moves: int,
         board_type: str = "square8",
         source: Optional[str] = None,
-        move_entropies=None,
+        _move_entropies=None,
     ) -> GameQuality:
         """Compute quality score for a game."""
         unified_quality = compute_game_quality_from_params(

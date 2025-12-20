@@ -584,7 +584,7 @@ def train_model(
     elo_min_improvement: Optional[float] = None,
     checkpoint_dir: str = 'checkpoints',
     checkpoint_interval: int = 5,
-    save_all_epochs: bool = True,  # Save every epoch for Elo-based selection
+    _save_all_epochs: bool = True,  # Save every epoch for Elo-based selection
     warmup_epochs: Optional[int] = None,
     lr_scheduler: Optional[str] = None,
     lr_min: Optional[float] = None,
@@ -654,8 +654,8 @@ def train_model(
     # Quality-aware data discovery (2025-12)
     discover_synced_data: bool = False,
     min_quality_score: float = 0.0,
-    include_local_data: bool = True,
-    include_nfs_data: bool = True,
+    _include_local_data: bool = True,
+    _include_nfs_data: bool = True,
 ):
     """
     Train the RingRift neural network model.

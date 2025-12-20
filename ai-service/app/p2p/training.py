@@ -102,7 +102,7 @@ def calculate_training_priority(
 def should_trigger_training(
     games_available: int,
     hours_since_last_training: float,
-    last_elo_change: float = 0.0,
+    _last_elo_change: float = 0.0,
     consecutive_stagnant: int = 0,
     thresholds: Optional[TrainingThresholds] = None,
 ) -> Tuple[bool, str]:

@@ -145,7 +145,7 @@
   - Lazy-loaded AI implementation classes:
     - `HeuristicAI`, `MCTSAI`, `DescentAI`, `GumbelMCTSAI`
     - `MaxNAI`, `MinimaxAI`, `RandomAI`, `PolicyOnlyAI`
-    - `GMOAI`, `EBMOAI`
+    - `GMOAI`, `EBMOAI`, `IGGMO`
 - Updated module docstring with architecture overview
 
 ---
@@ -293,6 +293,7 @@ Added Information-Gain GMO (IG-GMO) research module:
 - Uses mutual information for exploration instead of variance
 - GNN-based state encoding
 - Soft legality constraints during optimization
+- Registered in `AIType` and `AIFactory` as experimental (`ig_gmo`)
 
 ---
 

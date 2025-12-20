@@ -2205,6 +2205,10 @@ def _create_ai_instance(ai_type: AIType, player_number: int, config: AIConfig):
         return MCTSAI(player_number, config)
     elif ai_type == AIType.DESCENT:
         return DescentAI(player_number, config)
+    elif ai_type == AIType.IG_GMO:
+        from .ai.ig_gmo import IGGMO
+
+        return IGGMO(player_number, config)
     elif ai_type == AIType.NEURAL_DEMO:
         # Experimental / demo-only neural engine. This is never selected by
         # the canonical difficulty ladder and must be explicitly enabled via

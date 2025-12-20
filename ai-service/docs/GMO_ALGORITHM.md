@@ -19,10 +19,13 @@ GMO combines several well-known ML/RL techniques into a practical move-selection
 7. [Configuration Reference](#configuration-reference)
 8. [Training](#training)
 9. [Usage](#usage)
-10. [Comparison to Other Approaches](#comparison-to-other-approaches)
-11. [Potential Novel Extensions](#potential-novel-extensions)
-12. [File Reference](#file-reference)
-13. [References](#references)
+10. [Evaluation Results](#evaluation-results)
+11. [Comparison to Other Approaches](#comparison-to-other-approaches)
+12. [Potential Novel Extensions](#potential-novel-extensions)
+13. [IG-GMO (Experimental)](#ig-gmo-experimental)
+14. [File Reference](#file-reference)
+15. [Training Infrastructure Integration](#training-infrastructure-integration)
+16. [References](#references)
 
 ---
 
@@ -562,6 +565,22 @@ Provide bounds on when gradient optimization + projection improves over single-p
 ### 4. Empirical Validation
 
 Rigorous comparisons vs MCTS, policy networks at equal compute budgets, with ablations showing each component's contribution.
+
+---
+
+## IG-GMO (Experimental)
+
+IG-GMO is a research extension that implements the "true information-theoretic objective" idea in code. It replaces
+the variance-based exploration term with mutual information and swaps the MLP state encoder for a GNN encoder with
+optional soft-legality constraints. It is **not** part of the canonical difficulty ladder and should be treated as
+experimental.
+
+Implementation: `app/ai/ig_gmo.py`
+
+Usage examples:
+
+- `AIFactory.create(AIType.IG_GMO, player_number, AIConfig(...))`
+- `create_tournament_ai("ig_gmo", player_number, ...)`
 
 ---
 

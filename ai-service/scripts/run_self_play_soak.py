@@ -1605,7 +1605,7 @@ def run_self_play_soak(
     def _write_checkpoint(
         games_done: int,
         elapsed_sec: float,
-        records_so_far: List[GameRecord],
+        _records_so_far: List[GameRecord],
     ) -> None:
         checkpoint_data = {
             "games_completed": games_done,

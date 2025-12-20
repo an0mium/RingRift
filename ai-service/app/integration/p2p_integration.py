@@ -1279,7 +1279,7 @@ def integrate_lifecycle_with_p2p(
 
 
 def integrate_pipeline_with_p2p(
-    pipeline_orchestrator,
+    _pipeline_orchestrator,
     p2p_manager: P2PIntegrationManager
 ) -> None:
     """

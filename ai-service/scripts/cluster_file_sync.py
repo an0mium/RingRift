@@ -550,7 +550,7 @@ def torrent_distribute(
     instance_ids: List[str],
     remote_path: str,
     config: Optional[TransferConfig] = None,
-    seed_port: int = 6881,
+    _seed_port: int = 6881,
 ) -> Dict[str, TransferResult]:
     """Distribute file to multiple nodes using BitTorrent mesh.
 

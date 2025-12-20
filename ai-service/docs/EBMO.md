@@ -202,12 +202,23 @@ class EBMOConfig:
     energy_hidden_dim: int = 256
     num_energy_layers: int = 3
 
+    # State encoder
+    num_input_channels: int = 56
+    num_global_features: int = 20
+    num_residual_blocks: int = 6
+    residual_filters: int = 128
+
+    # Action encoder
+    action_feature_dim: int = 14
+    action_hidden_dim: int = 64
+
     # Inference optimization
-    optim_steps: int = 50        # Gradient descent steps
+    optim_steps: int = 100       # Gradient descent steps
     optim_lr: float = 0.1        # Action embedding learning rate
-    num_restarts: int = 5        # Multi-restart count
-    projection_temperature: float = 0.5
+    num_restarts: int = 8        # Multi-restart count
+    projection_temperature: float = 0.3
     project_every_n_steps: int = 10
+    use_direct_eval: bool = True  # Skip gradient descent, score legal moves
 
     # Training
     contrastive_temperature: float = 0.1
@@ -217,8 +228,12 @@ class EBMOConfig:
 
     # Board
     board_size: int = 8
-    num_input_channels: int = 56  # 14 planes x 4 history frames
+    board_type: BoardType = BoardType.SQUARE8
 ```
+
+**Direct evaluation mode:** When `use_direct_eval=True`, EBMO skips gradient descent
+and directly scores every legal move, picking the lowest-energy option. Set it to
+`False` if you want the original gradient-descent projection pipeline.
 
 ### AIConfig Integration
 

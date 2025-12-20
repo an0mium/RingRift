@@ -161,7 +161,7 @@ def train_epoch(
     epoch: int,
     use_margin_loss: bool = True,
     margin: float = 1.0,
-    curriculum_hard_weight: float = 0.5,
+    _curriculum_hard_weight: float = 0.5,
 ) -> Dict[str, float]:
     """Train for one epoch with improved losses."""
     model.train()

@@ -480,7 +480,7 @@ def compress_model(
 
 def create_student_model(
     teacher_path: Path,
-    reduction_factor: float = 0.5,
+    _reduction_factor: float = 0.5,
 ) -> nn.Module:
     """Create a smaller student model for distillation.
 

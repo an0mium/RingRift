@@ -365,7 +365,7 @@ class SQSQueue(TaskQueue):
         result_queue_url: str,
         region: str = "us-east-1",
         visibility_timeout: int = 300,
-        max_receive_count: int = 3,
+        _max_receive_count: int = 3,
     ):
         """Initialize SQS queues.
 

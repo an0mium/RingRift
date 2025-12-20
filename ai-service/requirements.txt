@@ -31,6 +31,7 @@ hypothesis==6.116.0
 black==25.11.0
 flake8==7.3.0
 mypy==1.13.0  # Static type checking for Python/TS parity
+vulture==2.14  # Dead code detection
 
 # Core ML/Data Science libraries (Latest versions with numpy 2.x)
 numpy==2.2.1

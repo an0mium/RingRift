@@ -1,152 +1,94 @@
-"""
-Debug script to investigate 'No move found' scenarios
-Runs a single game and dumps state when AI fails to find a move
-"""
+#!/usr/bin/env python
+"""Debug a single game to see what moves EBMO selects."""
 
-import sys
 import os
-import time
-import random
-from datetime import datetime
-import json
+import sys
 
-from app.models import GameState, BoardType, BoardState, GamePhase, GameStatus, TimeControl, Player, AIConfig
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from app.ai.ebmo_ai import EBMO_AI
+from app.ai.ebmo_network import EBMOConfig
+from app.ai.factory import AIFactory
+from app.models.core import AIType, AIConfig, BoardType, MoveType
 from app.game_engine import GameEngine
-from app.ai.mcts_ai import MCTSAI
-from app.ai.descent_ai import DescentAI
-from app.board_manager import BoardManager
+from app.training.generate_data import create_initial_state
 
 
-def create_initial_state():
-    return GameState(
-        id="debug_game",
-        boardType=BoardType.SQUARE8,
-        board=BoardState(type=BoardType.SQUARE8, size=8, stacks={}, markers={}, collapsedSpaces={}, eliminatedRings={}),
-        players=[
-            Player(
-                id="p1",
-                username="Descent",
-                type="ai",
-                playerNumber=1,
-                isReady=True,
-                timeRemaining=600,
-                ringsInHand=18,
-                eliminatedRings=0,
-                territorySpaces=0,
-                aiDifficulty=5,
-            ),
-            Player(
-                id="p2",
-                username="MCTS",
-                type="ai",
-                playerNumber=2,
-                isReady=True,
-                timeRemaining=600,
-                ringsInHand=18,
-                eliminatedRings=0,
-                territorySpaces=0,
-                aiDifficulty=5,
-            ),
-        ],
-        currentPhase=GamePhase.RING_PLACEMENT,
-        currentPlayer=1,
-        moveHistory=[],
-        timeControl=TimeControl(initialTime=600, increment=0, type="blitz"),
-        gameStatus=GameStatus.ACTIVE,
-        createdAt=datetime.now(),
-        lastMoveAt=datetime.now(),
-        isRated=False,
-        maxPlayers=2,
-        totalRingsInPlay=36,
-        totalRingsEliminated=0,
-        victoryThreshold=18,  # RR-CANON-R061: ringsPerPlayer
-        territoryVictoryThreshold=33,
+def debug_game(model_path: str):
+    """Play a single game with verbose output."""
+    print(f"\n{'='*60}")
+    print(f"Debug game with: {model_path}")
+    print(f"{'='*60}\n")
+
+    state = create_initial_state(board_type=BoardType.SQUARE8, num_players=2)
+    engine = GameEngine()
+
+    # Create EBMO
+    config = EBMOConfig(use_direct_eval=True)
+    ebmo = EBMO_AI(
+        player_number=1,
+        config=AIConfig(difficulty=5),
+        model_path=model_path,
+        ebmo_config=config,
     )
 
+    # Random opponent
+    random_ai = AIFactory.create(AIType.RANDOM, 2, AIConfig(difficulty=1))
 
-def print_board_state(state: GameState):
-    print("\n=== Board State Dump ===")
-    print(f"Phase: {state.current_phase}")
-    print(f"Current Player: {state.current_player}")
-
-    p1 = next(p for p in state.players if p.player_number == 1)
-    p2 = next(p for p in state.players if p.player_number == 2)
-    print(f"P1 Rings in Hand: {p1.rings_in_hand}")
-    print(f"P2 Rings in Hand: {p2.rings_in_hand}")
-
-    print("\nStacks:")
-    for k, v in state.board.stacks.items():
-        print(f"  {k}: Player {v.controlling_player}, Height {v.stack_height}, Cap {v.cap_height}, Rings {v.rings}")
-
-    print("\nMarkers:")
-    for k, v in state.board.markers.items():
-        print(f"  {k}: Player {v.player}")
-
-    print("\nCollapsed:")
-    print(state.board.collapsed_spaces)
-    print("========================\n")
-
-
-def run_debug_game():
-    print("Running debug game: Descent (P1) vs MCTS (P2)")
-
-    # Use moderate think time
-    config = AIConfig(difficulty=5, randomness=0.1, thinkTime=500)
-
-    p1_ai = DescentAI(1, config)
-    p2_ai = MCTSAI(2, config)
-
-    state = create_initial_state()
-    move_count = 0
-
-    while state.game_status == GameStatus.ACTIVE and move_count < 200:
-        current_player = state.current_player
-        ai = p1_ai if current_player == 1 else p2_ai
-        ai_name = "Descent" if current_player == 1 else "MCTS"
-
-        print(f"Move {move_count + 1}: {ai_name} (P{current_player}) thinking...", end="", flush=True)
-
-        start_time = time.time()
-        try:
-            move = ai.select_move(state)
-        except Exception as e:
-            print(f"\nERROR in select_move: {e}")
-            import traceback
-
-            traceback.print_exc()
-            print_board_state(state)
-            return
-
-        duration = time.time() - start_time
-        print(f" Done ({duration:.2f}s)")
-
-        if not move:
-            print(f"\n!!! No move found for {ai_name} (P{current_player}) !!!")
-            print("Checking if GameEngine generates any moves...")
-            valid_moves = GameEngine.get_valid_moves(state, current_player)
-            print(f"GameEngine.get_valid_moves returned {len(valid_moves)} moves.")
-            if len(valid_moves) > 0:
-                print("First 3 valid moves:")
-                for m in valid_moves[:3]:
-                    print(f"  {m.type} to {m.to}")
-
-            print_board_state(state)
+    for move_num in range(50):
+        if state.winner is not None:
+            print(f"\n*** Game over! Winner: Player {state.winner} ***")
             break
 
-        try:
-            state = GameEngine.apply_move(state, move)
-            move_count += 1
-            print(f"  Applied: {move.type} to {move.to}")
-        except Exception as e:
-            print(f"\nERROR applying move: {e}")
-            import traceback
+        current = state.current_player
+        ai = ebmo if current == 1 else random_ai
+        ai_name = "EBMO" if current == 1 else "Random"
 
-            traceback.print_exc()
-            print_board_state(state)
+        # Get valid moves
+        valid_moves = ai.get_valid_moves(state)
+        if not valid_moves:
             break
 
-    print(f"Game ended. Winner: {state.winner}")
+        # Show energy distribution for EBMO by move type
+        if current == 1:
+            energies = ebmo.get_move_energies(state, valid_moves)
+            
+            # Group by move type
+            by_type = {}
+            for move, energy_val in zip(valid_moves, energies.values()):
+                mtype = move.type.value
+                if mtype not in by_type:
+                    by_type[mtype] = []
+                by_type[mtype].append(energy_val)
+            
+            print(f"\nMove {move_num+1} (Player {current} - {ai_name})")
+            print(f"  Valid moves by type (min energy):")
+            for mtype, vals in sorted(by_type.items(), key=lambda x: min(x[1])):
+                print(f"    {mtype}: {min(vals):.4f} (count={len(vals)})")
+
+        move = ai.select_move(state)
+        if move is None:
+            break
+
+        # Show selected move
+        move_desc = f"{move.type.value}"
+        if move.from_pos:
+            move_desc += f" from ({move.from_pos.x},{move.from_pos.y})"
+        if move.to:
+            move_desc += f" to ({move.to.x},{move.to.y})"
+
+        if current == 1:
+            print(f"  Selected: {move_desc}")
+        else:
+            print(f"Move {move_num+1} (P{current} {ai_name}): {move_desc}")
+
+        state = engine.apply_move(state, move)
+
+    print(f"\nGame ended. Winner: {state.winner}")
 
 
 if __name__ == "__main__":
-    run_debug_game()
+    debug_game("models/ebmo/ebmo_square8_epoch69.pt")

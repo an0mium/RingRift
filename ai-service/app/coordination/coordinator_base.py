@@ -766,7 +766,7 @@ class CoordinatorRegistry:
     def register(
         self,
         coordinator: CoordinatorBase,
-        shutdown_priority: int = 0,
+        _shutdown_priority: int = 0,
     ) -> None:
         """Register a coordinator with the registry.
 

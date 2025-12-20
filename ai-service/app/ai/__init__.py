@@ -22,6 +22,8 @@ Architecture (December 2025):
 - mcts_ai.py: Monte Carlo Tree Search
 - descent_ai.py: Neural network + MCTS hybrid
 - gumbel_mcts_ai.py: Gumbel-Top-k MCTS (AlphaZero-style)
+- gmo_ai.py: Gradient Move Optimization (experimental)
+- ig_gmo.py: Information-Gain GMO (research)
 - neural_net.py: Neural network models
 - nnue.py: NNUE evaluation (incrementally updated)
 """
@@ -60,6 +62,7 @@ _AI_CLASSES = {
     "PolicyOnlyAI": "app.ai.policy_only_ai",
     "GMOAI": "app.ai.gmo_ai",
     "EBMOAI": "app.ai.ebmo_ai",
+    "IGGMO": "app.ai.ig_gmo",
 }
 
 
@@ -107,4 +110,5 @@ __all__ = [
     "PolicyOnlyAI",
     "GMOAI",
     "EBMOAI",
+    "IGGMO",
 ]

@@ -684,7 +684,7 @@ class UnifiedTrainingOrchestrator:
             self._epoch = progress.get("epoch", 0)
             logger.info(f"[Orchestrator] Resumed from step {self._step}, epoch {self._epoch}")
 
-    def _auto_tune_batch_size(self, torch_module) -> None:
+    def _auto_tune_batch_size(self, _torch_module) -> None:
         """Auto-tune batch size via GPU profiling.
 
         Uses binary search with actual forward/backward passes to find the

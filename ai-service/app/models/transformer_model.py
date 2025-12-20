@@ -271,7 +271,7 @@ if TORCH_AVAILABLE:
         def forward(
             self,
             x: torch.Tensor,
-            return_attention: bool = False
+            _return_attention: bool = False
         ) -> Tuple[torch.Tensor, torch.Tensor]:
             """
             Forward pass.

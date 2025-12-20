@@ -233,6 +233,13 @@ class EBMO_AI(BaseAI):
             # Encode all legal moves for projection
             legal_embeddings = self._encode_legal_moves(valid_moves)
 
+        # Check if we should use direct evaluation (skip gradient descent)
+        use_direct_eval = getattr(self.ebmo_config, 'use_direct_eval', False)
+
+        if use_direct_eval:
+            # Direct evaluation: just score all legal moves and pick lowest energy
+            return self._direct_eval_move(state_embed, valid_moves, legal_embeddings)
+
         # Multi-restart optimization
         best_move = valid_moves[0]
         best_energy = float('inf')
@@ -273,6 +280,35 @@ class EBMO_AI(BaseAI):
                 best_move = nearest_move
 
         return best_move
+
+    def _direct_eval_move(
+        self,
+        state_embed: torch.Tensor,
+        valid_moves: List[Move],
+        legal_embeddings: torch.Tensor,
+    ) -> Move:
+        """Directly evaluate energy on all legal moves (no gradient descent).
+
+        This is simpler and more reliable than gradient-based optimization
+        when the energy landscape allows escaping the legal manifold.
+
+        Args:
+            state_embed: Encoded state (state_embed_dim,)
+            valid_moves: List of legal moves
+            legal_embeddings: (N, action_embed_dim) legal move embeddings
+
+        Returns:
+            Move with lowest energy
+        """
+        with torch.no_grad():
+            # Compute energy for all legal moves at once
+            state_batch = state_embed.unsqueeze(0).expand(len(valid_moves), -1)
+            energies = self.network.compute_energy(state_batch, legal_embeddings)
+
+            # Find move with lowest energy
+            best_idx = energies.argmin().item()
+
+        return valid_moves[best_idx]
 
     def _encode_legal_moves(self, moves: List[Move]) -> torch.Tensor:
         """Encode all legal moves to embeddings.

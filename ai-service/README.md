@@ -94,6 +94,7 @@ curl http://localhost:8001/health
 | 11    | Ultimate    | Extended Gumbel MCTS (60s think time)   | 60s        |
 
 > **Note:** For large boards (square19, hexagonal), D3-4 use Descent + NN instead of Minimax (too slow).
+> **Experimental tiers:** EBMO, GMO, and IG-GMO are research AIs and are not part of the ladder. Use `AIFactory.create(AIType.IG_GMO, ...)` or tournament agent IDs like `ig_gmo` to run them.
 
 ## Board Support
 

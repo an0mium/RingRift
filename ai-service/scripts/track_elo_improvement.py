@@ -110,7 +110,7 @@ def show_elo_progression(conn: sqlite3.Connection, hours: int = 24):
         print(f"{r['hour']:20} | {r['peak_elo']:>8.1f}{delta:6} | {r['avg_elo']:>8.1f} | {r['models_active']:>6} | {r['updates']:>7}")
 
 
-def show_model_improvement(conn: sqlite3.Connection, model_prefix: str = "nn"):
+def show_model_improvement(conn: sqlite3.Connection, _model_prefix: str = "nn"):
     """Show improvement trajectory for neural net models."""
     print_section(f"NEURAL NET MODEL IMPROVEMENT")
 

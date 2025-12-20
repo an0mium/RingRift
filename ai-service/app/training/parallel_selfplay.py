@@ -34,6 +34,9 @@ from app.utils.paths import AI_SERVICE_ROOT
 
 logger = logging.getLogger(__name__)
 
+# Worker process global configuration (set by _init_worker)
+_worker_config: Dict[str, Any] = {}
+
 
 @dataclass
 class ParallelSelfplayConfig:

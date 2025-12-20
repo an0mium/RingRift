@@ -301,8 +301,8 @@ class DataCatalog:
         max_games: int = 100000,
         board_type: Optional[str] = None,
         num_players: Optional[int] = None,
-        prefer_recent: bool = True,
-        prefer_high_elo: bool = True,
+        _prefer_recent: bool = True,
+        _prefer_high_elo: bool = True,
     ) -> List[GameQualityMetadata]:
         """Get high-quality games for training.
 

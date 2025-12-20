@@ -3103,7 +3103,7 @@ class AuxiliaryValueTargets(nn.Module):
         self,
         hidden_dim: int,
         num_piece_types: int = 6,
-        max_mobility: int = 50,
+        _max_mobility: int = 50,
     ):
         super().__init__()
         self.hidden_dim = hidden_dim

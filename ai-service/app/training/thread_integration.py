@@ -377,8 +377,8 @@ def _checkpoint_error_handler(thread: SpawnedThread, error: Exception) -> None:
 # =============================================================================
 
 def migrate_to_supervised(
-    start_method: Callable[[], None],
-    stop_method: Callable[[], None],
+    _start_method: Callable[[], None],
+    _stop_method: Callable[[], None],
     thread_attr: str,
     running_attr: str,
     loop_method: Callable[[], None],

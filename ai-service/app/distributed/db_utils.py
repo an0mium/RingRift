@@ -128,7 +128,7 @@ def apply_pragmas(
         "quick": PragmaProfile.QUICK,
         "minimal": PragmaProfile.MINIMAL,
     }
-    pragmas = dict(profiles.get(profile, PragmaProfile.STANDARD))
+    pragmas = profiles.get(profile, PragmaProfile.STANDARD).copy()
 
     # Apply custom overrides
     if custom_pragmas:

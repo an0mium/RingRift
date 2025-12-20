@@ -962,7 +962,7 @@ def main():
         else:
             print("\n✓ No overfitting detected")
 
-    elif args.stats or True:  # Default to stats
+    else:  # Default to stats
         print_stats()
 
 

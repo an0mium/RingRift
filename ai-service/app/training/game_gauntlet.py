@@ -28,13 +28,33 @@ import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
+
+# Type hints for lazy-loaded modules
+if TYPE_CHECKING:
+    from app.models import BoardType, AIType, AIConfig, GameStatus
+    from app.ai.heuristic_ai import HeuristicAI
+    from app.ai.random_ai import RandomAI
+    from app.ai.policy_only_ai import PolicyOnlyAI
+    from app.training.generate_data import create_initial_state
+    from app.rules.default_engine import DefaultRulesEngine
 
 # Lazy imports to avoid circular dependencies and heavy imports at module load
 _torch_loaded = False
 _game_modules_loaded = False
+
+# Declare globals for lazy-loaded modules (actual imports happen in _ensure_game_modules)
+BoardType: Any = None
+AIType: Any = None
+AIConfig: Any = None
+GameStatus: Any = None
+HeuristicAI: Any = None
+RandomAI: Any = None
+PolicyOnlyAI: Any = None
+create_initial_state: Any = None
+DefaultRulesEngine: Any = None
 
 
 def _ensure_game_modules():

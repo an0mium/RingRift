@@ -179,8 +179,8 @@ def discover_training_data(
     num_players: Optional[int] = None,
     target_games: int = 100000,
     min_quality: float = 0.0,
-    prefer_recent: bool = True,
-    prefer_high_elo: bool = True,
+    _prefer_recent: bool = True,
+    _prefer_high_elo: bool = True,
 ) -> DiscoveryResult:
     """Perform full automatic data discovery for training.
 

@@ -457,6 +457,9 @@ class AIFactory:
         elif ai_type == AIType.GMO:
             from app.ai.gmo_ai import GMOAI
             ai_class = GMOAI
+        elif ai_type == AIType.IG_GMO:
+            from app.ai.ig_gmo import IGGMO
+            ai_class = IGGMO
         else:
             raise ValueError(f"Unsupported AI type: {ai_type}")
 
@@ -625,20 +628,21 @@ class AIFactory:
 
         # Parse built-in agent IDs
         agent_lower = agent_id.lower()
+        agent_key = agent_lower.replace("-", "_")
 
-        if agent_lower == "random":
+        if agent_key == "random":
             return cls.create_from_difficulty(1, player_number, rng_seed=rng_seed)
 
-        if agent_lower == "heuristic":
+        if agent_key == "heuristic":
             return cls.create_from_difficulty(2, player_number, rng_seed=rng_seed)
 
-        if agent_lower == "minimax":
+        if agent_key == "minimax":
             return cls.create_from_difficulty(3, player_number, rng_seed=rng_seed, nn_model_id=nn_model_id)
 
-        if agent_lower.startswith("mcts_"):
+        if agent_key.startswith("mcts_"):
             # Parse simulation count: mcts_100, mcts_500, etc.
             try:
-                sims = int(agent_lower.split("_")[1])
+                sims = int(agent_key.split("_")[1])
                 # Map simulation count to approximate difficulty
                 if sims <= 100:
                     difficulty = 5
@@ -664,15 +668,15 @@ class AIFactory:
                 pass
 
         # Policy-only AI (direct NN policy without search)
-        if agent_lower == "policy_only" or agent_lower.startswith("policy_"):
+        if agent_key == "policy_only" or agent_key.startswith("policy_"):
             from app.models import BoardType as BT
             bt = BT.SQUARE8 if board_type.lower() == "square8" else BT.HEXAGONAL
 
             # Parse optional temperature: policy_0.5, policy_1.0, etc.
             temperature = 1.0
-            if "_" in agent_lower:
+            if "_" in agent_key:
                 try:
-                    temperature = float(agent_lower.split("_")[1])
+                    temperature = float(agent_key.split("_")[1])
                 except (ValueError, IndexError):
                     pass
 
@@ -687,15 +691,15 @@ class AIFactory:
             return PolicyOnlyAI(player_number, config, bt)
 
         # Gumbel MCTS AI (sample-efficient search)
-        if agent_lower == "gumbel_mcts" or agent_lower.startswith("gumbel_"):
+        if agent_key == "gumbel_mcts" or agent_key.startswith("gumbel_"):
             from app.models import BoardType as BT
             bt = BT.SQUARE8 if board_type.lower() == "square8" else BT.HEXAGONAL
 
             # Parse optional budget: gumbel_100, gumbel_200, etc.
             budget = 150
-            if "_" in agent_lower and agent_lower != "gumbel_mcts":
+            if "_" in agent_key and agent_key != "gumbel_mcts":
                 try:
-                    parts = agent_lower.split("_")
+                    parts = agent_key.split("_")
                     if parts[1] != "mcts":
                         budget = int(parts[1])
                 except (ValueError, IndexError):
@@ -712,7 +716,7 @@ class AIFactory:
             return GumbelMCTSAI(player_number, config, bt)
 
         # EBMO AI (Energy-Based Move Optimization)
-        if agent_lower == "ebmo" or agent_lower.startswith("ebmo_"):
+        if agent_key == "ebmo" or agent_key.startswith("ebmo_"):
             # Parse optional model path: ebmo_modelpath
             model_path = None
             if "_" in agent_lower:
@@ -732,7 +736,7 @@ class AIFactory:
             return EBMO_AI(player_number, config, model_path=model_path)
 
         # GMO AI (Gradient Move Optimization - entropy-guided gradient ascent)
-        if agent_lower == "gmo" or agent_lower.startswith("gmo_"):
+        if agent_key == "gmo" or agent_key.startswith("gmo_"):
             config = AIConfig(
                 difficulty=6,
                 rng_seed=rng_seed,
@@ -741,17 +745,26 @@ class AIFactory:
             from app.ai.gmo_ai import GMOAI
             return GMOAI(player_number, config)
 
-        if agent_lower.startswith("difficulty_") or agent_lower.startswith("level_"):
+        if agent_key == "ig_gmo" or agent_key.startswith("ig_gmo_"):
+            config = AIConfig(
+                difficulty=6,
+                rng_seed=rng_seed,
+                nn_model_id=nn_model_id,
+            )
+            from app.ai.ig_gmo import IGGMO
+            return IGGMO(player_number, config)
+
+        if agent_key.startswith("difficulty_") or agent_key.startswith("level_"):
             # Parse difficulty level: difficulty_5, level_7, etc.
             try:
-                level = int(agent_lower.split("_")[1])
+                level = int(agent_key.split("_")[1])
                 return cls.create_from_difficulty(level, player_number, rng_seed=rng_seed, nn_model_id=nn_model_id)
             except (ValueError, IndexError):
                 pass
 
         # Try parsing as AIType directly
         try:
-            ai_type = AIType(agent_lower)
+            ai_type = AIType(agent_key)
             profile = get_difficulty_profile(5)  # Default to mid difficulty
             config = AIConfig(
                 difficulty=5,

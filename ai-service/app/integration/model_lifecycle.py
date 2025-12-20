@@ -1455,7 +1455,7 @@ def integrate_with_p2p(
 
 def integrate_with_pipeline(
     manager: ModelLifecycleManager,
-    pipeline_orchestrator: Any
+    _pipeline_orchestrator: Any
 ) -> None:
     """
     Integrate lifecycle manager with pipeline orchestrator.
