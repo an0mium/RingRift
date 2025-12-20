@@ -131,9 +131,13 @@ class BatchGameState:
         if device is None:
             device = get_device()
 
-        # Determine starting rings based on board size
+        # Determine starting rings based on board type or size
         if rings_per_player is None:
-            if board_size <= 8:
+            if board_type == "hexagonal":
+                rings_per_player = 96  # Canonical hex ring count
+            elif board_type == "square19":
+                rings_per_player = 72  # 19x19 ring count
+            elif board_size <= 8:
                 rings_per_player = 18
             elif board_size <= 13:
                 rings_per_player = 24
@@ -151,7 +155,8 @@ class BatchGameState:
             is_collapsed=torch.zeros((batch_size, board_size, board_size), dtype=torch.bool, device=device),
 
             # Player state (index 0 unused, 1-4 for players)
-            rings_in_hand=torch.zeros((batch_size, num_players + 1), dtype=torch.int8, device=device),
+            # Note: rings_in_hand uses int32 because MPS requires it for index_put_ with accumulate=True
+            rings_in_hand=torch.zeros((batch_size, num_players + 1), dtype=torch.int32, device=device),
             territory_count=torch.zeros((batch_size, num_players + 1), dtype=torch.int32, device=device),
             is_eliminated=torch.zeros((batch_size, num_players + 1), dtype=torch.bool, device=device),
             eliminated_rings=torch.zeros((batch_size, num_players + 1), dtype=torch.int32, device=device),
@@ -235,12 +240,7 @@ class BatchGameState:
         if device is None:
             device = get_device()
 
-        from app.models import BoardType
-
-        board_size = game_state.board.size
-        num_players = game_state.rules.player_count
-
-        # Use from_game_states for the actual conversion
+        # Delegate to from_game_states for the actual conversion
         return cls.from_game_states([game_state], device, max_history_moves, lps_rounds_required)
 
     @classmethod
@@ -712,13 +712,16 @@ class BatchGameState:
             return "stalemate", tiebreaker
 
         # Check line victory (need to look at board state)
-        # This is a simplified check - actual line detection would need the full algorithm
+        # detect_lines_vectorized returns (in_line_mask, line_position_counts)
+        # where line_position_counts > 0 means the player has a line
         from app.ai.gpu_line_detection import detect_lines_vectorized
-        line_results = detect_lines_vectorized(self, self.board_size)
-        if line_results is not None:
-            has_line, line_lengths = line_results
-            if has_line[game_idx, winner].item():
+        try:
+            _, line_counts = detect_lines_vectorized(self, winner)
+            if line_counts[game_idx].item() > 0:
                 return "line", None
+        except Exception:
+            # Line detection may fail on edge cases, fall through to unknown
+            pass
 
         # Default fallback
         return "unknown", None
