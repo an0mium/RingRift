@@ -3377,6 +3377,10 @@ class GameEngine:
         """
         board = game_state.board
         region_keys = {p.to_key() for p in region.spaces}
+        from app.rules.elimination import (
+            EliminationContext,
+            is_stack_eligible_for_elimination,
+        )
 
         if GameEngine._did_current_turn_include_recovery_slide(game_state, player_number):
             # RR-CANON-R114: recovery-context prerequisite is the existence of
@@ -3385,9 +3389,13 @@ class GameEngine:
             for stack in board.stacks.values():
                 if stack.position.to_key() in region_keys:
                     continue
-                if stack.stack_height <= 1:
-                    continue
-                if player_number in (stack.rings[:-1] or []):
+                eligibility = is_stack_eligible_for_elimination(
+                    rings=stack.rings,
+                    controlling_player=stack.controlling_player,
+                    context=EliminationContext.RECOVERY,
+                    player=player_number,
+                )
+                if eligibility.eligible:
                     return True
             return False
 
@@ -3403,22 +3411,20 @@ class GameEngine:
             # No stacks outside region - cannot process
             return False
 
-        if len(stacks_outside) > 1:
-            # Multiple stacks outside - player will have stacks remaining after
-            # eliminating from one (RR-CANON-R143)
-            return True
+        # RR-CANON-R145: any controlled stack outside the region is eligible
+        # (including height-1). Delegate to the canonical eligibility helper
+        # so Python stays aligned with TS elimination rules.
+        for stack in stacks_outside:
+            eligibility = is_stack_eligible_for_elimination(
+                rings=stack.rings,
+                controlling_player=stack.controlling_player,
+                context=EliminationContext.TERRITORY,
+                player=player_number,
+            )
+            if eligibility.eligible:
+                return True
 
-        # Exactly one stack outside - check if the stack is a "singleton" (height-1).
-        # Per RR-CANON-R143 and observed TS parity: a player cannot process a
-        # disconnected region if their only eligible stack is a single-ring stack
-        # (stackHeight=1), as self-elimination would leave them with no stacks.
-        # However, if the only stack has stackHeight >= 2, processing IS allowed
-        # even if self-elimination would eliminate the entire stack.
-        only_stack = stacks_outside[0]
-        stack_height = only_stack.stack_height or 0
-
-        # Singleton stacks (stackHeight=1) cannot be the only elimination target
-        return stack_height >= 2
+        return False
 
     @staticmethod
     def _get_movement_moves(
