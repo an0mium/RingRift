@@ -123,7 +123,7 @@ def play_game(
     move_count = 0
     game_start = time.time()
     last_progress = game_start
-    moves_collected: list[Move] = [] if collect_moves else []
+    moves_collected: list[Move] = []
 
     while state.game_status == GameStatus.ACTIVE and move_count < max_moves:
         curr_player = state.current_player

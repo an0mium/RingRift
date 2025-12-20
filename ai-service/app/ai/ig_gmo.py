@@ -201,12 +201,12 @@ class GNNStateEncoder(nn.Module):
         # GNN layers
         self.gnn_layers = nn.ModuleList([
             GraphAttentionLayer(
-                hidden_dim if i == 0 else hidden_dim,
+                hidden_dim,
                 hidden_dim,
                 num_heads=num_heads,
                 dropout=dropout,
             )
-            for i in range(num_layers)
+            for _ in range(num_layers)
         ])
 
         # Layer norms

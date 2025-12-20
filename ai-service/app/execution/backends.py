@@ -804,7 +804,7 @@ class SSHBackend(OrchestratorBackend):
 
         # Config key for naming
         config_key = f"{board_type}_{num_players}p"
-        board_prefix = board_type[:3] if board_type.startswith("square") else board_type[:3]
+        board_prefix = board_type[:3]
         if board_type == "square8":
             board_prefix = "sq8"
         elif board_type == "square19":
