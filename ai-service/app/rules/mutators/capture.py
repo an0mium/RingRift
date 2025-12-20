@@ -26,5 +26,5 @@ class CaptureMutator(Mutator):
             return
 
         # Align all GameState fields with the canonical engine result.
-        for field_name in state.model_fields:
+        for field_name in type(state).model_fields:
             setattr(state, field_name, getattr(next_state, field_name))

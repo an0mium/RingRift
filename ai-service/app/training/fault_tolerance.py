@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Optional, TypeVar
 
 from app.utils.checksum_utils import compute_file_checksum
+from app.utils.torch_utils import safe_load_checkpoint
 
 logger = logging.getLogger(__name__)
 
@@ -944,7 +945,7 @@ class _LegacyCheckpointManager:
         if computed_hash != metadata.file_hash:
             logger.warning(f"Checkpoint hash mismatch for {metadata.checkpoint_id}")
 
-        checkpoint_data = torch.load(file_path, map_location='cpu')
+        checkpoint_data = safe_load_checkpoint(file_path, map_location='cpu', warn_on_unsafe=False)
         checkpoint_data['metadata'] = metadata
 
         return checkpoint_data

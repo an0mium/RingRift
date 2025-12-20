@@ -30,6 +30,7 @@ import torch
 import torch.nn as nn
 
 from ..models import BoardType, GameState, Position
+from ..utils.torch_utils import safe_load_checkpoint
 from ..rules.mutable_state import MutableGameState
 
 logger = logging.getLogger(__name__)
@@ -384,7 +385,7 @@ class RingRiftNNUE(nn.Module):
         Returns:
             Quantized NNUE model
         """
-        checkpoint = torch.load(checkpoint_path, map_location="cpu")
+        checkpoint = safe_load_checkpoint(checkpoint_path, map_location="cpu", warn_on_unsafe=False)
 
         # Create base model
         hidden_dim = checkpoint.get("hidden_dim", 256)
@@ -741,7 +742,7 @@ def load_nnue_model(
 
     if model_path.exists():
         try:
-            checkpoint = torch.load(model_path, map_location=device)
+            checkpoint = safe_load_checkpoint(model_path, map_location=device, warn_on_unsafe=False)
             if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
                 state_dict = checkpoint["model_state_dict"]
                 arch_version = checkpoint.get("architecture_version", "v1.0.0")
@@ -1041,7 +1042,7 @@ class BatchNNUEEvaluator:
                     hidden_dim=256,
                     num_hidden_layers=2,
                 )
-                checkpoint = torch.load(model_path, map_location=self.device)
+                checkpoint = safe_load_checkpoint(model_path, map_location=self.device, warn_on_unsafe=False)
                 if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
                     self.model.load_state_dict(checkpoint["model_state_dict"])
                 else:

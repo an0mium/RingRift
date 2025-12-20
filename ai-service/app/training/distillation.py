@@ -35,6 +35,8 @@ from typing import Union
 
 logger = logging.getLogger(__name__)
 
+from app.utils.torch_utils import safe_load_checkpoint
+
 try:
     import torch
     import torch.nn as nn
@@ -369,7 +371,7 @@ def distill_checkpoint_ensemble(
     teachers = []
 
     for path in checkpoint_paths:
-        checkpoint = torch.load(path, map_location=device)
+        checkpoint = safe_load_checkpoint(path, map_location=device, warn_on_unsafe=False)
         # Assumes checkpoint has model_state_dict
         teacher = type(student_model)()  # Create same architecture
         teacher.load_state_dict(checkpoint["model_state_dict"])

@@ -38,6 +38,8 @@ Usage:
 
 from __future__ import annotations
 
+from app.utils.torch_utils import safe_load_checkpoint
+
 import copy
 import json
 import logging
@@ -183,13 +185,7 @@ class PBTWorker:
             return False
 
         try:
-            try:
-                import torch
-                checkpoint = torch.load(checkpoint_path, map_location="cpu")
-            except ImportError:
-                import pickle
-                with open(checkpoint_path, "rb") as f:
-                    checkpoint = pickle.load(f)
+            checkpoint = safe_load_checkpoint(checkpoint_path, map_location="cpu", warn_on_unsafe=False)
 
             self.hyperparameters = checkpoint["hyperparameters"]
             self.performance = checkpoint["performance"]

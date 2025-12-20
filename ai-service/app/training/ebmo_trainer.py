@@ -38,6 +38,8 @@ from typing import Any
 
 import torch
 import torch.optim as optim
+
+from app.utils.torch_utils import safe_load_checkpoint
 from torch.utils.data import DataLoader
 
 from ..ai.ebmo_network import (
@@ -605,7 +607,7 @@ class EBMOTrainer:
 
     def _load_checkpoint(self, path: str) -> None:
         """Load training checkpoint."""
-        checkpoint = torch.load(path, map_location=self.device)
+        checkpoint = safe_load_checkpoint(path, map_location=self.device, warn_on_unsafe=False)
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])

@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 # Use shared lazy torch import; extend with distributed modules
 from app.training.utils import get_torch
+from app.utils.torch_utils import safe_load_checkpoint
 
 _dist = None
 _DDP = None
@@ -622,7 +623,7 @@ class UnifiedDistributedTrainer:
 
         latest = checkpoints[-1]
         try:
-            checkpoint = torch.load(latest, map_location=self._device)
+            checkpoint = safe_load_checkpoint(latest, map_location=self._device, warn_on_unsafe=False)
             self._original_model.load_state_dict(checkpoint["model_state_dict"])
             self._step = checkpoint.get("step", 0)
             self._epoch = checkpoint.get("epoch", 0)

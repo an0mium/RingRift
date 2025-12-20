@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 # Use shared lazy torch import to prevent OOM
 from app.training.utils import get_torch
+from app.utils.torch_utils import safe_load_checkpoint
 
 # Event emission for checkpoint observability (optional)
 try:
@@ -565,7 +566,7 @@ class UnifiedCheckpointManager:
             if computed_hash != metadata.file_hash:
                 logger.warning(f"Checkpoint hash mismatch for {metadata.checkpoint_id}")
 
-        checkpoint_data = torch.load(file_path, map_location=device)
+        checkpoint_data = safe_load_checkpoint(file_path, map_location=device, warn_on_unsafe=False)
         checkpoint_data['metadata'] = metadata
 
         # Validate architecture version if requested

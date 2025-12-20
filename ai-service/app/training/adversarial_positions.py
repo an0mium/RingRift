@@ -34,6 +34,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from app.utils.torch_utils import safe_load_checkpoint
+
 import numpy as np
 
 from app.utils.checksum_utils import compute_bytes_checksum
@@ -129,10 +131,9 @@ class PositionEvaluator:
     def _load_models(self):
         """Load models for evaluation."""
         try:
-            import torch
             for path in self.model_paths:
                 if path.exists():
-                    model = torch.load(path, map_location=self.device)
+                    model = safe_load_checkpoint(path, map_location=self.device, warn_on_unsafe=False)
                     if hasattr(model, "eval"):
                         model.eval()
                     self.models.append(model)

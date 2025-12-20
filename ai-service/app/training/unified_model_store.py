@@ -42,6 +42,8 @@ Usage:
 from __future__ import annotations
 
 import logging
+
+from app.utils.torch_utils import safe_load_checkpoint
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -441,9 +443,8 @@ class UnifiedModelStore:
             model_info = self.get(model_id, version)
             if model_info and model_info.model_path:
                 try:
-                    import torch
                     self._models_loaded += 1
-                    return torch.load(model_info.model_path, map_location=device)
+                    return safe_load_checkpoint(model_info.model_path, map_location=device, warn_on_unsafe=False)
                 except Exception as e:
                     logger.error(f"[UnifiedModelStore] Direct load failed: {e}")
             return None

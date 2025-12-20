@@ -32,5 +32,5 @@ class PlacementMutator(Mutator):
         outcome = apply_place_ring_py(working_state, move)
 
         next_state = outcome.next_state
-        for field_name in state.model_fields:
+        for field_name in type(state).model_fields:
             setattr(state, field_name, getattr(next_state, field_name))
