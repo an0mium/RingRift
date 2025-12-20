@@ -254,9 +254,11 @@ class TestApplyNoActionMovesBatch:
         assert state.move_count[1].item() == 1
 
         # Check history recorded correctly
-        assert state.move_history[0, 0, 0].item() == MoveType.NO_ACTION
+        # December 2025: Canonical phases use phase-specific NO_*_ACTION types
+        # Default phase is RING_PLACEMENT → NO_PLACEMENT_ACTION
+        assert state.move_history[0, 0, 0].item() == MoveType.NO_PLACEMENT_ACTION
         assert state.move_history[0, 0, 1].item() == 1  # player 1
-        assert state.move_history[1, 0, 0].item() == MoveType.NO_ACTION
+        assert state.move_history[1, 0, 0].item() == MoveType.NO_PLACEMENT_ACTION
         assert state.move_history[1, 0, 1].item() == 2  # player 2
 
     def test_no_action_respects_mask(self):

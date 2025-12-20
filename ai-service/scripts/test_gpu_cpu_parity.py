@@ -61,9 +61,9 @@ def advance_cpu_through_phases(state, target_phase_str: str, target_player: int)
             state = GameEngine.apply_move(state, synth)
         else:
             # CPU bug workaround: CPU allows self-captures (capturing own stacks) which
-            # are invalid. If we're stuck in capture phase with only self-captures available,
-            # manually apply skip_capture to advance.
-            if current_phase == 'capture':
+            # are invalid. If we're stuck in capture/chain_capture phase with only
+            # self-captures available, we need to skip past them.
+            if current_phase in ('capture', 'chain_capture'):
                 valid = GameEngine.get_valid_moves(state, state.current_player)
                 skip_moves = [v for v in valid if v.type == MoveType.SKIP_CAPTURE]
                 captures = [v for v in valid if v.type in (MoveType.OVERTAKING_CAPTURE, MoveType.CONTINUE_CAPTURE_SEGMENT)]
@@ -77,10 +77,16 @@ def advance_cpu_through_phases(state, target_phase_str: str, target_player: int)
                             all_self_captures = False
                             break
 
-                if all_self_captures and skip_moves:
-                    # Apply skip_capture to advance past invalid capture options
-                    state = GameEngine.apply_move(state, skip_moves[0])
-                    continue
+                if all_self_captures:
+                    if skip_moves:
+                        # Apply skip_capture to advance past invalid capture options
+                        state = GameEngine.apply_move(state, skip_moves[0])
+                        continue
+                    elif current_phase == 'chain_capture':
+                        # In chain_capture with only self-captures and no skip option,
+                        # force transition to line_processing phase
+                        state.current_phase = GamePhase.LINE_PROCESSING
+                        continue
 
             # No bookkeeping available and no workaround applied
             break
@@ -174,9 +180,22 @@ def test_seed(seed: int) -> tuple[int, int, int, int, list]:
 
 
 def main():
-    # Test multiple seeds
+    import argparse
+    parser = argparse.ArgumentParser(description='Test GPU-CPU parity')
+    parser.add_argument('--seeds', type=int, default=6, help='Number of seeds to test')
+    parser.add_argument('--start-seed', type=int, default=42, help='Starting seed value')
+    args = parser.parse_args()
+
+    # Generate seeds: either use default list or generate random ones
+    if args.seeds <= 6:
+        seeds = [42, 123, 456, 789, 1000, 2024][:args.seeds]
+    else:
+        import random
+        random.seed(args.start_seed)
+        seeds = [random.randint(0, 100000) for _ in range(args.seeds)]
+
     results = []
-    for seed in [42, 123, 456, 789, 1000, 2024]:
+    for seed in seeds:
         moves, exported, skipped, error_count, errors = test_seed(seed)
         status = 'PASS' if error_count == 0 else 'FAIL'
         results.append((seed, moves, exported, skipped, status, error_count))
