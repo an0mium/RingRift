@@ -71,7 +71,7 @@ def collect_samples_from_game(
     gmo_ai: GMOAI,
     opponent_ai,
     game_id: int,
-    max_moves: int = 300
+    max_moves: int = 500
 ) -> List[CalibrationSample]:
     """Play a game and collect calibration samples.
 
@@ -88,15 +88,22 @@ def collect_samples_from_game(
 
     while state.game_status.value == "active" and move_idx < max_moves:
         current_player = state.current_player
+        legal_moves = GameEngine.get_valid_moves(state, current_player)
+
+        if not legal_moves:
+            # Check for bookkeeping move requirements (NO_LINE_ACTION, etc.)
+            requirement = GameEngine.get_phase_requirement(state, current_player)
+            if requirement is not None:
+                move = GameEngine.synthesize_bookkeeping_move(requirement, state)
+                if move:
+                    state = GameEngine.apply_move(state, move)
+                    move_idx += 1
+                    continue
+            # No valid moves and no bookkeeping required - game stuck
+            break
 
         if current_player == gmo_player_num:
             # Get GMO's predictions with uncertainty
-            legal_moves = GameEngine.get_valid_moves(state, current_player)
-
-            if not legal_moves:
-                break
-
-            # Get all move evaluations with uncertainty
             predictions = gmo_ai.get_move_predictions_with_uncertainty(
                 state, legal_moves
             )
@@ -119,6 +126,12 @@ def collect_samples_from_game(
         else:
             # Opponent's turn
             move = opponent_ai.select_move(state)
+
+        if move is None:
+            # Check for bookkeeping move requirements
+            requirement = GameEngine.get_phase_requirement(state, current_player)
+            if requirement is not None:
+                move = GameEngine.synthesize_bookkeeping_move(requirement, state)
 
         if move is None:
             break

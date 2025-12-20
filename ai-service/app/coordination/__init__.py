@@ -1315,7 +1315,6 @@ async def _emit_coordinator_heartbeats(interval_seconds: float = 30.0) -> None:
     import time as _time
 
     logger = logging.getLogger(__name__)
-    global _heartbeat_running
 
     _heartbeat_running = True
     logger.info(f"[HeartbeatManager] Started with {interval_seconds}s interval")
@@ -1414,7 +1413,6 @@ def stop_coordinator_heartbeats() -> None:
 
 def is_heartbeat_running() -> bool:
     """Check if heartbeat manager is running."""
-    global _heartbeat_task
     return _heartbeat_task is not None and not _heartbeat_task.done()
 
 

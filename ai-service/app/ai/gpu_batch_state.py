@@ -268,7 +268,7 @@ class BatchGameState:
             raise ValueError("game_states list cannot be empty")
 
         from app.models import BoardType
-        from app.rules.core import get_ring_count
+        from app.rules.core import get_rings_per_player
 
         batch_size = len(game_states)
         first_game = game_states[0]
@@ -287,7 +287,7 @@ class BatchGameState:
             board_type_str = "square8"
 
         # Get rings per player from rules
-        rings_per_player = get_ring_count(board_type_enum, num_players)
+        rings_per_player = get_rings_per_player(board_type_enum)
 
         # Create empty batch
         batch = cls.create_batch(

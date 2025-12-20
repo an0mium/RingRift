@@ -591,7 +591,6 @@ def bootstrap_coordination(
     Returns:
         Status dict with initialization results
     """
-    global _state
 
     if _state.initialized:
         logger.warning("[Bootstrap] Coordination already initialized, skipping")
@@ -680,7 +679,6 @@ def shutdown_coordination() -> Dict[str, Any]:
     Returns:
         Status dict with shutdown results
     """
-    global _state
 
     if not _state.initialized:
         logger.warning("[Bootstrap] Coordination not initialized, nothing to shutdown")
@@ -808,7 +806,6 @@ def get_bootstrap_status() -> Dict[str, Any]:
     Returns:
         Status dict with initialization details
     """
-    global _state
 
     coordinators_summary = {
         name: {
@@ -841,7 +838,6 @@ def is_coordination_ready() -> bool:
     Returns:
         True if at least the core coordinators are initialized
     """
-    global _state
 
     if not _state.initialized:
         return False
@@ -867,7 +863,6 @@ def reset_bootstrap_state() -> None:
 
     WARNING: Only use in tests or development.
     """
-    global _state
     _state = BootstrapState()
     logger.warning("[Bootstrap] Bootstrap state reset")
 

@@ -40,23 +40,11 @@ import numpy as np
 import torch
 
 from .gpu_batch import get_device
-from .gpu_game_types import (
-    get_int_dtype,
-    GameStatus,
-    MoveType,
-    GamePhase,
-    get_required_line_length,  # Backwards-compatible re-export
-)
-from .gpu_line_detection import (
-    detect_lines_vectorized,
-    process_lines_batch,
-)
-from .gpu_territory import (
-    compute_territory_batch,
-)
+from .gpu_game_types import GameStatus, GamePhase
+from .gpu_line_detection import detect_lines_vectorized, process_lines_batch
+from .gpu_territory import compute_territory_batch
 from .gpu_move_generation import (
     BatchMoves,
-    _empty_batch_moves,  # Backwards-compatible re-export
     generate_placement_moves_batch,
     generate_movement_moves_batch,
     generate_capture_moves_batch,
@@ -64,20 +52,14 @@ from .gpu_move_generation import (
     apply_single_chain_capture,
     generate_recovery_moves_batch,
 )
-from .gpu_heuristic import evaluate_positions_batch  # Backwards-compatible re-export
-from .gpu_selection import (
-    select_moves_vectorized,
-    select_moves_heuristic,
-)
-from .gpu_batch_state import BatchGameState  # Backwards-compatible re-export
+from .gpu_selection import select_moves_vectorized, select_moves_heuristic
+from .gpu_batch_state import BatchGameState
 from .gpu_move_application import (
     apply_recovery_moves_vectorized,
     apply_no_action_moves_batch,
     apply_placement_moves_batch,
     apply_movement_moves_batch,
     apply_capture_moves_batch,
-    apply_capture_moves_vectorized,
-    apply_movement_moves_vectorized,
 )
 from .shadow_validation import (
     ShadowValidator, create_shadow_validator,
@@ -86,7 +68,7 @@ from .shadow_validation import (
 )
 
 if TYPE_CHECKING:
-    from app.models import BoardType, GameState
+    from app.models import BoardType
     from app.ai.nnue_policy import RingRiftNNUEWithPolicy
 
 logger = logging.getLogger(__name__)
@@ -443,7 +425,6 @@ class ParallelGameRunner:
             # === Batched Feature Extraction ===
             # Extract features for all active games in one pass using vectorized ops
             feature_dim = get_feature_dim(board_type)
-            num_active = len(games_with_moves)
             features_batch = self._extract_features_batched(
                 games_with_moves, board_type, feature_dim, device
             )
@@ -856,9 +837,6 @@ class ParallelGameRunner:
         # per call, which breaks RR-CANON-R172 round-based LPS timing and makes
         # tests non-deterministic.)
         phase_snapshot = self.state.current_phase.clone()
-
-        device = self.device
-        batch_size = self.batch_size
 
         # Process each phase type separately based on current phase
         # Games may be in different phases, so we handle each group

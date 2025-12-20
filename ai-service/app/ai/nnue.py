@@ -42,7 +42,6 @@ _NNUE_CACHE: Dict[Tuple[str, str], nn.Module] = {}
 
 def clear_nnue_cache() -> None:
     """Clear the NNUE model cache and release memory."""
-    global _NNUE_CACHE
     cache_size = len(_NNUE_CACHE)
 
     for model in _NNUE_CACHE.values():
@@ -720,7 +719,6 @@ def load_nnue_model(
     Returns:
         Loaded NNUE model or None if unavailable
     """
-    global _NNUE_CACHE
 
     # Determine device
     if device is None:

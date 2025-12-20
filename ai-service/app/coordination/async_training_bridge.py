@@ -27,9 +27,7 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from datetime import datetime
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
@@ -38,20 +36,12 @@ from app.coordination.training_coordinator import (
     TrainingJob,
     get_training_coordinator,
 )
-from app.coordination.stage_events import (
-    StageEvent,
-    StageCompletionResult,
-    get_event_bus,
-)
 
 # Use centralized event emitters (December 2025)
 from app.coordination.event_emitters import emit_training_complete
 
 # Use centralized executor pool (December 2025)
-from app.coordination.async_bridge_manager import (
-    get_bridge_manager,
-    get_shared_executor,
-)
+from app.coordination.async_bridge_manager import get_bridge_manager
 
 logger = logging.getLogger(__name__)
 

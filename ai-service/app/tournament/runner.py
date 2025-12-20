@@ -376,7 +376,7 @@ class TournamentRunner:
     def _create_ai_instance(
         self,
         agent: AIAgent,
-        board_type: str,
+        board_type: BoardType,
         num_players: int,
     ) -> Any:
         """Create an AI instance based on agent type.
@@ -389,7 +389,8 @@ class TournamentRunner:
         Returns:
             An AI instance that can provide moves via get_best_move()
         """
-        from app.ai.minimax_ai import MinimaxAI
+        # Convert BoardType to string for APIs that expect string
+        board_type_str = board_type.value if hasattr(board_type, 'value') else str(board_type)
 
         if agent.agent_type == AgentType.NEURAL:
             # Detect model type to choose the right agent class
@@ -401,7 +402,7 @@ class TournamentRunner:
                     from app.ai.nnue_policy import NNUEPolicyAgent
                     return NNUEPolicyAgent(
                         model_path=agent.model_path,
-                        board_type=board_type,
+                        board_type=board_type_str,
                         num_players=num_players,
                     )
                 except Exception as e:
@@ -409,27 +410,23 @@ class TournamentRunner:
 
             elif model_type == "cnn":
                 try:
+                    from pathlib import Path
                     from app.ai.neural_net import NeuralNetAI
-                    from app.ai.config import AIConfig, AIMode
+                    from app.models import AIConfig
 
-                    # Parse board type for NeuralNetAI
-                    board_type_map = {
-                        "hex8": BoardType.HEX8,
-                        "hexagonal": BoardType.HEXAGONAL,
-                        "square8": BoardType.SQUARE8,
-                        "square19": BoardType.SQUARE19,
-                    }
-                    bt = board_type_map.get(board_type.lower(), BoardType.HEX8)
+                    # Extract model ID from path (e.g., "models/ringrift_hex8_2p.pth" -> "ringrift_hex8_2p")
+                    model_id = Path(agent.model_path).stem
 
                     # Create config for NeuralNetAI
                     config = AIConfig(
-                        mode=AIMode.NEURAL,
-                        nn_model_path=agent.model_path,
+                        difficulty=5,  # Default difficulty
+                        nn_model_id=model_id,
                         allow_fresh_weights=False,
                     )
 
                     # Create CNN agent and wrap to adapt interface
-                    neural_ai = NeuralNetAI(config, board_type=bt)
+                    # player_number=0 since we're using policy network, not turn-based eval
+                    neural_ai = NeuralNetAI(player_number=0, config=config, board_type=board_type)
 
                     # Wrapper to adapt select_move to get_best_move interface
                     class CNNAgentWrapper:
@@ -443,15 +440,15 @@ class TournamentRunner:
                     return CNNAgentWrapper(neural_ai)
                 except Exception as e:
                     logger.warning(f"Failed to load CNN agent: {e}")
+                    import traceback
+                    traceback.print_exc()
 
-            # Fallback to minimax if neural loading fails
+            # Fallback to heuristic if neural loading fails
             logger.warning(
-                f"Could not load neural model for {agent.agent_id}, falling back to minimax"
+                f"Could not load neural model for {agent.agent_id}, falling back to heuristic"
             )
-            return MinimaxAI(
-                weights=agent.weights,
-                max_depth=agent.search_depth,
-            )
+            return self._create_heuristic_agent(agent)
+
         elif agent.agent_type == AgentType.RANDOM:
             # Random agent - returns random legal move
             class RandomAgent:
@@ -459,28 +456,53 @@ class TournamentRunner:
                     import random
                     return random.choice(legal_moves) if legal_moves else None
             return RandomAgent()
+
         elif agent.agent_type == AgentType.MCTS:
             # MCTS agent
             try:
-                from app.ai.mcts import MCTSSearch
-                return MCTSSearch(
-                    simulations=agent.mcts_simulations,
-                    weights=agent.weights,
-                )
-            except ImportError:
-                logger.warning(
-                    f"MCTSSearch not available, falling back to minimax for {agent.agent_id}"
-                )
-                return MinimaxAI(
-                    weights=agent.weights,
-                    max_depth=agent.search_depth,
-                )
+                from app.ai.mcts_ai import MCTSAI
+                from app.models import AIConfig
+
+                config = AIConfig(difficulty=agent.search_depth + 2)
+                mcts_ai = MCTSAI(player_number=0, config=config)
+
+                # Wrapper to adapt select_move to get_best_move interface
+                class MCTSAgentWrapper:
+                    def __init__(self, ai):
+                        self._ai = ai
+
+                    def get_best_move(self, state, legal_moves):
+                        return self._ai.select_move(state)
+
+                return MCTSAgentWrapper(mcts_ai)
+            except ImportError as e:
+                logger.warning(f"MCTSAI not available: {e}")
+                return self._create_heuristic_agent(agent)
+
         else:
-            # Default to minimax
-            return MinimaxAI(
-                weights=agent.weights,
-                max_depth=agent.search_depth,
-            )
+            # Default to heuristic (minimax-like)
+            return self._create_heuristic_agent(agent)
+
+    def _create_heuristic_agent(self, agent: AIAgent) -> Any:
+        """Create a heuristic-based AI agent.
+
+        Uses HeuristicAI which provides a simple evaluation-based move selector.
+        """
+        from app.ai.heuristic_ai import HeuristicAI
+        from app.models import AIConfig
+
+        config = AIConfig(difficulty=agent.search_depth + 2)
+        heuristic_ai = HeuristicAI(player_number=0, config=config)
+
+        # Wrapper to adapt select_move to get_best_move interface
+        class HeuristicAgentWrapper:
+            def __init__(self, ai):
+                self._ai = ai
+
+            def get_best_move(self, state, legal_moves):
+                return self._ai.select_move(state)
+
+        return HeuristicAgentWrapper(heuristic_ai)
 
     def _execute_match_local(
         self,
@@ -494,9 +516,8 @@ class TournamentRunner:
         """
         import time
 
-        from app.ai.minimax_ai import MinimaxAI
-        from app.board_manager import BoardManager
         from app.game_engine import GameEngine
+        from app.training.initial_state import create_initial_state
 
         start_time = time.time()
 
@@ -504,7 +525,7 @@ class TournamentRunner:
         self.scheduler.mark_match_started(match.match_id)
 
         # Initialize game
-        state = BoardManager.create_initial_state(
+        state = create_initial_state(
             board_type=match.board_type,
             num_players=match.num_players,
         )
@@ -523,7 +544,7 @@ class TournamentRunner:
             ai = ai_instances[current_player]
 
             # Get AI move
-            legal_moves = GameEngine.get_legal_moves(state)
+            legal_moves = GameEngine.get_valid_moves(state, current_player)
             if not legal_moves:
                 break
 

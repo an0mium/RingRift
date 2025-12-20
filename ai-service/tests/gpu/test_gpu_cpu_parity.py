@@ -232,13 +232,13 @@ class TestLineLengthParity:
         batch_state = BatchGameState.from_single_game(state, device)
 
         # Detect lines for player 1
-        lines = detect_lines_batch(batch_state, player=1)
+        # detect_lines_batch returns (positions_mask, line_count_per_game)
+        positions_mask, line_count = detect_lines_batch(batch_state, player=1)
 
         # Should be empty - 2 markers is not enough for 3-player (needs 3)
-        # lines is a (batch, height, width) boolean tensor; check if any cell has a line
-        assert not lines[0].any(), (
+        assert line_count[0].item() == 0, (
             f"GPU incorrectly detected line with only 2 markers in 3-player game. "
-            f"Line length should be 3, but detected lines at: {lines[0].nonzero()}"
+            f"Line length should be 3, but detected {line_count[0].item()} positions in lines."
         )
 
 

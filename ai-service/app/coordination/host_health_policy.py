@@ -479,7 +479,6 @@ def check_cluster_health(
     Returns:
         Tuple of (cluster_healthy: bool, details: Dict) with health summary
     """
-    global _cluster_health_cache
 
     # Load hosts if not provided
     if hosts is None:

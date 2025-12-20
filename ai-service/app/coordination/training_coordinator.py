@@ -555,7 +555,7 @@ class TrainingCoordinator:
 
             # Try async emit, fall back to sync
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 asyncio.create_task(bus.emit(result))
             except RuntimeError:
                 # No event loop running - run emit synchronously

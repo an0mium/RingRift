@@ -102,7 +102,6 @@ def _worker_init(config_dict: dict) -> None:
     if ai_service_root and ai_service_root not in sys.path:
         sys.path.insert(0, ai_service_root)
 
-    global _worker_config
     _worker_config = config_dict
 
 
@@ -119,7 +118,6 @@ def _generate_single_game(args: Tuple[int, int]) -> Optional[GameResult]:
     game_idx, base_seed = args
 
     # Access worker config
-    global _worker_config
     # Filter out internal keys before creating SelfplayConfig
     config_fields = {k: v for k, v in _worker_config.items() if not k.startswith('_')}
     config = SelfplayConfig(**config_fields)
