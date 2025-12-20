@@ -12,30 +12,32 @@ Goal: One authoritative view of job states and utilization across Slurm/Vast/P2P
 - Sync Slurm job states into the unified scheduler DB before reporting status.
 - Add backend-derived Slurm running/pending counts to status JSON.
 - Add `cluster_submit.py sync-jobs` to reconcile job states on a schedule.
+- Add best-effort Vast/P2P reconciliation and backend-derived counts.
+- Update status output + monitoring loop to surface backend counts.
+- Add a job-state sync daemon wrapper.
+- Add timestamps for job state transitions and unit tests for reconciliation.
 
 ### Next Tasks
 
-1. Add state transition timestamps in the unified DB.
-   - Set `started_at` when a job transitions to `running`.
-   - Set `finished_at` when a job transitions to terminal or `unknown`.
-2. Add best-effort reconciliation for non-Slurm backends.
-   - Vast: track instance running counts and mark stale jobs `unknown`.
-   - P2P: use `/pipeline/status` and job history to infer in-flight work.
-3. Extend the non-JSON status view to show backend-derived counts side-by-side.
-4. Add unit tests for Slurm state reconciliation to prevent regressions.
-5. Add a small daemon wrapper (or reuse `sync-jobs`) as the canonical reconciling loop
-   used by monitoring and orchestration scripts.
+1. Extend reconciliation to mark completed jobs explicitly when backend data allows it.
+2. Add integration tests for `cluster_submit.py status --json` alignment with backends.
+3. Wire the sync daemon into the default cluster startup flow.
 
 ## Lane 2: Canonical Data Pipeline Hardening
 
 Goal: Canonical data only enters training, everywhere.
 
-Tasks:
+### Completed
 
-1. Introduce a shared helper that validates DB names and runs canonical gates.
-2. Gate training entrypoints to canonical DBs and emit clear failure messages.
-3. Update `TRAINING_DATA_REGISTRY.md` and add health summary checks to automation.
-4. Add a small CLI to verify canonical status and provenance for a DB path.
+- Added shared canonical source helper in `app/training/canonical_sources.py`.
+- Updated dataset export entrypoints to enforce registry-backed canonical checks.
+- Consolidated `validate_canonical_training_sources.py` to use the shared helper.
+
+### Next Tasks
+
+1. Extend gating to any remaining DB-driven scripts not yet covered.
+2. Update `TRAINING_DATA_REGISTRY.md` and add health summary checks to automation.
+3. Add a small CLI to verify canonical status and provenance for a DB path.
 
 ## Lane 3: AI Determinism, Registry, and Correctness
 
