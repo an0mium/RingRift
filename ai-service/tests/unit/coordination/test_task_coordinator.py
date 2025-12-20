@@ -1377,7 +1377,11 @@ class TestUtilityFunctions:
             coord.limits.spawn_cooldown_seconds = 0
 
             result = can_spawn(TaskType.SELFPLAY, "node-1")
-            assert isinstance(result, bool)
+            # can_spawn returns (allowed: bool, reason: str) tuple
+            assert isinstance(result, tuple)
+            assert len(result) == 2
+            assert isinstance(result[0], bool)
+            assert isinstance(result[1], str)
         finally:
             if "RINGRIFT_COORDINATOR_DIR" in os.environ:
                 del os.environ["RINGRIFT_COORDINATOR_DIR"]
