@@ -47,12 +47,15 @@ logger = logging.getLogger(__name__)
 try:
     from app.distributed.circuit_breaker import (
         CircuitOpenError,
+        get_adaptive_timeout,
         get_operation_breaker,
     )
     HAS_CIRCUIT_BREAKER = True
 except ImportError:
     HAS_CIRCUIT_BREAKER = False
     CircuitOpenError = Exception
+    def get_adaptive_timeout(operation: str, host: str, default: float) -> float:
+        return default
 
 # Try to load from unified config, with fallback defaults
 try:
