@@ -448,14 +448,14 @@ class DynamicHostRegistry:
                 ssh_host = instance.get("ssh_host")
                 ssh_port = instance.get("ssh_port")
 
-                if ssh_host and ssh_port:
-                    if ssh_host != node.dynamic_host or ssh_port != node.dynamic_port:
-                        logger.info(f"Vast API: {node_id} IP updated to {ssh_host}:{ssh_port}")
-                        node.dynamic_host = ssh_host
-                        node.dynamic_port = ssh_port
-                        node.consecutive_failures = 0
-                        node.state = NodeState.UNKNOWN
-                        updated += 1
+                if (ssh_host and ssh_port
+                        and (ssh_host != node.dynamic_host or ssh_port != node.dynamic_port)):
+                    logger.info(f"Vast API: {node_id} IP updated to {ssh_host}:{ssh_port}")
+                    node.dynamic_host = ssh_host
+                    node.dynamic_port = ssh_port
+                    node.consecutive_failures = 0
+                    node.state = NodeState.UNKNOWN
+                    updated += 1
 
         if updated:
             self._save_state()

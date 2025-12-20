@@ -534,10 +534,10 @@ class UnifiedInventory:
             if node.retired:
                 continue
             # Consider idle if GPU < threshold and no selfplay/training jobs
-            if node.gpu_percent < gpu_threshold and node.selfplay_jobs == 0 and node.training_jobs == 0:
+            if (node.gpu_percent < gpu_threshold and node.selfplay_jobs == 0 and node.training_jobs == 0
+                    and node.gpu_name and "CPU" not in node.gpu_name.upper()):
                 # Skip CPU-only nodes or nodes without GPU info
-                if node.gpu_name and "CPU" not in node.gpu_name.upper():
-                    idle.append(node)
+                idle.append(node)
         return idle
 
     def get_nodes_by_source(self, source: str) -> list[DiscoveredNode]:

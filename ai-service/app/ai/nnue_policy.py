@@ -1942,21 +1942,21 @@ class NNUEPolicyDataset(Dataset):
                         if move is not None:
                             # For GPU selfplay captures, compute capture_target from current state
                             # GPU records 'to' as landing position, but CPU needs actual target
-                            if is_gpu_selfplay and move.type in (MoveType.OVERTAKING_CAPTURE, MoveType.CHAIN_CAPTURE):
-                                if move.capture_target is None and move.from_pos and move.to:
-                                    target = self._compute_capture_target(state, move.from_pos, move.to)
-                                    if target:
-                                        move = Move(
-                                            id=move.id,
-                                            type=move.type,
-                                            player=move.player,
-                                            from_pos=move.from_pos,
-                                            to=move.to,
-                                            capture_target=target,
-                                            timestamp=move.timestamp,
-                                            think_time=move.think_time,
-                                            move_number=move.move_number,
-                                        )
+                            if (is_gpu_selfplay and move.type in (MoveType.OVERTAKING_CAPTURE, MoveType.CHAIN_CAPTURE)
+                                    and move.capture_target is None and move.from_pos and move.to):
+                                target = self._compute_capture_target(state, move.from_pos, move.to)
+                                if target:
+                                    move = Move(
+                                        id=move.id,
+                                        type=move.type,
+                                        player=move.player,
+                                        from_pos=move.from_pos,
+                                        to=move.to,
+                                        capture_target=target,
+                                        timestamp=move.timestamp,
+                                        think_time=move.think_time,
+                                        move_number=move.move_number,
+                                    )
                             # Use GameEngine for consistent phase handling
                             state = GameEngine.apply_move(state, move)
                             # Auto-advance through any resulting phase transitions for GPU selfplay

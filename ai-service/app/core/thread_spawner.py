@@ -550,10 +550,10 @@ class ThreadSpawner:
 
         for thread in threads:
             # Check for threads that should be running but aren't
-            if thread.restart_policy == RestartPolicy.ALWAYS and not thread.is_alive:
-                if thread.state not in (ThreadState.STOPPED, ThreadState.COMPLETED):
-                    healthy = False
-                    unhealthy_threads.append(thread.name)
+            if (thread.restart_policy == RestartPolicy.ALWAYS and not thread.is_alive
+                    and thread.state not in (ThreadState.STOPPED, ThreadState.COMPLETED)):
+                healthy = False
+                unhealthy_threads.append(thread.name)
 
             # Check for threads that failed without restart
             if thread.state == ThreadState.FAILED:
