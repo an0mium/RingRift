@@ -105,9 +105,9 @@ def safe_replace_wal_database(source_path: Path, dest_path: Path, backup: bool =
         if shm_path.exists():
             shm_path.unlink()
 
-        # Copy or move source to destination
+        # Replace main DB atomically when possible
         if source_path != dest_path:
-            shutil.copy(source_path, dest_path)
+            os.replace(source_path, dest_path)
 
         # Verify integrity
         conn = sqlite3.connect(str(dest_path))
@@ -639,32 +639,8 @@ def pull_from_coordinator(coordinator: str, db_path: Path, port: int = DEFAULT_P
         count = cursor.fetchone()[0]
         conn.close()
 
-        # Replace local database atomically with proper WAL handling
-        # SQLite WAL mode uses 3 files: .db, .db-wal, .db-shm
-        # All 3 must be replaced together to avoid corruption
-        backup_path = str(db_path) + '.backup'
-        wal_path = Path(str(db_path) + '-wal')
-        shm_path = Path(str(db_path) + '-shm')
-
-        if db_path.exists():
-            shutil.copy(db_path, backup_path)  # Keep backup
-
-        # Remove stale WAL and SHM files BEFORE replacing main DB
-        # This prevents corruption from mismatched WAL entries
-        if wal_path.exists():
-            wal_path.unlink()
-        if shm_path.exists():
-            shm_path.unlink()
-
-        os.rename(temp_path, db_path)  # Atomic replacement of main file
-
-        # Verify integrity of new database
-        try:
-            verify_conn = sqlite3.connect(str(db_path))
-            verify_conn.execute("PRAGMA integrity_check")
-            verify_conn.close()
-        except Exception as verify_err:
-            print(f"Warning: Integrity check failed after replacement: {verify_err}")
+        if not safe_replace_wal_database(Path(temp_path), db_path, backup=True):
+            print("Warning: Database replacement failed integrity checks.")
 
         print(f"Pulled database with {count} matches from {coordinator}")
         save_sync_timestamp(time.time())
