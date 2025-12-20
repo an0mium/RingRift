@@ -27,14 +27,12 @@ import logging
 import os
 import shutil
 import sqlite3
-import subprocess
 import tempfile
 import time
-from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple, Any, Callable
+from typing import Dict, List, Optional, Any, Callable
 
 from app.utils.checksum_utils import compute_string_checksum
 
@@ -58,7 +56,6 @@ logger = logging.getLogger(__name__)
 # Use canonical circuit breaker from distributed module
 from app.distributed.circuit_breaker import (
     CircuitBreaker as CanonicalCircuitBreaker,
-    CircuitState,
 )
 
 # Default paths
@@ -408,13 +405,12 @@ class EloSyncManager:
             return False
 
         host = node.tailscale_ip or node.ssh_host
-        remote_path = f"{host}:~/ringrift/ai-service/data/unified_elo.db"
 
         # First, get remote stats
         result = await asyncio.create_subprocess_exec(
             'ssh', '-o', 'ConnectTimeout=5', '-o', 'StrictHostKeyChecking=no',
             host,
-            f"sqlite3 ~/ringrift/ai-service/data/unified_elo.db 'SELECT COUNT(*) FROM match_history' 2>/dev/null",
+            "sqlite3 ~/ringrift/ai-service/data/unified_elo.db 'SELECT COUNT(*) FROM match_history' 2>/dev/null",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
@@ -713,7 +709,7 @@ class EloSyncManager:
             columns = [col[1] for col in remote_cur.fetchall()]
 
             # Fetch remote matches
-            remote_cur.execute(f"SELECT * FROM match_history")
+            remote_cur.execute("SELECT * FROM match_history")
             remote_matches = remote_cur.fetchall()
 
             # Find new matches

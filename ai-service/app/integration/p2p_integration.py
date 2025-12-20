@@ -18,7 +18,6 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable, Tuple
@@ -990,7 +989,7 @@ class P2PIntegrationManager:
             try:
                 if self._cluster_healthy and self.config.data_sync_enabled:
                     # Check if sync is needed
-                    sync_status = await self.client.get_sync_status()
+                    _sync_status = await self.client.get_sync_status()  # noqa: F841
 
                     # Trigger sync if needed
                     # This would implement sync logic based on data manifest
@@ -1020,7 +1019,6 @@ class P2PIntegrationManager:
 
         try:
             # Get authoritative Elo from local DB or primary source
-            from app.tournament.unified_elo_db import EloDatabase
             from app.utils.paths import AI_SERVICE_ROOT
 
             local_elo_db = AI_SERVICE_ROOT / "data" / "unified_elo.db"
@@ -1465,7 +1463,7 @@ def integrate_selfplay_with_training(
     Returns:
         Dict with integration info and callbacks
     """
-    from app.training.training_triggers import TrainingTriggers, get_training_triggers
+    from app.training.training_triggers import get_training_triggers
 
     # Get or create training triggers
     triggers = training_triggers or get_training_triggers()
@@ -1492,10 +1490,7 @@ def integrate_selfplay_with_training(
 
     async def on_games_completed(config_key: str, new_games: int, total_games: int, **kwargs):
         """Handler for when selfplay games are completed."""
-        nonlocal game_counts, pending_training
-
-        # Update game count
-        old_count = game_counts.get(config_key, 0)
+        # Update game count (game_counts is a dict, so no nonlocal needed for in-place updates)
         game_counts[config_key] = total_games
 
         # Update training triggers
@@ -1563,7 +1558,7 @@ def integrate_selfplay_with_training(
 
     async def on_training_started(config_key: str, **kwargs):
         """Handler for when training actually starts (clears pending)."""
-        nonlocal pending_training
+        # pending_training is a set, no nonlocal needed for in-place modification
         if config_key in pending_training:
             pending_training.remove(config_key)
 
