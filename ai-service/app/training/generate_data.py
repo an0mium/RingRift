@@ -24,8 +24,7 @@ from app.ai.mcts_ai import MCTSAI
 from app.ai.neural_net import INVALID_MOVE_INDEX, NeuralNetAI, encode_move_for_board
 from app.db import GameReplayDB, get_or_create_db, record_completed_game
 from app.models import (
-    GameState, BoardType, BoardState, GamePhase, GameStatus, TimeControl,
-    Player, AIConfig
+    GameState, BoardType, GameStatus, AIConfig
 )
 from app.models.game_record import RecordSource
 from app.training.env import (

@@ -12,12 +12,11 @@ import logging
 import threading
 import traceback
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Optional, Any, Callable, TypeVar
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from contextlib import contextmanager
-import shutil
 
 from app.utils.checksum_utils import compute_file_checksum
 

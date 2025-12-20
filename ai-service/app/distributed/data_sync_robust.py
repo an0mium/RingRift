@@ -39,17 +39,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import logging
-import os
 import sqlite3
 import time
 import warnings
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # Emit deprecation warning on module import
 warnings.warn(

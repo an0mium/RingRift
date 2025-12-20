@@ -41,12 +41,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import subprocess
-import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +114,7 @@ class TransportResult:
 
 
 # Use canonical circuit breaker from distributed module
-from app.distributed.circuit_breaker import CircuitBreaker, CircuitState
+from app.distributed.circuit_breaker import CircuitBreaker
 
 
 class ClusterTransport:
