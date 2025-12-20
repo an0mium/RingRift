@@ -1613,7 +1613,8 @@ class GameReplayDB:
         Returns:
             Updated game state with any necessary bookkeeping moves applied.
         """
-        from app.game_engine import GameEngine, MoveType, Move, Position
+        from app.game_engine import GameEngine
+        from app.models import MoveType, Move, Position
 
         # Limit iterations to prevent infinite loops
         max_iterations = 10

@@ -31,7 +31,8 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from app.game_engine import GameEngine, BoardType, GamePhase
+from app.game_engine import GameEngine
+from app.models import BoardType, GamePhase
 
 
 # Board size to BoardType mapping

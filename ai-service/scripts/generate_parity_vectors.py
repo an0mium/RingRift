@@ -102,7 +102,7 @@ def summarize_python_state(db: GameReplayDB, game_id: str, move_index: int) -> S
 def summarize_python_initial_state(db: GameReplayDB, game_id: str) -> StateSummary:
     """Get Python initial state summary (before any moves)."""
     from app.training.generate_data import create_initial_state
-    from app.game_engine import BoardType
+    from app.models import BoardType
 
     state = db.get_initial_state(game_id)
     if state is None:
