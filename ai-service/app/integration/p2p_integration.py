@@ -18,7 +18,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable, Tuple
@@ -218,7 +218,7 @@ class P2PAPIClient:
         """Start selfplay jobs on a node."""
         return await self._request(
             "POST",
-            f"/start_job",
+            "/start_job",
             json_data={
                 "node_id": node_id,
                 "job_type": "hybrid_selfplay",
@@ -232,7 +232,7 @@ class P2PAPIClient:
         """Stop a selfplay job."""
         return await self._request(
             "POST",
-            f"/stop_job",
+            "/stop_job",
             json_data={"node_id": node_id, "job_id": job_id}
         )
 
@@ -244,7 +244,7 @@ class P2PAPIClient:
         """Start training on a node."""
         return await self._request(
             "POST",
-            f"/training/start",
+            "/training/start",
             json_data={
                 "node_id": node_id,
                 "config": config or {}
@@ -1708,17 +1708,17 @@ async def main():
 
         # Check training status
         training_status = await manager.training.get_status()
-        print(f"\nTraining Status:")
+        print("\nTraining Status:")
         print(json.dumps(training_status, indent=2))
 
         # Get selfplay distribution
         selfplay_dist = await manager.selfplay.get_distribution()
-        print(f"\nSelfplay Distribution:")
+        print("\nSelfplay Distribution:")
         print(json.dumps(selfplay_dist, indent=2))
 
         # Get ELO leaderboard
         leaderboard = await manager.evaluation.get_leaderboard()
-        print(f"\nELO Leaderboard (top 5):")
+        print("\nELO Leaderboard (top 5):")
         for i, entry in enumerate(leaderboard[:5]):
             print(f"  {i+1}. {entry.get('model_id', 'unknown')}: {entry.get('elo', 0):.0f}")
 

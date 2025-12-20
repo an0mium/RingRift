@@ -33,14 +33,12 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 # Import unified signals for regression detection
 try:
     from app.training.unified_signals import (
         get_signal_computer,
-        TrainingUrgency,
         TrainingSignals,
     )
     HAS_UNIFIED_SIGNALS = True
@@ -721,13 +719,13 @@ class PromotionController:
             bus = get_event_bus()
             import asyncio
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()  # Verify we're in async context
                 asyncio.create_task(bus.publish(event))
             except RuntimeError:
                 if hasattr(bus, 'publish_sync'):
                     bus.publish_sync(event)
 
-            logger.debug(f"Published MODEL_PROMOTED event to event bus")
+            logger.debug("Published MODEL_PROMOTED event to event bus")
         except Exception as e:
             logger.debug(f"Event bus notification failed: {e}")
 
@@ -763,12 +761,12 @@ class PromotionController:
 
             import asyncio
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()  # Verify we're in async context
                 asyncio.create_task(bus.emit(result))
             except RuntimeError:
                 asyncio.run(bus.emit(result))
 
-            logger.debug(f"Emitted PROMOTION_COMPLETE StageEvent")
+            logger.debug("Emitted PROMOTION_COMPLETE StageEvent")
         except ImportError:
             logger.debug("Stage event bus not available")
         except Exception as e:

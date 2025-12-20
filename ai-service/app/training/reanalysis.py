@@ -31,12 +31,10 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import sqlite3
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -45,7 +43,7 @@ logger = logging.getLogger(__name__)
 try:
     import torch
     import torch.nn as nn
-    from torch.utils.data import DataLoader, Dataset, ConcatDataset
+    from torch.utils.data import Dataset
     HAS_TORCH = True
 except ImportError:
     HAS_TORCH = False
@@ -273,12 +271,12 @@ class ReanalysisEngine:
         games_processed = 0
         output_paths = []
 
-        # Batch accumulator
-        all_features = []
-        all_globals = []
-        all_values = []
-        all_policy_idx = []
-        all_policy_val = []
+        # Batch accumulator (unused - kept for future batch processing)
+        _all_features = []
+        _all_globals = []
+        _all_values = []
+        _all_policy_idx = []
+        _all_policy_val = []
 
         logger.info(f"[Reanalysis] Processing games from {jsonl_path}")
 

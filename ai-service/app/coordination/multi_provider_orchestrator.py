@@ -33,13 +33,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +215,7 @@ class MultiProviderOrchestrator:
                 label = inst.get("label") or f"vast-{inst_id}"
 
                 # Try to find matching Tailscale node
-                matching_ts = None
+                _matching_ts = None
                 for ts_name, ts_node in self.nodes.items():
                     if "vast" in ts_name.lower() and ts_node.is_tailscale_connected:
                         # Could match by checking SSH
@@ -277,7 +276,7 @@ class MultiProviderOrchestrator:
                 for inst in reservation:
                     inst_id = inst.get("InstanceId", "")
                     state = inst.get("State", {}).get("Name", "unknown")
-                    inst_type = inst.get("InstanceType", "unknown")
+                    _inst_type = inst.get("InstanceType", "unknown")
                     public_ip = inst.get("PublicIpAddress")
 
                     # Get name from tags
@@ -330,15 +329,15 @@ class MultiProviderOrchestrator:
                 server_id = str(server.get("id", ""))
                 name = server.get("name", f"hetzner-{server_id}")
                 status = server.get("status", "unknown")
-                server_type = server.get("server_type", {}).get("name", "unknown")
+                _server_type = server.get("server_type", {}).get("name", "unknown")
 
                 # Get IPs
                 public_net = server.get("public_net", {})
                 ipv4 = public_net.get("ipv4", {}).get("ip")
-                ipv6 = public_net.get("ipv6", {}).get("ip")
+                _ipv6 = public_net.get("ipv6", {}).get("ip")
 
                 # Get datacenter
-                datacenter = server.get("datacenter", {}).get("name", "unknown")
+                _datacenter = server.get("datacenter", {}).get("name", "unknown")
 
                 # CPU-only instances don't have GPUs
                 cpu_cores = server.get("server_type", {}).get("cores", 0)

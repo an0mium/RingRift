@@ -31,7 +31,7 @@ import functools
 import logging
 import time
 import traceback
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional, TypeVar
 
 logger = logging.getLogger(__name__)

@@ -1,15 +1,34 @@
-<!--
-PRODUCTION VALIDATION REMEDIATION PLAN
-Purpose: produce clean, repeatable SLO signal for baseline, target-scale, and AI-heavy runs.
--->
-
 # Production Validation Remediation Plan
 
-**Status:** Draft (2025-12-19)  
-**Owner:** TBD  
-**Scope:** Staging or perf stacks only (no production runs)
+> **Doc Status (2025-12-20): Active Draft**
+>
+> **Purpose:** Detailed remediation plan to achieve clean SLO signal from production-scale load tests for RingRift v1.0.
+>
+> **Owner:** TBD  
+> **Scope:** Staging or perf stacks only (no production runs)
+>
+> **References:**
+>
+> - [`docs/production/PRODUCTION_READINESS_CHECKLIST.md`](../production/PRODUCTION_READINESS_CHECKLIST.md) - Launch requirements
+> - [`docs/operations/SLO_VERIFICATION.md`](../operations/SLO_VERIFICATION.md) - SLO framework
+> - [`docs/testing/BASELINE_CAPACITY.md`](../testing/BASELINE_CAPACITY.md) - Current capacity baselines
+> - [`tests/load/README.md`](../../tests/load/README.md) - k6 test documentation
+> - [`PROJECT_GOALS.md`](../../PROJECT_GOALS.md) §4.1, §4.4 - SLO launch requirements
 
-## 1. Goal
+## Table of Contents
+
+- [Executive Summary and Clean-Signal Runbook](#executive-summary-and-clean-signal-runbook)
+- [1. Current State Assessment](#1-current-state-assessment)
+- [2. Problem Analysis](#2-problem-analysis)
+- [3. Remediation Subtasks](#3-remediation-subtasks)
+- [4. Dependency Diagram](#4-dependency-diagram)
+- [5. Priority Ordering](#5-priority-ordering)
+- [6. Success Criteria](#6-success-criteria)
+- [Revision History](#revision-history)
+
+## Executive Summary and Clean-Signal Runbook
+
+### Goal
 
 Produce clean, repeatable production-validation signals by rerunning:
 
@@ -19,20 +38,20 @@ Produce clean, repeatable production-validation signals by rerunning:
 
 All runs must complete with minimal auth or rate-limit noise so SLO gating reflects real capacity.
 
-## 2. Current Risks
+### Current Risks
 
 - Auth refresh noise previously produced widespread 401s in target-scale runs.
 - Rate limiting dominated the error budget, masking true system performance.
 - AI-heavy saturation is still unverified at a clean signal level.
 
-## 3. Clean-Signal Preflight (delta from standard load runs)
+### Clean-Signal Preflight (delta from standard load runs)
 
-### 3.1 Required tooling
+#### Required tooling
 
 - `k6`, `node`, and `jq` must be installed.
 - `BASE_URL/health` and `AI_SERVICE_URL/health` must return 200.
 
-### 3.2 Seeded user pool and password alignment
+#### Seeded user pool and password alignment
 
 - Seed load-test users (`npm run load:seed-users`).
 - Align passwords:
@@ -40,12 +59,12 @@ All runs must complete with minimal auth or rate-limit noise so SLO gating refle
   - k6 pool uses `LOADTEST_USER_POOL_PASSWORD` (default `LoadTestK6Pass123`).
   - Set both to the same value.
 
-### 3.3 User pool sizing
+#### User pool sizing
 
 - Use a pool size at least equal to peak VUs.
 - Recommended: `LOADTEST_USER_POOL_SIZE=400` for 300 VUs.
 
-### 3.4 Optional staging-only rate limit bypass
+#### Optional staging-only rate limit bypass
 
 To remove 429 noise during capacity validation, enable staging bypass for load-test users:
 
@@ -54,14 +73,14 @@ To remove 429 noise during capacity validation, enable staging bypass for load-t
 
 Disable immediately after the run.
 
-### 3.5 Token TTL alignment
+#### Token TTL alignment
 
 If the API does not return `expiresIn`, set:
 
 - `LOADTEST_AUTH_TOKEN_TTL_S` to the real JWT TTL.
 - `LOADTEST_AUTH_REFRESH_WINDOW_S` (default 60).
 
-## 4. Ready-to-Run Environment Block
+### Ready-to-Run Environment Block
 
 ```bash
 export STAGING_URL="https://staging.example.com"
@@ -79,16 +98,17 @@ export LOADTEST_USER_POOL_DOMAIN="loadtest.local"
 export RATE_LIMIT_BYPASS_ENABLED=true
 ```
 
-## 5. Execution Plan
+### Execution Plan
 
-### 5.1 Baseline (20G/60P)
+#### Baseline (20G/60P)
 
 ```bash
 SEED_LOADTEST_USERS=true tests/load/scripts/run-baseline.sh --staging
 npm run slo:verify tests/load/results/BCAP_STAGING_BASELINE_20G_60P_staging_<timestamp>.json -- --env staging
+npm run slo:verify tests/load/results/websocket_BCAP_STAGING_BASELINE_20G_60P_staging_<timestamp>.json -- --env staging # if WS companion enabled
 ```
 
-### 5.2 Target-scale (100G/300P)
+#### Target-scale (100G/300P)
 
 ```bash
 SEED_LOADTEST_USERS=true tests/load/scripts/run-target-scale.sh --staging
@@ -96,7 +116,7 @@ npm run slo:verify tests/load/results/BCAP_SQ8_3P_TARGET_100G_300P_staging_<time
 npm run slo:verify tests/load/results/websocket_BCAP_SQ8_3P_TARGET_100G_300P_staging_<timestamp>.json -- --env production
 ```
 
-### 5.3 AI-heavy (75G/300P, 3 AI seats)
+#### AI-heavy (75G/300P, 3 AI seats)
 
 ```bash
 SEED_LOADTEST_USERS=true tests/load/scripts/run-ai-heavy.sh --staging
@@ -104,7 +124,7 @@ npm run slo:verify tests/load/results/BCAP_SQ8_4P_AI_HEAVY_75G_300P_staging_<tim
 npm run slo:verify tests/load/results/websocket_BCAP_SQ8_4P_AI_HEAVY_75G_300P_staging_<timestamp>.json -- --env staging
 ```
 
-## 6. Artifacts to Capture
+### Artifacts to Capture
 
 - Raw k6 JSON: `tests/load/results/<scenario>_staging_<timestamp>.json`
 - Summary JSON: `tests/load/results/<scenario>_staging_<timestamp>_summary.json`
@@ -122,9 +142,9 @@ Optional aggregation for a single go/no-go summary:
 npx ts-node scripts/analyze-load-slos.ts
 ```
 
-## 7. Acceptance Criteria (clean signal)
+### Acceptance Criteria (clean signal)
 
-- Error rate under 1 percent; 401 and 429 near zero in raw outputs.
+- Error rate meets scenario SLO target (staging 1.0 percent, production 0.5 percent); 401 and 429 near zero in raw outputs.
 - `contract_failures_total == 0` and `id_lifecycle_mismatches_total == 0`.
 - Concurrency targets met:
   - Baseline: >= 20 games / 60 players
@@ -133,8 +153,522 @@ npx ts-node scripts/analyze-load-slos.ts
 - Target-scale SLO verification passes at production thresholds.
 - AI-heavy AI latency and fallback meet production targets per BCAP policy.
 
-## 8. Triage If Results Are Noisy
+### Triage If Results Are Noisy
 
 - 401s: set `LOADTEST_AUTH_TOKEN_TTL_S` to actual TTL or ensure `expiresIn` is returned by auth.
 - 429s: increase user pool size or enable staging bypass for load-test users.
 - AI latency spikes: confirm AI service scaling, queue depth, and model selection; rerun AI-heavy only after remediation.
+
+---
+
+## 1. Current State Assessment
+
+### 1.1 Existing k6 Infrastructure
+
+**Test Scenarios Available:**
+
+| Scenario           | File                              | Purpose                             | Status        |
+| ------------------ | --------------------------------- | ----------------------------------- | ------------- |
+| Concurrent Games   | `scenarios/concurrent-games.js`   | 100+ simultaneous games at scale    | ✅ Functional |
+| Game Creation      | `scenarios/game-creation.js`      | Game creation latency/throughput    | ✅ Functional |
+| Player Moves       | `scenarios/player-moves.js`       | Move submission and turn processing | ✅ Functional |
+| WebSocket Stress   | `scenarios/websocket-stress.js`   | 500+ WS connection stability        | ✅ Functional |
+| WebSocket Gameplay | `scenarios/websocket-gameplay.js` | E2E WS move RTT and stalls          | ✅ Functional |
+
+**Runner Scripts Available:**
+
+- [`tests/load/scripts/run-baseline.sh`](../../tests/load/scripts/run-baseline.sh) - 20G/60P baseline with optional WS companion
+- [`tests/load/scripts/run-target-scale.sh`](../../tests/load/scripts/run-target-scale.sh) - 100G/300P production validation
+- [`tests/load/scripts/run-ai-heavy.sh`](../../tests/load/scripts/run-ai-heavy.sh) - 75G/300P AI-heavy probe
+- [`tests/load/scripts/run-stress-test.sh`](../../tests/load/scripts/run-stress-test.sh) - Breaking point discovery
+
+**SLO Verification Pipeline:**
+
+- [`tests/load/scripts/verify-slos.js`](../../tests/load/scripts/verify-slos.js) - Validates k6 results against SLO thresholds
+- [`tests/load/scripts/generate-slo-dashboard.js`](../../tests/load/scripts/generate-slo-dashboard.js) - HTML dashboard generation
+- [`tests/load/scripts/run-slo-verification.sh`](../../tests/load/scripts/run-slo-verification.sh) - Full pipeline orchestration
+- [`tests/load/configs/slo-definitions.json`](../../tests/load/configs/slo-definitions.json) - Canonical SLO definitions
+- [`tests/load/config/thresholds.json`](../../tests/load/config/thresholds.json) - Environment-specific thresholds
+
+**Auth Infrastructure:**
+
+- [`tests/load/auth/helpers.js`](../../tests/load/auth/helpers.js) - Shared auth helper with:
+  - `loginAndGetToken()` - Initial login
+  - `getValidToken()` - Token refresh with TTL cache
+  - Multi-user pool support via `LOADTEST_USER_POOL_SIZE`
+
+### 1.2 Current Target-Scale Test Results
+
+From the 2025-12-10 target-scale run (`target_scale_20251210_143608.json`):
+
+| Metric         | Result  | Target  | Status         |
+| -------------- | ------- | ------- | -------------- |
+| Peak VUs       | 300     | 300     | ✅             |
+| p95 Latency    | 53ms    | <500ms  | ✅ 89% margin  |
+| p99 Latency    | 59ms    | <2000ms | ✅ 97% margin  |
+| CPU Usage      | 7.5%    | -       | ✅ Excellent   |
+| **Error Rate** | **99%** | <1%     | ❌ **Blocked** |
+
+**Error Breakdown (617,980 responses):**
+
+| Status           | Count   | Percentage | Root Cause             |
+| ---------------- | ------- | ---------- | ---------------------- |
+| 401 Unauthorized | 415,512 | 67%        | JWT token expiration   |
+| 429 Rate Limited | 190,035 | 31%        | Expected rate limiting |
+| 200/201 Success  | 4,428   | 0.7%       | Early phase only       |
+| 0 Network Error  | 6,705   | 1%         | Connection timeouts    |
+
+### 1.3 Current Blockers
+
+| Blocker                   | Impact                           | Root Cause                                                               |
+| ------------------------- | -------------------------------- | ------------------------------------------------------------------------ |
+| **Auth Token Expiration** | 67% of requests fail with 401    | JWT TTL (15min) < test duration (30min); setup-phase token not refreshed |
+| **Rate Limiting Noise**   | 31% of requests fail with 429    | Default limits (200 req/60s) too restrictive for 300 VUs                 |
+| **Metric Isolation**      | Cannot distinguish true failures | Auth/rate-limit errors mask actual capacity issues                       |
+| **Missing AI-Heavy Run**  | No AI SLO baseline               | AI-heavy scenario not yet executed with clean signal                     |
+| **Operational Drills**    | Untested recovery procedures     | Documented but not rehearsed at scale                                    |
+
+---
+
+## 2. Problem Analysis
+
+### 2.1 Auth Token Lifecycle Issues
+
+**Current State:**
+
+```
+Setup Phase → Login → token (TTL=15min)
+     ↓
+Test Phase (30min) → token expires at minute 15
+     ↓
+All VUs → 401 Unauthorized for remaining 15 minutes
+```
+
+**Existing Mitigation (Partial):**
+
+The [`concurrent-games.js`](../../tests/load/scenarios/concurrent-games.js:250) scenario now calls `getValidToken()` which uses the per-VU auth cache in [`helpers.js`](../../tests/load/auth/helpers.js:207). However:
+
+1. Token refresh still requires a successful login, which may itself be rate-limited
+2. Multi-VU token refresh can cause login endpoint saturation
+3. No proactive refresh before expiry is currently tuned
+
+**Gap:** While auth refresh is wired, it competes with rate limiting and may itself cause capacity signals.
+
+### 2.2 Rate Limiting Calibration Issues
+
+**Current Default Limits:**
+
+| Endpoint    | Default Limit     | Impact at 300 VUs  |
+| ----------- | ----------------- | ------------------ |
+| Auth Login  | 5/15min per IP    | Login saturation   |
+| API Auth    | 200/60s per user  | 0.67 req/s allowed |
+| Game Create | 20/10min per user | 0.03 games/s       |
+| Game Ops    | 200/60s per user  | Standard polling   |
+
+**Problem:**
+
+At 300 VUs with 2-5s polling intervals:
+
+- Each VU makes ~15-30 requests/minute
+- Total: 4,500-9,000 requests/minute
+- Per-user limit: 200/minute (with user pool)
+- Result: Heavy 429 responses even with user pool
+
+**Gap:** Rate limits are tuned for production abuse prevention, not load testing.
+
+### 2.3 Multi-System Coordination Gaps
+
+**Systems Under Test:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Load Generator (k6)                       │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    RingRift App (Node.js)                    │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐ │
+│  │   Auth   │  │  Games   │  │WebSocket │  │ Rate Limiter │ │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+        │               │               │               │
+        ▼               ▼               ▼               ▼
+┌────────────┐   ┌────────────┐   ┌────────────┐   ┌────────────┐
+│ PostgreSQL │   │   Redis    │   │ AI Service │   │ Prometheus │
+└────────────┘   └────────────┘   └────────────┘   └────────────┘
+```
+
+**Coordination Gaps:**
+
+1. No pre-test health validation harness
+2. No real-time telemetry correlation during tests
+3. No automated AI service load tracking during game tests
+4. Prometheus scrape intervals may miss transient spikes
+
+### 2.4 Metric Isolation Gaps
+
+**Current Metrics:**
+
+- `http_req_duration` - All HTTP requests (includes auth failures)
+- `http_req_failed` - All failures (no classification)
+- `contract_failures_total` - 4xx errors (auth mixed with true contract)
+- `capacity_failures_total` - 5xx and rate limits (correct)
+
+**Gap:** 401 (expired token) is counted as both `http_req_failed` and `contract_failures_total`, polluting both metrics.
+
+**Needed:**
+
+- `auth_token_expired_total` - Explicit token expiration counter (exists but not used for SLO filtering)
+- `rate_limit_hit_total{endpoint}` - Per-endpoint rate limit tracking
+- `true_error_rate` - Failures excluding auth/rate-limit
+
+---
+
+## 3. Remediation Subtasks
+
+### PV-01: Auth Token Refresh Validation
+
+| Attribute               | Value                                                                                                                                                                                                                                                           |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Task ID**             | PV-01                                                                                                                                                                                                                                                           |
+| **Title**               | Validate auth token refresh under load                                                                                                                                                                                                                          |
+| **Description**         | Verify that `getValidToken()` in [`auth/helpers.js`](../../tests/load/auth/helpers.js:207) correctly refreshes tokens before expiry during long-running tests. Run a 20-minute test with explicit token TTL monitoring and confirm 401 rates drop to near zero. |
+| **Acceptance Criteria** | <ul><li>Run 20-minute test with 100 VUs</li><li>401 response rate < 0.5%</li><li>`auth_token_expired_total` increments only on actual expiry edge cases</li><li>Token refresh does not itself cause 429s</li></ul>                                              |
+| **Dependencies**        | None                                                                                                                                                                                                                                                            |
+| **Recommended Mode**    | debug                                                                                                                                                                                                                                                           |
+
+### PV-02: User Pool Sizing for Rate Limit Distribution
+
+| Attribute               | Value                                                                                                                                                                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Task ID**             | PV-02                                                                                                                                                                                                                                                   |
+| **Title**               | Configure user pool to distribute rate limit budget                                                                                                                                                                                                     |
+| **Description**         | Ensure `LOADTEST_USER_POOL_SIZE` is set to at least the peak VU count (e.g., 400 for 300 VU tests) so each VU uses a distinct user identity. This distributes per-user rate limits across the pool. Update seeding script to create the required users. |
+| **Acceptance Criteria** | <ul><li>User pool seeded with 400+ users</li><li>`LOADTEST_USER_POOL_SIZE=400` documented in run scripts</li><li>Per-user 429 rate drops proportionally</li></ul>                                                                                       |
+| **Dependencies**        | None                                                                                                                                                                                                                                                    |
+| **Recommended Mode**    | code                                                                                                                                                                                                                                                    |
+
+### PV-03: Rate Limit Bypass for Load Test Users
+
+| Attribute               | Value                                                                                                                                                                                                                                                                                    |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Task ID**             | PV-03                                                                                                                                                                                                                                                                                    |
+| **Title**               | Implement staging-only rate limit bypass for load test users                                                                                                                                                                                                                             |
+| **Description**         | Use the existing `RATE_LIMIT_BYPASS_ENABLED` and `RATE_LIMIT_BYPASS_USER_PATTERN` environment variables to exempt load test users (matching `loadtest.*@loadtest\.local`) from rate limiting in staging. Document the security implications and ensure bypass is disabled in production. |
+| **Acceptance Criteria** | <ul><li>Staging env configured with bypass enabled</li><li>Load test users bypass rate limiter</li><li>Production env explicitly disables bypass</li><li>Security note added to runbook</li></ul>                                                                                        |
+| **Dependencies**        | PV-02                                                                                                                                                                                                                                                                                    |
+| **Recommended Mode**    | code                                                                                                                                                                                                                                                                                     |
+
+### PV-04: Metric Classification for Auth vs True Errors
+
+| Attribute               | Value                                                                                                                                                                                                                    |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Task ID**             | PV-04                                                                                                                                                                                                                    |
+| **Title**               | Add explicit auth failure classification in k6 scenarios                                                                                                                                                                 |
+| **Description**         | Modify k6 scenarios to track `auth_token_expired_total` and `rate_limit_hit_total` as distinct counters from `contract_failures_total`. Update SLO verification to compute `true_error_rate` excluding these categories. |
+| **Acceptance Criteria** | <ul><li>New counters emitted by k6 scenarios</li><li>`verify-slos.js` computes `true_error_rate`</li><li>SLO report shows both raw and filtered error rates</li></ul>                                                    |
+| **Dependencies**        | PV-01                                                                                                                                                                                                                    |
+| **Recommended Mode**    | code                                                                                                                                                                                                                     |
+
+### PV-05: Pre-Test Health Validation Harness
+
+| Attribute               | Value                                                                                                                                                                                                                                                                   |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Task ID**             | PV-05                                                                                                                                                                                                                                                                   |
+| **Title**               | Add automated pre-test health checks to runner scripts                                                                                                                                                                                                                  |
+| **Description**         | Extend `run-baseline.sh`, `run-target-scale.sh`, and `run-ai-heavy.sh` to validate all dependencies before starting k6. Check: App `/health`, AI service `/health`, Redis `PING`, Postgres connectivity, Prometheus scraping. Fail fast if any dependency is unhealthy. |
+| **Acceptance Criteria** | <ul><li>All runner scripts include pre-flight checks</li><li>Clear error messages on dependency failure</li><li>Test does not start if pre-flight fails</li><li>Pre-flight results logged to JSON</li></ul>                                                             |
+| **Dependencies**        | None                                                                                                                                                                                                                                                                    |
+| **Recommended Mode**    | code                                                                                                                                                                                                                                                                    |
+
+### PV-06: SLO Threshold Alignment Audit
+
+| Attribute               | Value                                                                                                                                                                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Task ID**             | PV-06                                                                                                                                                                                                                                                   |
+| **Title**               | Audit SLO thresholds across all configuration sources                                                                                                                                                                                                   |
+| **Description**         | Verify that SLO thresholds in `slo-definitions.json`, `thresholds.json`, `alerts.yml`, and `PRODUCTION_READINESS_CHECKLIST.md §2.4` are consistent. Document any intentional differences (staging vs production). Create a single SSoT reference table. |
+| **Acceptance Criteria** | <ul><li>All threshold sources audited</li><li>SSoT table created in `SLO_VERIFICATION.md`</li><li>Any conflicts resolved or documented</li></ul>                                                                                                        |
+| **Dependencies**        | None                                                                                                                                                                                                                                                    |
+| **Recommended Mode**    | architect                                                                                                                                                                                                                                               |
+
+### PV-07: Execute Clean Baseline Run
+
+| Attribute               | Value                                                                                                                                                                                                            |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Task ID**             | PV-07                                                                                                                                                                                                            |
+| **Title**               | Run baseline scenario with clean auth and rate limit handling                                                                                                                                                    |
+| **Description**         | Execute the `BCAP_STAGING_BASELINE_20G_60P` scenario with PV-01 through PV-04 fixes applied. Capture clean SLO signal and update `BASELINE_CAPACITY.md` with new baseline metrics.                               |
+| **Acceptance Criteria** | <ul><li>Baseline run completes with <1% error rate</li><li>All SLOs pass with `--env staging`</li><li>Results documented in `BASELINE_CAPACITY.md`</li><li>Artifacts archived in `tests/load/results/`</li></ul> |
+| **Dependencies**        | PV-01, PV-02, PV-03, PV-04, PV-05                                                                                                                                                                                |
+| **Recommended Mode**    | code                                                                                                                                                                                                             |
+
+### PV-08: Execute Clean Target-Scale Run
+
+| Attribute               | Value                                                                                                                                                                                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Task ID**             | PV-08                                                                                                                                                                                                                                                  |
+| **Title**               | Run target-scale scenario with clean auth and rate limit handling                                                                                                                                                                                      |
+| **Description**         | Execute the `BCAP_SQ8_3P_TARGET_100G_300P` scenario with all fixes applied. This is the primary production validation gate. Capture clean SLO signal and update documentation.                                                                         |
+| **Acceptance Criteria** | <ul><li>Target-scale run (300 VUs, 30 min) completes</li><li>True error rate <0.5% (excluding auth/rate-limit)</li><li>All SLOs pass with `--env production`</li><li>Results documented in `BASELINE_CAPACITY.md`</li><li>Artifacts archived</li></ul> |
+| **Dependencies**        | PV-07                                                                                                                                                                                                                                                  |
+| **Recommended Mode**    | code                                                                                                                                                                                                                                                   |
+
+### PV-09: Execute Clean AI-Heavy Run
+
+| Attribute               | Value                                                                                                                                                                                                                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Task ID**             | PV-09                                                                                                                                                                                                                              |
+| **Title**               | Run AI-heavy scenario for AI SLO validation                                                                                                                                                                                        |
+| **Description**         | Execute the `BCAP_SQ8_4P_AI_HEAVY_75G_300P` scenario with 3 AI seats per game. Validate AI response p95 <1000ms, AI fallback rate ≤1%, and move stall rate ≤0.5%.                                                                  |
+| **Acceptance Criteria** | <ul><li>AI-heavy run (75 VUs, AI-heavy profile) completes</li><li>AI response p95 <1000ms</li><li>AI fallback rate ≤1%</li><li>Results documented in `BASELINE_CAPACITY.md`</li><li>AI SLOs added to verification report</li></ul> |
+| **Dependencies**        | PV-08                                                                                                                                                                                                                              |
+| **Recommended Mode**    | code                                                                                                                                                                                                                               |
+
+### PV-10: Rehearse AI Service Degradation Drill
+
+| Attribute               | Value                                                                                                                                                                                                                                                 |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Task ID**             | PV-10                                                                                                                                                                                                                                                 |
+| **Title**               | Execute AI service degradation drill per runbook                                                                                                                                                                                                      |
+| **Description**         | Follow [`AI_SERVICE_DEGRADATION_DRILL.md`](../runbooks/AI_SERVICE_DEGRADATION_DRILL.md) to simulate AI service outage during load. Verify alerts fire, fallbacks activate, and games continue. Document drill results and any runbook updates needed. |
+| **Acceptance Criteria** | <ul><li>Drill executed in staging</li><li>`AIServiceDown` and `AIFallbackRateHigh` alerts fire</li><li>Games continue with fallback moves</li><li>Recovery completes with metrics returning to baseline</li><li>Drill report filed</li></ul>          |
+| **Dependencies**        | PV-09                                                                                                                                                                                                                                                 |
+| **Recommended Mode**    | debug                                                                                                                                                                                                                                                 |
+
+### PV-11: Grafana Dashboard Validation During Load
+
+| Attribute               | Value                                                                                                                                                                                                                                  |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Task ID**             | PV-11                                                                                                                                                                                                                                  |
+| **Title**               | Validate Grafana dashboards during production-scale load                                                                                                                                                                               |
+| **Description**         | During PV-08 or PV-09 runs, monitor the Game Performance, System Health, and AI Service dashboards. Verify panels update correctly, no data gaps, and all key metrics are visible. Document any dashboard gaps or improvements needed. |
+| **Acceptance Criteria** | <ul><li>Dashboards reviewed during load</li><li>All critical metrics visible and accurate</li><li>No prolonged data gaps during test</li><li>Dashboard improvement issues filed if needed</li></ul>                                    |
+| **Dependencies**        | PV-08                                                                                                                                                                                                                                  |
+| **Recommended Mode**    | debug                                                                                                                                                                                                                                  |
+
+### PV-12: Create Production Validation Gate Checklist
+
+| Attribute               | Value                                                                                                                                                                                                                       |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Task ID**             | PV-12                                                                                                                                                                                                                       |
+| **Title**               | Create executable gate checklist for v1.0 launch                                                                                                                                                                            |
+| **Description**         | Create a concise checklist that operators can execute before v1.0 launch. Include all required scenario runs, SLO verification commands, and pass/fail criteria. Reference existing artifacts and tools.                    |
+| **Acceptance Criteria** | <ul><li>Checklist document created</li><li>All required scenarios listed with commands</li><li>Clear PASS/FAIL criteria</li><li>Cross-references to result artifacts</li><li>Estimated completion time documented</li></ul> |
+| **Dependencies**        | PV-08, PV-09, PV-10                                                                                                                                                                                                         |
+| **Recommended Mode**    | architect                                                                                                                                                                                                                   |
+
+### PV-13: WebSocket Load Test Validation
+
+| Attribute               | Value                                                                                                                                                                                               |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Task ID**             | PV-13                                                                                                                                                                                               |
+| **Title**               | Validate WebSocket SLOs in companion runs                                                                                                                                                           |
+| **Description**         | Ensure WebSocket companion runs (`websocket-stress.js`) are included in baseline and target-scale tests. Verify connection success rate >99%, message latency p95 <200ms, and connection stability. |
+| **Acceptance Criteria** | <ul><li>WS companion enabled in target-scale runs</li><li>WS connection success >99%</li><li>WS SLOs pass in verification report</li><li>WS metrics visible in dashboards</li></ul>                 |
+| **Dependencies**        | PV-07                                                                                                                                                                                               |
+| **Recommended Mode**    | code                                                                                                                                                                                                |
+
+### PV-14: Document Rate Limit Production Settings
+
+| Attribute               | Value                                                                                                                                                                                                     |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Task ID**             | PV-14                                                                                                                                                                                                     |
+| **Title**               | Document production rate limit configuration                                                                                                                                                              |
+| **Description**         | Create a reference document for production rate limit settings that balance abuse prevention with legitimate high-volume usage. Include the bypass mechanism for staging and explicit production values.  |
+| **Acceptance Criteria** | <ul><li>Production rate limits documented</li><li>Staging bypass documented with security notes</li><li>Rate limit environment variables listed</li><li>DoS protection considerations addressed</li></ul> |
+| **Dependencies**        | PV-03                                                                                                                                                                                                     |
+| **Recommended Mode**    | architect                                                                                                                                                                                                 |
+
+---
+
+## 4. Dependency Diagram
+
+```
+                     ┌──────────────────┐
+                     │    Foundation     │
+                     └──────────────────┘
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        │                     │                     │
+        ▼                     ▼                     ▼
+   ┌─────────┐          ┌─────────┐          ┌─────────┐
+   │  PV-01  │          │  PV-02  │          │  PV-05  │
+   │Auth Fix │          │User Pool│          │Pre-Test │
+   └─────────┘          └─────────┘          │ Health  │
+        │                     │              └─────────┘
+        │                     ▼                   │
+        │               ┌─────────┐               │
+        │               │  PV-03  │               │
+        │               │Rate Lim │               │
+        │               │ Bypass  │               │
+        │               └─────────┘               │
+        │                     │                   │
+        └──────────┬──────────┘                   │
+                   │                              │
+                   ▼                              │
+             ┌─────────┐                          │
+             │  PV-04  │                          │
+             │ Metric  │                          │
+             │  Class  │                          │
+             └─────────┘                          │
+                   │                              │
+                   └──────────────────────────────┘
+                              │
+                              ▼
+                     ┌──────────────────┐
+                     │     Parallel     │
+                     │   Foundations    │
+                     └──────────────────┘
+        ┌────────────────────┬────────────────────┐
+        │                    │                    │
+        ▼                    ▼                    ▼
+   ┌─────────┐          ┌─────────┐          ┌─────────┐
+   │  PV-06  │          │  PV-14  │          │  PV-13  │
+   │SLO Audit│          │Rate Lim │          │  WS     │
+   │         │          │  Docs   │          │ Valid   │
+   └─────────┘          └─────────┘          └─────────┘
+                              │
+                              ▼
+                     ┌──────────────────┐
+                     │   Validation     │
+                     │     Runs         │
+                     └──────────────────┘
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        │                     │                     │
+        ▼                     ▼                     ▼
+   ┌─────────┐          ┌─────────┐          ┌─────────┐
+   │  PV-07  │ ───────▶ │  PV-08  │ ───────▶ │  PV-09  │
+   │Baseline │          │ Target  │          │AI-Heavy │
+   │  Run    │          │  Scale  │          │  Run    │
+   └─────────┘          └─────────┘          └─────────┘
+                              │                   │
+                              ▼                   │
+                        ┌─────────┐               │
+                        │  PV-11  │               │
+                        │Dashboard│               │
+                        │ Valid   │               │
+                        └─────────┘               │
+                              │                   │
+                              └─────────┬─────────┘
+                                        │
+                                        ▼
+                                   ┌─────────┐
+                                   │  PV-10  │
+                                   │AI Drill │
+                                   └─────────┘
+                                        │
+                                        ▼
+                                   ┌─────────┐
+                                   │  PV-12  │
+                                   │  Gate   │
+                                   │Checklist│
+                                   └─────────┘
+```
+
+**Dependency Summary:**
+
+| Task  | Depends On                        |
+| ----- | --------------------------------- |
+| PV-01 | None                              |
+| PV-02 | None                              |
+| PV-03 | PV-02                             |
+| PV-04 | PV-01                             |
+| PV-05 | None                              |
+| PV-06 | None                              |
+| PV-07 | PV-01, PV-02, PV-03, PV-04, PV-05 |
+| PV-08 | PV-07                             |
+| PV-09 | PV-08                             |
+| PV-10 | PV-09                             |
+| PV-11 | PV-08                             |
+| PV-12 | PV-08, PV-09, PV-10               |
+| PV-13 | PV-07                             |
+| PV-14 | PV-03                             |
+
+---
+
+## 5. Priority Ordering
+
+### Phase 1: Foundation Fixes (Critical Path)
+
+| Order | Task  | Rationale                                             |
+| ----- | ----- | ----------------------------------------------------- |
+| 1     | PV-01 | Validate existing auth refresh works                  |
+| 2     | PV-02 | User pool sizing required for rate limit distribution |
+| 3     | PV-05 | Pre-test health prevents wasted runs                  |
+| 4     | PV-03 | Rate limit bypass enables clean signal                |
+| 5     | PV-04 | Metric classification enables SLO accuracy            |
+
+### Phase 2: Parallel Foundations
+
+| Order | Task  | Rationale                            |
+| ----- | ----- | ------------------------------------ |
+| 6     | PV-06 | SLO audit ensures consistent targets |
+| 7     | PV-14 | Rate limit docs capture decisions    |
+
+### Phase 3: Validation Runs
+
+| Order | Task  | Rationale                        |
+| ----- | ----- | -------------------------------- |
+| 8     | PV-07 | Baseline run validates fixes     |
+| 9     | PV-13 | WebSocket validation in parallel |
+| 10    | PV-08 | Target-scale is primary gate     |
+| 11    | PV-11 | Dashboard validation during load |
+| 12    | PV-09 | AI-heavy completes SLO coverage  |
+
+### Phase 4: Operational Validation
+
+| Order | Task  | Rationale                     |
+| ----- | ----- | ----------------------------- |
+| 13    | PV-10 | AI drill validates recovery   |
+| 14    | PV-12 | Gate checklist enables launch |
+
+---
+
+## 6. Success Criteria
+
+### 6.1 Clean SLO Gate Requirements
+
+For v1.0 production validation to be complete:
+
+| Requirement               | Metric                    | Target                |
+| ------------------------- | ------------------------- | --------------------- |
+| Target-scale run complete | Duration                  | 30 minutes at 300 VUs |
+| True error rate           | Excluding auth/rate-limit | <0.5%                 |
+| API latency p95           | HTTP requests             | <500ms                |
+| API latency p99           | HTTP requests             | <2000ms               |
+| Move latency p95          | Game moves                | <200ms                |
+| AI response p95           | AI service requests       | <1000ms               |
+| AI fallback rate          | AI fallbacks / total      | ≤1%                   |
+| WebSocket success         | Connection success rate   | >99%                  |
+| Contract failures         | True contract violations  | 0                     |
+| Lifecycle mismatches      | ID lifecycle issues       | 0                     |
+
+### 6.2 Documentation Requirements
+
+| Document                            | Status            | Update Needed                 |
+| ----------------------------------- | ----------------- | ----------------------------- |
+| `BASELINE_CAPACITY.md`              | Partially current | Update with clean run results |
+| `PRODUCTION_READINESS_CHECKLIST.md` | Current           | Update §2.4 validation status |
+| `SLO_VERIFICATION.md`               | Current           | Add SSoT threshold table      |
+| `OPERATIONAL_DRILLS_RESULTS_*.md`   | Outdated          | Add AI drill results          |
+
+### 6.3 Exit Criteria
+
+This remediation plan is complete when:
+
+1. ✅ PV-08 (target-scale) produces a PASS result per §2.4.3 of the Production Readiness Checklist
+2. ✅ PV-09 (AI-heavy) produces a PASS result with AI SLOs met
+3. ✅ PV-10 (AI drill) has been rehearsed with documented results
+4. ✅ PV-12 (gate checklist) is published and ready for launch-day use
+5. ✅ All results are documented in `BASELINE_CAPACITY.md`
+
+---
+
+## Revision History
+
+| Version | Date       | Changes                  |
+| ------- | ---------- | ------------------------ |
+| 1.0     | 2025-12-20 | Initial remediation plan |

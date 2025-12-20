@@ -39,6 +39,42 @@ jobs:
       - name: Run Ruff formatter check
         run: ruff format --check .
 
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install security tools
+        run: |
+          pip install bandit safety
+
+      - name: Run Bandit security linter
+        run: |
+          bandit -r app/ -ll -ii --format txt --output bandit-report.txt || true
+          cat bandit-report.txt
+          # Fail on high severity issues
+          bandit -r app/ -ll -ii --format json | python -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          high_issues = [r for r in data.get('results', []) if r['issue_severity'] == 'HIGH']
+          if high_issues:
+              print(f'Found {len(high_issues)} HIGH severity issues')
+              for issue in high_issues:
+                  print(f\"  - {issue['filename']}:{issue['line_number']}: {issue['issue_text']}\")
+              sys.exit(1)
+          print('No HIGH severity issues found')
+          "
+
+      - name: Check dependencies for vulnerabilities
+        run: |
+          # Check for known vulnerabilities in dependencies
+          safety check -r requirements.txt --output text || echo "::warning::Some dependencies have known vulnerabilities"
+
   dead-code-check:
     runs-on: ubuntu-latest
     steps:
@@ -139,7 +175,7 @@ jobs:
         run: |
           pytest tests/unit/ -v --tb=short \
             --cov=app --cov-report=xml --cov-report=term-missing \
-            --cov-fail-under=40 \
+            --cov-fail-under=45 \
             -x --timeout=60
 
       - name: Upload coverage

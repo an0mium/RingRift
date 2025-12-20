@@ -43,7 +43,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Deque, Dict, List, Optional
+from typing import Any, Deque, Dict, Optional
 
 logger = logging.getLogger(__name__)
 

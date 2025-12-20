@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import shutil
 import sqlite3
 import threading
@@ -43,9 +42,9 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
-from app.utils.paths import AI_SERVICE_ROOT, DATA_DIR
+from app.utils.paths import DATA_DIR
 from app.utils.checksum_utils import (
     compute_file_checksum as _compute_file_checksum,
     compute_bytes_checksum as _compute_bytes_checksum,
