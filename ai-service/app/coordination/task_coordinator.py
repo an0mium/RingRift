@@ -973,9 +973,9 @@ class TaskCoordinator:
             return (False, f"Coordinator {state.value}")
 
         # Check rate limit
-        if task_type in (TaskType.SELFPLAY, TaskType.GPU_SELFPLAY, TaskType.HYBRID_SELFPLAY):
-            if not self._selfplay_limiter.acquire():
-                return (False, "Selfplay rate limit exceeded")
+        if (task_type in (TaskType.SELFPLAY, TaskType.GPU_SELFPLAY, TaskType.HYBRID_SELFPLAY)
+                and not self._selfplay_limiter.acquire()):
+            return (False, "Selfplay rate limit exceeded")
 
         if not self._spawn_limiter.acquire():
             return (False, "Global rate limit exceeded")
@@ -1151,14 +1151,12 @@ class TaskCoordinator:
 
             if level == BackpressureLevel.STOP:
                 return (True, f"Queue {queue_type.value} at STOP backpressure")
-            elif level == BackpressureLevel.HARD:
+            elif level == BackpressureLevel.HARD and hash(time.time()) % 10 != 0:
                 # For hard backpressure, deny 90% of spawns
-                if hash(time.time()) % 10 != 0:
-                    return (True, f"Queue {queue_type.value} at HARD backpressure")
-            elif level == BackpressureLevel.SOFT:
+                return (True, f"Queue {queue_type.value} at HARD backpressure")
+            elif level == BackpressureLevel.SOFT and hash(time.time()) % 2 != 0:
                 # For soft backpressure, deny 50% of spawns
-                if hash(time.time()) % 2 != 0:
-                    return (True, f"Queue {queue_type.value} at SOFT backpressure")
+                return (True, f"Queue {queue_type.value} at SOFT backpressure")
 
             return (False, "")
         except Exception as e:
