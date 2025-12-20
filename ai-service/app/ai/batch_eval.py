@@ -457,19 +457,18 @@ def batch_evaluate_positions(
                             and is_my_move):
                         delta_my_center[i] += 1
 
-        elif move_type == 2:  # capture
-            if from_idx >= 0:
-                # Leave marker at from position
-                if base_arrays.marker_owner[from_idx] == 0 and is_my_move:
-                    delta_my_markers[i] += 1
+        elif move_type == 2 and from_idx >= 0:  # capture
+            # Leave marker at from position
+            if base_arrays.marker_owner[from_idx] == 0 and is_my_move:
+                delta_my_markers[i] += 1
 
-                # Capture: our stack takes over target stack
-                target_owner = base_arrays.stack_owner[to_idx]
-                if target_owner > 0 and target_owner != move_player and is_my_move:
-                    # We capture opponent's stack
-                    delta_opp_stacks[i] -= 1
-                    if base_arrays.center_mask[to_idx]:
-                        delta_opp_center[i] -= 1
+            # Capture: our stack takes over target stack
+            target_owner = base_arrays.stack_owner[to_idx]
+            if target_owner > 0 and target_owner != move_player and is_my_move:
+                # We capture opponent's stack
+                delta_opp_stacks[i] -= 1
+                if base_arrays.center_mask[to_idx]:
+                    delta_opp_center[i] -= 1
 
     # Compute final features
     final_my_stacks = base_my_stacks + delta_my_stacks

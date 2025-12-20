@@ -260,10 +260,20 @@ def expand_gpu_jsonl_moves_to_canonical(
             phase = state.current_phase
             player = state.current_player
 
+            # LINE_PROCESSING: Use GPU move if it's a line move, otherwise auto-generate
             if phase == GamePhase.LINE_PROCESSING:
+                if gpu_move.type in {MoveType.PROCESS_LINE, MoveType.CHOOSE_LINE_OPTION}:
+                    break  # Let the main matching logic handle it
                 auto_line(ts)
                 continue
+            # TERRITORY_PROCESSING: Use GPU move if it's a territory move, otherwise auto-generate
             if phase == GamePhase.TERRITORY_PROCESSING:
+                if gpu_move.type in {
+                    MoveType.CHOOSE_TERRITORY_OPTION,
+                    MoveType.ELIMINATE_RINGS_FROM_STACK,
+                    MoveType.SKIP_TERRITORY_PROCESSING,
+                }:
+                    break  # Let the main matching logic handle it
                 auto_territory(ts)
                 continue
 

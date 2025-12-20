@@ -1140,6 +1140,8 @@ def main():
     # Additional ramdrive args beyond base parser
     parser.add_argument("--ram-storage", action="store_true", help="Use ramdrive storage")
     parser.add_argument("--sync-target", type=str, help="Target directory for ramdrive sync")
+    parser.add_argument("--skip-resource-check", action="store_true",
+                       help="Skip resource limit checks (use when resources are known to be available)")
 
     parsed = parser.parse_args()
     engine_mode = parsed.engine_mode
@@ -1187,6 +1189,7 @@ def main():
             "engine_mode": engine_mode,
             "ram_storage": getattr(parsed, "ram_storage", False),
             "sync_target": getattr(parsed, "sync_target", None),
+            "skip_resource_check": getattr(parsed, "skip_resource_check", False),
         },
     )
 

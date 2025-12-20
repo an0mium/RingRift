@@ -93,20 +93,22 @@ def play_random_game(
             # No moves available
             break
 
-        # Record move (skip bookkeeping moves that import script auto-generates)
-        # These are automatically synthesized during import, so saving them causes
-        # double-application and player alternation mismatch.
-        BOOKKEEPING_MOVES = {
+        # Record move - only skip true no-op bookkeeping moves that are auto-synthesized
+        # by the import script when no action is required. Keep all moves that affect
+        # game state (like PROCESS_LINE, CHOOSE_LINE_OPTION, CHOOSE_TERRITORY_OPTION).
+        #
+        # NO_*_ACTION moves are synthesized by get_phase_requirement when there's nothing
+        # to do - the import script will regenerate these, so we skip them to avoid doubles.
+        # LINE_FORMATION and TERRITORY_CLAIM are legacy event markers, not canonical moves.
+        TRUE_NOOP_BOOKKEEPING = {
             MoveType.NO_LINE_ACTION,
             MoveType.NO_TERRITORY_ACTION,
             MoveType.NO_PLACEMENT_ACTION,
             MoveType.NO_MOVEMENT_ACTION,
-            MoveType.SKIP_TERRITORY_PROCESSING,
-            MoveType.LINE_FORMATION,
-            MoveType.TERRITORY_CLAIM,
-            MoveType.SKIP_RECOVERY,
+            MoveType.LINE_FORMATION,      # Legacy event marker
+            MoveType.TERRITORY_CLAIM,     # Legacy event marker
         }
-        if move.type not in BOOKKEEPING_MOVES:
+        if move.type not in TRUE_NOOP_BOOKKEEPING:
             move_dict = {
                 'type': move.type.value,
                 'player': move.player,

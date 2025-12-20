@@ -808,10 +808,10 @@ class SyncScheduler(CoordinatorBase, SQLitePersistenceMixin):
                 continue  # No recommendation needed
 
             # Under backpressure, downgrade non-critical actions
-            if respect_backpressure and backpressure_info["should_throttle"]:
-                if priority not in (SyncPriority.CRITICAL, SyncPriority.HIGH):
-                    action = SyncAction.SKIP
-                    reason = f"Deferred due to backpressure: {reason}"
+            if (respect_backpressure and backpressure_info["should_throttle"]
+                    and priority not in (SyncPriority.CRITICAL, SyncPriority.HIGH)):
+                action = SyncAction.SKIP
+                reason = f"Deferred due to backpressure: {reason}"
 
             # Estimate duration based on historical data
             estimated_duration = self._estimate_sync_duration(host, state.estimated_unsynced_games)
