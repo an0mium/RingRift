@@ -159,8 +159,8 @@ def _compute_data_hash(data_path: str) -> str | None:
 
     import hashlib
     try:
-        # Hash first 10MB + file size for speed
-        h = hashlib.md5()
+        # Hash first 10MB + file size for speed (fingerprint, not security)
+        h = hashlib.md5(usedforsecurity=False)
         size = os.path.getsize(data_path)
         h.update(str(size).encode())
 

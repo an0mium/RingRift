@@ -81,9 +81,9 @@ class BloomFilter:
         self.bits = bytearray(size // 8 + 1)
 
     def _hashes(self, item: str) -> list[int]:
-        """Generate hash positions for an item."""
-        h1 = int(hashlib.md5(item.encode()).hexdigest(), 16)
-        h2 = int(hashlib.sha1(item.encode()).hexdigest(), 16)
+        """Generate hash positions for an item (not for security, bloom filter only)."""
+        h1 = int(hashlib.md5(item.encode(), usedforsecurity=False).hexdigest(), 16)
+        h2 = int(hashlib.sha1(item.encode(), usedforsecurity=False).hexdigest(), 16)
         return [(h1 + i * h2) % self.size for i in range(self.hash_count)]
 
     def add(self, item: str):

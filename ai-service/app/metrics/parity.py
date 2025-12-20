@@ -105,16 +105,19 @@ def emit_parity_summary_metrics(summary: dict) -> None:
             - pass_rate_by_suite: dict[str, float] (optional)
     """
     try:
-        # Emit mismatch counts by type
+        # Emit mismatch counts by type (use suite="all" for aggregate)
         for mismatch_type, count in summary.get("mismatches_by_type", {}).items():
-            # We need to know the suite, so use mismatches_by_suite instead
-            pass
+            if count > 0:
+                PARITY_MISMATCHES_TOTAL.labels(
+                    mismatch_type=mismatch_type, suite="all"
+                ).inc(count)
 
-        # Emit mismatch counts by suite (type=all for aggregate)
+        # Emit mismatch counts by suite (use mismatch_type="all" for aggregate)
         for suite, count in summary.get("mismatches_by_suite", {}).items():
-            # Increment by the count (note: Counter only supports inc())
-            # For bulk updates, we'd need a different approach
-            pass
+            if count > 0:
+                PARITY_MISMATCHES_TOTAL.labels(
+                    mismatch_type="all", suite=suite
+                ).inc(count)
 
         # Update pass rates per suite
         total_cases = summary.get("total_cases", 0)

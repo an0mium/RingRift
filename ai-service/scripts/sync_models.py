@@ -36,6 +36,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import json
 import logging
@@ -113,6 +114,20 @@ def release_bandwidth(host: str) -> None:
 from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("sync_models")
+
+# Storage provider/NFS-aware helpers (optional)
+try:
+    from app.distributed.storage_provider import should_sync_to_node
+    from app.metrics.orchestrator import record_nfs_skip
+    HAS_STORAGE_PROVIDER = True
+except Exception:
+    HAS_STORAGE_PROVIDER = False
+
+    def should_sync_to_node(_target: str) -> bool:  # type: ignore[return-type]
+        return True
+
+    def record_nfs_skip(_category: str) -> None:
+        return None
 
 
 # ============================================
@@ -544,6 +559,10 @@ def sync_model_to_host(
     dry_run: bool = False,
 ) -> Tuple[bool, str]:
     """Sync a single model to a remote host."""
+    if HAS_STORAGE_PROVIDER and not should_sync_to_node(host.name):
+        record_nfs_skip("models")
+        return True, f"Skipped sync to {host.name} (shared NFS storage)"
+
     if model_type == "nnue":
         local_path = LOCAL_NNUE_DIR / model_name
         remote_dir = f"{host.work_directory}/models/nnue/"
@@ -624,6 +643,10 @@ def collect_model_from_host(
     dry_run: bool = False,
 ) -> Tuple[bool, str]:
     """Collect a model from a remote host to local."""
+    if HAS_STORAGE_PROVIDER and not should_sync_to_node(host.name):
+        record_nfs_skip("models")
+        return True, f"Skipped collection from {host.name} (shared NFS storage)"
+
     # Check disk usage before collecting (70% limit enforced 2025-12-16)
     has_capacity, disk_percent = check_disk_usage()
     if not has_capacity:
@@ -963,7 +986,44 @@ def print_summary(state: ClusterModelState):
             print(f"  {key:<30} {state.canonical_models[key]}")
 
 
-def run_daemon(interval_minutes: int = 30):
+def _run_async(coro):
+    try:
+        return asyncio.run(coro)
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
+
+def _sync_via_coordinator() -> bool:
+    """Use SyncCoordinator for model sync (aria2/SSH/P2P + NFS-aware)."""
+    try:
+        from app.distributed.sync_coordinator import SyncCoordinator
+    except Exception as e:
+        logger.warning(f"SyncCoordinator unavailable: {e}")
+        return False
+
+    async def _do_sync():
+        coordinator = SyncCoordinator.get_instance()
+        return await coordinator.sync_models()
+
+    try:
+        stats = _run_async(_do_sync())
+    except Exception as e:
+        logger.warning(f"SyncCoordinator model sync failed: {e}")
+        return False
+
+    if stats:
+        logger.info(
+            f"SyncCoordinator: {stats.files_synced} models via {stats.transport_used} "
+            f"({stats.bytes_transferred / (1024 * 1024):.1f}MB)"
+        )
+    return True
+
+
+def run_daemon(interval_minutes: int = 30, use_sync_coordinator: bool = False):
     """Run sync daemon that syncs every N minutes."""
     logger.info(f"Starting model sync daemon (interval: {interval_minutes}min)")
 
@@ -981,8 +1041,15 @@ def run_daemon(interval_minutes: int = 30):
         try:
             logger.info("Running sync cycle...")
             hosts = load_remote_hosts() if HOSTS_MODULE_AVAILABLE else {}
+            coordinator_used = False
+            if use_sync_coordinator:
+                coordinator_used = _sync_via_coordinator()
             state = scan_cluster(hosts)
-            collected, distributed, errors = sync_missing_models(state, hosts)
+            collected, distributed, errors = sync_missing_models(
+                state,
+                hosts,
+                collect_first=not coordinator_used,
+            )
             state.save()
 
             logger.info(f"Sync complete: collected {collected}, distributed {distributed}, errors {len(errors)}")
@@ -1015,6 +1082,14 @@ def main():
     parser.add_argument("--host", type=str, help="Only sync to specific host")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     parser.add_argument("--no-lock", action="store_true", help="Skip singleton lock (for testing)")
+    parser.add_argument(
+        "--use-sync-coordinator",
+        action="store_true",
+        help=(
+            "Use SyncCoordinator for model collection (aria2/SSH/P2P + NFS-aware). "
+            "Distribution still uses SSH-based deduplication."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -1067,8 +1142,14 @@ def _main_impl(args):
 
     # Daemon mode
     if args.daemon:
-        run_daemon(args.interval)
+        run_daemon(args.interval, use_sync_coordinator=args.use_sync_coordinator)
         return 0
+
+    coordinator_used = False
+    if args.use_sync_coordinator and (args.collect or args.sync):
+        if args.host:
+            logger.warning("--host filtering is ignored when using SyncCoordinator")
+        coordinator_used = _sync_via_coordinator()
 
     # Scan cluster
     state = scan_cluster(hosts)
@@ -1083,7 +1164,7 @@ def _main_impl(args):
         collected, distributed, errors = sync_missing_models(
             state, hosts,
             dry_run=args.dry_run,
-            collect_first=args.sync or args.collect,
+            collect_first=(args.sync or args.collect) and not coordinator_used,
         )
 
         print(f"\nSync results: collected {collected}, distributed {distributed}")

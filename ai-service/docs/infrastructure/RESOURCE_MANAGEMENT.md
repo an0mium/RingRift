@@ -345,6 +345,9 @@ If you're using deprecated tools:
 2. **p2p_model_sync.py** → Use `aria2_data_sync.py --mode models`
 3. **streaming_data_collector.py** → Use `unified_data_sync.py --mode stream`
 
+Note: `sync_models.py` supports `--use-sync-coordinator` to leverage the
+distributed SyncCoordinator (aria2/SSH/P2P + NFS-aware) for model collection.
+
 ### Sync Architecture
 
 ```

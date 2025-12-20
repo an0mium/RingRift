@@ -49,9 +49,9 @@ def _make_key(args: tuple, kwargs: dict) -> str:
         key_parts.extend(f"{k}={v!r}" for k, v in sorted(kwargs.items()))
         key_str = "|".join(key_parts)
 
-        # Hash long keys for efficiency
+        # Hash long keys for efficiency (not for security, just key shortening)
         if len(key_str) > 200:
-            return hashlib.md5(key_str.encode()).hexdigest()
+            return hashlib.md5(key_str.encode(), usedforsecurity=False).hexdigest()
         return key_str
     except Exception:
         # Fallback to str representation

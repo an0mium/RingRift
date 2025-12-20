@@ -584,7 +584,7 @@ def run_command_sync(
     try:
         result = subprocess.run(
             cmd_args,
-            shell=shell,
+            shell=shell,  # nosec B602 - shell defaults to False, only True if explicitly requested
             capture_output=capture_output,
             text=True,
             timeout=timeout,

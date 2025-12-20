@@ -73,7 +73,7 @@ def play_game(
             break
 
         # Extract action features
-        action_features = action_extractor.extract([move])[0]
+        action_features = action_extractor.extract_features(move)
 
         # Record which AI made this move
         ai_type = "ebmo" if isinstance(current_ai, EBMO_AI) else "heuristic"
