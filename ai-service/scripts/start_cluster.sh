@@ -7,8 +7,9 @@
 #
 # Components started:
 # 1. Unified AI Loop (coordinator) - vast-rtx4060ti
-# 2. Data Sync Service - vast-512cpu
-# 3. Balanced Selfplay across all GPU nodes
+# 2. Job State Sync Daemon (coordinator) - vast-rtx4060ti
+# 3. Data Sync Service - vast-512cpu
+# 4. Balanced Selfplay across all GPU nodes
 #
 # Prerequisites:
 # - Tailscale connected to all vast nodes
@@ -111,6 +112,32 @@ start_unified_loop() {
     fi
 }
 
+# Start job-state sync daemon on coordinator
+start_job_state_sync() {
+    log_info "Starting Job State Sync Daemon on $COORDINATOR..."
+
+    if $DRY_RUN; then
+        echo "  ssh root@$COORDINATOR 'cd .../ai-service && python3 scripts/job_state_sync_daemon.py --interval 60'"
+        return
+    fi
+
+    local remote_path=$(ssh -o ConnectTimeout=10 root@$COORDINATOR 'ls -d /workspace/ringrift /root/ringrift 2>/dev/null | head -1')
+
+    if ssh root@$COORDINATOR "pgrep -f 'job_state_sync_daemon.py'" >/dev/null 2>&1; then
+        log_info "  Job State Sync Daemon already running on $COORDINATOR"
+        return
+    fi
+
+    ssh root@$COORDINATOR "cd $remote_path/ai-service && mkdir -p logs && nohup python3 scripts/job_state_sync_daemon.py --interval 60 > logs/job_state_sync_daemon.log 2>&1 &"
+    sleep 2
+
+    if ssh root@$COORDINATOR "pgrep -f 'job_state_sync_daemon.py'" >/dev/null 2>&1; then
+        log_info "  Job State Sync Daemon started successfully"
+    else
+        log_warn "  Job State Sync Daemon may not have started - check logs"
+    fi
+}
+
 # Start data sync service
 start_data_sync() {
     log_info "Starting Data Sync Service on $DATA_AGGREGATOR..."
@@ -182,6 +209,9 @@ show_status() {
     echo "=== Unified AI Loop ==="
     ssh -o ConnectTimeout=5 root@$COORDINATOR 'ps aux | grep unified_ai_loop | grep -v grep | head -1' 2>/dev/null || echo "  Not running"
     echo ""
+    echo "=== Job State Sync ==="
+    ssh -o ConnectTimeout=5 root@$COORDINATOR 'ps aux | grep job_state_sync_daemon | grep -v grep | head -1' 2>/dev/null || echo "  Not running"
+    echo ""
     echo "=== Data Sync Service ==="
     ssh -o ConnectTimeout=5 root@$DATA_AGGREGATOR 'ps aux | grep unified_data_sync | grep -v grep | head -1' 2>/dev/null || echo "  Not running"
     echo ""
@@ -200,6 +230,7 @@ main() {
     check_tailscale
     sync_configs
     start_unified_loop
+    start_job_state_sync
     start_data_sync
     start_selfplay
 
