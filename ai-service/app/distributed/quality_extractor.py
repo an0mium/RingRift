@@ -116,10 +116,9 @@ def extract_game_quality(
             model_version = metadata.get("model_version", "") or metadata.get("model", "")
         except (json.JSONDecodeError, TypeError):
             pass
-    if not model_version and source:
-        # Try to extract from source field (e.g., "selfplay_v42")
-        if "_v" in source:
-            model_version = source.split("_v")[-1]
+    # Try to extract from source field (e.g., "selfplay_v42")
+    if not model_version and source and "_v" in source:
+        model_version = source.split("_v")[-1]
 
     # Look up Elo ratings for players
     avg_elo = config.default_elo

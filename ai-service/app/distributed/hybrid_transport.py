@@ -115,13 +115,13 @@ class NodeTransportState:
         self.http_consecutive_failures += 1
         self.http_last_failure = time.time()
 
-        if self.http_consecutive_failures >= HTTP_FAILURES_BEFORE_SSH:
-            if self.ssh_available and self.preferred_transport != TransportType.SSH:
-                logger.info(
-                    f"[Transport] {self.node_id}: Switching to SSH after "
-                    f"{self.http_consecutive_failures} HTTP failures"
-                )
-                self.preferred_transport = TransportType.SSH
+        if (self.http_consecutive_failures >= HTTP_FAILURES_BEFORE_SSH
+                and self.ssh_available and self.preferred_transport != TransportType.SSH):
+            logger.info(
+                f"[Transport] {self.node_id}: Switching to SSH after "
+                f"{self.http_consecutive_failures} HTTP failures"
+            )
+            self.preferred_transport = TransportType.SSH
 
     def record_tailscale_success(self) -> None:
         """Record successful Tailscale communication."""

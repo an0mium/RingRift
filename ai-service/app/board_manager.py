@@ -446,20 +446,20 @@ class BoardManager:
                 board,
             )
 
-            if len(represented_players) < len(active_players):
-                # Only keep the region if exactly one player is represented inside;
-                # ambiguous/neutral regions are non-canonical and should be dropped.
-                if len(represented_players) == 1:
-                    sole_player = next(iter(represented_players))
-                    disconnected_regions.append(
-                        Territory(
-                            **{
-                                "spaces": region,
-                                "controllingPlayer": sole_player,
-                                "isDisconnected": True,
-                            }
-                        )
+            # Only keep the region if exactly one player is represented inside;
+            # ambiguous/neutral regions are non-canonical and should be dropped.
+            if (len(represented_players) < len(active_players)
+                    and len(represented_players) == 1):
+                sole_player = next(iter(represented_players))
+                disconnected_regions.append(
+                    Territory(
+                        **{
+                            "spaces": region,
+                            "controllingPlayer": sole_player,
+                            "isDisconnected": True,
+                        }
                     )
+                )
 
         return disconnected_regions
 

@@ -450,12 +450,12 @@ def batch_evaluate_positions(
                 # Stack moves from -> to
                 if base_arrays.stack_owner[to_idx] == 0:
                     # Moving to empty - stack count unchanged
-                    if base_arrays.center_mask[from_idx] and not base_arrays.center_mask[to_idx]:
-                        if is_my_move:
-                            delta_my_center[i] -= 1
-                    elif not base_arrays.center_mask[from_idx] and base_arrays.center_mask[to_idx]:
-                        if is_my_move:
-                            delta_my_center[i] += 1
+                    if (base_arrays.center_mask[from_idx] and not base_arrays.center_mask[to_idx]
+                            and is_my_move):
+                        delta_my_center[i] -= 1
+                    elif (not base_arrays.center_mask[from_idx] and base_arrays.center_mask[to_idx]
+                            and is_my_move):
+                        delta_my_center[i] += 1
 
         elif move_type == 2:  # capture
             if from_idx >= 0:

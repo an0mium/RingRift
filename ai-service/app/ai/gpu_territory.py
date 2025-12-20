@@ -130,10 +130,10 @@ def _find_all_regions(
 
                 for dy, dx in directions:
                     ny, nx = y + dy, x + dx
-                    if 0 <= ny < board_size and 0 <= nx < board_size:
-                        if not visited[ny, nx] and non_collapsed[ny, nx]:
-                            visited[ny, nx] = True
-                            queue.append((ny, nx))
+                    if (0 <= ny < board_size and 0 <= nx < board_size
+                            and not visited[ny, nx] and non_collapsed[ny, nx]):
+                        visited[ny, nx] = True
+                        queue.append((ny, nx))
 
             if region:
                 regions.append(region)
@@ -441,10 +441,10 @@ def compute_territory_batch(
                                     is_boundary = False
                                     for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                                         ny, nx = y + dy, x + dx
-                                        if 0 <= ny < board_size and 0 <= nx < board_size:
-                                            if (ny, nx) in region_set:
-                                                is_boundary = True
-                                                break
+                                        if (0 <= ny < board_size and 0 <= nx < board_size
+                                                and (ny, nx) in region_set):
+                                            is_boundary = True
+                                            break
 
                                     if is_boundary and not is_collapsed_np[y, x]:
                                         state.is_collapsed[g, y, x] = True

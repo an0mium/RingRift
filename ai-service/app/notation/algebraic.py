@@ -285,10 +285,10 @@ def algebraic_to_move(
             from_str, to_str = part.split('-', 1)
             from_pos = algebraic_to_position(from_str, board_type)
             to_pos = algebraic_to_position(to_str, board_type)
-        elif part[0].isalpha() or (part[0] == '-' and '.' in part) or part[0].isdigit():
+        elif ((part[0].isalpha() or (part[0] == '-' and '.' in part) or part[0].isdigit())
+              and to_pos is None):
             # Single position (placement or hex)
-            if to_pos is None:
-                to_pos = algebraic_to_position(part, board_type)
+            to_pos = algebraic_to_position(part, board_type)
 
     # Default position for moves that don't have spatial component
     if to_pos is None:
