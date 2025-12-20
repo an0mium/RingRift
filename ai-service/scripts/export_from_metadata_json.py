@@ -214,7 +214,7 @@ def export_from_metadata_json(
 
             games_processed += 1
             if games_processed % 100 == 0:
-                print(f"  Processed {games_processed} games, {samples_total} samples...")
+                print(f"  Processed {games_processed} games, {samples_total} samples...", flush=True)
 
         except Exception:
             continue
