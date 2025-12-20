@@ -1515,8 +1515,12 @@ export function processTurn(
 
   // For turn-ending territory moves, the turn is complete - no post-move processing needed.
   // The applyMoveWithChainInfo handler already rotates to the next player.
-  // Note: no_territory_action is NOT turn-ending because forced elimination may be needed.
-  const isTurnEndingTerritoryMove = move.type === 'skip_territory_processing';
+  // RR-PARITY-FIX-2025-12-20: no_territory_action IS turn-ending now that applyMoveWithChainInfo
+  // handles forced elimination check and turn rotation inline. Adding it here prevents
+  // processPostMovePhases from incorrectly transitioning to line_processing after the
+  // no_territory_action handler has already rotated to the next player's ring_placement.
+  const isTurnEndingTerritoryMove =
+    move.type === 'skip_territory_processing' || move.type === 'no_territory_action';
 
   let result: { pendingDecision?: PendingDecision; victoryResult?: VictoryState } = {};
   // Line-phase moves ALWAYS need post-move processing for phase transitions (RR-PARITY-FIX-2025-12-13)
@@ -2246,8 +2250,14 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
 
       // No forced elimination needed - rotate to next player
       const noTerritoryPlayers = state.players;
-      const noTerritoryPlayerIndex = noTerritoryPlayers.findIndex((p) => p.playerNumber === move.player);
-      const { nextPlayer: noTerritoryNextPlayer } = computeNextNonEliminatedPlayer(state, noTerritoryPlayerIndex, noTerritoryPlayers);
+      const noTerritoryPlayerIndex = noTerritoryPlayers.findIndex(
+        (p) => p.playerNumber === move.player
+      );
+      const { nextPlayer: noTerritoryNextPlayer } = computeNextNonEliminatedPlayer(
+        state,
+        noTerritoryPlayerIndex,
+        noTerritoryPlayers
+      );
 
       return {
         nextState: {

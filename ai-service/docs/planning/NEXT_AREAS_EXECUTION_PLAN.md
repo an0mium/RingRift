@@ -2,7 +2,7 @@
 
 **Created:** 2025-12-20
 **Updated:** 2025-12-20
-**Status:** Lane 3 parity fix COMPLETE (b8175468); Lane 1 ready for re-validation
+**Status:** Lane 3 NEW BUG FOUND - Line Detection Parity; Lane 1 blocked
 
 ---
 
@@ -89,6 +89,40 @@ DB path: `data/games/distributed_soak_runs/distributed_soak_square19_3p_20251220
 - [ ] Add replay contract tests for `forced_elimination` and `no_territory_action` sequencing
 
 **Status:** Core fix deployed. Unit tests still pending.
+
+### NEW Finding: Line Detection Parity Bug (2025-12-20)
+
+**Symptom:** After `move_stack`, TS enters `line_processing` but Python recorded `no_line_action`.
+
+**Error from TS replay:**
+
+```
+[PHASE_MOVE_INVARIANT] Cannot apply move type 'place_ring' in phase 'line_processing'
+```
+
+**Root Cause Analysis:**
+
+- TS `deriveLineProcessingState` uses `findLinesForPlayer(state.board, player, state.players.length)`
+- TS detects 1+ lines after `move_stack` → stays in `line_processing`
+- Python `BoardManager.find_all_lines` detects 0 lines → emits `no_line_action` → transitions to `territory_processing`
+- The engines disagree on whether a line was formed
+
+**Location in code:**
+
+- TS: `src/shared/engine/fsm/FSMAdapter.ts:703-710` - `deriveLineProcessingState`
+- TS: `src/shared/engine/lineDetection.ts:90-96` - `findLinesForPlayer`
+- Python: `app/board_manager.py:170-239` - `find_all_lines`
+
+**Affected Data:**
+
+- `canonical_square19.db` - 3/3 games failing (26MB, 2-player square19)
+- All selfplay data with this bug is non-canonical
+
+**Next Steps:**
+
+1. Create minimal reproduction case with exact board state
+2. Compare line detection output between Python and TS at the divergence point
+3. Fix whichever implementation is incorrect
 
 ---
 

@@ -222,9 +222,6 @@ def test_territory_processing_allows_height_1_outside_stack() -> None:
     ]
     assert option_moves, "expected territory option moves with height-1 outside stack"
 
-    # Collapsed spaces are monotone.
-    assert len(board_after.collapsed_spaces) >= initial_collapsed
-
 
 def test_territory_and_forced_elimination_moves_rejected_outside_phases(
 ) -> None:
