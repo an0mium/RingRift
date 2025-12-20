@@ -985,6 +985,33 @@ describe('BackendGameHost (React host behaviour)', () => {
     );
   });
 
+  it('logs last-player-standing diagnostics when weird-state reports last-player-standing', () => {
+    getWeirdStateBanner.mockReturnValue({
+      type: 'last-player-standing',
+      winner: 2,
+      reason: 'last_player_standing',
+    });
+
+    const victory: GameResult = {
+      winner: 2,
+      reason: 'last_player_standing',
+      finalScore: {
+        ringsEliminated: {},
+        territorySpaces: {},
+        ringsRemaining: {},
+      },
+    };
+
+    setBackendHostState({ phase: 'movement', validMoves: [], victoryState: victory });
+
+    render(<BackendGameHost gameId="game-123" />);
+
+    const log = screen.getByTestId('game-event-log');
+    expect(log).toHaveTextContent(
+      /Last Player Standing: P2 won after three complete rounds where only they had real moves available\./
+    );
+  });
+
   it('renders chat log and calls sendChatMessage when submitting a message', () => {
     setBackendHostState({ phase: 'movement', validMoves: [] });
 

@@ -6,7 +6,7 @@
 >
 > **Implementation Status:** All 25 gaps addressed across CODE-W-UX-EXPL-6 (4 gaps), CODE-TEACHING-GAPS-BATCH2 (17 gaps), and P1-UX-01 (4 recovery action gaps).
 
-> **Rules Update Notice (2025-12-06):** The Last-Player-Standing (LPS) victory condition requires **two consecutive complete rounds** of exclusive real actions. This affects:
+> **Rules Update Notice (2025-12-06):** The Last-Player-Standing (LPS) victory condition requires **three consecutive complete rounds** of exclusive real actions. This affects:
 >
 > - All LPS teaching content in `teachingScenarios.ts`, `teachingTopics.ts`, and `TeachingOverlay.tsx`
 > - LPS descriptions in `UX_RULES_WEIRD_STATES_SPEC.md` (RWS-006)
