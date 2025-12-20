@@ -16,7 +16,7 @@ import torch
 import numpy as np
 from typing import List, Tuple, Optional
 
-from app.models import BoardType, GamePhase
+from app.models import BoardType, GamePhase, MoveType
 from app.rules.core import (
     BOARD_CONFIGS,
     get_effective_line_length,
@@ -35,7 +35,9 @@ try:
     from app.ai.gpu_heuristic import evaluate_positions_batch
     from app.ai.gpu_kernels import (
         generate_placement_mask_kernel,
-        generate_placement_moves_vectorized,
+    )
+    from app.ai.gpu_move_generation import (
+        generate_placement_moves_batch,
     )
     GPU_MODULES_AVAILABLE = True
 except ImportError as e:
@@ -247,36 +249,28 @@ class TestLineLengthParity:
 # =============================================================================
 
 
-@pytest.mark.skip(reason="GPU move generation API not yet implemented - see GPU_PIPELINE_ROADMAP.md Phase 2")
 class TestPlacementMoveParity:
     """Verify GPU placement move generation matches CPU.
 
-    NOTE: These tests are skipped until Phase 2 of the GPU pipeline is implemented.
-    The GPU code currently uses `generate_placement_moves_vectorized` from gpu_kernels
-    but the interface doesn't match what these tests expect. The tests will be
-    enabled once the GPU move generation properly matches the CPU API.
+    Phase 2 of the GPU pipeline - validates that GPU and CPU produce the same
+    valid placement positions. Uses get_valid_moves filtered by MoveType.PLACE_RING
+    to extract unique placement positions from the CPU engine.
     """
 
     def test_empty_board_placement_count(self, device, empty_square8_2p, cpu_engine):
         """On empty board, all 64 positions should be valid placements."""
         state = empty_square8_2p
 
-        # CPU: count valid placements
-        cpu_moves = cpu_engine.generate_placement_moves(state)
-        cpu_count = len(cpu_moves)
+        # CPU: count valid placements (unique positions from all placement moves)
+        cpu_moves = cpu_engine.get_valid_moves(state, state.current_player)
+        cpu_positions = {(m.to.x, m.to.y) for m in cpu_moves if m.type == MoveType.PLACE_RING}
+        cpu_count = len(cpu_positions)
 
-        # GPU: count valid placements
+        # GPU: count valid placements using batch move generation
         batch_state = BatchGameState.from_single_game(state, device)
-        active_mask = batch_state.get_active_mask()
+        batch_moves = generate_placement_moves_batch(batch_state)
 
-        game_idx, to_y, to_x, num_moves = generate_placement_moves_vectorized(
-            batch_state.stack_owner,
-            batch_state.rings_in_hand,
-            batch_state.current_player,
-            active_mask,
-        )
-
-        gpu_count = num_moves[0].item()
+        gpu_count = batch_moves.moves_per_game[0].item()
 
         assert cpu_count == gpu_count == 64, (
             f"Empty board should have 64 valid placements. "
@@ -289,25 +283,21 @@ class TestPlacementMoveParity:
         """Verify placement moves exclude occupied positions."""
         state = state_with_single_stack
 
-        # CPU
-        cpu_moves = cpu_engine.generate_placement_moves(state)
-        cpu_positions = {(m.to_pos.x, m.to_pos.y) for m in cpu_moves}
+        # CPU: unique placement positions
+        cpu_moves = cpu_engine.get_valid_moves(state, state.current_player)
+        cpu_positions = {(m.to.x, m.to.y) for m in cpu_moves if m.type == MoveType.PLACE_RING}
 
-        # GPU
+        # GPU: use batch move generation
         batch_state = BatchGameState.from_single_game(state, device)
-        active_mask = batch_state.get_active_mask()
-
-        game_idx, to_y, to_x, num_moves = generate_placement_moves_vectorized(
-            batch_state.stack_owner,
-            batch_state.rings_in_hand,
-            batch_state.current_player,
-            active_mask,
-        )
+        batch_moves = generate_placement_moves_batch(batch_state)
 
         gpu_positions = set()
-        for i in range(len(game_idx)):
-            if game_idx[i] == 0:  # First game
-                gpu_positions.add((to_x[i].item(), to_y[i].item()))
+        for i in range(batch_moves.total_moves):
+            if batch_moves.game_idx[i] == 0:  # First game
+                gpu_positions.add((
+                    batch_moves.to_x[i].item(),
+                    batch_moves.to_y[i].item()
+                ))
 
         assert cpu_positions == gpu_positions, (
             f"Placement positions mismatch.\n"
@@ -331,22 +321,16 @@ class TestPlacementMoveParity:
 
         state = create_empty_game_state(board_type, num_players)
 
-        # CPU
-        cpu_moves = cpu_engine.generate_placement_moves(state)
-        cpu_count = len(cpu_moves)
+        # CPU: unique placement positions
+        cpu_moves = cpu_engine.get_valid_moves(state, state.current_player)
+        cpu_positions = {(m.to.x, m.to.y) for m in cpu_moves if m.type == MoveType.PLACE_RING}
+        cpu_count = len(cpu_positions)
 
-        # GPU
+        # GPU: use batch move generation
         batch_state = BatchGameState.from_single_game(state, device)
-        active_mask = batch_state.get_active_mask()
+        batch_moves = generate_placement_moves_batch(batch_state)
 
-        _, _, _, num_moves = generate_placement_moves_vectorized(
-            batch_state.stack_owner,
-            batch_state.rings_in_hand,
-            batch_state.current_player,
-            active_mask,
-        )
-
-        gpu_count = num_moves[0].item()
+        gpu_count = batch_moves.moves_per_game[0].item()
 
         config = BOARD_CONFIGS[board_type]
         expected = config.total_spaces  # Empty board = all spaces valid

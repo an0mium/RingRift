@@ -92,11 +92,15 @@ class CAGE_AI(BaseAI):
 
     def _load_model(self, path: str) -> None:
         try:
-            checkpoint = torch.load(path, map_location=self.device)
+            checkpoint = torch.load(path, map_location=self.device, weights_only=False)
             if 'config' in checkpoint:
-                self.cage_config = checkpoint['config']
+                cfg = checkpoint['config']
+                if isinstance(cfg, dict):
+                    self.cage_config = CAGEConfig(**{k: v for k, v in cfg.items() if hasattr(CAGEConfig, k)})
+                else:
+                    self.cage_config = cfg
             self.network = CAGENetwork(self.cage_config)
-            self.network.load_state_dict(checkpoint['model_state_dict'])
+            self.network.load_state_dict(checkpoint['model_state_dict'], strict=False)
             self.network.to(self.device)
             self.network.eval()
             self._model_loaded = True

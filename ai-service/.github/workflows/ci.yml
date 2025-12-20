@@ -342,7 +342,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-timeout
+          pip install pytest pytest-timeout pytest-cov
 
       - name: Verify GPU module imports
         run: |
@@ -381,6 +381,16 @@ jobs:
         run: |
           # Run GPU parity tests which verify GPU code matches CPU semantics
           pytest tests/gpu/test_gpu_cpu_parity.py -v --tb=short -x --timeout=60
+
+      - name: Run GPU tests with coverage
+        run: |
+          pytest tests/gpu/ -v --tb=short \
+            --cov=app.ai.gpu_parallel_games \
+            --cov=app.ai.gpu_batch_state \
+            --cov=app.ai.gpu_move_generation \
+            --cov-report=term-missing \
+            --cov-fail-under=40 \
+            --timeout=120
 
   sanity-check:
     runs-on: ubuntu-latest

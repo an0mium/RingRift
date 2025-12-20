@@ -19,8 +19,8 @@ Technical documentation for the RingRift AI training service.
 System design and component architecture.
 
 - Neural network architecture
-- GPU pipeline design
-- Coordination systems
+- GPU pipeline design (see also [GPU_VECTORIZATION.md](GPU_VECTORIZATION.md))
+- Coordination systems (see also [COORDINATION_ARCHITECTURE.md](COORDINATION_ARCHITECTURE.md))
 - Platform-specific (MPS, CUDA)
 
 ### [training/](training/)
@@ -81,12 +81,15 @@ Historical documentation and status reports.
 
 ## Root Level Docs
 
-| Document                                                | Description                   |
-| ------------------------------------------------------- | ----------------------------- |
-| [QUICK_START](QUICK_START.md)                           | Quick start guide             |
-| [DEVELOPER_GUIDE](DEVELOPER_GUIDE.md)                   | Coding patterns and standards |
-| [CONFIG_REFERENCE](CONFIG_REFERENCE.md)                 | Complete config reference     |
-| [HEX_ARTIFACTS_DEPRECATED](HEX_ARTIFACTS_DEPRECATED.md) | Deprecated hex data notice    |
+| Document                                                              | Description                      |
+| --------------------------------------------------------------------- | -------------------------------- |
+| [QUICK_START](QUICK_START.md)                                         | Quick start guide                |
+| [DEVELOPER_GUIDE](DEVELOPER_GUIDE.md)                                 | Coding patterns and standards    |
+| [CONFIG_REFERENCE](CONFIG_REFERENCE.md)                               | Complete config reference        |
+| [GPU_VECTORIZATION](GPU_VECTORIZATION.md)                             | GPU module architecture & limits |
+| [COORDINATION_ARCHITECTURE](COORDINATION_ARCHITECTURE.md)             | Event system & coordination      |
+| [CONSOLIDATION_STATUS_2025_12_19](CONSOLIDATION_STATUS_2025_12_19.md) | Current consolidation status     |
+| [HEX_ARTIFACTS_DEPRECATED](HEX_ARTIFACTS_DEPRECATED.md)               | Deprecated hex data notice       |
 
 ## See Also
 

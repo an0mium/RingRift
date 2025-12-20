@@ -217,6 +217,7 @@ for g in range(1000):
 - **No CPU-GPU Sync**: Avoids `.item()` calls in hot paths
 - **Batch Processing**: Processes all games in parallel
 - **Memory Efficient**: Uses int8/int16 for game state tensors
+- **Batched LPS Victory**: LPS (Last Player Standing) victory detection uses `_check_real_actions_batch()` to check all players across all candidate games in O(players) move generation calls instead of O(games × players)
 
 Typical throughput on M1 Mac with MPS: ~50,000 moves/second
 Typical throughput on A100 GPU: ~500,000 moves/second

@@ -81,26 +81,35 @@ def generate_placement_mask_kernel(
     rings_in_hand: torch.Tensor,  # (batch, num_players+1)
     current_player: torch.Tensor,  # (batch,)
     active_mask: torch.Tensor,  # (batch,)
+    marker_owner: torch.Tensor,  # (batch, board, board) - 0=none, 1-4=player
+    is_collapsed: torch.Tensor,  # (batch, board, board) - bool
 ) -> torch.Tensor:
     """Generate placement move mask for all games in parallel.
+
+    Per RR-CANON placement rules:
+    - Placements allowed on empty cells OR existing stacks (up to 1 ring on stacks)
+    - Placements NOT allowed on markers
+    - Placements NOT allowed on collapsed spaces
 
     Returns:
         Tensor of shape (batch, board, board) where True = valid placement
     """
     batch_size, _board_size, _ = stack_owner.shape
 
-    # Get rings in hand for current players
-    player_rings = torch.zeros(batch_size, dtype=torch.int32, device=stack_owner.device)
-    for b in range(batch_size):
-        if active_mask[b]:
-            player_rings[b] = rings_in_hand[b, current_player[b]]
+    # Get rings in hand for current players (vectorized)
+    # current_player must be long for tensor indexing
+    current_player_long = current_player.long()
+    batch_indices = torch.arange(batch_size, device=stack_owner.device)
+    player_rings = rings_in_hand[batch_indices, current_player_long]
 
-    # Valid placements: empty cells where player has rings
-    empty_cells = (stack_owner == 0)  # (batch, board, board)
+    # Valid placements: any cell that is not a marker and not collapsed
+    # (placement on existing stacks is allowed - adds 1 ring to stack)
+    not_marker = (marker_owner == 0)  # (batch, board, board)
+    not_collapsed = ~is_collapsed  # (batch, board, board)
     has_rings = (player_rings > 0).view(batch_size, 1, 1)  # (batch, 1, 1)
     is_active = active_mask.view(batch_size, 1, 1)  # (batch, 1, 1)
 
-    return empty_cells & has_rings & is_active
+    return not_marker & not_collapsed & has_rings & is_active
 
 
 def generate_placement_moves_vectorized(
@@ -108,14 +117,27 @@ def generate_placement_moves_vectorized(
     rings_in_hand: torch.Tensor,
     current_player: torch.Tensor,
     active_mask: torch.Tensor,
+    marker_owner: torch.Tensor | None = None,
+    is_collapsed: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Generate all valid placement moves for the batch.
 
     Returns:
         Tuple of (game_idx, to_y, to_x, num_moves_per_game)
     """
+    device = stack_owner.device
+    batch_size, board_size, _ = stack_owner.shape
+
+    # Default marker_owner and is_collapsed if not provided
+    if marker_owner is None:
+        marker_owner = torch.zeros_like(stack_owner)
+    if is_collapsed is None:
+        is_collapsed = torch.zeros(batch_size, board_size, board_size,
+                                   dtype=torch.bool, device=device)
+
     mask = generate_placement_mask_kernel(
-        stack_owner, rings_in_hand, current_player, active_mask
+        stack_owner, rings_in_hand, current_player, active_mask,
+        marker_owner, is_collapsed
     )
 
     # Find all valid positions

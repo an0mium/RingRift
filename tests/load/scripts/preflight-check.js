@@ -12,6 +12,8 @@
  *   --skip-ai          Skip AI service health check (for tests not requiring AI)
  *   --skip-user-pool   Skip user pool validation
  *   --min-users N      Minimum users required in pool (default: 10)
+ *   --expected-vus N   Expected peak VUs (warn if user pool is smaller)
+ *   --expected-duration-s N  Expected test duration in seconds (auth TTL warnings)
  *   --verbose          Show detailed output for each check
  *   --json             Output results as JSON
  *
@@ -21,6 +23,11 @@
  *   LOADTEST_EMAIL     Test user email (default: loadtest_user_1@loadtest.local)
  *   LOADTEST_PASSWORD  Test user password (default: LoadTestK6Pass123)
  *   LOADTEST_USER_POOL_SIZE  Number of users in pool (default: 0)
+ *   LOADTEST_USER_PASSWORD   Password used by the seeding script (optional)
+ *   LOADTEST_EXPECTED_VUS    Expected peak VUs (optional)
+ *   LOADTEST_EXPECTED_DURATION_S  Expected test duration in seconds (optional)
+ *   LOADTEST_AUTH_TOKEN_TTL_S      Token TTL override when expiresIn is missing (optional)
+ *   LOADTEST_AUTH_REFRESH_WINDOW_S Token refresh safety window (optional)
  */
 
 const http = require('http');
@@ -39,16 +46,54 @@ const config = {
   userPoolPrefix: process.env.LOADTEST_USER_POOL_PREFIX || 'loadtest_user_',
   userPoolDomain: process.env.LOADTEST_USER_POOL_DOMAIN || 'loadtest.local',
   userPoolPassword: process.env.LOADTEST_USER_POOL_PASSWORD || 'LoadTestK6Pass123',
+  seedUserPassword: process.env.LOADTEST_USER_PASSWORD,
+  expectedVus: parseInt(process.env.LOADTEST_EXPECTED_VUS || '0', 10),
+  expectedDurationSeconds: parseInt(
+    process.env.LOADTEST_EXPECTED_DURATION_S || '0',
+    10
+  ),
+  authTokenTtlOverrideSeconds: parseInt(
+    process.env.LOADTEST_AUTH_TOKEN_TTL_S || '0',
+    10
+  ),
+  authRefreshWindowSeconds: parseInt(
+    process.env.LOADTEST_AUTH_REFRESH_WINDOW_S || '60',
+    10
+  ),
 };
 
 // Parse command line arguments
 const args = process.argv.slice(2);
+function parseIntFlag(flag) {
+  const idx = args.indexOf(flag);
+  if (idx === -1) return null;
+  const raw = args[idx + 1];
+  if (!raw) return null;
+  const value = parseInt(raw, 10);
+  return Number.isFinite(value) ? value : null;
+}
+
+const expectedVusArg = parseIntFlag('--expected-vus');
+const expectedDurationArg = parseIntFlag('--expected-duration-s');
+
 const options = {
   skipAi: args.includes('--skip-ai'),
   skipUserPool: args.includes('--skip-user-pool'),
   minUsers: parseInt(args.find((a, i) => args[i - 1] === '--min-users') || '10', 10),
   verbose: args.includes('--verbose'),
   json: args.includes('--json'),
+  expectedVus:
+    expectedVusArg !== null
+      ? expectedVusArg
+      : config.expectedVus > 0
+        ? config.expectedVus
+        : null,
+  expectedDurationSeconds:
+    expectedDurationArg !== null
+      ? expectedDurationArg
+      : config.expectedDurationSeconds > 0
+        ? config.expectedDurationSeconds
+        : null,
 };
 
 // ============================================================================
@@ -180,6 +225,69 @@ const checks = {
   },
 
   /**
+   * Validate load-test configuration consistency (user pool + auth settings)
+   */
+  async loadTestConfig() {
+    const warnings = [];
+    const details = [];
+
+    const expectedVus = options.expectedVus || 0;
+    const expectedDurationSeconds = options.expectedDurationSeconds || 0;
+
+    details.push(`user_pool_size=${config.userPoolSize}`);
+    if (expectedVus > 0) {
+      details.push(`expected_vus=${expectedVus}`);
+    }
+    if (expectedDurationSeconds > 0) {
+      details.push(`expected_duration_s=${expectedDurationSeconds}`);
+    }
+
+    if (expectedVus > 1) {
+      if (config.userPoolSize === 0) {
+        warnings.push(
+          `LOADTEST_USER_POOL_SIZE is 0 with expected_vus=${expectedVus}; enable a pool to avoid per-user rate limits`
+        );
+      } else if (config.userPoolSize < expectedVus) {
+        warnings.push(
+          `LOADTEST_USER_POOL_SIZE (${config.userPoolSize}) < expected_vus (${expectedVus}); increase pool size`
+        );
+      }
+    }
+
+    if (
+      config.seedUserPassword &&
+      config.userPoolPassword &&
+      config.seedUserPassword !== config.userPoolPassword
+    ) {
+      warnings.push(
+        'LOADTEST_USER_PASSWORD differs from LOADTEST_USER_POOL_PASSWORD; align seeding and k6 pool credentials'
+      );
+    }
+
+    const data = {
+      expectedVus,
+      expectedDurationSeconds,
+      userPoolSize: config.userPoolSize,
+      hasSeedUserPassword: Boolean(config.seedUserPassword),
+    };
+
+    if (warnings.length > 0) {
+      return {
+        success: true,
+        warning: true,
+        details: warnings.join(' | '),
+        data,
+      };
+    }
+
+    return {
+      success: true,
+      details: details.join(', ') || 'config ok',
+      data,
+    };
+  },
+
+  /**
    * Validate AI service health endpoint
    */
   async aiServiceHealth() {
@@ -277,31 +385,76 @@ const checks = {
     const accessToken = data.accessToken;
     const expiresIn = data.expiresIn;
     const user = data.user;
+    const warnings = [];
 
     if (!accessToken || typeof accessToken !== 'string') {
       throw new Error('No accessToken returned from login');
     }
 
-    // PV-02 requirement: expiresIn must be present
-    if (expiresIn === undefined || expiresIn === null) {
-      throw new Error('expiresIn field missing from login response (required per PV-02)');
+    const hasExpiresIn = typeof expiresIn === 'number' && expiresIn > 0;
+    let ttlSeconds = hasExpiresIn ? expiresIn : null;
+
+    if (!hasExpiresIn) {
+      if (config.authTokenTtlOverrideSeconds > 0) {
+        ttlSeconds = config.authTokenTtlOverrideSeconds;
+        warnings.push(
+          `expiresIn missing; using LOADTEST_AUTH_TOKEN_TTL_S=${ttlSeconds}s`
+        );
+      } else {
+        throw new Error('expiresIn field missing from login response (required per PV-02)');
+      }
     }
 
-    if (typeof expiresIn !== 'number' || expiresIn <= 0) {
-      throw new Error(`Invalid expiresIn value: ${expiresIn} (expected positive number)`);
+    if (hasExpiresIn && config.authTokenTtlOverrideSeconds > 0) {
+      const delta = Math.abs(expiresIn - config.authTokenTtlOverrideSeconds);
+      const deltaRatio = delta / expiresIn;
+      if (deltaRatio > 0.1) {
+        warnings.push(
+          `LOADTEST_AUTH_TOKEN_TTL_S (${config.authTokenTtlOverrideSeconds}s) differs from expiresIn (${expiresIn}s)`
+        );
+      }
+    }
+
+    if (ttlSeconds !== null && config.authRefreshWindowSeconds >= ttlSeconds) {
+      warnings.push(
+        `LOADTEST_AUTH_REFRESH_WINDOW_S (${config.authRefreshWindowSeconds}s) >= token TTL (${ttlSeconds}s)`
+      );
+    }
+
+    if (
+      ttlSeconds !== null &&
+      options.expectedDurationSeconds &&
+      ttlSeconds < options.expectedDurationSeconds
+    ) {
+      warnings.push(
+        `Token TTL (${ttlSeconds}s) < expected_duration_s (${options.expectedDurationSeconds}s); refreshes required`
+      );
     }
 
     const details = [];
     details.push(`token_length=${accessToken.length}`);
-    details.push(`expiresIn=${expiresIn}s`);
+    if (hasExpiresIn) {
+      details.push(`expiresIn=${expiresIn}s`);
+    } else if (ttlSeconds !== null) {
+      details.push(`expiresIn=missing (override=${ttlSeconds}s)`);
+    }
+    details.push(`refresh_window=${config.authRefreshWindowSeconds}s`);
     if (user && user.id) details.push(`userId=${user.id.substring(0, 8)}...`);
+
+    const detailText = warnings.length > 0
+      ? `${details.join(', ')}; ${warnings.join('; ')}`
+      : details.join(', ');
 
     return {
       success: true,
-      details: details.join(', '),
+      warning: warnings.length > 0,
+      details: detailText,
       data: {
         hasToken: true,
         expiresIn,
+        ttlSeconds,
+        refreshWindowSeconds: config.authRefreshWindowSeconds,
+        warnings,
         hasUser: !!user,
       },
     };
@@ -391,7 +544,13 @@ async function runPreflight() {
     checks: {},
   };
 
-  const checkOrder = ['backendHealth', 'aiServiceHealth', 'authSystem', 'userPool'];
+  const checkOrder = [
+    'loadTestConfig',
+    'backendHealth',
+    'aiServiceHealth',
+    'authSystem',
+    'userPool',
+  ];
   const failures = [];
   const warnings = [];
 

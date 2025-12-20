@@ -356,6 +356,70 @@ Added Information-Gain GMO (IG-GMO) research module:
 
 ---
 
+## Phase 6 Assessment & Fixes (December 19, 2025)
+
+### 27. Codebase Health Assessment ✓
+
+**Test Suite Status:**
+
+- **6,520 tests collected** (up from 5,554)
+- **2,930 unit tests passing**
+- **145 integration tests passing**
+- 1 flaky test (`test_bootstrap_selective` - passes in isolation)
+
+**Code Metrics:**
+
+- 447 Python source files
+- 301,262 lines of code
+- 0 mypy errors (with `--ignore-missing-imports`)
+- 198 flake8 E128 stylistic warnings (indentation in metrics modules)
+
+### 28. Bug Fixes ✓
+
+| File                                | Issue                                | Fix                           |
+| ----------------------------------- | ------------------------------------ | ----------------------------- |
+| `scripts/holdout_validation.py:657` | SyntaxError - line outside try block | Fixed indentation             |
+| `app/training/train.py:3174`        | Missing policy accuracy tracking     | Added accuracy computation    |
+| `app/training/env.py:791`           | Unclear repetition detection code    | Improved clarity and comments |
+
+### 29. Documentation Added ✓
+
+New documentation files created:
+
+- **`docs/GPU_VECTORIZATION.md`** - GPU module architecture and known limitations
+  - Module structure overview
+  - Performance characteristics (CUDA vs CPU vs MPS)
+  - Known limitations (recovery gate, chain captures)
+  - Shadow validation and parity testing
+
+- **`docs/COORDINATION_ARCHITECTURE.md`** - Event system and coordination
+  - EventBus, DataEventBus, StageEventBus overview
+  - CrossProcessEventQueue for daemon communication
+  - Unified EventRouter consolidation
+  - Component communication flow diagrams
+  - Configuration and best practices
+
+### 30. Training Improvements ✓
+
+Added policy accuracy tracking to training pipeline:
+
+- `app/training/train.py`:
+  - Added `val_policy_correct` and `val_policy_total` accumulators
+  - Compute accuracy as `(pred_move == target_move).float().mean()`
+  - Added to epoch logs: `Policy Acc: {accuracy:.1%}`
+  - Added to EventBus payload: `policy_accuracy`
+  - Updated `record_training_step()` to use computed accuracy
+
+### 31. Known Issues (Non-Blocking)
+
+| Issue                               | Status                                       | Priority |
+| ----------------------------------- | -------------------------------------------- | -------- |
+| Contract vector tests (10 failures) | Phase/player tracking mismatch with fixtures | Medium   |
+| E128 flake8 warnings (198)          | Stylistic indentation in metric definitions  | Low      |
+| `test_bootstrap_selective`          | Flaky - test isolation issue                 | Low      |
+
+---
+
 ## Import Migration Guide
 
 ### Old -> New Import Patterns

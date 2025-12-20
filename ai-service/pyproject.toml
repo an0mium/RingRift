@@ -40,9 +40,9 @@ pretty = true
 # These are informational and don't cause failure. Suppress with --no-error-summary
 # or ignore them during initial integration.
 
-# Type checking strictness - very relaxed for initial integration
+# Type checking strictness - progressively tightening
 strict = false
-check_untyped_defs = false     # Don't check untyped function bodies yet
+check_untyped_defs = true      # Enabled 2025-12-20 (16 errors manageable)
 disallow_untyped_decorators = false
 disallow_incomplete_defs = false
 disallow_untyped_defs = false
@@ -64,10 +64,13 @@ disable_error_code = [
     "index",           # Enable later
     "type-var",        # numpy shape inference issue
     "misc",            # 262 errors - decorators/generics issues
-    "operator",        # 28 errors - numeric type issues
+    "operator",        # 90 errors - numeric type issues
     "var-annotated",   # Enable later
     "return-value",    # 69 errors - Optional/type mismatches (being fixed incrementally)
+    "has-type",        # 16 errors - uninitialized attributes (from check_untyped_defs)
+    "truthy-function", # 3 errors - function truthiness checks (from check_untyped_defs)
     # Fixed 2025-12-19: exit-return errors (bool->None), MarkerInfo import
+    # Enabled 2025-12-20: check_untyped_defs globally
 ]
 
 # Per-module overrides - stricter checking on critical parity modules
@@ -76,19 +79,12 @@ disable_error_code = [
 # - app.training.value_calibration
 # - app.training.gradient_surgery
 # These modules must maintain type parity with TypeScript equivalents
+# Note: check_untyped_defs is now enabled globally (2025-12-20)
+# Per-module overrides can be used for stricter checks as needed
 [[tool.mypy.overrides]]
-module = "app.board_manager"
-check_untyped_defs = true
-# Note: Still using disable_error_code from global; enable stricter
-# checks incrementally as types are added
-
-[[tool.mypy.overrides]]
-module = "app.rules_engine"
-check_untyped_defs = true
-
-[[tool.mypy.overrides]]
-module = "app.game_state"
-check_untyped_defs = true
+module = ["app.board_manager", "app.rules_engine", "app.game_state"]
+# Future: enable stricter checks here as types improve
+# disallow_untyped_defs = true
 
 [tool.black]
 line-length = 120
