@@ -30,9 +30,9 @@ from app.rules.core import (
 try:
     from app.ai.gpu_parallel_games import (
         BatchGameState,
-        detect_lines_batch,
-        evaluate_positions_batch,
+        detect_lines_vectorized as detect_lines_batch,
     )
+    from app.ai.gpu_heuristic import evaluate_positions_batch
     from app.ai.gpu_kernels import (
         generate_placement_mask_kernel,
         generate_placement_moves_vectorized,
@@ -42,19 +42,20 @@ except ImportError as e:
     GPU_MODULES_AVAILABLE = False
     GPU_IMPORT_ERROR = str(e)
 
-# Check if from_single_game is functional (requires correct model API)
-FROM_SINGLE_GAME_AVAILABLE = False
-FROM_SINGLE_GAME_ERROR = ""
+# Check if from_game_states is functional by testing the actual method
+FROM_GAME_STATES_AVAILABLE = False
+FROM_GAME_STATES_ERROR = ""
 if GPU_MODULES_AVAILABLE:
     try:
-        import inspect
-        source = inspect.getsource(BatchGameState.from_game_states)
-        if "CellContent" in source or "game_state.rules" in source:
-            FROM_SINGLE_GAME_ERROR = "from_single_game uses deprecated API"
-        else:
-            FROM_SINGLE_GAME_AVAILABLE = True
+        import torch
+        from app.training.initial_state import create_initial_state
+        # Actually test the method works
+        test_gs = create_initial_state(num_players=2)
+        test_batch = BatchGameState.from_game_states([test_gs], device=torch.device('cpu'))
+        if test_batch.batch_size == 1:
+            FROM_GAME_STATES_AVAILABLE = True
     except Exception as e:
-        FROM_SINGLE_GAME_ERROR = str(e)
+        FROM_GAME_STATES_ERROR = str(e)
 
 pytestmark = [
     pytest.mark.skipif(
@@ -62,8 +63,8 @@ pytestmark = [
         reason=f"GPU modules not available: {GPU_IMPORT_ERROR if not GPU_MODULES_AVAILABLE else ''}"
     ),
     pytest.mark.skipif(
-        GPU_MODULES_AVAILABLE and not FROM_SINGLE_GAME_AVAILABLE,
-        reason=f"BatchGameState.from_single_game not available: {FROM_SINGLE_GAME_ERROR}"
+        GPU_MODULES_AVAILABLE and not FROM_GAME_STATES_AVAILABLE,
+        reason=f"BatchGameState.from_game_states not functional: {FROM_GAME_STATES_ERROR}"
     ),
 ]
 
@@ -201,12 +202,13 @@ class TestLineLengthParity:
         batch_state = BatchGameState.from_single_game(state, device)
 
         # Detect lines for player 1
-        lines = detect_lines_batch(batch_state, player=1)
+        # detect_lines_batch returns (positions_mask, line_count_per_game)
+        positions_mask, line_count = detect_lines_batch(batch_state, player=1)
 
         # Should be empty - 3 markers is not enough for 2-player (needs 4)
-        assert len(lines[0]) == 0, (
+        assert line_count[0].item() == 0, (
             f"GPU incorrectly detected line with only 3 markers in 2-player game. "
-            f"Line length should be 4, but detected: {lines[0]}"
+            f"Line length should be 4, but detected {line_count[0].item()} positions in lines."
         )
 
     def test_gpu_line_detection_uses_correct_length_3p(
@@ -233,9 +235,10 @@ class TestLineLengthParity:
         lines = detect_lines_batch(batch_state, player=1)
 
         # Should be empty - 2 markers is not enough for 3-player (needs 3)
-        assert len(lines[0]) == 0, (
+        # lines is a (batch, height, width) boolean tensor; check if any cell has a line
+        assert not lines[0].any(), (
             f"GPU incorrectly detected line with only 2 markers in 3-player game. "
-            f"Line length should be 3, but detected: {lines[0]}"
+            f"Line length should be 3, but detected lines at: {lines[0].nonzero()}"
         )
 
 
