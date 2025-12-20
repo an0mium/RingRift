@@ -1,0 +1,41 @@
+{
+  "board_type": "hexagonal",
+  "checked_at": "2025-12-20T07:00:00Z",
+  "cluster_node": "A40 (ssh8.vast.ai:38742)",
+  "databases": [
+    {
+      "path": "data/games/selfplay.db",
+      "games": 429,
+      "schema_version": "v1 (legacy)",
+      "parity_check": "FAIL",
+      "failure_reason": "missing game_moves table (old schema)",
+      "canonical_status": "not_canonical",
+      "notes": "Contains hybrid_square8_3p games from P2P selfplay, old schema"
+    },
+    {
+      "path": "data/games/jsonl_converted_hexagonal_3p.db",
+      "games": 1,
+      "schema_version": "v1 (legacy)",
+      "parity_check": "FAIL",
+      "failure_reason": "missing game_moves table (old schema)",
+      "canonical_status": "not_canonical",
+      "notes": "Single game, JSONL-converted"
+    },
+    {
+      "path": "data/games/selfplay_hexagonal_vast-28918742.db",
+      "games": 0,
+      "schema_version": "unknown",
+      "parity_check": "SKIP",
+      "failure_reason": "empty database",
+      "canonical_status": "empty",
+      "notes": "No games present"
+    }
+  ],
+  "summary": {
+    "total_games": 430,
+    "canonical_games": 0,
+    "failing_games": 430,
+    "pass_rate": "0%"
+  },
+  "recommendation": "Hexagonal/hybrid DBs use legacy schema without game_moves table. Need fresh selfplay generation with current pipeline."
+}

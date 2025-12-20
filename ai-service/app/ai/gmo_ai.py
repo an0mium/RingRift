@@ -606,6 +606,11 @@ class GMOAI(BaseAI):
         self._last_move: Move | None = None
         self._last_value: float = 0.0
 
+        # RNG state for deterministic behavior
+        # When rng_seed is provided, we save/restore torch state for reproducibility
+        self._torch_rng_state: torch.Tensor | None = None
+        self._cuda_rng_states: list[torch.Tensor] | None = None
+
     def load_checkpoint(self, checkpoint_path: Path) -> None:
         """Load trained model from checkpoint."""
         checkpoint = safe_load_checkpoint(

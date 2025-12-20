@@ -1,0 +1,68 @@
+{
+  "board_type": "square8",
+  "checked_at": "2025-12-20T07:00:00Z",
+  "cluster_node": "A40 (ssh8.vast.ai:38742)",
+  "databases": [
+    {
+      "path": "data/games/staging/improvement_loop/selfplay_iter0_square8_2p.db",
+      "games": 212,
+      "schema_version": "v7",
+      "parity_check": "PENDING",
+      "failure_reason": null,
+      "canonical_status": "checking",
+      "notes": "Has game_moves table, TS replay running"
+    },
+    {
+      "path": "data/games/staging/improvement_loop/selfplay_iter1_square8_2p.db",
+      "games": 254,
+      "schema_version": "v7",
+      "parity_check": "NOT_RUN",
+      "failure_reason": null,
+      "canonical_status": "unknown",
+      "notes": "Needs parity check"
+    },
+    {
+      "path": "data/games/jsonl_converted_square8_2p.db",
+      "games": 229,
+      "schema_version": "v1 (legacy)",
+      "parity_check": "FAIL",
+      "failure_reason": "missing game_moves table (old schema)",
+      "canonical_status": "not_canonical",
+      "notes": "JSONL-converted from legacy data"
+    },
+    {
+      "path": "data/games/jsonl_converted_square8_3p.db",
+      "games": 515,
+      "schema_version": "v1 (legacy)",
+      "parity_check": "FAIL",
+      "failure_reason": "missing game_moves table (old schema)",
+      "canonical_status": "not_canonical",
+      "notes": "JSONL-converted from legacy data"
+    },
+    {
+      "path": "data/games/jsonl_converted_square8_4p.db",
+      "games": 189,
+      "schema_version": "v1 (legacy)",
+      "parity_check": "FAIL",
+      "failure_reason": "missing game_moves table (old schema)",
+      "canonical_status": "not_canonical",
+      "notes": "JSONL-converted from legacy data"
+    }
+  ],
+  "staging_improvement_loop": {
+    "total_iterations": 60,
+    "total_games_estimated": 5000,
+    "schema_version": "v7",
+    "parity_status": "pending",
+    "notes": "Improvement loop DBs have new schema with game_moves table, parity check in progress"
+  },
+  "summary": {
+    "total_games_legacy": 933,
+    "total_games_new_schema": 5000,
+    "canonical_games": 0,
+    "failing_games_legacy": 933,
+    "pending_check": 5000,
+    "pass_rate": "TBD"
+  },
+  "recommendation": "Legacy JSONL-converted DBs need migration. Staging improvement_loop DBs have correct schema but need parity verification. TS replay harness requires better-sqlite3 npm package (now installed)."
+}

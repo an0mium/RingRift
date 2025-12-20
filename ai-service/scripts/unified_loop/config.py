@@ -62,6 +62,9 @@ except ImportError:
     # Fallback: define locally if canonical import fails (shouldn't happen in normal use)
     _HAS_CANONICAL_ENHANCEMENTS = False
 
+# Import DataEventType and DataEvent from canonical location
+from app.distributed.data_events import DataEventType, DataEvent
+
 
 # =============================================================================
 # Configuration Dataclasses

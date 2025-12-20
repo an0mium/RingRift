@@ -1,0 +1,41 @@
+{
+  "board_type": "square19",
+  "checked_at": "2025-12-20T07:00:00Z",
+  "cluster_node": "A40 (ssh8.vast.ai:38742)",
+  "databases": [
+    {
+      "path": "data/games/jsonl_converted_square19_2p.db",
+      "games": 14,
+      "schema_version": "v1 (legacy)",
+      "parity_check": "FAIL",
+      "failure_reason": "missing game_moves table (old schema)",
+      "canonical_status": "not_canonical",
+      "notes": "JSONL-converted from legacy data, needs schema migration"
+    },
+    {
+      "path": "data/games/jsonl_converted_square19_3p.db",
+      "games": 5,
+      "schema_version": "v1 (legacy)",
+      "parity_check": "FAIL",
+      "failure_reason": "missing game_moves table (old schema)",
+      "canonical_status": "not_canonical",
+      "notes": "JSONL-converted from legacy data, needs schema migration"
+    },
+    {
+      "path": "data/games/jsonl_converted_square19_4p.db",
+      "games": 11,
+      "schema_version": "v1 (legacy)",
+      "parity_check": "FAIL",
+      "failure_reason": "missing game_moves table (old schema)",
+      "canonical_status": "not_canonical",
+      "notes": "JSONL-converted from legacy data, needs schema migration"
+    }
+  ],
+  "summary": {
+    "total_games": 30,
+    "canonical_games": 0,
+    "failing_games": 30,
+    "pass_rate": "0%"
+  },
+  "recommendation": "Square19 DBs use legacy schema (v1) without game_moves table. Either migrate to v7 schema or regenerate with current selfplay pipeline."
+}
