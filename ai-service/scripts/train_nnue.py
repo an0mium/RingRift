@@ -89,6 +89,7 @@ from app.training.nnue_dataset import (
     PrioritizedExperienceSampler,
     count_available_samples,
 )
+from app.training.canonical_sources import enforce_canonical_sources
 from app.training.seed_utils import seed_all
 
 # Unified resource guard - 80% utilization limits (enforced 2025-12-16)
@@ -305,6 +306,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=str,
         default=None,
         help="Path to cache extracted features as NPZ (speeds up repeated runs).",
+    )
+    parser.add_argument(
+        "--allow-noncanonical",
+        action="store_true",
+        help="Allow training from non-canonical DBs for legacy/experimental runs.",
+    )
+    parser.add_argument(
+        "--allow-pending-gate",
+        action="store_true",
+        help="Allow DBs marked pending_gate in TRAINING_DATA_REGISTRY.md.",
+    )
+    parser.add_argument(
+        "--registry",
+        type=str,
+        default=None,
+        help="Path to TRAINING_DATA_REGISTRY.md (default: repo root)",
     )
 
     # Board configuration
@@ -5081,6 +5098,15 @@ def main(argv: list[str] | None = None) -> int:
     if not db_paths and not args.demo:
         logger.error("No database paths provided. Use --db or --demo")
         return 1
+
+    if db_paths and not args.demo:
+        enforce_canonical_sources(
+            [Path(p) for p in db_paths],
+            registry_path=Path(args.registry) if args.registry else None,
+            allowed_statuses=["canonical", "pending_gate"] if args.allow_pending_gate else ["canonical"],
+            allow_noncanonical=bool(args.allow_noncanonical),
+            error_prefix="train-nnue",
+        )
 
     # Set up device
     if args.device:

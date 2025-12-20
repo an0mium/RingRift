@@ -61,6 +61,9 @@ class ExportConfig:
     min_new_games: int = 100  # Minimum new games before re-export
     encoder_version: str = "v3"
     board_aware_encoding: bool = True
+    allow_noncanonical: bool = False
+    allow_pending_gate: bool = False
+    registry_path: Path | None = None
 
 
 # Default configurations for all board/player combinations
@@ -230,6 +233,13 @@ def run_export(config: ExportConfig, databases: list[Path]) -> tuple[bool, str]:
     if config.board_aware_encoding:
         cmd.append("--board-aware-encoding")
 
+    if getattr(config, "allow_noncanonical", False):
+        cmd.append("--allow-noncanonical")
+    if getattr(config, "allow_pending_gate", False):
+        cmd.append("--allow-pending-gate")
+    if getattr(config, "registry_path", None):
+        cmd.extend(["--registry", str(config.registry_path)])
+
     logger.info(f"Running export: {' '.join(cmd[:6])}... ({len(databases)} DBs)")
 
     try:
@@ -356,6 +366,22 @@ def main():
     parser.add_argument("--board", type=str, help="Filter by board type")
     parser.add_argument("--players", type=int, help="Filter by player count")
     parser.add_argument("--force", action="store_true", help="Force export regardless of game count")
+    parser.add_argument(
+        "--allow-noncanonical",
+        action="store_true",
+        help="Allow exporting from non-canonical DBs for legacy/experimental runs.",
+    )
+    parser.add_argument(
+        "--allow-pending-gate",
+        action="store_true",
+        help="Allow DBs marked pending_gate in TRAINING_DATA_REGISTRY.md.",
+    )
+    parser.add_argument(
+        "--registry",
+        type=str,
+        default=None,
+        help="Path to TRAINING_DATA_REGISTRY.md (default: repo root)",
+    )
 
     args = parser.parse_args()
 
@@ -363,6 +389,11 @@ def main():
         # Reset state to force exports
         for config in DEFAULT_CONFIGS:
             config.min_new_games = 0
+
+    for config in DEFAULT_CONFIGS:
+        config.allow_noncanonical = bool(args.allow_noncanonical)
+        config.allow_pending_gate = bool(args.allow_pending_gate)
+        config.registry_path = Path(args.registry) if args.registry else None
 
     if args.daemon:
         run_daemon(args.interval)

@@ -35,6 +35,7 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
@@ -59,6 +60,7 @@ from app.ai.nnue_policy import (
     get_hidden_dim_for_board,
 )
 from app.models import BoardType
+from app.training.canonical_sources import enforce_canonical_sources
 from app.training.seed_utils import seed_all
 from scripts.lib.logging_config import setup_script_logging
 
@@ -104,6 +106,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         nargs="+",
         default=[],
         help="Path(s) to JSONL game file(s) with MCTS policy data. Supports glob patterns.",
+    )
+    parser.add_argument(
+        "--allow-noncanonical",
+        action="store_true",
+        help="Allow training from non-canonical DBs for legacy/experimental runs.",
+    )
+    parser.add_argument(
+        "--allow-pending-gate",
+        action="store_true",
+        help="Allow DBs marked pending_gate in TRAINING_DATA_REGISTRY.md.",
+    )
+    parser.add_argument(
+        "--registry",
+        type=str,
+        default=None,
+        help="Path to TRAINING_DATA_REGISTRY.md (default: repo root)",
     )
 
     # Board configuration
@@ -1138,6 +1156,15 @@ def main(argv: list[str] | None = None) -> int:
     if not db_paths and not jsonl_paths:
         logger.error("No data sources provided. Use --db and/or --jsonl")
         return 1
+
+    if db_paths:
+        enforce_canonical_sources(
+            [Path(p) for p in db_paths],
+            registry_path=Path(args.registry) if args.registry else None,
+            allowed_statuses=["canonical", "pending_gate"] if args.allow_pending_gate else ["canonical"],
+            allow_noncanonical=bool(args.allow_noncanonical),
+            error_prefix="train-nnue-policy",
+        )
 
     if jsonl_paths:
         logger.info(f"JSONL files: {len(jsonl_paths)}")

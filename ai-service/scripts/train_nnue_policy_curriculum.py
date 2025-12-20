@@ -47,6 +47,7 @@ from typing import Any, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # Unified logging setup
+from app.training.canonical_sources import enforce_canonical_sources
 from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("train_nnue_policy_curriculum")
@@ -245,6 +246,22 @@ def main():
         help="Paths to game database files (supports glob)",
     )
     parser.add_argument(
+        "--allow-noncanonical",
+        action="store_true",
+        help="Allow training from non-canonical DBs for legacy/experimental runs.",
+    )
+    parser.add_argument(
+        "--allow-pending-gate",
+        action="store_true",
+        help="Allow DBs marked pending_gate in TRAINING_DATA_REGISTRY.md.",
+    )
+    parser.add_argument(
+        "--registry",
+        type=str,
+        default=None,
+        help="Path to TRAINING_DATA_REGISTRY.md (default: repo root)",
+    )
+    parser.add_argument(
         "--board-type",
         type=str,
         required=True,
@@ -339,6 +356,15 @@ def main():
         logger.error("No database or JSONL files found")
         return 1
 
+    if db_paths:
+        enforce_canonical_sources(
+            [Path(p) for p in db_paths],
+            registry_path=Path(args.registry) if args.registry else None,
+            allowed_statuses=["canonical", "pending_gate"] if args.allow_pending_gate else ["canonical"],
+            allow_noncanonical=bool(args.allow_noncanonical),
+            error_prefix="train-nnue-policy-curriculum",
+        )
+
     logger.info(f"Found {len(db_paths)} database files, {len(jsonl_paths)} JSONL files")
 
     # Build stages with custom epochs
@@ -371,6 +397,13 @@ def main():
         extra_args.extend(["--max-samples", str(args.max_samples)])
     if args.num_workers != 0:
         extra_args.extend(["--num-workers", str(args.num_workers)])
+
+    if args.allow_noncanonical:
+        extra_args.append("--allow-noncanonical")
+    if args.allow_pending_gate:
+        extra_args.append("--allow-pending-gate")
+    if args.registry:
+        extra_args.extend(["--registry", args.registry])
 
     # Advanced training options
     if args.use_swa and not args.no_swa:
