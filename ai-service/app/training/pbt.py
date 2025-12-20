@@ -38,8 +38,6 @@ Usage:
 
 from __future__ import annotations
 
-from app.utils.torch_utils import safe_load_checkpoint
-
 import copy
 import json
 import logging
@@ -50,6 +48,8 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from app.utils.torch_utils import safe_load_checkpoint
 
 logger = logging.getLogger(__name__)
 

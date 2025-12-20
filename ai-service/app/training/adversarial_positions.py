@@ -34,12 +34,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from app.utils.torch_utils import safe_load_checkpoint
-
 import numpy as np
 
 from app.utils.checksum_utils import compute_bytes_checksum
 from app.utils.datetime_utils import iso_now
+from app.utils.torch_utils import safe_load_checkpoint
 
 logger = logging.getLogger(__name__)
 

@@ -38,9 +38,9 @@ from typing import Any
 
 import torch
 import torch.optim as optim
+from torch.utils.data import DataLoader
 
 from app.utils.torch_utils import safe_load_checkpoint
-from torch.utils.data import DataLoader
 
 from ..ai.ebmo_network import (
     EBMOConfig,

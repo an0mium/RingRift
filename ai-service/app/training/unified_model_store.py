@@ -42,13 +42,13 @@ Usage:
 from __future__ import annotations
 
 import logging
-
-from app.utils.torch_utils import safe_load_checkpoint
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Union
+
+from app.utils.torch_utils import safe_load_checkpoint
 
 logger = logging.getLogger(__name__)
 

@@ -30,8 +30,8 @@ import torch
 import torch.nn as nn
 
 from ..models import BoardType, GameState, Position
-from ..utils.torch_utils import safe_load_checkpoint
 from ..rules.mutable_state import MutableGameState
+from ..utils.torch_utils import safe_load_checkpoint
 
 logger = logging.getLogger(__name__)
 

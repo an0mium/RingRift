@@ -41,6 +41,7 @@ from ..models import (
     Position,
 )
 from ..rules.geometry import BoardGeometry
+from ..utils.torch_utils import safe_load_checkpoint
 from .base import BaseAI
 from .game_state_utils import (
     infer_num_players,
@@ -54,7 +55,6 @@ from .model_cache import (
     get_cached_model_count,
     strip_module_prefix as _strip_module_prefix,
 )
-from ..utils.torch_utils import safe_load_checkpoint
 
 # Re-export loss functions for backwards compatibility
 # These are imported by app.ai.neural_net.__init__ and external code
