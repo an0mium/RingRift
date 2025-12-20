@@ -380,7 +380,7 @@ describe('GameEngine LPS + Line/Territory Cross-Interaction Scenarios', () => {
      * Note: This test focuses on phase traversal, not LPS victory specifically.
      * LPS victory requires stateful tracking across multiple rounds which
      * processTurn (as a single-turn function) cannot provide without engine context.
-     * LPS two-round logic is tested in lpsTracking.test.ts and
+     * LPS three-round logic is tested in lpsTracking.test.ts and
      * ClientSandboxEngine.victory.LPS.crossInteraction.test.ts.
      */
     it('should traverse post-move phases correctly during turn processing', () => {

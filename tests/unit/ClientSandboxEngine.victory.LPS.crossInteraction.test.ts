@@ -81,7 +81,7 @@ describe('ClientSandboxEngine LPS + Line/Territory Cross-Interaction Scenarios',
      * - P2 and P3 have no stacks, no rings in hand (no real actions)
      *
      * Expected:
-     * - After TWO full rounds of P1 being the only active player, LPS triggers
+     * - After THREE full rounds of P1 being the only active player, LPS triggers
      * - This tests the LPS + line phase ordering conceptually
      */
     it('LPS_triggers_only_after_line_processing_completes', async () => {
