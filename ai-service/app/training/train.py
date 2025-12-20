@@ -46,6 +46,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, WeightedRandomSampler, random_split
 
+from app.utils.torch_utils import safe_load_checkpoint
+
 # Optional Prometheus metrics
 try:
     from prometheus_client import Counter, Gauge, Histogram
@@ -1539,8 +1541,8 @@ def train_model(
     # Load existing weights if available to continue training
     if os.path.exists(save_path):
         try:
-            # Use weights_only=False for our own checkpoints which may contain metadata
-            checkpoint = torch.load(save_path, map_location=device, weights_only=False)
+            # Use safe_load_checkpoint for secure loading with fallback
+            checkpoint = safe_load_checkpoint(save_path, map_location=device, warn_on_unsafe=False)
             # Handle both raw state_dict and checkpoint dict formats
             if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
                 model.load_state_dict(checkpoint["model_state_dict"])
@@ -3519,8 +3521,7 @@ def train_from_file(
 
 # Re-export CLI functions for backwards compatibility
 # The actual implementations are in train_cli.py
-from app.training.train_cli import main  # noqa: E402, F401
-
+from app.training.train_cli import main, parse_args  # noqa: E402, F401
 
 if __name__ == "__main__":
     main()

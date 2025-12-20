@@ -51,9 +51,9 @@ import logging
 import os
 import shutil
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from app.utils.optional_imports import (
     PROMETHEUS_AVAILABLE as HAS_PROMETHEUS,

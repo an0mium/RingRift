@@ -15,6 +15,7 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -253,7 +254,7 @@ def run_online_training(
     logger.info("=" * 60)
     logger.info(f"Games: {stats['games_played']}")
     logger.info(f"Win rate: {100 * stats['wins'] / stats['games_played']:.1f}%")
-    logger.info(f"Average loss: {stats['total_loss'] / max(stats['updates'], 1):.4f}")
+    logger.info(f"Average loss: {stats['total_loss'] / max(cast(int, stats['updates']), 1):.4f}")
 
     logger.info("\nBy opponent:")
     for opp_name, opp_stats in stats["by_opponent"].items():

@@ -53,6 +53,8 @@ from typing import Any
 import torch
 import torch.nn as nn
 
+from app.utils.torch_utils import safe_load_checkpoint
+
 logger = logging.getLogger(__name__)
 
 
@@ -541,7 +543,7 @@ class ModelVersionManager:
 
             # Validate the saved file before finalizing
             try:
-                test_load = torch.load(temp_path, map_location='cpu', weights_only=False)
+                test_load = safe_load_checkpoint(temp_path, map_location='cpu', warn_on_unsafe=False)
                 if test_load is None or self.STATE_DICT_KEY not in test_load:
                     raise ValueError("Saved checkpoint is invalid or missing state_dict")
             except Exception as e:
@@ -597,7 +599,7 @@ class ModelVersionManager:
             raise FileNotFoundError(f"Checkpoint not found: {path}")
 
         device = device or self.default_device
-        checkpoint = torch.load(path, map_location=device, weights_only=False)
+        checkpoint = safe_load_checkpoint(path, map_location=device, warn_on_unsafe=False)
 
         # Check if this is a versioned checkpoint
         if self.METADATA_KEY not in checkpoint:
@@ -892,7 +894,7 @@ class ModelVersionManager:
             os.sync()
 
             # Validate before finalizing
-            test_load = torch.load(temp_path, map_location='cpu', weights_only=False)
+            test_load = safe_load_checkpoint(temp_path, map_location='cpu', warn_on_unsafe=False)
             if test_load is None:
                 raise ValueError("Migrated checkpoint is invalid")
 

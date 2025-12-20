@@ -13,7 +13,6 @@ import argparse
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.optim as optim
@@ -57,9 +56,9 @@ class DiverseOpponentDataset(Dataset):
     ):
         self.state_encoder = state_encoder
         self.move_encoder = move_encoder
-        self.samples: List[Tuple[torch.Tensor, torch.Tensor, float]] = []
+        self.samples: list[tuple[torch.Tensor, torch.Tensor, float]] = []
 
-    def add_game(self, states: List[GameState], moves: List[Move], winner: int, gmo_player: int) -> int:
+    def add_game(self, states: list[GameState], moves: list[Move], winner: int, gmo_player: int) -> int:
         """Add a game to the dataset.
 
         Args:
@@ -117,7 +116,7 @@ class DiverseOpponentDataset(Dataset):
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         state_features, move_embed, outcome = self.samples[idx]
         return state_features, move_embed, torch.tensor(outcome, dtype=torch.float32)
 
@@ -221,7 +220,7 @@ def play_game(
     gmo_player: int,
     game_id: str,
     max_moves: int = 500,
-) -> Tuple[int, List[GameState], List[Move]]:
+) -> tuple[int, list[GameState], list[Move]]:
     """Play a game between GMO and an opponent.
 
     Args:
@@ -283,8 +282,8 @@ def generate_diverse_games(
     gmo_ai: GMOAI,
     dataset: DiverseOpponentDataset,
     games_per_opponent: int = 20,
-    opponent_types: List[str] = None,
-) -> Dict[str, Dict]:
+    opponent_types: list[str] = None,
+) -> dict[str, dict]:
     """Generate games against diverse opponents.
 
     Args:
@@ -427,7 +426,7 @@ def train_on_dataset(
     return total_loss
 
 
-def evaluate_model(gmo_ai: GMOAI, num_games: int = 10) -> Dict[str, float]:
+def evaluate_model(gmo_ai: GMOAI, num_games: int = 10) -> dict[str, float]:
     """Quick evaluation against random and heuristic."""
     results = {}
 
@@ -448,11 +447,11 @@ def evaluate_model(gmo_ai: GMOAI, num_games: int = 10) -> Dict[str, float]:
 
 
 def run_diverse_training(
-    checkpoint_path: Optional[str] = None,
+    checkpoint_path: str | None = None,
     rounds: int = 5,
     games_per_opponent: int = 20,
     epochs_per_round: int = 10,
-    opponent_types: List[str] = None,
+    opponent_types: list[str] = None,
     output_dir: str = "models/gmo/diverse",
 ):
     """Run training against diverse opponents.

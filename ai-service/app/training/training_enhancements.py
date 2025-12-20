@@ -51,6 +51,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Sampler
 
+from app.utils.torch_utils import safe_load_checkpoint
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -407,7 +409,7 @@ class CheckpointAverager:
         """
         if self.keep_on_disk:
             checkpoints = [
-                torch.load(p, weights_only=False)  # Our own checkpoints, safe to load
+                safe_load_checkpoint(p, warn_on_unsafe=False)
                 for p in self._checkpoint_paths
                 if p.exists()
             ]
@@ -475,7 +477,7 @@ def average_checkpoints(
     num_ckpts = 0
 
     for path in checkpoint_paths:
-        ckpt = torch.load(path, map_location=device, weights_only=False)
+        ckpt = safe_load_checkpoint(path, map_location=device, warn_on_unsafe=False)
         state_dict = ckpt.get('model_state_dict', ckpt)
 
         if averaged is None:
@@ -2850,7 +2852,7 @@ class EWCRegularizer:
 
     def load_state(self, path: Union[str, Path]) -> None:
         """Load EWC state from file."""
-        state = torch.load(path, weights_only=False)
+        state = safe_load_checkpoint(path, warn_on_unsafe=False)
         self._fisher = state['fisher']
         self._optimal_params = state['optimal_params']
         self.lambda_ewc = state['lambda_ewc']
@@ -2918,7 +2920,7 @@ class ModelEnsemble:
         if isinstance(model_or_path, (str, Path)):
             # Load from checkpoint
             model = self.model_class(**self.model_kwargs).to(self.device)
-            ckpt = torch.load(model_or_path, map_location=self.device, weights_only=False)
+            ckpt = safe_load_checkpoint(model_or_path, map_location=self.device, warn_on_unsafe=False)
             state_dict = ckpt.get('model_state_dict', ckpt)
             model.load_state_dict(state_dict)
             model.eval()

@@ -536,7 +536,7 @@ from app.coordination.metrics_analysis_orchestrator import (
 
 # Model Lifecycle Coordinator (December 2025)
 from app.coordination.model_lifecycle_coordinator import (
-    CacheEntry,
+    CacheEntry as ModelCacheEntry,
     CheckpointInfo,
     ModelLifecycleCoordinator,
     ModelLifecycleStats,

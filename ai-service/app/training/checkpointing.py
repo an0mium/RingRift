@@ -65,8 +65,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from app.utils.torch_utils import safe_load_checkpoint
-
 from app.training.model_versioning import (
     LegacyCheckpointError,
     ModelVersionManager,
@@ -74,6 +72,7 @@ from app.training.model_versioning import (
 )
 from app.training.training_enhancements import EarlyStopping
 from app.utils.resource_guard import LIMITS, check_disk_space, get_disk_usage
+from app.utils.torch_utils import safe_load_checkpoint
 
 logger = logging.getLogger(__name__)
 
