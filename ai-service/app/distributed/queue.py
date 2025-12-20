@@ -38,7 +38,7 @@ import os
 import time
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +184,7 @@ class TaskQueue(ABC):
         self,
         count: int,
         timeout: float = 60.0,
-        progress_callback: callable | None = None,
+        progress_callback: Callable | None = None,
     ) -> list[EvalResult]:
         """Consume multiple results with overall timeout.
 

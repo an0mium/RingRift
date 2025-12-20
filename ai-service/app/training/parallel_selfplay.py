@@ -25,7 +25,7 @@ import random
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -408,7 +408,7 @@ def generate_dataset_parallel(
     multi_player_values: bool = False,
     max_players: int = 4,
     graded_outcomes: bool = False,
-    progress_callback: callable | None = None,
+    progress_callback: Callable | None = None,
     # Gumbel-MCTS specific parameters
     gumbel_simulations: int = 64,
     gumbel_top_k: int = 16,

@@ -53,6 +53,7 @@ import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from app.utils.optional_imports import (
     PROMETHEUS_AVAILABLE as HAS_PROMETHEUS,
@@ -763,7 +764,7 @@ class MemoryPressureMonitor:
         self,
         check_interval: float = 5.0,
         auto_cleanup: bool = True,
-        on_critical: callable | None = None,
+        on_critical: Callable | None = None,
     ):
         """
         Args:
@@ -833,7 +834,7 @@ _memory_monitor: MemoryPressureMonitor | None = None
 def start_memory_monitor(
     check_interval: float = 5.0,
     auto_cleanup: bool = True,
-    on_critical: callable | None = None,
+    on_critical: Callable | None = None,
 ) -> MemoryPressureMonitor:
     """Start the global memory pressure monitor.
 
@@ -1170,7 +1171,7 @@ class DiskPressureMonitor:
         self,
         check_interval: float = 60.0,  # Check every minute
         auto_cleanup: bool = True,
-        on_critical: callable | None = None,
+        on_critical: Callable | None = None,
         path: str | None = None,
     ):
         """
@@ -1243,7 +1244,7 @@ _disk_monitor: DiskPressureMonitor | None = None
 def start_disk_monitor(
     check_interval: float = 60.0,
     auto_cleanup: bool = True,
-    on_critical: callable | None = None,
+    on_critical: Callable | None = None,
 ) -> DiskPressureMonitor:
     """Start the global disk pressure monitor.
 
