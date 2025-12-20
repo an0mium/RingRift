@@ -20,7 +20,7 @@ from app.ai.neural_net.blocks import (
     SEResidualBlock,
 )
 
-# Constants - migrated to constants.py (Phase 1)
+# Constants - fully migrated to constants.py (Phase 1 complete)
 from app.ai.neural_net.constants import (
     BOARD_POLICY_SIZES,
     BOARD_SPATIAL_SIZES,
@@ -36,33 +36,26 @@ from app.ai.neural_net.constants import (
     MAX_N,
     MAX_PLAYERS,
     NUM_HEX_DIRS,
+    NUM_LINE_DIRS,
+    NUM_SQUARE_DIRS,
     P_HEX,
     POLICY_SIZE,
     POLICY_SIZE_8x8,
     POLICY_SIZE_19x19,
     POLICY_SIZE_HEX8,
+    SQUARE8_FORCED_ELIMINATION_IDX,
     SQUARE8_LINE_FORM_BASE,
     SQUARE8_MOVEMENT_BASE,
-    SQUARE8_PLACEMENT_SPAN,
-    SQUARE8_SKIP_PLACEMENT_IDX,
-    SQUARE8_SWAP_SIDES_IDX,
-    SQUARE8_TERRITORY_CLAIM_BASE,
-    get_policy_size_for_board,
-    get_spatial_size_for_board,
-)
-
-# Remaining constants still in legacy module (to be migrated)
-from app.ai._neural_net_legacy import (
-    _MODEL_CACHE,
-    NUM_LINE_DIRS,
-    NUM_SQUARE_DIRS,
-    SQUARE8_FORCED_ELIMINATION_IDX,
     SQUARE8_NO_LINE_ACTION_IDX,
     SQUARE8_NO_MOVEMENT_ACTION_IDX,
     SQUARE8_NO_PLACEMENT_ACTION_IDX,
     SQUARE8_NO_TERRITORY_ACTION_IDX,
+    SQUARE8_PLACEMENT_SPAN,
     SQUARE8_SKIP_CAPTURE_IDX,
+    SQUARE8_SKIP_PLACEMENT_IDX,
     SQUARE8_SKIP_TERRITORY_PROCESSING_IDX,
+    SQUARE8_SWAP_SIDES_IDX,
+    SQUARE8_TERRITORY_CLAIM_BASE,
     SQUARE19_FORCED_ELIMINATION_IDX,
     SQUARE19_LINE_FORM_BASE,
     SQUARE19_NO_LINE_ACTION_IDX,
@@ -73,6 +66,13 @@ from app.ai._neural_net_legacy import (
     SQUARE19_SKIP_TERRITORY_PROCESSING_IDX,
     TERRITORY_MAX_PLAYERS,
     TERRITORY_SIZE_BUCKETS,
+    get_policy_size_for_board,
+    get_spatial_size_for_board,
+)
+
+# Classes and functions still in legacy module (to be migrated in Phase 2)
+from app.ai._neural_net_legacy import (
+    _MODEL_CACHE,
     # Hex architectures
     ActionEncoderHex,
     # Dataclasses
