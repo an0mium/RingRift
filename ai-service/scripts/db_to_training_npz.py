@@ -29,12 +29,12 @@ if ROOT not in sys.path:
 
 os.environ.setdefault("RINGRIFT_FORCE_CPU", "1")
 
-from scripts.lib.cli import BOARD_TYPE_MAP
-from scripts.lib.logging_config import setup_script_logging
 from app.training.canonical_sources import (
     resolve_registry_path,
     validate_canonical_sources,
 )
+from scripts.lib.cli import BOARD_TYPE_MAP
+from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("db_to_training_npz")
 

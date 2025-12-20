@@ -62,7 +62,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from app.coordination.p2p_backend import P2PBackend
+    from app.coordination.slurm_backend import SlurmJobState, SlurmJobStatus
 
 __all__ = [
     # Enums

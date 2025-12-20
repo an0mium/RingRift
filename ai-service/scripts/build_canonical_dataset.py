@@ -40,6 +40,7 @@ import time
 from pathlib import Path
 
 from export_replay_dataset import main as export_main  # type: ignore[import]
+
 from app.training.canonical_sources import validate_canonical_sources
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]

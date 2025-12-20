@@ -21,7 +21,7 @@ from app.training.canonical_sources import (
     validate_canonical_sources,
 )
 
-__all__ = ["validate_canonical_sources", "resolve_registry_path"]
+__all__ = ["resolve_registry_path", "validate_canonical_sources"]
 
 
 def main(argv: list[str] | None = None) -> int:
