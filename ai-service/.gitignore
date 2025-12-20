@@ -183,3 +183,6 @@ data/gmo_evaluation/
 mutants/
 .mutmut-cache/
 data/diversity/
+
+# Training data and model checkpoints
+training_data/

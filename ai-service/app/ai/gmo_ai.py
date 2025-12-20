@@ -80,8 +80,10 @@ class GMOConfig:
     # Uncertainty calibration
     # Temperature > 1.0 increases uncertainty (for overconfident models)
     # Temperature < 1.0 decreases uncertainty (for underconfident models)
-    # Use calibrate_uncertainty() to learn optimal temperature from data
-    calibration_temperature: float = 1.0
+    # Calibrated value: 500.0 (from 20 games vs heuristic, 2024-12)
+    # Model is severely overconfident, needs 500x scaling
+    # Use python -m app.training.uncertainty_calibration --calibrate to recalibrate
+    calibration_temperature: float = 500.0
 
     # Novelty tracking
     novelty_memory_size: int = 1000
@@ -811,12 +813,22 @@ class GMOAI(BaseAI):
         return predictions
 
     def reset_for_new_game(self, *, rng_seed: int | None = None) -> None:
-        """Reset state for new game."""
+        """Reset state for new game.
+
+        If rng_seed is provided, also sets torch random seed for deterministic
+        behavior in MC Dropout and gradient optimization.
+        """
         super().reset_for_new_game(rng_seed=rng_seed)
         self.novelty_tracker.reset()
         self._last_state = None
         self._last_move = None
         self._last_value = 0.0
+
+        # Set torch seed for deterministic MC Dropout and optimization
+        if rng_seed is not None:
+            torch.manual_seed(rng_seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(rng_seed)
 
     # =========================================================================
     # Online Learning Methods
