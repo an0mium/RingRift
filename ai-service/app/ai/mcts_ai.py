@@ -100,7 +100,8 @@ def _get_cached_nnue_policy(board_type: BoardType, num_players: int) -> Any | No
             model_path = os.path.normpath(model_path)
 
             if os.path.exists(model_path):
-                checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+                from app.utils.torch_utils import safe_load_checkpoint
+                checkpoint = safe_load_checkpoint(model_path, map_location="cpu", warn_on_unsafe=False)
 
                 # Handle versioned checkpoints (with model_state_dict key)
                 # and legacy direct state_dict format

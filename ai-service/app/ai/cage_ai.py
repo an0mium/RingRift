@@ -91,8 +91,9 @@ class CAGE_AI(BaseAI):
         return torch.device("cpu")
 
     def _load_model(self, path: str) -> None:
+        from app.utils.torch_utils import safe_load_checkpoint
         try:
-            checkpoint = torch.load(path, map_location=self.device, weights_only=False)
+            checkpoint = safe_load_checkpoint(path, map_location=str(self.device), warn_on_unsafe=False)
             if 'config' in checkpoint:
                 cfg = checkpoint['config']
                 if isinstance(cfg, dict):

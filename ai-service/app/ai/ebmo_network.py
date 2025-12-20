@@ -1146,7 +1146,8 @@ def load_ebmo_model(
     Returns:
         (model, checkpoint_info) tuple
     """
-    checkpoint = torch.load(path, map_location=device or "cpu", weights_only=False)
+    from app.utils.torch_utils import safe_load_checkpoint
+    checkpoint = safe_load_checkpoint(path, map_location=device or "cpu", warn_on_unsafe=False)
 
     # Use saved config unless overridden
     model_config = config or checkpoint.get("config", EBMOConfig())

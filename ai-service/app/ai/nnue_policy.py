@@ -2654,9 +2654,10 @@ class NNUEPolicyAgent:
 
     def _load_model(self) -> RingRiftNNUEWithPolicy:
         """Load the model from checkpoint."""
+        from app.utils.torch_utils import safe_load_checkpoint
         logger = logging.getLogger(__name__)
 
-        checkpoint = torch.load(self.model_path, map_location=self.device, weights_only=False)
+        checkpoint = safe_load_checkpoint(self.model_path, map_location=str(self.device), warn_on_unsafe=False)
 
         # Handle different checkpoint formats
         if isinstance(checkpoint, dict):

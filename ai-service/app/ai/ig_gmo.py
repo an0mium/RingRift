@@ -642,7 +642,8 @@ class IGGMO(BaseAI):
 
     def load_checkpoint(self, path: Path) -> None:
         """Load model checkpoint."""
-        checkpoint = torch.load(path, map_location=self.device, weights_only=False)
+        from app.utils.torch_utils import safe_load_checkpoint
+        checkpoint = safe_load_checkpoint(path, map_location=str(self.device), warn_on_unsafe=False)
 
         self.state_encoder.load_state_dict(checkpoint['state_encoder'])
         self.move_encoder.load_state_dict(checkpoint['move_encoder'])
