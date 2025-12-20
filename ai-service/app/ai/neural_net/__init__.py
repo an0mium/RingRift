@@ -71,31 +71,39 @@ from app.ai.neural_net.constants import (
     get_spatial_size_for_board,
 )
 
+# Hex encoding - migrated to hex_encoding.py (Phase 2)
+from app.ai.neural_net.hex_encoding import (
+    ActionEncoderHex,
+    _from_canonical_xy,
+    _infer_board_size,
+    _pos_from_key,
+    _to_canonical_xy,
+)
+
+# Square architectures - migrated to square_architectures.py (Phase 2)
+from app.ai.neural_net.square_architectures import (
+    RingRiftCNN_v2,
+    RingRiftCNN_v2_Lite,
+)
+
 # Classes and functions still in legacy module (to be migrated in Phase 2)
 from app.ai._neural_net_legacy import (
     _MODEL_CACHE,
-    # Hex architectures
-    ActionEncoderHex,
     # Dataclasses
     DecodedPolicyIndex,
+    # Hex architectures
     HexNeuralNet_v2,
     HexNeuralNet_v2_Lite,
     HexNeuralNet_v3,
     HexNeuralNet_v3_Lite,
     # Main AI class
     NeuralNetAI,
-    # CNN architectures
-    RingRiftCNN_v2,
-    RingRiftCNN_v2_Lite,
+    # CNN architectures (v3/v4 still in legacy)
     RingRiftCNN_v3,
     RingRiftCNN_v3_Lite,
     RingRiftCNN_v4,
     _decode_move_square8,
     _encode_move_square8,
-    _from_canonical_xy,
-    _pos_from_key,
-    # Internal helpers (used by encoding module and tests)
-    _to_canonical_xy,
     # Cache functions
     clear_model_cache,
     create_hex_mask,
@@ -178,6 +186,7 @@ __all__ = [
     "_from_canonical_xy",
     "_pos_from_key",
     "_to_canonical_xy",
+    "_infer_board_size",
     "clear_model_cache",
     "create_hex_mask",
     "create_model_for_board",
