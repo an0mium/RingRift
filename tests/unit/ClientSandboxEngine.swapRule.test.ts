@@ -80,6 +80,9 @@ describe('ClientSandboxEngine swap rule (pie rule)', () => {
     state.currentPlayer = 2;
     state.currentPhase = 'ring_placement'; // P2 starts with placement
 
+    // 4. Enable swap rule (disabled by default for sandbox games)
+    state.rulesOptions = { swapRuleEnabled: true };
+
     // Inject state back into engine (using internal setter if available, or just modifying the reference if it's shared)
     // ClientSandboxEngine.gameState is private, but we can use the test-only setGameState hook if exposed,
     // or rely on the fact that getGameState returns a clone but we can't set it back easily without a setter.
@@ -169,6 +172,7 @@ describe('ClientSandboxEngine swap rule (pie rule)', () => {
     state.moveHistory = [placeMove, moveMove];
     state.currentPlayer = 2;
     state.currentPhase = 'ring_placement';
+    state.rulesOptions = { swapRuleEnabled: true };
 
     engineAny.gameState = state;
 
