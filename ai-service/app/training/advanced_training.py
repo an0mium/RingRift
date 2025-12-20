@@ -37,6 +37,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
+from app.utils.torch_utils import safe_load_checkpoint
+
 # Import unified sampler base class (2025-12)
 try:
     from app.training.elo_weighting import WeightedSamplerBase
@@ -1820,7 +1822,7 @@ class SmartCheckpointManager:
         if best_path is None or not best_path.exists():
             return None
 
-        checkpoint = torch.load(best_path, map_location=device)
+        checkpoint = safe_load_checkpoint(best_path, map_location=device, warn_on_unsafe=False)
         model.load_state_dict(checkpoint['model_state_dict'])
 
         if optimizer is not None and 'optimizer_state_dict' in checkpoint:
@@ -2647,7 +2649,7 @@ class ElasticTrainingManager:
             return None
 
         latest = checkpoints[-1]
-        checkpoint = torch.load(latest, map_location='cpu')
+        checkpoint = safe_load_checkpoint(latest, map_location='cpu', warn_on_unsafe=False)
 
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])

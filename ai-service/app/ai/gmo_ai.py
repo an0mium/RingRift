@@ -36,6 +36,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..models import AIConfig, GameState, Move, MoveType, Position
+from ..utils.torch_utils import safe_load_checkpoint
 from .base import BaseAI
 
 logger = logging.getLogger(__name__)
@@ -589,11 +590,10 @@ class GMOAI(BaseAI):
 
     def load_checkpoint(self, checkpoint_path: Path) -> None:
         """Load trained model from checkpoint."""
-        # Allow GMOConfig in checkpoint (trusted source)
-        checkpoint = torch.load(
+        checkpoint = safe_load_checkpoint(
             checkpoint_path,
             map_location=self.device,
-            weights_only=False,  # Allow custom objects (our own checkpoint)
+            warn_on_unsafe=False,
         )
 
         self.state_encoder.load_state_dict(checkpoint["state_encoder"])

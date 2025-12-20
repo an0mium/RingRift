@@ -23,6 +23,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..models import AIConfig, GameState, Move, MoveType
+from ..utils.torch_utils import safe_load_checkpoint
 from .base import BaseAI
 from .gmo_ai import NoveltyTracker
 
@@ -645,10 +646,10 @@ class GMOv2AI(BaseAI):
 
     def load_checkpoint(self, checkpoint_path: str) -> None:
         """Load trained model from checkpoint."""
-        checkpoint = torch.load(
+        checkpoint = safe_load_checkpoint(
             checkpoint_path,
             map_location=self.device,
-            weights_only=False,  # Allow custom config objects
+            warn_on_unsafe=False,
         )
 
         if "state_encoder" in checkpoint:

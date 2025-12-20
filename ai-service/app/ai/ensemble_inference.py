@@ -37,6 +37,8 @@ from typing import Any, Union
 
 import numpy as np
 
+from ..utils.torch_utils import safe_load_checkpoint
+
 logger = logging.getLogger(__name__)
 
 # Try to import torch
@@ -133,7 +135,7 @@ class EnsemblePredictor:
         for config in self.configs:
             try:
                 if config.path.exists():
-                    model = torch.load(config.path, map_location=self.device)
+                    model = safe_load_checkpoint(config.path, map_location=self.device, warn_on_unsafe=False)
                     if hasattr(model, "eval"):
                         model.eval()
                     self.models.append(model)
@@ -156,7 +158,7 @@ class EnsemblePredictor:
 
         if HAS_TORCH and path.exists():
             try:
-                model = torch.load(path, map_location=self.device)
+                model = safe_load_checkpoint(path, map_location=self.device, warn_on_unsafe=False)
                 if hasattr(model, "eval"):
                     model.eval()
                 self.models.append(model)

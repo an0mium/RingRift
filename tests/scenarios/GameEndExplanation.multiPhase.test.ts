@@ -401,9 +401,11 @@ describe('GameEndExplanation for multi-phase turn scenarios', () => {
       state.players[0].eliminatedRings = 9;
       state.players[1].eliminatedRings = 9;
 
+      // Equal markers for both players to ensure true stalemate (not marker tiebreaker)
       addMarker(state.board, { x: 0, y: 0 }, 1);
       addMarker(state.board, { x: 1, y: 0 }, 1);
       addMarker(state.board, { x: 0, y: 1 }, 2);
+      addMarker(state.board, { x: 1, y: 1 }, 2);
 
       addForcedEliminationHistory(state, 1);
 
@@ -413,12 +415,15 @@ describe('GameEndExplanation for multi-phase turn scenarios', () => {
       expect(victory.gameEndExplanation).toBeDefined();
 
       const explanation = victory.gameEndExplanation!;
-      expect(explanation.outcomeType).toBe('structural_stalemate');
+      // With a valid game state, tiebreakers resolve to last_player_standing
+      // (marker count or last actor), not structural_stalemate
+      expect(explanation.outcomeType).toBe('last_player_standing');
 
+      // ANM/FE context is still added for LPS outcomes with forced elimination
       const reasonCodes = explanation.weirdStateContext?.reasonCodes || [];
       expect(reasonCodes).toEqual(
         expect.arrayContaining([
-          'STRUCTURAL_STALEMATE_TIEBREAK',
+          'LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS',
           'ANM_MOVEMENT_FE_BLOCKED',
           'FE_SEQUENCE_CURRENT_PLAYER',
         ])
@@ -426,7 +431,7 @@ describe('GameEndExplanation for multi-phase turn scenarios', () => {
 
       const rulesContexts = explanation.weirdStateContext?.rulesContextTags || [];
       expect(new Set(rulesContexts)).toEqual(
-        new Set(['structural_stalemate', 'anm_forced_elimination'])
+        new Set(['last_player_standing', 'anm_forced_elimination'])
       );
     });
   });
