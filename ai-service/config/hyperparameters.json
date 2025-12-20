@@ -114,48 +114,103 @@
     },
     "square19_3p": {
       "optimized": false,
-      "confidence": "none",
-      "tuning_method": null,
-      "last_tuned": null,
+      "confidence": "low",
+      "tuning_method": "interpolated_defaults",
+      "last_tuned": "2025-12-20T00:00:00Z",
       "tuning_trials": 0,
-      "hyperparameters": null,
-      "notes": "Not yet tuned - using defaults"
+      "hyperparameters": {
+        "learning_rate": 5e-5,
+        "batch_size": 512,
+        "hidden_dim": 256,
+        "num_hidden_layers": 4,
+        "num_filters": 192,
+        "num_res_blocks": 12,
+        "weight_decay": 1e-5,
+        "dropout": 0.15,
+        "value_weight": 1.5,
+        "policy_weight": 0.8
+      },
+      "notes": "Initial values from square19_2p interpolation - needs Bayesian tuning"
     },
     "square19_4p": {
       "optimized": false,
-      "confidence": "none",
-      "tuning_method": null,
-      "last_tuned": null,
+      "confidence": "low",
+      "tuning_method": "interpolated_defaults",
+      "last_tuned": "2025-12-20T00:00:00Z",
       "tuning_trials": 0,
-      "hyperparameters": null,
-      "notes": "Not yet tuned - using defaults"
+      "hyperparameters": {
+        "learning_rate": 5e-5,
+        "batch_size": 512,
+        "hidden_dim": 256,
+        "num_hidden_layers": 5,
+        "num_filters": 192,
+        "num_res_blocks": 12,
+        "weight_decay": 1e-5,
+        "dropout": 0.2,
+        "value_weight": 1.8,
+        "policy_weight": 1.0
+      },
+      "notes": "Initial values from square8_4p interpolation - needs Bayesian tuning"
     },
     "hexagonal_2p": {
       "optimized": false,
-      "confidence": "none",
-      "tuning_method": null,
-      "last_tuned": null,
+      "confidence": "low",
+      "tuning_method": "interpolated_defaults",
+      "last_tuned": "2025-12-20T00:00:00Z",
       "tuning_trials": 0,
-      "hyperparameters": null,
-      "notes": "Not yet tuned - using defaults"
+      "hyperparameters": {
+        "learning_rate": 1e-4,
+        "batch_size": 256,
+        "hidden_dim": 384,
+        "num_hidden_layers": 2,
+        "num_filters": 192,
+        "num_res_blocks": 12,
+        "weight_decay": 1e-4,
+        "dropout": 0.1,
+        "value_weight": 1.0,
+        "policy_weight": 1.0
+      },
+      "notes": "Initial defaults for hex board - needs Bayesian tuning (10,967 games available)"
     },
     "hexagonal_3p": {
       "optimized": false,
-      "confidence": "none",
-      "tuning_method": null,
-      "last_tuned": null,
+      "confidence": "low",
+      "tuning_method": "interpolated_defaults",
+      "last_tuned": "2025-12-20T00:00:00Z",
       "tuning_trials": 0,
-      "hyperparameters": null,
-      "notes": "Not yet tuned - using defaults"
+      "hyperparameters": {
+        "learning_rate": 5e-5,
+        "batch_size": 256,
+        "hidden_dim": 512,
+        "num_hidden_layers": 3,
+        "num_filters": 192,
+        "num_res_blocks": 12,
+        "weight_decay": 5e-5,
+        "dropout": 0.15,
+        "value_weight": 1.5,
+        "policy_weight": 0.9
+      },
+      "notes": "Initial defaults for hex 3p - needs Bayesian tuning (2,722 games available)"
     },
     "hexagonal_4p": {
       "optimized": false,
-      "confidence": "none",
-      "tuning_method": null,
-      "last_tuned": null,
+      "confidence": "low",
+      "tuning_method": "interpolated_defaults",
+      "last_tuned": "2025-12-20T00:00:00Z",
       "tuning_trials": 0,
-      "hyperparameters": null,
-      "notes": "Not yet tuned - using defaults"
+      "hyperparameters": {
+        "learning_rate": 5e-5,
+        "batch_size": 256,
+        "hidden_dim": 512,
+        "num_hidden_layers": 3,
+        "num_filters": 192,
+        "num_res_blocks": 12,
+        "weight_decay": 5e-5,
+        "dropout": 0.2,
+        "value_weight": 2.0,
+        "policy_weight": 1.2
+      },
+      "notes": "Initial defaults for hex 4p - needs Bayesian tuning (7,971 games available)"
     }
   },
   "tuning_config": {
