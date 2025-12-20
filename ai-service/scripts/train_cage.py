@@ -30,7 +30,6 @@ from torch.utils.data import Dataset, DataLoader
 from app.ai.cage_network import (
     CAGEConfig,
     CAGENetwork,
-    create_board_graph,
 )
 from app.ai.heuristic_ai import HeuristicAI
 from app.ai.random_ai import RandomAI

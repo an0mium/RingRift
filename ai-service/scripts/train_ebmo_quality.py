@@ -311,8 +311,13 @@ def main():
 
     logger.info(f"Train: {train_size}, Val: {val_size}")
 
-    # Create model
-    config = EBMOConfig()
+    # Detect input channels from data
+    sample_board = full_dataset.boards[0]
+    num_channels = sample_board.shape[0]
+    logger.info(f"Detected {num_channels} input channels from data")
+
+    # Create model with matching config
+    config = EBMOConfig(num_input_channels=num_channels)
     model = EBMONetwork(config).to(device)
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs)

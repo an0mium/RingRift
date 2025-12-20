@@ -635,13 +635,19 @@ def export_replay_dataset_multi(
                     values_vec[p.player_number - 1] = float(base)
 
             # Add all samples from this game with computed values
+            # NOTE: For scalar value targets (used in non-multi-player training),
+            # we always use player 1's perspective. This ensures consistency with
+            # inference which uses value_head=0 (player 1's value).
+            # For multi-player training, values_mp provides per-player values.
             for stacked, globals_vec, idx, perspective, move_index, phase_str in game_samples:
+                # Use fixed perspective (player 1) for scalar value to match inference
+                fixed_perspective = 1
                 if use_rank_aware_values:
                     value = value_from_final_ranking(
-                        final_state, perspective=perspective, num_players=num_players
+                        final_state, perspective=fixed_perspective, num_players=num_players
                     )
                 else:
-                    value = value_from_final_winner(final_state, perspective=perspective)
+                    value = value_from_final_winner(final_state, perspective=fixed_perspective)
 
                 features_list.append(stacked)
                 globals_list.append(globals_vec)
