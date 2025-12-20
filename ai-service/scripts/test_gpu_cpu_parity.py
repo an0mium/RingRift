@@ -153,6 +153,14 @@ def test_seed(seed: int) -> tuple[int, int, int, int, list]:
                 # Skip placement matches by type only - no position needed
                 matched = v
                 break
+            elif move_type in (MoveType.CHOOSE_LINE_OPTION, MoveType.PROCESS_LINE):
+                # Line processing moves match by type - take first available
+                matched = v
+                break
+            elif move_type in (MoveType.CHOOSE_TERRITORY_OPTION, MoveType.PROCESS_TERRITORY_REGION, MoveType.TERRITORY_CLAIM):
+                # Territory processing moves match by type - take first available
+                matched = v
+                break
             else:
                 v_from = v.from_pos.to_key() if v.from_pos else None
                 m_from = from_pos.to_key() if from_pos else None
