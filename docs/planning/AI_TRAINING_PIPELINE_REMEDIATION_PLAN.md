@@ -584,6 +584,7 @@ The AI Training Pipeline Remediation is complete when:
 | 1.6     | 2025-12-20 | Record actual phase-at-move-time in GameReplayDB for canonical validation                                                                                           |
 | 1.7     | 2025-12-20 | Force trace-mode for canonical selfplay to prevent implicit ANM forced eliminations                                                                                 |
 | 1.8     | 2025-12-20 | **AI-02c COMPLETE**: Fixed Python \_end_turn() and TS turnOrchestrator no_territory_action handling. Phase parity now works for hexagonal (0 semantic divergences). |
+| 1.9     | 2025-12-20 | Added trace-mode regression test to guard ANM auto-resolution                                                                                                       |
 
 ---
 
@@ -665,6 +666,21 @@ The AI Training Pipeline Remediation is complete when:
 - `ai-service/app/rules/default_engine.py`
 - `ai-service/app/training/env.py`
 
+### AI-02: Add trace-mode regression test (2025-12-20)
+
+**Status:** ✅ CODE FIXED (awaiting regeneration + gate re-run)
+
+**Context:** The trace-mode fix should keep ANM resolution explicit, but we need a guard to prevent regressions that silently reintroduce implicit forced eliminations.
+
+**Actions Completed:**
+
+1. ✅ Added a regression test that verifies `GameEngine.apply_move(..., trace_mode=True)` does **not** invoke ANM auto-resolution.
+2. ✅ Added a companion assertion that the non-trace path still calls ANM resolution.
+
+**Files Modified:**
+
+- `ai-service/tests/test_trace_mode_anm_resolution.py`
+
 ### AI-02: Regenerate canonical_hexagonal.db (2025-12-20)
 
 **Status:** ⚠️ PARTIAL SUCCESS - Schema fixed, parity bug blocking further generation
@@ -699,7 +715,7 @@ The parity gate fails with a **TS↔Python phase/move invariant violation**:
 Phase/move invariant violated: cannot apply move type no_placement_action in phase territory_processing
 ```
 
-**Root Cause:** Python's GameEngine emits `no_placement_action` moves during `territory_processing` phase. The TS engine rejects this as invalid - `no_placement_action` is only allowed in `ring_placement` phase.
+**Root Cause (likely):** DefaultRulesEngine was applying moves without `trace_mode`, allowing implicit ANM resolution and phase skew. A trace-mode fix now forces explicit bookkeeping moves and skips ANM auto-resolution when tracing. Re-run to confirm this resolves the mismatch.
 
 **Relevant Error (from health summary):**
 
@@ -725,9 +741,9 @@ Phase/move invariant violated: cannot apply move type no_placement_action in pha
 **Next Steps (AI-03 Blocker):**
 The hexagonal parity gate is blocked by a cross-language phase/move invariant bug. Before AI-03 can proceed for hexagonal:
 
-1. Investigate Python GameEngine phase transition logic for hexagonal boards
-2. Fix the `no_placement_action` emission in `territory_processing` phase
-3. Re-run AI-02 for hexagonal after fix
+1. Re-run AI-02 for hexagonal with the trace-mode fix in place
+2. If the mismatch persists, inspect phase transitions around territory exit and turn rotation
+3. Capture a state bundle for any remaining divergence
 
 **Files Modified/Created:**
 
@@ -761,13 +777,13 @@ The parity gate fails with a **TS↔Python phase/move invariant violation**:
 [PHASE_MOVE_INVARIANT] Cannot apply move type 'forced_elimination' in phase 'territory_processing'
 ```
 
-**Root Cause:** Self-play/engine emitted a `forced_elimination` move without transitioning into the `forced_elimination` phase.
+**Root Cause (likely):** Implicit ANM resolution applied forced elimination without entering `forced_elimination`. Trace-mode now keeps forced elimination explicit; re-run to confirm.
 
 **Next Steps (AI-03 Blocker):**
 Before AI-03 can proceed for square19:
 
-1. Fix forced-elimination phase transition in self-play generation
-2. Re-run AI-02 for square19 after fix
+1. Re-run AI-02 for square19 with the trace-mode fix in place
+2. If still failing, inspect phase transition timing around territory completion
 
 ### AI-02c: Fix Python Phase Transition Timing Bug (2025-12-20)
 
