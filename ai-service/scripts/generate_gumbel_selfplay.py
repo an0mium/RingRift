@@ -206,6 +206,7 @@ def main():
     parser.add_argument("--output", "-o", type=str, required=True, help="Output JSONL file")
     parser.add_argument("--gumbel-sims", type=int, default=64, help="Gumbel MCTS simulations")
     parser.add_argument("--max-moves", type=int, default=500, help="Max moves per game")
+    parser.add_argument("--model-id", type=str, default=None, help="Neural network model ID (e.g., ringrift_best_sq8_2p)")
     parsed = parser.parse_args()
 
     # Create config from parsed args
@@ -226,6 +227,7 @@ def main():
         'output': parsed.output,
         'gumbel_sims': parsed.gumbel_sims,
         'max_moves': parsed.max_moves,
+        'model_id': parsed.model_id,
     })()
 
     # Setup
@@ -246,12 +248,15 @@ def main():
         ai_config = AIConfig(
             difficulty=5,
             self_play=True,
+            nn_model_id=args.model_id,
         )
         ai_players[pn] = GumbelMCTSAI(
             player_number=pn,
             config=ai_config,
             board_type=board_type,
         )
+    if args.model_id:
+        logger.info(f"Using neural network model: {args.model_id}")
 
     # Generate games
     start_time = time.time()
