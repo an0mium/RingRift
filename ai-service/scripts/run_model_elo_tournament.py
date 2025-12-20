@@ -55,7 +55,7 @@ from app.models import (
     GameStatus,
 )
 from app.rules.default_engine import DefaultRulesEngine
-from app.training.generate_data import create_initial_state
+from app.training.initial_state import create_initial_state
 from app.utils.victory_type import derive_victory_type
 
 HAS_EVENT_BUS = has_event_bus()
@@ -195,7 +195,7 @@ def play_model_vs_model_game(
     import uuid
 
     from app.rules.default_engine import DefaultRulesEngine
-    from app.training.generate_data import create_initial_state
+    from app.training.initial_state import create_initial_state
 
     start_time = time.time()
     game_id = str(uuid.uuid4())
