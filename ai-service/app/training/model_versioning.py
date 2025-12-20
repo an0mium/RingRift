@@ -783,12 +783,12 @@ class ModelVersionManager:
         if not os.path.exists(path):
             raise FileNotFoundError(f"Checkpoint not found: {path}")
 
-        # Load with weights_only=False to access metadata
+        # Use safe_load_checkpoint to access metadata
         # Use CPU to avoid GPU memory usage for just reading metadata
-        checkpoint = torch.load(
+        checkpoint = safe_load_checkpoint(
             path,
             map_location=torch.device("cpu"),
-            weights_only=False,
+            warn_on_unsafe=False,
         )
 
         if self.METADATA_KEY not in checkpoint:
@@ -825,10 +825,10 @@ class ModelVersionManager:
             )
 
         # Load legacy checkpoint
-        checkpoint = torch.load(
+        checkpoint = safe_load_checkpoint(
             legacy_path,
             map_location=torch.device("cpu"),
-            weights_only=False,
+            warn_on_unsafe=False,
         )
 
         # Extract state dict
