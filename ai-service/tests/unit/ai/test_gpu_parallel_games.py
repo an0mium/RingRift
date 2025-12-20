@@ -464,12 +464,12 @@ class TestParallelGameRunner:
     def test_initialization(self):
         """Test runner initialization with default parameters."""
         runner = ParallelGameRunner(
-            num_games=4,
+            batch_size=4,
             board_size=8,
             num_players=2,
         )
 
-        assert runner.num_games == 4
+        assert runner.batch_size == 4
         assert runner.board_size == 8
         assert runner.num_players == 2
         assert runner.state is not None
@@ -478,7 +478,7 @@ class TestParallelGameRunner:
         """Test runner initialization with different board sizes."""
         for board_size in [6, 7, 8, 9]:
             runner = ParallelGameRunner(
-                num_games=2,
+                batch_size=2,
                 board_size=board_size,
                 num_players=2,
             )
@@ -489,7 +489,7 @@ class TestParallelGameRunner:
         """Test runner initialization with 3-4 players."""
         for num_players in [2, 3, 4]:
             runner = ParallelGameRunner(
-                num_games=2,
+                batch_size=2,
                 board_size=8,
                 num_players=num_players,
             )
@@ -498,7 +498,7 @@ class TestParallelGameRunner:
     def test_reset_games(self):
         """Test resetting games to initial state."""
         runner = ParallelGameRunner(
-            num_games=4,
+            batch_size=4,
             board_size=8,
             num_players=2,
         )
@@ -517,7 +517,7 @@ class TestParallelGameRunner:
     def test_set_temperature(self):
         """Test setting temperature."""
         runner = ParallelGameRunner(
-            num_games=4,
+            batch_size=4,
             board_size=8,
             num_players=2,
         )
@@ -531,23 +531,23 @@ class TestParallelGameRunner:
     def test_run_games_short(self):
         """Test running a few game steps."""
         runner = ParallelGameRunner(
-            num_games=4,
+            batch_size=4,
             board_size=8,
             num_players=2,
-            max_moves=10,  # Short games for testing
         )
 
-        # Run games
-        results = runner.run_games()
+        # Run games with short limit
+        results = runner.run_games(max_moves=10)
 
-        # Should return a list of results
-        assert isinstance(results, list)
-        assert len(results) == 4
+        # Should return a dict with results
+        assert isinstance(results, dict)
+        assert "winners" in results
+        assert len(results["winners"]) == 4
 
     def test_get_stats(self):
         """Test getting runner statistics."""
         runner = ParallelGameRunner(
-            num_games=4,
+            batch_size=4,
             board_size=8,
             num_players=2,
         )
@@ -556,12 +556,14 @@ class TestParallelGameRunner:
 
         # Should have expected keys
         assert isinstance(stats, dict)
-        assert "total_games" in stats or "games_completed" in stats or len(stats) >= 0
+        assert "games_completed" in stats
+        assert "total_moves" in stats
+        assert "games_per_second" in stats
 
     def test_default_weights(self):
         """Test default heuristic weights."""
         runner = ParallelGameRunner(
-            num_games=2,
+            batch_size=2,
             board_size=8,
             num_players=2,
         )
@@ -570,3 +572,5 @@ class TestParallelGameRunner:
 
         assert isinstance(weights, dict)
         assert len(weights) > 0
+        assert "stack_count" in weights
+        assert "territory_count" in weights

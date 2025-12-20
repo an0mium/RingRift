@@ -141,6 +141,7 @@ def train_epoch(
     optimizer: optim.Optimizer,
     device: torch.device,
     epoch: int,
+    use_boundary_loss: bool = True,
 ) -> Dict[str, float]:
     """Train for one epoch."""
     model.train()
@@ -148,6 +149,7 @@ def train_epoch(
     total_contrastive = 0.0
     total_margin = 0.0
     total_quality = 0.0
+    total_boundary = 0.0
     num_batches = 0
 
     for batch in dataloader:
@@ -185,8 +187,16 @@ def train_epoch(
         margin = margin_ranking_loss(pos_energy, neg_energy, margin=1.0)
         quality = quality_weighted_loss(pos_energy, neg_energy, neg_scores, margin=2.0)
 
-        # Combined loss with quality emphasis
-        loss = 0.2 * contrastive + 0.3 * margin + 0.5 * quality
+        # Manifold boundary loss: push random embeddings to high energy
+        boundary = torch.tensor(0.0, device=device)
+        if use_boundary_loss:
+            boundary = manifold_boundary_loss(
+                model, state_embed, pos_embed,
+                num_random_samples=5, boundary_margin=3.0
+            )
+
+        # Combined loss with boundary term to prevent energy landscape escape
+        loss = 0.2 * contrastive + 0.25 * margin + 0.4 * quality + 0.15 * boundary
 
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -196,6 +206,7 @@ def train_epoch(
         total_contrastive += contrastive.item()
         total_margin += margin.item()
         total_quality += quality.item()
+        total_boundary += boundary.item() if use_boundary_loss else 0.0
         num_batches += 1
 
     return {
@@ -203,6 +214,7 @@ def train_epoch(
         'contrastive': total_contrastive / num_batches,
         'margin': total_margin / num_batches,
         'quality': total_quality / num_batches,
+        'boundary': total_boundary / num_batches,
     }
 
 

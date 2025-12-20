@@ -543,6 +543,38 @@ class EnergyHead(nn.Module):
         return self.mlp(combined).squeeze(-1)
 
 
+class ValueHead(nn.Module):
+    """MLP that predicts position value from state embedding.
+
+    Estimates expected game outcome from current position.
+    Output in [-1, 1]: -1 = loss, 0 = draw, +1 = win.
+    """
+
+    def __init__(self, config: EBMOConfig):
+        super().__init__()
+        self.config = config
+
+        self.mlp = nn.Sequential(
+            nn.Linear(config.state_embed_dim, config.energy_hidden_dim),
+            nn.ReLU(),
+            nn.Linear(config.energy_hidden_dim, config.energy_hidden_dim // 2),
+            nn.ReLU(),
+            nn.Linear(config.energy_hidden_dim // 2, 1),
+            nn.Tanh(),  # Output in [-1, 1]
+        )
+
+    def forward(self, state_embed: torch.Tensor) -> torch.Tensor:
+        """Predict value from state embedding.
+
+        Args:
+            state_embed: (B, state_embed_dim) state embeddings
+
+        Returns:
+            (B,) value predictions in [-1, 1]
+        """
+        return self.mlp(state_embed).squeeze(-1)
+
+
 # =============================================================================
 # Main EBMO Network
 # =============================================================================
@@ -574,6 +606,7 @@ class EBMONetwork(nn.Module):
         self.state_encoder = StateEncoder(self.config)
         self.action_encoder = ActionEncoder(self.config)
         self.energy_head = EnergyHead(self.config)
+        self.value_head = ValueHead(self.config)  # Position evaluation
 
         # Feature extractor for converting Move objects
         self.feature_extractor = ActionFeatureExtractor(self.config.board_size)
