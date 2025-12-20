@@ -60,31 +60,24 @@ def advance_cpu_through_phases(state, target_phase_str: str, target_player: int)
             synth = GameEngine.synthesize_bookkeeping_move(req, state)
             state = GameEngine.apply_move(state, synth)
         else:
-            # CPU bug workaround: CPU allows self-captures (capturing own stacks) which
-            # are invalid. If we're stuck in capture/chain_capture phase with only
-            # self-captures available, we need to skip past them.
+            # Handle capture/chain_capture phase advancement
+            # GPU may skip captures that CPU offers. If GPU expects us to be in a later
+            # phase (line_processing or beyond), we should skip the capture.
             if current_phase in ('capture', 'chain_capture'):
                 valid = GameEngine.get_valid_moves(state, state.current_player)
                 skip_moves = [v for v in valid if v.type == MoveType.SKIP_CAPTURE]
-                captures = [v for v in valid if v.type in (MoveType.OVERTAKING_CAPTURE, MoveType.CONTINUE_CAPTURE_SEGMENT)]
 
-                # Check if all captures are self-captures (invalid)
-                all_self_captures = True
-                for c in captures:
-                    if c.capture_target:
-                        target_stack = BoardManager.get_stack(c.capture_target, state.board)
-                        if target_stack and target_stack.controlling_player != state.current_player:
-                            all_self_captures = False
-                            break
+                # If GPU expects a later phase (not capture/chain_capture), skip the capture
+                target_is_later_phase = target_phase_str not in ('capture', 'chain_capture')
+                target_is_different_player = target_player != current_player
 
-                if all_self_captures:
+                if target_is_later_phase or target_is_different_player:
                     if skip_moves:
-                        # Apply skip_capture to advance past invalid capture options
+                        # Apply skip_capture to advance past capture phase
                         state = GameEngine.apply_move(state, skip_moves[0])
                         continue
                     elif current_phase == 'chain_capture':
-                        # In chain_capture with only self-captures and no skip option,
-                        # force transition to line_processing phase
+                        # In chain_capture with no skip option, force transition
                         state.current_phase = GamePhase.LINE_PROCESSING
                         continue
 
