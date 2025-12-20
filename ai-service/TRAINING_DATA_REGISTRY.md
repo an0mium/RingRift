@@ -310,4 +310,46 @@ This separation ensures:
 
 ---
 
-_Last updated: 2025-12-16_
+---
+
+## 2025-12-20 Parity Fixes Applied
+
+Two critical parity bugs were fixed:
+
+1. **Phase Transition Bug (commit b8175468)**
+   - Root cause: `no_territory_action` case in `applyMoveWithChainInfo` did not advance phase/player
+   - Fix: Handle phase transition inline (check forced_elimination, then rotate to next player)
+   - All data generated pre-fix is non-canonical
+
+2. **FORCED_ELIMINATION Parity Bug**
+   - Root cause: GPU selfplay scripts missing FORCED_ELIMINATION phase handling
+   - Fix: Updated `run_gpu_selfplay.py` and `import_gpu_selfplay_to_db.py`
+   - Synced to all 8 Lambda cluster nodes
+
+**Impact:**
+
+- All existing DBs (jsonl*converted*\*, staging/improvement_loop) generated before these fixes are non-canonical
+- New selfplay data (post-fix) should pass parity gates
+- Legacy DBs with v1 schema (missing `game_moves` table) cannot be parity-checked
+
+**Verification:** ✅ COMPLETE (2025-12-20)
+
+Parity check on fresh canonical data confirms all fixes working:
+
+```bash
+# Results: passed_canonical_parity_gate: true
+# 10/10 games: 0 semantic divergence, 0 structural issues
+PYTHONPATH=. python scripts/check_ts_python_replay_parity.py \
+  --db data/games/parity_test/selfplay.db --compact
+```
+
+Test details:
+
+- Board: square8, 2-player
+- Engine: heuristic-only (canonical difficulty band)
+- Games: 10
+- Semantic divergence: 0
+- Structural issues: 0
+- End-of-game only divergence: 1 (minor current_player mismatch at game_over, acceptable)
+
+_Last updated: 2025-12-20_

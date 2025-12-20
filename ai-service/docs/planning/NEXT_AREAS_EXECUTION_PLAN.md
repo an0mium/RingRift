@@ -70,11 +70,16 @@ DB path: `data/games/distributed_soak_runs/distributed_soak_square19_3p_20251220
 
 ## Lane 2: AI Factory - IG-GMO (experimental tier)
 
-- [ ] Wire IG-GMO into AI factory mapping (server and ai-service)
-- [ ] Gate it behind experimental flag or difficulty tier
+- [x] Wire IG-GMO into AI factory mapping (server and ai-service)
+  - Already in `AIType` enum (Python: `app/models/core.py:156`, TS: `src/server/game/ai/AIEngine.ts:41`)
+  - Factory lazy-load: `app/ai/factory.py:538-540`
+  - Tournament support: `app/ai/factory.py:827-834`
+- [x] Gate it behind experimental flag or difficulty tier
+  - Tier 14 (experimental): `app/ai/factory.py:195-203`
+  - Environment override pattern available: `RINGRIFT_USE_IG_GMO=1`
 - [ ] Add doc entry under AI difficulty ladder and service endpoints
 
-**Status:** Pending (blocked on Lane 1)
+**Status:** COMPLETE - IG-GMO already fully wired at tier 14. Only doc update pending.
 
 ---
 

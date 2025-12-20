@@ -63,19 +63,46 @@ This document describes the experimental AI algorithms available in RingRift bey
 
 **Core Idea:** Mutual information-based exploration with GNN state encoding.
 
+**Difficulty Tier:** D14 (experimental)
+
 **How It Works:**
 
-1. Encode state using Graph Neural Network
-2. Compute mutual information between action and outcome
+1. Encode state using Graph Attention Network (3 layers, 4 heads)
+2. Compute mutual information via MC Dropout sampling: MI(y; theta | s, a) = H(E[p]) - E[H(p)]
 3. Select moves that maximize expected information gain
-4. Balance exploration vs exploitation via information bonus
+4. Balance exploration vs exploitation via beta coefficient (default 0.2)
+5. Track novelty with gamma coefficient (default 0.05)
 
-**Status:** Most experimental. GNN architecture may have issues.
+**Configuration:** `app/ai/factory.py:195-203`
+
+```python
+14: {
+    "ai_type": AIType.IG_GMO,
+    "randomness": 0.1,
+    "think_time_ms": 2000,
+    "profile_id": "v3-iggmo-14-experimental",
+    "use_neural_net": True,
+}
+```
+
+**Key Components:**
+
+- `IGGMOConfig`: State/move embedding dims (128), GNN layers (3), attention heads (4)
+- `GraphAttentionLayer`: Multi-head attention over spatial neighbors
+- `GNNStateEncoder`: Converts GameState to graph embeddings (8-connected neighbors)
+- `SoftLegalityPredictor`: Learned differentiable legality function
+
+**Enable at D3 (Experimental Override):**
+
+```bash
+export RINGRIFT_USE_IG_GMO=1
+```
+
+**Status:** Fully wired into AI factory. Untested against ladder.
 
 **Files:**
 
-- `app/ai/ig_gmo_ai.py`
-- `app/ai/ig_gmo_network.py`
+- `app/ai/ig_gmo.py` - Main implementation (676 lines)
 
 ## CAGE (Constraint-Aware Graph EBMO)
 
@@ -146,13 +173,17 @@ ai = EBMO_AI(
 )
 ```
 
-### Enable EBMO at D3 (Experimental Override)
+### Enable Experimental Overrides at D3
 
 ```bash
+# EBMO at D3
 export RINGRIFT_USE_EBMO=1
+
+# IG-GMO at D3
+export RINGRIFT_USE_IG_GMO=1
 ```
 
-This replaces PolicyOnly at D3 with EBMO for A/B testing.
+This replaces PolicyOnly at D3 with the experimental AI for A/B testing.
 
 ## Benchmarking
 
