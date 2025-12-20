@@ -682,10 +682,12 @@ class UnifiedScheduler:
             return JobState.RUNNING
         if raw in {"pending", "init", "starting", "booting"}:
             return JobState.QUEUED
+        if raw in {"stopped", "exited"}:
+            return JobState.COMPLETED
+        if raw in {"terminated", "deleted"}:
+            return JobState.CANCELLED
         if raw in {"failed", "error"}:
             return JobState.FAILED
-        if raw in {"stopped", "exited", "terminated", "deleted"}:
-            return JobState.UNKNOWN
         return JobState.UNKNOWN
 
     def _sync_slurm_job_states(

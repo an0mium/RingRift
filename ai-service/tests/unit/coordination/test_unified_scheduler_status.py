@@ -115,3 +115,49 @@ def test_sync_vast_updates_running(tmp_path):
     assert updates == 1
     assert row["state"] == JobState.RUNNING.value
     assert row["started_at"] is not None
+
+
+def test_sync_vast_marks_completed_with_finished_at(tmp_path):
+    scheduler = _make_scheduler(tmp_path)
+    db_path = scheduler.db_path
+
+    job = UnifiedJob(name="test-vast-completed", job_type=JobType.SELFPLAY)
+    scheduler._record_job(job, Backend.VAST)
+    scheduler._update_job(job.id, backend_job_id="vast-556-1700000001", state=JobState.QUEUED)
+
+    instances = [
+        {
+            "id": 556,
+            "cur_state": "stopped",
+        }
+    ]
+
+    updates = scheduler._sync_vast_job_states(instances)
+    row = _load_job_row(db_path, job.id)
+
+    assert updates == 1
+    assert row["state"] == JobState.COMPLETED.value
+    assert row["finished_at"] is not None
+
+
+def test_sync_vast_marks_cancelled_with_finished_at(tmp_path):
+    scheduler = _make_scheduler(tmp_path)
+    db_path = scheduler.db_path
+
+    job = UnifiedJob(name="test-vast-cancelled", job_type=JobType.SELFPLAY)
+    scheduler._record_job(job, Backend.VAST)
+    scheduler._update_job(job.id, backend_job_id="vast-557-1700000002", state=JobState.QUEUED)
+
+    instances = [
+        {
+            "id": 557,
+            "actual_status": "terminated",
+        }
+    ]
+
+    updates = scheduler._sync_vast_job_states(instances)
+    row = _load_job_row(db_path, job.id)
+
+    assert updates == 1
+    assert row["state"] == JobState.CANCELLED.value
+    assert row["finished_at"] is not None
