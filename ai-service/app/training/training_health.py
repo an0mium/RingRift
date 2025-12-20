@@ -40,12 +40,12 @@ from typing import Any
 
 # Import base monitoring framework for integration (2025-12)
 try:
+    from app.config.thresholds import AlertLevel
     from app.monitoring.base import (
         Alert as BaseAlert,
         HealthMonitor as BaseHealthMonitor,
         MonitoringResult,
     )
-    from app.config.thresholds import AlertLevel
     HAS_MONITORING_FRAMEWORK = True
 except ImportError:
     HAS_MONITORING_FRAMEWORK = False

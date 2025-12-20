@@ -2502,10 +2502,15 @@ class PERIntegration:
                 self.state.per_last_rebuild = time.time()
 
                 # Get buffer size
+                # NOTE: pickle.load() is used here for internal training data only.
+                # The buffer file is created by our own subprocess, not external input.
                 if buffer_path.exists():
                     import pickle
                     with open(buffer_path, "rb") as f:
                         data = pickle.load(f)
+                    # Validate expected structure before use
+                    if not isinstance(data, dict):
+                        raise ValueError(f"Invalid PER buffer format: expected dict, got {type(data)}")
                     self.state.per_buffer_size = data.get("tree", {}).n_entries if hasattr(data.get("tree", {}), "n_entries") else 0
 
                 await self.event_bus.publish(DataEvent(

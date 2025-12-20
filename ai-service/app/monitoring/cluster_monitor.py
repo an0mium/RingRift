@@ -27,17 +27,17 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from app.config.thresholds import (
+    AlertLevel,
+    get_threshold,
+    should_alert,
+)
 from app.monitoring.base import (
     Alert,
     CompositeMonitor,
     HealthMonitor,
     HealthStatus,
     MonitoringResult,
-)
-from app.config.thresholds import (
-    AlertLevel,
-    get_threshold,
-    should_alert,
 )
 
 # Event emission for cluster health changes

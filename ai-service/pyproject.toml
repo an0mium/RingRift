@@ -137,6 +137,10 @@ ignore = [
     "RUF012", # Mutable class attributes - false positives with Pydantic
     # TODO: Migrate to fire_and_forget() from app.utils.async_utils
     "RUF006", # Asyncio dangling task - intentional fire-and-forget patterns
+    # Unicode in comments/docstrings - intentional for dimensions (8×8) and math notation
+    "RUF001", # String contains ambiguous unicode
+    "RUF002", # Docstring contains ambiguous unicode
+    "RUF003", # Comment contains ambiguous unicode
 ]
 
 # Allow fix for all enabled rules

@@ -242,9 +242,21 @@ class PrioritizedReplayBuffer:
 
     @classmethod
     def load(cls, path: Path) -> "PrioritizedReplayBuffer":
-        """Load buffer from disk."""
+        """Load buffer from disk.
+
+        NOTE: Uses pickle for internal training data serialization.
+        Only load files created by this application's save() method.
+        """
         with open(path, "rb") as f:
             data = pickle.load(f)
+
+        # Validate expected structure
+        if not isinstance(data, dict):
+            raise ValueError(f"Invalid buffer format: expected dict, got {type(data)}")
+        required_keys = {"capacity", "alpha", "beta", "tree", "max_priority"}
+        missing = required_keys - set(data.keys())
+        if missing:
+            raise ValueError(f"Invalid buffer format: missing keys {missing}")
 
         buffer = cls(
             capacity=data["capacity"],

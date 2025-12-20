@@ -241,12 +241,12 @@ AUTO_STREAMING_THRESHOLD_BYTES = int(os.environ.get(
     "RINGRIFT_AUTO_STREAMING_THRESHOLD_GB", "5"
 )) * 1024 * 1024 * 1024
 
-from app.ai.heuristic_weights import (  # noqa: E402
+from app.ai.heuristic_weights import (
     HEURISTIC_WEIGHT_KEYS,
     HEURISTIC_WEIGHT_PROFILES,
 )
-from app.training.eval_pools import run_heuristic_tier_eval  # noqa: E402
-from app.training.tier_eval_config import (  # noqa: E402
+from app.training.eval_pools import run_heuristic_tier_eval
+from app.training.tier_eval_config import (
     HEURISTIC_TIER_SPECS,
     HeuristicTierSpec,
 )
@@ -3521,7 +3521,7 @@ def train_from_file(
 
 # Re-export CLI functions for backwards compatibility
 # The actual implementations are in train_cli.py
-from app.training.train_cli import main, parse_args  # noqa: E402, F401
+from app.training.train_cli import main, parse_args  # noqa: F401
 
 if __name__ == "__main__":
     main()

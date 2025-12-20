@@ -34,6 +34,13 @@ Usage:
 
 # Thresholds
 # Base classes
+from app.config.thresholds import (
+    THRESHOLDS,
+    AlertLevel,
+    get_all_thresholds,
+    get_threshold,
+    should_alert,
+)
 from app.monitoring.base import (
     Alert,
     CompositeMonitor,
@@ -56,13 +63,6 @@ from app.monitoring.cluster_monitor import (
 
 # P2P monitoring
 from app.monitoring.p2p_monitoring import MonitoringManager
-from app.config.thresholds import (
-    THRESHOLDS,
-    AlertLevel,
-    get_all_thresholds,
-    get_threshold,
-    should_alert,
-)
 
 # Unified cluster monitor (consolidates scripts)
 from app.monitoring.unified_cluster_monitor import (

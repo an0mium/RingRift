@@ -294,7 +294,7 @@ async def verify_admin_api_key(x_admin_key: str = Header(None, alias="X-Admin-Ke
 IS_PRODUCTION = os.getenv("RINGRIFT_ENV", "development").lower() == "production"
 
 # Import sanitize_error_detail from utils to avoid circular import
-from app.utils.error_utils import sanitize_error_detail  # noqa: E402
+from app.utils.error_utils import sanitize_error_detail
 
 # AI operation timeout (seconds) - prevents hanging requests
 AI_OPERATION_TIMEOUT = float(os.getenv("RINGRIFT_AI_TIMEOUT", "30.0"))
