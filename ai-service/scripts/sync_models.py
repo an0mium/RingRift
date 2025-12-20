@@ -30,6 +30,9 @@ Usage:
     # Sync using SyncCoordinator (aria2/SSH/P2P + NFS-aware)
     python scripts/sync_models.py --sync --use-sync-coordinator
 
+    # Include offline/disabled hosts
+    python scripts/sync_models.py --sync --include-nonready
+
     # Dry run
     python scripts/sync_models.py --sync --dry-run
 
