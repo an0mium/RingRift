@@ -204,6 +204,35 @@ function httpRequest(url, requestOptions = {}) {
   });
 }
 
+function decodeBase64Url(input) {
+  if (!input) return null;
+  const normalized = input.replace(/-/g, '+').replace(/_/g, '/');
+  const padding = normalized.length % 4;
+  const padded = padding ? `${normalized}${'='.repeat(4 - padding)}` : normalized;
+  try {
+    return Buffer.from(padded, 'base64').toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
+function deriveJwtTtlSeconds(token) {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length < 2) return null;
+  const payload = decodeBase64Url(parts[1]);
+  if (!payload) return null;
+  try {
+    const data = JSON.parse(payload);
+    if (!data || typeof data.exp !== 'number') return null;
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const ttlSeconds = data.exp - nowSeconds;
+    return ttlSeconds > 0 ? ttlSeconds : null;
+  } catch {
+    return null;
+  }
+}
+
 // ============================================================================
 // Health Checks
 // ============================================================================
@@ -412,11 +441,20 @@ const checks = {
     }
 
     const hasExpiresIn = typeof expiresIn === 'number' && expiresIn > 0;
+    const derivedTtlSeconds = deriveJwtTtlSeconds(accessToken);
     let ttlSeconds = hasExpiresIn ? expiresIn : null;
+    let ttlSource = hasExpiresIn ? 'expiresIn' : null;
 
     if (!hasExpiresIn) {
-      if (config.authTokenTtlOverrideSeconds > 0) {
+      if (typeof derivedTtlSeconds === 'number' && derivedTtlSeconds > 0) {
+        ttlSeconds = derivedTtlSeconds;
+        ttlSource = 'jwt_exp';
+        warnings.push(
+          `expiresIn missing; derived TTL from JWT exp (${ttlSeconds}s)`
+        );
+      } else if (config.authTokenTtlOverrideSeconds > 0) {
         ttlSeconds = config.authTokenTtlOverrideSeconds;
+        ttlSource = 'override';
         warnings.push(
           `expiresIn missing; using LOADTEST_AUTH_TOKEN_TTL_S=${ttlSeconds}s`
         );
@@ -431,6 +469,16 @@ const checks = {
       if (deltaRatio > 0.1) {
         warnings.push(
           `LOADTEST_AUTH_TOKEN_TTL_S (${config.authTokenTtlOverrideSeconds}s) differs from expiresIn (${expiresIn}s)`
+        );
+      }
+    }
+
+    if (hasExpiresIn && typeof derivedTtlSeconds === 'number') {
+      const delta = Math.abs(expiresIn - derivedTtlSeconds);
+      const deltaRatio = delta / expiresIn;
+      if (deltaRatio > 0.1) {
+        warnings.push(
+          `JWT exp TTL (${derivedTtlSeconds}s) differs from expiresIn (${expiresIn}s)`
         );
       }
     }
@@ -455,7 +503,9 @@ const checks = {
     details.push(`token_length=${accessToken.length}`);
     if (hasExpiresIn) {
       details.push(`expiresIn=${expiresIn}s`);
-    } else if (ttlSeconds !== null) {
+    } else if (ttlSeconds !== null && ttlSource === 'jwt_exp') {
+      details.push(`expiresIn=missing (derived=${ttlSeconds}s)`);
+    } else if (ttlSeconds !== null && ttlSource === 'override') {
       details.push(`expiresIn=missing (override=${ttlSeconds}s)`);
     }
     details.push(`refresh_window=${config.authRefreshWindowSeconds}s`);
