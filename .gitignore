@@ -228,6 +228,16 @@ archived_models_backup/
 # Cluster-specific scripts with node names/IPs
 scripts/prometheus_p2p_exporter.py
 scripts/tunnel_manager.sh
+# Local cluster monitoring scripts (contain personal IPs/hostnames)
+ai-service/scripts/robust_cluster_monitor.py
+ai-service/scripts/simple_cluster_monitor.py
+ai-service/scripts/cluster_monitor_daemon.py
+ai-service/scripts/cluster_health_monitor.py
+ai-service/scripts/cluster_health_monitor.sh
+ai-service/scripts/cluster_monitor.sh
+ai-service/scripts/active_cluster_monitor.sh
+ai-service/scripts/monitor_10h_claude.sh
+ai-service/scripts/periodic_check.sh
 
 # Status documents with cluster details
 CURRENT_STATE_ASSESSMENT.md
