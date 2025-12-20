@@ -153,14 +153,16 @@ class TestSeedPropagation:
         assert move1.type == move2.type
         assert move1.to == move2.to
 
-    @pytest.mark.xfail(reason="GMO uses MC Dropout which requires torch seed fixing - see Lane 3 TODO")
+    @pytest.mark.xfail(reason="GMO requires isolated torch.Generator for true determinism")
     def test_gmo_ai_deterministic_with_seed(self, initial_state):
         """GMOAI should produce same move with same seed.
 
-        NOTE: GMO currently uses MC Dropout for uncertainty estimation,
-        which involves enabling dropout at inference time. For full determinism,
-        we would need to set torch.manual_seed() based on the rng_seed.
-        This is a known limitation tracked in Lane 3.
+        Currently xfail because GMO uses MC Dropout which consumes torch random
+        state. After ai1.select_move(), the global torch state has changed, so
+        ai2.select_move() sees different random numbers even with the same seed.
+
+        For true determinism, GMO would need an isolated torch.Generator passed
+        to all dropout and optimization operations. This is a future enhancement.
         """
         config = AIConfig(difficulty=6, rng_seed=99999)
 

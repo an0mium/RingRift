@@ -13,7 +13,7 @@ def test_descent_batches_child_evaluations_in_legacy_expansion() -> None:
     nn_instance = MagicMock()
     nn_instance.encode_move.return_value = 0
 
-    def fake_eval_batch(game_states):
+    def fake_eval_batch(game_states, value_head=None):
         batch = len(game_states)
         policy = np.zeros((batch, 8), dtype=np.float32)
         if batch == 1:
@@ -22,7 +22,7 @@ def test_descent_batches_child_evaluations_in_legacy_expansion() -> None:
 
     nn_instance.evaluate_batch.side_effect = fake_eval_batch
 
-    with patch("app.ai.descent_ai.NeuralNetAI", return_value=nn_instance):
+    with patch("app.ai.neural_net.NeuralNetAI", return_value=nn_instance):
         ai = DescentAI(player_number=1, config=config)
 
     # Force legacy (immutable) path.
