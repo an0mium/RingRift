@@ -483,10 +483,10 @@ cp .env.staging.example .env.staging
 ./scripts/deploy-staging.sh --build
 
 # 3. Verify health
-npm run load:preflight
+BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3001 npm run load:preflight
 
 # 4. Run load test (rate limit bypass enabled for staging)
-BASE_URL=http://localhost:3000 npm run load:test -- --scenario=baseline
+BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3001 tests/load/scripts/run-baseline.sh --staging
 ```
 
 #### Production Validation
@@ -498,10 +498,16 @@ rsync -avz --delete dist/ ubuntu@ringrift.ai:/home/ubuntu/ringrift/dist/
 ssh ubuntu@ringrift.ai "pm2 restart ringrift-server"
 
 # 2. Verify health
-BASE_URL=https://ringrift.ai npm run load:preflight
+AI_SERVICE_URL=https://ringrift.ai:8765 \
+  BASE_URL=https://ringrift.ai WS_URL=wss://ringrift.ai \
+  npm run load:preflight
 
-# 3. Run production load test (NO rate limit bypass!)
-BASE_URL=https://ringrift.ai npm run load:test -- --scenario=baseline
+# 3. Run production load test (runner scripts block production; use explicit k6)
+BASE_URL=https://ringrift.ai WS_URL=wss://ringrift.ai THRESHOLD_ENV=production \
+  LOAD_PROFILE=load k6 run tests/load/scenarios/concurrent-games.js
+
+BASE_URL=https://ringrift.ai WS_URL=wss://ringrift.ai THRESHOLD_ENV=production \
+  WS_SCENARIO_PRESET=baseline k6 run tests/load/scenarios/websocket-stress.js
 ```
 
 #### Success Criteria
@@ -1615,3 +1621,4 @@ The drill script and runbook ([`AI_SERVICE_DEGRADATION_DRILL.md`](../runbooks/AI
 | 1.3     | 2025-12-20 | **PV-07.2 completed.** Docker containers rebuilt successfully with Dockerfile fix. Baseline load test executed with 60+ VUs. Results: HTTP p95=12.74ms ✅, True errors=0 ✅, Rate limit hits=9030 ❌ (bypass not applied to game endpoints). Core SLOs pass; rate limit bypass needs fix for clean signal.                                                                                                                                                                                    |
 | 1.4     | 2025-12-20 | **PV-08 completed. ✅ PASS.** Target-scale load test executed with 100 VUs for 13 minutes. Results: HTTP p95=14.68ms (97% below target), True errors=0%, Rate limit hits=0, Contract failures=0, Lifecycle mismatches=0. All SLOs pass. Rate limit bypass working correctly. Resource usage stable.                                                                                                                                                                                           |
 | 1.5     | 2025-12-20 | **PV-09 completed. ⚠️ PARTIAL PASS.** AI-heavy load test executed with 300 VUs for 30 minutes. WebSocket move RTT p95=11ms ✅, Move success=100% ✅, Connection success=100% ✅, True errors=0% ✅. **GAP IDENTIFIED:** Python AI service received 0 requests - heuristic AI runs locally in TypeScript. AI-specific SLOs (response latency, fallback rate) could not be validated. Recommendations: create direct AI service test or use minimax/mcts AI types that route to Python service. |
+| 1.6     | 2025-12-20 | **PV-10 completed. ✅ PASS.** AI Service Degradation Drill executed with 3 phases (baseline, degraded, recovery). All phases passed: AI service health monitoring works, graceful degradation detected (status: "degraded" when AI down), no cascading failures to DB/Redis, recovery time ~10 seconds. Drill script automated via `scripts/run-ai-degradation-drill.ts`. Artifacts saved to `results/ops/` and `results/load-test/`.                                                         |
