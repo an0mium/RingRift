@@ -333,12 +333,17 @@ function buildSummaryObject(scenarioName, environmentLabel, thresholdsEnvLabel, 
     ),
     websocket_connection_success_rate: extractRate('websocket_connection_success_rate', data),
     websocket_handshake_success_rate: extractRate('websocket_handshake_success_rate', data),
+    ws_connection_success_rate: extractRate('ws_connection_success_rate', data),
+    ws_handshake_success_rate: extractRate('ws_handshake_success_rate', data),
 
     // Gameplay-focused WebSocket metrics (present when scenarios emit them).
     ws_move_rtt_ms: extractPercentiles('ws_move_rtt_ms', data),
     ws_move_success_rate: extractRate('ws_move_success_rate', data),
     ws_moves_attempted_total: extractCounterSummary('ws_moves_attempted_total', data),
     ws_move_stalled_total: extractCounterSummary('ws_move_stalled_total', data),
+    ws_reconnect_attempts_total: extractCounterSummary('ws_reconnect_attempts_total', data),
+    ws_reconnect_success_rate: extractRate('ws_reconnect_success_rate', data),
+    ws_reconnect_latency_ms: extractPercentiles('ws_reconnect_latency_ms', data),
   };
 
   const ai = {

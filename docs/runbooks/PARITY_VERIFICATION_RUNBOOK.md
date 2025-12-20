@@ -32,13 +32,17 @@ For any sequence of moves applied to an initial state:
 
 ### 1.3 Current Parity Status
 
-✅ **All board types are passing parity** (as of December 2025):
+Parity status changes as gates run. Do **not** rely on static status claims in docs.
+Always check the latest gate summaries and the training registry:
 
-| Board Type   | Status     | Canonical DB                                                              |
-| ------------ | ---------- | ------------------------------------------------------------------------- |
-| Square 8×8   | ✅ Passing | [`canonical_square8.db`](../ai-service/data/games/canonical_square8.db)   |
-| Square 19×19 | ✅ Passing | [`canonical_square19.db`](../ai-service/data/games/canonical_square19.db) |
-| Hexagonal    | ✅ Passing | `canonical_hex.db` (⚠️ deprecated R10 geometry)                           |
+- `ai-service/data/games/*.parity_gate.json` (raw parity gate output)
+- `ai-service/data/games/db_health.*.json` (combined summaries)
+- `ai-service/TRAINING_DATA_REGISTRY.md` (canonical vs legacy inventory)
+
+A DB is eligible for canonical training **only if**:
+
+- `canonical_ok: true` in the latest summary, and
+- `parity_gate.passed_canonical_parity_gate: true`.
 
 ---
 
@@ -48,13 +52,11 @@ For any sequence of moves applied to an initial state:
 
 ```
 ai-service/data/games/
-├── canonical_square8.db                    # Canonical Square8 games
-├── canonical_square8.db.parity_gate.json   # Parity gate results
-├── canonical_square8.db.health.json        # DB health summary
-├── canonical_square19.db                   # Canonical Square19 games
-├── canonical_square19.db.parity_gate.json  # Parity gate results
-├── db_health.canonical_square8.json        # Alternative health file
-└── ...
+├── canonical_<board>.db                    # Canonical games (see registry)
+├── canonical_<board>.db.parity_gate.json   # Parity gate results
+├── canonical_<board>.db.health.json        # Optional DB health summary
+├── db_health.canonical_<board>.json        # Combined parity+history summary
+└── legacy_*.db                             # Legacy/non-canonical data
 ```
 
 ### 2.2 Parity Gate JSON Format
@@ -191,7 +193,24 @@ A DB is eligible for `canonical` status **only if**:
 - `parity_gate.passed_canonical_parity_gate` is `true`
 - `canonical_history.non_canonical_games == 0`
 
-### 3.5 Tracing a Single Game
+### 3.5 Unified Parity + Canonical History Gate (Recommended)
+
+Run the parity gate **and** canonical history check together:
+
+```bash
+cd ai-service
+PYTHONPATH=. python scripts/run_parity_and_history_gate.py \\
+  --db data/games/canonical_square8.db \\
+  --summary-json data/games/db_health.canonical_square8.json
+```
+
+**Notes:**
+
+- `--parity-mode canonical` is the default (enforces the canonical parity gate).
+- Add `--emit-state-bundles-dir <dir>` to capture divergence bundles.
+- Use `--parity-mode legacy` only for diagnostic runs on legacy data.
+
+### 3.6 Tracing a Single Game
 
 For detailed per-move debugging of a specific game:
 

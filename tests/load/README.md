@@ -350,6 +350,7 @@ k6 run \
   - `ws_handshake_success_rate`
   - `ws_reconnect_attempts_total`
   - `ws_reconnect_success_rate`
+  - `ws_reconnect_latency_ms`
 
 This scenario is implemented in [`websocket-gameplay.js`](scenarios/websocket-gameplay.js:1) and follows the strategy described in [`LOAD_TEST_WEBSOCKET_MOVE_STRATEGY.md`](../../docs/LOAD_TEST_WEBSOCKET_MOVE_STRATEGY.md:1) and the transport decision ADR [`PLAYER_MOVE_TRANSPORT_DECISION.md`](../../docs/PLAYER_MOVE_TRANSPORT_DECISION.md:1).
 

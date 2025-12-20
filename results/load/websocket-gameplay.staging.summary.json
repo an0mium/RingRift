@@ -1,18 +1,18 @@
 {
   "scenario": "websocket-gameplay",
   "environment": "staging",
-  "runTimestamp": "2025-12-09T22:09:42.240Z",
+  "runTimestamp": "2025-12-20T04:41:09.344Z",
   "overallPass": false,
   "thresholds": [
     {
-      "metric": "ws_moves_attempted_total",
-      "threshold": "count>0",
-      "statistic": "count",
+      "metric": "ws_move_success_rate",
+      "threshold": "rate>0.95",
+      "statistic": "rate",
       "comparison": ">",
-      "limit": 0,
-      "value": null,
-      "passed": false,
-      "hasSamples": false
+      "limit": 0.95,
+      "value": 0,
+      "passed": true,
+      "hasSamples": null
     },
     {
       "metric": "ws_connection_success_rate",
@@ -35,24 +35,14 @@
       "hasSamples": null
     },
     {
-      "metric": "ws_move_rtt_ms",
-      "threshold": "p(95)<300",
-      "statistic": "p(95)",
+      "metric": "true_errors_total",
+      "threshold": "rate<0.005",
+      "statistic": "rate",
       "comparison": "<",
-      "limit": 300,
-      "value": 0,
-      "passed": true,
-      "hasSamples": null
-    },
-    {
-      "metric": "ws_move_rtt_ms",
-      "threshold": "p(99)<600",
-      "statistic": "p(99)",
-      "comparison": "<",
-      "limit": 600,
+      "limit": 0.005,
       "value": null,
-      "passed": true,
-      "hasSamples": null
+      "passed": false,
+      "hasSamples": false
     },
     {
       "metric": "ws_move_stalled_total",
@@ -65,11 +55,31 @@
       "hasSamples": false
     },
     {
-      "metric": "ws_move_success_rate",
-      "threshold": "rate>0.95",
-      "statistic": "rate",
+      "metric": "ws_moves_attempted_total",
+      "threshold": "count>0",
+      "statistic": "count",
       "comparison": ">",
-      "limit": 0.95,
+      "limit": 0,
+      "value": null,
+      "passed": false,
+      "hasSamples": false
+    },
+    {
+      "metric": "ws_move_rtt_ms",
+      "threshold": "p(99)<600",
+      "statistic": "p(99)",
+      "comparison": "<",
+      "limit": 600,
+      "value": null,
+      "passed": true,
+      "hasSamples": null
+    },
+    {
+      "metric": "ws_move_rtt_ms",
+      "threshold": "p(95)<300",
+      "statistic": "p(95)",
+      "comparison": "<",
+      "limit": 300,
       "value": 0,
       "passed": true,
       "hasSamples": null
@@ -80,14 +90,14 @@
     "environment": "staging",
     "thresholds": [
       {
-        "metric": "ws_moves_attempted_total",
-        "threshold": "count>0",
-        "statistic": "count",
+        "metric": "ws_move_success_rate",
+        "threshold": "rate>0.95",
+        "statistic": "rate",
         "comparison": ">",
-        "limit": 0,
-        "value": null,
-        "passed": false,
-        "hasSamples": false
+        "limit": 0.95,
+        "value": 0,
+        "passed": true,
+        "hasSamples": null
       },
       {
         "metric": "ws_connection_success_rate",
@@ -110,24 +120,14 @@
         "hasSamples": null
       },
       {
-        "metric": "ws_move_rtt_ms",
-        "threshold": "p(95)<300",
-        "statistic": "p(95)",
+        "metric": "true_errors_total",
+        "threshold": "rate<0.005",
+        "statistic": "rate",
         "comparison": "<",
-        "limit": 300,
-        "value": 0,
-        "passed": true,
-        "hasSamples": null
-      },
-      {
-        "metric": "ws_move_rtt_ms",
-        "threshold": "p(99)<600",
-        "statistic": "p(99)",
-        "comparison": "<",
-        "limit": 600,
+        "limit": 0.005,
         "value": null,
-        "passed": true,
-        "hasSamples": null
+        "passed": false,
+        "hasSamples": false
       },
       {
         "metric": "ws_move_stalled_total",
@@ -140,11 +140,31 @@
         "hasSamples": false
       },
       {
-        "metric": "ws_move_success_rate",
-        "threshold": "rate>0.95",
-        "statistic": "rate",
+        "metric": "ws_moves_attempted_total",
+        "threshold": "count>0",
+        "statistic": "count",
         "comparison": ">",
-        "limit": 0.95,
+        "limit": 0,
+        "value": null,
+        "passed": false,
+        "hasSamples": false
+      },
+      {
+        "metric": "ws_move_rtt_ms",
+        "threshold": "p(99)<600",
+        "statistic": "p(99)",
+        "comparison": "<",
+        "limit": 600,
+        "value": null,
+        "passed": true,
+        "hasSamples": null
+      },
+      {
+        "metric": "ws_move_rtt_ms",
+        "threshold": "p(95)<300",
+        "statistic": "p(95)",
+        "comparison": "<",
+        "limit": 300,
         "value": 0,
         "passed": true,
         "hasSamples": null
@@ -152,15 +172,35 @@
     ],
     "overallPass": false,
     "noSamplesForMetrics": [
-      "ws_moves_attempted_total",
-      "ws_move_stalled_total"
+      "true_errors_total",
+      "ws_move_stalled_total",
+      "ws_moves_attempted_total"
     ],
     "overallReason": "no_samples_for_key_metric"
+  },
+  "errorBreakdown": {
+    "total_http_failures": {
+      "rate": 1
+    },
+    "auth_token_expired": null,
+    "rate_limit_hit": null,
+    "true_errors": {
+      "count": 0,
+      "rate": 0
+    },
+    "computed_breakdown": {
+      "auth_expired_count": 0,
+      "rate_limit_count": 0,
+      "true_error_count": 0,
+      "excluded_count": 0,
+      "total_classified": 0,
+      "summary": "Auth expired: 0, Rate limited: 0, True errors: 0 (0 excluded from SLO)"
+    }
   },
   "thresholdsEnv": "staging",
   "http": {
     "http_req_duration": {
-      "p95": 33.203149999999994,
+      "p95": 0.40684999999999993,
       "p99": null,
       "hasSamples": null
     },
@@ -173,6 +213,8 @@
     "websocket_connection_duration_ms": null,
     "websocket_connection_success_rate": null,
     "websocket_handshake_success_rate": null,
+    "ws_connection_success_rate": 0,
+    "ws_handshake_success_rate": 0,
     "ws_move_rtt_ms": {
       "p95": 0,
       "p99": null,
@@ -186,7 +228,10 @@
     "ws_move_stalled_total": {
       "count": 0,
       "rate": 0
-    }
+    },
+    "ws_reconnect_attempts_total": null,
+    "ws_reconnect_success_rate": null,
+    "ws_reconnect_latency_ms": null
   },
   "ai": {
     "ai_move_latency_ms": null
@@ -200,7 +245,12 @@
     "stalled_moves_total": null,
     "websocket_connection_errors": null,
     "websocket_protocol_errors": null,
-    "auth_token_expired_total": null
+    "auth_token_expired_total": null,
+    "rate_limit_hit_total": null,
+    "true_errors_total": {
+      "count": 0,
+      "rate": 0
+    }
   },
   "raw": {
     "scenario": "websocket-gameplay",
@@ -208,7 +258,7 @@
     "thresholdsEnv": "staging",
     "http": {
       "http_req_duration": {
-        "p95": 33.203149999999994,
+        "p95": 0.40684999999999993,
         "p99": null,
         "hasSamples": null
       },
@@ -221,6 +271,8 @@
       "websocket_connection_duration_ms": null,
       "websocket_connection_success_rate": null,
       "websocket_handshake_success_rate": null,
+      "ws_connection_success_rate": 0,
+      "ws_handshake_success_rate": 0,
       "ws_move_rtt_ms": {
         "p95": 0,
         "p99": null,
@@ -234,7 +286,10 @@
       "ws_move_stalled_total": {
         "count": 0,
         "rate": 0
-      }
+      },
+      "ws_reconnect_attempts_total": null,
+      "ws_reconnect_success_rate": null,
+      "ws_reconnect_latency_ms": null
     },
     "ai": {
       "ai_move_latency_ms": null
@@ -248,7 +303,12 @@
       "stalled_moves_total": null,
       "websocket_connection_errors": null,
       "websocket_protocol_errors": null,
-      "auth_token_expired_total": null
+      "auth_token_expired_total": null,
+      "rate_limit_hit_total": null,
+      "true_errors_total": {
+        "count": 0,
+        "rate": 0
+      }
     }
   }
 }

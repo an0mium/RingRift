@@ -116,6 +116,42 @@ describe('AIServiceClient.getAIMove metrics integration', () => {
     (AIServiceClient as any).maxConcurrent = 16;
   });
 
+  it('derives request seed from gameState when seed is not provided', async () => {
+    const client = new AIServiceClient('http://ai.test');
+    mockAxiosPost.mockResolvedValue({
+      data: {
+        move: null,
+        evaluation: 0,
+        thinking_time_ms: 10,
+        ai_type: 'random',
+        difficulty: 1,
+      },
+    });
+
+    await client.getAIMove(baseGameState, 1, 1);
+
+    const [, payload] = mockAxiosPost.mock.calls[0];
+    expect(payload.seed).toBe(baseGameState.rngSeed);
+  });
+
+  it('prefers explicit seed over gameState.rngSeed', async () => {
+    const client = new AIServiceClient('http://ai.test');
+    mockAxiosPost.mockResolvedValue({
+      data: {
+        move: null,
+        evaluation: 0,
+        thinking_time_ms: 10,
+        ai_type: 'random',
+        difficulty: 1,
+      },
+    });
+
+    await client.getAIMove(baseGameState, 1, 1, undefined, 999);
+
+    const [, payload] = mockAxiosPost.mock.calls[0];
+    expect(payload.seed).toBe(999);
+  });
+
   it('records success metrics when AI move request succeeds', async () => {
     const client = new AIServiceClient('http://ai.test');
 

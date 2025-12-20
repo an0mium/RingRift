@@ -88,6 +88,11 @@ Status tags:
 
 ## Canonical Data Pipeline
 
+Status entries in this section reflect the state at the time of the update.
+Do not treat `canonical_ok` claims here as current status. Always verify against
+the latest gate summaries under `ai-service/data/games/` and the registry in
+`ai-service/TRAINING_DATA_REGISTRY.md`.
+
 - **done** Regenerated and re-gated `canonical_square8.db` (2P) via distributed
   `generate_canonical_selfplay.py`; parity + canonical history pass and the
   registry is updated (`canonical_ok=true`).

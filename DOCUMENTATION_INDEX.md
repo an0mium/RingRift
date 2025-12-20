@@ -36,6 +36,7 @@ This index catalogs all project documentation organized by topic and location. F
 
 - [PROJECT_GOALS.md](PROJECT_GOALS.md) - Canonical project goals, v1.0 success criteria, and scope boundaries
 - [STRATEGIC_ROADMAP.md](docs/planning/STRATEGIC_ROADMAP.md) - Phased roadmap & SLOs
+- [NEXT_AREAS_EXECUTION_PLAN.md](docs/planning/NEXT_AREAS_EXECUTION_PLAN.md) - Sequenced execution lanes for next work
 
 ### Rules & Game Design
 
