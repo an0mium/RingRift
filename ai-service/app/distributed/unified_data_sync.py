@@ -204,7 +204,6 @@ try:
     from app.distributed.unified_manifest import (
         DataManifest as UnifiedDataManifest,
         HostSyncState as UnifiedHostSyncState,
-        create_manifest,
     )
     HAS_UNIFIED_MANIFEST = True
 except ImportError:
@@ -228,7 +227,6 @@ except ImportError:
 # Aria2 transport for high-performance multi-connection downloads
 try:
     from app.distributed.aria2_transport import (
-        Aria2Config,
         Aria2Transport,
         check_aria2_available,
         create_aria2_transport,
