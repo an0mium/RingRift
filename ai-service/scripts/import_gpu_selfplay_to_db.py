@@ -77,13 +77,43 @@ def parse_move(
         timestamp: Move timestamp
         board_type: Board type for coordinate conversion (HEXAGONAL converts GPU→axial)
     """
-    move_type_str = str(move_dict.get("type") or "").strip()
+    # Handle both canonical format ("type": "place_ring") and GPU format ("move_type": "PLACEMENT")
+    move_type_str = str(move_dict.get("type") or move_dict.get("move_type") or "").strip()
     if not move_type_str:
         raise ValueError("GPU move is missing required 'type' field")
 
     # Skip unknown_* move types (internal GPU bookkeeping, e.g. NO_ACTION=6)
     if move_type_str.startswith("unknown_"):
         return None
+
+    # GPU batch state exports uppercase enum names (e.g., "PLACEMENT", "MOVEMENT")
+    # Map these to canonical lowercase values for MoveType parsing
+    gpu_to_canonical = {
+        "PLACEMENT": "place_ring",
+        "SKIP_PLACEMENT": "skip_placement",
+        "NO_PLACEMENT_ACTION": "no_placement_action",
+        "MOVEMENT": "move_stack",
+        "MOVE_RING": "move_ring",
+        "NO_MOVEMENT_ACTION": "no_movement_action",
+        "CAPTURE": "overtaking_capture",  # GPU uses generic CAPTURE for all captures
+        "OVERTAKING_CAPTURE": "overtaking_capture",
+        "CONTINUE_CAPTURE_SEGMENT": "continue_capture_segment",
+        "SKIP_CAPTURE": "skip_capture",
+        "NO_ACTION": "no_territory_action",  # GPU uses generic NO_ACTION for bookkeeping
+        "CHOOSE_LINE_OPTION": "choose_line_option",
+        "PROCESS_LINE": "process_line",
+        "NO_LINE_ACTION": "no_line_action",
+        "CHOOSE_TERRITORY_OPTION": "choose_territory_option",
+        "PROCESS_TERRITORY_REGION": "process_territory_region",
+        "NO_TERRITORY_ACTION": "no_territory_action",
+        "SKIP_TERRITORY_PROCESSING": "skip_territory_processing",
+        "ELIMINATE_RINGS_FROM_STACK": "eliminate_rings_from_stack",
+        "FORCED_ELIMINATION": "forced_elimination",
+        "RECOVERY_SLIDE": "recovery_slide",
+        "SKIP_RECOVERY": "skip_recovery",
+    }
+    if move_type_str in gpu_to_canonical:
+        move_type_str = gpu_to_canonical[move_type_str]
 
     # GPU JSONLs may contain both canonical move types and legacy/internal
     # bookkeeping types (e.g. line_formation / territory_claim). We parse them
@@ -93,9 +123,26 @@ def parse_move(
     except Exception as exc:
         raise ValueError(f"Unknown MoveType for GPU import: {move_type_str!r}") from exc
 
-    # Parse positions with coordinate conversion for hex boards
-    from_pos = parse_position(move_dict["from"], board_type) if "from" in move_dict else None
-    to_pos = parse_position(move_dict["to"], board_type) if "to" in move_dict else None
+    # Handle both canonical format ("from": {"x": 1, "y": 2}) and GPU format ("from_pos": [y, x])
+    from_data = move_dict.get("from") or move_dict.get("from_pos")
+    to_data = move_dict.get("to") or move_dict.get("to_pos")
+
+    def parse_pos_flexible(pos_data, board_type):
+        """Parse position from either dict or array format."""
+        if pos_data is None:
+            return None
+        if isinstance(pos_data, dict):
+            return parse_position(pos_data, board_type)
+        if isinstance(pos_data, (list, tuple)) and len(pos_data) >= 2:
+            # GPU format: [y, x] - note the order!
+            y, x = pos_data[0], pos_data[1]
+            if y < 0 or x < 0:  # Invalid position marker
+                return None
+            return parse_position({"x": x, "y": y}, board_type)
+        return None
+
+    from_pos = parse_pos_flexible(from_data, board_type)
+    to_pos = parse_pos_flexible(to_data, board_type)
     capture_target_dict = move_dict.get("capture_target") or move_dict.get("captureTarget")
     capture_target = (
         parse_position(capture_target_dict, board_type)
