@@ -545,13 +545,9 @@ class HeuristicAI(BaseAI):
 
                 for move, score in move_scores:
                     # Add stochastic exploration for SWAP_SIDES
-                    if move.type == MoveType.SWAP_SIDES:
-                        if self.WEIGHT_SWAP_EXPLORATION_TEMPERATURE > 0:
-                            noise = self.rng.gauss(
-                                0,
-                                self.WEIGHT_SWAP_EXPLORATION_TEMPERATURE
-                            )
-                            score += noise
+                    if move.type == MoveType.SWAP_SIDES and self.WEIGHT_SWAP_EXPLORATION_TEMPERATURE > 0:
+                        noise = self.rng.gauss(0, self.WEIGHT_SWAP_EXPLORATION_TEMPERATURE)
+                        score += noise
 
                     if score > best_score:
                         best_score = score
@@ -565,13 +561,9 @@ class HeuristicAI(BaseAI):
 
                 for move, score in move_scores:
                     # Add stochastic exploration for SWAP_SIDES
-                    if move.type == MoveType.SWAP_SIDES:
-                        if self.WEIGHT_SWAP_EXPLORATION_TEMPERATURE > 0:
-                            noise = self.rng.gauss(
-                                0,
-                                self.WEIGHT_SWAP_EXPLORATION_TEMPERATURE
-                            )
-                            score += noise
+                    if move.type == MoveType.SWAP_SIDES and self.WEIGHT_SWAP_EXPLORATION_TEMPERATURE > 0:
+                        noise = self.rng.gauss(0, self.WEIGHT_SWAP_EXPLORATION_TEMPERATURE)
+                        score += noise
 
                     if score > best_score:
                         best_score = score
@@ -587,13 +579,9 @@ class HeuristicAI(BaseAI):
 
                 for move, score in move_scores:
                     # Add stochastic exploration for SWAP_SIDES
-                    if move.type == MoveType.SWAP_SIDES:
-                        if self.WEIGHT_SWAP_EXPLORATION_TEMPERATURE > 0:
-                            noise = self.rng.gauss(
-                                0,
-                                self.WEIGHT_SWAP_EXPLORATION_TEMPERATURE
-                            )
-                            score += noise
+                    if move.type == MoveType.SWAP_SIDES and self.WEIGHT_SWAP_EXPLORATION_TEMPERATURE > 0:
+                        noise = self.rng.gauss(0, self.WEIGHT_SWAP_EXPLORATION_TEMPERATURE)
+                        score += noise
 
                     if score > best_score:
                         best_score = score
@@ -1268,11 +1256,10 @@ class HeuristicAI(BaseAI):
                     continue
                 if adj_key in stacks:
                     target = stacks[adj_key]
-                    if target.controlling_player != self.player_number:
-                        # Capture power is based on cap height per compact
-                        # rules §10.1, so we compare cap heights here.
-                        if stack.cap_height >= target.cap_height:
-                            my_mobility += 1
+                    # Capture power is based on cap height per compact rules §10.1
+                    if (target.controlling_player != self.player_number
+                            and stack.cap_height >= target.cap_height):
+                        my_mobility += 1
                 else:
                     my_mobility += 1
 
@@ -1291,11 +1278,10 @@ class HeuristicAI(BaseAI):
                     continue
                 if adj_key in stacks:
                     target = stacks[adj_key]
-                    if target.controlling_player == self.player_number:
-                        # Capture power is based on cap height per compact
-                        # rules §10.1, so we compare cap heights here.
-                        if stack.cap_height >= target.cap_height:
-                            opp_mobility += 1
+                    # Capture power is based on cap height per compact rules §10.1
+                    if (target.controlling_player == self.player_number
+                            and stack.cap_height >= target.cap_height):
+                        opp_mobility += 1
                 else:
                     opp_mobility += 1
         score = (my_mobility - opp_mobility) * self.WEIGHT_MOBILITY
@@ -1685,12 +1671,11 @@ class HeuristicAI(BaseAI):
             )
 
             for adj_stack in visible_stacks:
-                if adj_stack.controlling_player != self.player_number:
-                    # Capture power is based on cap height per compact rules
-                    # §10.1, so we compare using cap height here.
-                    if adj_stack.cap_height > stack.cap_height:
-                        diff = adj_stack.cap_height - stack.cap_height
-                        score -= diff * 1.0
+                # Capture power is based on cap height per compact rules §10.1
+                if (adj_stack.controlling_player != self.player_number
+                        and adj_stack.cap_height > stack.cap_height):
+                    diff = adj_stack.cap_height - stack.cap_height
+                    score -= diff * 1.0
 
         return score * self.WEIGHT_VULNERABILITY
 
@@ -1713,12 +1698,11 @@ class HeuristicAI(BaseAI):
             )
 
             for adj_stack in visible_stacks:
-                if adj_stack.controlling_player != self.player_number:
-                    # Capture power is based on cap height per compact rules
-                    # §10.1, so we compare using cap height here.
-                    if stack.cap_height > adj_stack.cap_height:
-                        diff = stack.cap_height - adj_stack.cap_height
-                        score += diff * 1.0
+                # Capture power is based on cap height per compact rules §10.1
+                if (adj_stack.controlling_player != self.player_number
+                        and stack.cap_height > adj_stack.cap_height):
+                    diff = stack.cap_height - adj_stack.cap_height
+                    score += diff * 1.0
 
         return score * self.WEIGHT_OVERTAKE_POTENTIAL
 
@@ -1838,11 +1822,10 @@ class HeuristicAI(BaseAI):
 
                 if has_m1:
                     score += self.WEIGHT_CONNECTED_NEIGHBOR  # Connected neighbor
-                if has_m2 and not has_m1:
-                    # Gap of 1, potential to connect
-                    # Check if gap is empty or has opponent marker (flippable)
-                    if key1 not in collapsed and key1 not in stacks:
-                        score += self.WEIGHT_GAP_POTENTIAL
+                # Gap of 1, potential to connect if gap is empty or flippable
+                if (has_m2 and not has_m1
+                        and key1 not in collapsed and key1 not in stacks):
+                    score += self.WEIGHT_GAP_POTENTIAL
 
         return score * self.WEIGHT_LINE_CONNECTIVITY
 
@@ -1914,9 +1897,9 @@ class HeuristicAI(BaseAI):
                         continue
                     if adj_key in stacks:
                         target = stacks[adj_key]
-                        if target.controlling_player != player_num:
-                            if stack.cap_height >= target.cap_height:
-                                valid_moves += 1
+                        if (target.controlling_player != player_num
+                                and stack.cap_height >= target.cap_height):
+                            valid_moves += 1
                         continue
                     valid_moves += 1
                 mobility += valid_moves

@@ -10,7 +10,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import os
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -279,6 +282,7 @@ def generate_selfplay_games(
     dataset: SelfPlayDataset,
     opponent_type: str = "self",
     board_type: BoardType = BoardType.SQUARE8,
+    jsonl_path: str | Path | None = None,
 ) -> dict[str, float]:
     """Generate self-play games and add to dataset.
 
@@ -288,6 +292,7 @@ def generate_selfplay_games(
         dataset: Dataset to add samples to
         opponent_type: "self", "random", or "heuristic"
         board_type: Board type for games
+        jsonl_path: Optional path to write game records as JSONL
 
     Returns:
         Statistics dict
@@ -296,6 +301,14 @@ def generate_selfplay_games(
     draws = 0
     total_moves = 0
     samples_added = 0
+
+    # Open JSONL file for logging if path provided
+    jsonl_file = None
+    if jsonl_path:
+        jsonl_path = Path(jsonl_path)
+        jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+        jsonl_file = open(jsonl_path, "a", encoding="utf-8")
+        logger.info(f"Logging games to {jsonl_path}")
 
     for game_idx in tqdm(range(num_games), desc=f"Self-play vs {opponent_type}"):
         # Alternate who plays first
@@ -344,6 +357,34 @@ def generate_selfplay_games(
         # Add to dataset (all moves, not just GMO's)
         if states and moves:
             samples_added += dataset.add_full_game(states, moves, winner)
+
+        # Log game to JSONL
+        if jsonl_file and moves:
+            game_record = {
+                "id": f"gmo_selfplay_{uuid.uuid4().hex[:8]}",
+                "board_type": board_type.value,
+                "opponent": opponent_type,
+                "gmo_player": gmo_player,
+                "winner": winner,
+                "num_moves": len(moves),
+                "timestamp": datetime.now().isoformat(),
+                "moves": [
+                    {
+                        "type": m.type.value,
+                        "player": m.player,
+                        "from": {"x": m.from_.x, "y": m.from_.y} if m.from_ else None,
+                        "to": {"x": m.to.x, "y": m.to.y} if m.to else None,
+                    }
+                    for m in moves
+                ],
+            }
+            jsonl_file.write(json.dumps(game_record) + "\n")
+            jsonl_file.flush()
+
+    # Close JSONL file
+    if jsonl_file:
+        jsonl_file.close()
+        logger.info(f"Saved {num_games} games to JSONL")
 
     return {
         "games": num_games,
@@ -472,6 +513,7 @@ def run_selfplay_training(
     epochs_per_round: int = 5,
     opponent_mix: str = "mixed",
     device_str: str = "cpu",
+    jsonl_output: Path | None = None,
 ) -> None:
     """Run self-play training loop.
 
@@ -483,6 +525,7 @@ def run_selfplay_training(
         epochs_per_round: Training epochs per round
         opponent_mix: "self", "random", "heuristic", or "mixed"
         device_str: Device to use
+        jsonl_output: Optional path to write game records as JSONL
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     device = torch.device(device_str)
@@ -529,11 +572,17 @@ def run_selfplay_training(
         # Generate games
         round_stats = {"total_samples": 0}
         for opponent in opponents:
+            # Generate JSONL path for this round/opponent if output requested
+            round_jsonl = None
+            if jsonl_output:
+                round_jsonl = jsonl_output.parent / f"{jsonl_output.stem}_r{round_idx}_{opponent}.jsonl"
+
             stats = generate_selfplay_games(
                 gmo_ai,
                 games_each,
                 dataset,
                 opponent_type=opponent,
+                jsonl_path=round_jsonl,
             )
             logger.info(
                 f"  vs {opponent}: win_rate={stats['win_rate']:.1%}, "
@@ -617,6 +666,12 @@ def main():
         choices=["cpu", "cuda", "mps"],
     )
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--jsonl-output",
+        type=Path,
+        default=None,
+        help="Path to write game records as JSONL (optional)",
+    )
 
     args = parser.parse_args()
 
@@ -635,6 +690,7 @@ def main():
         epochs_per_round=args.epochs_per_round,
         opponent_mix=args.opponent_mix,
         device_str=args.device,
+        jsonl_output=args.jsonl_output,
     )
 
 

@@ -23,6 +23,7 @@ const BOARD_CASES: Array<{ boardType: BoardType; totalSpaces: number; expectedTh
   [
     { boardType: 'square8', totalSpaces: 64, expectedThreshold: 33 },
     { boardType: 'square19', totalSpaces: 361, expectedThreshold: 181 },
+    { boardType: 'hexagonal', totalSpaces: 469, expectedThreshold: 235 },
   ];
 
 describe('Near-victory territory scenarios', () => {
@@ -164,9 +165,9 @@ describe('Near-victory territory scenarios', () => {
     });
   });
 
-  describe('Multi-region near-victory fixture', () => {
+  describe.each(BOARD_CASES)('Multi-region near-victory fixture ($boardType)', ({ boardType }) => {
     it('should create a fixture with larger pending region', () => {
-      const fixture = createNearVictoryTerritoryFixtureMultiRegion();
+      const fixture = createNearVictoryTerritoryFixtureMultiRegion({ boardType });
 
       // Should have pending region with multiple spaces
       const territories = fixture.gameState.board.territories;
@@ -178,7 +179,7 @@ describe('Near-victory territory scenarios', () => {
     });
 
     it('should still trigger victory when multi-cell region is processed', () => {
-      const fixture = createNearVictoryTerritoryFixtureMultiRegion();
+      const fixture = createNearVictoryTerritoryFixtureMultiRegion({ boardType });
       const state = fixture.gameState;
 
       // Get the pending region
