@@ -142,13 +142,23 @@ else
     exit 1
 fi
 
-# Login pre-flight
-if [[ -z "${LOADTEST_EMAIL:-}" || -z "${LOADTEST_PASSWORD:-}" ]]; then
-    log_error "LOADTEST_EMAIL and LOADTEST_PASSWORD must be set."
+# Login pre-flight (fall back to pool credentials when configured)
+LOGIN_EMAIL="${LOADTEST_EMAIL:-}"
+LOGIN_PASSWORD="${LOADTEST_PASSWORD:-}"
+POOL_SIZE="${LOADTEST_USER_POOL_SIZE:-0}"
+if [[ -z "$LOGIN_EMAIL" || -z "$LOGIN_PASSWORD" ]]; then
+    if [[ "$POOL_SIZE" =~ ^[0-9]+$ ]] && [[ "$POOL_SIZE" -gt 0 ]]; then
+        LOGIN_EMAIL="${LOADTEST_USER_POOL_PREFIX:-loadtest_user_}1@${LOADTEST_USER_POOL_DOMAIN:-loadtest.local}"
+        LOGIN_PASSWORD="${LOADTEST_USER_POOL_PASSWORD:-LoadTestK6Pass123}"
+    fi
+fi
+
+if [[ -z "$LOGIN_EMAIL" || -z "$LOGIN_PASSWORD" ]]; then
+    log_error "Login pre-flight requires LOADTEST_EMAIL/LOADTEST_PASSWORD or a configured user pool."
     exit 1
 fi
 
-LOGIN_PAYLOAD=$(jq -n --arg email "$LOADTEST_EMAIL" --arg pass "$LOADTEST_PASSWORD" '{email: $email, password: $pass}')
+LOGIN_PAYLOAD=$(jq -n --arg email "$LOGIN_EMAIL" --arg pass "$LOGIN_PASSWORD" '{email: $email, password: $pass}')
 LOGIN_STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
   -X POST "${BASE_URL}/api/auth/login" \
   -H 'Content-Type: application/json' \
@@ -158,7 +168,7 @@ if [[ "$LOGIN_STATUS" != "200" ]]; then
     log_error "Login pre-flight failed (status=${LOGIN_STATUS})"
     exit 1
 else
-    log_success "Login pre-flight succeeded for ${LOADTEST_EMAIL}"
+    log_success "Login pre-flight succeeded for ${LOGIN_EMAIL}"
 fi
 
 # Phases info

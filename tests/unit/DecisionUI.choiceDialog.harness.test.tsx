@@ -199,7 +199,7 @@ describe('DecisionUI harness → ChoiceDialog integration', () => {
 
     render(<DecisionUIHarness />);
 
-    expect(await screen.findByText(/line scored.*choose your reward/i)).toBeInTheDocument();
+    expect(await screen.findByText(/overlength line.*choose your reward/i)).toBeInTheDocument();
     expect(await screen.findAllByText(/Choose line reward/i)).toHaveLength(1);
     fireEvent.click(screen.getByText(/Full Collapse/i));
 

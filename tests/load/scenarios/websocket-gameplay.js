@@ -15,7 +15,7 @@ import http from 'k6/http';
 import ws from 'k6/ws';
 import { check, sleep } from 'k6';
 import { Trend, Rate, Counter, Gauge } from 'k6/metrics';
-import { getValidToken, loginAndGetToken } from '../auth/helpers.js';
+import { getValidToken, loginAndGetToken, getBypassHeaders } from '../auth/helpers.js';
 import { makeHandleSummary } from '../summary.js';
 
 const thresholdsConfig = JSON.parse(open('../config/thresholds.json'));
@@ -428,10 +428,10 @@ export default function (data) {
       `${baseUrl}${API_PREFIX}/games`,
       JSON.stringify(createPayload),
       {
-        headers: {
+        headers: getBypassHeaders({
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
-        },
+        }),
         tags: { name: 'create-game-websocket' },
       }
     );
@@ -466,10 +466,10 @@ export default function (data) {
           `${baseUrl}${API_PREFIX}/games`,
           JSON.stringify(createPayload),
           {
-            headers: {
+            headers: getBypassHeaders({
               'Content-Type': 'application/json',
               Authorization: `Bearer ${token}`,
-            },
+            }),
             tags: { name: 'create-game-websocket' },
           }
         );

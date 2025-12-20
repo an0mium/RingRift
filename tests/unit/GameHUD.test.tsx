@@ -520,7 +520,7 @@ describe('GameHUD', () => {
       const banner = screen.getByTestId('decision-phase-banner');
       expect(banner).toBeInTheDocument();
       // Beginner-friendly title from choiceViewModels
-      expect(banner).toHaveTextContent('Line Scored! Choose Your Reward');
+      expect(banner).toHaveTextContent('Overlength Line! Choose Your Reward');
 
       // Countdown label should be visible with low-time warning styling.
       const timerLabel = screen.getByText('0:04');

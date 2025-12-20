@@ -1,5 +1,6 @@
 import http from 'k6/http';
 import { check } from 'k6';
+import encoding from 'k6/encoding';
 
 const DEFAULT_TOKEN_TTL_SECONDS = Number(__ENV.LOADTEST_AUTH_TOKEN_TTL_S || 15 * 60);
 const TOKEN_REFRESH_SAFETY_WINDOW_SECONDS = Number(
@@ -10,6 +11,62 @@ const TOKEN_REFRESH_SAFETY_WINDOW_SECONDS = Number(
 const TOKEN_REFRESH_JITTER_MAX_SECONDS = Number(
   __ENV.LOADTEST_AUTH_REFRESH_JITTER_S || 30
 );
+
+function decodeBase64Url(input) {
+  if (!input) return null;
+  try {
+    return encoding.b64decode(input, 'rawurl', 's');
+  } catch (error) {
+    try {
+      const normalized = input.replace(/-/g, '+').replace(/_/g, '/');
+      const padding = normalized.length % 4;
+      const padded = padding ? `${normalized}${'='.repeat(4 - padding)}` : normalized;
+      return encoding.b64decode(padded, 'rawstd', 's');
+    } catch (fallbackError) {
+      return null;
+    }
+  }
+}
+
+function deriveJwtTtlSeconds(token) {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length < 2) return null;
+  const payload = decodeBase64Url(parts[1]);
+  if (!payload) return null;
+  try {
+    const data = JSON.parse(payload);
+    if (!data || typeof data.exp !== 'number') return null;
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const ttlSeconds = data.exp - nowSeconds;
+    return ttlSeconds > 0 ? ttlSeconds : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
+ * Rate limit bypass token.
+ * When set, this token is sent in the X-RateLimit-Bypass-Token header on all
+ * HTTP requests to bypass rate limiting during load tests.
+ *
+ * Environment variable:
+ *   RATE_LIMIT_BYPASS_TOKEN - Must match the server's RATE_LIMIT_BYPASS_TOKEN
+ */
+const RATE_LIMIT_BYPASS_TOKEN = __ENV.RATE_LIMIT_BYPASS_TOKEN || '';
+
+/**
+ * Get headers that include the rate limit bypass token if configured.
+ * @param {Object} [additionalHeaders] - Additional headers to merge
+ * @returns {Object} Headers object with bypass token if configured
+ */
+export function getBypassHeaders(additionalHeaders = {}) {
+  const headers = { ...additionalHeaders };
+  if (RATE_LIMIT_BYPASS_TOKEN) {
+    headers['X-RateLimit-Bypass-Token'] = RATE_LIMIT_BYPASS_TOKEN;
+  }
+  return headers;
+}
 
 /**
  * Multi-user pool configuration.
@@ -108,7 +165,7 @@ export function loginAndGetToken(baseUrl, options) {
     `${baseUrl}${apiPrefix}/auth/login`,
     JSON.stringify({ email, password }),
     {
-      headers: { 'Content-Type': 'application/json' },
+      headers: getBypassHeaders({ 'Content-Type': 'application/json' }),
       tags,
     }
   );
@@ -120,7 +177,7 @@ export function loginAndGetToken(baseUrl, options) {
       `${baseUrl}${apiPrefix}/auth/login/`,
       JSON.stringify({ email, password }),
       {
-        headers: { 'Content-Type': 'application/json' },
+        headers: getBypassHeaders({ 'Content-Type': 'application/json' }),
         tags,
       }
     );
@@ -174,10 +231,17 @@ export function loginAndGetToken(baseUrl, options) {
   // Update the per-VU auth cache so scenarios that call getValidToken(...)
   // can reuse this login and refresh it when nearing expiry.
   const obtainedAtMs = Date.now();
+  const derivedTtlSeconds =
+    typeof expiresInSeconds === 'number' && expiresInSeconds > 0
+      ? null
+      : deriveJwtTtlSeconds(accessToken);
+
   const ttlSeconds =
     typeof expiresInSeconds === 'number' && expiresInSeconds > 0
       ? expiresInSeconds
-      : DEFAULT_TOKEN_TTL_SECONDS;
+      : typeof derivedTtlSeconds === 'number' && derivedTtlSeconds > 0
+        ? derivedTtlSeconds
+        : DEFAULT_TOKEN_TTL_SECONDS;
 
   cachedAuthState = {
     baseUrl,

@@ -620,7 +620,7 @@ describe('loadEnvOrExit', () => {
 
     expect(() => loadEnvOrExit(invalidEnv)).toThrow('Missing env data after successful parse');
 
-    expect(errorSpy).toHaveBeenCalledWith('❌ Invalid environment configuration:');
+    expect(errorSpy).toHaveBeenCalledWith('❌ ENVIRONMENT CONFIGURATION ERROR');
     expect(exitSpy).toHaveBeenCalledWith(1);
 
     exitSpy.mockRestore();

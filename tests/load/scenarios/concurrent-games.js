@@ -11,7 +11,7 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Counter, Rate, Gauge, Trend } from 'k6/metrics';
-import { loginAndGetToken, getValidToken } from '../auth/helpers.js';
+import { loginAndGetToken, getValidToken, getBypassHeaders } from '../auth/helpers.js';
 import { makeHandleSummary } from '../summary.js';
 
 const thresholdsConfig = JSON.parse(open('../config/thresholds.json'));
@@ -388,10 +388,10 @@ function createGame(baseUrl, token) {
   let activeToken = token;
   const createStart = Date.now();
   let createRes = http.post(`${baseUrl}${API_PREFIX}/games`, JSON.stringify(gameConfig), {
-    headers: {
+    headers: getBypassHeaders({
       'Content-Type': 'application/json',
       Authorization: `Bearer ${activeToken}`,
-    },
+    }),
     tags: { name: 'create-game' },
   });
 
@@ -401,10 +401,10 @@ function createGame(baseUrl, token) {
     if (refreshedToken) {
       activeToken = refreshedToken;
       createRes = http.post(`${baseUrl}${API_PREFIX}/games`, JSON.stringify(gameConfig), {
-        headers: {
+        headers: getBypassHeaders({
           'Content-Type': 'application/json',
           Authorization: `Bearer ${activeToken}`,
-        },
+        }),
         tags: { name: 'create-game' },
       });
     }
@@ -454,7 +454,7 @@ function pollGameState(baseUrl, token) {
   let activeToken = token;
   const stateStart = Date.now();
   let stateRes = http.get(`${baseUrl}${API_PREFIX}/games/${myGameId}`, {
-    headers: { Authorization: `Bearer ${activeToken}` },
+    headers: getBypassHeaders({ Authorization: `Bearer ${activeToken}` }),
     tags: { name: 'get-game' },
   });
 
@@ -464,7 +464,7 @@ function pollGameState(baseUrl, token) {
     if (refreshedToken) {
       activeToken = refreshedToken;
       stateRes = http.get(`${baseUrl}${API_PREFIX}/games/${myGameId}`, {
-        headers: { Authorization: `Bearer ${activeToken}` },
+        headers: getBypassHeaders({ Authorization: `Bearer ${activeToken}` }),
         tags: { name: 'get-game' },
       });
     }

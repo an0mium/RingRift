@@ -1325,15 +1325,15 @@ describe('SandboxGameHost (React host behaviour)', () => {
     const payload = (gameApi.createGame as jest.Mock).mock.calls[0][0];
 
     // With 2 players and exactly one AI seat, the host should request one AI
-    // opponent via the service-backed AI with heuristic profile, and enable the
-    // pie rule for 2-player sandbox games.
+    // opponent via the service-backed AI with heuristic profile. The swap rule
+    // is disabled by default for sandbox games.
     expect(payload.aiOpponents).toEqual({
       count: 1,
       difficulty: [5],
       mode: 'service',
       aiType: 'heuristic',
     });
-    expect(payload.rulesOptions).toEqual({ swapRuleEnabled: true });
+    expect(payload.rulesOptions).toEqual({ swapRuleEnabled: false });
   });
 
   it('invokes resetSandboxEngine and clears sandbox host flags when Change Setup is clicked', () => {

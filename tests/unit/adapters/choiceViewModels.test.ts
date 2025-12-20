@@ -34,7 +34,7 @@ describe('choiceViewModels adapter', () => {
       },
       {
         type: 'line_reward_option',
-        title: /line scored.*choose your reward/i,
+        title: /overlength line.*choose your reward/i,
         shortLabel: /line reward/i,
       },
       {

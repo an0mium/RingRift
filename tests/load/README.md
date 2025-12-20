@@ -152,6 +152,7 @@ Auth refresh controls (optional):
 
 - `LOADTEST_AUTH_TOKEN_TTL_S` – default JWT TTL (seconds) when the API does not return `expiresIn`.
 - `LOADTEST_AUTH_REFRESH_WINDOW_S` – safety window before expiry to refresh a token.
+- If `expiresIn` is missing, the helper attempts to derive TTL from the JWT `exp` claim before falling back to `LOADTEST_AUTH_TOKEN_TTL_S`.
 
 Preflight checks (recommended for long runs):
 
