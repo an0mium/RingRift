@@ -148,6 +148,10 @@ def test_seed(seed: int) -> tuple[int, int, int, int, list]:
                 if v_from == m_from and v_to == m_to:
                     matched = v
                     break
+            elif move_type == MoveType.SKIP_PLACEMENT:
+                # Skip placement matches by type only - no position needed
+                matched = v
+                break
             else:
                 v_from = v.from_pos.to_key() if v.from_pos else None
                 m_from = from_pos.to_key() if from_pos else None
