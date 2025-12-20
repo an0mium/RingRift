@@ -40,6 +40,7 @@ from app.ai.ebmo_network import (
     EBMONetwork,
     contrastive_energy_loss,
     margin_ranking_loss,
+    manifold_boundary_loss,
 )
 
 logging.basicConfig(
