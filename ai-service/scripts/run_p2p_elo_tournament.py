@@ -185,6 +185,7 @@ class P2PEloTournament:
         board_type: str = "square8",
         num_players: int = 2,
         games_per_pairing: int = 2,
+        elo_db_path: Optional[Path] = None,
     ):
         self.leader_host = leader_host
         self.leader_port = leader_port
@@ -193,7 +194,7 @@ class P2PEloTournament:
         self.games_per_pairing = games_per_pairing
         self.nodes: List[P2PNode] = []
         self.state: Optional[TournamentState] = None
-        self.elo_db_path = AI_SERVICE_ROOT / "data" / "elo_leaderboard.db"
+        self.elo_db_path = elo_db_path or (AI_SERVICE_ROOT / "data" / "elo_leaderboard.db")
 
     async def discover_nodes(self) -> List[P2PNode]:
         """Discover all healthy P2P nodes via the leader."""
