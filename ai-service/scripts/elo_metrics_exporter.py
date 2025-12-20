@@ -270,7 +270,7 @@ def update_metrics():
     models_per_config: dict[str, int] = {}
 
     for row in ratings:
-        participant_id, board_type, num_players, rating, games, wins, losses, draws, last_update, ptype, version = row
+        participant_id, board_type, num_players, rating, games, wins, losses, draws, _last_update, _ptype, _version = row
 
         config = f"{board_type}_{num_players}p"
 

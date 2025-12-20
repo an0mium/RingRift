@@ -120,7 +120,7 @@ def check_orchestrator_running(node: NodeConfig) -> bool:
     try:
         count = int(output.split('\n')[-1].strip())
         return count > 0
-    except:
+    except (ValueError, IndexError):
         return False
 
 
@@ -163,7 +163,7 @@ def get_total_game_count(node: NodeConfig) -> int:
             if line.isdigit():
                 return int(line)
         return 0
-    except:
+    except (ValueError, IndexError):
         return 0
 
 
@@ -175,7 +175,7 @@ def get_active_selfplay_jobs(node: NodeConfig) -> int:
         return -1
     try:
         return int(output.split('\n')[-1].strip())
-    except:
+    except (ValueError, IndexError):
         return 0
 
 

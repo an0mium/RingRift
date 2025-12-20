@@ -457,8 +457,8 @@ def merge_matches_into_db(db_path: Path, new_matches: list[dict]):
 
             # Update ratings
             now = time.time()
-            for pid, new_elo, w, l, d in [(p_a, new_a, win_a, loss_a, draw_a),
-                                           (p_b, new_b, win_b, loss_b, draw_b)]:
+            for pid, new_elo, wins, losses, draws in [(p_a, new_a, win_a, loss_a, draw_a),
+                                                       (p_b, new_b, win_b, loss_b, draw_b)]:
                 cursor.execute("""
                     INSERT INTO elo_ratings
                     (participant_id, board_type, num_players, rating, games_played, wins, losses, draws, last_update)
@@ -470,8 +470,8 @@ def merge_matches_into_db(db_path: Path, new_matches: list[dict]):
                         losses = losses + ?,
                         draws = draws + ?,
                         last_update = ?
-                """, (pid, board_type, num_players, new_elo, w, l, d, now,
-                      new_elo, w, l, d, now))
+                """, (pid, board_type, num_players, new_elo, wins, losses, draws, now,
+                      new_elo, wins, losses, draws, now))
 
             inserted += 1
             if game_id:

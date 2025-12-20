@@ -904,7 +904,7 @@ class _LegacyCheckpointManager:
             Checkpoint data dict or None
         """
         try:
-            import torch
+            import torch  # noqa: F401 - availability check
         except ImportError:
             raise ImportError("PyTorch required for checkpoint loading")
 

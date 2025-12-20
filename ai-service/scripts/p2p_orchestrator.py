@@ -15964,7 +15964,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
                 lengths = stats["game_lengths"]
                 avg_length = sum(lengths) / len(lengths) if lengths else 0
-                length_std = (sum((l - avg_length) ** 2 for l in lengths) / len(lengths)) ** 0.5 if len(lengths) > 1 else 0
+                length_std = (sum((length - avg_length) ** 2 for length in lengths) / len(lengths)) ** 0.5 if len(lengths) > 1 else 0
 
                 short_rate = stats["short_games"] / total
                 long_rate = stats["long_games"] / total
@@ -26801,7 +26801,7 @@ print(json.dumps({{
                             capture_output=True, text=True, timeout=5
                         )
                         if out.returncode == 0 and out.stdout.strip():
-                            gpu_count = len([l for l in out.stdout.splitlines() if l.strip()])
+                            gpu_count = len([line for line in out.stdout.splitlines() if line.strip()])
                     except Exception:
                         gpu_count = 0
 
@@ -26940,7 +26940,7 @@ print(json.dumps({{
                             timeout=5,
                         )
                         if out.returncode == 0 and out.stdout.strip():
-                            gpu_count = len([l for l in out.stdout.splitlines() if l.strip()])
+                            gpu_count = len([line for line in out.stdout.splitlines() if line.strip()])
                     except Exception:
                         gpu_count = 0
 

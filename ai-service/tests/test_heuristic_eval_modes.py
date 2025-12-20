@@ -35,9 +35,7 @@ from app.models import (  # type: ignore
     AIType,
     BoardType,
 )
-from app.training.generate_data import (  # type: ignore
-    create_initial_state,
-)
+from app.training.initial_state import create_initial_state
 
 TIER2_KEYS: list[str] = [
     "line_potential",

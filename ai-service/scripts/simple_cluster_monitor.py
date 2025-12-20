@@ -68,7 +68,7 @@ def check_lambda_nodes() -> dict:
             try:
                 host, ok, out = future.result()
                 results[host] = "OK" if ok else f"FAIL: {out}"
-            except:
+            except Exception:
                 results[futures[future]] = "TIMEOUT"
     return results
 

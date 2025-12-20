@@ -207,7 +207,7 @@ class TestFileHandle:
         indices = np.array([0, 1, 2])
 
         result = handle.get_batch_with_mp(indices)
-        features, globals_, _values, _pol_indices, _pol_values, values_mp, num_players = result
+        features, _globals, _values, _pol_indices, _pol_values, values_mp, num_players = result
 
         assert features.shape[0] == 3
         assert values_mp is not None

@@ -690,7 +690,7 @@ class TestTrainingPipelineIntegration:
         batches_before_save = 0
         for (features, globals_tensor), (_values, _policies) in loader:
             optimizer.zero_grad()
-            value_pred, policy_pred = model(features, globals_tensor)
+            value_pred, _policy_pred = model(features, globals_tensor)
             loss = value_pred.sum()  # Dummy loss
             loss.backward()
             optimizer.step()
@@ -1262,7 +1262,7 @@ class TestPerformanceBaseline:
         # Warmup
         for (features, globals_tensor), (_values, _policies) in loader:
             optimizer.zero_grad()
-            value_pred, policy_pred = model(features, globals_tensor)
+            value_pred, _policy_pred = model(features, globals_tensor)
             loss = value_pred.sum()
             loss.backward()
             optimizer.step()

@@ -345,7 +345,7 @@ class TestModelTrainingLoop:
         # Loss should be computed for all epochs
         assert len(losses) == 3
         # All losses should be finite
-        assert all(np.isfinite(l) for l in losses)
+        assert all(np.isfinite(loss) for loss in losses)
 
     def test_mixed_precision_training_simulation(self):
         """Test simulated mixed precision training works."""

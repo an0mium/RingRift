@@ -242,7 +242,7 @@ def create_player_specific_profiles(
         print("\nMerging 2-player weights:")
         files = expand_glob_patterns(weights_2p)
         if files:
-            merged, num_players, meta = merge_weights_average(files, mode="fitness-weighted", expected_num_players=2)
+            merged, _num_players, meta = merge_weights_average(files, mode="fitness-weighted", expected_num_players=2)
             profiles["heuristic_v1_2p"] = merged
             metadata["profiles"]["heuristic_v1_2p"] = meta
 
@@ -250,7 +250,7 @@ def create_player_specific_profiles(
         print("\nMerging 3-player weights:")
         files = expand_glob_patterns(weights_3p)
         if files:
-            merged, num_players, meta = merge_weights_average(files, mode="fitness-weighted", expected_num_players=3)
+            merged, _num_players, meta = merge_weights_average(files, mode="fitness-weighted", expected_num_players=3)
             profiles["heuristic_v1_3p"] = merged
             metadata["profiles"]["heuristic_v1_3p"] = meta
 
