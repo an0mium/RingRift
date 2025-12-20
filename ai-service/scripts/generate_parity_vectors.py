@@ -38,7 +38,7 @@ import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Optional
 
 # Add ai-service to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))

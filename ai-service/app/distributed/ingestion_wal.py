@@ -378,7 +378,7 @@ class _LegacyIngestionWAL:
         conn.close()
         return entries
 
-    def iter_unprocessed(self, batch_size: int = 100) -> Generator[_LegacyWALEntry, None, None]:
+    def iter_unprocessed(self, batch_size: int = 100) -> Generator[_LegacyWALEntry]:
         """Iterate over all unprocessed entries.
 
         Yields entries in order, handling pagination automatically.

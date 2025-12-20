@@ -8,7 +8,6 @@ Extracted from p2p_orchestrator.py for better modularity.
 from __future__ import annotations
 
 import os
-from typing import Tuple
 
 from .constants import MAX_DISK_USAGE_PERCENT
 

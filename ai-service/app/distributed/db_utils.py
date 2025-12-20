@@ -32,7 +32,7 @@ import threading
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
 from app.utils.file_utils import atomic_write
 
@@ -185,7 +185,7 @@ class ThreadLocalConnectionPool:
 
     def __init__(
         self,
-        db_path: Union[str, Path],
+        db_path: str | Path,
         timeout: float | None = None,
         profile: str = "standard",
         row_factory: bool = True,
@@ -271,7 +271,7 @@ class ThreadLocalConnectionPool:
 
 
 def create_coordinator_pool(
-    db_path: Union[str, Path],
+    db_path: str | Path,
     profile: str = "standard",
 ) -> ThreadLocalConnectionPool:
     """Create a connection pool for a coordinator module.
@@ -304,7 +304,7 @@ def create_coordinator_pool(
 
 
 def get_db_connection(
-    db_path: Union[str, Path],
+    db_path: str | Path,
     quick: bool = False,
     timeout: float | None = None,
     row_factory: bool = True,
@@ -343,10 +343,10 @@ def get_db_connection(
 
 @contextmanager
 def safe_transaction(
-    db_path: Union[str, Path],
+    db_path: str | Path,
     timeout: float | None = None,
     isolation_level: str | None = None,
-) -> Generator[sqlite3.Connection, None, None]:
+) -> Generator[sqlite3.Connection]:
     """Execute a SQLite transaction with automatic rollback on error.
 
     This ensures that database operations are either fully committed or
@@ -387,9 +387,9 @@ def safe_transaction(
 
 @contextmanager
 def exclusive_db_lock(
-    db_path: Union[str, Path],
+    db_path: str | Path,
     timeout: float = 60.0,
-) -> Generator[sqlite3.Connection, None, None]:
+) -> Generator[sqlite3.Connection]:
     """Acquire an exclusive lock on a SQLite database.
 
     This prevents any other connections from reading or writing the database
@@ -418,7 +418,7 @@ def exclusive_db_lock(
 
 
 def atomic_json_update(
-    path: Union[str, Path],
+    path: str | Path,
     update_fn: callable,
     default: Any = None,
 ) -> Any:
@@ -472,7 +472,7 @@ class TransactionManager:
 
     def __init__(
         self,
-        db_path: Union[str, Path],
+        db_path: str | Path,
         max_retries: int = 3,
         retry_delay: float = 0.5,
     ):
@@ -481,7 +481,7 @@ class TransactionManager:
         self.retry_delay = retry_delay
 
     @contextmanager
-    def transaction(self) -> Generator[sqlite3.Connection, None, None]:
+    def transaction(self) -> Generator[sqlite3.Connection]:
         """Execute a transaction with retry logic."""
         import time
 
@@ -513,7 +513,7 @@ class TransactionManager:
 
 # Convenience function for common pattern
 def save_state_atomically(
-    state_path: Union[str, Path],
+    state_path: str | Path,
     state: dict[str, Any],
 ) -> None:
     """Save state dictionary to JSON file atomically.
@@ -527,7 +527,7 @@ def save_state_atomically(
 
 
 def load_state_safely(
-    state_path: Union[str, Path],
+    state_path: str | Path,
     default: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Load state dictionary from JSON file safely.
@@ -632,7 +632,7 @@ class DatabaseRegistry:
         # Default to current directory
         self._base_path = Path.cwd()
 
-    def set_base_path(self, path: Union[str, Path]) -> None:
+    def set_base_path(self, path: str | Path) -> None:
         """Set the base path for database resolution.
 
         Args:
@@ -731,7 +731,7 @@ class DatabaseRegistry:
         identifier: str,
         timeout: float = 30.0,
         new_connection: bool = False,
-    ) -> Generator[sqlite3.Connection, None, None]:
+    ) -> Generator[sqlite3.Connection]:
         """Get a database connection as a context manager.
 
         Args:
@@ -874,7 +874,7 @@ def get_database(
     identifier: str,
     timeout: float = 30.0,
     new_connection: bool = False,
-) -> Generator[sqlite3.Connection, None, None]:
+) -> Generator[sqlite3.Connection]:
     """Get a database connection as a context manager.
 
     This is the recommended way to access databases throughout

@@ -17,7 +17,6 @@ import json
 import os
 import sys
 from collections.abc import Iterable
-from typing import Dict, Tuple
 
 # Allow imports from app/ when run from the ai-service root.
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

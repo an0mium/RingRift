@@ -26,7 +26,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 
 def _parse_registry(registry_path: Path) -> dict[str, dict[str, str]]:

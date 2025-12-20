@@ -20,7 +20,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 # Add project root
 SCRIPT_DIR = Path(__file__).parent

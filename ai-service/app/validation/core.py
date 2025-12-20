@@ -71,7 +71,7 @@ Validator = Callable[[Any], Union[ValidationResult, bool, str]]
 
 
 def _normalize_result(
-    result: Union[ValidationResult, bool, str, None],
+    result: ValidationResult | bool | str | None,
     value: Any,
 ) -> ValidationResult:
     """Normalize various return types to ValidationResult."""

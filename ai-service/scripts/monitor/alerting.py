@@ -56,7 +56,7 @@ def send_slack_alert(
     webhook_url: str,
     title: str,
     message: str,
-    level: Union[AlertSeverity, AlertLevel] = AlertSeverity.INFO,
+    level: AlertSeverity | AlertLevel = AlertSeverity.INFO,
     node_id: str = "",
 ) -> bool:
     """Send alert to Slack webhook."""
@@ -90,7 +90,7 @@ def send_discord_alert(
     webhook_url: str,
     title: str,
     message: str,
-    level: Union[AlertSeverity, AlertLevel] = AlertSeverity.INFO,
+    level: AlertSeverity | AlertLevel = AlertSeverity.INFO,
     node_id: str = "",
 ) -> bool:
     """Send alert to Discord webhook."""
@@ -127,7 +127,7 @@ def send_discord_alert(
 def send_alert(
     title: str,
     message: str,
-    level: Union[AlertSeverity, AlertLevel] = AlertSeverity.INFO,
+    level: AlertSeverity | AlertLevel = AlertSeverity.INFO,
     node_id: str = "",
     slack_url: str | None = None,
     discord_url: str | None = None,

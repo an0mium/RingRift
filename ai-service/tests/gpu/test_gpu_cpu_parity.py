@@ -11,7 +11,7 @@ Test organization:
 - TestBoardConfigParity: Board configuration values
 """
 
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import numpy as np
 import pytest

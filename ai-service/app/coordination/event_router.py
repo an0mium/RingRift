@@ -217,7 +217,7 @@ class UnifiedEventRouter:
 
     async def publish(
         self,
-        event_type: Union[str, DataEventType, StageEvent],
+        event_type: str | DataEventType | StageEvent,
         payload: dict[str, Any] | None = None,
         source: str = "",
         route_to_data_bus: bool = True,
@@ -342,10 +342,10 @@ class UnifiedEventRouter:
 
     def publish_sync(
         self,
-        event_type: Union[str, DataEventType, StageEvent],
+        event_type: str | DataEventType | StageEvent,
         payload: dict[str, Any] | None = None,
         source: str = "",
-    ) -> Union[RouterEvent, asyncio.Future]:
+    ) -> RouterEvent | asyncio.Future:
         """Synchronous version of publish for non-async contexts.
 
         Returns a RouterEvent when no loop is running, otherwise a scheduled Future.
@@ -436,7 +436,7 @@ class UnifiedEventRouter:
 
     def subscribe(
         self,
-        event_type: Union[str, DataEventType, StageEvent] | None,
+        event_type: str | DataEventType | StageEvent | None,
         callback: EventCallback,
     ) -> None:
         """Subscribe to events.
@@ -460,7 +460,7 @@ class UnifiedEventRouter:
 
     def unsubscribe(
         self,
-        event_type: Union[str, DataEventType, StageEvent] | None,
+        event_type: str | DataEventType | StageEvent | None,
         callback: EventCallback,
     ) -> bool:
         """Unsubscribe from events."""
@@ -547,7 +547,7 @@ def reset_router() -> None:
 
 
 async def publish(
-    event_type: Union[str, DataEventType, StageEvent],
+    event_type: str | DataEventType | StageEvent,
     payload: dict[str, Any] | None = None,
     source: str = "",
 ) -> RouterEvent:
@@ -556,16 +556,16 @@ async def publish(
 
 
 def publish_sync(
-    event_type: Union[str, DataEventType, StageEvent],
+    event_type: str | DataEventType | StageEvent,
     payload: dict[str, Any] | None = None,
     source: str = "",
-) -> Union[RouterEvent, asyncio.Future]:
+) -> RouterEvent | asyncio.Future:
     """Publish an event synchronously."""
     return get_router().publish_sync(event_type, payload, source)
 
 
 def subscribe(
-    event_type: Union[str, DataEventType, StageEvent] | None,
+    event_type: str | DataEventType | StageEvent | None,
     callback: EventCallback,
 ) -> None:
     """Subscribe to events through the router."""
@@ -573,7 +573,7 @@ def subscribe(
 
 
 def unsubscribe(
-    event_type: Union[str, DataEventType, StageEvent] | None,
+    event_type: str | DataEventType | StageEvent | None,
     callback: EventCallback,
 ) -> bool:
     """Unsubscribe from events."""

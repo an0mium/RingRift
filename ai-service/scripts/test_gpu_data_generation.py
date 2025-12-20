@@ -23,7 +23,6 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass
-from typing import List
 
 import numpy as np
 import torch

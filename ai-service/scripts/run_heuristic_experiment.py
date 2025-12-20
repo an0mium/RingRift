@@ -64,7 +64,6 @@ import sys
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Dict, List
 
 # Ensure project root (containing ``app`` and ``scripts``) is on sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any, TypeVar, Union
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ def _ensure_yaml_available() -> None:
 
 
 def load_yaml(
-    path: Union[str, Path],
+    path: str | Path,
     *,
     encoding: str = "utf-8",
     required: bool = True,
@@ -115,7 +115,7 @@ def load_yaml(
 
 
 def load_yaml_with_defaults(
-    path: Union[str, Path],
+    path: str | Path,
     defaults: ConfigDict,
     *,
     encoding: str = "utf-8",
@@ -154,7 +154,7 @@ def load_yaml_with_defaults(
 
 
 def safe_load_yaml(
-    path: Union[str, Path],
+    path: str | Path,
     *,
     default: ConfigDict | None = None,
     encoding: str = "utf-8",
@@ -188,7 +188,7 @@ def safe_load_yaml(
 
 def dump_yaml(
     data: Any,
-    path: Union[str, Path],
+    path: str | Path,
     *,
     encoding: str = "utf-8",
     default_flow_style: bool = False,
@@ -332,7 +332,7 @@ def validate_yaml_schema(
 
 # Convenience function for loading config with environment variable override
 def load_config_yaml(
-    default_path: Union[str, Path],
+    default_path: str | Path,
     env_var: str | None = None,
     defaults: ConfigDict | None = None,
 ) -> ConfigDict:

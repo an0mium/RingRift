@@ -43,7 +43,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
 import numpy as np
 import torch
@@ -457,7 +457,7 @@ class CheckpointAverager:
 
 
 def average_checkpoints(
-    checkpoint_paths: list[Union[str, Path]],
+    checkpoint_paths: list[str | Path],
     device: torch.device | None = None,
 ) -> dict[str, torch.Tensor]:
     """
@@ -1082,7 +1082,7 @@ class PerSampleLossTracker:
 
     def record_batch(
         self,
-        batch_indices: Union[list[int], torch.Tensor],
+        batch_indices: list[int] | torch.Tensor,
         losses: torch.Tensor,
         epoch: int,
         batch_idx: int = 0,
@@ -1248,9 +1248,9 @@ class HardExampleMiner:
 
     def record_batch(
         self,
-        indices: Union[list[int], np.ndarray, torch.Tensor],
-        losses: Union[list[float], np.ndarray, torch.Tensor],
-        uncertainties: Union[list[float], np.ndarray, torch.Tensor] | None = None,
+        indices: list[int] | np.ndarray | torch.Tensor,
+        losses: list[float] | np.ndarray | torch.Tensor,
+        uncertainties: list[float] | np.ndarray | torch.Tensor | None = None,
     ) -> None:
         """
         Record losses and uncertainties for a batch of examples.
@@ -1341,7 +1341,7 @@ class HardExampleMiner:
         self,
         num_samples: int,
         return_scores: bool = False,
-    ) -> Union[np.ndarray, tuple[np.ndarray, np.ndarray]]:
+    ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
         """
         Get indices of hard examples for focused training.
 
@@ -1400,7 +1400,7 @@ class HardExampleMiner:
 
     def get_sample_weights(
         self,
-        indices: Union[list[int], np.ndarray],
+        indices: list[int] | np.ndarray,
         base_weight: float = 1.0,
         hard_weight: float = 2.0,
     ) -> np.ndarray:
@@ -1509,8 +1509,8 @@ class HardExampleMiner:
 
     def update_errors(
         self,
-        indices: Union[list[int], np.ndarray],
-        errors: Union[list[float], np.ndarray],
+        indices: list[int] | np.ndarray,
+        errors: list[float] | np.ndarray,
     ) -> None:
         """
         Update error history for given samples (backwards compatible).
@@ -2840,7 +2840,7 @@ class EWCRegularizer:
 
         return 0.5 * self.lambda_ewc * penalty
 
-    def save_state(self, path: Union[str, Path]) -> None:
+    def save_state(self, path: str | Path) -> None:
         """Save EWC state to file."""
         state = {
             'fisher': self._fisher,
@@ -2850,7 +2850,7 @@ class EWCRegularizer:
         }
         torch.save(state, path)
 
-    def load_state(self, path: Union[str, Path]) -> None:
+    def load_state(self, path: str | Path) -> None:
         """Load EWC state from file."""
         state = safe_load_checkpoint(path, warn_on_unsafe=False)
         self._fisher = state['fisher']
@@ -2905,7 +2905,7 @@ class ModelEnsemble:
 
     def add_model(
         self,
-        model_or_path: Union[nn.Module, str, Path],
+        model_or_path: nn.Module | str | Path,
         weight: float = 1.0,
         name: str | None = None,
     ) -> None:
@@ -3031,8 +3031,8 @@ class CalibrationAutomation:
 
     def add_samples(
         self,
-        predictions: Union[list[float], np.ndarray, torch.Tensor],
-        outcomes: Union[list[float], np.ndarray, torch.Tensor],
+        predictions: list[float] | np.ndarray | torch.Tensor,
+        outcomes: list[float] | np.ndarray | torch.Tensor,
     ) -> None:
         """Add prediction-outcome pairs for monitoring."""
         if isinstance(predictions, torch.Tensor):

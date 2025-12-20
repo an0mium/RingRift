@@ -43,7 +43,7 @@ import argparse
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any
 
 from scripts.check_canonical_phase_history import check_db
 

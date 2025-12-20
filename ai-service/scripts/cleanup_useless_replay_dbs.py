@@ -33,7 +33,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 from app.db.game_replay import GameReplayDB
 from scripts.lib.paths import REPO_ROOT

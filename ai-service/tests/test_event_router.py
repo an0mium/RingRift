@@ -7,7 +7,6 @@ Tests the event routing layer that consolidates:
 """
 
 import asyncio
-from typing import List
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

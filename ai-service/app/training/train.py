@@ -36,7 +36,6 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import (
     Any,
-    Union,
     cast,
 )
 
@@ -559,7 +558,7 @@ from app.training.schedulers import create_lr_scheduler
 
 def train_model(
     config: TrainConfig,
-    data_path: Union[str, list[str]],
+    data_path: str | list[str],
     save_path: str,
     early_stopping_patience: int | None = None,
     elo_early_stopping_patience: int | None = None,

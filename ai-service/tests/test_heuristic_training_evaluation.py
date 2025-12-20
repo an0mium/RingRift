@@ -20,7 +20,7 @@ import math
 import os
 import sys
 import tempfile
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 

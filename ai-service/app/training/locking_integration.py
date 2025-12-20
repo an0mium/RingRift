@@ -98,7 +98,7 @@ class TrainingLocks:
         config_key: str,
         step: int | None = None,
         timeout: int = 60,
-    ) -> Generator[DistributedLock | None, None, None]:
+    ) -> Generator[DistributedLock | None]:
         """Acquire a checkpoint lock.
 
         Protects checkpoint save/load operations from concurrent access.
@@ -136,7 +136,7 @@ class TrainingLocks:
     def checkpoint_save(
         config_key: str,
         timeout: int = 120,
-    ) -> Generator[DistributedLock | None, None, None]:
+    ) -> Generator[DistributedLock | None]:
         """Acquire a lock specifically for checkpoint saving.
 
         Uses a longer timeout as checkpoint saves can be slow.
@@ -167,7 +167,7 @@ class TrainingLocks:
     def model_registry(
         config_key: str,
         timeout: int = 30,
-    ) -> Generator[DistributedLock | None, None, None]:
+    ) -> Generator[DistributedLock | None]:
         """Acquire a model registry lock.
 
         Protects model registration and metadata updates.
@@ -199,7 +199,7 @@ class TrainingLocks:
         config_key: str,
         job_id: str | None = None,
         timeout: int = DEFAULT_ACQUIRE_TIMEOUT,
-    ) -> Generator[DistributedLock | None, None, None]:
+    ) -> Generator[DistributedLock | None]:
         """Acquire a training job lock.
 
         Ensures only one training job runs for a config at a time.
@@ -234,7 +234,7 @@ class TrainingLocks:
     def evaluation(
         config_key: str,
         timeout: int = 30,
-    ) -> Generator[DistributedLock | None, None, None]:
+    ) -> Generator[DistributedLock | None]:
         """Acquire an evaluation lock.
 
         Serializes evaluation runs to prevent resource contention.
@@ -266,7 +266,7 @@ class TrainingLocks:
         config_key: str,
         iteration: int | None = None,
         timeout: int = 30,
-    ) -> Generator[DistributedLock | None, None, None]:
+    ) -> Generator[DistributedLock | None]:
         """Acquire a selfplay lock.
 
         Coordinates selfplay generation across nodes.
@@ -301,7 +301,7 @@ class TrainingLocks:
     def promotion(
         config_key: str,
         timeout: int = 60,
-    ) -> Generator[DistributedLock | None, None, None]:
+    ) -> Generator[DistributedLock | None]:
         """Acquire a model promotion lock.
 
         Ensures atomic model promotions.
@@ -332,7 +332,7 @@ class TrainingLocks:
     def data_sync(
         config_key: str,
         timeout: int = 30,
-    ) -> Generator[DistributedLock | None, None, None]:
+    ) -> Generator[DistributedLock | None]:
         """Acquire a data sync lock.
 
         Protects data synchronization operations.
@@ -364,7 +364,7 @@ def checkpoint_lock(
     config_key: str,
     step: int | None = None,
     timeout: int = 60,
-) -> Generator[DistributedLock | None, None, None]:
+) -> Generator[DistributedLock | None]:
     """Context manager for checkpoint locking.
 
     Example:
@@ -380,7 +380,7 @@ def checkpoint_lock(
 def model_registry_lock(
     config_key: str,
     timeout: int = 30,
-) -> Generator[DistributedLock | None, None, None]:
+) -> Generator[DistributedLock | None]:
     """Context manager for model registry locking.
 
     Example:
@@ -396,7 +396,7 @@ def model_registry_lock(
 def training_job_lock(
     config_key: str,
     timeout: int = DEFAULT_ACQUIRE_TIMEOUT,
-) -> Generator[DistributedLock | None, None, None]:
+) -> Generator[DistributedLock | None]:
     """Context manager for training job locking.
 
     Example:
@@ -412,7 +412,7 @@ def training_job_lock(
 def evaluation_lock(
     config_key: str,
     timeout: int = 30,
-) -> Generator[DistributedLock | None, None, None]:
+) -> Generator[DistributedLock | None]:
     """Context manager for evaluation locking.
 
     Example:
@@ -429,7 +429,7 @@ def selfplay_lock(
     config_key: str,
     iteration: int | None = None,
     timeout: int = 30,
-) -> Generator[DistributedLock | None, None, None]:
+) -> Generator[DistributedLock | None]:
     """Context manager for selfplay locking.
 
     Example:
@@ -445,7 +445,7 @@ def selfplay_lock(
 def promotion_lock(
     config_key: str,
     timeout: int = 60,
-) -> Generator[DistributedLock | None, None, None]:
+) -> Generator[DistributedLock | None]:
     """Context manager for promotion locking.
 
     Example:

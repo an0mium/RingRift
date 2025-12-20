@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 import sys
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest

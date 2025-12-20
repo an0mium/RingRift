@@ -29,7 +29,6 @@ Usage:
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Union
 
 __all__ = [
     "date_str",
@@ -195,7 +194,7 @@ def time_ago(
     return datetime.now(timezone.utc) - delta
 
 
-def format_duration(seconds: Union[int, float]) -> str:
+def format_duration(seconds: int | float) -> str:
     """Format a duration in seconds to a human-readable string.
 
     Args:

@@ -46,7 +46,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
 from app.utils.torch_utils import safe_load_checkpoint
 
@@ -152,7 +152,7 @@ class UnifiedModelStore:
     def register(
         self,
         name: str,
-        model_path: Union[str, Path],
+        model_path: str | Path,
         model_type: ModelStoreType = ModelStoreType.POLICY_VALUE,
         elo: float | None = None,
         win_rate: float | None = None,
@@ -311,7 +311,7 @@ class UnifiedModelStore:
     def promote(
         self,
         model_id: str,
-        target_stage: Union[str, ModelStoreStage],
+        target_stage: str | ModelStoreStage,
         version: int | None = None,
     ) -> bool:
         """Promote a model to a new stage.
@@ -545,7 +545,7 @@ def get_model_store(registry_dir: Path | None = None) -> UnifiedModelStore:
 
 def register_model(
     name: str,
-    model_path: Union[str, Path],
+    model_path: str | Path,
     **kwargs,
 ) -> tuple[str, int]:
     """Register a model."""
@@ -559,7 +559,7 @@ def get_production_model(config_key: str | None = None) -> ModelInfo | None:
 
 def promote_model(
     model_id: str,
-    target_stage: Union[str, ModelStoreStage],
+    target_stage: str | ModelStoreStage,
     version: int | None = None,
 ) -> bool:
     """Promote a model."""

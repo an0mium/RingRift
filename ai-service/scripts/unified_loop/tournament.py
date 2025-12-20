@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any
 
 from app.utils.paths import AI_SERVICE_ROOT
 

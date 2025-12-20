@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Union
+from typing import Literal
 
 from app.board_manager import BoardManager
 from app.models import (
@@ -465,7 +465,7 @@ def apply_capture_segment_py(
 def apply_capture_py(
     state: GameState,
     move: Move,
-) -> tuple[bool, GameState | None, Union[list[Position], str]]:
+) -> tuple[bool, GameState | None, list[Position] | str]:
     """
     High-level capture application helper, analogous to TS applyCapture.
 

@@ -34,7 +34,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 # Ensure ai-service root on path for scripts/lib imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

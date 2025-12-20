@@ -12,7 +12,6 @@ Tests cover:
 import math
 import os
 import tempfile
-from typing import List
 
 import pytest
 import torch.nn as nn

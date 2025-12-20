@@ -23,7 +23,6 @@ import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 

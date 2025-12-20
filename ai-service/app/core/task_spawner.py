@@ -464,7 +464,7 @@ class TaskSpawner:
     async def limited(
         self,
         max_concurrent: int,
-    ) -> AsyncGenerator[LimitedSpawner, None]:
+    ) -> AsyncGenerator[LimitedSpawner]:
         """Context manager for concurrency-limited spawning.
 
         Args:

@@ -35,7 +35,7 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Union
+from typing import Any
 
 import numpy as np
 import torch
@@ -181,7 +181,7 @@ class HybridGPUEvaluator:
 
     def __init__(
         self,
-        device: Union[str, torch.device] | None = None,
+        device: str | torch.device | None = None,
         model: nn.Module | None = None,
         board_size: int = 8,
         num_players: int = 2,

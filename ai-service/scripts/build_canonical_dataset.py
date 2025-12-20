@@ -38,7 +38,6 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import List
 
 from export_replay_dataset import main as export_main  # type: ignore[import]
 from validate_canonical_training_sources import (  # type: ignore[import]

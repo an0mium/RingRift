@@ -43,7 +43,7 @@ from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -451,8 +451,8 @@ def kill_processes_by_pattern(
 
 
 def run_command(
-    command: Union[str, list[str]],
-    cwd: Union[str, Path] | None = None,
+    command: str | list[str],
+    cwd: str | Path | None = None,
     env: dict[str, str] | None = None,
     timeout: float = 30.0,
     shell: bool = False,
@@ -545,7 +545,7 @@ def daemon_context(
     name: str,
     lock_dir: Path | None = None,
     exit_if_running: bool = True,
-) -> Generator[SignalHandler, None, None]:
+) -> Generator[SignalHandler]:
     """Context manager for daemon processes.
 
     Provides singleton locking and signal handling.

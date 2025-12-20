@@ -272,7 +272,7 @@ class EventBus:
 
     def subscribe(
         self,
-        topic_or_filter: Union[str, EventFilter, None] = None,
+        topic_or_filter: str | EventFilter | None = None,
         priority: int = 0,
         once: bool = False,
         weak: bool = False,
@@ -314,7 +314,7 @@ class EventBus:
     def add_subscription(
         self,
         handler: EventHandler,
-        topic_or_filter: Union[str, EventFilter, None] = None,
+        topic_or_filter: str | EventFilter | None = None,
         priority: int = 0,
         once: bool = False,
         weak: bool = False,
@@ -648,7 +648,7 @@ def reset_event_bus() -> None:
 
 # Convenience functions using global bus
 def subscribe(
-    topic_or_filter: Union[str, EventFilter, None] = None,
+    topic_or_filter: str | EventFilter | None = None,
     priority: int = 0,
     once: bool = False,
 ) -> Callable[[EventHandler], EventHandler]:

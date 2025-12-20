@@ -35,7 +35,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from scripts.lib.ssh import run_ssh_command
 
@@ -161,7 +161,7 @@ def compute_game_quality(game: dict[str, Any], source_node: str, source_file: st
     # 4. Move diversity score
     moves = game.get("moves", [])
     if moves:
-        unique_moves = len(set(str(m) for m in moves))
+        unique_moves = len({str(m) for m in moves})
         diversity_ratio = unique_moves / len(moves) if moves else 0
         scores["move_diversity"] = min(1.0, diversity_ratio * 1.5)
     else:
@@ -194,7 +194,7 @@ def compute_game_quality(game: dict[str, Any], source_node: str, source_file: st
     moves_str = json.dumps(moves)
     if "capture" in moves_str.lower():
         tactical_indicators += 1
-    if move_count > 10 and len(set(str(m) for m in moves[-10:])) > 7:
+    if move_count > 10 and len({str(m) for m in moves[-10:]}) > 7:
         tactical_indicators += 1  # Diverse endgame
     scores["tactical_content"] = min(1.0, tactical_indicators * 0.5 + 0.3)
 

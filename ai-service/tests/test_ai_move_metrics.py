@@ -14,7 +14,7 @@ These tests exercise the `/ai/move` FastAPI route and assert that:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import patch
 
 import pytest

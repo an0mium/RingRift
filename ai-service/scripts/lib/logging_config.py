@@ -24,7 +24,7 @@ import time
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Optional, Union
 
 
 class JsonFormatter(logging.Formatter):
@@ -201,8 +201,8 @@ class TimerContext:
 
 
 def setup_logging(
-    level: Union[str, int] = "INFO",
-    log_file: Union[str, Path] | None = None,
+    level: str | int = "INFO",
+    log_file: str | Path | None = None,
     json_logs: bool = False,
     log_to_console: bool = True,
     max_bytes: int = 10 * 1024 * 1024,  # 10MB
@@ -280,7 +280,7 @@ def get_metrics_logger(name: str, log_interval: int = 60) -> MetricsLogger:
 # Convenience function for scripts
 def setup_script_logging(
     script_name: str,
-    log_dir: Union[str, Path] = "logs",
+    log_dir: str | Path = "logs",
     level: str = "INFO",
     json_logs: bool = False,
 ) -> logging.Logger:

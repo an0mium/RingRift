@@ -47,7 +47,7 @@ from collections.abc import Generator
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
@@ -126,7 +126,7 @@ logger = setup_script_logging("p2p_orchestrator")
 
 
 @contextlib.contextmanager
-def db_connection(db_path: str | Path, timeout: float = 30.0) -> Generator[sqlite3.Connection, None, None]:
+def db_connection(db_path: str | Path, timeout: float = 30.0) -> Generator[sqlite3.Connection]:
     """Context manager for SQLite connections to prevent leaks.
 
     Usage:
@@ -9376,11 +9376,11 @@ print(wins / total)
             return web.json_response({"error": str(e)}, status=500)
 
     async def handle_play_elo_match(self, request: web.Request) -> web.Response:
-        """Play a single Elo calibration match between two AI configurations.
+        """Play a single Elo calibration match between AI configurations.
 
         This endpoint supports playing games between different AI types
         (random, heuristic, minimax, mcts, policy_only, gumbel_mcts, descent)
-        for Elo calibration purposes.
+        for Elo calibration purposes. Supports 2-4 player games.
 
         Request body:
             match_id: Unique match identifier
@@ -9388,12 +9388,14 @@ print(wins / total)
             agent_b: Agent B identifier
             agent_a_config: Full AI configuration for agent A
             agent_b_config: Full AI configuration for agent B
+            agents: List of agent identifiers for multiplayer (optional)
+            agent_configs: List of AI configs for multiplayer (optional)
             board_type: Board type (default: square8)
             num_players: Number of players (default: 2)
 
         Returns:
             success: True if match completed
-            winner: "agent_a", "agent_b", or "draw"
+            winner: "agent_a", "agent_b", "agent_c", "agent_d", or "draw"
             game_length: Number of moves
             duration_sec: Game duration in seconds
         """
@@ -9403,14 +9405,37 @@ print(wins / total)
             logger.info(f"Request parsed: {data}")
 
             match_id = data.get("match_id", str(uuid.uuid4())[:8])
-            agent_a = data.get("agent_a", "random")
-            agent_b = data.get("agent_b", "heuristic")
-            agent_a_config = data.get("agent_a_config", {"ai_type": agent_a})
-            agent_b_config = data.get("agent_b_config", {"ai_type": agent_b})
             board_type_str = data.get("board_type", "square8")
             num_players = data.get("num_players", 2)
 
-            logger.info(f"Playing Elo match {match_id}: {agent_a} vs {agent_b}")
+            # Support both legacy 2-player (agent_a/agent_b) and multiplayer (agents list)
+            agents_list = data.get("agents")
+            agent_configs_list = data.get("agent_configs")
+
+            if agents_list and len(agents_list) >= 2:
+                # Multiplayer mode: use agents list
+                agents = agents_list[:num_players]
+                if agent_configs_list and len(agent_configs_list) >= num_players:
+                    agent_configs = agent_configs_list[:num_players]
+                else:
+                    # Build configs from agent names
+                    agent_configs = [{"ai_type": a} for a in agents]
+            else:
+                # Legacy 2-player mode
+                agent_a = data.get("agent_a", "random")
+                agent_b = data.get("agent_b", "heuristic")
+                agent_a_config = data.get("agent_a_config", {"ai_type": agent_a})
+                agent_b_config = data.get("agent_b_config", {"ai_type": agent_b})
+                agents = [agent_a, agent_b]
+                agent_configs = [agent_a_config, agent_b_config]
+
+            # Pad with random if fewer agents than players
+            while len(agents) < num_players:
+                agents.append("random")
+                agent_configs.append({"ai_type": "random"})
+
+            agents_desc = " vs ".join(agents)
+            logger.info(f"Playing Elo match {match_id}: {agents_desc}")
             start_time = time.time()
 
             # Acquire semaphore to prevent concurrent matches (OOM protection)
@@ -9436,7 +9461,7 @@ print(wins / total)
                 }, status=503)
 
             # Track who holds the semaphore for debugging
-            self._current_match_holder = f"{match_id} ({agent_a} vs {agent_b})"
+            self._current_match_holder = f"{match_id} ({agents_desc})"
             try:
                 logger.info(f"Semaphore acquired, running match {match_id}...")
                 # Run the match in a thread pool to avoid blocking
@@ -9447,8 +9472,7 @@ print(wins / total)
                         loop.run_in_executor(
                             None,
                             self._play_elo_match_sync,
-                            agent_a_config,
-                            agent_b_config,
+                            agent_configs,
                             board_type_str,
                             num_players,
                         ),
@@ -9476,24 +9500,30 @@ print(wins / total)
                     "match_id": match_id,
                 }, status=500)
 
-            winner_map = {
-                "model_a": "agent_a",
-                "model_b": "agent_b",
-                "draw": "draw",
-            }
+            # Map winner player number to agent label
+            winner_player = result.get("winner_player")
+            if winner_player is not None and winner_player > 0:
+                agent_labels = ["agent_a", "agent_b", "agent_c", "agent_d"]
+                winner = agent_labels[winner_player - 1] if winner_player <= len(agent_labels) else "draw"
+            else:
+                # Legacy format support
+                winner_map = {"model_a": "agent_a", "model_b": "agent_b", "draw": "draw"}
+                winner = winner_map.get(result.get("winner", "draw"), "draw")
 
             response = {
                 "success": True,
                 "match_id": match_id,
-                "agent_a": agent_a,
-                "agent_b": agent_b,
-                "winner": winner_map.get(result.get("winner", "draw"), "draw"),
+                "agents": agents,
+                "agent_a": agents[0] if len(agents) > 0 else "unknown",
+                "agent_b": agents[1] if len(agents) > 1 else "unknown",
+                "winner": winner,
+                "winner_player": winner_player,
                 "game_length": result.get("game_length", 0),
                 "duration_sec": duration,
                 "worker_node": self.node_id,
             }
 
-            logger.info(f"Elo match {match_id} complete: {agent_a} vs {agent_b} -> {response['winner']} ({result.get('game_length', 0)} moves)")
+            logger.info(f"Elo match {match_id} complete: {agents_desc} -> {response['winner']} ({result.get('game_length', 0)} moves)")
             return web.json_response(response)
 
         except Exception as e:
@@ -9504,8 +9534,7 @@ print(wins / total)
 
     def _play_elo_match_sync(
         self,
-        agent_a_config: dict,
-        agent_b_config: dict,
+        agent_configs: list[dict],
         board_type_str: str,
         num_players: int,
     ) -> dict | None:
@@ -9513,6 +9542,11 @@ print(wins / total)
 
         Uses a lightweight implementation for simple AI types (random, heuristic, minimax)
         to avoid loading heavy neural network dependencies that cause OOM.
+
+        Args:
+            agent_configs: List of AI configurations for each player
+            board_type_str: Board type string
+            num_players: Number of players in the game
         """
         try:
             import time as time_mod
@@ -9524,12 +9558,11 @@ print(wins / total)
             board_type = BoardType(board_type_str)
             start_time = time_mod.time()
 
-            # Generate unique random seeds for this match
+            # Generate unique random seeds for each player
             import random as rand_mod
             match_seed = int(time_mod.time() * 1000000) % (2**31)
             rand_mod.seed(match_seed)
-            seed_a = rand_mod.randint(0, 2**31 - 1)
-            seed_b = rand_mod.randint(0, 2**31 - 1)
+            seeds = [rand_mod.randint(0, 2**31 - 1) for _ in range(num_players)]
 
             # Create initial state
             state = create_initial_state(board_type, num_players)
@@ -9625,33 +9658,70 @@ print(wins / total)
                         config = AIConfig(ai_type=AIType.HEURISTIC, board_type=board_type, difficulty=7, rng_seed=rng_seed)
                         return HeuristicAI(player_num, config)
 
-            # Create AIs with unique seeds
-            ai_a = create_lightweight_ai(agent_a_config, 1, seed_a)
-            ai_b = create_lightweight_ai(agent_b_config, 2, seed_b)
+            # Create AIs for all players with unique seeds
+            ais = {}
+            for i in range(num_players):
+                player_num = i + 1
+                config = agent_configs[i] if i < len(agent_configs) else {"ai_type": "random"}
+                seed = seeds[i] if i < len(seeds) else 0
+                ais[player_num] = create_lightweight_ai(config, player_num, seed)
 
-            # Play game
+            # Play game and record moves for training
             move_count = 0
             max_moves = 500
+            recorded_moves = []  # Record moves for training data
 
             while state.game_status == GameStatus.ACTIVE and move_count < max_moves:
-                current_ai = ai_a if state.current_player == 1 else ai_b
+                current_player = state.current_player
+                current_ai = ais.get(current_player)
+                if current_ai is None:
+                    logger.warning(f"No AI for player {current_player}, using random fallback")
+                    from app.ai.random_ai import RandomAI
+                    config = AIConfig(ai_type=AIType.RANDOM, board_type=board_type, difficulty=1)
+                    current_ai = RandomAI(current_player, config)
+                    ais[current_player] = current_ai
+
                 move = current_ai.select_move(state)
                 if move is None:
                     break
+
+                # Record move for training
+                recorded_moves.append({
+                    "player": current_player,
+                    "move": move.to_dict() if hasattr(move, 'to_dict') else str(move),
+                })
+
                 state = engine.apply_move(state, move)
                 move_count += 1
 
             duration = time_mod.time() - start_time
 
-            # Determine winner
+            # Determine winner (as player number)
+            winner_player = state.winner if state.winner else 0
+
+            # Legacy format for 2-player backward compatibility
             winner = "draw"
-            if state.winner == 1:
+            if winner_player == 1:
                 winner = "model_a"
-            elif state.winner == 2:
+            elif winner_player == 2:
                 winner = "model_b"
+
+            # Save game for training if moves were recorded
+            if recorded_moves and winner_player > 0:
+                try:
+                    self._save_tournament_game_for_training(
+                        board_type_str=board_type_str,
+                        num_players=num_players,
+                        winner=winner_player,
+                        moves=recorded_moves,
+                        duration=duration,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to save tournament game for training: {e}")
 
             return {
                 "winner": winner,
+                "winner_player": winner_player,
                 "game_length": move_count,
                 "duration_sec": duration,
             }
@@ -9661,6 +9731,57 @@ print(wins / total)
             logger.info(f"_play_elo_match_sync error: {e}")
             traceback.print_exc()
             return None
+
+    def _save_tournament_game_for_training(
+        self,
+        board_type_str: str,
+        num_players: int,
+        winner: int,
+        moves: list[dict],
+        duration: float,
+    ) -> None:
+        """Save a tournament game to JSONL format for training.
+
+        Saves games to data/tournament_games/{board_type}_{num_players}p/ directory
+        in a format compatible with the training pipeline.
+        """
+        import json
+        import os
+        from datetime import datetime
+        from pathlib import Path
+
+        # Create output directory
+        data_dir = Path(self.ringrift_path) / "ai-service" / "data" / "tournament_games"
+        config_dir = data_dir / f"{board_type_str}_{num_players}p"
+        config_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        game_id = f"tournament_{self.node_id}_{timestamp}_{uuid.uuid4().hex[:8]}"
+        output_file = config_dir / f"{game_id}.jsonl"
+
+        # Build game record
+        game_record = {
+            "game_id": game_id,
+            "board_type": board_type_str,
+            "num_players": num_players,
+            "winner": winner,
+            "move_count": len(moves),
+            "duration_sec": duration,
+            "moves": moves,
+            "source": "tournament",
+            "node_id": self.node_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        # Append to daily file for this config
+        daily_file = config_dir / f"tournament_{timestamp[:8]}.jsonl"
+        try:
+            with open(daily_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(game_record) + "\n")
+            logger.debug(f"Saved tournament game {game_id} to {daily_file}")
+        except Exception as e:
+            logger.warning(f"Failed to save tournament game: {e}")
 
     async def handle_ssh_tournament_start(self, request: web.Request) -> web.Response:
         """Start an SSH-distributed difficulty-tier tournament (leader only).

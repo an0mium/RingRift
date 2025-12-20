@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import statistics
 import time
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Optional
 
 from app.utils.paths import AI_SERVICE_ROOT
 

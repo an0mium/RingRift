@@ -6,7 +6,7 @@ Tests cover:
 - iterate_games with batch loading
 """
 
-from typing import Dict, List, Optional
+from typing import Optional
 from unittest.mock import MagicMock, patch
 
 import pytest

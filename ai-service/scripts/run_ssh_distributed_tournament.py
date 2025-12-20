@@ -28,7 +28,7 @@ import uuid
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -184,7 +184,7 @@ def resolve_remote_path(host: HostConfig, path: str) -> str:
 
 
 def _shell_join(parts: Sequence[str]) -> str:
-    return " ".join(shlex.quote(p) for p in parts)
+    return shlex.join(parts)
 
 
 def build_remote_tournament_command(

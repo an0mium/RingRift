@@ -18,7 +18,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -721,7 +721,7 @@ except ImportError:
 
 
 def create_checkpoint_manager(
-    checkpoint_dir: Union[str, Path],
+    checkpoint_dir: str | Path,
     keep_best: int = 3,
     adaptive_enabled: bool = True,
     **kwargs,

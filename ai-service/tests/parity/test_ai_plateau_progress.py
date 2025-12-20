@@ -24,7 +24,7 @@ import os
 # Ensure app package is importable when running tests directly.
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 

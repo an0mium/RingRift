@@ -14,7 +14,7 @@ requiring actual model files or Elo databases.
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 from unittest.mock import MagicMock, call, patch
 
 import pytest

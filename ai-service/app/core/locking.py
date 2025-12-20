@@ -325,7 +325,7 @@ class LockHierarchy:
         self,
         name: str,
         timeout: float = 30.0,
-    ) -> AsyncGenerator[None, None]:
+    ) -> AsyncGenerator[None]:
         """Acquire a hierarchical lock.
 
         Args:
@@ -441,7 +441,7 @@ class LockPool:
         self,
         name: str,
         timeout: float = 30.0,
-    ) -> AsyncGenerator[None, None]:
+    ) -> AsyncGenerator[None]:
         """Acquire a pooled lock.
 
         Args:
@@ -508,7 +508,7 @@ class LockFactory:
         name: str,
         lock_type: LockType = LockType.LOCAL_ASYNC,
         timeout: int = 3600,
-    ) -> Union[asyncio.Lock, threading.Lock, Any]:
+    ) -> asyncio.Lock | threading.Lock | Any:
         """Create a lock of the specified type.
 
         Args:
@@ -541,7 +541,7 @@ class LockFactory:
         name: str,
         lock_type: LockType = LockType.LOCAL_ASYNC,
         timeout: float = 30.0,
-    ) -> AsyncGenerator[None, None]:
+    ) -> AsyncGenerator[None]:
         """Create and acquire a lock in one step.
 
         Args:
@@ -577,7 +577,7 @@ async def acquire_locks(
     *names: str,
     timeout: float = 30.0,
     factory: LockFactory | None = None,
-) -> AsyncGenerator[None, None]:
+) -> AsyncGenerator[None]:
     """Acquire multiple locks in consistent order.
 
     Locks are acquired in sorted order to prevent deadlocks.
@@ -615,7 +615,7 @@ async def acquire_locks(
 def acquire_locks_sync(
     *names: str,
     timeout: float = 30.0,
-) -> Generator[None, None, None]:
+) -> Generator[None]:
     """Acquire multiple sync locks in consistent order.
 
     Args:

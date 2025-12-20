@@ -17,7 +17,7 @@ forced elimination:
 
 import os
 import sys
-from typing import TYPE_CHECKING, Dict, List, Tuple
+from typing import TYPE_CHECKING
 
 import pytest
 

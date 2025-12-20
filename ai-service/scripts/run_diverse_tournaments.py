@@ -37,7 +37,7 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 # Ensure imports work
 ROOT = Path(__file__).resolve().parent.parent
@@ -535,7 +535,7 @@ def print_summary(results: list[TournamentResult]) -> None:
     print(f"Wall time:      {total_duration:.1f}s ({total_duration/60:.1f} min)")
 
     # Group by host
-    hosts_used = set(r.host for r in results)
+    hosts_used = {r.host for r in results}
     print(f"Hosts used:     {len(hosts_used)}")
 
     print("\nPer-configuration breakdown:")

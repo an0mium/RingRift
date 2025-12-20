@@ -36,7 +36,7 @@ import time
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Optional, Union
 
 from scripts.lib.logging_config import get_logger
 
@@ -48,7 +48,7 @@ logger = get_logger(__name__)
 # =============================================================================
 
 
-def get_file_age(path: Union[str, Path]) -> timedelta:
+def get_file_age(path: str | Path) -> timedelta:
     """Get the age of a file as a timedelta.
 
     Args:
@@ -66,7 +66,7 @@ def get_file_age(path: Union[str, Path]) -> timedelta:
     return timedelta(seconds=age_seconds)
 
 
-def get_file_age_hours(path: Union[str, Path]) -> float:
+def get_file_age_hours(path: str | Path) -> float:
     """Get the age of a file in hours.
 
     Args:
@@ -78,7 +78,7 @@ def get_file_age_hours(path: Union[str, Path]) -> float:
     return get_file_age(path).total_seconds() / 3600
 
 
-def get_file_age_days(path: Union[str, Path]) -> float:
+def get_file_age_days(path: str | Path) -> float:
     """Get the age of a file in days.
 
     Args:
@@ -91,7 +91,7 @@ def get_file_age_days(path: Union[str, Path]) -> float:
 
 
 def is_file_older_than(
-    path: Union[str, Path],
+    path: str | Path,
     hours: float | None = None,
     days: float | None = None,
     minutes: float | None = None,
@@ -131,7 +131,7 @@ def is_file_older_than(
 
 
 def find_files_older_than(
-    directory: Union[str, Path],
+    directory: str | Path,
     hours: float | None = None,
     days: float | None = None,
     pattern: str = "*",
@@ -179,7 +179,7 @@ def find_files_older_than(
 
 
 def iter_files_by_age(
-    directory: Union[str, Path],
+    directory: str | Path,
     pattern: str = "*",
     recursive: bool = False,
     newest_first: bool = False,
@@ -379,7 +379,7 @@ def timestamp_iso_utc() -> str:
 # =============================================================================
 
 
-def parse_timestamp(value: Union[str, int, float, datetime]) -> datetime:
+def parse_timestamp(value: str | int | float | datetime) -> datetime:
     """Parse a timestamp from various formats.
 
     Handles:
@@ -434,7 +434,7 @@ def parse_timestamp(value: Union[str, int, float, datetime]) -> datetime:
 
 
 def parse_timestamp_safe(
-    value: Union[str, int, float, datetime, None],
+    value: str | int | float | datetime | None,
     default: datetime | None = None,
 ) -> datetime | None:
     """Parse a timestamp, returning default on failure.
@@ -455,7 +455,7 @@ def parse_timestamp_safe(
         return default
 
 
-def timestamp_age(value: Union[str, int, float, datetime]) -> timedelta:
+def timestamp_age(value: str | int | float | datetime) -> timedelta:
     """Calculate the age of a timestamp.
 
     Args:

@@ -52,7 +52,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 # Add ai-service to path
 ROOT = Path(__file__).resolve().parent.parent

@@ -624,7 +624,7 @@ def record_nfs_skip(category: str) -> None:
 
 
 @contextmanager
-def time_pipeline_stage(stage: str) -> Generator[None, None, None]:
+def time_pipeline_stage(stage: str) -> Generator[None]:
     """Context manager to time a pipeline stage.
 
     Usage:

@@ -39,7 +39,7 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 # Add ai-service to path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

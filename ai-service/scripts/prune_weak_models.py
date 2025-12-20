@@ -16,7 +16,6 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
 
 AI_SERVICE_ROOT = Path(__file__).parent.parent
 MODELS_DIR = AI_SERVICE_ROOT / "models"

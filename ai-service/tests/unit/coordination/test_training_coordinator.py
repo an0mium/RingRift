@@ -9,7 +9,7 @@ import sqlite3
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest

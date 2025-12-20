@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:

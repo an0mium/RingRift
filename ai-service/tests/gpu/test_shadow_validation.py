@@ -10,7 +10,6 @@ This is Phase 2 infrastructure - the safety net for GPU move generation.
 """
 
 import random
-from typing import List, Tuple
 from unittest.mock import MagicMock, patch
 
 import pytest

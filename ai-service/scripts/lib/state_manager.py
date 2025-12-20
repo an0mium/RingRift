@@ -35,7 +35,7 @@ import json
 from collections.abc import Callable
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any, Dict, Generic, Optional, Type, TypeVar, Union
+from typing import Any, Generic, Optional, TypeVar, Union
 
 from scripts.lib.logging_config import get_logger
 
@@ -66,7 +66,7 @@ class StateManager(Generic[T]):
 
     def __init__(
         self,
-        state_file: Union[str, Path],
+        state_file: str | Path,
         state_class: type[T],
         default_factory: Callable[[], T] | None = None,
     ):
@@ -201,7 +201,7 @@ class StatePersistence:
     """
 
     @classmethod
-    def load_from_file(cls, path: Union[str, Path]) -> StatePersistence:
+    def load_from_file(cls, path: str | Path) -> StatePersistence:
         """Load state from JSON file.
 
         Args:
@@ -227,7 +227,7 @@ class StatePersistence:
             logger.warning(f"Failed to load state from {path}: {e}")
             return cls()
 
-    def save_to_file(self, path: Union[str, Path]) -> bool:
+    def save_to_file(self, path: str | Path) -> bool:
         """Save state to JSON file.
 
         Args:
@@ -260,7 +260,7 @@ class StatePersistence:
 
 
 def load_json_state(
-    path: Union[str, Path],
+    path: str | Path,
     default: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Load state from a JSON file, returning default if not found.
@@ -290,7 +290,7 @@ def load_json_state(
 
 
 def save_json_state(
-    path: Union[str, Path],
+    path: str | Path,
     state: dict[str, Any],
 ) -> bool:
     """Save state dictionary to a JSON file.

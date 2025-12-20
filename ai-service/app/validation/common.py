@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from re import Pattern
-from typing import Any, Union
+from typing import Any
 
 from app.validation.core import ValidationResult, Validator
 
@@ -40,8 +40,8 @@ __all__ = [
 # =============================================================================
 
 def in_range(
-    min_val: Union[int, float],
-    max_val: Union[int, float],
+    min_val: int | float,
+    max_val: int | float,
     inclusive: bool = True,
 ) -> Validator:
     """Create a validator that checks if value is in range.
@@ -107,7 +107,7 @@ def is_not_empty(value: Any) -> ValidationResult:
 
 
 def matches_pattern(
-    pattern: Union[str, Pattern],
+    pattern: str | Pattern,
     flags: int = 0,
 ) -> Validator:
     """Create a validator that checks if value matches a regex pattern.

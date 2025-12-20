@@ -38,7 +38,7 @@ import time
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 from scripts.lib.process import is_process_running
 
@@ -250,7 +250,7 @@ class ServiceHealth:
     response_data: dict[str, Any] = field(default_factory=dict)
 
 
-def check_disk_space(path: Union[str, Path] = "/") -> DiskHealth:
+def check_disk_space(path: str | Path = "/") -> DiskHealth:
     """Check disk space for a path.
 
     Args:
@@ -448,7 +448,7 @@ def check_gpus() -> list[GPUInfo]:
 
 
 def check_system_health(
-    disk_path: Union[str, Path] = "/",
+    disk_path: str | Path = "/",
     include_gpus: bool = True,
 ) -> SystemHealth:
     """Check overall system health.

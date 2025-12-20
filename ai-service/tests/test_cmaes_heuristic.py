@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import List
 
 # Ensure app/ is importable when running tests directly
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

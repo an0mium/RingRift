@@ -29,7 +29,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
 import numpy as np
 import torch
@@ -843,7 +843,7 @@ class PFSPOpponentPool:
         """Get all opponents in the pool."""
         return list(self._opponents.values())
 
-    def save_pool(self, path: Union[str, Path]) -> None:
+    def save_pool(self, path: str | Path) -> None:
         """Save pool state to file."""
         import json
 
@@ -873,7 +873,7 @@ class PFSPOpponentPool:
         with open(path, 'w') as f:
             json.dump(data, f, indent=2)
 
-    def load_pool(self, path: Union[str, Path]) -> None:
+    def load_pool(self, path: str | Path) -> None:
         """Load pool state from file."""
         import json
 

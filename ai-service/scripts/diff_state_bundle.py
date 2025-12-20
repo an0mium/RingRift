@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from app.rules.serialization import deserialize_game_state
 from scripts import debug_ts_python_state_diff as dbg  # type: ignore

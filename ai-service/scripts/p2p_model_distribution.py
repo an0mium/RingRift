@@ -40,7 +40,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 # Try to import bencodepy, fall back to simple implementation
 try:
@@ -584,7 +584,7 @@ def download_models(
 
     # Check which models we already have
     dest_dir.mkdir(parents=True, exist_ok=True)
-    existing = set(f.name for f in dest_dir.glob("*.pth"))
+    existing = {f.name for f in dest_dir.glob("*.pth")}
     to_download = [m for m in models if m not in existing]
 
     print(f"Found {len(models)} models on source, {len(existing)} already downloaded")

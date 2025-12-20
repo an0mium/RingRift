@@ -29,7 +29,6 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import List
 
 # Allow imports from app/
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

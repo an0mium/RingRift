@@ -22,7 +22,7 @@ import traceback
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from app.game_engine import GameEngine
 from app.models import GameState, MoveType
@@ -205,7 +205,7 @@ def replay_and_analyze_game(
 
             # Record near-misses (2 out of 3 eligibility conditions met)
             if n_met == 2 and len(stats.near_misses) < 100:
-                missing = set(['no_stacks', 'has_markers', 'has_buried']) - set(analysis['condition_flags'])
+                missing = {'no_stacks', 'has_markers', 'has_buried'} - set(analysis['condition_flags'])
                 stats.near_misses.append({
                     'game_file': game_file,
                     'game_index': game_index,

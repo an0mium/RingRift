@@ -831,7 +831,7 @@ def training_slot(
     num_players: int,
     model_version: str = "",
     timeout: int = 60,
-) -> Generator[str | None, None, None]:
+) -> Generator[str | None]:
     """Context manager for training slot.
 
     Usage:

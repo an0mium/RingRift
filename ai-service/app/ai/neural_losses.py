@@ -8,7 +8,6 @@ December 2025: Extracted from neural_net.py as part of N7 refactoring.
 
 from __future__ import annotations
 
-from typing import Union
 
 import torch
 
@@ -19,7 +18,7 @@ MAX_PLAYERS = 4
 def multi_player_value_loss(
     pred_values: torch.Tensor,
     target_values: torch.Tensor,
-    num_players: Union[int, torch.Tensor],
+    num_players: int | torch.Tensor,
 ) -> torch.Tensor:
     """
     MSE loss for multi-player value predictions.
@@ -290,7 +289,7 @@ def masked_policy_kl(
 
 def build_rank_targets(
     values_mp: torch.Tensor,
-    num_players: Union[int, torch.Tensor],
+    num_players: int | torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Build per-player rank distributions from value vectors.
 

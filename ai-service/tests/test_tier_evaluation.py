@@ -176,8 +176,7 @@ class TestTierEvaluationCli:
         proc = subprocess.run(
             cmd,
             cwd=ROOT,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
         )
 
@@ -385,8 +384,7 @@ def test_run_tier_gate_cli_multiboard_sq19_smoke(tmp_path) -> None:
     proc = subprocess.run(
         cmd,
         cwd=ROOT,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
     )
 

@@ -18,7 +18,7 @@ Key Features:
 import logging
 import os
 from collections.abc import Iterator
-from typing import Any, Union
+from typing import Any
 
 import numpy as np
 
@@ -484,7 +484,7 @@ class StreamingDataLoader:
 
     def __init__(
         self,
-        data_paths: Union[str, list[str]],
+        data_paths: str | list[str],
         batch_size: int = 32,
         shuffle: bool = True,
         filter_empty_policies: bool = True,
@@ -986,7 +986,7 @@ class StreamingDataset(IterableDataset):  # type: ignore[type-arg]
 
     def __init__(
         self,
-        data_paths: Union[str, list[str]],
+        data_paths: str | list[str],
         batch_size: int = 32,
         shuffle: bool = True,
         filter_empty_policies: bool = True,
@@ -1062,7 +1062,7 @@ class WeightedStreamingDataLoader(StreamingDataLoader):
 
     def __init__(
         self,
-        data_paths: Union[str, list[str]],
+        data_paths: str | list[str],
         batch_size: int = 32,
         shuffle: bool = True,
         filter_empty_policies: bool = True,
@@ -1076,7 +1076,7 @@ class WeightedStreamingDataLoader(StreamingDataLoader):
         late_game_exponent: float = 2.0,
         phase_weights: dict | None = None,
         engine_weights: dict | None = None,
-        file_weights: Union[list[float], dict] | None = None,
+        file_weights: list[float] | dict | None = None,
         file_weight_mode: str = 'recency',
     ):
         """
@@ -1874,7 +1874,7 @@ class PrefetchIterator:
 
 
 def prefetch_loader(
-    loader: Union[StreamingDataLoader, WeightedStreamingDataLoader],
+    loader: StreamingDataLoader | WeightedStreamingDataLoader,
     prefetch_count: int = 2,
     pin_memory: bool = False,
     use_mp: bool = False,

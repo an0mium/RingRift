@@ -31,6 +31,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -336,6 +337,35 @@ async def cmd_fill_idle(args) -> int:
     return 0
 
 
+async def cmd_sync_jobs(args) -> int:
+    """Sync backend job states into the unified scheduler database."""
+    scheduler = get_scheduler()
+
+    if args.once:
+        updates = await scheduler.sync_job_states()
+        if args.json:
+            print(json.dumps({"updates": updates}, indent=2))
+        else:
+            print(f"sync_jobs updates={updates}")
+        return 0
+
+    end_time = None if args.duration <= 0 else (time.time() + args.duration)
+    while True:
+        updates = await scheduler.sync_job_states()
+        if args.json:
+            print(json.dumps({"ts": time.time(), "updates": updates}))
+        else:
+            stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+            print(f"{stamp} sync_jobs updates={updates}")
+
+        if end_time is not None and time.time() >= end_time:
+            break
+
+        await asyncio.sleep(args.interval)
+
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Unified Cluster Job Submission CLI",
@@ -407,6 +437,13 @@ def main():
     fill_parser.add_argument("--max-jobs", type=int, default=10, help="Max jobs to submit")
     fill_parser.add_argument("--dry-run", action="store_true", help="Don't actually submit")
 
+    # sync-jobs
+    sync_parser = subparsers.add_parser("sync-jobs", help="Sync backend job states into the unified DB")
+    sync_parser.add_argument("--once", action="store_true", help="Sync once and exit")
+    sync_parser.add_argument("--interval", type=int, default=60, help="Sync interval in seconds")
+    sync_parser.add_argument("--duration", type=int, default=600, help="Total run time in seconds (0 = forever)")
+    sync_parser.add_argument("--json", action="store_true", help="Output JSON per sync")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -424,6 +461,7 @@ def main():
         "slurm-submit": cmd_slurm_submit,
         "cancel": cmd_cancel,
         "fill-idle": cmd_fill_idle,
+        "sync-jobs": cmd_sync_jobs,
     }
 
     cmd_func = cmd_map.get(args.command)

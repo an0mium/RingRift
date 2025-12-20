@@ -38,7 +38,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Union
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -258,7 +258,7 @@ class StateMachine:
         """Get state change history."""
         return list(self._history)
 
-    def can_transition_to(self, target: Union[State, str]) -> bool:
+    def can_transition_to(self, target: State | str) -> bool:
         """Check if transition to target state is valid.
 
         Args:
@@ -281,7 +281,7 @@ class StateMachine:
 
     def transition_to(
         self,
-        target: Union[State, str],
+        target: State | str,
         *,
         force: bool = False,
     ) -> bool:
@@ -361,7 +361,7 @@ class StateMachine:
 
         return True
 
-    def _resolve_state(self, state: Union[State, str]) -> State:
+    def _resolve_state(self, state: State | str) -> State:
         """Resolve a state reference to a State object."""
         if isinstance(state, State):
             return state

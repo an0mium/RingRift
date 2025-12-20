@@ -26,7 +26,7 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 if str(AI_SERVICE_ROOT) not in sys.path:
@@ -36,7 +36,7 @@ from app.distributed.hosts import HostConfig, SSHExecutor, load_remote_hosts
 
 
 def _shell_join(parts: Sequence[str]) -> str:
-    return " ".join(shlex.quote(p) for p in parts)
+    return shlex.join(parts)
 
 
 def _parse_board(value: str | None) -> str | None:

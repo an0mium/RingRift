@@ -33,7 +33,7 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
 import numpy as np
 
@@ -85,9 +85,9 @@ class EnsemblePredictor:
 
     def __init__(
         self,
-        model_paths: list[Union[str, Path]] | None = None,
+        model_paths: list[str | Path] | None = None,
         model_configs: list[ModelConfig] | None = None,
-        strategy: Union[str, EnsembleStrategy] = EnsembleStrategy.WEIGHTED,
+        strategy: str | EnsembleStrategy = EnsembleStrategy.WEIGHTED,
         temperature: float = 1.0,
         min_agreement_threshold: float = 0.5,
         device: str = "cpu",
@@ -468,7 +468,7 @@ class DynamicEnsemble(EnsemblePredictor):
 
     def __init__(
         self,
-        model_paths: list[Union[str, Path]] | None = None,
+        model_paths: list[str | Path] | None = None,
         model_configs: list[ModelConfig] | None = None,
         learning_rate: float = 0.01,
         **kwargs,

@@ -23,7 +23,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 from scripts.lib.logging_config import setup_script_logging
 from scripts.lib.paths import AI_SERVICE_ROOT, LOGS_DIR

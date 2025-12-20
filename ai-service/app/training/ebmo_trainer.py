@@ -448,9 +448,9 @@ class EBMOTrainer:
 
         for batch_idx, batch in enumerate(train_loader):
             # Move to device
-            board_feat, global_feat, pos_action, neg_actions, outcomes = [
+            board_feat, global_feat, pos_action, neg_actions, outcomes = (
                 x.to(self.device) for x in batch
-            ]
+            )
 
             batch_size = board_feat.shape[0]
             num_samples += batch_size
@@ -551,9 +551,9 @@ class EBMOTrainer:
 
         with torch.no_grad():
             for batch in val_loader:
-                board_feat, global_feat, pos_action, neg_actions, outcomes = [
+                board_feat, global_feat, pos_action, neg_actions, outcomes = (
                     x.to(self.device) for x in batch
-                ]
+                )
 
                 batch_size = board_feat.shape[0]
 

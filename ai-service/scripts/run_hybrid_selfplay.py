@@ -38,7 +38,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -354,7 +354,6 @@ def run_hybrid_selfplay(
     if engine_mode == "mcts":
         try:
             import hashlib
-            from typing import List, Tuple
 
             from app.mcts.improved_mcts import (
                 GameState as MCTSGameState,

@@ -39,7 +39,7 @@ import tempfile
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Optional, TextIO, Union
+from typing import Any, Optional, TextIO, Union
 
 from scripts.lib.logging_config import get_logger
 
@@ -51,7 +51,7 @@ logger = get_logger(__name__)
 # =============================================================================
 
 
-def is_gzip_file(filepath: Union[str, Path]) -> bool:
+def is_gzip_file(filepath: str | Path) -> bool:
     """Check if a file is gzip-compressed by reading magic bytes.
 
     Args:
@@ -74,7 +74,7 @@ def is_gzip_file(filepath: Union[str, Path]) -> bool:
 
 
 @contextmanager
-def open_jsonl_file(filepath: Union[str, Path]) -> Generator[TextIO, None, None]:
+def open_jsonl_file(filepath: str | Path) -> Generator[TextIO]:
     """Open a JSONL file, automatically detecting gzip compression.
 
     Args:
@@ -102,7 +102,7 @@ def open_jsonl_file(filepath: Union[str, Path]) -> Generator[TextIO, None, None]
 
 
 def read_jsonl_lines(
-    filepath: Union[str, Path],
+    filepath: str | Path,
     limit: int | None = None,
     skip_invalid: bool = True,
 ) -> Iterator[dict[str, Any]]:
@@ -142,7 +142,7 @@ def read_jsonl_lines(
                     raise ValueError(f"Invalid JSON at line {line_num}: {e}") from e
 
 
-def count_jsonl_lines(filepath: Union[str, Path]) -> int:
+def count_jsonl_lines(filepath: str | Path) -> int:
     """Count the number of non-empty lines in a JSONL file.
 
     Args:
@@ -160,7 +160,7 @@ def count_jsonl_lines(filepath: Union[str, Path]) -> int:
 
 
 def write_jsonl_lines(
-    filepath: Union[str, Path],
+    filepath: str | Path,
     records: Iterator[dict[str, Any]],
     compress: bool = False,
     append: bool = False,
@@ -204,7 +204,7 @@ def write_jsonl_lines(
 
 
 def load_json(
-    filepath: Union[str, Path],
+    filepath: str | Path,
     default: Any = None,
     encoding: str = "utf-8",
 ) -> Any:
@@ -235,7 +235,7 @@ def load_json(
 
 
 def load_json_strict(
-    filepath: Union[str, Path],
+    filepath: str | Path,
     encoding: str = "utf-8",
 ) -> Any:
     """Load JSON from a file, raising on errors.
@@ -258,7 +258,7 @@ def load_json_strict(
 
 
 def load_json_if_exists(
-    filepath: Union[str, Path],
+    filepath: str | Path,
     default: Any = None,
 ) -> Any:
     """Load JSON only if file exists, otherwise return default.
@@ -276,7 +276,7 @@ def load_json_if_exists(
 
 
 def save_json(
-    filepath: Union[str, Path],
+    filepath: str | Path,
     data: Any,
     indent: int = 2,
     atomic: bool = True,
@@ -318,7 +318,7 @@ def save_json(
 
 
 def save_json_compact(
-    filepath: Union[str, Path],
+    filepath: str | Path,
     data: Any,
     atomic: bool = True,
 ) -> None:
@@ -333,7 +333,7 @@ def save_json_compact(
 
 
 def update_json(
-    filepath: Union[str, Path],
+    filepath: str | Path,
     updates: dict[str, Any],
     atomic: bool = True,
 ) -> dict[str, Any]:
@@ -366,7 +366,7 @@ def update_json(
 # =============================================================================
 
 
-def get_file_size_mb(filepath: Union[str, Path]) -> float:
+def get_file_size_mb(filepath: str | Path) -> float:
     """Get file size in megabytes.
 
     Args:
@@ -381,7 +381,7 @@ def get_file_size_mb(filepath: Union[str, Path]) -> float:
     return filepath.stat().st_size / (1024 * 1024)
 
 
-def get_uncompressed_size_estimate(filepath: Union[str, Path]) -> int:
+def get_uncompressed_size_estimate(filepath: str | Path) -> int:
     """Estimate uncompressed size of a gzip file.
 
     Note: This uses the gzip footer which stores the original size mod 2^32,

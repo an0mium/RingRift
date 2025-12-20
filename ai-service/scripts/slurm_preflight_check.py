@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:

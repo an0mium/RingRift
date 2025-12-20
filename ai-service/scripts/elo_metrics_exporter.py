@@ -26,7 +26,6 @@ import sqlite3
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 # Prometheus client
 try:

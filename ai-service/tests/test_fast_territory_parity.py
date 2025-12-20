@@ -5,7 +5,6 @@ This test ensures that the optimized NumPy-based territory detection
 produces identical results to the original Python implementation.
 """
 
-from typing import List, Set
 
 import pytest
 

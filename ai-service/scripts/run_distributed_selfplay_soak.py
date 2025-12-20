@@ -61,7 +61,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 try:
     import yaml
@@ -938,7 +938,7 @@ def cleanup_remote_job_artifacts(
     if cleanup_jsonl:
         rm_paths.append(job.log_jsonl)
 
-    rm_arg = " ".join(shlex.quote(p) for p in rm_paths)
+    rm_arg = shlex.join(rm_paths)
     remote_dir = os.path.dirname(job.output_db) or "."
 
     remote_parts = [

@@ -6,7 +6,7 @@ import sys
 import time
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 # Add the parent directory to sys.path to allow imports from app
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

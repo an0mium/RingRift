@@ -56,7 +56,7 @@ import time
 from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 
@@ -70,7 +70,7 @@ try:
     tqdm: Callable[..., Any] = tqdm_lib
 except ImportError:
 
-    def tqdm_fallback(iterable: Any, **kwargs: Any) -> Generator[Any, None, None]:
+    def tqdm_fallback(iterable: Any, **kwargs: Any) -> Generator[Any]:
         """Simple fallback for tqdm."""
         total = kwargs.get("total")
         if total is None and hasattr(iterable, "__len__"):

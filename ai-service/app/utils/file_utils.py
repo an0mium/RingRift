@@ -24,12 +24,11 @@ import tempfile
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from pathlib import Path
-from typing import Union
 
 
 @contextmanager
 def atomic_write(
-    path: Union[str, Path],
+    path: str | Path,
     mode: str = "w",
     encoding: str = "utf-8",
     sync: bool = False,
@@ -90,8 +89,8 @@ def atomic_write(
 
 
 def write_atomic(
-    path: Union[str, Path],
-    content: Union[str, bytes],
+    path: str | Path,
+    content: str | bytes,
     encoding: str = "utf-8",
     sync: bool = False,
 ) -> None:
@@ -115,7 +114,7 @@ def write_atomic(
 
 
 def read_safe(
-    path: Union[str, Path],
+    path: str | Path,
     default: str | None = None,
     encoding: str = "utf-8",
 ) -> str | None:
@@ -143,7 +142,7 @@ def read_safe(
 
 
 def read_bytes_safe(
-    path: Union[str, Path],
+    path: str | Path,
     default: bytes | None = None,
 ) -> bytes | None:
     """Read a binary file safely with fallback on error.
@@ -165,7 +164,7 @@ def read_bytes_safe(
         return default
 
 
-def file_exists(path: Union[str, Path]) -> bool:
+def file_exists(path: str | Path) -> bool:
     """Check if a file exists (not a directory).
 
     Args:
@@ -178,7 +177,7 @@ def file_exists(path: Union[str, Path]) -> bool:
     return path.exists() and path.is_file()
 
 
-def ensure_file_dir(path: Union[str, Path]) -> Path:
+def ensure_file_dir(path: str | Path) -> Path:
     """Ensure the parent directory of a file exists.
 
     Args:
@@ -193,7 +192,7 @@ def ensure_file_dir(path: Union[str, Path]) -> Path:
 
 
 def backup_file(
-    path: Union[str, Path],
+    path: str | Path,
     suffix: str = ".bak",
     overwrite: bool = True,
 ) -> Path | None:
@@ -221,7 +220,7 @@ def backup_file(
     return backup_path
 
 
-def remove_safe(path: Union[str, Path]) -> bool:
+def remove_safe(path: str | Path) -> bool:
     """Remove a file, returning success status.
 
     Args:
@@ -238,7 +237,7 @@ def remove_safe(path: Union[str, Path]) -> bool:
         return False
 
 
-def get_file_size(path: Union[str, Path]) -> int:
+def get_file_size(path: str | Path) -> int:
     """Get file size in bytes, or 0 if file doesn't exist.
 
     Args:
@@ -254,7 +253,7 @@ def get_file_size(path: Union[str, Path]) -> int:
         return 0
 
 
-def get_file_mtime(path: Union[str, Path]) -> float:
+def get_file_mtime(path: str | Path) -> float:
     """Get file modification time as Unix timestamp.
 
     Args:

@@ -3,7 +3,7 @@
 Provides common fixtures for comparing GPU and CPU implementations.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import numpy as np
 import pytest

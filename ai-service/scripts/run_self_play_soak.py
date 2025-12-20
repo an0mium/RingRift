@@ -68,7 +68,7 @@ import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Optional, cast
 
 # Ensure `app.*` imports resolve when run from ai-service/
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))

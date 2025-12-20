@@ -23,7 +23,7 @@ import sqlite3
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 # Add project root to path
 SCRIPT_DIR = Path(__file__).parent

@@ -39,7 +39,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 # Add project root
 SCRIPT_DIR = Path(__file__).parent

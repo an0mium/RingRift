@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Union
 
 __all__ = [
     "DEFAULT_CHUNK_SIZE",
@@ -49,7 +48,7 @@ LARGE_CHUNK_SIZE = 65536
 
 
 def compute_file_checksum(
-    path: Union[str, Path],
+    path: str | Path,
     *,
     algorithm: str = "sha256",
     chunk_size: int = DEFAULT_CHUNK_SIZE,
@@ -168,7 +167,7 @@ def compute_string_checksum(
 
 
 def verify_file_checksum(
-    path: Union[str, Path],
+    path: str | Path,
     expected_checksum: str,
     *,
     algorithm: str = "sha256",

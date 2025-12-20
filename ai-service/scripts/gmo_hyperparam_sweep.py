@@ -27,7 +27,7 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -352,7 +352,7 @@ def analyze_results(results: list[SweepResult]) -> dict:
     # Analyze parameter importance
     param_importance = {}
     for param in ["optim_steps", "lr", "beta", "gamma", "top_k"]:
-        values = set(r.config.get(param) for r in results)
+        values = {r.config.get(param) for r in results}
         if len(values) > 1:
             avg_by_value = {}
             for v in values:

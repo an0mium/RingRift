@@ -1165,7 +1165,7 @@ class SlurmBackend(OrchestratorBackend):
 
         extra_args = kwargs.get("extra_args", [])
         cmd_parts.extend([str(a) for a in extra_args])
-        command = " ".join(shlex.quote(p) for p in cmd_parts)
+        command = shlex.join(cmd_parts)
 
         job_id, error, script_path = await self._submit_job(
             job_name,
@@ -1295,7 +1295,7 @@ class SlurmBackend(OrchestratorBackend):
 
         extra_args = kwargs.get("extra_args", [])
         cmd_parts.extend([str(a) for a in extra_args])
-        command = " ".join(shlex.quote(p) for p in cmd_parts)
+        command = shlex.join(cmd_parts)
 
         job_name = f"ringrift-training-{board_type}-{num_players}p"
         job_id, error, script_path = await self._submit_job(

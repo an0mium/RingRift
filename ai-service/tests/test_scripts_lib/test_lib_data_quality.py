@@ -9,7 +9,7 @@ Tests cover:
 """
 
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 

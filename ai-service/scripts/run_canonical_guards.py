@@ -24,7 +24,6 @@ import random
 import subprocess
 import sys
 from pathlib import Path
-from typing import List
 
 from app.db import GameReplayDB
 from app.rules.history_validation import (

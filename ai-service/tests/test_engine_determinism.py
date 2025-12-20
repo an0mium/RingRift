@@ -9,7 +9,7 @@ and canonical hashes on repeated runs (RR‑CANON R190).
 import os
 import sys
 from datetime import datetime
-from typing import Any, Dict, Tuple
+from typing import Any
 
 # Ensure app package is importable when running tests directly.
 # Mirrors the pattern used in other ai-service tests.

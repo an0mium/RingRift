@@ -20,7 +20,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 # Ensure ai-service root on path for scripts/lib imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

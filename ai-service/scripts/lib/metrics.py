@@ -47,7 +47,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from scripts.lib.datetime_utils import format_elapsed_time
 

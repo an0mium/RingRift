@@ -6,7 +6,6 @@ boards. The HexStateEncoder class handles the conversion of hex game states
 to feature tensors suitable for the HexNeuralNet model.
 """
 
-from typing import Union
 
 import numpy as np
 
@@ -41,7 +40,7 @@ from app.rules.geometry import BoardGeometry
 def encode_legal_moves(
     moves: list[Move],
     neural_net: NeuralNetAI,
-    board_context: Union[BoardState, GameState],
+    board_context: BoardState | GameState,
 ) -> list[int]:
     """
     Encode a list of legal moves into their policy indices for the given
@@ -1239,7 +1238,7 @@ def get_encoder_for_board_type(
     board_type: BoardType,
     version: str = "v2",
     feature_version: int = 1,
-) -> Union[HexStateEncoder, HexStateEncoderV3, None]:
+) -> HexStateEncoder | HexStateEncoderV3 | None:
     """
     Get the appropriate encoder for a board type.
 

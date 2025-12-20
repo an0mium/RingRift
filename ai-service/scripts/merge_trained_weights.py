@@ -34,7 +34,7 @@ import json
 import os
 import sys
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -160,7 +160,7 @@ def merge_weights_average(
         raise ValueError("No valid weight files loaded")
 
     # Validate all files have same player count
-    player_counts = set(np for _, _, np, _ in all_weights)
+    player_counts = {np for _, _, np, _ in all_weights}
 
     if len(player_counts) > 1:
         raise ValueError(

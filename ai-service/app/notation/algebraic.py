@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Union
 
 from app.models import BoardType, GameState, Move, MoveType, Position
 
@@ -332,7 +331,7 @@ def moves_to_notation_list(
 
 def game_to_pgn(
     moves: list[Move],
-    metadata: dict[str, Union[str, int, None]],
+    metadata: dict[str, str | int | None],
     board_type: BoardType,
 ) -> str:
     """Generate PGN-style game record.

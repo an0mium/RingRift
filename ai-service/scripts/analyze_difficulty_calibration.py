@@ -19,7 +19,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 # Ensure app/ is importable when running as a script.
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

@@ -48,7 +48,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 # Ensure `app.*` imports resolve when invoked from repo root.

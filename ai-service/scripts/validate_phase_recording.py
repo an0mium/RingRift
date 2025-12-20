@@ -18,7 +18,7 @@ import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Optional
 
 # Add ai-service to path
 sys.path.insert(0, str(Path(__file__).parent.parent))

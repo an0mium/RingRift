@@ -20,7 +20,7 @@ import os
 import sqlite3
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

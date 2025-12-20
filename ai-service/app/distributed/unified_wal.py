@@ -129,7 +129,7 @@ class ConnectionPool:
         return conn
 
     @contextmanager
-    def get_connection(self) -> Generator[sqlite3.Connection, None, None]:
+    def get_connection(self) -> Generator[sqlite3.Connection]:
         """Get a database connection from the pool (thread-local).
 
         Returns existing connection if available, creates new one if needed.
@@ -320,7 +320,7 @@ class UnifiedWAL:
         self._init_db()
 
     @contextmanager
-    def _get_connection(self) -> Generator[sqlite3.Connection, None, None]:
+    def _get_connection(self) -> Generator[sqlite3.Connection]:
         """Get a database connection (uses pool if available).
 
         Yields:

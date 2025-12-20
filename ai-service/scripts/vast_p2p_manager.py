@@ -22,7 +22,6 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import List, Tuple
 
 from scripts.lib.ssh import run_vast_ssh_command
 

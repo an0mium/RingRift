@@ -28,7 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from app.db.game_replay import BoardType, GameReplayDB
 

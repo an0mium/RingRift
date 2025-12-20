@@ -644,6 +644,98 @@ class UnifiedScheduler:
 
         return success
 
+    def _map_slurm_state(self, state: "SlurmJobState") -> JobState:
+        from app.coordination.slurm_backend import SlurmJobState
+
+        if state == SlurmJobState.RUNNING:
+            return JobState.RUNNING
+        if state == SlurmJobState.PENDING:
+            return JobState.QUEUED
+        if state == SlurmJobState.COMPLETED:
+            return JobState.COMPLETED
+        if state == SlurmJobState.CANCELLED:
+            return JobState.CANCELLED
+        if state in (SlurmJobState.FAILED, SlurmJobState.TIMEOUT, SlurmJobState.NODE_FAIL):
+            return JobState.FAILED
+        return JobState.UNKNOWN
+
+    def _sync_slurm_job_states(
+        self,
+        slurm_jobs: dict[int, "SlurmJobStatus"],
+        stale_after_seconds: float = 120.0,
+    ) -> int:
+        """Sync slurm job states into the unified jobs table."""
+        if not slurm_jobs:
+            return 0
+
+        now = time.time()
+        slurm_state_map = {
+            str(job_id): self._map_slurm_state(job.state)
+            for job_id, job in slurm_jobs.items()
+        }
+        updates = 0
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT unified_id, backend_job_id, state, created_at
+                FROM jobs
+                WHERE backend = ?
+                  AND backend_job_id IS NOT NULL
+                  AND state IN (?, ?, ?)
+                """,
+                (
+                    Backend.SLURM.value,
+                    JobState.PENDING.value,
+                    JobState.QUEUED.value,
+                    JobState.RUNNING.value,
+                ),
+            ).fetchall()
+
+            for row in rows:
+                backend_id = row["backend_job_id"]
+                current_state = row["state"]
+                desired_state = slurm_state_map.get(str(backend_id))
+
+                if desired_state and desired_state.value != current_state:
+                    conn.execute(
+                        "UPDATE jobs SET state = ? WHERE unified_id = ?",
+                        (desired_state.value, row["unified_id"]),
+                    )
+                    updates += 1
+                    continue
+
+                if (
+                    desired_state is None
+                    and current_state != JobState.UNKNOWN.value
+                    and row["created_at"]
+                    and (now - float(row["created_at"])) >= stale_after_seconds
+                ):
+                    conn.execute(
+                        "UPDATE jobs SET state = ? WHERE unified_id = ?",
+                        (JobState.UNKNOWN.value, row["unified_id"]),
+                    )
+                    updates += 1
+
+            conn.commit()
+
+        return updates
+
+    async def sync_job_states(
+        self,
+        slurm_jobs: dict[int, "SlurmJobStatus"] | None = None,
+    ) -> dict[str, int]:
+        """Sync backend job states into the unified jobs table."""
+        updates = {"slurm": 0}
+
+        if self.enable_slurm:
+            if slurm_jobs is None:
+                slurm_jobs = await self.slurm.get_jobs(refresh=True)
+            updates["slurm"] = self._sync_slurm_job_states(slurm_jobs)
+
+        return updates
+
     async def get_cluster_status(self) -> dict[str, Any]:
         """Get overall cluster status across all backends."""
         status = {
@@ -654,13 +746,21 @@ class UnifiedScheduler:
         }
 
         # Slurm status
+        slurm_jobs = None
         if self.enable_slurm:
+            from app.coordination.slurm_backend import SlurmJobState
+
             try:
                 nodes = await self.slurm.get_nodes(refresh=True)
                 jobs = await self.slurm.get_jobs(refresh=True)
+                slurm_jobs = jobs
                 status["slurm"]["nodes"] = len(nodes)
                 status["slurm"]["jobs"] = len(jobs)
                 status["slurm"]["idle_nodes"] = sum(1 for n in nodes.values() if n.is_idle)
+                status["slurm"]["jobs_running"] = sum(1 for j in jobs.values() if j.is_running)
+                status["slurm"]["jobs_pending"] = sum(
+                    1 for j in jobs.values() if j.state == SlurmJobState.PENDING
+                )
             except Exception as e:
                 status["slurm"]["error"] = str(e)
 
@@ -672,6 +772,9 @@ class UnifiedScheduler:
                 status["vast"]["running"] = sum(1 for i in instances if i.get("cur_state") == "running")
             except Exception as e:
                 status["vast"]["error"] = str(e)
+
+        # Keep unified job states aligned with backend status.
+        await self.sync_job_states(slurm_jobs=slurm_jobs)
 
         # Job counts from database
         with sqlite3.connect(self.db_path) as conn:

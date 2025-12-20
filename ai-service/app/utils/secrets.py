@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any, Union
+from typing import Any
 
 __all__ = [
     "SENSITIVE_KEY_PATTERNS",
@@ -170,9 +170,9 @@ def sanitize_value(value: Any, key: str | None = None) -> Any:
 
 
 def sanitize_for_log(
-    data: Union[dict[str, Any], Any],
+    data: dict[str, Any] | Any,
     additional_sensitive_keys: set[str] | None = None,
-) -> Union[dict[str, Any], Any]:
+) -> dict[str, Any] | Any:
     """Sanitize a dictionary for safe logging by masking sensitive values.
 
     Args:

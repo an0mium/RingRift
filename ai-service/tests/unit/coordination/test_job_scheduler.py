@@ -12,7 +12,7 @@ Tests the priority-based job scheduling system including:
 
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 from unittest.mock import MagicMock, patch
 
 import pytest

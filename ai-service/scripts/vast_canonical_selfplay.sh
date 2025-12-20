@@ -29,6 +29,12 @@ NUM_GAMES=${NUM_GAMES:-200}
 BOARD_TYPE=${BOARD_TYPE:-square8}
 NUM_PLAYERS=${NUM_PLAYERS:-2}
 DIFFICULTY_BAND=${DIFFICULTY_BAND:-light}
+MIN_RECORDED_GAMES=${MIN_RECORDED_GAMES:-0}
+MAX_SOAK_ATTEMPTS=${MAX_SOAK_ATTEMPTS:-1}
+DB_PATH_OVERRIDE=""
+SUMMARY_PATH_OVERRIDE=""
+RESET_DB=false
+SKIP_RESOURCE_GUARD=false
 RINGRIFT_REPO="https://github.com/SynaptentLLC/RingRift.git"
 
 # Colors for output
@@ -57,6 +63,12 @@ while [[ $# -gt 0 ]]; do
         --board-type) BOARD_TYPE="$2"; shift 2 ;;
         --num-players) NUM_PLAYERS="$2"; shift 2 ;;
         --difficulty-band) DIFFICULTY_BAND="$2"; shift 2 ;;
+        --min-recorded-games) MIN_RECORDED_GAMES="$2"; shift 2 ;;
+        --max-soak-attempts) MAX_SOAK_ATTEMPTS="$2"; shift 2 ;;
+        --db) DB_PATH_OVERRIDE="$2"; shift 2 ;;
+        --summary) SUMMARY_PATH_OVERRIDE="$2"; shift 2 ;;
+        --reset-db) RESET_DB=true; shift ;;
+        --skip-resource-guard) SKIP_RESOURCE_GUARD=true; shift ;;
         --help)
             echo "Usage: $0 [options]"
             echo ""
@@ -69,6 +81,12 @@ while [[ $# -gt 0 ]]; do
             echo "  --board-type TYPE           Board type: square8|square19|hexagonal (default: square8)"
             echo "  --num-players N             Number of players: 2|3|4 (default: 2)"
             echo "  --difficulty-band BAND      AI difficulty: light|canonical (default: light)"
+            echo "  --min-recorded-games N      Ensure at least N games are recorded (default: 0)"
+            echo "  --max-soak-attempts N        Maximum soak attempts when min-recorded-games > 0 (default: 1)"
+            echo "  --db PATH                   Override output DB path"
+            echo "  --summary PATH              Override summary JSON path"
+            echo "  --reset-db                  Delete DB before generating new games"
+            echo "  --skip-resource-guard       Set RINGRIFT_SKIP_RESOURCE_GUARD=1"
             exit 0
             ;;
         *) log_error "Unknown option: $1"; exit 1 ;;
@@ -166,6 +184,8 @@ run_canonical_selfplay() {
     log_info "  Num games: $NUM_GAMES"
     log_info "  Num players: $NUM_PLAYERS"
     log_info "  Difficulty: $DIFFICULTY_BAND"
+    log_info "  Min recorded games: $MIN_RECORDED_GAMES"
+    log_info "  Max soak attempts: $MAX_SOAK_ATTEMPTS"
     
     cd ~/ringrift/ai-service
     source venv/bin/activate
@@ -175,6 +195,9 @@ run_canonical_selfplay() {
     export RINGRIFT_STRICT_NO_MOVE_INVARIANT=1
     export RINGRIFT_PARITY_VALIDATION=strict
     export RINGRIFT_FORCE_BOOKKEEPING_MOVES=1
+    if $SKIP_RESOURCE_GUARD; then
+        export RINGRIFT_SKIP_RESOURCE_GUARD=1
+    fi
     
     # Create data directories
     mkdir -p data/games logs/selfplay
@@ -182,15 +205,30 @@ run_canonical_selfplay() {
     # Determine output paths
     DB_PATH="data/games/canonical_${BOARD_TYPE}_${NUM_PLAYERS}p.db"
     SUMMARY_PATH="data/games/canonical_${BOARD_TYPE}_${NUM_PLAYERS}p.summary.json"
+    if [ -n "$DB_PATH_OVERRIDE" ]; then
+        DB_PATH="$DB_PATH_OVERRIDE"
+    fi
+    if [ -n "$SUMMARY_PATH_OVERRIDE" ]; then
+        SUMMARY_PATH="$SUMMARY_PATH_OVERRIDE"
+    fi
     
     # Run canonical selfplay with parity gate
+    GATE_ARGS=(
+        --board-type "$BOARD_TYPE"
+        --num-games "$NUM_GAMES"
+        --num-players "$NUM_PLAYERS"
+        --difficulty-band "$DIFFICULTY_BAND"
+        --min-recorded-games "$MIN_RECORDED_GAMES"
+        --max-soak-attempts "$MAX_SOAK_ATTEMPTS"
+        --db "$DB_PATH"
+        --summary "$SUMMARY_PATH"
+    )
+    if $RESET_DB; then
+        GATE_ARGS+=(--reset-db)
+    fi
+
     python scripts/generate_canonical_selfplay.py \
-        --board-type "$BOARD_TYPE" \
-        --num-games "$NUM_GAMES" \
-        --num-players "$NUM_PLAYERS" \
-        --difficulty-band "$DIFFICULTY_BAND" \
-        --db "$DB_PATH" \
-        --summary "$SUMMARY_PATH" \
+        "${GATE_ARGS[@]}" \
         2>&1 | tee "logs/selfplay/canonical_${BOARD_TYPE}_${NUM_PLAYERS}p.log"
     
     RC=$?

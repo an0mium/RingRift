@@ -14,7 +14,6 @@ See Also:
     - app/ai/shadow_validation.py (Runtime validation infrastructure)
 """
 
-from typing import Set, Tuple
 
 import pytest
 import torch

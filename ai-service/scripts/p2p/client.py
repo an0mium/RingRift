@@ -36,7 +36,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 DEFAULT_PORT = 8770
 DEFAULT_TIMEOUT = 30

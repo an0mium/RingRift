@@ -8,7 +8,7 @@ from NPZ format to HDF5 format with data integrity preserved.
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 import pytest

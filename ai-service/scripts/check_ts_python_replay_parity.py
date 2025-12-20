@@ -73,7 +73,7 @@ import tempfile
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 from scripts.lib.paths import AI_SERVICE_ROOT, REPO_ROOT
 
@@ -930,8 +930,7 @@ def _dump_ts_states_for_ks(
         cmd,
         cwd=str(root),
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
     )
     if proc.returncode != 0:

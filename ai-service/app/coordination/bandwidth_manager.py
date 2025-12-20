@@ -612,7 +612,7 @@ def bandwidth_allocation(
     host: str,
     estimated_mb: int,
     priority: TransferPriority = TransferPriority.NORMAL,
-) -> Generator[BandwidthAllocation, None, None]:
+) -> Generator[BandwidthAllocation]:
     """Context manager for bandwidth allocation.
 
     Usage:

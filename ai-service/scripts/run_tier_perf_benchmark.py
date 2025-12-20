@@ -15,7 +15,7 @@ import argparse
 import json
 import os
 import sys
-from typing import Any, Dict
+from typing import Any
 
 # Ensure app/ is importable when running as a script.
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

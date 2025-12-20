@@ -35,7 +35,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Union
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -508,7 +508,7 @@ class FunctionHealthCheck(HealthCheck):
 
     def __init__(
         self,
-        check_func: Callable[[], Union[HealthStatus, bool]],
+        check_func: Callable[[], HealthStatus | bool],
         name: str = "function_check",
     ):
         self._check_func = check_func

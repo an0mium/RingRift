@@ -66,7 +66,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 # Ensure `app.*` imports resolve
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))

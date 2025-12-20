@@ -19,7 +19,6 @@ import argparse
 import os
 import sys
 import time
-from typing import Dict, List, Tuple
 
 # Ensure imports work when running from ai-service/
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))

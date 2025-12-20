@@ -19,7 +19,7 @@ import argparse
 import json
 import os
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)

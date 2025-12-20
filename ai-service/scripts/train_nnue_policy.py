@@ -35,7 +35,7 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -751,8 +751,8 @@ def train_nnue_policy(
     val_dataset = torch.utils.data.Subset(dataset, val_indices)
 
     # Count unique games in each split
-    train_game_ids = set(dataset.samples[i].game_id for i in train_indices)
-    val_game_ids = set(dataset.samples[i].game_id for i in val_indices)
+    train_game_ids = {dataset.samples[i].game_id for i in train_indices}
+    val_game_ids = {dataset.samples[i].game_id for i in val_indices}
     logger.info(f"Train size: {len(train_dataset)} samples from {len(train_game_ids)} games")
     logger.info(f"Val size: {len(val_dataset)} samples from {len(val_game_ids)} games")
 

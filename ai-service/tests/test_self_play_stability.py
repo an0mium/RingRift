@@ -16,7 +16,6 @@ RINGRIFT_SELFPLAY_STABILITY_GAMES env var.
 import os
 import random
 import sys
-from typing import Dict
 
 import pytest
 

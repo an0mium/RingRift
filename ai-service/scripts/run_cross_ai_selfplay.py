@@ -33,7 +33,7 @@ import uuid
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 # NOTE: Shadow contracts are now enabled to validate training data against TS rules.
 # Requires Node.js and compiled TypeScript (npm install && npx tsc -p tsconfig.server.json)

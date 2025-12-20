@@ -35,7 +35,7 @@ import logging
 import os
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Union
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
@@ -205,7 +205,7 @@ class ParallelGameRunner:
 
         # Shadow validation for GPU/CPU parity checking (Phase 2 - move generation)
         # Use async validator by default to prevent GPU blocking during validation
-        self.shadow_validator: Union[ShadowValidator, AsyncShadowValidator] | None = None
+        self.shadow_validator: ShadowValidator | AsyncShadowValidator | None = None
         self._async_shadow_validation = async_shadow_validation
         if shadow_validation:
             if async_shadow_validation:

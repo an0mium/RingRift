@@ -29,7 +29,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +173,7 @@ def create_baseline_ai(
 def create_neural_ai(
     player: int,
     board_type: Any,  # BoardType
-    model_path: Union[str, Path] | None = None,
+    model_path: str | Path | None = None,
     model_getter: Callable[[], Any] | None = None,
     temperature: float = 0.5,
 ) -> Any:
@@ -295,7 +295,7 @@ def play_single_game(
 
 
 def run_baseline_gauntlet(
-    model_path: Union[str, Path] | None = None,
+    model_path: str | Path | None = None,
     board_type: Any = None,  # BoardType
     opponents: list[BaselineOpponent] | None = None,
     games_per_opponent: int = 20,
@@ -444,7 +444,7 @@ def _estimate_elo_from_results(
 
 # Convenience function for quick evaluation
 def quick_evaluate(
-    model_path: Union[str, Path],
+    model_path: str | Path,
     games: int = 10,
 ) -> dict[str, float]:
     """Quick evaluation against baselines.

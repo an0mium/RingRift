@@ -163,7 +163,7 @@ def create_tournament_runner(
 
 def run_quick_tournament(
     agent_ids: list[str],
-    board_type: Union[str, BoardType] = "square8",
+    board_type: str | BoardType = "square8",
     num_players: int = 2,
     games_per_pairing: int = 10,
     scheduler_type: str = "round_robin",

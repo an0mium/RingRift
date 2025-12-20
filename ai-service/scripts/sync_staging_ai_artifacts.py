@@ -37,7 +37,6 @@ import tempfile
 import time
 from collections.abc import Iterable
 from pathlib import Path
-from typing import List
 
 
 def _env_bool(value: str | None) -> bool:
@@ -333,7 +332,7 @@ def main(argv: list[str]) -> int:
                 restart_cmd = (
                     f"cd {_shell_quote_path(remote_root)} && "
                     f"docker compose -f {shlex.quote(compose_file)} up -d --force-recreate "
-                    + " ".join(shlex.quote(s) for s in services)
+                    + shlex.join(services)
                 )
                 ssh_cmd = _ssh_base_args(args) + [restart_cmd]
                 result = _run(ssh_cmd, check=False)

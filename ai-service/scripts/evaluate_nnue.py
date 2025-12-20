@@ -24,7 +24,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Optional
 
 # Add the parent directory to sys.path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

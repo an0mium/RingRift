@@ -21,7 +21,7 @@ import json
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 # Mapping from board_size to board_type
 BOARD_SIZE_TO_TYPE = {

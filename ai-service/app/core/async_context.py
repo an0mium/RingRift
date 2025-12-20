@@ -33,7 +33,6 @@ from typing import (
     Any,
     Generic,
     TypeVar,
-    Union,
 )
 
 logger = logging.getLogger(__name__)
@@ -76,7 +75,7 @@ class TimeoutContext:
 async def timeout_context(
     timeout: float,
     suppress_timeout: bool = False,
-) -> AsyncGenerator[TimeoutContext, None]:
+) -> AsyncGenerator[TimeoutContext]:
     """Async context manager with timeout tracking.
 
     Unlike asyncio.timeout, this provides context about whether
@@ -140,7 +139,7 @@ async def retry_context(
     exponential: bool = True,
     jitter: bool = True,
     retry_on: tuple = (Exception,),
-) -> AsyncGenerator[RetryContext, None]:
+) -> AsyncGenerator[RetryContext]:
     """Async context manager with automatic retry on failure.
 
     Args:
@@ -287,7 +286,7 @@ class ResourcePool(Generic[T]):
     async def acquire(
         self,
         timeout: float | None = None,
-    ) -> AsyncGenerator[T, None]:
+    ) -> AsyncGenerator[T]:
         """Acquire a resource from the pool.
 
         Args:
@@ -460,7 +459,7 @@ class RateLimiter:
 async def rate_limiter(
     rate: float,
     burst: int = 1,
-) -> AsyncGenerator[RateLimiter, None]:
+) -> AsyncGenerator[RateLimiter]:
     """Context manager for rate limiting.
 
     Args:
@@ -504,7 +503,7 @@ class CancellationScope:
 @asynccontextmanager
 async def cancellation_scope(
     shield: bool = False,
-) -> AsyncGenerator[CancellationScope, None]:
+) -> AsyncGenerator[CancellationScope]:
     """Context manager for cancellation-safe operations.
 
     Args:
@@ -544,7 +543,7 @@ async def gather_with_limit(
     *coros: Awaitable[T],
     limit: int = 10,
     return_exceptions: bool = False,
-) -> list[Union[T, Exception]]:
+) -> list[T | Exception]:
     """Like asyncio.gather but with concurrency limit.
 
     Args:

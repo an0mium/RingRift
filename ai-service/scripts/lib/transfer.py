@@ -38,7 +38,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ class TransferResult:
 
 
 def compute_checksum(
-    filepath: Union[str, Path],
+    filepath: str | Path,
     algorithm: str = "md5",
     chunk_size: int = 8192,
 ) -> str:
@@ -214,7 +214,7 @@ def get_remote_checksum(
 
 
 def scp_push(
-    local_path: Union[str, Path],
+    local_path: str | Path,
     host: str,
     port: int,
     remote_path: str,
@@ -324,7 +324,7 @@ def scp_pull(
     host: str,
     port: int,
     remote_path: str,
-    local_path: Union[str, Path],
+    local_path: str | Path,
     config: TransferConfig,
 ) -> TransferResult:
     """Pull a file from a remote host using SCP.
@@ -416,7 +416,7 @@ def scp_pull(
 
 
 def rsync_push(
-    local_path: Union[str, Path],
+    local_path: str | Path,
     host: str,
     port: int,
     remote_path: str,
@@ -539,7 +539,7 @@ def rsync_pull(
     host: str,
     port: int,
     remote_path: str,
-    local_path: Union[str, Path],
+    local_path: str | Path,
     config: TransferConfig,
     delete: bool = False,
     exclude: list[str] | None = None,
@@ -640,8 +640,8 @@ def rsync_pull(
 
 
 def copy_local(
-    source: Union[str, Path],
-    destination: Union[str, Path],
+    source: str | Path,
+    destination: str | Path,
     verify_checksum: bool = True,
 ) -> TransferResult:
     """Copy a local file with optional checksum verification.
@@ -720,8 +720,8 @@ def copy_local(
 
 
 def compress_file(
-    source: Union[str, Path],
-    dest: Union[str, Path] | None = None,
+    source: str | Path,
+    dest: str | Path | None = None,
     level: int = 6,
 ) -> tuple[Path, int]:
     """Compress a file using gzip.
@@ -744,8 +744,8 @@ def compress_file(
 
 
 def decompress_file(
-    source: Union[str, Path],
-    dest: Union[str, Path] | None = None,
+    source: str | Path,
+    dest: str | Path | None = None,
 ) -> tuple[Path, int]:
     """Decompress a gzipped file.
 
@@ -771,7 +771,7 @@ def decompress_file(
 
 
 def verify_transfer(
-    local_path: Union[str, Path],
+    local_path: str | Path,
     host: str,
     remote_path: str,
     config: TransferConfig,

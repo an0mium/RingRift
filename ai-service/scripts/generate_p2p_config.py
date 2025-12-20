@@ -24,7 +24,7 @@ import argparse
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 try:
     import yaml

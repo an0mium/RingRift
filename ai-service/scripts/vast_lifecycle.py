@@ -21,7 +21,6 @@ import json
 import os
 import subprocess
 from datetime import datetime
-from typing import Dict, List
 
 from scripts.lib.paths import LOGS_DIR
 from scripts.lib.ssh import run_vast_ssh_command

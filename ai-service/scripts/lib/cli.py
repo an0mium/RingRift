@@ -28,7 +28,7 @@ import argparse
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 
 from scripts.lib.logging_config import setup_script_logging
 
@@ -434,7 +434,7 @@ def parse_config_key(config_key: str) -> tuple[str, int]:
 
 
 def validate_path_arg(
-    path: Union[str, Path],
+    path: str | Path,
     must_exist: bool = True,
     is_file: bool = False,
     is_dir: bool = False,

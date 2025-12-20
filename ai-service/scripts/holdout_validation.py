@@ -34,7 +34,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 
@@ -242,10 +242,10 @@ def reserve_games_from_db(
             return []
 
         # Get existing holdout game IDs
-        existing = set(
+        existing = {
             row[0] for row in
             conn.execute("SELECT game_id FROM holdout_games").fetchall()
-        )
+        }
 
         for row in cursor:
             game_id = row["game_id"]

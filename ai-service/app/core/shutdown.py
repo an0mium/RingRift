@@ -55,7 +55,7 @@ from collections.abc import Callable, Coroutine
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Union
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ class ShutdownPhase(Enum):
 class ShutdownHook:
     """Registered shutdown hook."""
     name: str
-    handler: Union[Callable[[], None], Callable[[], Coroutine[Any, Any, None]]]
+    handler: Callable[[], None] | Callable[[], Coroutine[Any, Any, None]]
     priority: int = 10
     timeout: float = 10.0
     is_async: bool = False
@@ -182,7 +182,7 @@ class ShutdownManager:
     def register(
         self,
         name: str,
-        handler: Union[Callable[[], None], Callable[[], Coroutine[Any, Any, None]]],
+        handler: Callable[[], None] | Callable[[], Coroutine[Any, Any, None]],
         *,
         priority: int = 10,
         timeout: float = 10.0,

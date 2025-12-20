@@ -17,7 +17,7 @@ import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 AI_SERVICE_ROOT = Path(__file__).parent.parent
 RESULTS_DIR = AI_SERVICE_ROOT / "data" / "cluster_elo_results"

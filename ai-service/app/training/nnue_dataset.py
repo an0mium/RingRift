@@ -1335,8 +1335,7 @@ class NNUEStreamingDataset(IterableDataset):
                     if len(buffer) >= self.buffer_size:
                         rng.shuffle(buffer)
                         # Yield first half of buffer
-                        for item in buffer[:self.buffer_size // 2]:
-                            yield item
+                        yield from buffer[:self.buffer_size // 2]
                         # Keep second half
                         buffer = buffer[self.buffer_size // 2:]
             except Exception as e:
@@ -1345,8 +1344,7 @@ class NNUEStreamingDataset(IterableDataset):
         # Yield remaining samples in buffer
         if buffer:
             rng.shuffle(buffer)
-            for item in buffer:
-                yield item
+            yield from buffer
 
     def _stream_from_db(self, db_path: str) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
         """Stream samples from a single database."""

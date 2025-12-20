@@ -31,7 +31,7 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 # Add ai-service to path
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]

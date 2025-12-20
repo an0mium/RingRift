@@ -13,7 +13,7 @@ intersections vary by scenario to test different territory detection edge cases.
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Optional
 
 import pytest
 

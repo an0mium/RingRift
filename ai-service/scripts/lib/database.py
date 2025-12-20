@@ -39,10 +39,10 @@ UNIFIED_ELO_DB = DATA_DIR / "unified_elo.db"
 
 @contextmanager
 def safe_transaction(
-    db_path: Union[str, Path],
+    db_path: str | Path,
     timeout: float = 30.0,
     row_factory: bool = True,
-) -> Generator[sqlite3.Connection, None, None]:
+) -> Generator[sqlite3.Connection]:
     """Execute a SQLite transaction with automatic rollback on error.
 
     Args:
@@ -74,9 +74,9 @@ def safe_transaction(
 
 @contextmanager
 def read_only_connection(
-    db_path: Union[str, Path],
+    db_path: str | Path,
     timeout: float = 30.0,
-) -> Generator[sqlite3.Connection, None, None]:
+) -> Generator[sqlite3.Connection]:
     """Open a read-only database connection.
 
     Args:
@@ -113,7 +113,7 @@ def get_elo_db_path() -> Path:
     return UNIFIED_ELO_DB
 
 
-def count_games(db_path: Union[str, Path], config_key: str | None = None) -> int:
+def count_games(db_path: str | Path, config_key: str | None = None) -> int:
     """Count games in a database.
 
     Args:
@@ -138,7 +138,7 @@ def count_games(db_path: Union[str, Path], config_key: str | None = None) -> int
         return 0
 
 
-def table_exists(db_path: Union[str, Path], table_name: str) -> bool:
+def table_exists(db_path: str | Path, table_name: str) -> bool:
     """Check if a table exists in the database.
 
     Args:
@@ -159,7 +159,7 @@ def table_exists(db_path: Union[str, Path], table_name: str) -> bool:
         return False
 
 
-def get_db_size_mb(db_path: Union[str, Path]) -> float:
+def get_db_size_mb(db_path: str | Path) -> float:
     """Get database file size in MB.
 
     Args:
@@ -174,7 +174,7 @@ def get_db_size_mb(db_path: Union[str, Path]) -> float:
     return 0.0
 
 
-def vacuum_database(db_path: Union[str, Path]) -> bool:
+def vacuum_database(db_path: str | Path) -> bool:
     """Vacuum a database to reclaim space.
 
     Args:
@@ -193,7 +193,7 @@ def vacuum_database(db_path: Union[str, Path]) -> bool:
         return False
 
 
-def check_integrity(db_path: Union[str, Path]) -> tuple[bool, str]:
+def check_integrity(db_path: str | Path) -> tuple[bool, str]:
     """Check database integrity.
 
     Args:

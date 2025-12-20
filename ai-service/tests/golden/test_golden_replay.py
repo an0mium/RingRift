@@ -10,7 +10,7 @@ These tests mirror the TypeScript golden replay tests to ensure TS↔Python pari
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import pytest
 

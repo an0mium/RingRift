@@ -170,7 +170,7 @@ def main():
             print(f"No match for move {move_idx}: {move_type_str} from {m_json.get('from')} to {m_json.get('to')}")
             print(f"  Current phase: {state.current_phase}, player: {state.current_player}")
             # Show valid move types
-            move_types = set(vm.type.value for vm in valid_moves)
+            move_types = {vm.type.value for vm in valid_moves}
             print(f"  Valid move types: {move_types}")
             print(f"  Bookkeeping: {bookkeeping.type.value if bookkeeping else None}")
             break

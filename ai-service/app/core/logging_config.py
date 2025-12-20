@@ -44,7 +44,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
 # Import path utilities (graceful fallback for bootstrap)
 try:
@@ -182,10 +182,10 @@ def create_formatter(format_style: str) -> logging.Formatter:
 
 def setup_logging(
     name: str | None = None,
-    level: Union[int, str] | None = None,
+    level: int | str | None = None,
     format_style: str | None = None,
-    log_file: Union[str, Path] | None = None,
-    log_dir: Union[str, Path] | None = None,
+    log_file: str | Path | None = None,
+    log_dir: str | Path | None = None,
     console: bool = True,
     propagate: bool = False,
 ) -> logging.Logger:
@@ -385,7 +385,7 @@ def production_logger(name: str) -> logging.Logger:
 
 def script_logger(
     script_name: str,
-    log_dir: Union[str, Path] | None = None,
+    log_dir: str | Path | None = None,
 ) -> logging.Logger:
     """Get a logger configured for long-running scripts.
 

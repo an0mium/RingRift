@@ -17,7 +17,7 @@ def main():
     with open(manifest_path) as f:
         manifest = json.load(f)
 
-    archived_ids = set(m["model_id"] for m in manifest.get("archived_models", []))
+    archived_ids = {m["model_id"] for m in manifest.get("archived_models", [])}
     archive_dir.mkdir(parents=True, exist_ok=True)
 
     moved = 0

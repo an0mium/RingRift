@@ -15,6 +15,9 @@ class BoardType(str, Enum):
     SQUARE19 = "square19"
     HEX8 = "hex8"  # Radius-4 hexagonal board (61 cells) - parallel to square8
     HEXAGONAL = "hexagonal"
+    # Aliases for the full 25x25 hexagonal board
+    FULL_HEX = "hexagonal"
+    FULL_HEXAGONAL = "hexagonal"
 
 
 class GamePhase(str, Enum):

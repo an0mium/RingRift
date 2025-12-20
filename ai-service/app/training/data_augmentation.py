@@ -27,7 +27,6 @@ from __future__ import annotations
 import logging
 import random
 from dataclasses import dataclass
-from typing import Union
 
 import numpy as np
 
@@ -61,7 +60,7 @@ class DataAugmentor:
 
     def __init__(
         self,
-        board_type: Union[str, BoardType],
+        board_type: str | BoardType,
         config: AugmentationConfig | None = None,
     ):
         """
@@ -361,7 +360,7 @@ class AugmentedDataLoader:
 
 
 def create_augmentor(
-    board_type: Union[str, BoardType],
+    board_type: str | BoardType,
     enabled: bool = True,
     mode: str = "all",
 ) -> DataAugmentor:
@@ -404,7 +403,7 @@ def create_augmentor(
     return DataAugmentor(board_type, config)
 
 
-def get_augmentation_factor(board_type: Union[str, BoardType]) -> int:
+def get_augmentation_factor(board_type: str | BoardType) -> int:
     """
     Get the number of symmetry transforms for a board type.
 

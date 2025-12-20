@@ -31,7 +31,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Union
 
 logger = logging.getLogger(__name__)
 
@@ -302,7 +301,7 @@ class EnsembleTeacher:
 
 
 def create_distillation_trainer(
-    teacher: Union[nn.Module, list[nn.Module]],
+    teacher: nn.Module | list[nn.Module],
     student: nn.Module,
     temperature: float = 3.0,
     alpha: float = 0.7,

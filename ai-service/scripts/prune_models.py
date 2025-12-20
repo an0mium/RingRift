@@ -31,7 +31,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Optional
 
 # Add project root to path
 SCRIPT_DIR = Path(__file__).parent

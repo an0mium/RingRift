@@ -37,7 +37,7 @@ import os
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from scripts import debug_ts_python_state_diff as dbg  # type: ignore
 
@@ -85,8 +85,7 @@ def _run_ts_dump(
         cmd,
         cwd=str(repo_root),
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
     )
     if proc.returncode != 0:

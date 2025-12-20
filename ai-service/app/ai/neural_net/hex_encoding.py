@@ -9,7 +9,6 @@ Migrated from _neural_net_legacy.py as part of Phase 2 modularization.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Union
 
 from ...models import (
     BoardState,
@@ -29,7 +28,7 @@ from .constants import (
 )
 
 
-def _infer_board_size(board: Union[BoardState, GameState]) -> int:
+def _infer_board_size(board: BoardState | GameState) -> int:
     """
     Infer the canonical 2D board_size for CNN feature tensors.
 

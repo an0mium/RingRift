@@ -534,7 +534,7 @@ def sync_lock(
     timeout: float = LOCK_TIMEOUT_SECONDS,
     wait: bool = True,
     wait_timeout: float = 120.0,
-) -> Generator[bool, None, None]:
+) -> Generator[bool]:
     """Context manager for sync operations.
 
     Usage:
@@ -559,7 +559,7 @@ def sync_lock_required(
     operation: str = "rsync",
     timeout: float = LOCK_TIMEOUT_SECONDS,
     wait_timeout: float = 120.0,
-) -> Generator[None, None, None]:
+) -> Generator[None]:
     """Context manager that raises if lock cannot be acquired.
 
     Usage:

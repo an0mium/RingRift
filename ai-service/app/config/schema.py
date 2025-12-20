@@ -42,7 +42,6 @@ from typing import (
     Any,
     Generic,
     TypeVar,
-    Union,
 )
 
 logger = logging.getLogger(__name__)
@@ -465,7 +464,7 @@ class Schema:
 
     def __init__(
         self,
-        fields: dict[str, Union[Field, Schema]],
+        fields: dict[str, Field | Schema],
         strict: bool = False,
         allow_extra: bool = True,
     ):

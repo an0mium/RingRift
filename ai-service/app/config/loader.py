@@ -80,7 +80,7 @@ class ConfigSource:
 
     def __init__(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         format: str | None = None,
         required: bool = True,
         env_var: str | None = None,
@@ -120,14 +120,14 @@ class ConfigSource:
 
 
 def load_config(
-    path: Union[str, Path],
+    path: str | Path,
     *,
     target: type[T] | None = None,
     defaults: dict[str, Any] | None = None,
     env_prefix: str | None = None,
     required: bool = True,
     validate: bool = True,
-) -> Union[T, ConfigDict]:
+) -> T | ConfigDict:
     """Load configuration from a file with optional type conversion.
 
     This is the main entry point for loading configuration. It automatically
@@ -215,8 +215,8 @@ def _load_raw_config(
 
 
 def save_config(
-    config: Union[dict[str, Any], Any],
-    path: Union[str, Path],
+    config: dict[str, Any] | Any,
+    path: str | Path,
     *,
     format: str | None = None,
 ) -> None:
@@ -414,7 +414,7 @@ def merge_configs(
 
 
 def validate_config(
-    config: Union[dict[str, Any], Any],
+    config: dict[str, Any] | Any,
     required_keys: list[str] | None = None,
     validators: dict[str, Callable[[Any], bool]] | None = None,
 ) -> tuple[bool, list[str]]:
@@ -472,7 +472,7 @@ class ConfigLoader(Generic[T]):
 
     def __init__(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         *,
         target: type[T] | None = None,
         defaults: dict[str, Any] | None = None,
@@ -493,10 +493,10 @@ class ConfigLoader(Generic[T]):
         self.defaults = defaults
         self.env_prefix = env_prefix
         self.auto_reload = auto_reload
-        self._cached: Union[T, ConfigDict] | None = None
+        self._cached: T | ConfigDict | None = None
         self._mtime: float | None = None
 
-    def load(self, force_reload: bool = False) -> Union[T, ConfigDict]:
+    def load(self, force_reload: bool = False) -> T | ConfigDict:
         """Load configuration, using cache if available.
 
         Args:
@@ -523,13 +523,13 @@ class ConfigLoader(Generic[T]):
         return self._cached
 
     @property
-    def current(self) -> Union[T, ConfigDict]:
+    def current(self) -> T | ConfigDict:
         """Get current config, loading if needed."""
         if self._cached is None:
             self.load()
         return self._cached  # type: ignore
 
-    def reload(self) -> Union[T, ConfigDict]:
+    def reload(self) -> T | ConfigDict:
         """Force reload configuration."""
         return self.load(force_reload=True)
 

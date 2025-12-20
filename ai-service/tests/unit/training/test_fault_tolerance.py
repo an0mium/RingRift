@@ -878,7 +878,7 @@ class TestAsyncRetryWithBackoff:
         # With jitter, delays should vary (not all identical)
         assert len(delays) == 5
         # Jitter multiplies by 0.5-1.5, so values should differ
-        assert len(set(round(d, 4) for d in delays)) > 1 or all(d > 0 for d in delays)
+        assert len({round(d, 4) for d in delays}) > 1 or all(d > 0 for d in delays)
 
 
 # =============================================================================

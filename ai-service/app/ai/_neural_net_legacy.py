@@ -25,7 +25,7 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Union
+from typing import Any
 
 import numpy as np
 import torch
@@ -293,7 +293,7 @@ SQUARE19_EXTRA_SPECIAL_SPAN = 7
 
 def encode_move_for_board(
     move: Move,
-    board: Union[BoardState, GameState],
+    board: BoardState | GameState,
 ) -> int:
     """
     Encode a move to a policy index using board-type-specific encoding.
@@ -1037,7 +1037,7 @@ def transform_policy_index_square(
     return policy_idx
 
 
-def _infer_board_size(board: Union[BoardState, GameState]) -> int:
+def _infer_board_size(board: BoardState | GameState) -> int:
     """
     Infer the canonical 2D board_size for CNN feature tensors.
 
@@ -1843,7 +1843,7 @@ class RingRiftCNN_v3(nn.Module):
         x: torch.Tensor,
         globals: torch.Tensor,
         return_features: bool = False,
-    ) -> Union[tuple[torch.Tensor, torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Forward pass with spatial policy heads and rank distribution output.
 
@@ -2178,7 +2178,7 @@ class RingRiftCNN_v3_Lite(nn.Module):
         x: torch.Tensor,
         globals: torch.Tensor,
         return_features: bool = False,
-    ) -> Union[tuple[torch.Tensor, torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Forward pass with spatial policy heads and rank distribution output.
 
@@ -2624,7 +2624,7 @@ class RingRiftCNN_v4(nn.Module):
         x: torch.Tensor,
         globals: torch.Tensor,
         return_features: bool = False,
-    ) -> Union[tuple[torch.Tensor, torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Forward pass with attention backbone and spatial policy heads.
 
@@ -4959,7 +4959,7 @@ class NeuralNetAI(BaseAI):
     def encode_move(
         self,
         move: Move,
-        board_context: Union[BoardState, GameState, int],
+        board_context: BoardState | GameState | int,
     ) -> int:
         """
         Encode a move into a policy index.

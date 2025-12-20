@@ -9,7 +9,6 @@ These tests ensure:
 See docs/PLAN_AI_WORK.md Lane 3 for full scope.
 """
 
-from typing import Set
 
 import pytest
 

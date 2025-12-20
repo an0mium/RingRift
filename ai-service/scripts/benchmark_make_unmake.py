@@ -25,7 +25,6 @@ import time
 import tracemalloc
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Tuple
 
 from app.ai.minimax_ai import MinimaxAI
 from app.models import (

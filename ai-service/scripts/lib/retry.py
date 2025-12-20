@@ -38,8 +38,6 @@ from dataclasses import dataclass
 from typing import (
     Any,
     Optional,
-    Tuple,
-    Type,
     TypeVar,
     Union,
 )
@@ -85,7 +83,7 @@ class RetryConfig:
 
         return max(0, delay)
 
-    def attempts(self) -> Generator[RetryAttempt, None, None]:
+    def attempts(self) -> Generator[RetryAttempt]:
         """Generate retry attempts for use in a for loop.
 
         Example:

@@ -12,7 +12,6 @@ Migrated from _neural_net_legacy.py as part of Phase 2 modularization.
 
 from __future__ import annotations
 
-from typing import Union
 
 import numpy as np
 import torch
@@ -574,7 +573,7 @@ class RingRiftCNN_v3(nn.Module):
         x: torch.Tensor,
         globals: torch.Tensor,
         return_features: bool = False,
-    ) -> Union[tuple[torch.Tensor, torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Forward pass with spatial policy heads and rank distribution output."""
         out = self.relu(self.bn1(self.conv1(x)))
         for block in self.res_blocks:
@@ -858,7 +857,7 @@ class RingRiftCNN_v3_Lite(nn.Module):
         x: torch.Tensor,
         globals: torch.Tensor,
         return_features: bool = False,
-    ) -> Union[tuple[torch.Tensor, torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Forward pass with spatial policy heads and rank distribution output."""
         out = self.relu(self.bn1(self.conv1(x)))
         for block in self.res_blocks:
@@ -1167,7 +1166,7 @@ class RingRiftCNN_v4(nn.Module):
         x: torch.Tensor,
         globals: torch.Tensor,
         return_features: bool = False,
-    ) -> Union[tuple[torch.Tensor, torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Forward pass with attention backbone and spatial policy heads."""
         out = self.relu(self.bn1(self.conv1(x)))
         for block in self.res_blocks:

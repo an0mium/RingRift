@@ -21,7 +21,7 @@ Usage:
 from __future__ import annotations
 
 import os
-from typing import Any, TypeVar, Union
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 
@@ -154,7 +154,7 @@ def check(
 
 def require_type(
     value: Any,
-    expected_type: Union[type, tuple],
+    expected_type: type | tuple,
     name: str = "value",
 ) -> None:
     """Assert that a value has the expected type.
@@ -214,9 +214,9 @@ def require_not_none(
 
 
 def require_in_range(
-    value: Union[int, float],
-    min_val: Union[int, float],
-    max_val: Union[int, float],
+    value: int | float,
+    min_val: int | float,
+    max_val: int | float,
     name: str = "value",
     inclusive: bool = True,
 ) -> None:

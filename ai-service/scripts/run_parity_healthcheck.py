@@ -34,7 +34,7 @@ import os
 import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 # Ensure `app.*` and `tests.*` imports resolve when run from ai-service/
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))

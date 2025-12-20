@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import pytest
 
@@ -177,7 +177,7 @@ class TestFSMCrossLanguageFixtures:
 
     def test_all_phases_covered(self, fixtures: dict[str, Any]):
         """Verify all major phases have at least one test vector."""
-        categories = set(v["category"] for v in fixtures["vectors"])
+        categories = {v["category"] for v in fixtures["vectors"]}
         expected_phases = {
             "ring_placement",
             "movement",

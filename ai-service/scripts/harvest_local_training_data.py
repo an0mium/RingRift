@@ -42,7 +42,7 @@ from collections import Counter
 from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 # Add project root to path
 SCRIPT_DIR = Path(__file__).parent
@@ -98,7 +98,7 @@ def stream_games_from_file(
     board_type: str,
     num_players: int,
     sample_rate: float = 1.0,
-) -> Generator[dict[str, Any], None, None]:
+) -> Generator[dict[str, Any]]:
     """Stream games from a JSONL file with optional sampling.
 
     Args:

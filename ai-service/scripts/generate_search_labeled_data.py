@@ -21,7 +21,6 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import List, Tuple
 
 import numpy as np
 

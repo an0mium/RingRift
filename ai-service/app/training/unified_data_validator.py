@@ -44,7 +44,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +189,7 @@ class UnifiedDataValidator:
 
     def validate_training_file(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         **kwargs,
     ) -> UnifiedValidationResult:
         """Validate a training data file (NPZ/HDF5).
@@ -257,7 +257,7 @@ class UnifiedDataValidator:
 
     def validate_database(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         sample_size: int = 100,
         **kwargs,
     ) -> UnifiedValidationResult:
@@ -404,7 +404,7 @@ class UnifiedDataValidator:
 
     def validate_territory_dataset(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         max_errors: int = 50,
         **kwargs,
     ) -> UnifiedValidationResult:
@@ -463,7 +463,7 @@ class UnifiedDataValidator:
 
     def validate_game_parity(
         self,
-        db_path: Union[str, Path],
+        db_path: str | Path,
         game_id: str,
         mode: str | None = None,
         **kwargs,
@@ -541,7 +541,7 @@ class UnifiedDataValidator:
 
     def validate(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         validation_type: ValidationType | None = None,
         **kwargs,
     ) -> UnifiedValidationResult:
@@ -664,17 +664,17 @@ def get_validator() -> UnifiedDataValidator:
 
 # Convenience functions
 
-def validate_training_data(path: Union[str, Path], **kwargs) -> UnifiedValidationResult:
+def validate_training_data(path: str | Path, **kwargs) -> UnifiedValidationResult:
     """Validate training data file."""
     return get_validator().validate_training_file(path, **kwargs)
 
 
-def validate_database(path: Union[str, Path], **kwargs) -> UnifiedValidationResult:
+def validate_database(path: str | Path, **kwargs) -> UnifiedValidationResult:
     """Validate game database."""
     return get_validator().validate_database(path, **kwargs)
 
 
-def validate_any(path: Union[str, Path], **kwargs) -> UnifiedValidationResult:
+def validate_any(path: str | Path, **kwargs) -> UnifiedValidationResult:
     """Validate any supported data type (auto-detects)."""
     return get_validator().validate(path, **kwargs)
 

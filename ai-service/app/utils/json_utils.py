@@ -22,7 +22,7 @@ import json
 from datetime import date, datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 from uuid import UUID
 
 __all__ = [
@@ -209,7 +209,7 @@ def json_default(obj: Any) -> Any:
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
-def load_json(path: Union[str, Path], default: Any = None) -> Any:
+def load_json(path: str | Path, default: Any = None) -> Any:
     """Load JSON from a file path.
 
     Args:
@@ -230,7 +230,7 @@ def load_json(path: Union[str, Path], default: Any = None) -> Any:
 
 
 def save_json(
-    path: Union[str, Path],
+    path: str | Path,
     data: Any,
     *,
     indent: int = 2,

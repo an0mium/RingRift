@@ -33,7 +33,7 @@ import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 # Ensure app.* imports resolve when run from the ai-service root.
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
