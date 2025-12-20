@@ -40,15 +40,15 @@ from fnmatch import fnmatch
 from pathlib import Path
 
 __all__ = [
-    # Enums
-    "SlurmJobState",
-    "SlurmPartition",
-    # Dataclasses
-    "SlurmJob",
-    "SlurmJobStatus",
-    "SlurmNode",
     # Backend
     "SlurmBackend",
+    # Dataclasses
+    "SlurmJob",
+    # Enums
+    "SlurmJobState",
+    "SlurmJobStatus",
+    "SlurmNode",
+    "SlurmPartition",
     "get_slurm_backend",
     # Convenience functions
     "submit_gpu_selfplay_job",

@@ -90,11 +90,11 @@ Quick Start
 __all__ = [
     # Feature flags
     "HAS_AUGMENTATION",
-    "HAS_CHECKPOINT_UNIFIED",
     "HAS_CHECKPOINTING",
+    "HAS_CHECKPOINT_UNIFIED",
     "HAS_CROSSBOARD_STRENGTH",
-    "HAS_DATA_LOADERS",
     "HAS_DATASETS",
+    "HAS_DATA_LOADERS",
     "HAS_DISTRIBUTED_HELPERS",
     "HAS_DISTRIBUTED_UNIFIED",
     "HAS_ELO_WEIGHTING",
@@ -113,128 +113,128 @@ __all__ = [
     "HAS_TRAINING_ORCHESTRATOR",
     "HAS_UNIFIED_MODEL_STORE",
     "HAS_VALUE_CALIBRATION",
+    # Checkpoint unified
+    "AsyncCheckpointer",
+    # Data augmentation
+    "AugmentedDataLoader",
+    "AugmentorConfig",
+    # Value calibration
+    "CalibrationReport",
+    "CalibrationTracker",
+    "CheckpointType",
+    "DataAugmentor",
+    # Distributed helpers
+    "DistributedConfig",
+    "DistributedMetrics",
+    "DistributedTrainer",
+    # Elo weighting
+    "EloWeightedSampler",
+    # Selfplay config
+    "EngineMode",
+    # Data loaders
+    "FileHandle",
+    # Hot data buffer
+    "GameRecord",
+    "GracefulShutdownHandler",
+    "HotDataBuffer",
+    # Integrated enhancements
+    "IntegratedEnhancementsConfig",
+    "IntegratedTrainingManager",
+    # Unified model store
+    "ModelInfo",
+    "ModelStoreStage",
+    "ModelStoreType",
+    # Unified orchestrator
+    "OrchestratorConfig",
+    "OutputFormat",
     # Promotion controller
     "PromotionController",
     "PromotionCriteria",
     "PromotionDecision",
     "PromotionType",
-    "get_promotion_controller",
-    # Integrated enhancements
-    "IntegratedEnhancementsConfig",
-    "IntegratedTrainingManager",
-    "create_integrated_manager",
-    # Checkpoint unified
-    "AsyncCheckpointer",
-    "CheckpointType",
-    "GracefulShutdownHandler",
-    "TrainingProgress",
-    "UnifiedCheckpointConfig",
-    "UnifiedCheckpointManager",
-    "load_checkpoint",
-    "save_checkpoint",
-    # Distributed unified
-    "UnifiedDistributedConfig",
-    "UnifiedDistributedTrainer",
-    # Distributed helpers
-    "DistributedConfig",
-    "DistributedMetrics",
-    "DistributedTrainer",
-    "all_gather_object",
-    "broadcast_object",
-    "cleanup_distributed",
-    "get_device_for_rank",
-    "get_distributed_sampler",
-    "get_local_rank",
-    "get_rank",
-    "get_world_size",
-    "is_distributed",
-    "is_main_process",
-    "reduce_tensor",
-    "scale_learning_rate",
-    "seed_everything",
-    "setup_distributed",
-    "synchronize",
-    "wrap_model_ddp",
-    # Temperature scheduling
-    "TemperatureConfig",
-    "TemperatureScheduler",
-    "create_temperature_scheduler",
-    # Unified orchestrator
-    "OrchestratorConfig",
-    "UnifiedTrainingOrchestrator",
-    # Training orchestrator
-    "TrainingOrchestrator",
-    "TrainingOrchestratorConfig",
-    "TrainingOrchestratorState",
-    "get_training_orchestrator",
     # Regression detector
     "RegressionConfig",
     "RegressionDetector",
     "RegressionEvent",
     "RegressionListener",
     "RegressionSeverity",
+    # Datasets
+    "RingRiftDataset",
+    "SelfplayConfig",
+    "StreamingDataLoader",
+    # Temperature scheduling
+    "TemperatureConfig",
+    "TemperatureScheduler",
+    # Training environment
+    "TrainingEnvConfig",
+    # Training orchestrator
+    "TrainingOrchestrator",
+    "TrainingOrchestratorConfig",
+    "TrainingOrchestratorState",
+    "TrainingProgress",
+    "UnifiedCheckpointConfig",
+    "UnifiedCheckpointManager",
+    # Distributed unified
+    "UnifiedDistributedConfig",
+    "UnifiedDistributedTrainer",
+    "UnifiedModelStore",
+    "UnifiedTrainingOrchestrator",
+    "ValueCalibrator",
+    "WeightedRingRiftDataset",
+    "WeightedStreamingDataLoader",
+    "all_gather_object",
+    "broadcast_object",
+    "cleanup_distributed",
+    "compute_elo_weights",
+    "create_argument_parser",
+    "create_hot_buffer",
+    "create_integrated_manager",
+    # Schedulers
+    "create_lr_scheduler",
     "create_regression_detector",
+    "create_reliability_diagram",
+    "create_temperature_scheduler",
+    "get_default_config",
+    "get_device_for_rank",
+    "get_distributed_sampler",
+    "get_local_rank",
+    "get_model_store",
+    "get_production_config",
+    "get_production_model",
+    "get_promotion_controller",
+    "get_rank",
     "get_regression_detector",
+    "get_training_orchestrator",
+    "get_warmup_scheduler",
+    "get_world_size",
+    # Tournament utilities
+    "infer_victory_reason",
+    # Crossboard strength
+    "inversion_count",
+    "is_distributed",
+    "is_main_process",
+    "load_checkpoint",
+    "make_env",
+    "normalise_tier_name",
+    "parse_selfplay_args",
+    "promote_model",
+    "rank_order_from_elos",
+    "reduce_tensor",
+    "register_model",
+    "save_checkpoint",
+    "scale_learning_rate",
+    # Seed utilities
+    "seed_all",
+    "seed_everything",
+    "setup_distributed",
+    "spearman_rank_correlation",
+    "summarize_crossboard_tier_strength",
+    "synchronize",
+    "tier_number",
     # Significance
     "wilson_lower_bound",
     "wilson_score_interval",
-    # Crossboard strength
-    "inversion_count",
-    "normalise_tier_name",
-    "rank_order_from_elos",
-    "spearman_rank_correlation",
-    "summarize_crossboard_tier_strength",
-    "tier_number",
-    # Value calibration
-    "CalibrationReport",
-    "CalibrationTracker",
-    "ValueCalibrator",
-    "create_reliability_diagram",
-    # Schedulers
-    "create_lr_scheduler",
-    "get_warmup_scheduler",
-    # Selfplay config
-    "EngineMode",
-    "OutputFormat",
-    "SelfplayConfig",
-    "create_argument_parser",
-    "get_default_config",
-    "get_production_config",
-    "parse_selfplay_args",
-    # Datasets
-    "RingRiftDataset",
-    "WeightedRingRiftDataset",
-    # Data loaders
-    "FileHandle",
-    "StreamingDataLoader",
-    "WeightedStreamingDataLoader",
-    # Hot data buffer
-    "GameRecord",
-    "HotDataBuffer",
-    "create_hot_buffer",
-    # Data augmentation
-    "AugmentedDataLoader",
-    "AugmentorConfig",
-    "DataAugmentor",
-    # Elo weighting
-    "EloWeightedSampler",
-    "compute_elo_weights",
-    # Unified model store
-    "ModelInfo",
-    "ModelStoreStage",
-    "ModelStoreType",
-    "UnifiedModelStore",
-    "get_model_store",
-    "get_production_model",
-    "promote_model",
-    "register_model",
-    # Training environment
-    "TrainingEnvConfig",
-    "make_env",
-    # Seed utilities
-    "seed_all",
-    # Tournament utilities
-    "infer_victory_reason",
+    "wrap_model_ddp",
 ]
 
 # Import promotion controller if available

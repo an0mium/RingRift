@@ -279,6 +279,10 @@ __all__ = [
     "MODEL_SYNC_DURATION",
     "MODEL_SYNC_TOTAL",
     "NODES_TRACKED",
+    # Parity metrics (December 2025)
+    "PARITY_HEALTHCHECK_CASES_TOTAL",
+    "PARITY_HEALTHCHECK_PASS_RATE",
+    "PARITY_MISMATCHES_TOTAL",
     "PIPELINE_ERRORS_TOTAL",
     "PIPELINE_EVALUATION",
     # State constants
@@ -340,6 +344,7 @@ __all__ = [
     "collect_quality_metrics_from_manifest",
     # Training logger
     "create_training_logger",
+    "emit_parity_summary_metrics",
     "get_metric",
     "get_metric_catalog",
     "get_pipeline_iterations",
@@ -360,6 +365,8 @@ __all__ = [
     "record_model_promotion",
     "record_model_sync",
     "record_nfs_skip",
+    "record_parity_case",
+    "record_parity_mismatch",
     "record_pipeline_iteration",
     "record_pipeline_stage",
     # Promotion and Elo reconciliation metrics
@@ -387,20 +394,13 @@ __all__ = [
     "update_coordinator_status",
     "update_coordinator_uptime",
     "update_data_server_status",
+    "update_parity_pass_rate",
     "update_quality_bridge_status",
     "update_recovery_stats",
     # Queue and iteration tracking (December 2025)
     "update_selfplay_queue_size",
     "update_sync_sources_count",
     "update_sync_stats",
-    # Parity metrics (December 2025)
-    "PARITY_HEALTHCHECK_CASES_TOTAL",
-    "PARITY_HEALTHCHECK_PASS_RATE",
-    "PARITY_MISMATCHES_TOTAL",
-    "emit_parity_summary_metrics",
-    "record_parity_case",
-    "record_parity_mismatch",
-    "update_parity_pass_rate",
 ]
 
 # Import catalog (December 2025)

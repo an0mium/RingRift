@@ -68,9 +68,9 @@ __all__ = [
     # Enums
     "Backend",
     "JobState",
-    "JobType",
     # Dataclasses
     "JobStatus",
+    "JobType",
     "UnifiedJob",
     # Scheduler
     "UnifiedScheduler",
