@@ -231,7 +231,7 @@ def play_game(
     player2,
     game_id: str,
     board_type: BoardType = BoardType.SQUARE8,
-    max_moves: int = 500,
+    max_moves: int = 600,
     collect_states: bool = True,
 ) -> tuple[int, list[GameState], list[Move]]:
     """Play a game between two AIs.

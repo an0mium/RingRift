@@ -219,7 +219,7 @@ def play_game(
     opponent,
     gmo_player: int,
     game_id: str,
-    max_moves: int = 500,
+    max_moves: int = 600,
 ) -> tuple[int, list[GameState], list[Move]]:
     """Play a game between GMO and an opponent.
 

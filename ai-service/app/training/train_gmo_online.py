@@ -37,7 +37,7 @@ def play_game_with_learning(
     opponent,
     game_id: str,
     gmo_player: int = 1,
-    max_moves: int = 500,
+    max_moves: int = 600,
 ) -> tuple[int, int]:
     """Play a game with online learning enabled.
 

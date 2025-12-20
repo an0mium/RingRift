@@ -195,8 +195,12 @@ def train_epoch(
         # Compute loss
         loss = nll_loss_with_uncertainty(pred_values, pred_log_vars, outcomes)
 
-        # Backward and optimize
+        # Backward and optimize with gradient clipping to prevent NaN
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(
+            list(state_encoder.parameters()) + list(value_net.parameters()),
+            max_norm=1.0,
+        )
         optimizer.step()
 
         total_loss += loss.item()
@@ -371,7 +375,7 @@ def evaluate_vs_random(
             lpsExclusivePlayerForCompletedRound=None,
         )
         move_count = 0
-        max_moves = 500
+        max_moves = 600  # Square8 theoretical max
 
         while state.winner is None and move_count < max_moves:
             current_player = state.current_player
@@ -477,10 +481,11 @@ def train_gmo(
         collate_fn=collate_fn,
     )
 
-    # Optimizer (train encoder and value net, not move embeddings)
-    optimizer = optim.Adam(
+    # Optimizer with weight decay for regularization (helps prevent NaN)
+    optimizer = optim.AdamW(
         list(state_encoder.parameters()) + list(value_net.parameters()),
         lr=learning_rate,
+        weight_decay=0.01,
     )
 
     # Training loop

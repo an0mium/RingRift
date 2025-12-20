@@ -36,7 +36,7 @@ def play_game(
     player1,
     player2,
     game_id: str,
-    max_moves: int = 500,
+    max_moves: int = 600,  # Square8 theoretical max (includes headroom for ~30 turns)
 ) -> int:
     """Play a game between two AIs.
 

@@ -71,21 +71,30 @@ logger = logging.getLogger(__name__)
 REPETITION_THRESHOLD = int(os.getenv("RINGRIFT_REPETITION_THRESHOLD", "0"))
 
 
+# Maximum move counts (individual actions, not player turns).
+# Each player turn typically involves 4-5+ moves:
+#   1. Ring placement (or no_placement_action)
+#   2. Stack movement (or forced_elimination)
+#   3. Line processing (no_line_action or capture sequence)
+#   4. Territory processing (choose_territory, skip, eliminate_rings, etc.)
+# So a game with ~30 player turns would have ~120-150 moves.
+# These limits use 5x-8x headroom on observed maximums to ensure
+# completion even for unusually long games.
 THEORETICAL_MAX_MOVES: dict[BoardType, dict[int, int]] = {
     BoardType.SQUARE8: {
-        2: 500,   # ~100 max observed * 5x headroom (all 2p games complete)
-        3: 800,   # ~120 max observed * 6x headroom (accounts for longer games)
-        4: 1200,  # extrapolated with additional headroom
+        2: 600,   # ~120 max moves observed (~25 turns * 5 moves/turn) + 5x headroom
+        3: 900,   # ~150 max moves * 6x headroom for 3-player
+        4: 1400,  # extrapolated with additional headroom
     },
     BoardType.SQUARE19: {
-        2: 2400,  # larger board, more phases
+        2: 2400,  # larger board, more phases (~400 moves typical)
         3: 3000,  # additional headroom for multiplayer
         4: 3600,
     },
     BoardType.HEX8: {
-        2: 500,   # similar to Square8 (61 cells vs 64)
-        3: 800,   # similar headroom for multiplayer
-        4: 1200,  # extrapolated
+        2: 600,   # similar to Square8 (61 cells vs 64)
+        3: 900,   # similar headroom for multiplayer
+        4: 1400,  # extrapolated
     },
     BoardType.HEXAGONAL: {
         2: 3600,  # similar to Square19 scale
