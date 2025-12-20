@@ -84,7 +84,8 @@ QUICK_BENCHMARKS = [
     BenchmarkConfig("mcts_d6_8x8_neural", "mcts", 6, "square8", 2, moves_to_benchmark=5),
 ]
 
-STANDARD_BENCHMARKS = QUICK_BENCHMARKS + [
+STANDARD_BENCHMARKS = [
+    *QUICK_BENCHMARKS,
     # More thorough 8x8 tests
     BenchmarkConfig("minimax_d3_8x8_4p", "minimax", 3, "square8", 4),
     BenchmarkConfig("mcts_d7_8x8", "mcts", 7, "square8", 2),
@@ -92,7 +93,8 @@ STANDARD_BENCHMARKS = QUICK_BENCHMARKS + [
     BenchmarkConfig("descent_d5_8x8", "descent", 5, "square8", 2),
 ]
 
-FULL_BENCHMARKS = STANDARD_BENCHMARKS + [
+FULL_BENCHMARKS = [
+    *STANDARD_BENCHMARKS,
     # 19x19 benchmarks (high memory)
     BenchmarkConfig("minimax_d3_19x19", "minimax", 3, "square19", 2, moves_to_benchmark=5),
     BenchmarkConfig("minimax_d4_19x19_nnue", "minimax", 4, "square19", 2, moves_to_benchmark=5),

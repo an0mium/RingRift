@@ -31,7 +31,7 @@ class TestResourceLimits:
 
     def test_limits_are_frozen(self):
         """Limits should be immutable."""
-        with pytest.raises(Exception):  # FrozenInstanceError
+        with pytest.raises(AttributeError):  # FrozenInstanceError raises AttributeError
             LIMITS.DISK_MAX_PERCENT = 50.0
 
     def test_disk_limits(self):

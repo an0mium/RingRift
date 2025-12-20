@@ -369,7 +369,7 @@ class TestGetSampleCount:
 
     def test_count_samples_nonexistent(self, temp_dir):
         """Test counting samples in nonexistent file raises error."""
-        with pytest.raises(Exception):
+        with pytest.raises(FileNotFoundError):
             get_sample_count(os.path.join(temp_dir, "nonexistent.npz"))
 
 
