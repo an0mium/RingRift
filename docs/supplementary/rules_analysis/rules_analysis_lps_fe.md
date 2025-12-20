@@ -89,7 +89,7 @@ If FE counted as a real action, this trade-off becomes less meaningful—being t
 
 ### Goal: "Exciting, tense, and strategically non-trivial games"
 
-- **Current Rule:** Creates high tension. A player trapped is on a "death clock". They must use their forced eliminations strategically to break the trap _now_. If they fail to open a line of play within two rounds, they lose. This creates dramatic "breakout" moments.
+- **Current Rule:** Creates high tension. A player trapped is on a "death clock". They must use their forced eliminations strategically to break the trap _now_. If they fail to open a line of play within three rounds, they lose. This creates dramatic "breakout" moments.
 - **Proposed Rule:** Deflates tension. The trapped player passively burns caps for turns. The dominant player must execute a containment squeeze to force ring-elimination victory. This leads to "zombie" gameplay where a defeated player drags out the match.
 
 ### Goal: "High emergent complexity from simple rules"
@@ -99,7 +99,7 @@ If FE counted as a real action, this trade-off becomes less meaningful—being t
 
 ### Goal: "Progress & Termination Guarantee"
 
-- **Current Rule:** Accelerates termination in "won" positions. Once a player is locked down for two rounds, the game ends decisively.
+- **Current Rule:** Accelerates termination in "won" positions. Once a player is locked down for three rounds, the game ends decisively.
 - **Proposed Rule:** Guarantees termination (eventually rings run out), but maximizes the length of the "cleanup" phase.
 
 ### Goal: "Human-AI competitive balance"
