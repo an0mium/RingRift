@@ -35,9 +35,7 @@ def play_game(
     max_moves: int = 500,
 ):
     """Play a game and collect training data."""
-    # Use random seed for variety
-    seed = random.randint(0, 2**31)
-    state = create_initial_state(board_type=BoardType.SQUARE8, num_players=2, rng_seed=seed)
+    state = create_initial_state(board_type=BoardType.SQUARE8, num_players=2)
     engine = GameEngine()
 
     samples = []
