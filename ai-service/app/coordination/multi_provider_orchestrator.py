@@ -446,8 +446,8 @@ class MultiProviderOrchestrator:
         try:
             # Check if Tailscale is installed
             check_cmd = "which tailscale || echo 'not_found'"
-            ssh_cmd = node.ssh_command(check_cmd)
-            result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True, timeout=30)
+            ssh_args = node.ssh_command_list(check_cmd)
+            result = subprocess.run(ssh_args, capture_output=True, text=True, timeout=30)
 
             if "not_found" in result.stdout:
                 # Install Tailscale
@@ -455,8 +455,8 @@ class MultiProviderOrchestrator:
                     "curl -fsSL https://tailscale.com/install.sh | sh && "
                     "sudo tailscale up --authkey=$TAILSCALE_AUTHKEY --hostname=" + node.name
                 )
-                ssh_cmd = node.ssh_command(install_cmd)
-                result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True, timeout=120)
+                ssh_args = node.ssh_command_list(install_cmd)
+                result = subprocess.run(ssh_args, capture_output=True, text=True, timeout=120)
 
                 if result.returncode != 0:
                     logger.error(f"[Orchestrator] Tailscale install failed on {node.name}: {result.stderr}")
@@ -464,8 +464,8 @@ class MultiProviderOrchestrator:
             else:
                 # Tailscale installed, just bring it up
                 up_cmd = "sudo tailscale up --authkey=$TAILSCALE_AUTHKEY --hostname=" + node.name
-                ssh_cmd = node.ssh_command(up_cmd)
-                result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True, timeout=60)
+                ssh_args = node.ssh_command_list(up_cmd)
+                result = subprocess.run(ssh_args, capture_output=True, text=True, timeout=60)
 
             logger.info(f"[Orchestrator] Tailscale connected on {node.name}")
             node.is_tailscale_connected = True
@@ -494,8 +494,8 @@ class MultiProviderOrchestrator:
                 f"--node-name {node.name} > logs/selfplay.log 2>&1 &"
             )
 
-            ssh_cmd = f"ssh -o ConnectTimeout=10 {node.ssh_user}@{host} '{deploy_cmd}'"
-            result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True, timeout=30)
+            ssh_args = node.ssh_command_list(deploy_cmd)
+            result = subprocess.run(ssh_args, capture_output=True, text=True, timeout=30)
 
             if result.returncode == 0:
                 node.selfplay_running = True

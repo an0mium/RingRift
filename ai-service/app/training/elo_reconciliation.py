@@ -490,39 +490,41 @@ class EloReconciler:
             temp_export = f.name
 
         try:
-            # Export matches from remote
-            export_cmd = f"""
-            ssh -o ConnectTimeout={self.ssh_timeout} -o StrictHostKeyChecking=no {ssh_user}@{remote_host} \\
-            'python3 -c "
+            # Export matches from remote - construct Python script as single string
+            python_script = f'''python3 -c "
 import sqlite3
 import json
 from pathlib import Path
 db_path = Path({remote_db_path!r}).expanduser()
 if not db_path.exists():
-    print(json.dumps(dict(error=\"DB not found\")))
+    print(json.dumps(dict(error='DB not found')))
 else:
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    # Export matches from last 7 days
-    cur.execute(\"\"\"
+    cur.execute('''
         SELECT match_id, player1_id, player2_id, winner_id,
                player1_rating_before, player2_rating_before,
                player1_rating_after, player2_rating_after,
                board_type, num_players, game_length, timestamp, source
         FROM match_history
-        WHERE timestamp > datetime(\"now\", \"-7 days\")
+        WHERE timestamp > datetime('now', '-7 days')
         ORDER BY timestamp DESC
         LIMIT 10000
-    \"\"\")
+    ''')
     matches = [dict(row) for row in cur.fetchall()]
     conn.close()
     print(json.dumps(dict(matches=matches)))
-"'
-            """
+"'''
+            ssh_args = [
+                "ssh",
+                "-o", f"ConnectTimeout={self.ssh_timeout}",
+                "-o", "StrictHostKeyChecking=no",
+                f"{ssh_user}@{remote_host}",
+                python_script,
+            ]
             result = subprocess.run(
-                export_cmd,
-                shell=True,
+                ssh_args,
                 capture_output=True,
                 text=True,
                 timeout=self.ssh_timeout + 10,
