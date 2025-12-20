@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 
 from app.game_engine import GameEngine
 from app.models import GameStatus, MoveType
-from app.training.generate_data import create_initial_state
+from app.training.initial_state import create_initial_state
 from app.training.selfplay_config import SelfplayConfig, create_argument_parser
 from app.utils.victory_type import derive_victory_type
 
@@ -92,30 +92,33 @@ def play_random_game(
             # No moves available
             break
 
-        # Record move - only skip true no-op bookkeeping moves that are auto-synthesized
-        # by the import script when no action is required. Keep all moves that affect
-        # game state (like PROCESS_LINE, CHOOSE_LINE_OPTION, CHOOSE_TERRITORY_OPTION).
-        #
-        # NO_*_ACTION moves are synthesized by get_phase_requirement when there's nothing
-        # to do - the import script will regenerate these, so we skip them to avoid doubles.
-        # LINE_FORMATION and TERRITORY_CLAIM are legacy event markers, not canonical moves.
-        TRUE_NOOP_BOOKKEEPING = {
-            MoveType.NO_LINE_ACTION,
-            MoveType.NO_TERRITORY_ACTION,
-            MoveType.NO_PLACEMENT_ACTION,
-            MoveType.NO_MOVEMENT_ACTION,
-            MoveType.LINE_FORMATION,      # Legacy event marker
-            MoveType.TERRITORY_CLAIM,     # Legacy event marker
+        # Record move - only skip legacy event markers that are not canonical moves.
+        # All other moves INCLUDING bookkeeping (NO_LINE_ACTION, NO_TERRITORY_ACTION, etc.)
+        # must be recorded because they are required for replay - they advance the phase machine.
+        LEGACY_EVENT_MARKERS = {
+            MoveType.LINE_FORMATION,      # Legacy event marker, not a canonical move
+            MoveType.TERRITORY_CLAIM,     # Legacy event marker, not a canonical move
         }
-        if move.type not in TRUE_NOOP_BOOKKEEPING:
+        if move.type not in LEGACY_EVENT_MARKERS:
             move_dict = {
                 'type': move.type.value,
                 'player': move.player,
             }
             if move.to:
-                move_dict['to'] = {'x': move.to.x, 'y': move.to.y}
+                pos_dict = {'x': move.to.x, 'y': move.to.y}
+                if move.to.z is not None:
+                    pos_dict['z'] = move.to.z
+                move_dict['to'] = pos_dict
             if hasattr(move, 'from_pos') and move.from_pos:
-                move_dict['from'] = {'x': move.from_pos.x, 'y': move.from_pos.y}
+                pos_dict = {'x': move.from_pos.x, 'y': move.from_pos.y}
+                if move.from_pos.z is not None:
+                    pos_dict['z'] = move.from_pos.z
+                move_dict['from'] = pos_dict
+            if hasattr(move, 'capture_target') and move.capture_target:
+                pos_dict = {'x': move.capture_target.x, 'y': move.capture_target.y}
+                if move.capture_target.z is not None:
+                    pos_dict['z'] = move.capture_target.z
+                move_dict['capture_target'] = pos_dict
             moves_played.append(move_dict)
 
         # Apply move

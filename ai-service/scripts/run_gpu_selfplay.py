@@ -54,6 +54,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch
 
 from app.ai.gpu_batch import get_device
+from app.ai.gpu_canonical_export import (
+    convert_gpu_move_to_canonical,
+    gpu_move_type_to_canonical,
+    gpu_phase_to_canonical,
+    validate_canonical_move_sequence,
+)
 from app.ai.gpu_parallel_games import (
     ParallelGameRunner,
     benchmark_parallel_games,
@@ -71,7 +77,7 @@ from app.coordination.helpers import (
 from app.game_engine import GameEngine
 from app.models import GameState, Move, MoveType, Position
 from app.models.core import BoardType
-from app.training.generate_data import create_initial_state
+from app.training.initial_state import create_initial_state
 from app.training.selfplay_config import SelfplayConfig, create_argument_parser
 from app.utils.ramdrive import RamdriveSyncer, get_config_from_args, get_games_directory
 
@@ -483,6 +489,7 @@ class GPUSelfPlayGenerator:
         min_game_length: int = 0,
         random_opening_moves: int = 0,
         temperature_mix: str | None = None,
+        canonical_export: bool = False,
     ):
         self.board_size = board_size
         self.num_players = num_players
@@ -497,6 +504,7 @@ class GPUSelfPlayGenerator:
         self.min_game_length = min_game_length
         self.filtered_short_games = 0  # Track filtered games for logging
         self.temperature_mix = temperature_mix
+        self.canonical_export = canonical_export
         self.base_temperature = temperature
         # Temperature levels for difficulty mixing: optimal → random
         self.mix_temperatures = [0.5, 1.0, 2.0, 4.0]
@@ -756,6 +764,68 @@ class GPUSelfPlayGenerator:
 
                     game_idx = len(all_records)
                     vtype = results["victory_types"][i]
+
+                    # Get moves - convert to canonical format if enabled
+                    raw_moves = results["move_histories"][i]
+                    if self.canonical_export:
+                        # Convert each move to canonical format
+                        # GPU move history uses: move_type (str), from_pos (tuple), to_pos (tuple), phase (str)
+                        canonical_moves = []
+                        # Map GPU move type strings to canonical strings
+                        gpu_type_map = {
+                            "PLACEMENT": "place_ring",
+                            "MOVEMENT": "move_stack",
+                            "CAPTURE": "overtaking_capture",
+                            "LINE_FORMATION": "process_line",
+                            "TERRITORY_CLAIM": "process_territory_region",
+                            "SKIP": "skip_placement",
+                            "NO_ACTION": "no_territory_action",
+                            "RECOVERY_SLIDE": "recovery_slide",
+                            "NO_PLACEMENT_ACTION": "no_placement_action",
+                            "NO_MOVEMENT_ACTION": "no_movement_action",
+                            "NO_LINE_ACTION": "no_line_action",
+                            "NO_TERRITORY_ACTION": "no_territory_action",
+                            "OVERTAKING_CAPTURE": "overtaking_capture",
+                            "CONTINUE_CAPTURE_SEGMENT": "continue_capture_segment",
+                            "SKIP_CAPTURE": "skip_capture",
+                            "SKIP_RECOVERY": "skip_recovery",
+                            "FORCED_ELIMINATION": "forced_elimination",
+                            "CHOOSE_LINE_OPTION": "choose_line_option",
+                            "CHOOSE_TERRITORY_OPTION": "choose_territory_option",
+                            "SKIP_PLACEMENT": "skip_placement",
+                        }
+                        gpu_phase_map = {
+                            "RING_PLACEMENT": "ring_placement",
+                            "MOVEMENT": "movement",
+                            "LINE_PROCESSING": "line_processing",
+                            "TERRITORY_PROCESSING": "territory_processing",
+                            "END_TURN": "movement",
+                            "CAPTURE": "capture",
+                            "CHAIN_CAPTURE": "chain_capture",
+                            "RECOVERY": "recovery",
+                            "FORCED_ELIMINATION": "forced_elimination",
+                            "GAME_OVER": "game_over",
+                        }
+                        for raw_move in raw_moves:
+                            move_type_str = raw_move.get("move_type", "PLACEMENT")
+                            phase_str = raw_move.get("phase", "RING_PLACEMENT")
+                            canonical_move = {
+                                "type": gpu_type_map.get(move_type_str, move_type_str.lower()),
+                                "player": raw_move.get("player", 1),
+                                "phase": gpu_phase_map.get(phase_str, phase_str.lower()),
+                            }
+                            # Add position fields if present (convert tuples to dicts)
+                            from_pos = raw_move.get("from_pos")
+                            to_pos = raw_move.get("to_pos")
+                            if from_pos and isinstance(from_pos, tuple):
+                                canonical_move["from"] = {"x": from_pos[1], "y": from_pos[0]}
+                            if to_pos and isinstance(to_pos, tuple):
+                                canonical_move["to"] = {"x": to_pos[1], "y": to_pos[0]}
+                            canonical_moves.append(canonical_move)
+                        moves_for_record = canonical_moves
+                    else:
+                        moves_for_record = raw_moves
+
                     record = {
                         # === Core game identifiers ===
                         "game_id": f"gpu_{board_type_str}_{self.num_players}p_{game_idx}_{int(datetime.now().timestamp())}",
@@ -777,7 +847,7 @@ class GPUSelfPlayGenerator:
                         "player_types": ["gpu_batch"] * self.num_players,
                         "batch_id": batch_idx,
                         # === Training data (required for NPZ export) ===
-                        "moves": results["move_histories"][i],
+                        "moves": moves_for_record,
                         "initial_state": self._initial_state_json,
                         # === Timing metadata ===
                         "timestamp": datetime.now().isoformat(),
@@ -785,6 +855,8 @@ class GPUSelfPlayGenerator:
                         # === Source tracking ===
                         "source": "run_gpu_selfplay.py",
                         "device": str(self.device),
+                        # === Canonical export flag ===
+                        "canonical_format": self.canonical_export,
                     }
                     all_records.append(record)
 
@@ -896,6 +968,7 @@ def run_gpu_selfplay(
     min_game_length: int = 0,
     random_opening_moves: int = 0,
     temperature_mix: str | None = None,
+    canonical_export: bool = False,
 ) -> dict[str, Any]:
     """Run GPU-accelerated self-play generation.
 
@@ -917,6 +990,7 @@ def run_gpu_selfplay(
         output_db: Optional path to SQLite DB for canonical game storage
         use_heuristic_selection: Use heuristic-based move selection instead of center-bias random
         weight_noise: Multiplicative noise factor (0.0-1.0) for heuristic weights diversity
+        canonical_export: Output moves in canonical format (with phase/type strings)
 
     Returns:
         Statistics dict
@@ -984,6 +1058,8 @@ def run_gpu_selfplay(
         logger.info(f"Random opening moves: {random_opening_moves}")
     if temperature_mix:
         logger.info(f"Temperature mixing: {temperature_mix} (temps: [0.5, 1.0, 2.0, 4.0])")
+    if canonical_export:
+        logger.info("Canonical export: ENABLED (phase/type strings)")
     logger.info(f"Output: {output_dir}")
     logger.info("")
 
@@ -1010,6 +1086,7 @@ def run_gpu_selfplay(
         min_game_length=min_game_length,
         random_opening_moves=random_opening_moves,
         temperature_mix=temperature_mix,
+        canonical_export=canonical_export,
     )
 
     # Generate games - use unique filename per config to avoid lock contention
@@ -1139,6 +1216,11 @@ def main():
     parser.add_argument("--sync-target", type=str, help="Target directory for ramdrive sync")
     parser.add_argument("--skip-resource-check", action="store_true",
                        help="Skip resource limit checks (use when resources are known to be available)")
+    parser.add_argument(
+        "--canonical-export",
+        action="store_true",
+        help="Export moves in canonical format (phase/type strings) for DB import",
+    )
 
     parsed = parser.parse_args()
     engine_mode = parsed.engine_mode
@@ -1187,6 +1269,7 @@ def main():
             "ram_storage": getattr(parsed, "ram_storage", False),
             "sync_target": getattr(parsed, "sync_target", None),
             "skip_resource_check": getattr(parsed, "skip_resource_check", False),
+            "canonical_export": getattr(parsed, "canonical_export", False),
         },
     )
 
@@ -1222,6 +1305,7 @@ def main():
         "sync_target": selfplay_config.extra_options["sync_target"],
         "sync_interval": selfplay_config.sync_interval,
         "skip_resource_check": selfplay_config.extra_options["skip_resource_check"],
+        "canonical_export": selfplay_config.extra_options["canonical_export"],
     })()
 
     if args.benchmark_only:
@@ -1360,6 +1444,7 @@ def main():
             min_game_length=args.min_game_length,
             random_opening_moves=args.random_opening_moves,
             temperature_mix=args.temperature_mix,
+            canonical_export=args.canonical_export,
         )
     finally:
         # Stop ramdrive syncer and perform final sync

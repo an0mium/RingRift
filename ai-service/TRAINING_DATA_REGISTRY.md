@@ -57,6 +57,16 @@ _None retained._ All legacy/non-canonical DBs were deleted as part of the 2025-1
 
 ### Gate Notes (2025-12-07)
 
+- 2025-12-20 GPU canonical upgrade: GPU batch selfplay now produces canonical-quality data with:
+  - 7-column move history tensor (added phase column)
+  - Phase-specific move types (NO_PLACEMENT_ACTION, NO_MOVEMENT_ACTION, etc.)
+  - CAPTURE/CHAIN_CAPTURE phase tracking with canonical move types (OVERTAKING_CAPTURE, CONTINUE_CAPTURE_SEGMENT)
+  - FORCED_ELIMINATION detection (RR-CANON-R160)
+  - Export translation module (`app/ai/gpu_canonical_export.py`)
+  - Parity validation script (`scripts/run_gpu_canonical_parity_gate.py`)
+
+  GPU selfplay data can now pass TS↔Python parity verification when properly exported. Use `--canonical-mode` flag for canonical-quality data generation.
+
 - 2025-12-16 Vast.ai regeneration: `canonical_square8_2p.db` generated with 200 games (12,642 training samples) via distributed self-play on Vast.ai instance. 100% semantic parity verified (`games_with_semantic_divergence: 0`, `passed_canonical_parity_gate: true`). NPZ exported to `data/training/canonical_square8_2p.npz` with board-aware encoding. This is the primary 2-player square8 canonical training source.
 - 2025-12-12 distributed regeneration + parity fix: `canonical_square8.db` now passes the canonical gate (`canonical_ok=true`, parity only end-of-game-only mismatches). It is safe for new training.
 - 2025-12-12: `canonical_square8_3p.db` has initial gated games; scale up before training.

@@ -35,17 +35,47 @@ from scripts.lib.logging_config import setup_script_logging
 logger = setup_script_logging("db_to_training_npz")
 
 
+class HexEncoderWrapper:
+    """Wrapper to give hex encoders a consistent interface."""
+
+    def __init__(self, encoder, board_size: int = 25):
+        self._encoder = encoder
+        self._board_size = board_size
+
+    def encode_state(self, state):
+        """Extract features using the hex encoder's encode_state method."""
+        return self._encoder.encode_state(state)
+
+
 def get_encoder(board_type: str, num_players: int):
     """Get the appropriate state encoder for the board type."""
+    from app.ai.base import AIConfig
+    from app.ai.neural_net import NeuralNetAI
     from app.models import BoardType
-    from app.training.encoding import HexStateEncoderV3, SquareStateEncoder
+    from app.training.encoding import HexStateEncoderV3, POLICY_SIZE_HEX8, P_HEX
 
     bt = BOARD_TYPE_MAP.get(board_type, BoardType.SQUARE8)
 
     if bt in (BoardType.HEXAGONAL, BoardType.HEX8):
-        return HexStateEncoderV3(board_type=bt, num_players=num_players)
+        if bt == BoardType.HEX8:
+            hex_encoder = HexStateEncoderV3(board_size=9, policy_size=POLICY_SIZE_HEX8)
+        else:
+            hex_encoder = HexStateEncoderV3(board_size=25, policy_size=P_HEX)
+        return HexEncoderWrapper(hex_encoder)
     else:
-        return SquareStateEncoder(board_type=bt, num_players=num_players)
+        # For square boards, use NeuralNetAI
+        config = AIConfig(
+            difficulty=5,
+            think_time=0,
+            randomness=0.0,
+            rngSeed=None,
+            heuristic_profile_id=None,
+            nn_model_id=None,
+            use_neural_net=True,
+        )
+        encoder = NeuralNetAI(player_number=1, config=config)
+        encoder.board_size = 8 if bt == BoardType.SQUARE8 else 19
+        return encoder
 
 
 def export_db_to_npz(
@@ -107,8 +137,13 @@ def export_db_to_npz(
                 if state is None:
                     continue
 
-                # Encode state
-                encoded = encoder.encode_state(state)
+                # Encode state - handle both encoder types
+                if hasattr(encoder, 'encode_state'):
+                    encoded = encoder.encode_state(state)
+                else:
+                    # NeuralNetAI uses _extract_features
+                    features, global_features = encoder._extract_features(state)
+                    encoded = (features, global_features)
                 if encoded is None:
                     continue
 

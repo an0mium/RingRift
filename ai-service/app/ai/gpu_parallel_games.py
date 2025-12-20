@@ -50,6 +50,11 @@ from .gpu_move_application import (
     apply_no_action_moves_batch,
     apply_placement_moves_batch,
     apply_recovery_moves_vectorized,
+    # Canonical phase tracking (December 2025)
+    check_and_apply_forced_elimination_batch,
+    mark_real_action_batch,
+    reset_capture_chain_batch,
+    reset_turn_tracking_batch,
 )
 from .gpu_move_generation import (
     BatchMoves,
@@ -867,6 +872,13 @@ class ParallelGameRunner:
         if territory_mask.any():
             self._step_territory_phase(territory_mask)
 
+        # PHASE: FORCED_ELIMINATION (8) - December 2025
+        # Games that triggered forced elimination proceed directly to END_TURN
+        forced_elim_mask = active_mask & (phase_snapshot == GamePhase.FORCED_ELIMINATION)
+        if forced_elim_mask.any():
+            # Forced elimination move was already recorded, just advance to END_TURN
+            self.state.current_phase[forced_elim_mask] = GamePhase.END_TURN
+
         # PHASE: END_TURN (4)
         end_turn_mask = active_mask & (phase_snapshot == GamePhase.END_TURN)
         if end_turn_mask.any():
@@ -1369,6 +1381,11 @@ class ParallelGameRunner:
                 selected = self._select_moves(moves, games_with_rings)
                 apply_placement_moves_batch(self.state, selected, moves)
 
+                # December 2025: Track real action for forced elimination detection
+                # Placement is a real action (not bookkeeping)
+                games_placed = games_with_rings & (moves.moves_per_game > 0)
+                mark_real_action_batch(self.state, games_placed)
+
         # Advance to MOVEMENT for this player's turn regardless of whether a
         # placement occurred (no legal placements, no rings in hand, or a
         # strategic skip to enable recovery).
@@ -1530,9 +1547,19 @@ class ParallelGameRunner:
                 apply_movement_moves_batch(
                     self.state, selected_movements, movement_moves
                 )
+                # December 2025: Track real action for forced elimination detection
+                mark_real_action_batch(self.state, games_movement_only)
 
             if games_no_action.any():
                 apply_no_action_moves_batch(self.state, games_no_action)
+
+            # December 2025: Track real action for captures
+            # Captures are real actions (applied above with chain capture support)
+            if games_with_captures.any():
+                mark_real_action_batch(self.state, games_with_captures)
+
+        # December 2025: Reset capture chain tracking before advancing phase
+        reset_capture_chain_batch(self.state, mask)
 
         # After movement, advance to LINE_PROCESSING phase
         self.state.current_phase[mask] = GamePhase.LINE_PROCESSING
@@ -1576,12 +1603,22 @@ class ParallelGameRunner:
         if cascade_games.any():
             # Games with new lines go back to LINE_PROCESSING
             self.state.current_phase[cascade_games] = GamePhase.LINE_PROCESSING
-            # Games without new lines advance to END_TURN
+            # Games without new lines: check for forced elimination before END_TURN
             no_cascade = mask & ~cascade_games
-            self.state.current_phase[no_cascade] = GamePhase.END_TURN
+            # December 2025: Forced elimination check (RR-CANON-R160)
+            # If player had no real action this turn but has stacks, record forced_elimination
+            check_and_apply_forced_elimination_batch(self.state, no_cascade)
+            # Games still in TERRITORY_PROCESSING advance to END_TURN
+            # (forced elimination sets phase to FORCED_ELIMINATION, others stay)
+            still_territory = no_cascade & (self.state.current_phase == GamePhase.TERRITORY_PROCESSING)
+            self.state.current_phase[still_territory] = GamePhase.END_TURN
         else:
-            # No cascade needed, all games advance to END_TURN
-            self.state.current_phase[mask] = GamePhase.END_TURN
+            # No cascade needed, check for forced elimination before END_TURN
+            # December 2025: Forced elimination check (RR-CANON-R160)
+            check_and_apply_forced_elimination_batch(self.state, mask)
+            # Games still in TERRITORY_PROCESSING advance to END_TURN
+            still_territory = mask & (self.state.current_phase == GamePhase.TERRITORY_PROCESSING)
+            self.state.current_phase[still_territory] = GamePhase.END_TURN
 
     def _check_for_new_lines(self, mask: torch.Tensor) -> torch.Tensor:
         """Check which games have new marker lines after territory processing.
@@ -1669,6 +1706,10 @@ class ParallelGameRunner:
         self.state.current_phase[mask] = GamePhase.RING_PLACEMENT
         self.state.must_move_from_y[mask] = -1
         self.state.must_move_from_x[mask] = -1
+
+        # December 2025: Reset per-turn tracking for next player's turn
+        # This resets turn_had_real_action, capture chain tracking
+        reset_turn_tracking_batch(self.state, mask)
 
         # Swap sides (pie rule) check for 2-player games (RR-CANON R180-R184)
         # Offered to P2 immediately after P1's first complete turn

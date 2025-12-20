@@ -28,7 +28,7 @@ if PROJECT_ROOT not in sys.path:
 from app.db.game_replay import GameReplayDB
 from app.game_engine import GameEngine
 from app.models import BoardType, GameState, Move, MoveType, Position
-from app.training.generate_data import create_initial_state
+from app.training.initial_state import create_initial_state
 
 # Import canonical export module for GPU->canonical translation (December 2025)
 try:
@@ -61,16 +61,23 @@ def parse_position(pos_dict: dict[str, Any], board_type: BoardType = None) -> Po
     y = pos_dict["y"]
     z = pos_dict.get("z")
 
-    # Convert GPU array indices to canonical axial coordinates for hex boards
-    # Only convert if coordinates look like GPU array indices (0-24 range).
-    # Random/CPU selfplay already uses canonical axial coords (-12 to 12).
+    # Convert GPU array indices to canonical axial coordinates for hex boards.
+    # GPU selfplay uses 0-24 array indexing, while canonical uses -12 to 12 axial.
+    # Detection: if ANY coordinate is negative, it's already canonical.
+    # Also check if z is provided and satisfies axial constraint (x+y+z=0).
     if board_type == BoardType.HEXAGONAL:
         HEX_RADIUS = 12
-        # Detect if already canonical: if x or y is negative or > 24, it's axial
-        looks_like_gpu_indices = (0 <= x <= 24) and (0 <= y <= 24)
-        if looks_like_gpu_indices:
+
+        # Already canonical if:
+        # 1. Any coordinate is negative (axial coords can be -12 to 12)
+        # 2. z is provided and satisfies axial constraint x+y+z=0
+        is_already_canonical = (x < 0 or y < 0) or (z is not None and x + y + z == 0)
+
+        if not is_already_canonical:
+            # Assume GPU array indices (0-24) - convert to axial
             x = x - HEX_RADIUS
             y = y - HEX_RADIUS
+
         # Compute z from axial constraint: x + y + z = 0
         z = -x - y
 
@@ -82,6 +89,7 @@ def parse_move(
     move_number: int,
     timestamp: str,
     board_type: BoardType = None,
+    skip_coord_conversion: bool = False,
 ) -> Move | None:
     """Parse a move dict into a Move object.
 
@@ -92,6 +100,7 @@ def parse_move(
         move_number: Sequential move number
         timestamp: Move timestamp
         board_type: Board type for coordinate conversion (HEXAGONAL converts GPU→axial)
+        skip_coord_conversion: If True, don't convert coordinates (data already canonical)
     """
     # Handle both canonical format ("type": "place_ring") and GPU format ("move_type": "PLACEMENT")
     move_type_str = str(move_dict.get("type") or move_dict.get("move_type") or "").strip()
@@ -104,6 +113,7 @@ def parse_move(
 
     # GPU batch state exports uppercase enum names (e.g., "PLACEMENT", "MOVEMENT")
     # Map these to canonical lowercase values for MoveType parsing
+    # December 2025: Use gpu_canonical_export module when available for consistency
     gpu_to_canonical = {
         "PLACEMENT": "place_ring",
         "SKIP_PLACEMENT": "skip_placement",
@@ -127,7 +137,17 @@ def parse_move(
         "FORCED_ELIMINATION": "forced_elimination",
         "RECOVERY_SLIDE": "recovery_slide",
         "SKIP_RECOVERY": "skip_recovery",
+        # December 2025 additions from gpu_canonical_export
+        "LINE_FORMATION": "process_line",
+        "TERRITORY_CLAIM": "process_territory_region",
     }
+
+    # Try using gpu_canonical_export module for GPU int enum values
+    if HAS_CANONICAL_EXPORT and move_type_str.isdigit():
+        canonical_str = gpu_move_type_to_canonical(int(move_type_str))
+        if canonical_str != "unknown":
+            move_type_str = canonical_str
+
     if move_type_str in gpu_to_canonical:
         move_type_str = gpu_to_canonical[move_type_str]
 
@@ -143,25 +163,28 @@ def parse_move(
     from_data = move_dict.get("from") or move_dict.get("from_pos")
     to_data = move_dict.get("to") or move_dict.get("to_pos")
 
-    def parse_pos_flexible(pos_data, board_type):
+    # For coordinate parsing: skip conversion if data is already canonical
+    effective_board_type = None if skip_coord_conversion else board_type
+
+    def parse_pos_flexible(pos_data, btype):
         """Parse position from either dict or array format."""
         if pos_data is None:
             return None
         if isinstance(pos_data, dict):
-            return parse_position(pos_data, board_type)
+            return parse_position(pos_data, btype)
         if isinstance(pos_data, (list, tuple)) and len(pos_data) >= 2:
             # GPU format: [y, x] - note the order!
             y, x = pos_data[0], pos_data[1]
             if y < 0 or x < 0:  # Invalid position marker
                 return None
-            return parse_position({"x": x, "y": y}, board_type)
+            return parse_position({"x": x, "y": y}, btype)
         return None
 
-    from_pos = parse_pos_flexible(from_data, board_type)
-    to_pos = parse_pos_flexible(to_data, board_type)
+    from_pos = parse_pos_flexible(from_data, effective_board_type)
+    to_pos = parse_pos_flexible(to_data, effective_board_type)
     capture_target_dict = move_dict.get("capture_target") or move_dict.get("captureTarget")
     capture_target = (
-        parse_position(capture_target_dict, board_type)
+        parse_position(capture_target_dict, effective_board_type)
         if isinstance(capture_target_dict, dict)
         else None
     )
@@ -505,10 +528,16 @@ def import_game(
     moves_data = game_record.get("moves", [])
     timestamp = game_record.get("timestamp", datetime.now().isoformat())
 
+    # Detect if data is from random/CPU selfplay (already has canonical coordinates)
+    # Random selfplay outputs canonical move types and coordinates - no conversion needed
+    source = game_record.get("source", "")
+    is_canonical_source = "random" in source.lower() or "run_random_selfplay" in source
+    skip_coord_conversion = is_canonical_source
+
     moves: list[Move] = []
     for i, move_dict in enumerate(moves_data):
         try:
-            move = parse_move(move_dict, i + 1, timestamp, board_type)
+            move = parse_move(move_dict, i + 1, timestamp, board_type, skip_coord_conversion)
             if move is not None:  # Skip unknown/bookkeeping move types
                 moves.append(move)
         except Exception as e:
