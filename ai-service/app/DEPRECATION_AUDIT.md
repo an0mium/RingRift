@@ -118,6 +118,48 @@ sync = UnifiedDataSyncService.get_instance()
 3. **Update tests** to use new unified modules
 4. **Update documentation** to reflect current architecture
 
+## Legacy Module Migration Plan (11,366 LOC)
+
+### Assessment (December 2025)
+
+| Module                         | LOC   | Classes/Functions | Import Sites     |
+| ------------------------------ | ----- | ----------------- | ---------------- |
+| `app/ai/_neural_net_legacy.py` | 6,931 | 33                | 154 (via facade) |
+| `app/_game_engine_legacy.py`   | 4,435 | 4                 | 154 (via facade) |
+
+### Migration Strategy
+
+**Phase 1: Split neural_net_legacy (High Priority)**
+
+1. Extract constants → `app/ai/neural_net/constants.py` (already exists)
+2. Extract CNN blocks → `app/ai/neural_net/blocks.py` (already exists)
+3. Extract architectures → `app/ai/neural_net/architectures.py`
+4. Extract encoding → `app/ai/neural_net/encoding.py`
+5. Keep NeuralNetAI class until NNUE migration complete
+
+**Phase 2: Consolidate game_engine_legacy (Medium Priority)**
+
+1. Already has GameEngine as single class
+2. Extract PhaseRequirement types → `app/game_engine/phase_requirements.py`
+3. Consider splitting GameEngine methods into mixins
+
+**Phase 3: Update facades**
+
+1. Update `app/ai/neural_net/__init__.py` to import from new modules
+2. Update `app/game_engine/__init__.py` to import from new modules
+3. Keep re-exports for backwards compatibility
+
+**Phase 4: Remove legacy files**
+
+1. Verify all imports resolve to new modules
+2. Run full test suite
+3. Delete `_neural_net_legacy.py` and `_game_engine_legacy.py`
+
+### Blockers
+
+- NNUE migration must complete before NeuralNetAI can be removed
+- 154 import sites need verification after each phase
+
 ## Files to Review for Removal
 
 Priority order for cleanup:
