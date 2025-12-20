@@ -1078,7 +1078,7 @@ def apply_capture_moves_batch_vectorized(
     if target_owner_nonzero.any():
         state.buried_rings.index_put_(
             (game_indices[target_owner_nonzero], defender_owner[target_owner_nonzero].long()),
-            torch.ones(target_owner_nonzero.sum(), dtype=state.buried_rings.dtype, device=device),
+            torch.ones(int(target_owner_nonzero.sum().item()), dtype=state.buried_rings.dtype, device=device),
             accumulate=True
         )
 

@@ -744,6 +744,7 @@ class CoordinatorRegistry:
     def __init__(self):
         """Initialize the registry. Use get_instance() instead."""
         self._coordinators: Dict[str, CoordinatorBase] = {}
+        self._priorities: Dict[str, int] = {}
         self._shutdown_order: List[str] = []
         self._shutting_down = False
         self._shutdown_complete = asyncio.Event()
@@ -766,7 +767,7 @@ class CoordinatorRegistry:
     def register(
         self,
         coordinator: CoordinatorBase,
-        _shutdown_priority: int = 0,
+        shutdown_priority: int = 0,
     ) -> None:
         """Register a coordinator with the registry.
 
@@ -779,8 +780,9 @@ class CoordinatorRegistry:
             logger.warning(f"Coordinator {name} already registered, replacing")
 
         self._coordinators[name] = coordinator
+        self._priorities[name] = shutdown_priority
         self._update_shutdown_order()
-        logger.debug(f"Registered coordinator: {name}")
+        logger.debug(f"Registered coordinator: {name} (priority={shutdown_priority})")
 
     def unregister(self, name: str) -> Optional[CoordinatorBase]:
         """Unregister a coordinator by name.
@@ -793,6 +795,7 @@ class CoordinatorRegistry:
         """
         coord = self._coordinators.pop(name, None)
         if coord:
+            self._priorities.pop(name, None)
             self._update_shutdown_order()
             logger.debug(f"Unregistered coordinator: {name}")
         return coord
@@ -806,10 +809,16 @@ class CoordinatorRegistry:
         return list(self._coordinators.keys())
 
     def _update_shutdown_order(self) -> None:
-        """Update the shutdown order based on registration order."""
-        # For now, use reverse registration order (last registered shuts down first)
-        # This can be enhanced with explicit priorities
-        self._shutdown_order = list(reversed(self._coordinators.keys()))
+        """Update the shutdown order based on priority.
+
+        Lower priority values shut down first. Coordinators with the same
+        priority are shut down in reverse registration order.
+        """
+        # Sort by priority (ascending), then by reverse insertion order for ties
+        names = list(self._coordinators.keys())
+        # Reverse so that for same priority, later registered shuts down first
+        names.reverse()
+        self._shutdown_order = sorted(names, key=lambda n: self._priorities.get(n, 0))
 
     async def shutdown_all(
         self,
