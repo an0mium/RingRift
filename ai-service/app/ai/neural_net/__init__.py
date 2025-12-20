@@ -104,6 +104,13 @@ from app.ai.neural_losses import (
     ranks_from_game_result,
 )
 
+# Model factory - migrated to model_factory.py (Phase 4)
+from app.ai.neural_net.model_factory import (
+    create_model_for_board,
+    get_memory_tier,
+    get_model_config_for_board,
+)
+
 # Classes and functions still in legacy module (to be migrated in later phases)
 from app.ai._neural_net_legacy import (
     _MODEL_CACHE,
@@ -116,12 +123,9 @@ from app.ai._neural_net_legacy import (
     # Cache functions
     clear_model_cache,
     create_hex_mask,
-    create_model_for_board,
     decode_move_for_board,
     encode_move_for_board,
     get_cached_model_count,
-    get_memory_tier,
-    get_model_config_for_board,
     transform_policy_index_square,
 )
 
