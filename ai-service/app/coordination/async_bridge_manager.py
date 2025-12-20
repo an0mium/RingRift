@@ -42,8 +42,8 @@ import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, Future
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, TypeVar
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Optional, TypeVar
 from weakref import WeakSet
 
 logger = logging.getLogger(__name__)

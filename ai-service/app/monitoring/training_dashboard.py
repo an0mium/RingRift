@@ -29,27 +29,19 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import os
 import sqlite3
-import threading
-import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.utils.datetime_utils import iso_now, time_ago, to_iso, utc_now
 from app.utils.paths import AI_SERVICE_ROOT
 from app.utils.optional_imports import (
     PROMETHEUS_AVAILABLE as HAS_PROMETHEUS,
-    Counter,
     Gauge,
-    Histogram,
-    generate_latest,
-    CONTENT_TYPE_LATEST,
 )
 
 import numpy as np

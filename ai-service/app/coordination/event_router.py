@@ -44,7 +44,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,6 @@ try:
     from app.distributed.data_events import (
         DataEvent,
         DataEventType,
-        EventBus,
         get_event_bus as get_data_event_bus,
     )
     HAS_DATA_EVENTS = True
@@ -65,7 +64,6 @@ except ImportError:
 try:
     from app.coordination.stage_events import (
         StageEvent,
-        StageEventBus,
         StageCompletionResult,
         get_event_bus as get_stage_event_bus,
     )
@@ -77,9 +75,7 @@ except ImportError:
 try:
     from app.coordination.cross_process_events import (
         CrossProcessEvent,
-        CrossProcessEventQueue,
         CrossProcessEventPoller,
-        get_event_queue,
         publish_event as cp_publish,
     )
     HAS_CROSS_PROCESS = True

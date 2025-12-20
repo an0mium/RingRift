@@ -15,14 +15,12 @@ Components:
 import asyncio
 import json
 import logging
-import os
-import shutil
 import time
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple, Callable
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     from aiohttp import ClientSession, ClientTimeout
@@ -82,7 +80,6 @@ try:
     from app.training.unified_signals import (
         get_signal_computer,
         TrainingUrgency,
-        TrainingSignals,
     )
     HAS_UNIFIED_SIGNALS = True
 except ImportError:
@@ -990,7 +987,7 @@ class ModelLifecycleManager:
             raise RuntimeError("Model registry not available")
 
         from app.training.model_registry import (
-            ModelMetrics, TrainingConfig, ModelType, ModelStage
+            TrainingConfig, ModelType, ModelStage
         )
 
         # Register with registry
@@ -1484,8 +1481,6 @@ def integrate_with_pipeline(
 
 async def main():
     """Example usage of model lifecycle manager."""
-    import tempfile
-
     # Create config
     config = LifecycleConfig(
         min_elo_improvement=15.0,

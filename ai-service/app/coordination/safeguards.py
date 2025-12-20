@@ -33,11 +33,10 @@ import psutil
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from enum import Enum
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Callable, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -88,10 +87,7 @@ class SafeguardConfig:
 
 
 # Use canonical circuit breaker from distributed module
-from app.distributed.circuit_breaker import (
-    CircuitBreaker as CanonicalCircuitBreaker,
-    CircuitState,
-)
+from app.distributed.circuit_breaker import CircuitBreaker as CanonicalCircuitBreaker
 
 
 # ============================================
