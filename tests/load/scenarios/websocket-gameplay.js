@@ -1179,6 +1179,53 @@ function handleGameStateMessage({
     gameState.currentPlayer === myPlayerNumberInGame &&
     currentMoveCount < GAME_MAX_MOVES
   ) {
+    const isDecisionPhase =
+      gameState.currentPhase === 'line_processing' ||
+      gameState.currentPhase === 'territory_processing';
+
+    if (pendingDecisionTimeout) {
+      return {
+        awaitingRttForMove,
+        lastSentAt,
+        pendingMoveId,
+        myPlayerNumberInGame,
+        currentMoveCount,
+        shouldRetireGame,
+        pendingDecisionTimeout,
+        decisionTimeoutStartedAt,
+        decisionTimeoutBaselineMoves,
+        decisionTimeoutsForGame,
+      };
+    }
+
+    if (
+      isDecisionPhase &&
+      WS_DECISION_TIMEOUT_PROBABILITY > 0 &&
+      WS_DECISION_TIMEOUT_MAX_PER_GAME > 0 &&
+      decisionTimeoutsForGame < WS_DECISION_TIMEOUT_MAX_PER_GAME
+    ) {
+      const roll = Math.random();
+      if (roll <= WS_DECISION_TIMEOUT_PROBABILITY) {
+        pendingDecisionTimeout = true;
+        decisionTimeoutStartedAt = now;
+        decisionTimeoutBaselineMoves = moveHistoryCount;
+        decisionTimeoutsForGame += 1;
+        wsDecisionTimeoutSkipped.add(1);
+        return {
+          awaitingRttForMove,
+          lastSentAt,
+          pendingMoveId,
+          myPlayerNumberInGame,
+          currentMoveCount,
+          shouldRetireGame,
+          pendingDecisionTimeout,
+          decisionTimeoutStartedAt,
+          decisionTimeoutBaselineMoves,
+          decisionTimeoutsForGame,
+        };
+      }
+    }
+
     const nextMove = chooseMoveFromValidMoves(validMoves, myPlayerNumberInGame);
     if (nextMove) {
       const movePayload = {
@@ -1208,6 +1255,10 @@ function handleGameStateMessage({
     myPlayerNumberInGame,
     currentMoveCount,
     shouldRetireGame,
+    pendingDecisionTimeout,
+    decisionTimeoutStartedAt,
+    decisionTimeoutBaselineMoves,
+    decisionTimeoutsForGame,
   };
 }
 

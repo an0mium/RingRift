@@ -314,6 +314,9 @@ Players (PY vs TS):
 | `game_status`    | Victory detection mismatch         | Check terminal condition evaluation    |
 | `state_hash`     | Structural board difference        | Diff stacks, collapsed, players        |
 
+If you see structural issues like `OperationalError: no such table: game_moves`, the DB is not a fully normalized
+GameReplayDB. Regenerate the DB with canonical self-play (or rebuild with `game_moves`) before running parity/history gates.
+
 ### 4.5 Generate Parity Fixtures for Regression
 
 When you find a divergence, generate a compact fixture for regression testing:

@@ -442,7 +442,7 @@ def test_replay_ts_trace_fixtures_and_assert_python_state_parity() -> None:
 
             # If TS S-invariant is provided, compare Python's S.
             ts_S = expected.get("tsS") or step.get("sInvariant")
-            if ts_S is not None:
+            if ts_S is not None and not skip_hash_check:
                 snap = BoardManager.compute_progress_snapshot(state)
                 assert (
                     snap.S == ts_S

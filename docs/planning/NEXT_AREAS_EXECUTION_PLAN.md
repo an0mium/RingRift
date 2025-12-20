@@ -213,7 +213,7 @@ This plan assumes the working tree is unstable due to other agents. Each lane is
 - [x] Audit WS lifecycle handling (reconnect + timeout + spectator coverage is already in unit/E2E suites).
 - [x] Confirmed reconnect window + pending decision coverage in `GameSession.reconnect*` unit suites.
 - [x] Extend WS load tests with optional reconnect simulation + metrics.
-- [ ] Extend WS load tests for spectator joins and pending decision timeouts.
+- [x] Extend WS load tests for spectator joins and pending decision timeouts (optional env-driven).
 
 ---
 
