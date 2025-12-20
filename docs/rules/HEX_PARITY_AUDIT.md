@@ -8,15 +8,21 @@
 
 Radius-10 assets remain deprecated and the HexNeuralNet alias/import fix landed, but we have no gated radius-12 data on disk. All `selfplay_hexagonal_*.db` and `selfplay_hex_mps_smoke.db` files are empty, so parity needs to be re-run after regenerating fresh radius-12 self-play.
 
+**Addendum (2025-12-19):** A large `canonical_hexagonal.db` now exists under
+`ai-service/data/games/` with 25,203 games, but it lacks the `game_moves` table.
+Both parity and canonical-history gates fail with `OperationalError: no such table: game_moves`.
+Regenerate a gateable canonical DB (with `game_moves`) before treating hex data as canonical.
+
 ## 1. Database Status
 
-| Database                  | Exists | Games | Status                                                           |
-| ------------------------- | ------ | ----- | ---------------------------------------------------------------- |
-| canonical_hex.db          | **No** | -     | Deleted (deprecated radius-10)                                   |
-| selfplay_hexagonal_2p.db  | Yes    | 0     | Empty radius-12 placeholder; needs fresh self-play before gating |
-| selfplay_hexagonal_3p.db  | Yes    | 0     | Empty radius-12 placeholder; needs fresh self-play before gating |
-| selfplay_hexagonal_4p.db  | Yes    | 0     | Empty radius-12 placeholder; needs fresh self-play before gating |
-| selfplay_hex_mps_smoke.db | Yes    | 0     | Empty smoke DB; regenerate after alias/import fixes              |
+| Database                  | Exists | Games  | Status                                                           |
+| ------------------------- | ------ | ------ | ---------------------------------------------------------------- |
+| canonical_hex.db          | **No** | -      | Deleted (deprecated radius-10)                                   |
+| canonical_hexagonal.db    | Yes    | 25,203 | Missing `game_moves`; parity/history gates fail (regenerate)     |
+| selfplay_hexagonal_2p.db  | Yes    | 0      | Empty radius-12 placeholder; needs fresh self-play before gating |
+| selfplay_hexagonal_3p.db  | Yes    | 0      | Empty radius-12 placeholder; needs fresh self-play before gating |
+| selfplay_hexagonal_4p.db  | Yes    | 0      | Empty radius-12 placeholder; needs fresh self-play before gating |
+| selfplay_hex_mps_smoke.db | Yes    | 0      | Empty smoke DB; regenerate after alias/import fixes              |
 
 **Note:** Historic parity fixtures still exist under `ai-service/parity_fixtures/*hex*`, but they pre-date the current alias/import fixes and should be treated as legacy until new games are generated.
 
@@ -106,7 +112,8 @@ BoardType.HEXAGONAL: BoardConfig(
 
 ### 5.1 Canonical Hex Database Does Not Exist
 
-`canonical_hex.db` remains deleted and all radius-12 self-play DBs are empty. A new canonical database needs to be generated and gated after the HexNeuralNet alias/import fix.
+`canonical_hex.db` remains deleted, and the current `canonical_hexagonal.db` lacks `game_moves`.
+A new canonical database needs to be generated and gated after the HexNeuralNet alias/import fix.
 
 **Recommendation:** Generate a canonical hex database using:
 

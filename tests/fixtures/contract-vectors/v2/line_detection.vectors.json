@@ -21,7 +21,10 @@
             "size": 8,
             "stacks": {
               "3,3": {
-                "position": { "x": 3, "y": 3 },
+                "position": {
+                  "x": 3,
+                  "y": 3
+                },
                 "rings": [1],
                 "stackHeight": 1,
                 "capHeight": 1,
@@ -30,7 +33,10 @@
             },
             "markers": {},
             "collapsedSpaces": {},
-            "eliminatedRings": { "1": 0, "2": 0 }
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            }
           },
           "players": [
             {
@@ -60,8 +66,14 @@
           "id": "move-301",
           "type": "move_stack",
           "player": 1,
-          "from": { "x": 3, "y": 3 },
-          "to": { "x": 3, "y": 4 },
+          "from": {
+            "x": 3,
+            "y": 3
+          },
+          "to": {
+            "x": 3,
+            "y": 4
+          },
           "timestamp": "2025-11-26T04:00:00.000Z",
           "thinkTime": 0,
           "moveNumber": 2
@@ -75,6 +87,7 @@
           "gameStatus": "active",
           "stackCount": 1,
           "markerCount": 1,
+          "collapsedCount": 0,
           "sInvariantDelta": 1
         }
       }
@@ -95,7 +108,10 @@
             "size": 8,
             "stacks": {
               "2,2": {
-                "position": { "x": 2, "y": 2 },
+                "position": {
+                  "x": 2,
+                  "y": 2
+                },
                 "rings": [1],
                 "stackHeight": 1,
                 "capHeight": 1,
@@ -103,10 +119,19 @@
               }
             },
             "markers": {
-              "4,4": { "position": { "x": 4, "y": 4 }, "player": 1 }
+              "4,4": {
+                "position": {
+                  "x": 4,
+                  "y": 4
+                },
+                "player": 1
+              }
             },
             "collapsedSpaces": {},
-            "eliminatedRings": { "1": 0, "2": 0 }
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            }
           },
           "players": [
             {
@@ -136,8 +161,14 @@
           "id": "move-302",
           "type": "move_stack",
           "player": 1,
-          "from": { "x": 2, "y": 2 },
-          "to": { "x": 3, "y": 3 },
+          "from": {
+            "x": 2,
+            "y": 2
+          },
+          "to": {
+            "x": 3,
+            "y": 3
+          },
           "timestamp": "2025-11-26T04:00:00.000Z",
           "thinkTime": 0,
           "moveNumber": 3
@@ -151,6 +182,7 @@
           "gameStatus": "active",
           "stackCount": 1,
           "markerCount": 2,
+          "collapsedCount": 0,
           "sInvariantDelta": 1
         }
       }

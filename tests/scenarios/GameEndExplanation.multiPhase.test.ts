@@ -242,6 +242,37 @@ describe('GameEndExplanation for multi-phase turn scenarios', () => {
       expect(p1Score.territorySpaces).toBeGreaterThanOrEqual(33);
     });
 
+    it('generates GameEndExplanation for territory victory on square19', () => {
+      const state = createBaseState('square19', 2);
+
+      state.players[0].territorySpaces = 12;
+      state.players[1].territorySpaces = 3;
+
+      // Use a smaller, achievable threshold for testing.
+      state.territoryVictoryThreshold = 10;
+
+      // Add collapsed spaces to reflect territory control.
+      for (let x = 0; x < 4; x++) {
+        for (let y = 0; y < 3; y++) {
+          addCollapsedSpace(state.board, { x, y }, 1);
+        }
+      }
+
+      const victory = toVictoryState(state);
+
+      expect(victory.isGameOver).toBe(true);
+      expect(victory.winner).toBe(1);
+      expect(victory.reason).toBe('territory_control');
+
+      expect(victory.gameEndExplanation).toBeDefined();
+      const explanation = victory.gameEndExplanation!;
+
+      expect(explanation.outcomeType).toBe('territory_control');
+      expect(explanation.victoryReasonCode).toBe('victory_territory_majority');
+      expect(explanation.winnerPlayerId).toBe('P1');
+      expect(explanation.boardType).toBe('square19');
+    });
+
     it('generates GameEndExplanation for territory victory on hexagonal board', () => {
       const state = createBaseState('hexagonal', 2);
 

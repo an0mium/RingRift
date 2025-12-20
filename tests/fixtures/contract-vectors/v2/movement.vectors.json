@@ -21,7 +21,10 @@
             "size": 8,
             "stacks": {
               "3,3": {
-                "position": { "x": 3, "y": 3 },
+                "position": {
+                  "x": 3,
+                  "y": 3
+                },
                 "rings": [1],
                 "stackHeight": 1,
                 "capHeight": 1,
@@ -30,7 +33,10 @@
             },
             "markers": {},
             "collapsedSpaces": {},
-            "eliminatedRings": { "1": 0, "2": 0 }
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            }
           },
           "players": [
             {
@@ -60,8 +66,14 @@
           "id": "move-101",
           "type": "move_stack",
           "player": 1,
-          "from": { "x": 3, "y": 3 },
-          "to": { "x": 3, "y": 4 },
+          "from": {
+            "x": 3,
+            "y": 3
+          },
+          "to": {
+            "x": 3,
+            "y": 4
+          },
           "timestamp": "2025-11-26T03:25:00.000Z",
           "thinkTime": 0,
           "moveNumber": 1
@@ -76,9 +88,9 @@
           "stackCount": 1,
           "markerCount": 1,
           "collapsedCount": 0,
+          "sInvariantDelta": 1,
           "player1RingsInHand": 17,
-          "player1EliminatedRings": 0,
-          "sInvariantDelta": 1
+          "player1EliminatedRings": 0
         }
       }
     },
@@ -98,7 +110,10 @@
             "size": 8,
             "stacks": {
               "3,3": {
-                "position": { "x": 3, "y": 3 },
+                "position": {
+                  "x": 3,
+                  "y": 3
+                },
                 "rings": [1],
                 "stackHeight": 1,
                 "capHeight": 1,
@@ -107,7 +122,10 @@
             },
             "markers": {},
             "collapsedSpaces": {},
-            "eliminatedRings": { "1": 0, "2": 0 }
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            }
           },
           "players": [
             {
@@ -137,8 +155,14 @@
           "id": "move-102",
           "type": "move_stack",
           "player": 1,
-          "from": { "x": 3, "y": 3 },
-          "to": { "x": 4, "y": 4 },
+          "from": {
+            "x": 3,
+            "y": 3
+          },
+          "to": {
+            "x": 4,
+            "y": 4
+          },
           "timestamp": "2025-11-26T03:25:00.000Z",
           "thinkTime": 0,
           "moveNumber": 1
@@ -153,9 +177,9 @@
           "stackCount": 1,
           "markerCount": 1,
           "collapsedCount": 0,
+          "sInvariantDelta": 1,
           "player1RingsInHand": 17,
-          "player1EliminatedRings": 0,
-          "sInvariantDelta": 1
+          "player1EliminatedRings": 0
         }
       }
     },
@@ -175,7 +199,10 @@
             "size": 8,
             "stacks": {
               "3,3": {
-                "position": { "x": 3, "y": 3 },
+                "position": {
+                  "x": 3,
+                  "y": 3
+                },
                 "rings": [1, 1, 1],
                 "stackHeight": 3,
                 "capHeight": 3,
@@ -184,7 +211,10 @@
             },
             "markers": {},
             "collapsedSpaces": {},
-            "eliminatedRings": { "1": 0, "2": 0 }
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            }
           },
           "players": [
             {
@@ -214,8 +244,14 @@
           "id": "move-103",
           "type": "move_stack",
           "player": 1,
-          "from": { "x": 3, "y": 3 },
-          "to": { "x": 3, "y": 6 },
+          "from": {
+            "x": 3,
+            "y": 3
+          },
+          "to": {
+            "x": 3,
+            "y": 6
+          },
           "timestamp": "2025-11-26T03:25:00.000Z",
           "thinkTime": 0,
           "moveNumber": 1
@@ -230,9 +266,9 @@
           "stackCount": 1,
           "markerCount": 1,
           "collapsedCount": 0,
+          "sInvariantDelta": 1,
           "player1RingsInHand": 15,
-          "player1EliminatedRings": 0,
-          "sInvariantDelta": 1
+          "player1EliminatedRings": 0
         }
       }
     }

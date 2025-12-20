@@ -150,9 +150,9 @@ This plan assumes the working tree is unstable due to other agents. Each lane is
 
 **Progress Log:**
 
-- [ ] Audit client flows against UX specs.
-- [ ] Add tests for VictoryModal/GameHUD/ChoiceDialog edge cases.
-- [ ] Update UX copy/telemetry for any mismatches.
+- [x] Audit client flows against UX specs (existing tests already cover ANM/FE/territory endgame flows).
+- [x] Confirmed existing VictoryModal/GameHUD/ChoiceDialog suites already cover edge cases (no new tests required).
+- [x] No UX copy/telemetry mismatches found during audit.
 
 ---
 
@@ -175,14 +175,15 @@ This plan assumes the working tree is unstable due to other agents. Each lane is
 
 **Definition of Done:**
 
-- canonical_square19.db and canonical_hex.db meet volume targets and pass gates.
+- canonical_square19.db and canonical_hexagonal.db meet volume targets and pass gates with a `game_moves`-backed schema.
 - Registry lists new datasets with gate summary references.
 
 **Progress Log:**
 
-- [ ] Define volume targets and update registry placeholders.
-- [ ] Run generate_canonical_selfplay + parity/history gates (requires runtime).
-- [ ] Update registry entries with gate summaries.
+- [x] Define volume targets and update registry placeholders.
+- [x] Sample parity/history gate attempts surfaced missing `game_moves` tables (schema not gateable).
+- [ ] Regenerate canonical DBs with `game_moves` via canonical self-play and rerun gates.
+- [ ] Update registry entries with full gate summaries.
 
 ---
 
@@ -209,9 +210,10 @@ This plan assumes the working tree is unstable due to other agents. Each lane is
 
 **Progress Log:**
 
-- [ ] Audit WS lifecycle handling (reconnect + timeout).
-- [ ] Add tests around reconnect windows and pending decisions.
-- [ ] Extend WS load tests for spectator/reconnect flows.
+- [x] Audit WS lifecycle handling (reconnect + timeout + spectator coverage is already in unit/E2E suites).
+- [x] Confirmed reconnect window + pending decision coverage in `GameSession.reconnect*` unit suites.
+- [x] Extend WS load tests with optional reconnect simulation + metrics.
+- [ ] Extend WS load tests for spectator joins and pending decision timeouts.
 
 ---
 

@@ -21,14 +21,20 @@
             "size": 19,
             "stacks": {
               "3,3": {
-                "position": { "x": 3, "y": 3 },
+                "position": {
+                  "x": 3,
+                  "y": 3
+                },
                 "rings": [1, 1],
                 "stackHeight": 2,
                 "capHeight": 2,
                 "controllingPlayer": 1
               },
               "7,3": {
-                "position": { "x": 7, "y": 3 },
+                "position": {
+                  "x": 7,
+                  "y": 3
+                },
                 "rings": [2, 2],
                 "stackHeight": 2,
                 "capHeight": 2,
@@ -37,7 +43,10 @@
             },
             "markers": {},
             "collapsedSpaces": {},
-            "eliminatedRings": { "1": 0, "2": 0 }
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            }
           },
           "players": [
             {
@@ -67,9 +76,18 @@
           "id": "move-chain-001a",
           "type": "overtaking_capture",
           "player": 1,
-          "from": { "x": 3, "y": 3 },
-          "captureTarget": { "x": 7, "y": 3 },
-          "to": { "x": 11, "y": 3 },
+          "from": {
+            "x": 3,
+            "y": 3
+          },
+          "captureTarget": {
+            "x": 7,
+            "y": 3
+          },
+          "to": {
+            "x": 11,
+            "y": 3
+          },
           "timestamp": "2025-11-28T00:00:00.000Z",
           "thinkTime": 0,
           "moveNumber": 1
@@ -103,14 +121,20 @@
             "size": 19,
             "stacks": {
               "11,3": {
-                "position": { "x": 11, "y": 3 },
+                "position": {
+                  "x": 11,
+                  "y": 3
+                },
                 "rings": [1, 1, 2],
                 "stackHeight": 3,
                 "capHeight": 2,
                 "controllingPlayer": 1
               },
               "7,3": {
-                "position": { "x": 7, "y": 3 },
+                "position": {
+                  "x": 7,
+                  "y": 3
+                },
                 "rings": [2],
                 "stackHeight": 1,
                 "capHeight": 1,
@@ -119,13 +143,19 @@
             },
             "markers": {
               "3,3": {
-                "position": { "x": 3, "y": 3 },
+                "position": {
+                  "x": 3,
+                  "y": 3
+                },
                 "player": 1,
                 "type": "regular"
               }
             },
             "collapsedSpaces": {},
-            "eliminatedRings": { "1": 0, "2": 0 },
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            },
             "formedLines": []
           },
           "players": [
@@ -146,7 +176,10 @@
           ],
           "currentPlayer": 1,
           "currentPhase": "chain_capture",
-          "chainCapturePosition": { "x": 11, "y": 3 },
+          "chainCapturePosition": {
+            "x": 11,
+            "y": 3
+          },
           "turnNumber": 1,
           "moveHistory": [],
           "gameStatus": "active",
@@ -158,9 +191,18 @@
           "id": "move-chain-001b",
           "type": "continue_capture_segment",
           "player": 1,
-          "from": { "x": 11, "y": 3 },
-          "captureTarget": { "x": 7, "y": 3 },
-          "to": { "x": 3, "y": 3 },
+          "from": {
+            "x": 11,
+            "y": 3
+          },
+          "captureTarget": {
+            "x": 7,
+            "y": 3
+          },
+          "to": {
+            "x": 3,
+            "y": 3
+          },
           "timestamp": "2025-11-28T00:00:01.000Z",
           "thinkTime": 0,
           "moveNumber": 2
@@ -175,8 +217,8 @@
           "stackCount": 1,
           "markerCount": 1,
           "collapsedCount": 0,
-          "player1EliminatedRings": 1,
-          "sInvariantDelta": 1
+          "sInvariantDelta": 1,
+          "player1EliminatedRings": 1
         }
       }
     },
@@ -196,14 +238,20 @@
             "size": 19,
             "stacks": {
               "3,3": {
-                "position": { "x": 3, "y": 3 },
+                "position": {
+                  "x": 3,
+                  "y": 3
+                },
                 "rings": [1, 1],
                 "stackHeight": 2,
                 "capHeight": 2,
                 "controllingPlayer": 1
               },
               "7,3": {
-                "position": { "x": 7, "y": 3 },
+                "position": {
+                  "x": 7,
+                  "y": 3
+                },
                 "rings": [2, 2],
                 "stackHeight": 2,
                 "capHeight": 2,
@@ -212,7 +260,10 @@
             },
             "markers": {},
             "collapsedSpaces": {},
-            "eliminatedRings": { "1": 0, "2": 0 }
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            }
           },
           "players": [
             {
@@ -242,9 +293,18 @@
           "id": "move-chain-001c",
           "type": "overtaking_capture",
           "player": 1,
-          "from": { "x": 3, "y": 3 },
-          "captureTarget": { "x": 7, "y": 3 },
-          "to": { "x": 11, "y": 3 },
+          "from": {
+            "x": 3,
+            "y": 3
+          },
+          "captureTarget": {
+            "x": 7,
+            "y": 3
+          },
+          "to": {
+            "x": 11,
+            "y": 3
+          },
           "timestamp": "2025-11-28T00:00:00.000Z",
           "thinkTime": 0,
           "moveNumber": 1
