@@ -34,10 +34,8 @@ from app.db.game_replay import GameReplayDB
 
 # Conditional imports - tests skip if GPU modules unavailable
 try:
-    from app.ai.gpu_parallel_games import (
-        BatchGameState,
-        evaluate_positions_batch,
-    )
+    from app.ai.gpu_parallel_games import BatchGameState
+    from app.ai.gpu_heuristic import evaluate_positions_batch
     from app.ai.heuristic_ai import HeuristicAI
     from app.models import AIConfig
     GPU_MODULES_AVAILABLE = True
