@@ -58,6 +58,10 @@ FastAPI endpoints serving AI move requests and game evaluation:
 | D9-10 | Descent   | `descent_ai.py` (AlphaZero-style UBFM search)       |
 | D11   | Ultimate  | `descent_ai.py` (60s think time, nearly unbeatable) |
 
+Experimental tiers (EBMO, GMO, IG-GMO) live under `app/ai/` and are **not**
+part of the canonical ladder. Use `AIFactory.create(AIType.IG_GMO, ...)` or
+tournament agent IDs like `ig_gmo` when explicitly opting into research AIs.
+
 **Key AI Modules:**
 
 - `nnue.py` - NNUE value network
