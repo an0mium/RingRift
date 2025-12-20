@@ -748,6 +748,44 @@ class GMOAI(BaseAI):
         # Return max value (best move evaluation)
         return max(values) if values else 0.0
 
+    def get_move_predictions_with_uncertainty(
+        self,
+        game_state: GameState,
+        legal_moves: List[Move],
+    ) -> List[Tuple[float, float]]:
+        """Get value predictions with uncertainty for all moves.
+
+        Used for calibration studies to evaluate uncertainty quality.
+
+        Args:
+            game_state: Current game state
+            legal_moves: List of legal moves to evaluate
+
+        Returns:
+            List of (mean_value, variance) tuples for each move
+        """
+        if not legal_moves:
+            return []
+
+        self.state_encoder.eval()
+        self.move_encoder.eval()
+        self.value_net.eval()
+
+        predictions = []
+
+        with torch.no_grad():
+            state_embed = self.state_encoder.encode_state(game_state)
+
+            for move in legal_moves:
+                move_embed = self.move_encoder.encode_move(move)
+                mean_val, _, var = estimate_uncertainty(
+                    state_embed, move_embed, self.value_net,
+                    self.gmo_config.mc_samples
+                )
+                predictions.append((mean_val.item(), var.item()))
+
+        return predictions
+
     def reset_for_new_game(self, *, rng_seed: Optional[int] = None) -> None:
         """Reset state for new game."""
         super().reset_for_new_game(rng_seed=rng_seed)

@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import torch
+
 from app.models import BoardType, GameStatus
 
 from .agents import AIAgent, AIAgentRegistry, AgentType
@@ -17,6 +19,50 @@ from .elo import EloCalculator
 from .scheduler import Match, TournamentScheduler
 
 logger = logging.getLogger(__name__)
+
+
+def detect_model_type(model_path: str) -> str:
+    """Detect the model type from a checkpoint file.
+
+    Returns one of: "nnue", "cnn", or "unknown"
+
+    Checks _versioning_metadata.model_class first, then infers from state_dict keys.
+    """
+    try:
+        checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+
+        if not isinstance(checkpoint, dict):
+            return "unknown"
+
+        # Check versioning metadata first
+        meta = checkpoint.get("_versioning_metadata")
+        if isinstance(meta, dict):
+            model_class = meta.get("model_class", "")
+            if isinstance(model_class, str):
+                lower_class = model_class.lower()
+                if "nnue" in lower_class:
+                    return "nnue"
+                if "cnn" in lower_class or "hexneuralnet" in lower_class:
+                    return "cnn"
+
+        # Infer from state_dict keys
+        state_dict = checkpoint.get("model_state_dict") or checkpoint.get("state_dict") or checkpoint
+        if isinstance(state_dict, dict):
+            keys = set(state_dict.keys())
+            # NNUE models have accumulator.weight
+            if "accumulator.weight" in keys:
+                return "nnue"
+            # CNN models have conv1.weight and res_blocks
+            if "conv1.weight" in keys or any("res_blocks" in k for k in keys):
+                return "cnn"
+            # Also check for hex_mask (HexNeuralNet indicator)
+            if "hex_mask" in keys:
+                return "cnn"
+
+        return "unknown"
+    except Exception as e:
+        logger.warning(f"Could not detect model type from {model_path}: {e}")
+        return "unknown"
 
 
 @dataclass
@@ -343,25 +389,69 @@ class TournamentRunner:
         Returns:
             An AI instance that can provide moves via get_best_move()
         """
-        from app.ai.search import MinimaxSearch
+        from app.ai.minimax_ai import MinimaxAI
 
         if agent.agent_type == AgentType.NEURAL:
-            # Create neural network agent
-            try:
-                from app.ai.nnue_policy import NNUEPolicyAgent
-                return NNUEPolicyAgent(
-                    model_path=agent.model_path,
-                    board_type=board_type,
-                    num_players=num_players,
-                )
-            except ImportError:
-                logger.warning(
-                    f"NNUEPolicyAgent not available, falling back to minimax for {agent.agent_id}"
-                )
-                return MinimaxSearch(
-                    weights=agent.weights,
-                    max_depth=agent.search_depth,
-                )
+            # Detect model type to choose the right agent class
+            model_type = detect_model_type(agent.model_path)
+            logger.info(f"Detected model type '{model_type}' for agent {agent.agent_id}")
+
+            if model_type == "nnue":
+                try:
+                    from app.ai.nnue_policy import NNUEPolicyAgent
+                    return NNUEPolicyAgent(
+                        model_path=agent.model_path,
+                        board_type=board_type,
+                        num_players=num_players,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to load NNUE agent: {e}")
+
+            elif model_type == "cnn":
+                try:
+                    from app.ai.neural_net import NeuralNetAI
+                    from app.ai.config import AIConfig, AIMode
+
+                    # Parse board type for NeuralNetAI
+                    board_type_map = {
+                        "hex8": BoardType.HEX8,
+                        "hexagonal": BoardType.HEXAGONAL,
+                        "square8": BoardType.SQUARE8,
+                        "square19": BoardType.SQUARE19,
+                    }
+                    bt = board_type_map.get(board_type.lower(), BoardType.HEX8)
+
+                    # Create config for NeuralNetAI
+                    config = AIConfig(
+                        mode=AIMode.NEURAL,
+                        nn_model_path=agent.model_path,
+                        allow_fresh_weights=False,
+                    )
+
+                    # Create CNN agent and wrap to adapt interface
+                    neural_ai = NeuralNetAI(config, board_type=bt)
+
+                    # Wrapper to adapt select_move to get_best_move interface
+                    class CNNAgentWrapper:
+                        def __init__(self, neural_ai):
+                            self._ai = neural_ai
+
+                        def get_best_move(self, state, legal_moves):
+                            # NeuralNetAI.select_move handles legal moves internally
+                            return self._ai.select_move(state)
+
+                    return CNNAgentWrapper(neural_ai)
+                except Exception as e:
+                    logger.warning(f"Failed to load CNN agent: {e}")
+
+            # Fallback to minimax if neural loading fails
+            logger.warning(
+                f"Could not load neural model for {agent.agent_id}, falling back to minimax"
+            )
+            return MinimaxAI(
+                weights=agent.weights,
+                max_depth=agent.search_depth,
+            )
         elif agent.agent_type == AgentType.RANDOM:
             # Random agent - returns random legal move
             class RandomAgent:
@@ -381,13 +471,13 @@ class TournamentRunner:
                 logger.warning(
                     f"MCTSSearch not available, falling back to minimax for {agent.agent_id}"
                 )
-                return MinimaxSearch(
+                return MinimaxAI(
                     weights=agent.weights,
                     max_depth=agent.search_depth,
                 )
         else:
             # Default to minimax
-            return MinimaxSearch(
+            return MinimaxAI(
                 weights=agent.weights,
                 max_depth=agent.search_depth,
             )
@@ -404,7 +494,7 @@ class TournamentRunner:
         """
         import time
 
-        from app.ai.search import MinimaxSearch
+        from app.ai.minimax_ai import MinimaxAI
         from app.board_manager import BoardManager
         from app.game_engine import GameEngine
 

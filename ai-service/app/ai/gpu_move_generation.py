@@ -150,6 +150,17 @@ DIRECTIONS = torch.tensor([
     [1, 0], [1, -1], [0, -1], [-1, -1]
 ], dtype=torch.int32)
 
+# Device-cached directions to avoid repeated .to(device) calls
+_DIRECTIONS_CACHE: dict = {}
+
+
+def _get_directions(device: torch.device) -> torch.Tensor:
+    """Get directions tensor for a specific device (cached)."""
+    key = str(device)
+    if key not in _DIRECTIONS_CACHE:
+        _DIRECTIONS_CACHE[key] = DIRECTIONS.to(device)
+    return _DIRECTIONS_CACHE[key]
+
 
 def _validate_paths_vectorized_fast(
     state: "BatchGameState",
@@ -253,7 +264,7 @@ def generate_movement_moves_batch_vectorized(
     device = state.device
     batch_size = state.batch_size
     board_size = state.board_size
-    directions = DIRECTIONS.to(device)
+    directions = _get_directions(device)
 
     # === Step 1: Find all player stacks across all games ===
     player_expanded = state.current_player.view(-1, 1, 1).expand(-1, board_size, board_size)
@@ -684,7 +695,7 @@ def generate_capture_moves_batch_vectorized(
     device = state.device
     batch_size = state.batch_size
     board_size = state.board_size
-    directions = DIRECTIONS.to(device)
+    directions = _get_directions(device)
     max_dist = board_size - 1
     n_dirs = 8
 

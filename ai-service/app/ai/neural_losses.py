@@ -249,9 +249,119 @@ def ranks_from_game_result(
     return ranks
 
 
+def masked_policy_kl(
+    policy_log_probs: torch.Tensor,
+    policy_targets: torch.Tensor,
+) -> torch.Tensor:
+    """Compute KL divergence loss while ignoring samples with empty policy targets.
+
+    This handles cases where some samples in a batch may have no valid policy
+    targets (all zeros), such as terminal positions or positions where no moves
+    were legal.
+
+    Parameters
+    ----------
+    policy_log_probs : torch.Tensor
+        Log probabilities of shape (batch, policy_size) from the model.
+    policy_targets : torch.Tensor
+        Target probability distributions of shape (batch, policy_size).
+        Samples with all-zero targets are masked out.
+
+    Returns
+    -------
+    torch.Tensor
+        Scalar KL divergence loss averaged over valid samples.
+        Returns 0.0 if no valid samples exist.
+    """
+    target_sums = policy_targets.sum(dim=1)
+    valid_mask = target_sums > 0
+    if not torch.any(valid_mask):
+        return torch.tensor(0.0, device=policy_log_probs.device)
+
+    targets = policy_targets[valid_mask]
+    log_probs = policy_log_probs[valid_mask]
+    log_targets = torch.log(targets.clamp_min(1e-12))
+    loss_terms = torch.where(
+        targets > 0,
+        targets * (log_targets - log_probs),
+        torch.zeros_like(targets),
+    )
+    return loss_terms.sum(dim=1).mean()
+
+
+def build_rank_targets(
+    values_mp: torch.Tensor,
+    num_players: Union[int, torch.Tensor],
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Build per-player rank distributions from value vectors.
+
+    Converts raw value predictions into rank probability distributions,
+    handling ties by distributing probability mass evenly.
+
+    Parameters
+    ----------
+    values_mp : torch.Tensor
+        Value predictions of shape (batch, max_players).
+    num_players : int | torch.Tensor
+        Either a single integer for uniform player count, or a
+        per-sample tensor of shape (batch,) with player counts.
+
+    Returns
+    -------
+    tuple[torch.Tensor, torch.Tensor]
+        rank_targets: [B, P, P] distribution over ranks per player
+        active_mask: [B, P] True for active player slots
+    """
+    batch_size, max_players = values_mp.shape
+    if isinstance(num_players, int):
+        num_players_tensor = torch.full(
+            (batch_size,),
+            int(num_players),
+            device=values_mp.device,
+            dtype=torch.long,
+        )
+    else:
+        num_players_tensor = num_players.to(
+            device=values_mp.device,
+            dtype=torch.long,
+        )
+        if num_players_tensor.ndim == 0:
+            num_players_tensor = num_players_tensor.repeat(batch_size)
+
+    rank_targets = torch.zeros(
+        (batch_size, max_players, max_players),
+        device=values_mp.device,
+        dtype=values_mp.dtype,
+    )
+    active_mask = torch.zeros(
+        (batch_size, max_players),
+        device=values_mp.device,
+        dtype=torch.bool,
+    )
+
+    for b in range(batch_size):
+        n = int(num_players_tensor[b].item())
+        n = max(1, min(n, max_players))
+        vals = values_mp[b, :n]
+        active_mask[b, :n] = True
+        for p in range(n):
+            v = vals[p]
+            higher = int((vals > v).sum().item())
+            tie = int((vals == v).sum().item())
+            if tie <= 0:
+                continue
+            start = higher
+            end = higher + tie
+            rank_targets[b, p, start:end] = 1.0 / float(tie)
+
+    return rank_targets, active_mask
+
+
 __all__ = [
     'MAX_PLAYERS',
     'multi_player_value_loss',
     'rank_distribution_loss',
     'ranks_from_game_result',
+    'masked_policy_kl',
+    'build_rank_targets',
 ]

@@ -139,6 +139,7 @@ jobs:
         run: |
           pytest tests/unit/ -v --tb=short \
             --cov=app --cov-report=xml --cov-report=term-missing \
+            --cov-fail-under=40 \
             -x --timeout=60
 
       - name: Upload coverage
