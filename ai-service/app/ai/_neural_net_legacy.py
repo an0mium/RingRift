@@ -3385,6 +3385,8 @@ class NeuralNetAI(BaseAI):
             if not _model_id_includes_board_hint(model_id):
                 if board_type == BoardType.HEXAGONAL:
                     board_suffix = "_hex"
+                elif board_type == BoardType.HEX8:
+                    board_suffix = "_hex8"
                 elif board_type == BoardType.SQUARE19:
                     board_suffix = "_19x19"
             # SQUARE8 uses the base model name (legacy compatibility)
@@ -5515,7 +5517,7 @@ class NeuralNetAI(BaseAI):
         # 13: Reserved (zeros)
         features = np.zeros((14, board_size, board_size), dtype=np.float32)
 
-        is_hex = board.type == BoardType.HEXAGONAL
+        is_hex = board.type in (BoardType.HEXAGONAL, BoardType.HEX8)
 
         # --- Stacks: channels 0/1 ---
         for pos_key, stack in board.stacks.items():

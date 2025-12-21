@@ -690,7 +690,7 @@ class HeuristicAI(BaseAI):
 
         # Auto-enable for large boards where parallel provides benefit
         board_type = game_state.board.type
-        if board_type == BoardType.HEXAGONAL:
+        if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             return True
         return board_type == BoardType.SQUARE19
 
@@ -1502,7 +1502,7 @@ class HeuristicAI(BaseAI):
             return 0.0
 
         # Determine board parameters
-        board_type_is_hex = board_type == BoardType.HEXAGONAL
+        board_type_is_hex = board_type in (BoardType.HEXAGONAL, BoardType.HEX8)
         board_size = board.size if hasattr(board, 'size') else 7  # Default hex radius
 
         # Call JIT-compiled function
@@ -1610,7 +1610,7 @@ class HeuristicAI(BaseAI):
         directions = self._fast_geo.get_los_directions(board_type)
 
         # Pre-compute bounds limits for inline checking
-        is_hex = board_type == BoardType.HEXAGONAL
+        is_hex = board_type in (BoardType.HEXAGONAL, BoardType.HEX8)
         if is_hex:
             # Canonical hex board uses cube radius = (size - 1) (RR-CANON-R001).
             # BoardState.size is 13 for the canonical radius-12 board.

@@ -538,7 +538,7 @@ def run_cmaes_heuristic_optimization(
 from app.training.training_enhancements import EarlyStopping
 
 # Checkpointing utilities - use unified module (2025-12)
-HAS_UNIFIED_CHECKPOINT = False
+HAS_UNIFIED_CHECKPOINT = True
 
 # Legacy checkpointing functions (still available for backward compatibility)
 # Migrated to import from checkpoint_unified (December 2025)

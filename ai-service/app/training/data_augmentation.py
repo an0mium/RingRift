@@ -86,6 +86,11 @@ class DataAugmentor:
             self.transformer = HexSymmetryTransform()
             self.num_transforms = 12
             self.board_size = 25
+        elif self.board_type == BoardType.HEX8:
+            from app.training.hex_augmentation import HexSymmetryTransform
+            self.transformer = HexSymmetryTransform(board_size=9)
+            self.num_transforms = 12
+            self.board_size = 9
         elif self.board_type == BoardType.SQUARE8:
             from app.training.square_augmentation import SquareSymmetryTransform
             self.transformer = SquareSymmetryTransform(board_size=8)
@@ -416,7 +421,7 @@ def get_augmentation_factor(board_type: str | BoardType) -> int:
     if isinstance(board_type, str):
         board_type = BoardType(board_type)
 
-    if board_type == BoardType.HEXAGONAL:
+    if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
         return 12
     else:
         return 8

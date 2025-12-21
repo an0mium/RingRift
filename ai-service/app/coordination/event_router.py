@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 # Import the 3 event systems
 try:
-    from app.coordination.event_router import (
+    from app.distributed.data_events import (
         DataEvent,
         DataEventType,
         get_event_bus as get_data_event_bus,
