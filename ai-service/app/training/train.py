@@ -927,17 +927,38 @@ def train_model(
 
     # Validate model_id matches board_type to prevent architecture mismatch errors (P0)
     # A hex model saved with "sq8" in the name causes runtime failures when loading
+    # If resuming from checkpoint, the check is strict. For new training, auto-fix the model_id.
     if use_hex_model and "sq8" in config.model_id.lower():
-        raise ValueError(
-            f"Model ID '{config.model_id}' contains 'sq8' but board_type is "
-            f"{config.board_type.name} which uses HexNeuralNet architecture. "
-            "Use a model ID that reflects the hex board type (e.g., 'ringrift_hex_2p')."
-        )
+        if resume_path:
+            raise ValueError(
+                f"Model ID '{config.model_id}' contains 'sq8' but board_type is "
+                f"{config.board_type.name} which uses HexNeuralNet architecture. "
+                "Use a model ID that reflects the hex board type (e.g., 'ringrift_hex_2p')."
+            )
+        else:
+            # Auto-generate appropriate model_id for new hex training
+            board_prefix = "hex8" if config.board_type == BoardType.HEX8 else "hex"
+            new_model_id = f"ringrift_{board_prefix}_{config.num_players}p"
+            logger.warning(
+                f"Model ID '{config.model_id}' is for sq8 but training {config.board_type.name}. "
+                f"Using '{new_model_id}' instead."
+            )
+            config.model_id = new_model_id
     if not use_hex_model and ("hex" in config.model_id.lower() and "sq" not in config.model_id.lower()):
-        raise ValueError(
-            f"Model ID '{config.model_id}' appears to be for hex but board_type is "
-            f"{config.board_type.name}. Use a model ID that matches the board type."
-        )
+        if resume_path:
+            raise ValueError(
+                f"Model ID '{config.model_id}' appears to be for hex but board_type is "
+                f"{config.board_type.name}. Use a model ID that matches the board type."
+            )
+        else:
+            # Auto-generate appropriate model_id for new square training
+            board_prefix = "sq8" if config.board_type == BoardType.SQUARE8 else "sq19"
+            new_model_id = f"ringrift_{board_prefix}_{config.num_players}p"
+            logger.warning(
+                f"Model ID '{config.model_id}' is for hex but training {config.board_type.name}. "
+                f"Using '{new_model_id}' instead."
+            )
+            config.model_id = new_model_id
 
     # Determine effective policy head size.
     policy_size: int
