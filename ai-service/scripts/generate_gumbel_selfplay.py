@@ -290,7 +290,7 @@ def generate_game(
 
     # Determine winner
     winner = None
-    if state.game_status == GameStatus.FINISHED:
+    if state.game_status == GameStatus.COMPLETED:
         winner = state.winner
 
     duration_ms = (time.time() - start_time) * 1000
