@@ -109,7 +109,6 @@ function formatMoveCompact(move: Move, options: MoveNotationOptions): string {
       const pos = formatPosition(move.to, options);
       return `${typeSymbol}${pos}${count}`;
     }
-    case 'move_stack':
     case 'move_stack': {
       if (move.from) {
         return `${formatPosition(move.from, options)}${typeSymbol}${formatPosition(move.to, options)}`;
