@@ -27,14 +27,21 @@ augment_batch_dense()      | INTEGRATED       | Used in train.py for data augmen
 compute_sample_weights()   | REQUIRES DATA    | Needs opponent_elo per sample in training data
 get_curriculum_parameters()| NOT INTEGRATED   | Values never used in training loop
 apply_gradient_surgery()   | NOT INTEGRATED   | Requires restructuring loss computation
-_reanalysis_engine         | CONFIG ONLY      | Engine exists but not called in train.py
-                           |                  | Policy reanalysis works via improvement loop
+should_reanalyze()         | INTEGRATED       | Check if reanalysis should be triggered
+process_reanalysis()       | INTEGRATED       | Perform MuZero-style reanalysis on NPZ data
+get_reanalysis_stats()     | INTEGRATED       | Get reanalysis statistics
 
 CONFIG FLAGS (December 2025):
 - auxiliary_tasks_enabled: True -> compute_auxiliary_loss() IS called
 - gradient_surgery_enabled: True -> apply_gradient_surgery() NOT called (needs refactor)
 - background_eval_enabled: True -> should_early_stop() IS called
-- reanalysis_enabled: True -> Not used in train.py, but improvement loop uses mcts_visits
+- reanalysis_enabled: True -> should_reanalyze() + process_reanalysis() available
+
+REANALYSIS INTEGRATION (December 2025):
+The reanalysis pipeline is now callable via IntegratedEnhancements:
+1. should_reanalyze(): Check Elo delta, time interval, step interval thresholds
+2. process_reanalysis(npz_path): Run reanalysis and save blended values
+3. get_reanalysis_stats(): Get positions/games reanalyzed, timing info
 
 To integrate the unused features, see the corresponding methods' docstrings
 for API details, then add calls in app/training/train.py at appropriate points.
@@ -791,6 +798,121 @@ class IntegratedTrainingManager:
         if self._background_evaluator is not None:
             return self._background_evaluator.should_trigger_baseline_warning(threshold)
         return False
+
+    # =========================================================================
+    # Reanalysis Integration
+    # =========================================================================
+
+    def should_reanalyze(self) -> bool:
+        """Check if reanalysis should be triggered.
+
+        Reanalysis is triggered when:
+        1. Reanalysis is enabled
+        2. Reanalysis engine is initialized
+        3. Model has improved by at least min_model_elo_delta
+        4. Sufficient time has passed since last reanalysis
+
+        Returns:
+            True if reanalysis should be performed
+        """
+        if not self.config.reanalysis_enabled:
+            return False
+
+        if self._reanalysis_engine is None:
+            return False
+
+        # Check Elo improvement threshold
+        current_elo = self.get_current_elo()
+        if current_elo is not None:
+            elo_delta = current_elo - getattr(self, '_last_reanalysis_elo', 0.0)
+            if elo_delta < self._reanalysis_engine.config.min_model_elo_delta:
+                return False
+
+        # Check time interval
+        import time
+        last_reanalysis = getattr(self, '_last_reanalysis_time', 0.0)
+        hours_since_reanalysis = (time.time() - last_reanalysis) / 3600
+        if hours_since_reanalysis < self._reanalysis_engine.config.reanalysis_interval_hours:
+            return False
+
+        # Check step interval
+        steps_since_reanalysis = self._step - getattr(self, '_last_reanalysis_step', 0)
+        if steps_since_reanalysis < self.config.reanalysis_interval_steps:
+            return False
+
+        return True
+
+    def process_reanalysis(self, npz_path: str | None = None) -> str | None:
+        """Perform reanalysis on cached training data.
+
+        Reanalyzes positions using the current model and blends values
+        with original targets using MuZero-style weighted averaging.
+
+        Args:
+            npz_path: Path to NPZ file to reanalyze. If None, attempts to
+                      find cached data from training configuration.
+
+        Returns:
+            Path to reanalyzed NPZ file, or None if reanalysis failed.
+        """
+        import time
+        from pathlib import Path
+
+        if self._reanalysis_engine is None:
+            logger.warning("[IntegratedEnhancements] Reanalysis engine not initialized")
+            return None
+
+        if npz_path is None:
+            logger.warning("[IntegratedEnhancements] No NPZ path provided for reanalysis")
+            return None
+
+        try:
+            npz_file = Path(npz_path)
+            if not npz_file.exists():
+                logger.warning(f"[IntegratedEnhancements] NPZ file not found: {npz_path}")
+                return None
+
+            logger.info(f"[IntegratedEnhancements] Starting reanalysis of {npz_path}")
+
+            # Perform reanalysis
+            reanalyzed_path = self._reanalysis_engine.reanalyze_npz(npz_file)
+
+            # Update tracking state
+            self._last_reanalysis_time = time.time()
+            self._last_reanalysis_step = self._step
+            current_elo = self.get_current_elo()
+            if current_elo is not None:
+                self._last_reanalysis_elo = current_elo
+
+            logger.info(
+                f"[IntegratedEnhancements] Reanalysis complete: "
+                f"{self._reanalysis_engine.positions_reanalyzed} positions, "
+                f"saved to {reanalyzed_path}"
+            )
+
+            return str(reanalyzed_path)
+
+        except Exception as e:
+            logger.error(f"[IntegratedEnhancements] Reanalysis failed: {e}")
+            return None
+
+    def get_reanalysis_stats(self) -> dict[str, Any]:
+        """Get reanalysis statistics.
+
+        Returns:
+            Dictionary with reanalysis statistics.
+        """
+        if self._reanalysis_engine is None:
+            return {"enabled": False}
+
+        return {
+            "enabled": True,
+            "positions_reanalyzed": self._reanalysis_engine.positions_reanalyzed,
+            "games_reanalyzed": self._reanalysis_engine.games_reanalyzed,
+            "last_reanalysis_time": getattr(self, '_last_reanalysis_time', 0.0),
+            "last_reanalysis_step": getattr(self, '_last_reanalysis_step', 0),
+            "blend_ratio": self._reanalysis_engine.config.value_blend_ratio,
+        }
 
     # =========================================================================
     # Lifecycle Management
