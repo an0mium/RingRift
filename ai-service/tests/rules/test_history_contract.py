@@ -1,5 +1,6 @@
 from app.models.core import MoveType
 from app.rules.history_contract import (
+    ALWAYS_VALID_MOVE_TYPES,
     derive_phase_from_move_type,
     phase_move_contract,
     validate_canonical_move,
@@ -31,6 +32,15 @@ def test_validate_canonical_move_accepts_contract_pairs():
             assert result.ok is True
             assert result.effective_phase == phase
             assert result.reason is None
+
+
+def test_validate_canonical_move_accepts_meta_moves_with_phase():
+    for move_type in ALWAYS_VALID_MOVE_TYPES:
+        result = validate_canonical_move("movement", move_type)
+
+        assert result.ok is True
+        assert result.effective_phase == "movement"
+        assert result.reason is None
 
 
 def test_validate_canonical_move_rejects_phase_mismatch():

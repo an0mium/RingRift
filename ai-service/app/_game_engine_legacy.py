@@ -753,10 +753,10 @@ class GameEngine:
         - FORCED_ELIMINATION:
             FORCED_ELIMINATION
 
-        SWAP_SIDES is permitted in any phase as a meta-move. Legacy move
-        types (LINE_FORMATION, TERRITORY_CLAIM, CHAIN_CAPTURE) are also
-        accepted to avoid breaking historical tests; canonical recordings
-        should avoid them.
+        SWAP_SIDES, RESIGN, and TIMEOUT are permitted in any phase as
+        meta-moves. Legacy move types (LINE_FORMATION, TERRITORY_CLAIM,
+        CHAIN_CAPTURE) are also accepted to avoid breaking historical
+        tests; canonical recordings should avoid them.
         """
         phase = game_state.current_phase
         mtype = move.type
