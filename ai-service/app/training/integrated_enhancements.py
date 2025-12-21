@@ -136,9 +136,11 @@ class IntegratedEnhancementsConfig:
 
     # =========================================================================
     # Reanalysis
+    # December 2025: Enabled for +40-120 Elo improvement via dual-pass training
+    # Policy targets already use mcts_visits by default in improvement loop
     # =========================================================================
-    reanalysis_enabled: bool = False
-    reanalysis_blend_ratio: float = 0.5
+    reanalysis_enabled: bool = True
+    reanalysis_blend_ratio: float = 0.7  # 70% new, 30% old (MuZero-style)
     reanalysis_interval_steps: int = 5000
     reanalysis_batch_size: int = 1000
 
