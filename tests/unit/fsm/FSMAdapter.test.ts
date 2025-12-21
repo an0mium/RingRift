@@ -590,8 +590,25 @@ describe('FSMAdapter', () => {
         'skip_territory_processing',
         'territory_claim',
       ],
-      // no_territory_action allowed for replay compatibility
-      forced_elimination: ['forced_elimination', 'no_territory_action'],
+      // Legacy replay compatibility: many move types allowed for pre-RR-PARITY-FIX-2025-12-20 games
+      forced_elimination: [
+        'forced_elimination',
+        // Pattern 1: FORCED_ELIM_TO_TERRITORY
+        'no_territory_action',
+        'process_territory_region',
+        'choose_territory_option',
+        'eliminate_rings_from_stack',
+        'skip_territory_processing',
+        // Pattern 2: FORCED_ELIM_TO_LINE
+        'no_line_action',
+        'process_line',
+        'choose_line_option',
+        'choose_line_reward',
+        // Pattern 3: FORCED_ELIM_TO_PLACEMENT
+        'place_ring',
+        'skip_placement',
+        'no_placement_action',
+      ],
       game_over: [],
     };
 
@@ -678,8 +695,10 @@ describe('FSMAdapter', () => {
       expect(isMoveTypeValidForPhase('ring_placement', 'move_stack')).toBe(false);
       expect(isMoveTypeValidForPhase('ring_placement', 'overtaking_capture')).toBe(false);
       expect(isMoveTypeValidForPhase('ring_placement', 'forced_elimination')).toBe(false);
-      expect(isMoveTypeValidForPhase('forced_elimination', 'place_ring')).toBe(false);
-      expect(isMoveTypeValidForPhase('forced_elimination', 'process_line')).toBe(false);
+      // Note: forced_elimination now accepts many move types for legacy replay compatibility
+      // (pre-RR-PARITY-FIX-2025-12-20 games). Only test truly invalid combinations.
+      expect(isMoveTypeValidForPhase('forced_elimination', 'move_stack')).toBe(false);
+      expect(isMoveTypeValidForPhase('forced_elimination', 'overtaking_capture')).toBe(false);
     });
   });
 
