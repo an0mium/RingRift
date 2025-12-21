@@ -143,12 +143,14 @@ def _parse_move(move_dict: dict[str, Any], move_number: int, timestamp: str) -> 
         "overtaking_capture": MoveType.OVERTAKING_CAPTURE,
         "continue_capture_segment": MoveType.CONTINUE_CAPTURE_SEGMENT,
         "skip_capture": MoveType.SKIP_CAPTURE,
+        # Line moves (RR-CANON: prefer choose_line_option)
         "choose_line_option": MoveType.CHOOSE_LINE_OPTION,
-        "choose_line_reward": MoveType.CHOOSE_LINE_REWARD,
-        "process_line": MoveType.PROCESS_LINE,
+        "choose_line_reward": MoveType.CHOOSE_LINE_OPTION,  # Legacy -> canonical
+        "process_line": MoveType.PROCESS_LINE,  # GPU internal format
         "no_line_action": MoveType.NO_LINE_ACTION,
+        # Territory moves (RR-CANON: prefer choose_territory_option)
         "choose_territory_option": MoveType.CHOOSE_TERRITORY_OPTION,
-        "process_territory_region": MoveType.PROCESS_TERRITORY_REGION,
+        "process_territory_region": MoveType.CHOOSE_TERRITORY_OPTION,  # Legacy -> canonical
         "no_territory_action": MoveType.NO_TERRITORY_ACTION,
         "skip_territory_processing": MoveType.SKIP_TERRITORY_PROCESSING,
         "eliminate_rings_from_stack": MoveType.ELIMINATE_RINGS_FROM_STACK,

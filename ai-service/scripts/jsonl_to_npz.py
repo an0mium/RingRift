@@ -542,15 +542,15 @@ def parse_move(move_dict: dict[str, Any]) -> Move:
         "OVERTAKING_CAPTURE": "overtaking_capture",
         "CONTINUE_CAPTURE_SEGMENT": "continue_capture_segment",
         "SKIP_CAPTURE": "skip_capture",
-        # Line processing
+        # Line processing (RR-CANON: canonical names only)
         "LINE": "process_line",
         "PROCESS_LINE": "process_line",
         "CHOOSE_LINE_OPTION": "choose_line_option",
-        "CHOOSE_LINE_REWARD": "choose_line_reward",
+        "CHOOSE_LINE_REWARD": "choose_line_option",  # Legacy -> canonical
         "NO_LINE_ACTION": "no_line_action",
-        # Territory processing
-        "TERRITORY": "process_territory_region",
-        "PROCESS_TERRITORY_REGION": "process_territory_region",
+        # Territory processing (RR-CANON: canonical names only)
+        "TERRITORY": "choose_territory_option",  # Legacy -> canonical
+        "PROCESS_TERRITORY_REGION": "choose_territory_option",  # Legacy -> canonical
         "CHOOSE_TERRITORY_OPTION": "choose_territory_option",
         "NO_TERRITORY_ACTION": "no_territory_action",
         # Other

@@ -55,11 +55,11 @@ _CPU_TO_GPU_MOVE_TYPE = {
     'overtaking_capture': MoveType.OVERTAKING_CAPTURE,
     'continue_capture_segment': MoveType.CONTINUE_CAPTURE_SEGMENT,
     'skip_capture': MoveType.SKIP_CAPTURE,
-    # Line moves
-    'process_line': MoveType.LINE_FORMATION,
+    # Line moves (GPU uses 'process_line' for line formation detection)
+    'process_line': MoveType.LINE_FORMATION,  # GPU-CPU interop mapping
     'no_line_action': MoveType.NO_LINE_ACTION,
     'choose_line_option': MoveType.CHOOSE_LINE_OPTION,
-    # Territory moves
+    # Territory moves (RR-CANON: use canonical names in new code)
     # NOTE: GPU MoveType lacks a distinct skip_territory_processing; map to NO_TERRITORY_ACTION.
     'skip_territory_processing': MoveType.NO_TERRITORY_ACTION,
     'no_territory_action': MoveType.NO_TERRITORY_ACTION,
