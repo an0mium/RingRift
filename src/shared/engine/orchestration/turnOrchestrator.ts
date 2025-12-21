@@ -2641,8 +2641,15 @@ function processPostMovePhases(
     stateMachine.transitionTo('line_processing');
   }
 
+  const isLinePhaseMove =
+    originalMoveType === 'no_line_action' ||
+    originalMoveType === 'process_line' ||
+    originalMoveType === 'choose_line_option' ||
+    originalMoveType === 'choose_line_reward';
+  const shouldCheckLines = stateMachine.currentPhase === 'line_processing' || isLinePhaseMove;
+
   // Process lines
-  if (stateMachine.currentPhase === 'line_processing') {
+  if (shouldCheckLines) {
     // RR-PARITY-FIX-2024-12-09: After ANY move in line_processing (including
     // process_line), re-check for remaining lines. This mirrors Python's
     // phase_machine.py which always checks remaining_lines after each
@@ -2690,6 +2697,9 @@ function processPostMovePhases(
       // Surface a line_order decision so hosts can construct and apply
       // explicit process_line / choose_line_option moves that will be
       // recorded in canonical history (RR-CANON-R075/R076).
+      if (stateMachine.currentPhase !== 'line_processing') {
+        stateMachine.transitionTo('line_processing');
+      }
       const detectedLines = lines.map((l) => ({
         positions: l.positions,
         player: l.player,
@@ -2706,11 +2716,6 @@ function processPostMovePhases(
     // No lines exist for the current player. If the original move was not
     // already a line-phase move, surface a required no_line_action decision
     // so hosts can emit an explicit no_line_action bookkeeping move.
-    const isLinePhaseMove =
-      originalMoveType === 'no_line_action' ||
-      originalMoveType === 'process_line' ||
-      originalMoveType === 'choose_line_option' ||
-      originalMoveType === 'choose_line_reward';
     if (!isLinePhaseMove) {
       return {
         pendingDecision: {

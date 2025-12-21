@@ -952,6 +952,47 @@ describe('TurnOrchestrator core branch coverage', () => {
   });
 
   describe('phase transitions', () => {
+    it('stays in line_processing when another line remains after process_line', () => {
+      const state = createBaseState('line_processing');
+
+      const lineA: Position[] = [
+        { x: 0, y: 1 },
+        { x: 1, y: 1 },
+        { x: 2, y: 1 },
+        { x: 3, y: 1 },
+      ];
+      const lineB: Position[] = [
+        { x: 4, y: 3 },
+        { x: 5, y: 3 },
+        { x: 6, y: 3 },
+        { x: 7, y: 3 },
+      ];
+
+      for (const pos of [...lineA, ...lineB]) {
+        state.board.markers.set(positionToString(pos), {
+          player: 1,
+          position: pos,
+          type: 'regular',
+        });
+      }
+
+      const move = createMove('process_line', 1, lineA[0], {
+        formedLines: [
+          {
+            positions: lineA,
+            player: 1,
+            length: lineA.length,
+            direction: { x: 1, y: 0 },
+          },
+        ],
+      });
+
+      const result = processTurn(state, move);
+
+      expect(result.nextState.currentPhase).toBe('line_processing');
+      expect(result.pendingDecision?.type).toBe('line_order');
+    });
+
     it('transitions ring_placement -> movement on place_ring', () => {
       const state = createBaseState('ring_placement');
       const move = createMove('place_ring', 1, { x: 3, y: 3 });
