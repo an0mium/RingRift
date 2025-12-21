@@ -771,6 +771,16 @@ from app.coordination.utils import (
     MetricsAccumulator,
 )
 
+# Work Distribution (December 2025 - cluster work queue integration)
+from app.coordination.work_distributor import (
+    DistributedWorkConfig,
+    WorkDistributor,
+    distribute_evaluation,
+    distribute_selfplay,
+    distribute_training,
+    get_work_distributor,
+)
+
 # Module-level singleton placeholders for cleanup in shutdown_all_coordinators
 _selfplay_orchestrator = None
 _pipeline_orchestrator = None
