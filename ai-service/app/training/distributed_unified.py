@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 # Use shared lazy torch import; extend with distributed modules
 from app.training.utils import get_torch
+from app.utils.resource_guard import check_gpu_memory, check_memory, clear_gpu_memory
 from app.utils.torch_utils import safe_load_checkpoint
 
 _dist = None
@@ -417,6 +418,14 @@ class UnifiedDistributedTrainer:
                 self._device = torch.device(f"cuda:{config.local_rank}")
             else:
                 self._device = torch.device("cpu")
+
+            # Resource guard: check GPU/memory before model allocation
+            if self._device.type == "cuda":
+                if not check_gpu_memory():
+                    logger.warning("[DistributedUnified] GPU memory pressure, clearing cache")
+                    clear_gpu_memory()
+                if not check_memory():
+                    logger.warning("[DistributedUnified] System memory pressure detected")
 
             # Move model to device
             self._original_model = self._original_model.to(self._device)

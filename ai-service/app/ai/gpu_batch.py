@@ -44,6 +44,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+# Resource checking for GPU operations (December 2025)
+from app.utils.resource_guard import check_gpu_memory, check_memory
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -498,6 +501,12 @@ class GPUBatchEvaluator:
 
         batch_size = len(feature_batch)
         start_time = time.perf_counter()
+
+        # Resource guard: check GPU memory before large tensor allocation
+        if self.device.type == "cuda" and batch_size > 32:
+            if not check_gpu_memory():
+                logger.warning("[GPUBatchEvaluator] GPU memory pressure, clearing cache")
+                clear_gpu_memory(self.device)
 
         # Convert to GPU tensors
         features = torch.from_numpy(feature_batch).float().to(self.device)

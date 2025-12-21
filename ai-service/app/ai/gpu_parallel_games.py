@@ -40,6 +40,9 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import torch
 
+# Resource checking before GPU operations (December 2025)
+from app.utils.resource_guard import check_gpu_memory, check_memory, clear_gpu_memory
+
 from .gpu_batch import get_device
 from .gpu_batch_state import BatchGameState
 from .gpu_game_types import GamePhase, GameStatus
@@ -196,6 +199,14 @@ class ParallelGameRunner:
             self.device = torch.device(device)
         else:
             self.device = device
+
+        # Resource guard: check GPU/memory before large allocation
+        if self.device.type == "cuda":
+            if not check_gpu_memory():
+                logger.warning("[ParallelGameRunner] GPU memory pressure, clearing cache")
+                clear_gpu_memory()
+            if not check_memory():
+                logger.warning("[ParallelGameRunner] System memory pressure detected")
 
         # Pre-allocate state buffer
         self.state = BatchGameState.create_batch(
