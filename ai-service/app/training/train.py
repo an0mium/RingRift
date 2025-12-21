@@ -938,7 +938,7 @@ def train_model(
         else:
             # Auto-generate appropriate model_id for new hex training
             board_prefix = "hex8" if config.board_type == BoardType.HEX8 else "hex"
-            new_model_id = f"ringrift_{board_prefix}_{config.num_players}p"
+            new_model_id = f"ringrift_{board_prefix}_{num_players}p"
             logger.warning(
                 f"Model ID '{config.model_id}' is for sq8 but training {config.board_type.name}. "
                 f"Using '{new_model_id}' instead."
@@ -953,7 +953,7 @@ def train_model(
         else:
             # Auto-generate appropriate model_id for new square training
             board_prefix = "sq8" if config.board_type == BoardType.SQUARE8 else "sq19"
-            new_model_id = f"ringrift_{board_prefix}_{config.num_players}p"
+            new_model_id = f"ringrift_{board_prefix}_{num_players}p"
             logger.warning(
                 f"Model ID '{config.model_id}' is for hex but training {config.board_type.name}. "
                 f"Using '{new_model_id}' instead."
