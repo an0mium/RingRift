@@ -345,8 +345,9 @@ class SubscriptionRegistry(SingletonMixin):
                     subscriber_name = subscriber_name.rsplit('.', 1)[0]
 
                 # Track the subscription
+                event_type_str = event_type.value if hasattr(event_type, "value") else str(event_type)
                 self.track(
-                    event_type=event_type if isinstance(event_type, str) else str(event_type),
+                    event_type=event_type_str,
                     subscriber_name=subscriber_name,
                     handler=handler,
                 )

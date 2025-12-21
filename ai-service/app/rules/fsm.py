@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from app.models import GamePhase, GameState, Move, MoveType
+from app.rules.legacy.move_type_aliases import convert_legacy_move_type
 from app.rules.history_contract import phase_move_contract
 
 logger = logging.getLogger(__name__)
@@ -211,7 +212,6 @@ def validate_move_for_phase(
                 m for m in valid_moves
                 if m.type in (
                     MoveType.MOVE_STACK,
-                    MoveType.MOVE_RING,
                     MoveType.OVERTAKING_CAPTURE,
                     MoveType.CONTINUE_CAPTURE_SEGMENT,
                     MoveType.RECOVERY_SLIDE,

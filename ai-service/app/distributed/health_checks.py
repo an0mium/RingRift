@@ -89,7 +89,7 @@ except ImportError:
 # Event router for health/recovery events (Phase 10 consolidation)
 try:
     from app.coordination.event_router import get_router
-    from app.distributed.data_events import DataEvent, DataEventType
+    from app.distributed.data_events import DataEventType
     HAS_EVENT_BUS = True
 except ImportError:
     HAS_EVENT_BUS = False
@@ -777,16 +777,16 @@ class HealthRecoveryIntegration:
             return
 
         event_router = get_router()
-        await event_router.publish(DataEvent(
-            event_type=event_type,
+        await event_router.publish(
+            event_type,
             payload={
                 "component": component,
                 "failure_count": failure_count,
                 "message": message,
-                **kwargs
+                **kwargs,
             },
             source="health_recovery_integration",
-        ))
+        )
 
     async def _notify_resource_issue(self, component: ComponentHealth) -> None:
         """Notify about resource issues."""

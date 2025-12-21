@@ -246,6 +246,14 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
 
     current_player = game_state.current_player
 
+    # Normalize the move type to canonical MoveType enum
+    raw_move_type = last_move.type.value if hasattr(last_move.type, "value") else str(last_move.type)
+    normalized_type_str = convert_legacy_move_type(raw_move_type, warn=False)
+    try:
+        normalized_type = MoveType(normalized_type_str)
+    except ValueError:
+        normalized_type = last_move.type if isinstance(last_move.type, MoveType) else None
+
     if normalized_type == MoveType.FORCED_ELIMINATION:
         # Per RR-CANON-R070 and the shared TS engine, explicit
         # FORCED_ELIMINATION is the seventh and final phase of a turn.
@@ -387,7 +395,7 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
         ]
         if remaining_lines:
             # Stay in line_processing; hosts will surface the next PROCESS_LINE or
-            # CHOOSE_LINE_OPTION move (legacy: CHOOSE_LINE_REWARD).
+            # CHOOSE_LINE_OPTION move.
             game_state.current_phase = GamePhase.LINE_PROCESSING
         else:
             _on_line_processing_complete(
@@ -431,7 +439,7 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
             # via get_phase_requirement → synthesize_bookkeeping_move.
             game_state.current_phase = GamePhase.TERRITORY_PROCESSING
 
-    elif last_move.type == MoveType.ELIMINATE_RINGS_FROM_STACK:
+    elif normalized_type == MoveType.ELIMINATE_RINGS_FROM_STACK:
         # After an explicit ELIMINATE_RINGS_FROM_STACK decision, re-evaluate whether
         # more territory decisions remain for the **same player**. When no further
         # regions exist, delegate to the canonical post-territory helper so that we
@@ -461,10 +469,7 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
                 last_move=last_move,
             )
 
-    elif last_move.type in (
-        MoveType.CHOOSE_TERRITORY_OPTION,
-        MoveType.PROCESS_TERRITORY_REGION,  # legacy alias
-    ):
+    elif normalized_type == MoveType.CHOOSE_TERRITORY_OPTION:
         # TS treat non-processable territory decisions as a no-op, which must NOT
         # end the phase. Keep the current player in TERRITORY_PROCESSING so hosts
         # can emit NO_TERRITORY_ACTION when no processable regions exist.
@@ -472,9 +477,9 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
             game_state.current_phase = GamePhase.TERRITORY_PROCESSING
             return
 
-        # After processing a disconnected territory region (choose_territory_option;
-        # legacy alias: process_territory_region), re-evaluate whether more territory
-        # decisions remain for the **same player**. This mirrors the TS orchestrator
+        # After processing a disconnected territory region (choose_territory_option),
+        # re-evaluate whether more territory decisions remain for the **same player**.
+        # This mirrors the TS orchestrator
         # which stays in territory_processing until all regions are resolved.
         remaining_regions = GameEngine._get_territory_processing_moves(
             game_state,
@@ -497,7 +502,7 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
                 last_move=last_move,
             )
 
-    elif last_move.type == MoveType.SKIP_TERRITORY_PROCESSING:
+    elif normalized_type == MoveType.SKIP_TERRITORY_PROCESSING:
         # Voluntary stop: territory processing is an optional subset. Treat the
         # phase as complete for this player and delegate to the shared
         # post-territory helper so we either enter FORCED_ELIMINATION (ANM +
@@ -508,7 +513,7 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
             last_move=last_move,
         )
 
-    elif last_move.type == MoveType.NO_TERRITORY_ACTION:
+    elif normalized_type == MoveType.NO_TERRITORY_ACTION:
         # Forced no-op: player entered territory_processing but had no eligible
         # regions. Per RR-CANON-R075, this move marks that the phase was visited.
         # After a NO_TERRITORY_ACTION, treat territory_processing as complete for
@@ -518,7 +523,3 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
             trace_mode=trace_mode,
             last_move=last_move,
         )
-
-    elif last_move.type == MoveType.TERRITORY_CLAIM:
-        # Legacy territory claim move; kept for replay compatibility.
-        pass

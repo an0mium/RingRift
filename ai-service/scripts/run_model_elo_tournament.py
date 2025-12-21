@@ -94,10 +94,8 @@ HAS_EVENT_BUS = has_event_bus()
 
 # For backwards compatibility
 if HAS_EVENT_BUS:
-    from app.coordination.event_router import get_router
-    from app.distributed.data_events import DataEventType, emit_elo_updated
+    from app.distributed.data_events import emit_elo_updated
 else:
-    get_router = lambda: None
     emit_elo_updated = emit_elo_updated_safe
 
 # Import coordination helpers (consolidated imports)

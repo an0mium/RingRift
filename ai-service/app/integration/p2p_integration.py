@@ -1471,7 +1471,7 @@ def integrate_selfplay_with_training(
     # Import event router for publishing events
     try:
         from app.coordination.event_router import get_router
-        from app.distributed.data_events import DataEvent, DataEventType
+        from app.distributed.data_events import DataEventType
         event_router = get_router()
         has_event_bus = True
     except ImportError:
@@ -1506,8 +1506,8 @@ def integrate_selfplay_with_training(
 
         # Publish NEW_GAMES_AVAILABLE event
         if has_event_bus and new_games > 0:
-            await event_router.publish(DataEvent(
-                event_type=DataEventType.NEW_GAMES_AVAILABLE,
+            await event_router.publish(
+                DataEventType.NEW_GAMES_AVAILABLE,
                 payload={
                     "config": config_key,
                     "new_games": new_games,
@@ -1515,7 +1515,7 @@ def integrate_selfplay_with_training(
                     "threshold": TRAINING_TRIGGER_GAMES,
                 },
                 source="selfplay_training_integration",
-            ))
+            )
 
         if decision.should_train and config_key not in pending_training:
             # Check if already pending
@@ -1523,8 +1523,8 @@ def integrate_selfplay_with_training(
 
             # Emit TRAINING_THRESHOLD_REACHED event
             if has_event_bus:
-                await event_router.publish(DataEvent(
-                    event_type=DataEventType.TRAINING_THRESHOLD_REACHED,
+                await event_router.publish(
+                    DataEventType.TRAINING_THRESHOLD_REACHED,
                     payload={
                         "config": config_key,
                         "total_games": total_games,
@@ -1533,7 +1533,7 @@ def integrate_selfplay_with_training(
                         "signal_scores": decision.signal_scores,
                     },
                     source="selfplay_training_integration",
-                ))
+                )
 
             logger.info(
                 f"[Training↔Selfplay] TRAINING_THRESHOLD_REACHED for {config_key} "
