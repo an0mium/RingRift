@@ -49,11 +49,14 @@ __all__ = [
     "SlurmJobStatus",
     "SlurmNode",
     "SlurmPartition",
+    # Singleton
     "get_slurm_backend",
     # Convenience functions
     "submit_gpu_selfplay_job",
     "submit_selfplay_job",
     "submit_training_job",
+    # Constants
+    "SLURM_MANAGED_PATTERNS",
 ]
 
 logger = logging.getLogger(__name__)
@@ -352,6 +355,141 @@ class SlurmBackend:
         self._jobs = jobs
         logger.info(f"[Slurm] Refreshed {len(jobs)} jobs in queue")
 
+    async def get_completed_job_status(self, job_id: int) -> SlurmJobStatus | None:
+        """Get status of a completed job including exit code via sacct.
+
+        Use this to get final job status after job has left the queue.
+        Returns exit code and final state for jobs that have completed.
+        """
+        # sacct format: JobID|JobName|State|Partition|NodeList|Start|Elapsed|ExitCode
+        cmd = f'sacct -j {job_id} -n -P -o "JobID,JobName,State,Partition,NodeList,Start,Elapsed,ExitCode" | head -1'
+        rc, stdout, stderr = await self._ssh_command(cmd)
+
+        if rc != 0:
+            logger.error(f"[Slurm] sacct failed for job {job_id}: {stderr}")
+            return None
+
+        if not stdout.strip():
+            logger.warning(f"[Slurm] No sacct data for job {job_id}")
+            return None
+
+        try:
+            parts = stdout.strip().split("|")
+            if len(parts) >= 7:
+                # Parse exit code - format is "exitcode:signal" e.g. "0:0" or "1:0"
+                exit_code_str = parts[7] if len(parts) > 7 else "0:0"
+                exit_code = self._parse_exit_code(exit_code_str)
+
+                # Map sacct state to SlurmJobState
+                state_str = parts[2].upper()
+                state = self._map_sacct_state(state_str)
+
+                return SlurmJobStatus(
+                    job_id=job_id,
+                    name=parts[1],
+                    state=state,
+                    partition=parts[3],
+                    node=parts[4] if parts[4] else None,
+                    start_time=parts[5] if parts[5] else None,
+                    run_time=parts[6] if parts[6] else None,
+                    exit_code=exit_code,
+                )
+        except Exception as e:
+            logger.warning(f"[Slurm] Failed to parse sacct output for job {job_id}: {e}")
+
+        return None
+
+    def _parse_exit_code(self, exit_code_str: str) -> int:
+        """Parse Slurm exit code string (format: 'exitcode:signal')."""
+        try:
+            if ":" in exit_code_str:
+                exit_code, signal = exit_code_str.split(":", 1)
+                # If killed by signal, return 128 + signal (Unix convention)
+                sig = int(signal) if signal.isdigit() else 0
+                if sig > 0:
+                    return 128 + sig
+                return int(exit_code) if exit_code.isdigit() else 0
+            return int(exit_code_str) if exit_code_str.isdigit() else 0
+        except (ValueError, AttributeError):
+            return 0
+
+    def _map_sacct_state(self, state_str: str) -> SlurmJobState:
+        """Map sacct state string to SlurmJobState enum."""
+        # sacct states can include suffixes like "COMPLETED+" or "CANCELLED by ..."
+        state_upper = state_str.split()[0].rstrip("+")
+
+        state_map = {
+            "PENDING": SlurmJobState.PENDING,
+            "RUNNING": SlurmJobState.RUNNING,
+            "COMPLETED": SlurmJobState.COMPLETED,
+            "FAILED": SlurmJobState.FAILED,
+            "CANCELLED": SlurmJobState.CANCELLED,
+            "TIMEOUT": SlurmJobState.TIMEOUT,
+            "NODE_FAIL": SlurmJobState.NODE_FAIL,
+            "PREEMPTED": SlurmJobState.CANCELLED,
+            "OUT_OF_MEMORY": SlurmJobState.FAILED,
+            "DEADLINE": SlurmJobState.TIMEOUT,
+        }
+        return state_map.get(state_upper, SlurmJobState.UNKNOWN)
+
+    async def get_recent_completed_jobs(
+        self,
+        since_hours: int = 24,
+        job_name_filter: str | None = None,
+    ) -> list[SlurmJobStatus]:
+        """Get recently completed jobs with exit codes.
+
+        Args:
+            since_hours: Look back this many hours for completed jobs.
+            job_name_filter: Optional job name prefix to filter by.
+
+        Returns:
+            List of completed job statuses with exit codes.
+        """
+        # Calculate start time
+        start_time = f"now-{since_hours}hours"
+        cmd = f'sacct -S {start_time} -n -P -o "JobID,JobName,State,Partition,NodeList,Start,Elapsed,ExitCode"'
+
+        if job_name_filter:
+            cmd += f' -n "{job_name_filter}"'
+
+        rc, stdout, stderr = await self._ssh_command(cmd)
+
+        if rc != 0:
+            logger.error(f"[Slurm] sacct failed: {stderr}")
+            return []
+
+        jobs = []
+        for line in stdout.strip().split("\n"):
+            if not line:
+                continue
+            try:
+                parts = line.split("|")
+                # Skip batch/extern sub-steps (e.g., "12345.batch", "12345.extern")
+                job_id_str = parts[0]
+                if "." in job_id_str:
+                    continue
+
+                job_id = int(job_id_str)
+                exit_code = self._parse_exit_code(parts[7] if len(parts) > 7 else "0:0")
+                state = self._map_sacct_state(parts[2])
+
+                jobs.append(SlurmJobStatus(
+                    job_id=job_id,
+                    name=parts[1],
+                    state=state,
+                    partition=parts[3],
+                    node=parts[4] if parts[4] else None,
+                    start_time=parts[5] if len(parts) > 5 else None,
+                    run_time=parts[6] if len(parts) > 6 else None,
+                    exit_code=exit_code,
+                ))
+            except Exception as e:
+                logger.warning(f"[Slurm] Failed to parse sacct line: {line}: {e}")
+
+        logger.info(f"[Slurm] Found {len(jobs)} completed jobs in last {since_hours}h")
+        return jobs
+
     async def get_nodes(self, refresh: bool = False) -> dict[str, SlurmNode]:
         """Get all Slurm nodes."""
         if refresh or not self._nodes:
@@ -477,10 +615,28 @@ class SlurmBackend:
         logger.info(f"[Slurm] Cancelled job {job_id}")
         return True
 
-    async def get_job_status(self, job_id: int) -> SlurmJobStatus | None:
-        """Get status of a specific job."""
+    async def get_job_status(self, job_id: int, include_completed: bool = True) -> SlurmJobStatus | None:
+        """Get status of a specific job.
+
+        Args:
+            job_id: The Slurm job ID.
+            include_completed: If True and job is not in queue, check sacct
+                for completed job status including exit code.
+
+        Returns:
+            Job status or None if not found.
+        """
         await self._refresh_jobs()
-        return self._jobs.get(job_id)
+        status = self._jobs.get(job_id)
+
+        if status is not None:
+            return status
+
+        # Job not in queue - check sacct for completed status
+        if include_completed:
+            return await self.get_completed_job_status(job_id)
+
+        return None
 
     async def wait_for_job(
         self,
@@ -488,12 +644,27 @@ class SlurmBackend:
         timeout: float = 3600,
         poll_interval: float = 10,
     ) -> SlurmJobStatus | None:
-        """Wait for a job to complete."""
+        """Wait for a job to complete.
+
+        Returns job status with exit code when job finishes.
+        """
         start = time.time()
         while time.time() - start < timeout:
-            status = await self.get_job_status(job_id)
+            # First check if job is still in queue
+            await self._refresh_jobs()
+            status = self._jobs.get(job_id)
+
             if status and status.is_finished:
-                return status
+                # Job finished but may still be in queue briefly - get exit code from sacct
+                completed_status = await self.get_completed_job_status(job_id)
+                return completed_status or status
+
+            if status is None:
+                # Job left queue - get final status from sacct
+                completed_status = await self.get_completed_job_status(job_id)
+                if completed_status:
+                    return completed_status
+
             await asyncio.sleep(poll_interval)
 
         return None
