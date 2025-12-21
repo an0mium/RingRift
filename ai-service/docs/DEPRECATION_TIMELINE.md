@@ -1,0 +1,162 @@
+# RingRift AI Service Deprecation Timeline
+
+**Last Updated:** 2025-12-21
+**Document Purpose:** Track deprecated modules and their planned removal dates.
+
+---
+
+## Active Deprecations
+
+### Legacy Rules Engine Components
+
+| Module                       | Status               | Deprecation Date | Target Removal | Replacement                   |
+| ---------------------------- | -------------------- | ---------------- | -------------- | ----------------------------- |
+| `app/_game_engine_legacy.py` | **ACTIVE** (Primary) | -                | Q3 2026        | `app/rules/default_engine.py` |
+| `app/rules/phase_machine.py` | Transitional         | Dec 2025         | Q2 2026        | `app/rules/fsm.py`            |
+| `app/rules/legacy/*`         | Deprecated           | Dec 2025         | Q4 2026        | Canonical rules v9+           |
+
+### Legacy Rules Submodules
+
+| Module                                     | Purpose                  | Target Removal | Notes                  |
+| ------------------------------------------ | ------------------------ | -------------- | ---------------------- |
+| `app/rules/legacy/move_type_aliases.py`    | Convert v1-v7 move types | Q4 2026        | For replay only        |
+| `app/rules/legacy/replay_compatibility.py` | Replay old games         | Q4 2026        | Supports v1-v7         |
+| `app/rules/legacy/phase_auto_advance.py`   | GPU selfplay compat      | Q2 2026        | Violates RR-CANON-R075 |
+| `app/rules/legacy/state_normalization.py`  | Normalize old states     | Q4 2026        | For v1-v7 games        |
+
+### Neural Network Legacy
+
+| Module                         | Status                 | Target Removal | Replacement           |
+| ------------------------------ | ---------------------- | -------------- | --------------------- |
+| `app/ai/_neural_net_legacy.py` | Constants consolidated | Q2 2026        | `app/ai/neural_net/*` |
+
+---
+
+## Deprecation Phases
+
+### Phase 1: Q1 2026 - Preparation
+
+- [ ] Complete extraction of line formation logic to `app/rules/line.py`
+- [ ] Complete extraction of territory logic to `app/rules/territory.py`
+- [ ] Ensure all validators/mutators have shadow contracts
+- [ ] Run full parity test suite
+
+### Phase 2: Q2 2026 - Phase Machine Migration
+
+- [ ] Migrate all phase logic from `phase_machine.py` to `fsm.py`
+- [ ] Update GameEngine to use `fsm.py` for phase updates
+- [ ] Mark `phase_machine.py` as deprecated (emit warnings)
+- [ ] Remove `phase_auto_advance.py` (all selfplay now canonical)
+
+### Phase 3: Q3 2026 - GameEngine Decomposition
+
+- [ ] Enable mutator-first orchestration as default
+- [ ] Mark `_game_engine_legacy.py` GameEngine methods as deprecated
+- [ ] Migrate remaining callers to `DefaultRulesEngine`
+- [ ] Keep GameEngine for reference/validation only
+
+### Phase 4: Q4 2026 - Legacy Game Removal
+
+- [ ] Remove `app/rules/legacy/*` modules
+- [ ] Drop support for game schema versions < 8
+- [ ] Archive `_game_engine_legacy.py` (read-only reference)
+- [ ] Complete migration to canonical-only rules
+
+---
+
+## Migration Guides
+
+### Migrating from GameEngine to DefaultRulesEngine
+
+```python
+# OLD (deprecated)
+from app.game_engine import GameEngine
+state = GameEngine.apply_move(state, move)
+
+# NEW (canonical)
+from app.rules.default_engine import DefaultRulesEngine
+engine = DefaultRulesEngine()
+state = engine.apply_move(state, move)
+```
+
+### Migrating from phase_machine to fsm
+
+```python
+# OLD (deprecated)
+from app.rules.phase_machine import advance_phases
+state = advance_phases(state, player)
+
+# NEW (canonical)
+from app.rules.fsm import FSMValidator
+validator = FSMValidator()
+# Phase advancement handled by mutators
+```
+
+### Handling Legacy Game Replays
+
+```python
+# For v1-v7 games, use legacy replay path
+from app.rules.legacy import requires_legacy_replay, replay_with_legacy_fallback
+
+if requires_legacy_replay(game_record):
+    states = replay_with_legacy_fallback(game_record)
+else:
+    # Canonical replay
+    states = canonical_replay(game_record)
+```
+
+---
+
+## Deprecation Warnings
+
+Deprecated functions will emit warnings using:
+
+```python
+import warnings
+warnings.warn(
+    "GameEngine.apply_move is deprecated. Use DefaultRulesEngine.apply_move instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+```
+
+### Suppressing Warnings (During Migration)
+
+```python
+import warnings
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+    # Legacy code here
+```
+
+---
+
+## Data Migration Requirements
+
+### Game Records
+
+| Schema Version | Status       | Action Required           |
+| -------------- | ------------ | ------------------------- |
+| v1-v7          | Legacy       | Migrate to v9+ or archive |
+| v8             | Transitional | Verify hex geometry       |
+| v9+            | Canonical    | No action needed          |
+
+### Training Data
+
+| Data Source                      | Status | Action                               |
+| -------------------------------- | ------ | ------------------------------------ |
+| GPU selfplay without bookkeeping | Legacy | Regenerate with `--canonical-mode`   |
+| Gumbel MCTS before Dec 2025      | Verify | Check for explicit bookkeeping moves |
+| Canonical selfplay v9+           | OK     | Use for training                     |
+
+See `TRAINING_DATA_REGISTRY.md` for canonical database requirements.
+
+---
+
+## Contact & Ownership
+
+For deprecation questions:
+
+- Rules engine: See RULES_ENGINE_SURFACE_AUDIT.md
+- Neural network: See AI_IMPROVEMENT_PLAN.md
+- Training data: See TRAINING_DATA_REGISTRY.md
