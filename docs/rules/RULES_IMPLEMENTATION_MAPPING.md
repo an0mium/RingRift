@@ -2,31 +2,31 @@
 
 > **SSoT alignment:** This document is a derived mapping between canonical rules and implementation. It defers to:
 >
-> - **Rules/invariants semantics SSoT:** `RULES_CANONICAL_SPEC.md` (RR‑CANON rules), `ringrift_complete_rules.md` / `ringrift_compact_rules.md`, and the shared TypeScript rules engine under `src/shared/engine/**` (helpers → aggregates → orchestrator → contracts plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`).
-> - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`) for the executable Move + decision + WebSocket lifecycle.
+> - **Rules/invariants semantics SSoT:** `../../RULES_CANONICAL_SPEC.md` (RR‑CANON rules), `../../ringrift_complete_rules.md` / `../../ringrift_compact_rules.md`, and the shared TypeScript rules engine under `src/shared/engine/**` (helpers → aggregates → orchestrator → contracts plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`).
+> - **Lifecycle/API SSoT:** `../architecture/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`) for the executable Move + decision + WebSocket lifecycle.
 > - **Precedence:** Backend (`GameEngine` + `TurnEngineAdapter` over the shared orchestrator, with `BoardManager`), client sandbox (`ClientSandboxEngine` + `SandboxOrchestratorAdapter`), and Python rules/AI engine (`ai-service/app/game_engine.py`, `ai-service/app/rules/*`) are **hosts/adapters** over those SSoTs. Legacy backend helpers in `RuleEngine.ts` are treated as **diagnostics-only** orchestration wrappers and must not be considered canonical execution paths. If this document ever contradicts the rules spec, shared TS engine, orchestrator/contracts, WebSocket schemas, or tests, **code + tests win** and this mapping must be updated to match.
 >
 > This file is for traceability (rules ↔ implementation/tests), not a standalone semantics SSoT.
 >
 > **Interpretation note:** Validator/Mutator names used here are semantic anchors, not necessarily literal TS filenames; the shared engine expresses many responsibilities via helpers/aggregates/orchestrator.
 
-**Doc Status (2025-11-26): Active**
+**Doc Status (2025-12-21): Active**
 
-- Rules/invariants semantics SSoT lives in `RULES_CANONICAL_SPEC.md` (RR‑CANON rules) + the shared TypeScript rules engine under `src/shared/engine/` (helpers → aggregates → orchestrator → contracts).
-- Move/decision/WebSocket lifecycle semantics SSoT lives in `docs/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`).
+- Rules/invariants semantics SSoT lives in `../../RULES_CANONICAL_SPEC.md` (RR‑CANON rules) + the shared TypeScript rules engine under `src/shared/engine/` (helpers → aggregates → orchestrator → contracts).
+- Move/decision/WebSocket lifecycle semantics SSoT lives in `../architecture/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`).
 - Backend (`GameEngine` hosting `TurnEngineAdapter` over the shared orchestrator, with `BoardManager`), client sandbox (`ClientSandboxEngine` + `SandboxOrchestratorAdapter`), and Python rules/AI engine (`ai-service/app/game_engine.py`, `ai-service/app/rules/*`) are **hosts/adapters** over this SSoT and are validated via shared tests, contract vectors, and parity suites. Legacy backend orchestration helpers in `RuleEngine.ts` are retained for diagnostics/parity only and are not part of the canonical production path.
 
-This document maps the canonical RingRift rules in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md) to the current implementation and tests, and provides the inverse view from implementation components back to canonical rules.
+This document maps the canonical RingRift rules in [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md) to the current implementation and tests, and provides the inverse view from implementation components back to canonical rules.
 
-Canonical rule IDs of the form `RR-CANON-RXXX` always refer to entries in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md). The original narrative rules in [`ringrift_complete_rules.md`](ringrift_complete_rules.md) and the compact spec in [`ringrift_compact_rules.md`](ringrift_compact_rules.md) are treated as commentary and traceability sources only.
+Canonical rule IDs of the form `RR-CANON-RXXX` always refer to entries in [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md). The original narrative rules in [`ringrift_complete_rules.md`](../../ringrift_complete_rules.md) and the compact spec in [`ringrift_compact_rules.md`](../../ringrift_compact_rules.md) are treated as commentary and traceability sources only.
 
 ### Quick map (top surfaces)
 
-| Area                     | Primary TS surface                                                            | Key tests                                                                                                                                               |
-| ------------------------ | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Turn/phase orchestration | `src/shared/engine/orchestration/turnOrchestrator.ts`, `phaseStateMachine.ts` | `tests/contracts/contractVectorRunner.test.ts`, `tests/unit/TraceFixtures.sharedEngineParity.test.ts`                                                   |
-| Lines & territory        | `src/shared/engine/lines.ts`, `territory.ts`, aggregates                      | `tests/unit/GameEngine.lines.scenarios.test.ts`, `tests/unit/GameEngine.territoryDisconnection.test.ts`                                                 |
-| Forced elimination / ANM | `src/shared/engine/forcedElimination.ts`, `turnOrchestrator` guards           | `tests/unit/GameEngine.gameEndExplanation.shared.test.ts`, `ai-service/tests/invariants/test_active_no_moves_movement_forced_elimination_regression.py` |
+| Area                     | Primary TS surface                                                                                                     | Key tests                                                                                                                                               |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Turn/phase orchestration | `src/shared/engine/orchestration/turnOrchestrator.ts`, `phaseStateMachine.ts`                                          | `tests/contracts/contractVectorRunner.test.ts`, `tests/unit/TraceFixtures.sharedEngineParity.test.ts`                                                   |
+| Lines & territory        | `src/shared/engine/lineDetection.ts`, `lineDecisionHelpers.ts`, `territoryDetection.ts`, `territoryDecisionHelpers.ts` | `tests/unit/GameEngine.lines.scenarios.test.ts`, `tests/unit/GameEngine.territoryDisconnection.test.ts`                                                 |
+| Forced elimination / ANM | `src/shared/engine/orchestration/turnOrchestrator.ts`, `src/shared/engine/globalActions.ts`                            | `tests/unit/GameEngine.gameEndExplanation.shared.test.ts`, `ai-service/tests/invariants/test_active_no_moves_movement_forced_elimination_regression.py` |
 
 ---
 
@@ -39,7 +39,7 @@ catalogue.
 - **RR-CANON-R073** (mandatory phase transitions): TS `src/shared/engine/orchestration/turnOrchestrator.ts` + `src/shared/engine/orchestration/phaseStateMachine.ts`; Python `ai-service/app/rules/phase_machine.py`.
 - **RR-CANON-R074** (record all actions/skips): TS move recording + decision moves in `src/shared/types/game.ts` and orchestrator decisions; Python canonical contract `ai-service/app/rules/history_contract.py` (write-time enforcement via `ai-service/app/db/game_replay.py`).
 - **RR-CANON-R075** (canonical replay semantics / no silent transitions): TS `src/shared/engine/phaseValidation.ts` + `tests/unit/PhaseRecording.invariant.test.ts`; Python `ai-service/app/rules/history_contract.py` + `ai-service/app/rules/history_validation.py`.
-- **RR-CANON-R076** (core rules vs host layer boundaries): see `docs/architecture/CANONICAL_ENGINE_API.md` + `src/shared/engine/**` vs hosts (`src/server/game/**`, `src/client/sandbox/**`, `ai-service/app/game_engine.py`).
+- **RR-CANON-R076** (core rules vs host layer boundaries): see `../architecture/CANONICAL_ENGINE_API.md` + `src/shared/engine/**` vs hosts (`src/server/game/**`, `src/client/sandbox/**`, `ai-service/app/game_engine.py`).
 - **RR-CANON-R093** (post-movement capture eligibility from landing position only): TS capture enumeration in `src/shared/engine/aggregates/CaptureAggregate.ts`; Python capture enumeration in `ai-service/app/game_engine.py`.
 - **RR-CANON-R110, RR-CANON-R111, RR-CANON-R112, RR-CANON-R113, RR-CANON-R114, RR-CANON-R115** (recovery eligibility, slide, success criteria, extraction, cascade + recording): TS `src/shared/engine/aggregates/RecoveryAggregate.ts` + `src/shared/engine/lpsTracking.ts`; Python `ai-service/app/rules/global_actions.py` + recovery logic in `ai-service/app/game_engine.py`.
 - **RR-CANON-R130** (line reward semantics referenced by recovery): TS `src/shared/engine/aggregates/LineAggregate.ts`; contract vectors under `tests/fixtures/contract-vectors/v2/line_processing.vectors.json`.
@@ -482,7 +482,7 @@ Status legend:
 **R190–R191 No randomness, progress & termination invariant (HC for accounting; NM for strict enforcement of “no randomness” at engine boundary)**
 
 - **Primary implementation**
-  - S‑invariant metric and monotonicity in [`TypeScript.computeProgressSnapshot()`](src/shared/engine/core.ts:531) and comments in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md).
+  - S‑invariant metric and monotonicity in [`TypeScript.computeProgressSnapshot()`](src/shared/engine/core.ts:531) and comments in [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md).
   - Backend history entries that record `progressBefore`/`progressAfter` and hashes in [`TypeScript.GameEngine`](src/server/game/GameEngine.ts:92) near `appendHistoryEntry()`.
   - Sandbox history mirroring in [`TypeScript.ClientSandboxEngine.appendHistoryEntry`](src/client/sandbox/ClientSandboxEngine.ts:271), including S‑invariant and board summaries.
   - TS↔Python parity checks comparing S‑invariant and state hashes in [`TypeScript.RulesBackendFacade.compareTsAndPython`](src/server/game/RulesBackendFacade.ts:309).
@@ -623,7 +623,7 @@ Status legend:
 
 ## 4. Inverse Mapping: Implementation → Rules
 
-This section lists the major rules-related components and the canonical rules they implement or orchestrate. Where behaviour appears without a corresponding rule in `RULES_CANONICAL_SPEC.md`, it is flagged explicitly.
+This section lists the major rules-related components and the canonical rules they implement or orchestrate. Where behaviour appears without a corresponding rule in [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md), it is flagged explicitly.
 
 ### 4.1 Shared engine modules
 
