@@ -47,7 +47,7 @@ This document provides a comprehensive audit of the GPU implementation against c
 | RR-CANON-R120 | Line Length Requirements    | 4 for 2p, 3 for 3-4p on square8                                |
 | RR-CANON-R130 | Overlength Line Options     | Option 1 (all + eliminate) or Option 2 (subset, no eliminate)  |
 | RR-CANON-R140 | Territory Processing        | Flood-fill from collapsed spaces                               |
-| RR-CANON-R150 | Cap Eligibility (Territory) | Multicolor OR single-color height>1; NOT height-1              |
+| RR-CANON-R022 | Cap Eligibility (Territory) | Multicolor OR single-color height>1; NOT height-1              |
 | RR-CANON-R110 | Recovery Mechanics          | Marker slide + territory processing                            |
 | RR-CANON-R061 | Victory Threshold           | round(ringsPerPlayer × (2/3 + 1/3 × (numPlayers - 1)))         |
 | RR-CANON-R200 | Victory Conditions          | Ring Elimination, Territory (>50%), LPS (3 consecutive rounds) |

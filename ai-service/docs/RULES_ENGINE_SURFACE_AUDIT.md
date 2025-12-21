@@ -24,7 +24,7 @@ The legacy monolithic GameEngine (4,482 LOC) remains the primary rules execution
 | `app/rules/placement.py`                | Full SSoT | Ring placement validation (RR-CANON-R080-R082)                                      |
 | `app/rules/elimination.py`              | Full SSoT | Context-aware elimination (RR-CANON-R100, R113, R122, R145)                         |
 | `app/rules/recovery.py`                 | Full SSoT | Recovery action (RR-CANON-R110-R115)                                                |
-| `app/rules/capture_chain.py`            | Full SSoT | Capture mechanics (RR-CANON-R084-R089)                                              |
+| `app/rules/capture_chain.py`            | Full SSoT | Capture mechanics (RR-CANON-R100-R103)                                              |
 | `app/rules/history_contract.py`         | Full SSoT | Phase-move contract (RR-CANON-R070, R075)                                           |
 | `app/rules/global_actions.py`           | Full SSoT | Action availability (RR-CANON-R200-R207)                                            |
 | `app/game_engine/phase_requirements.py` | Full SSoT | BookKeeping move types (RR-CANON-R076)                                              |
@@ -73,7 +73,7 @@ The legacy monolithic GameEngine (4,482 LOC) remains the primary rules execution
 - [x] RR-CANON-R062: Territory victory minimum
 - [x] RR-CANON-R070/R075: Phase-to-move contract
 - [x] RR-CANON-R080-R082: Placement rules
-- [x] RR-CANON-R084-R089: Capture mechanics
+- [x] RR-CANON-R100-R103: Capture mechanics
 - [x] RR-CANON-R100: Forced elimination
 - [x] RR-CANON-R110-R115: Recovery action
 - [x] RR-CANON-R120: Line length
@@ -98,7 +98,7 @@ The legacy monolithic GameEngine (4,482 LOC) remains the primary rules execution
    - Implement LineValidator/LineMutator
 
 2. **Extract Territory Processing Logic** → `app/rules/territory.py`
-   - Region detection, collapse logic (RR-CANON-R125+)
+   - Region detection, collapse logic (RR-CANON-R140-R145)
    - Implement TerritoryValidator/TerritoryMutator
 
 3. **Complete Phase FSM Migration**
