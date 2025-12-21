@@ -202,6 +202,46 @@ describe('consumeRateLimit', () => {
     expect(result.retryAfter).toBeDefined();
     expect(result.retryAfter).toBeGreaterThan(0);
   });
+
+  it('bypasses rate limits when a valid bypass token is present', async () => {
+    const originalBypassEnabled = process.env.RATE_LIMIT_BYPASS_ENABLED;
+    const originalBypassToken = process.env.RATE_LIMIT_BYPASS_TOKEN;
+    const bypassToken = 'bypass-token-123456';
+
+    process.env.RATE_LIMIT_BYPASS_ENABLED = 'true';
+    process.env.RATE_LIMIT_BYPASS_TOKEN = bypassToken;
+
+    const mockReq = {
+      ip: '127.0.0.1',
+      headers: {
+        'x-ratelimit-bypass-token': bypassToken,
+      },
+    } as Request;
+
+    try {
+      const key = 'test-key-bypass';
+      for (let i = 0; i < 10; i++) {
+        const bypassResult = await consumeRateLimit('authLogin', key, mockReq);
+        expect(bypassResult.allowed).toBe(true);
+        expect(bypassResult.remaining).toBeUndefined();
+      }
+
+      const normalResult = await consumeRateLimit('authLogin', key);
+      expect(normalResult.allowed).toBe(true);
+      expect(normalResult.remaining).toBe(4);
+    } finally {
+      if (originalBypassEnabled === undefined) {
+        delete process.env.RATE_LIMIT_BYPASS_ENABLED;
+      } else {
+        process.env.RATE_LIMIT_BYPASS_ENABLED = originalBypassEnabled;
+      }
+      if (originalBypassToken === undefined) {
+        delete process.env.RATE_LIMIT_BYPASS_TOKEN;
+      } else {
+        process.env.RATE_LIMIT_BYPASS_TOKEN = originalBypassToken;
+      }
+    }
+  });
 });
 
 describe('Rate Limiter Middleware', () => {

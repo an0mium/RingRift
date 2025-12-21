@@ -976,7 +976,7 @@ The rate limit bypass pattern `^loadtest.+@loadtest\.local$` is applied at the a
 
 #### Immediate (PV-07.3)
 
-1. **Fix game rate limiter bypass** - Ensure `RATE_LIMIT_BYPASS_USER_PATTERN` is applied to game endpoints, not just auth
+1. **Fix game rate limiter bypass** - Ensure the bypass applies to `consumeRateLimit` (gameCreateUser/gameCreateIp quotas) so game endpoints honor `X-RateLimit-Bypass-Token` and `RATE_LIMIT_BYPASS_USER_PATTERN`
 2. **Increase game rate limits for staging** - Current `RATE_LIMIT_GAME_POINTS=10000` may not be sufficient at 100 VUs all polling simultaneously
 3. **Re-run with fix** - After rate limit fix, expect clean signal with 0 rate limit hits
 

@@ -11,6 +11,7 @@ import { type AuthenticatedRequest, getAuthUserId } from './auth';
  * Redis client type from the redis package.
  */
 type RedisClientType = ReturnType<typeof createClient>;
+type RateLimitBypassLoggedRequest = Request & { __rateLimitBypassLogged?: boolean };
 
 /**
  * Rate limiter rejection response - returned when limit is exceeded.
@@ -97,8 +98,7 @@ const getBypassUserPattern = (): RegExp | null => {
   //   - loadtest.user1@loadtest.local
   //   - loadtest_user_1@loadtest.local
   //   - loadtest_vu_42@loadtest.local
-  const pattern =
-    process.env.RATE_LIMIT_BYPASS_USER_PATTERN || '^loadtest[._].+@loadtest\\.local$';
+  const pattern = process.env.RATE_LIMIT_BYPASS_USER_PATTERN || '^loadtest[._].+@loadtest\\.local$';
   try {
     return new RegExp(pattern);
   } catch {
@@ -147,6 +147,16 @@ const logBypassTriggered = (
   });
 };
 
+const shouldLogBypass = (req: Request, logBypass: boolean): boolean => {
+  if (!logBypass) return false;
+  const trackedReq = req as RateLimitBypassLoggedRequest;
+  if (trackedReq.__rateLimitBypassLogged) {
+    return false;
+  }
+  trackedReq.__rateLimitBypassLogged = true;
+  return true;
+};
+
 /**
  * Check if a request should bypass rate limiting.
  *
@@ -169,7 +179,7 @@ export const shouldBypassRateLimit = (req: Request, logBypass: boolean = true): 
   if (bypassToken) {
     const headerToken = req.headers['x-ratelimit-bypass-token'] as string | undefined;
     if (headerToken && headerToken === bypassToken) {
-      if (logBypass) {
+      if (shouldLogBypass(req, logBypass)) {
         logBypassTriggered(req, 'bypass_token', '(token)');
       }
       return true;
@@ -180,7 +190,7 @@ export const shouldBypassRateLimit = (req: Request, logBypass: boolean = true): 
   const normalizedIp = normalizeIpKey(req.ip);
   const bypassIPs = getBypassIPs();
   if (bypassIPs.has(normalizedIp)) {
-    if (logBypass) {
+    if (shouldLogBypass(req, logBypass)) {
       logBypassTriggered(req, 'ip', normalizedIp);
     }
     return true;
@@ -192,7 +202,7 @@ export const shouldBypassRateLimit = (req: Request, logBypass: boolean = true): 
   if (userEmail) {
     const pattern = getBypassUserPattern();
     if (pattern && pattern.test(userEmail)) {
-      if (logBypass) {
+      if (shouldLogBypass(req, logBypass)) {
         logBypassTriggered(req, 'user_pattern', userEmail);
       }
       return true;
@@ -439,8 +449,7 @@ export const initializeRateLimiters = (redis: RedisClientType | null) => {
     const isProduction = process.env.NODE_ENV === 'production';
     const level = isProduction ? 'error' : 'warn';
     const bypassTokenConfigured = !!(
-      process.env.RATE_LIMIT_BYPASS_TOKEN &&
-      process.env.RATE_LIMIT_BYPASS_TOKEN.length >= 16
+      process.env.RATE_LIMIT_BYPASS_TOKEN && process.env.RATE_LIMIT_BYPASS_TOKEN.length >= 16
     );
     logger[level](
       `SECURITY: Rate limit bypass is ENABLED. ${isProduction ? 'This is dangerous in production!' : 'Acceptable for testing only.'}`,
@@ -526,8 +535,13 @@ export const setRateLimitHeaders = (
  */
 export const consumeRateLimit = async (
   limiterKey: string,
-  key: string
+  key: string,
+  req?: Request
 ): Promise<RateLimitResult> => {
+  if (req && shouldBypassRateLimit(req)) {
+    return { allowed: true };
+  }
+
   const limiter = rateLimiters[limiterKey];
   const config = getRateLimitConfigsCached()[limiterKey];
 

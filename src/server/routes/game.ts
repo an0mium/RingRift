@@ -802,7 +802,7 @@ router.post(
     const clientIp = forwardedFor || req.ip || 'unknown';
 
     // Per-user game creation quota.
-    const userQuota = await consumeRateLimit('gameCreateUser', userId);
+    const userQuota = await consumeRateLimit('gameCreateUser', userId, req);
     if (!userQuota.allowed) {
       logger.warn('Game creation quota exceeded for user', {
         userId,
@@ -820,7 +820,7 @@ router.post(
 
     // Per-IP game creation quota as an additional guard (including for any
     // edge cases where authentication might be missing or misconfigured).
-    const ipQuota = await consumeRateLimit('gameCreateIp', clientIp);
+    const ipQuota = await consumeRateLimit('gameCreateIp', clientIp, req);
     if (!ipQuota.allowed) {
       logger.warn('Game creation quota exceeded for IP', {
         userId,
