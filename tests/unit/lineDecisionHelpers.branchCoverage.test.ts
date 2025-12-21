@@ -394,7 +394,7 @@ describe('lineDecisionHelpers branch coverage', () => {
         expect(result.pendingLineRewardElimination).toBe(false);
       });
 
-      it('returns unchanged state for overlength line (requires choose_line_reward)', () => {
+      it('returns unchanged state for overlength line (requires choose_line_option)', () => {
         const state = makeGameState();
         const overlengthLine = makeLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0), pos(4, 0)]);
         addFormedLine(state, overlengthLine);
@@ -642,7 +642,7 @@ describe('lineDecisionHelpers branch coverage', () => {
 
         const move: Move = {
           id: 'test',
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           player: 1,
           to: pos(0, 0),
           formedLines: [line],
@@ -669,7 +669,7 @@ describe('lineDecisionHelpers branch coverage', () => {
 
         const move: Move = {
           id: 'test',
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           player: 1,
           to: pos(0, 0),
           formedLines: [line],
@@ -697,7 +697,7 @@ describe('lineDecisionHelpers branch coverage', () => {
 
         const move: Move = {
           id: 'test',
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           player: 1,
           to: pos(0, 0),
           formedLines: [line],
@@ -894,7 +894,7 @@ describe('lineDecisionHelpers branch coverage', () => {
       expect(moves[0].thinkTime).toBe(0);
     });
 
-    it('includes correct metadata in choose_line_reward moves', () => {
+    it('includes correct metadata in choose_line_option moves', () => {
       const state = makeGameState();
       const line = makeLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]);
       addFormedLine(state, line);

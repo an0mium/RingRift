@@ -89,7 +89,7 @@ describe('moveActionAdapter', () => {
       });
     });
 
-    describe('move_stack/move_ring', () => {
+    describe('move_stack', () => {
       it('should convert move_stack Move to MoveStackAction', () => {
         const move: Move = {
           type: 'move_stack',
@@ -106,20 +106,6 @@ describe('moveActionAdapter', () => {
         expect((action as MoveStackAction).to).toEqual({ x: 2, y: 2 });
       });
 
-      it('should convert move_ring Move to MoveStackAction', () => {
-        const move: Move = {
-          type: 'move_ring',
-          player: 1,
-          from: { x: 0, y: 0 },
-          to: { x: 1, y: 0 },
-        } as Move;
-        const state = createMockState();
-
-        const action = moveToGameAction(move, state);
-
-        expect(action.type).toBe('MOVE_STACK');
-      });
-
       it('should throw MoveMappingError if from is missing', () => {
         const move: Move = {
           type: 'move_stack',
@@ -130,7 +116,7 @@ describe('moveActionAdapter', () => {
 
         expect(() => moveToGameAction(move, state)).toThrow(MoveMappingError);
         expect(() => moveToGameAction(move, state)).toThrow(
-          'move_stack/move_ring Move is missing from position'
+          'move_stack Move is missing from position'
         );
       });
     });

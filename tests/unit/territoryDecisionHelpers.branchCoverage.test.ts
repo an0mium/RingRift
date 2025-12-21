@@ -288,7 +288,7 @@ describe('territoryDecisionHelpers branch coverage', () => {
 
         const move: Move = {
           id: 'test',
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: pos(0, 0),
           disconnectedRegions: [region],
@@ -306,7 +306,7 @@ describe('territoryDecisionHelpers branch coverage', () => {
 
         const move: Move = {
           id: 'test',
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: pos(0, 0),
           // No disconnectedRegions
@@ -326,7 +326,7 @@ describe('territoryDecisionHelpers branch coverage', () => {
 
         const move: Move = {
           id: 'process-region-0-0,0',
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: pos(0, 0),
           timestamp: new Date(),
@@ -347,7 +347,7 @@ describe('territoryDecisionHelpers branch coverage', () => {
 
         const move: Move = {
           id: 'test',
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: pos(0, 0),
           disconnectedRegions: [], // Empty - forces fallback path
@@ -369,7 +369,7 @@ describe('territoryDecisionHelpers branch coverage', () => {
 
         const move: Move = {
           id: 'process-region-0-0,0',
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: pos(5, 5), // Different from region's representative
           disconnectedRegions: [], // Empty - forces fallback path
@@ -392,7 +392,7 @@ describe('territoryDecisionHelpers branch coverage', () => {
 
         const move: Move = {
           id: 'test',
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: pos(0, 0),
           disconnectedRegions: [region],
@@ -419,7 +419,7 @@ describe('territoryDecisionHelpers branch coverage', () => {
 
         const move: Move = {
           id: 'test',
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: pos(0, 0),
           disconnectedRegions: [region],

@@ -132,7 +132,7 @@ describe('moveActionAdapter branch coverage', () => {
       });
     });
 
-    describe('move_stack and move_ring', () => {
+    describe('move_stack', () => {
       it('maps move_stack move', () => {
         const state = makeEngineState();
         const move: Move = {
@@ -150,23 +150,6 @@ describe('moveActionAdapter branch coverage', () => {
         expect(action.type).toBe('MOVE_STACK');
         expect((action as { from: Position }).from).toEqual(pos(0, 0));
         expect((action as { to: Position }).to).toEqual(pos(1, 0));
-      });
-
-      it('maps move_ring move', () => {
-        const state = makeEngineState();
-        const move: Move = {
-          id: 'test',
-          type: 'move_ring',
-          player: 1,
-          from: pos(2, 2),
-          to: pos(3, 3),
-          timestamp: new Date(),
-          thinkTime: 0,
-          moveNumber: 1,
-        };
-
-        const action = moveToGameAction(move, state);
-        expect(action.type).toBe('MOVE_STACK');
       });
 
       it('throws when from position is missing', () => {

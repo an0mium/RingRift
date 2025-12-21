@@ -229,7 +229,7 @@ describe('LineValidator branch coverage', () => {
       it('rejects when not in line_processing phase', () => {
         const state = makeGameState({ currentPhase: 'capture' });
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: 0,
           selection: 'COLLAPSE_ALL',
@@ -248,7 +248,7 @@ describe('LineValidator branch coverage', () => {
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]),
         ]);
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 2, // Not current player
           lineIndex: 0,
           selection: 'COLLAPSE_ALL',
@@ -264,7 +264,7 @@ describe('LineValidator branch coverage', () => {
       it('rejects negative line index', () => {
         const state = makeGameState();
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: -1,
           selection: 'COLLAPSE_ALL',
@@ -279,7 +279,7 @@ describe('LineValidator branch coverage', () => {
         const state = makeGameState();
         state.board.formedLines = [];
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: 0,
           selection: 'COLLAPSE_ALL',
@@ -298,7 +298,7 @@ describe('LineValidator branch coverage', () => {
           makeFormedLine(2, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]),
         ]);
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: 0,
           selection: 'COLLAPSE_ALL',
@@ -318,7 +318,7 @@ describe('LineValidator branch coverage', () => {
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]),
         ]);
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: 0,
           selection: 'MINIMUM_COLLAPSE',
@@ -336,7 +336,7 @@ describe('LineValidator branch coverage', () => {
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]),
         ]);
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: 0,
           selection: 'COLLAPSE_ALL',
@@ -355,7 +355,7 @@ describe('LineValidator branch coverage', () => {
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0), pos(4, 0)]),
         ]);
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: 0,
           selection: 'MINIMUM_COLLAPSE',
@@ -373,7 +373,7 @@ describe('LineValidator branch coverage', () => {
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0), pos(4, 0)]),
         ]);
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: 0,
           selection: 'MINIMUM_COLLAPSE',
@@ -391,7 +391,7 @@ describe('LineValidator branch coverage', () => {
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0), pos(4, 0)]),
         ]);
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: 0,
           selection: 'MINIMUM_COLLAPSE',
@@ -409,7 +409,7 @@ describe('LineValidator branch coverage', () => {
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0), pos(4, 0)]),
         ]);
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: 0,
           selection: 'MINIMUM_COLLAPSE',
@@ -427,7 +427,7 @@ describe('LineValidator branch coverage', () => {
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0), pos(4, 0)]),
         ]);
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: 0,
           selection: 'MINIMUM_COLLAPSE',
@@ -444,7 +444,7 @@ describe('LineValidator branch coverage', () => {
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0), pos(4, 0)]),
         ]);
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: 0,
           selection: 'MINIMUM_COLLAPSE',
@@ -464,7 +464,7 @@ describe('LineValidator branch coverage', () => {
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0), pos(4, 0), pos(5, 0)]),
         ]);
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: 0,
           selection: 'COLLAPSE_ALL',
@@ -480,7 +480,7 @@ describe('LineValidator branch coverage', () => {
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0), pos(4, 0)]),
         ]);
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: 0,
           selection: 'COLLAPSE_ALL',
@@ -499,7 +499,7 @@ describe('LineValidator branch coverage', () => {
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]),
         ]);
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: 0,
           selection: 'COLLAPSE_ALL',
