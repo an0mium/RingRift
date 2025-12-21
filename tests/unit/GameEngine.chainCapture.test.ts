@@ -484,10 +484,6 @@ describe('GameEngine chain capture enforcement (TsChainCaptureState)', () => {
     // Place a Green marker at (1,3) to test marker interaction along the path
     boardManager.setMarker(markerPos, 3, gameState.board);
 
-    // DEBUG: Log markers before move
-    console.log('Before move - markers:', Array.from(gameState.board.markers.entries()));
-    console.log('Before move - stacks:', Array.from(gameState.board.stacks.entries()));
-
     const result = await engine.makeMove({
       player: 1,
       type: 'overtaking_capture',
@@ -499,10 +495,6 @@ describe('GameEngine chain capture enforcement (TsChainCaptureState)', () => {
     expect(result.success).toBe(true);
 
     const board = gameState.board;
-    // DEBUG: Log markers and stacks after move
-    console.log('After move - markers:', Array.from(board.markers.entries()));
-    console.log('After move - stacks:', Array.from(board.stacks.entries()));
-
     const stackAtStart = board.stacks.get('1,1');
     const stackAtTarget = board.stacks.get('1,2');
     const stackAtLanding = board.stacks.get('1,4');
