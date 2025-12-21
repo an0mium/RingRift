@@ -3517,6 +3517,16 @@ def train_model(
                             f"Blend ratio: {reanalysis_stats['blend_ratio']:.2f}"
                         )
 
+                    # Log distillation summary if enabled (2025-12)
+                    distillation_stats = enhancements_manager.get_distillation_stats()
+                    if distillation_stats.get("enabled") and distillation_stats.get("last_distillation_epoch", 0) > 0:
+                        logger.info(
+                            f"[Distillation Summary] "
+                            f"Last epoch: {distillation_stats['last_distillation_epoch']}, "
+                            f"Teachers: {distillation_stats['available_teachers']}, "
+                            f"Temperature: {distillation_stats['temperature']:.1f}"
+                        )
+
                 # Publish training completed event (2025-12)
                 if HAS_EVENT_BUS and get_router is not None:
                     try:
@@ -3529,11 +3539,14 @@ def train_model(
                             "config": f"{config.board_type.value}_{num_players}p",
                             "checkpoint_path": str(final_checkpoint_path),
                         }
-                        # Add reanalysis stats to event payload
+                        # Add reanalysis and distillation stats to event payload
                         if enhancements_manager is not None:
                             reanalysis_stats = enhancements_manager.get_reanalysis_stats()
                             if reanalysis_stats.get("enabled"):
                                 event_payload["reanalysis"] = reanalysis_stats
+                            distillation_stats = enhancements_manager.get_distillation_stats()
+                            if distillation_stats.get("enabled"):
+                                event_payload["distillation"] = distillation_stats
                         router.publish_sync(DataEvent(
                             event_type=DataEventType.TRAINING_COMPLETED,
                             payload=event_payload,

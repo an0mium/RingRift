@@ -9,6 +9,7 @@ Unified module that consolidates and integrates all advanced training features:
 - Curriculum Learning (progressive difficulty)
 - Data Augmentation (board symmetry)
 - Reanalysis (historical game re-evaluation)
+- Knowledge Distillation (ensemble compression)
 
 This module provides a single entry point for enabling/configuring all features.
 
@@ -23,25 +24,35 @@ should_early_stop()        | INTEGRATED       | Used in train.py for Elo-based s
 get_current_elo()          | INTEGRATED       | Used in train.py for logging
 get_baseline_gating_status | INTEGRATED       | Used in train.py for quality monitoring
 augment_batch_dense()      | INTEGRATED       | Used in train.py for data augmentation
+should_reanalyze()         | INTEGRATED       | Check if reanalysis should be triggered
+process_reanalysis()       | INTEGRATED       | Perform MuZero-style reanalysis on NPZ data
+get_reanalysis_stats()     | INTEGRATED       | Get reanalysis statistics
+should_distill()           | INTEGRATED       | Check if distillation should be triggered
+run_distillation()         | INTEGRATED       | Run ensemble distillation into current model
+get_distillation_stats()   | INTEGRATED       | Get distillation statistics
 ---------------------------|------------------|----------------------------------
 compute_sample_weights()   | REQUIRES DATA    | Needs opponent_elo per sample in training data
 get_curriculum_parameters()| NOT INTEGRATED   | Values never used in training loop
 apply_gradient_surgery()   | NOT INTEGRATED   | Requires restructuring loss computation
-should_reanalyze()         | INTEGRATED       | Check if reanalysis should be triggered
-process_reanalysis()       | INTEGRATED       | Perform MuZero-style reanalysis on NPZ data
-get_reanalysis_stats()     | INTEGRATED       | Get reanalysis statistics
 
 CONFIG FLAGS (December 2025):
 - auxiliary_tasks_enabled: True -> compute_auxiliary_loss() IS called
 - gradient_surgery_enabled: True -> apply_gradient_surgery() NOT called (needs refactor)
 - background_eval_enabled: True -> should_early_stop() IS called
 - reanalysis_enabled: True -> should_reanalyze() + process_reanalysis() available
+- distillation_enabled: True -> should_distill() + run_distillation() available
 
 REANALYSIS INTEGRATION (December 2025):
 The reanalysis pipeline is now callable via IntegratedEnhancements:
 1. should_reanalyze(): Check Elo delta, time interval, step interval thresholds
 2. process_reanalysis(npz_path): Run reanalysis and save blended values
 3. get_reanalysis_stats(): Get positions/games reanalyzed, timing info
+
+KNOWLEDGE DISTILLATION INTEGRATION (December 2025):
+The distillation pipeline compresses ensemble knowledge into the current model:
+1. should_distill(epoch): Check if enough epochs passed and teachers available
+2. run_distillation(epoch, dataloader): Distill from best checkpoints
+3. get_distillation_stats(): Get distillation temperature, teachers used, etc.
 
 To integrate the unused features, see the corresponding methods' docstrings
 for API details, then add calls in app/training/train.py at appropriate points.
@@ -957,6 +968,153 @@ class IntegratedTrainingManager:
         }
 
     # =========================================================================
+    # Knowledge Distillation Integration
+    # =========================================================================
+
+    def should_distill(self, current_epoch: int) -> bool:
+        """Check if knowledge distillation should be triggered.
+
+        Distillation is triggered when:
+        1. Distillation is enabled
+        2. Checkpoint directory is set
+        3. Sufficient epochs have passed since last distillation
+
+        Args:
+            current_epoch: Current training epoch number
+
+        Returns:
+            True if distillation should be performed
+        """
+        if not self.config.distillation_enabled:
+            return False
+
+        if self._distillation_config is None:
+            return False
+
+        if self._checkpoint_dir is None:
+            return False
+
+        # Check epoch interval
+        epochs_since = current_epoch - self._last_distillation_epoch
+        if epochs_since < self.config.distillation_interval_epochs:
+            return False
+
+        # Check if we have enough checkpoints
+        checkpoint_paths = self._get_best_checkpoints()
+        if len(checkpoint_paths) < 2:
+            return False
+
+        return True
+
+    def _get_best_checkpoints(self) -> list[Path]:
+        """Get paths to best checkpoints for ensemble distillation.
+
+        Returns:
+            List of checkpoint paths sorted by Elo (best first)
+        """
+        if self._checkpoint_dir is None:
+            return []
+
+        import re
+
+        checkpoint_dir = Path(self._checkpoint_dir)
+        if not checkpoint_dir.exists():
+            return []
+
+        # Find checkpoint files with Elo in filename (e.g., model_elo1725.pt)
+        checkpoints = []
+        for ckpt_path in checkpoint_dir.glob("*.pt"):
+            # Try to extract Elo from filename
+            match = re.search(r'elo(\d+)', ckpt_path.stem)
+            if match:
+                elo = int(match.group(1))
+                checkpoints.append((elo, ckpt_path))
+
+        # Sort by Elo descending and take top N
+        checkpoints.sort(reverse=True, key=lambda x: x[0])
+        num_teachers = self.config.distillation_num_teachers
+        return [path for _, path in checkpoints[:num_teachers]]
+
+    def run_distillation(
+        self,
+        current_epoch: int,
+        dataloader: Any,
+    ) -> bool:
+        """Run knowledge distillation from ensemble to current model.
+
+        Distills knowledge from best historical checkpoints into the
+        current model, improving generalization.
+
+        Args:
+            current_epoch: Current training epoch
+            dataloader: Training data loader
+
+        Returns:
+            True if distillation was successful
+        """
+        if self.model is None:
+            logger.warning("[IntegratedEnhancements] Model required for distillation")
+            return False
+
+        checkpoint_paths = self._get_best_checkpoints()
+        if len(checkpoint_paths) < 2:
+            logger.warning(
+                f"[IntegratedEnhancements] Need at least 2 checkpoints, found {len(checkpoint_paths)}"
+            )
+            return False
+
+        try:
+            from app.training.distillation import distill_checkpoint_ensemble
+
+            logger.info(
+                f"[Distillation] Starting ensemble distillation with {len(checkpoint_paths)} teachers"
+            )
+
+            # Run distillation
+            distill_checkpoint_ensemble(
+                checkpoint_paths=checkpoint_paths,
+                student_model=self.model,
+                dataloader=dataloader,
+                epochs=self.config.distillation_epochs,
+                temperature=self.config.distillation_temperature,
+                learning_rate=self.config.distillation_lr,
+            )
+
+            # Update tracking state
+            self._last_distillation_epoch = current_epoch
+
+            logger.info(
+                f"[Distillation] Complete at epoch {current_epoch}, "
+                f"distilled from {len(checkpoint_paths)} teachers"
+            )
+
+            return True
+
+        except Exception as e:
+            logger.error(f"[IntegratedEnhancements] Distillation failed: {e}")
+            return False
+
+    def get_distillation_stats(self) -> dict[str, Any]:
+        """Get distillation statistics.
+
+        Returns:
+            Dictionary with distillation statistics.
+        """
+        if self._distillation_config is None:
+            return {"enabled": False}
+
+        checkpoint_paths = self._get_best_checkpoints()
+
+        return {
+            "enabled": True,
+            "temperature": self._distillation_config.temperature,
+            "alpha": self._distillation_config.alpha,
+            "last_distillation_epoch": self._last_distillation_epoch,
+            "available_teachers": len(checkpoint_paths),
+            "interval_epochs": self.config.distillation_interval_epochs,
+        }
+
+    # =========================================================================
     # Lifecycle Management
     # =========================================================================
 
@@ -1067,4 +1225,9 @@ def get_enhancement_defaults() -> dict[str, Any]:
         # Reanalysis
         "reanalysis_enabled": config.reanalysis_enabled,
         "reanalysis_blend_ratio": config.reanalysis_blend_ratio,
+        # Knowledge Distillation
+        "distillation_enabled": config.distillation_enabled,
+        "distillation_temperature": config.distillation_temperature,
+        "distillation_alpha": config.distillation_alpha,
+        "distillation_interval_epochs": config.distillation_interval_epochs,
     }
