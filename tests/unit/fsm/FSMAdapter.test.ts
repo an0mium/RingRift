@@ -582,8 +582,8 @@ describe('FSMAdapter', () => {
         'no_territory_action',
         'skip_territory_processing',
       ],
-      // Canonical: forced_elimination, plus no_territory_action for replay compatibility
-      forced_elimination: ['forced_elimination', 'no_territory_action'],
+      // Canonical: forced_elimination only (legacy compatibility lives elsewhere)
+      forced_elimination: ['forced_elimination'],
       game_over: [],
     };
 

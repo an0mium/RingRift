@@ -243,8 +243,7 @@ describe('Forced Elimination Phase - Edge Cases', () => {
     };
 
     // Canonical spec: only forced_elimination move is valid in forced_elimination phase.
-    // Legacy replay compatibility: PLACE_RING, SKIP_PLACEMENT, NO_TERRITORY_ACTION are
-    // allowed for legacy replay where turn transitions may occur in forced_elimination.
+    // Legacy replay compatibility lives in legacy helpers/modules and is not accepted here.
     const invalidEvents: Array<{ event: TurnEvent; name: string }> = [
       // PLACE_RING is valid for legacy replay (turn transition)
       {
