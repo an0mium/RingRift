@@ -1956,5 +1956,11 @@ __all__ = [
     "wire_resource_events",
     "wire_selfplay_events",
     "wire_task_events",
+    "reset_integration_wiring",
+    "wire_all_integrations",
+    "wire_all_integrations_sync",
+    "wire_model_lifecycle_events",
+    "wire_p2p_integration_events",
+    "wire_pipeline_feedback_events",
     "with_trace",
 ]

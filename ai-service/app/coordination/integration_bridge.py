@@ -17,6 +17,7 @@ Purpose: C2 consolidation - wire integration modules to coordination bootstrap
 from __future__ import annotations
 
 import logging
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 from app.coordination.event_router import (
@@ -129,6 +130,14 @@ def _build_evaluation_result(payload: dict[str, Any]) -> "EvaluationResult" | No
     )
 
 
+def _run_coroutine(coro: Any) -> None:
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(coro)
+    except RuntimeError:
+        asyncio.run(coro)
+
+
 def wire_model_lifecycle_events(manager: ModelLifecycleManager) -> None:
     """Wire ModelLifecycleManager callbacks to event router.
 
@@ -160,7 +169,7 @@ def wire_model_lifecycle_events(manager: ModelLifecycleManager) -> None:
     manager.register_callback("model_rollback", on_model_rollback)
 
     # Subscribe to evaluation complete events for promotion decisions
-    async def on_evaluation_complete(event: RouterEvent) -> None:
+    def on_evaluation_complete(event: RouterEvent) -> None:
         if not isinstance(event.payload, dict):
             logger.debug("[IntegrationBridge] Evaluation payload missing or invalid")
             return
@@ -174,7 +183,7 @@ def wire_model_lifecycle_events(manager: ModelLifecycleManager) -> None:
             return
 
         try:
-            await manager.submit_evaluation(result.model_id, result.version, result)
+            _run_coroutine(manager.submit_evaluation(result.model_id, result.version, result))
         except Exception as e:
             logger.error(f"[IntegrationBridge] Error submitting evaluation: {e}")
 
