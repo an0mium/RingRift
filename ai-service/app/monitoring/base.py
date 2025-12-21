@@ -493,7 +493,7 @@ class MonitorRegistry:
         """Emit event on overall status change."""
         try:
             from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import DataEventType
 
             router = get_router()
             event_type = DataEventType.HEALTH_ALERT if new_status != HealthStatus.HEALTHY else DataEventType.CLUSTER_STATUS_CHANGED

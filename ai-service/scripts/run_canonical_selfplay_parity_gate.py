@@ -615,6 +615,7 @@ def main() -> None:
         bt_map = {
             "square8": BoardType.SQUARE8,
             "square19": BoardType.SQUARE19,
+            "hex8": BoardType.HEX8,
             "hexagonal": BoardType.HEXAGONAL,
         }
         board_enum = bt_map[args.board_type]

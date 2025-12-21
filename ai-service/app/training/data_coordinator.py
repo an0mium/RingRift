@@ -753,7 +753,7 @@ class TrainingDataCoordinator:
 
         # Also subscribe to quality events (December 2025)
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus as get_data_event_bus,
             )

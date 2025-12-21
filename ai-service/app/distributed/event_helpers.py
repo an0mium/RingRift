@@ -23,7 +23,7 @@ try/except import patterns found across 17+ scripts in the codebase.
 
 Instead of this pattern in every script:
     try:
-        from app.distributed.data_events import (
+        from app.coordination.event_router import (
             DataEventType, DataEvent, get_event_bus, emit_model_promoted, ...
         )
         HAS_EVENT_BUS = True
@@ -68,7 +68,7 @@ _emit_error = None
 _emit_elo_updated = None
 
 try:
-    from app.distributed.data_events import (
+    from app.coordination.event_router import (
         DataEvent,
         DataEventType,
         EventBus,

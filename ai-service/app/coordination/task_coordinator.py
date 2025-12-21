@@ -1395,7 +1395,7 @@ class TaskCoordinator:
         try:
             import asyncio
 
-            from app.distributed.data_events import emit_task_spawned
+            from app.coordination.event_router import emit_task_spawned
 
             try:
                 asyncio.get_running_loop()
@@ -1430,7 +1430,7 @@ class TaskCoordinator:
         try:
             import asyncio
 
-            from app.distributed.data_events import emit_task_completed, emit_task_failed
+            from app.coordination.event_router import emit_task_completed, emit_task_failed
 
             duration = time.time() - task.started_at
 
@@ -1731,7 +1731,7 @@ def wire_task_coordinator_events() -> TaskCoordinator:
     try:
         # Use unified event router (consolidated from data_events)
         from app.coordination.event_router import get_router
-        from app.distributed.data_events import DataEventType  # Types still needed
+        from app.coordination.event_router import DataEventType  # Types still needed
 
         router = get_router()
 

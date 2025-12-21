@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 # Event system integration (optional - graceful fallback if not available)
 try:
-    from app.distributed.data_events import (
+    from app.coordination.event_router import (
         DataEventType,
         emit_hyperparameter_updated,
         emit_plateau_detected,

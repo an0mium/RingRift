@@ -189,7 +189,7 @@ except ImportError:
 try:
     from app.distributed.circuit_breaker import CircuitState, get_training_breaker
     from app.coordination.event_router import get_router
-    from app.distributed.data_events import DataEvent, DataEventType
+    from app.coordination.event_router import DataEvent, DataEventType
     HAS_CIRCUIT_BREAKER = True
     HAS_EVENT_BUS = True
 except ImportError:

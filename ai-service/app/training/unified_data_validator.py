@@ -610,7 +610,7 @@ class UnifiedDataValidator:
     def _emit_validation_event(self, result: UnifiedValidationResult) -> None:
         """Emit validation event for monitoring."""
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEvent,
                 DataEventType,
                 get_event_bus,

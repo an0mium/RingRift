@@ -477,7 +477,7 @@ class MonitoringAwareAutoScaler(AutoScaler):
             True if successfully subscribed
         """
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )

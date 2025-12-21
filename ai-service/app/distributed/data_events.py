@@ -25,7 +25,7 @@ AI self-improvement loop. Events allow loose coupling between:
 - Curriculum rebalancing
 
 Usage:
-    from app.distributed.data_events import DataEventType, DataEvent, get_event_bus
+    from app.coordination.event_router import DataEventType, DataEvent, get_event_bus
 
     # Subscribe to events
     bus = get_event_bus()

@@ -48,7 +48,7 @@ from typing import Any, Optional
 import yaml
 
 # Import canonical EventBus (consolidated 2025-12-18)
-from app.distributed.data_events import (
+from app.coordination.event_router import (
     EventBus as CanonicalEventBus,
     get_event_bus,
 )

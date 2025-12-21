@@ -111,7 +111,7 @@ class PEROrchestrator:
             return True
 
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )
@@ -136,7 +136,7 @@ class PEROrchestrator:
             return
 
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )
@@ -264,7 +264,7 @@ class PEROrchestrator:
     def _emit_stats_event(self) -> None:
         """Emit aggregate statistics event."""
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEvent,
                 DataEventType,
                 get_event_bus,

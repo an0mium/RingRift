@@ -202,7 +202,7 @@ class EventBusBackend(MetricsBackend):
     def _publish(self, metric_type: str, name: str, value: float, labels: dict[str, str]) -> None:
         """Publish metric as event."""
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEvent,
                 DataEventType,
                 get_event_bus,

@@ -62,7 +62,7 @@ except ImportError:
 
 # Legacy event bus (fallback if router unavailable)
 try:
-    from app.distributed.data_events import (
+    from app.coordination.event_router import (
         DataEvent,
         DataEventType,
         get_event_bus,

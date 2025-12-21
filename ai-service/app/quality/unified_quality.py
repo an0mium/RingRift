@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 try:
     import asyncio
 
-    from app.distributed.data_events import emit_quality_score_updated
+    from app.coordination.event_router import emit_quality_score_updated
     HAS_QUALITY_EVENTS = True
 except ImportError:
     HAS_QUALITY_EVENTS = False

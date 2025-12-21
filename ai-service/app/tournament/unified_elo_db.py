@@ -977,7 +977,7 @@ class EloDatabase:
             # The EloDatabase is the SSoT for tournament ratings; EloService is for
             # training pipeline integration and event emission only.
             try:
-                from app.distributed.data_events import emit_elo_updated
+                from app.coordination.event_router import emit_elo_updated
                 import asyncio
 
                 config_key = f"{board_type}_{num_players}p"

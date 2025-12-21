@@ -677,7 +677,7 @@ class SyncOrchestrator:
         - QUALITY_DISTRIBUTION_CHANGED → Adjust sync priority based on trends
         """
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )

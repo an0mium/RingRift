@@ -71,7 +71,7 @@ HAS_EVENT_BUS = has_event_bus()
 
 # For backwards compatibility, get the raw functions if available
 if HAS_EVENT_BUS:
-    from app.distributed.data_events import emit_error, emit_model_promoted, get_event_bus
+    from app.coordination.event_router import emit_error, emit_model_promoted, get_event_bus
 else:
     get_event_bus = get_event_bus_safe
     emit_model_promoted = emit_model_promoted_safe

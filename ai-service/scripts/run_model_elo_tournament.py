@@ -94,7 +94,7 @@ HAS_EVENT_BUS = has_event_bus()
 
 # For backwards compatibility
 if HAS_EVENT_BUS:
-    from app.distributed.data_events import emit_elo_updated
+    from app.coordination.event_router import emit_elo_updated
 else:
     emit_elo_updated = emit_elo_updated_safe
 
@@ -1702,7 +1702,7 @@ def run_continuous_tournament(
         try:
             import asyncio
 
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 emit_error,
                 emit_evaluation_completed,
             )

@@ -69,7 +69,7 @@ except ImportError:
 # Event bus integration for auto-promotion on Elo changes (December 2025)
 try:
     from app.coordination.event_router import get_router
-    from app.distributed.data_events import DataEventType
+    from app.coordination.event_router import DataEventType
     HAS_EVENT_BUS = True
 except ImportError:
     HAS_EVENT_BUS = False
@@ -756,7 +756,7 @@ class PromotionController:
         """Publish promotion event to the data event bus."""
         try:
             from app.coordination.event_router import get_router
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEvent,
                 DataEventType,
             )

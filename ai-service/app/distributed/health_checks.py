@@ -89,7 +89,7 @@ except ImportError:
 # Event router for health/recovery events (Phase 10 consolidation)
 try:
     from app.coordination.event_router import get_router
-    from app.distributed.data_events import DataEventType
+    from app.coordination.event_router import DataEventType
     HAS_EVENT_BUS = True
 except ImportError:
     HAS_EVENT_BUS = False

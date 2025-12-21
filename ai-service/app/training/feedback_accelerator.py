@@ -1057,7 +1057,7 @@ def wire_evaluation_to_feedback() -> bool:
 
     try:
         from app.coordination.event_router import get_router
-        from app.distributed.data_events import DataEventType
+        from app.coordination.event_router import DataEventType
 
         router = get_router()
         router.subscribe(DataEventType.EVALUATION_COMPLETED.value, _on_evaluation_completed)
@@ -1078,7 +1078,7 @@ def unwire_evaluation_from_feedback() -> None:
 
     try:
         from app.coordination.event_router import get_router
-        from app.distributed.data_events import DataEventType
+        from app.coordination.event_router import DataEventType
 
         router = get_router()
         router.unsubscribe(DataEventType.EVALUATION_COMPLETED.value, _on_evaluation_completed)

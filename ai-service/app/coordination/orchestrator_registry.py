@@ -1119,7 +1119,7 @@ class CrossCoordinatorHealthProtocol:
     def emit_health_event(self, health: CoordinatorHealth) -> None:
         """Emit a health event to the event bus."""
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEvent,
                 DataEventType,
                 get_event_bus,

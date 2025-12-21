@@ -176,7 +176,7 @@ class ModelPromotionCacheInvalidator:
             True if successfully subscribed
         """
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )
@@ -204,7 +204,7 @@ class ModelPromotionCacheInvalidator:
             Number of event types subscribed to
         """
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )
@@ -353,7 +353,7 @@ class ModelPromotionCacheInvalidator:
             return
 
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )
@@ -499,7 +499,7 @@ class ModelPromotionCacheInvalidator:
     def _emit_invalidation_event(self, result: FullInvalidationResult) -> None:
         """Emit cache invalidation completed event."""
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEvent,
                 DataEventType,
                 get_event_bus,

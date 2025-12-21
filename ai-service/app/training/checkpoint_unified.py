@@ -28,7 +28,7 @@ from app.utils.torch_utils import safe_load_checkpoint
 
 # Event emission for checkpoint observability (optional)
 try:
-    from app.distributed.data_events import emit_checkpoint_loaded, emit_checkpoint_saved
+    from app.coordination.event_router import emit_checkpoint_loaded, emit_checkpoint_saved
     HAS_CHECKPOINT_EVENTS = True
 except ImportError:
     HAS_CHECKPOINT_EVENTS = False

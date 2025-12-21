@@ -597,7 +597,7 @@ class AutoRollbackHandler:
             True if successfully subscribed
         """
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )
@@ -621,7 +621,7 @@ class AutoRollbackHandler:
             return
 
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )

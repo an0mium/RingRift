@@ -30,7 +30,7 @@ Usage:
 
 Event Integration:
     # Events automatically include trace_id when available
-    from app.distributed.data_events import DataEvent
+    from app.coordination.event_router import DataEvent
 
     event = DataEvent(
         event_type=DataEventType.TRAINING_COMPLETED,

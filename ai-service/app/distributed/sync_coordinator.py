@@ -1529,7 +1529,7 @@ class HighQualityDataSyncWatcher:
             True if successfully subscribed
         """
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )
@@ -1557,7 +1557,7 @@ class HighQualityDataSyncWatcher:
             Number of event types subscribed to
         """
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )
@@ -1728,7 +1728,7 @@ class HighQualityDataSyncWatcher:
             return
 
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )
@@ -1838,7 +1838,7 @@ class HighQualityDataSyncWatcher:
     def _emit_sync_completed(self, stats: SyncStats, source_hosts: list[str]) -> None:
         """Emit sync completed event."""
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEvent,
                 DataEventType,
                 get_event_bus,

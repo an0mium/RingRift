@@ -87,7 +87,7 @@ _elo_service_lock = threading.RLock()
 
 # Event emission for ELO updates
 try:
-    from app.distributed.data_events import emit_elo_updated
+    from app.coordination.event_router import emit_elo_updated
     HAS_ELO_EVENTS = True
 except ImportError:
     HAS_ELO_EVENTS = False

@@ -276,7 +276,7 @@ class UnifiedRegistryBase(ABC, Generic[T]):
     def _emit_to_event_bus(self, event_type: str, data: Any) -> None:
         """Emit change to the global event bus."""
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEvent,
                 DataEventType,
                 get_event_bus,

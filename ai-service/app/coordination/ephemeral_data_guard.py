@@ -567,7 +567,7 @@ def wire_ephemeral_guard_events() -> EphemeralDataGuard:
 
     try:
         from app.coordination.event_router import get_router
-        from app.distributed.data_events import DataEventType
+        from app.coordination.event_router import DataEventType
 
         router = get_router()
 

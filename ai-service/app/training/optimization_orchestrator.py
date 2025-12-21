@@ -102,7 +102,7 @@ class OptimizationOrchestrator:
             True if successfully subscribed
         """
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )
@@ -139,7 +139,7 @@ class OptimizationOrchestrator:
             return
 
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )
@@ -412,7 +412,7 @@ class OptimizationOrchestrator:
     def _emit_optimization_event(self, action: str, run: OptimizationRun) -> None:
         """Emit optimization lifecycle event."""
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEvent,
                 DataEventType,
                 get_event_bus,

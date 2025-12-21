@@ -217,7 +217,7 @@ from app.utils.progress_reporter import SoakProgressReporter
 
 # Hot model reload for unified AI loop integration
 try:
-    from app.distributed.data_events import (
+    from app.coordination.event_router import (
         emit_new_games,
     )
     HAS_EVENT_BUS = True

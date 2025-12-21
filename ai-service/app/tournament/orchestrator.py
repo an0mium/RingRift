@@ -45,7 +45,7 @@ from typing import Any
 
 # Event bus integration for training feedback (December 2025)
 try:
-    from app.distributed.data_events import (
+    from app.coordination.event_router import (
         emit_elo_updated,
     )
     HAS_EVENT_BUS = True

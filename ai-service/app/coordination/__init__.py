@@ -968,7 +968,7 @@ def initialize_all_coordinators(
         try:
             import time as _time
 
-            from app.distributed.data_events import DataEvent, DataEventType, get_event_bus
+            from app.coordination.event_router import DataEvent, DataEventType, get_event_bus
 
             bus = get_event_bus()
             for name, error in errors.items():

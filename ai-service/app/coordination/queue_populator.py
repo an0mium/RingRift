@@ -703,7 +703,7 @@ def wire_queue_populator_events() -> QueuePopulator:
 
     try:
         from app.coordination.event_router import get_router
-        from app.distributed.data_events import DataEventType
+        from app.coordination.event_router import DataEventType
 
         router = get_router()
 

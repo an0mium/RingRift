@@ -148,7 +148,7 @@ class DataQualityOrchestrator:
             return True
 
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )
@@ -176,7 +176,7 @@ class DataQualityOrchestrator:
             return
 
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )

@@ -396,7 +396,7 @@ class EloToCurriculumWatcher:
             True if successfully subscribed
         """
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )
@@ -416,7 +416,7 @@ class EloToCurriculumWatcher:
             return
 
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )
@@ -519,7 +519,7 @@ class EloToCurriculumWatcher:
     ) -> None:
         """Publish curriculum rebalance event."""
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEvent,
                 DataEventType,
                 get_event_bus,
@@ -660,7 +660,7 @@ class PlateauToCurriculumWatcher:
             True if successfully subscribed
         """
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )
@@ -680,7 +680,7 @@ class PlateauToCurriculumWatcher:
             return
 
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )
@@ -778,7 +778,7 @@ class PlateauToCurriculumWatcher:
     ) -> None:
         """Publish curriculum rebalance event."""
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEvent,
                 DataEventType,
                 get_event_bus,
@@ -933,7 +933,7 @@ class TournamentToCurriculumWatcher:
             True if successfully subscribed
         """
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )
@@ -953,7 +953,7 @@ class TournamentToCurriculumWatcher:
             return
 
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEventType,
                 get_event_bus,
             )
@@ -1080,7 +1080,7 @@ class TournamentToCurriculumWatcher:
     ) -> None:
         """Publish curriculum rebalance event."""
         try:
-            from app.distributed.data_events import (
+            from app.coordination.event_router import (
                 DataEvent,
                 DataEventType,
                 get_event_bus,

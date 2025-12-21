@@ -1471,7 +1471,7 @@ def integrate_selfplay_with_training(
     # Import event router for publishing events
     try:
         from app.coordination.event_router import get_router
-        from app.distributed.data_events import DataEventType
+        from app.coordination.event_router import DataEventType
         event_router = get_router()
         has_event_bus = True
     except ImportError:

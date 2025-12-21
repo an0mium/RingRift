@@ -49,7 +49,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
-    from app.distributed.data_events import EventBus
+    from app.coordination.event_router import EventBus
 
 # Import canonical thresholds
 try:
@@ -428,7 +428,7 @@ class RegressionDetector:
             return
 
         try:
-            from app.distributed.data_events import DataEvent, DataEventType
+            from app.coordination.event_router import DataEvent, DataEventType
 
             # Map severity to event type
             severity_to_event = {
@@ -478,7 +478,7 @@ class RegressionDetector:
             return
 
         try:
-            from app.distributed.data_events import DataEvent, DataEventType
+            from app.coordination.event_router import DataEvent, DataEventType
 
             event = DataEvent(
                 event_type=DataEventType.REGRESSION_CLEARED,

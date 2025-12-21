@@ -63,7 +63,7 @@ except ImportError:
     _HAS_CANONICAL_ENHANCEMENTS = False
 
 # Import DataEventType and DataEvent from canonical location
-from app.distributed.data_events import DataEvent, DataEventType
+from app.coordination.event_router import DataEvent, DataEventType
 
 # =============================================================================
 # Configuration Dataclasses

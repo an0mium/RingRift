@@ -1264,7 +1264,7 @@ def wire_sync_events() -> SyncScheduler:
 
     try:
         from app.coordination.event_router import get_router
-        from app.distributed.data_events import DataEventType  # Types still needed
+        from app.coordination.event_router import DataEventType  # Types still needed
 
         router = get_router()
 
