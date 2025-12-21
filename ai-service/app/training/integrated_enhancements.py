@@ -159,6 +159,19 @@ class IntegratedEnhancementsConfig:
     reanalysis_interval_steps: int = 5000
     reanalysis_batch_size: int = 1000
 
+    # =========================================================================
+    # Knowledge Distillation
+    # December 2025: +15-25 Elo from ensemble compression
+    # Distills knowledge from multiple checkpoints into a single model
+    # =========================================================================
+    distillation_enabled: bool = True
+    distillation_temperature: float = 3.0  # Softmax temperature for soft targets
+    distillation_alpha: float = 0.7  # Weight of soft targets vs hard targets
+    distillation_interval_epochs: int = 10  # Run distillation every N epochs
+    distillation_num_teachers: int = 3  # Number of best checkpoints to ensemble
+    distillation_epochs: int = 5  # Epochs per distillation run
+    distillation_lr: float = 1e-4  # Learning rate for student during distillation
+
 
 # =============================================================================
 # Integrated Training Manager
@@ -201,6 +214,9 @@ class IntegratedTrainingManager:
         self._curriculum_controller = None
         self._augmentor = None
         self._reanalysis_engine = None
+        self._distillation_config = None
+        self._checkpoint_dir: Path | None = None
+        self._last_distillation_epoch = 0
 
         # Metrics tracking
         self._metrics: dict[str, Any] = {}
@@ -251,6 +267,10 @@ class IntegratedTrainingManager:
         if cfg.reanalysis_enabled:
             self._init_reanalysis()
 
+        # Knowledge Distillation
+        if cfg.distillation_enabled:
+            self._init_distillation()
+
         logger.info(f"[IntegratedEnhancements] Initialized {self._count_enabled()} modules")
 
     def _count_enabled(self) -> int:
@@ -264,6 +284,7 @@ class IntegratedTrainingManager:
             self._curriculum_controller is not None,
             self._augmentor is not None,
             self._reanalysis_engine is not None,
+            self._distillation_config is not None,
         ])
 
     # =========================================================================
@@ -488,6 +509,27 @@ class IntegratedTrainingManager:
             logger.info("[IntegratedEnhancements] Reanalysis engine initialized")
         except Exception as e:
             logger.warning(f"[IntegratedEnhancements] Failed to init reanalysis: {e}")
+
+    def _init_distillation(self):
+        """Initialize knowledge distillation configuration."""
+        try:
+            from app.training.distillation import DistillationConfig
+
+            self._distillation_config = DistillationConfig(
+                temperature=self.config.distillation_temperature,
+                alpha=self.config.distillation_alpha,
+            )
+            logger.info("[IntegratedEnhancements] Distillation config initialized")
+        except Exception as e:
+            logger.warning(f"[IntegratedEnhancements] Failed to init distillation: {e}")
+
+    def set_checkpoint_dir(self, checkpoint_dir: str | Path):
+        """Set checkpoint directory for distillation teacher selection.
+
+        Args:
+            checkpoint_dir: Path to checkpoint directory
+        """
+        self._checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else None
 
     # =========================================================================
     # Training Step Integration

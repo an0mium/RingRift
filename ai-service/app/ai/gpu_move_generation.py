@@ -1360,7 +1360,7 @@ def apply_single_chain_capture(
     state.stack_height[game_idx, target_y, target_x] = new_target_height
 
     # Check if target's cap was fully captured
-    target_cap_fully_captured = target_cap_height <= 1  # Cap will be 0 after -1
+    target_cap_fully_captured = target_cap_height == 1  # Only transfer when capturing LAST cap ring (RR-CANON-R022)
 
     if new_target_height <= 0:
         state.stack_owner[game_idx, target_y, target_x] = 0
@@ -1383,9 +1383,8 @@ def apply_single_chain_capture(
             state.buried_rings[game_idx, opponent] -= buried_count
     else:
         # Cap not fully captured, defender keeps ownership
-        new_target_cap = target_cap_height - 1
-        if new_target_cap <= 0:
-            new_target_cap = 1
+        # new_target_cap can be 0 as transient state (RR-CANON-R022)
+        new_target_cap = max(0, target_cap_height - 1)
         if new_target_cap > new_target_height:
             new_target_cap = new_target_height
         state.cap_height[game_idx, target_y, target_x] = new_target_cap
@@ -1429,17 +1428,13 @@ def apply_single_chain_capture(
         # the entire resulting stack is same color, so cap = new_height.
         new_owner = player
         new_cap = new_height
-        if new_cap <= 0:
-            new_cap = 1
+        # new_cap can be 0 as transient state (RR-CANON-R022)
     else:
         # ENEMY CAPTURE or SELF-CAPTURE with buried rings:
         # Captured ring goes to bottom, doesn't extend the cap sequence from top.
         new_owner = player
-        new_cap = attacker_cap_height - landing_ring_cost
-        if new_cap <= 0:
-            new_cap = 1
-        if new_cap > new_height:
-            new_cap = new_height
+        # new_cap can be 0 as transient state before ownership transfer (RR-CANON-R022)
+        new_cap = max(0, min(attacker_cap_height - landing_ring_cost, new_height))
 
     state.stack_owner[game_idx, to_y, to_x] = new_owner
     state.cap_height[game_idx, to_y, to_x] = new_cap
@@ -1575,7 +1570,7 @@ def apply_single_initial_capture(
     state.stack_height[game_idx, target_y, target_x] = new_target_height
 
     # Check if target's cap was fully captured
-    target_cap_fully_captured = target_cap_height <= 1  # Cap will be 0 after -1
+    target_cap_fully_captured = target_cap_height == 1  # Only transfer when capturing LAST cap ring (RR-CANON-R022)
 
     if new_target_height <= 0:
         state.stack_owner[game_idx, target_y, target_x] = 0
@@ -1598,7 +1593,8 @@ def apply_single_initial_capture(
             state.buried_rings[game_idx, opponent] -= buried_count
     else:
         # Cap not fully captured, defender keeps ownership
-        new_target_cap = max(1, min(target_cap_height - 1, new_target_height))
+        # new_target_cap can be 0 as transient state (RR-CANON-R022)
+        new_target_cap = max(0, min(target_cap_height - 1, new_target_height))
         state.cap_height[game_idx, target_y, target_x] = new_target_cap
 
     if target_owner != 0 and target_owner != player:
@@ -1641,13 +1637,13 @@ def apply_single_initial_capture(
         # the entire resulting stack is same color, so cap = new_height.
         new_owner = player
         new_cap = new_height
-        if new_cap <= 0:
-            new_cap = 1
+        # new_cap can be 0 as transient state (RR-CANON-R022)
     else:
         # ENEMY CAPTURE or SELF-CAPTURE with buried rings:
         # Captured ring goes to bottom, doesn't extend the cap sequence from top.
         new_owner = player
-        new_cap = max(1, min(attacker_cap_height - landing_ring_cost, new_height))
+        # new_cap can be 0 as transient state before ownership transfer (RR-CANON-R022)
+        new_cap = max(0, min(attacker_cap_height - landing_ring_cost, new_height))
 
     state.stack_owner[game_idx, to_y, to_x] = new_owner
     state.cap_height[game_idx, to_y, to_x] = new_cap

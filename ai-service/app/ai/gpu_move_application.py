@@ -181,8 +181,9 @@ def apply_capture_moves_vectorized(
         new_target_height = max(0, target_height - 1)
         state.stack_height[g, target_y, target_x] = new_target_height
 
-        # Check if target's cap was fully captured
-        target_cap_fully_captured = target_cap_height <= 1  # Cap will be 0 after -1
+        # Check if target's cap was fully captured (capturing the LAST cap ring)
+        # Use == 1: only transfer when cap_height is exactly 1 (RR-CANON-R022)
+        target_cap_fully_captured = target_cap_height == 1
 
         if new_target_height <= 0:
             state.stack_owner[g, target_y, target_x] = 0
@@ -1696,8 +1697,10 @@ def apply_capture_moves_batch_vectorized(
     new_target_height = torch.clamp(defender_height - 1, min=0)
     state.stack_height[game_indices, target_y, target_x] = new_target_height.to(state.stack_height.dtype)
 
-    # Check if target's cap was fully captured
-    target_cap_fully_captured = defender_cap_height <= 1  # Cap will be 0 after -1
+    # Check if target's cap was fully captured (capturing the LAST cap ring)
+    # Use == 1 not <= 1: only transfer when cap_height is exactly 1 (the last cap ring)
+    # cap_height of 0 means no cap to capture (transient state per RR-CANON-R022)
+    target_cap_fully_captured = defender_cap_height == 1
     target_is_empty = new_target_height == 0
 
     # Determine new owner: if cap fully captured and stack not empty, ownership transfers
@@ -1723,7 +1726,7 @@ def apply_capture_moves_batch_vectorized(
     new_target_cap = torch.where(
         target_cap_fully_captured,
         new_target_height,  # All remaining rings are opponent's cap
-        torch.clamp(defender_cap_height - 1, min=1)
+        torch.clamp(defender_cap_height - 1, min=0)  # RR-CANON-R022: cap_height CAN be 0
     )
     new_target_cap = torch.minimum(new_target_cap, new_target_height)
     new_target_cap = torch.where(target_is_empty, torch.zeros_like(new_target_cap), new_target_cap)
@@ -1831,7 +1834,8 @@ def apply_capture_moves_batch_vectorized(
     # December 2025: BUG FIX - When landing marker eliminates the attacker's entire cap,
     # ownership transfers to the target's original owner. The captured ring goes to the
     # bottom, so after cap elimination, all remaining rings are from the target's owner.
-    new_height = torch.clamp(attacker_height + 1 - landing_ring_cost, min=1, max=5)
+    # RR-CANON-R022: stack height can be 0 if landing cost eliminates entire stack
+    new_height = torch.clamp(attacker_height + 1 - landing_ring_cost, min=0)
 
     # Check if cap is fully eliminated by landing cost
     cap_fully_eliminated = landing_ring_cost >= attacker_cap_height
@@ -1868,8 +1872,8 @@ def apply_capture_moves_batch_vectorized(
             new_height,  # All remaining rings are target's color
             torch.where(
                 is_self_capture_no_buried,
-                torch.clamp(new_height, min=1),  # Self-capture: cap = new_height
-                torch.clamp(attacker_cap_height - landing_ring_cost, min=1)
+                new_height,  # Self-capture: cap = new_height (no clamp needed)
+                torch.clamp(attacker_cap_height - landing_ring_cost, min=0)  # RR-CANON-R022
             )
         )
     )
@@ -1895,6 +1899,14 @@ def apply_capture_moves_batch_vectorized(
     state.stack_owner[game_indices, to_y, to_x] = new_owner.to(state.stack_owner.dtype)
     state.stack_height[game_indices, to_y, to_x] = new_height.to(state.stack_height.dtype)
     state.cap_height[game_indices, to_y, to_x] = new_cap_height.to(state.cap_height.dtype)
+
+    # Handle complete stack elimination (RR-CANON-R022)
+    # When landing cost eliminates entire stack (new_height == 0), clear ownership
+    is_eliminated = new_height == 0
+    if is_eliminated.any():
+        state.stack_owner[game_indices[is_eliminated], to_y[is_eliminated], to_x[is_eliminated]] = 0
+        state.cap_height[game_indices[is_eliminated], to_y[is_eliminated], to_x[is_eliminated]] = 0
+        state.stack_height[game_indices[is_eliminated], to_y[is_eliminated], to_x[is_eliminated]] = 0
 
     # December 2025: When cap is eliminated with buried rings, those rings are now
     # exposed (they became the cap). Decrement buried_at and buried_rings.

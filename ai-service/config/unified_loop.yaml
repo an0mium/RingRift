@@ -277,6 +277,7 @@ safeguards:
   subprocess_timeout_seconds: 3600 # 1 hour max for any subprocess
 
 # Board/player configurations to track
+# Each configuration has explicit Elo targets for NN strengthening to 2000+ Elo
 configurations:
   - board_type: 'square8'
     num_players: [2, 3, 4]
@@ -286,6 +287,71 @@ configurations:
     num_players: [2, 3, 4]
   - board_type: 'hex8'
     num_players: [2, 3, 4]
+
+# Per-configuration Elo targets for NN strengthening (December 2025)
+# Target: Exceed 2000 Elo for all 12 board/player combinations
+# Current baseline Elo from production models as of 2025-12-21
+elo_targets:
+  square8_2p:
+    target_elo: 2000
+    baseline_elo: 1562 # distilled_sq8_2p_v6
+    min_games_for_training: 1000
+    status: 'NN_COMPETITIVE'
+  square8_3p:
+    target_elo: 2000
+    baseline_elo: 1450
+    min_games_for_training: 200
+    status: 'NN_WEAK'
+  square8_4p:
+    target_elo: 2000
+    baseline_elo: 1400
+    min_games_for_training: 200
+    status: 'NN_WEAK'
+  square19_2p:
+    target_elo: 2000
+    baseline_elo: 1482 # sq19_2p_nn_baseline
+    min_games_for_training: 1000
+    status: 'NN_WEAK'
+  square19_3p:
+    target_elo: 2000
+    baseline_elo: 1400
+    min_games_for_training: 200
+    status: 'NOT_OPTIMIZED'
+  square19_4p:
+    target_elo: 2000
+    baseline_elo: 1400
+    min_games_for_training: 200
+    status: 'NOT_OPTIMIZED'
+  hexagonal_2p:
+    target_elo: 2000
+    baseline_elo: 1500 # hex_2p_nn_baseline
+    min_games_for_training: 1000
+    status: 'UNBLOCKED' # parity fix 7f43c368
+  hexagonal_3p:
+    target_elo: 2000
+    baseline_elo: 1400
+    min_games_for_training: 200
+    status: 'NOT_OPTIMIZED'
+  hexagonal_4p:
+    target_elo: 2000
+    baseline_elo: 1400
+    min_games_for_training: 200
+    status: 'NOT_OPTIMIZED'
+  hex8_2p:
+    target_elo: 2000
+    baseline_elo: 1450
+    min_games_for_training: 1000
+    status: 'NOT_OPTIMIZED'
+  hex8_3p:
+    target_elo: 2000
+    baseline_elo: 1400
+    min_games_for_training: 200
+    status: 'NOT_OPTIMIZED'
+  hex8_4p:
+    target_elo: 2000
+    baseline_elo: 1400
+    min_games_for_training: 200
+    status: 'NOT_OPTIMIZED'
 
 # External drive sync (Mac Studio only)
 external_drive_sync:

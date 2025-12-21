@@ -48,6 +48,16 @@ SSoT checklist" in ``docs/RULES_ENGINE_SURFACE_AUDIT.md``.
 
 from __future__ import annotations
 
+import warnings
+
+# Runtime deprecation warning - emit once per session
+warnings.warn(
+    "app._game_engine_legacy is deprecated and will be removed in Q2 2026. "
+    "Use app.game_engine instead for new code.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 import json
 import os
 import sys

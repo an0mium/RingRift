@@ -274,6 +274,37 @@ HEURISTIC_V1_DEFENSIVE: HeuristicWeights = _with_deltas(
 )
 
 
+# --- Difficulty-scaled Profiles for Pure Heuristic AI -----------------------
+#
+# These profiles are designed for pure heuristic play (no search algorithm).
+# Each difficulty level has genuinely different weights to create distinct
+# play styles and justify separate Elo tracking.
+#
+# D2 (Weak): 50% scaled weights - plays poorly, misses key features
+# D3 (Medium): 75% scaled - reasonable but suboptimal play
+# D4 (Strong): 100% balanced - full strength heuristic
+# D5 (Expert): Aggressive profile - tactical, optimized play
+
+def _scale_all_weights(base: dict[str, float], scale: float) -> HeuristicWeights:
+    """Scale all weights uniformly by a factor."""
+    return {k: v * scale for k, v in base.items()}
+
+
+# D2: Weak heuristic - 50% of balanced weights
+# Plays poorly because it undervalues most features
+HEURISTIC_V1_WEAK: HeuristicWeights = _scale_all_weights(BASE_V1_BALANCED_WEIGHTS, 0.5)
+
+# D3: Medium heuristic - 75% of balanced weights
+# Reasonable but suboptimal play
+HEURISTIC_V1_MEDIUM: HeuristicWeights = _scale_all_weights(BASE_V1_BALANCED_WEIGHTS, 0.75)
+
+# D4: Strong heuristic - 100% balanced (same as BALANCED)
+HEURISTIC_V1_STRONG: HeuristicWeights = dict(BASE_V1_BALANCED_WEIGHTS)
+
+# D5: Expert heuristic - uses AGGRESSIVE profile for tactical play
+HEURISTIC_V1_EXPERT: HeuristicWeights = dict(HEURISTIC_V1_AGGRESSIVE)
+
+
 # --- Board-type-specific Optimized Profiles ---------------------------------
 #
 # Larger boards (19x19) have fundamentally different strategic dynamics
@@ -521,15 +552,24 @@ HEURISTIC_WEIGHT_PROFILES: dict[str, HeuristicWeights] = {
     # Falls back to balanced until trained weights are loaded.
     "heuristic_v1_optimized": HEURISTIC_V1_BALANCED,
     #
-    # Canonical ladder-linked ids. These currently all reference the
-    # balanced profile but can be re-pointed in future without changing the
-    # external difficulty contract.
-    "v1-heuristic-2": HEURISTIC_V1_BALANCED,
-    "v1-heuristic-3": HEURISTIC_V1_BALANCED,
-    "v1-heuristic-4": HEURISTIC_V1_BALANCED,
-    "v1-heuristic-5": HEURISTIC_V1_BALANCED,
-    # Higher difficulty levels use more aggressive/optimized profiles
-    # when HeuristicAI is explicitly instantiated at these levels.
+    # === Difficulty-scaled Pure Heuristic Profiles ===
+    # Each difficulty has genuinely different weights for distinct play styles.
+    # These are for PURE heuristic AI (no search algorithm).
+    "heuristic_v1_weak": HEURISTIC_V1_WEAK,      # D2: 50% scaled
+    "heuristic_v1_medium": HEURISTIC_V1_MEDIUM,  # D3: 75% scaled
+    "heuristic_v1_strong": HEURISTIC_V1_STRONG,  # D4: 100% balanced
+    "heuristic_v1_expert": HEURISTIC_V1_EXPERT,  # D5: aggressive profile
+    #
+    # Canonical ladder-linked ids for pure heuristic play.
+    # Each difficulty level now has genuinely different weights.
+    "v1-heuristic-2": HEURISTIC_V1_WEAK,      # Weak: 50% scaled weights
+    "v1-heuristic-3": HEURISTIC_V1_MEDIUM,    # Medium: 75% scaled weights
+    "v1-heuristic-4": HEURISTIC_V1_STRONG,    # Strong: full balanced weights
+    "v1-heuristic-5": HEURISTIC_V1_EXPERT,    # Expert: aggressive profile
+    #
+    # Higher difficulty levels (D6+) are typically MCTS/search-based,
+    # not pure heuristic. When used as heuristic leaf evaluation,
+    # they use the aggressive profile for maximum strength.
     "v1-heuristic-6": HEURISTIC_V1_AGGRESSIVE,
     "v1-heuristic-7": HEURISTIC_V1_AGGRESSIVE,
     "v1-heuristic-8": HEURISTIC_V1_AGGRESSIVE,
@@ -668,6 +708,61 @@ def get_weights(profile_id: str) -> HeuristicWeights:
     """
 
     return HEURISTIC_WEIGHT_PROFILES.get(profile_id, {})
+
+
+# Mapping from difficulty level to weight profile for PURE heuristic AI
+# (not used as leaf evaluation in search algorithms)
+PURE_HEURISTIC_DIFFICULTY_PROFILES: dict[int, str] = {
+    2: "heuristic_v1_weak",      # 50% scaled weights
+    3: "heuristic_v1_medium",    # 75% scaled weights
+    4: "heuristic_v1_strong",    # 100% balanced weights
+    5: "heuristic_v1_expert",    # Aggressive profile
+}
+
+
+def get_pure_heuristic_profile(difficulty: int) -> str:
+    """Get the weight profile ID for pure heuristic AI at a given difficulty.
+
+    Pure heuristic AI (no search algorithm) uses difficulty-scaled weights
+    where each difficulty level has genuinely different weights:
+    - D2: Weak (50% scaled)
+    - D3: Medium (75% scaled)
+    - D4: Strong (100% balanced)
+    - D5: Expert (aggressive profile)
+
+    For difficulty >= 6, returns the aggressive profile since those levels
+    typically use search algorithms with heuristic leaf evaluation.
+
+    Parameters
+    ----------
+    difficulty:
+        Difficulty level (2-10).
+
+    Returns
+    -------
+    str
+        Profile ID like "heuristic_v1_weak", "heuristic_v1_medium", etc.
+    """
+    if difficulty <= 2:
+        return "heuristic_v1_weak"
+    elif difficulty == 3:
+        return "heuristic_v1_medium"
+    elif difficulty == 4:
+        return "heuristic_v1_strong"
+    elif difficulty == 5:
+        return "heuristic_v1_expert"
+    else:
+        # D6+ uses aggressive for maximum strength (typically with search)
+        return "heuristic_v1_aggressive"
+
+
+def get_pure_heuristic_weights(difficulty: int) -> HeuristicWeights:
+    """Get the weight dict for pure heuristic AI at a given difficulty.
+
+    Convenience wrapper around get_pure_heuristic_profile + get_weights.
+    """
+    profile_id = get_pure_heuristic_profile(difficulty)
+    return HEURISTIC_WEIGHT_PROFILES.get(profile_id, HEURISTIC_V1_BALANCED)
 
 
 def get_profile_key(board_type: str, num_players: int) -> str:

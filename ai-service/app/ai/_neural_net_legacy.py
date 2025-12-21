@@ -48,6 +48,14 @@ import os
 import warnings
 from dataclasses import dataclass
 from datetime import datetime
+
+# Runtime deprecation warning - emit once per session
+warnings.warn(
+    "app.ai._neural_net_legacy is deprecated and will be removed in Q1 2026. "
+    "Use app.ai.neural_net instead for new code.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 from typing import Any
 
 import numpy as np
