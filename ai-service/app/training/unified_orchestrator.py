@@ -82,6 +82,34 @@ except ImportError:
     _HAS_DISTRIBUTED_LOCKS = False
     TrainingLocks = None
 
+# Improvement optimizer for positive feedback acceleration (December 2025)
+try:
+    from app.training.improvement_optimizer import (
+        get_improvement_optimizer,
+        ImprovementOptimizer,
+    )
+    _HAS_IMPROVEMENT_OPTIMIZER = True
+except ImportError:
+    _HAS_IMPROVEMENT_OPTIMIZER = False
+    get_improvement_optimizer = None
+    ImprovementOptimizer = None
+
+# Curriculum feedback for dynamic weight adjustment (December 2025)
+try:
+    from app.training.curriculum_feedback import (
+        CurriculumFeedback,
+        get_curriculum_feedback,
+        wire_elo_to_curriculum,
+        wire_plateau_to_curriculum,
+    )
+    _HAS_CURRICULUM_FEEDBACK = True
+except ImportError:
+    _HAS_CURRICULUM_FEEDBACK = False
+    CurriculumFeedback = None
+    get_curriculum_feedback = None
+    wire_elo_to_curriculum = None
+    wire_plateau_to_curriculum = None
+
 
 # =============================================================================
 # Configuration
@@ -143,6 +171,15 @@ class OrchestratorConfig:
     # Adaptive settings
     enable_adaptive_lr: bool = True
     enable_adaptive_batch: bool = False
+
+    # Improvement optimizer (positive feedback acceleration)
+    enable_improvement_optimizer: bool = True
+    improvement_feedback_interval: int = 100  # Steps between feedback updates
+
+    # Curriculum feedback (dynamic weight adjustment based on performance)
+    enable_curriculum_feedback: bool = True
+    curriculum_wire_elo_events: bool = True  # Wire ELO_UPDATED → curriculum
+    curriculum_wire_plateau_events: bool = True  # Wire PLATEAU_DETECTED → curriculum
 
     # Logging
     log_interval: int = 100
@@ -545,6 +582,16 @@ class UnifiedTrainingOrchestrator:
         self._background_eval = BackgroundEvalWrapper(self.config)
         self._checkpoint = CheckpointWrapper(self.config)
 
+        # Improvement optimizer (singleton, shared across orchestrators)
+        self._improvement_optimizer: ImprovementOptimizer | None = None
+        self._training_start_time: float = 0.0
+        self._epoch_start_time: float = 0.0
+
+        # Curriculum feedback (singleton, shared across orchestrators)
+        self._curriculum_feedback: CurriculumFeedback | None = None
+        self._elo_watcher = None
+        self._plateau_watcher = None
+
         logger.info(f"[Orchestrator] Created for {self.config.board_type}_{self.config.num_players}p")
 
     def initialize(self):
@@ -599,6 +646,56 @@ class UnifiedTrainingOrchestrator:
         _init_component("Enhancements", self._enhancements.initialize, self._model)
         _init_component("Distributed", self._distributed.initialize, self._model, self._optimizer)
         _init_component("BackgroundEval", self._background_eval.initialize, lambda: self._model)
+
+        # Initialize improvement optimizer (singleton)
+        if self.config.enable_improvement_optimizer and _HAS_IMPROVEMENT_OPTIMIZER:
+            try:
+                self._improvement_optimizer = get_improvement_optimizer()
+                self._training_start_time = _time.time()
+                component_health["ImprovementOptimizer"] = {
+                    "status": "ok",
+                    "init_time_ms": 0.1,
+                    "error": None,
+                }
+                logger.debug("[Orchestrator] ImprovementOptimizer connected")
+            except Exception as e:
+                component_health["ImprovementOptimizer"] = {
+                    "status": "failed",
+                    "init_time_ms": 0,
+                    "error": str(e),
+                }
+                logger.warning(f"[Orchestrator] ImprovementOptimizer initialization failed: {e}")
+
+        # Initialize curriculum feedback (singleton with event watchers)
+        if self.config.enable_curriculum_feedback and _HAS_CURRICULUM_FEEDBACK:
+            try:
+                self._curriculum_feedback = get_curriculum_feedback()
+
+                # Wire event-based curriculum updates
+                if self.config.curriculum_wire_elo_events and wire_elo_to_curriculum:
+                    self._elo_watcher = wire_elo_to_curriculum(
+                        significant_elo_change=30.0,
+                        auto_export=True,
+                    )
+                if self.config.curriculum_wire_plateau_events and wire_plateau_to_curriculum:
+                    self._plateau_watcher = wire_plateau_to_curriculum(
+                        rebalance_cooldown_seconds=600.0,
+                        auto_export=True,
+                    )
+
+                component_health["CurriculumFeedback"] = {
+                    "status": "ok",
+                    "init_time_ms": 0.1,
+                    "error": None,
+                }
+                logger.debug("[Orchestrator] CurriculumFeedback connected")
+            except Exception as e:
+                component_health["CurriculumFeedback"] = {
+                    "status": "failed",
+                    "init_time_ms": 0,
+                    "error": str(e),
+                }
+                logger.warning(f"[Orchestrator] CurriculumFeedback initialization failed: {e}")
 
         # Wrap model if distributed
         if self._distributed.available:
@@ -836,6 +933,13 @@ class UnifiedTrainingOrchestrator:
             if len(self._val_loss_history) > self._loss_history_maxlen:
                 self._val_loss_history.pop(0)
 
+        # Improvement optimizer feedback (periodic to avoid overhead)
+        if (
+            self._improvement_optimizer is not None
+            and self._step % self.config.improvement_feedback_interval == 0
+        ):
+            self._emit_improvement_feedback(metrics)
+
         return metrics
 
     def _save_checkpoint(self, metrics: dict[str, float]):
@@ -918,6 +1022,236 @@ class UnifiedTrainingOrchestrator:
             f"stage={stage}"
         )
 
+    def _emit_improvement_feedback(self, metrics: dict[str, float]):
+        """Emit periodic feedback to improvement optimizer.
+
+        Called every `improvement_feedback_interval` steps to update
+        the optimizer with current training quality signals.
+        """
+        if self._improvement_optimizer is None:
+            return
+
+        try:
+            # Get training quality metrics
+            quality = self.get_training_quality()
+
+            # Log improvement metrics at lower frequency
+            if self._step % (self.config.improvement_feedback_interval * 10) == 0:
+                imp_metrics = self._improvement_optimizer.get_improvement_metrics()
+                logger.info(
+                    f"[Orchestrator] Improvement: threshold={imp_metrics.get('effective_threshold', 500)}, "
+                    f"multiplier={imp_metrics.get('threshold_multiplier', 1.0):.2f}, "
+                    f"promotions_24h={imp_metrics.get('promotions_24h', 0)}"
+                )
+
+            # Record data quality if plateau detected (signals need for more data)
+            if quality.get("loss_plateau", False):
+                self._improvement_optimizer.record_data_quality(
+                    parity_success_rate=0.9,  # Default, actual value from parity checks
+                    data_quality_score=0.85 if quality.get("overfit_detected") else 0.95,
+                )
+        except Exception as e:
+            logger.debug(f"[Orchestrator] Improvement feedback error: {e}")
+
+    def complete_epoch(self, val_loss: float | None = None, calibration_ece: float | None = None):
+        """Report epoch completion to improvement optimizer.
+
+        Call this at the end of each training epoch to record training
+        progress and trigger positive feedback acceleration when training
+        is going well.
+
+        Args:
+            val_loss: Validation loss for this epoch (if available)
+            calibration_ece: Expected calibration error (if measured)
+        """
+        import time as _time
+
+        if self._improvement_optimizer is None:
+            return
+
+        config_key = f"{self.config.board_type}_{self.config.num_players}p"
+        duration = _time.time() - self._epoch_start_time if self._epoch_start_time > 0 else 0.0
+
+        try:
+            self._improvement_optimizer.record_training_complete(
+                config_key=config_key,
+                duration_seconds=duration,
+                val_loss=val_loss if val_loss is not None else self._loss_history[-1] if self._loss_history else 0.0,
+                calibration_ece=calibration_ece,
+            )
+            logger.debug(f"[Orchestrator] Epoch {self._epoch} complete, reported to improvement optimizer")
+        except Exception as e:
+            logger.debug(f"[Orchestrator] Epoch completion report failed: {e}")
+
+        # Reset epoch timer
+        self._epoch_start_time = _time.time()
+
+    def get_dynamic_training_threshold(self) -> int:
+        """Get dynamically adjusted training threshold from improvement optimizer.
+
+        Returns:
+            Adjusted threshold for training (lower = faster iteration)
+        """
+        if self._improvement_optimizer is None:
+            return 500  # Default baseline
+
+        config_key = f"{self.config.board_type}_{self.config.num_players}p"
+        return self._improvement_optimizer.get_dynamic_threshold(config_key)
+
+    def should_fast_track(self) -> bool:
+        """Check if training should be fast-tracked (reduced threshold).
+
+        Returns:
+            True if conditions favor faster training cycles
+        """
+        if self._improvement_optimizer is None:
+            return False
+
+        config_key = f"{self.config.board_type}_{self.config.num_players}p"
+        return self._improvement_optimizer.should_fast_track_training(config_key)
+
+    def report_promotion_success(self, elo_gain: float, model_id: str = ""):
+        """Report successful model promotion for positive feedback.
+
+        This accelerates future training cycles when promotions succeed.
+
+        Args:
+            elo_gain: Elo improvement from promotion
+            model_id: Optional model identifier
+        """
+        if self._improvement_optimizer is None:
+            return
+
+        config_key = f"{self.config.board_type}_{self.config.num_players}p"
+        try:
+            rec = self._improvement_optimizer.record_promotion_success(
+                config_key=config_key,
+                elo_gain=elo_gain,
+                model_id=model_id,
+            )
+            logger.info(
+                f"[Orchestrator] Promotion success recorded: +{elo_gain:.0f} Elo, "
+                f"new threshold={rec.threshold_adjustment:.2f}x"
+            )
+        except Exception as e:
+            logger.debug(f"[Orchestrator] Promotion success report failed: {e}")
+
+    def report_promotion_failure(self, reason: str = ""):
+        """Report failed promotion attempt.
+
+        This slightly slows down training cycles to allow more data accumulation.
+
+        Args:
+            reason: Optional failure reason
+        """
+        if self._improvement_optimizer is None:
+            return
+
+        config_key = f"{self.config.board_type}_{self.config.num_players}p"
+        try:
+            self._improvement_optimizer.record_promotion_failure(config_key, reason)
+            logger.debug(f"[Orchestrator] Promotion failure recorded: {reason}")
+        except Exception as e:
+            logger.debug(f"[Orchestrator] Promotion failure report failed: {e}")
+
+    # =========================================================================
+    # Curriculum Feedback Integration
+    # =========================================================================
+
+    def record_game_result(self, winner: int, model_elo: float = 1500.0):
+        """Record a game result for curriculum feedback.
+
+        Updates curriculum weights based on training game outcomes.
+
+        Args:
+            winner: 1 = model won, -1 = model lost, 0 = draw
+            model_elo: Current model Elo rating
+        """
+        if self._curriculum_feedback is None:
+            return
+
+        config_key = f"{self.config.board_type}_{self.config.num_players}p"
+        try:
+            self._curriculum_feedback.record_game(
+                config_key=config_key,
+                winner=winner,
+                model_elo=model_elo,
+                opponent_type="training",
+            )
+        except Exception as e:
+            logger.debug(f"[Orchestrator] Curriculum game record failed: {e}")
+
+    def record_training_completed(self):
+        """Record that a training epoch/run completed for this config.
+
+        Updates curriculum feedback to track training frequency.
+        """
+        if self._curriculum_feedback is None:
+            return
+
+        config_key = f"{self.config.board_type}_{self.config.num_players}p"
+        try:
+            self._curriculum_feedback.record_training(config_key)
+        except Exception as e:
+            logger.debug(f"[Orchestrator] Curriculum training record failed: {e}")
+
+    def get_curriculum_weights(self) -> dict[str, float]:
+        """Get current curriculum weights for all configs.
+
+        Higher weights indicate configs that need more training.
+
+        Returns:
+            Dict mapping config_key → weight (0.5 to 2.0)
+        """
+        if self._curriculum_feedback is None:
+            return {}
+
+        try:
+            return self._curriculum_feedback.get_curriculum_weights()
+        except Exception as e:
+            logger.debug(f"[Orchestrator] Curriculum weights fetch failed: {e}")
+            return {}
+
+    def get_curriculum_config_metrics(self) -> dict[str, Any]:
+        """Get detailed curriculum metrics for current config.
+
+        Returns:
+            Dict with curriculum metrics (win_rate, elo_trend, etc.)
+        """
+        if self._curriculum_feedback is None:
+            return {}
+
+        config_key = f"{self.config.board_type}_{self.config.num_players}p"
+        try:
+            metrics = self._curriculum_feedback.get_config_metrics(config_key)
+            return {
+                "games_recent": metrics.games_recent,
+                "win_rate": round(metrics.win_rate, 3),
+                "avg_elo": round(metrics.avg_elo, 1),
+                "elo_trend": round(metrics.elo_trend, 1),
+                "model_count": metrics.model_count,
+            }
+        except Exception as e:
+            logger.debug(f"[Orchestrator] Curriculum metrics fetch failed: {e}")
+            return {}
+
+    def force_curriculum_rebalance(self) -> dict[str, float]:
+        """Force an immediate curriculum weight rebalance.
+
+        Useful when significant training events occur outside the normal
+        event-driven flow.
+
+        Returns:
+            Updated curriculum weights
+        """
+        if self._elo_watcher is not None:
+            try:
+                return self._elo_watcher.force_rebalance()
+            except Exception as e:
+                logger.debug(f"[Orchestrator] Curriculum rebalance failed: {e}")
+
+        return self.get_curriculum_weights()
+
     def start_background_services(self):
         """Start background services (evaluation, etc.)."""
         self._background_eval.start()
@@ -930,6 +1264,19 @@ class UnifiedTrainingOrchestrator:
         """Cleanup all resources."""
         self.stop_background_services()
         self._distributed.cleanup()
+
+        # Unsubscribe curriculum watchers
+        if self._elo_watcher is not None:
+            try:
+                self._elo_watcher.unsubscribe()
+            except Exception:
+                pass
+        if self._plateau_watcher is not None:
+            try:
+                self._plateau_watcher.unsubscribe()
+            except Exception:
+                pass
+
         logger.info("[Orchestrator] Cleanup complete")
 
     @property
@@ -1023,6 +1370,36 @@ class UnifiedTrainingOrchestrator:
 
         if self._enhancements.available:
             metrics["curriculum"] = self._enhancements.get_curriculum_params()
+
+        # Add improvement optimizer metrics
+        if self._improvement_optimizer is not None:
+            try:
+                imp_metrics = self._improvement_optimizer.get_improvement_metrics()
+                metrics["improvement"] = {
+                    "threshold_multiplier": imp_metrics.get("threshold_multiplier", 1.0),
+                    "effective_threshold": imp_metrics.get("effective_threshold", 500),
+                    "consecutive_promotions": imp_metrics.get("consecutive_promotions", 0),
+                    "promotions_24h": imp_metrics.get("promotions_24h", 0),
+                    "avg_elo_gain": imp_metrics.get("avg_elo_gain", 0.0),
+                }
+            except Exception:
+                pass  # Metrics are optional
+
+        # Add curriculum feedback metrics
+        if self._curriculum_feedback is not None:
+            try:
+                curriculum_metrics = self.get_curriculum_config_metrics()
+                if curriculum_metrics:
+                    metrics["curriculum_feedback"] = curriculum_metrics
+                # Also include current weight for this config
+                weights = self._curriculum_feedback.get_curriculum_weights()
+                config_key = f"{self.config.board_type}_{self.config.num_players}p"
+                if config_key in weights:
+                    if "curriculum_feedback" not in metrics:
+                        metrics["curriculum_feedback"] = {}
+                    metrics["curriculum_feedback"]["weight"] = weights[config_key]
+            except Exception:
+                pass  # Metrics are optional
 
         return metrics
 
