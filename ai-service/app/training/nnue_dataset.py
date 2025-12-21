@@ -686,32 +686,33 @@ class NNUESQLiteDataset(Dataset):
                 ))
                 continue
 
-            # Check if snapshots have actual board data (not just initial empty state)
-            # If snapshots only have move 0 (initial) or have empty boards, use replay
+            # Check if snapshots have actual game data (not just initial state at move 0)
+            # We only need any snapshot with move_number > 0 that has a valid players list
+            # Note: Late-game snapshots may have empty stacks, but still contain valid game state
             has_useful_snapshots = False
             for snap in snapshots:
                 move_num = snap['move_number']
-                # Skip initial state check - it's always empty
+                # Any snapshot at move > 0 is useful (even with empty board at end-game)
                 if move_num > 0:
-                    # Check if this snapshot has board data
                     try:
                         snap_json = snap['state_json']
                         if snap['compressed']:
                             snap_json = gzip.decompress(snap_json.encode()).decode()
                         snap_dict = json.loads(snap_json)
-                        board_data = snap_dict.get('board', {})
-                        stacks = board_data.get('stacks', {})
-                        if stacks:  # Has actual board state
+                        # Check for valid game state: has players list with data
+                        players = snap_dict.get('players', [])
+                        if len(players) > 0:
                             has_useful_snapshots = True
                             break
                     except Exception:
                         continue
 
             if not has_useful_snapshots:
-                # Snapshots are initial-only or have empty boards - use replay
-                samples.extend(self._extract_via_replay(
+                # No useful mid-game snapshots - try replay (may fail for hybrid games)
+                replay_samples = self._extract_via_replay(
                     conn, game_id, winner, total_moves
-                ))
+                )
+                samples.extend(replay_samples)
                 continue
 
             # Sample positions from snapshots (only if we have good coverage)
