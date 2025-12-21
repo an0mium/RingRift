@@ -813,7 +813,7 @@ export function enumerateProcessLineMoves(
   return moves;
 }
 /**
- * Enumerate `choose_line_reward` decision moves for a specific line that has
+ * Enumerate `choose_line_option` decision moves for a specific line that has
  * already been selected for processing.
  *
  * For lines longer than the minimum threshold:
@@ -972,7 +972,7 @@ export function enumerateLineCollapseOptions(
  * Apply line processing mutation via action.
  *
  * For exact-length lines, this immediately collapses the line.
- * For overlength lines, this is a no-op (requires choose_line_reward).
+ * For overlength lines, this is a no-op (requires choose_line_option).
  */
 export function mutateProcessLine(state: GameState, action: ProcessLineAction): GameState {
   const line = state.board.formedLines[action.lineIndex];
@@ -1100,7 +1100,7 @@ function executeLineCollapse(
  * Apply a `process_line` move produced by enumerateProcessLineMoves.
  *
  * For exact-length lines: collapses the line and sets pendingLineRewardElimination.
- * For overlength lines: no-op (requires choose_line_reward).
+ * For overlength lines: no-op (requires choose_line_option).
  */
 export function applyProcessLineDecision(
   state: GameState,
@@ -1139,7 +1139,7 @@ export function applyProcessLineDecision(
   }
 
   // Overlength lines (longer than the effective threshold) require a
-  // choose_line_reward decision per RR-CANON-R122. Treating process_line
+  // choose_line_option decision per RR-CANON-R122. Treating process_line
   // on an overlength line as a no-op avoids silently defaulting to either
   // option (collapse-all vs min-collapse).
   if (line.length > requiredLength) {
@@ -1162,7 +1162,7 @@ export function applyProcessLineDecision(
 }
 
 /**
- * Apply a `choose_line_reward` move produced by enumerateChooseLineRewardMoves.
+ * Apply a `choose_line_option` move produced by enumerateChooseLineRewardMoves.
  *
  * Semantics (Python-aligned, including legacy fixtures):
  *
@@ -1188,9 +1188,9 @@ export function applyChooseLineRewardDecision(
   state: GameState,
   move: Move
 ): LineDecisionApplicationOutcome {
-  if (move.type !== 'choose_line_option' && move.type !== 'choose_line_reward') {
+  if (move.type !== 'choose_line_option') {
     throw new Error(
-      `applyChooseLineRewardDecision expected move.type === 'choose_line_option' (or legacy 'choose_line_reward'), got '${move.type}'`
+      `applyChooseLineRewardDecision expected move.type === 'choose_line_option', got '${move.type}'`
     );
   }
 
@@ -1242,7 +1242,7 @@ export function applyChooseLineRewardDecision(
 /**
  * Apply a line collapse decision and return a result type for easier error handling.
  *
- * This is a unified wrapper that handles both process_line and choose_line_reward moves.
+ * This is a unified wrapper that handles both process_line and choose_line_option moves.
  */
 export function applyLineCollapse(
   state: GameState,

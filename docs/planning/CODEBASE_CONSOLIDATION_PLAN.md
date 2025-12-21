@@ -782,6 +782,38 @@ Consolidated duplicated code across 7+ export/training scripts (~3500 lines tota
 - Unified NPZ I/O patterns prevent format inconsistencies
 - Other scripts can incrementally migrate to use `export_core` module
 
+### Phase 3i: Stranded Module Integration - COMPLETED (2025-12-21)
+
+Integrated orphaned but valuable modules that had zero active usage:
+
+**1. Improved MCTS Module Integration:**
+
+- [x] Created `app/mcts/__init__.py` to properly expose the module
+- [x] Added `AIType.IMPROVED_MCTS` to `app/models/core.py`
+- [x] Created `app/ai/improved_mcts_ai.py` with adapter classes:
+  - `RingRiftGameStateAdapter` - Adapts RingRift GameState to MCTS interface
+  - `RingRiftNNAdapter` - Adapts neural networks to MCTS interface
+  - `ImprovedMCTSAI` - BaseAI wrapper for ImprovedMCTS
+- [x] Wired into `app/ai/factory.py`:
+  - Added to `_get_ai_class()` switch
+  - Added difficulty profile 20 (experimental tier)
+  - Added tournament creation support for `improved_mcts_N` agent IDs
+- [x] Features now accessible: PUCT exploration, progressive widening, virtual loss, transposition tables, tree reuse
+
+**2. Evaluation Module Activation:**
+
+- [x] Created `app/evaluation/__init__.py` exposing:
+  - Benchmark suite classes (Inference, Memory, Policy, Value, Tactical, MCTS, Robustness)
+  - Human evaluation classes (Database, Server, TaskGenerator, Analyzer)
+- [x] Verified imports work correctly
+
+**Impact:**
+
+- ~760 LOC of advanced MCTS algorithms now usable via AIFactory
+- ~2000 LOC of evaluation infrastructure now importable
+- Benchmark suite available for model quality regression testing
+- Human evaluation server ready for preference collection
+
 ### Phase 4: Code Quality Cleanup - ANALYZED (2025-12-20)
 
 Analysis revealed that most "commented code" is actually documentation:
@@ -895,6 +927,22 @@ Legacy files are being migrated incrementally. Current status:
 | ----------------------- | ------- | --------------------------- |
 | `RINGRIFT_DEBUG_ENGINE` | false   | Legacy engine debug logging |
 | `RINGRIFT_DEBUG`        | false   | Global debug mode           |
+
+### GPU Legacy Fallback Flags
+
+These flags enable slower but more stable Python-loop implementations for GPU batch operations.
+Useful for debugging when optimized GPU kernels exhibit issues.
+
+| Flag                                 | Default | Description                       |
+| ------------------------------------ | ------- | --------------------------------- |
+| `RINGRIFT_GPU_MOVEMENT_LEGACY`       | 0       | Legacy movement move generation   |
+| `RINGRIFT_GPU_CAPTURE_LEGACY`        | 0       | Legacy capture move generation    |
+| `RINGRIFT_GPU_PLACEMENT_LEGACY`      | 0       | Legacy placement move application |
+| `RINGRIFT_GPU_MOVEMENT_APPLY_LEGACY` | 0       | Legacy movement move application  |
+| `RINGRIFT_GPU_CAPTURE_APPLY_LEGACY`  | 0       | Legacy capture move application   |
+
+**Note (2025-12-21):** GPU modules use `GamePhase` enum correctly. Legacy fallbacks are
+available for debugging but optimized paths are canonical.
 
 ---
 

@@ -177,7 +177,7 @@ export interface TerritoryEnumerationOptions {
 }
 
 /**
- * Result of applying a `choose_territory_option` decision (legacy alias: `process_territory_region`).
+ * Result of applying a `choose_territory_option` decision.
  */
 export interface TerritoryProcessApplicationOutcome {
   /** Next GameState after applying the region-processing consequences. */
@@ -315,8 +315,7 @@ function getPendingTerritorySelfEliminationRegion(
     return null;
   }
 
-  const isTerritoryRegionMove =
-    lastMove.type === 'choose_territory_option' || lastMove.type === 'process_territory_region';
+  const isTerritoryRegionMove = lastMove.type === 'choose_territory_option';
   if (!isTerritoryRegionMove) {
     return null;
   }
@@ -1051,15 +1050,15 @@ export function applyTerritoryRegion(
 }
 
 /**
- * Apply a `choose_territory_option` move (legacy alias: `process_territory_region`).
+ * Apply a `choose_territory_option` move.
  */
 export function applyProcessTerritoryRegionDecision(
   state: GameState,
   move: Move
 ): TerritoryProcessApplicationOutcome {
-  if (move.type !== 'choose_territory_option' && move.type !== 'process_territory_region') {
+  if (move.type !== 'choose_territory_option') {
     throw new Error(
-      `applyProcessTerritoryRegionDecision expected move.type === 'choose_territory_option' (or legacy 'process_territory_region'), got '${move.type}'`
+      `applyProcessTerritoryRegionDecision expected move.type === 'choose_territory_option', got '${move.type}'`
     );
   }
 

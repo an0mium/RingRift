@@ -50,6 +50,7 @@ import { hasAnyGlobalMovementOrCapture, playerHasAnyRings } from '../globalActio
 import { isEligibleForRecovery } from '../playerStateHelpers';
 import { VALID_MOVES_BY_PHASE, isMoveValidInPhase } from '../phaseValidation';
 import { isLegacyMoveValidInPhase } from '../legacy/legacyPhaseValidation';
+import { normalizeLegacyMove } from '../legacy/legacyMoveTypes';
 import { getEffectiveLineLengthThreshold, getEffectiveRingsPerPlayer } from '../rulesConfig';
 import { isValidPosition } from '../validators/utils';
 
@@ -119,7 +120,6 @@ export function moveToEvent(move: Move): TurnEvent | null {
 
     // Movement
     case 'move_stack':
-    case 'move_ring':
       if (!move.from) return null;
       return { type: 'MOVE_STACK', from: move.from, to: move.to };
 
@@ -161,8 +161,7 @@ export function moveToEvent(move: Move): TurnEvent | null {
       // The lineIndex would typically come from move context
       return { type: 'PROCESS_LINE', lineIndex: 0 };
 
-    case 'choose_line_option':
-    case 'choose_line_reward': {
+    case 'choose_line_option': {
       // Determine choice from move data
       const choice = extractLineRewardChoice(move);
       return { type: 'CHOOSE_LINE_REWARD', choice };
@@ -172,7 +171,6 @@ export function moveToEvent(move: Move): TurnEvent | null {
       return { type: 'NO_LINE_ACTION' };
 
     // Territory Processing
-    case 'process_territory_region':
     case 'choose_territory_option':
       return { type: 'PROCESS_REGION', regionIndex: 0 };
 
@@ -374,15 +372,16 @@ export function eventToMove(event: TurnEvent, player: number, moveNumber: number
  * @param moveHint Optional move being validated - used to ensure state includes relevant context
  */
 export function deriveStateFromGame(gameState: GameState, moveHint?: Move): TurnState {
+  const hint = moveHint ? normalizeLegacyMove(moveHint) : undefined;
   // For bookkeeping moves and skip_placement, use the move's player instead of
   // currentPlayer because these moves may be recorded at turn boundaries where
   // the state's currentPlayer hasn't been updated yet.
   const isBookkeepingOrSkipMove =
-    moveHint?.type === 'skip_placement' ||
-    moveHint?.type === 'no_placement_action' ||
-    moveHint?.type === 'no_movement_action' ||
-    moveHint?.type === 'no_line_action' ||
-    moveHint?.type === 'no_territory_action';
+    hint?.type === 'skip_placement' ||
+    hint?.type === 'no_placement_action' ||
+    hint?.type === 'no_movement_action' ||
+    hint?.type === 'no_line_action' ||
+    hint?.type === 'no_territory_action';
 
   // Trust the move hint's player for moves where parity divergence may cause
   // TS and Python to have different current players. This includes:
@@ -393,14 +392,11 @@ export function deriveStateFromGame(gameState: GameState, moveHint?: Move): Turn
   //   which may differ from the current turn's player in multiplayer games)
   // RR-CANON-R075: Trust recorded moves during replay.
   const isTerritoryRegionMove =
-    moveHint?.type === 'process_territory_region' ||
-    moveHint?.type === 'choose_territory_option' ||
-    moveHint?.type === 'eliminate_rings_from_stack';
-  const isForcedEliminationMove = moveHint?.type === 'forced_elimination';
+    hint?.type === 'choose_territory_option' || hint?.type === 'eliminate_rings_from_stack';
+  const isForcedEliminationMove = hint?.type === 'forced_elimination';
   const player =
-    (isBookkeepingOrSkipMove || isTerritoryRegionMove || isForcedEliminationMove) &&
-    moveHint?.player
-      ? moveHint.player
+    (isBookkeepingOrSkipMove || isTerritoryRegionMove || isForcedEliminationMove) && hint?.player
+      ? hint.player
       : gameState.currentPlayer;
 
   // When the move hint indicates a specific phase, trust it over the game state's phase.
@@ -408,15 +404,12 @@ export function deriveStateFromGame(gameState: GameState, moveHint?: Move): Turn
   // causing TS to transition out of territory_processing before all Python-recorded moves
   // are replayed. RR-CANON-R075: Trust recorded moves during replay.
   let phase = gameState.currentPhase;
-  if (
-    moveHint?.type === 'process_territory_region' ||
-    moveHint?.type === 'choose_territory_option'
-  ) {
+  if (hint?.type === 'choose_territory_option') {
     phase = 'territory_processing';
-  } else if (moveHint?.type === 'eliminate_rings_from_stack') {
+  } else if (hint?.type === 'eliminate_rings_from_stack') {
     // RR-CANON-R123: Check eliminationContext to determine correct phase.
     // Line-context eliminations belong to line_processing, territory-context to territory_processing.
-    const elimContext = (moveHint as any).eliminationContext;
+    const elimContext = (hint as any).eliminationContext;
     if (elimContext === 'line') {
       phase = 'line_processing';
     } else {
@@ -424,34 +417,30 @@ export function deriveStateFromGame(gameState: GameState, moveHint?: Move): Turn
       // that didn't record eliminationContext or used it for territory claims.
       phase = 'territory_processing';
     }
-  } else if (
-    moveHint?.type === 'choose_line_option' ||
-    moveHint?.type === 'choose_line_reward' ||
-    moveHint?.type === 'no_line_action'
-  ) {
+  } else if (hint?.type === 'choose_line_option' || hint?.type === 'no_line_action') {
     phase = 'line_processing';
-  } else if (moveHint?.type === 'forced_elimination') {
+  } else if (hint?.type === 'forced_elimination') {
     phase = 'forced_elimination';
   }
 
   switch (phase) {
     case 'ring_placement':
-      return deriveRingPlacementState(gameState, player, moveHint);
+      return deriveRingPlacementState(gameState, player, hint);
 
     case 'movement':
-      return deriveMovementState(gameState, player, moveHint);
+      return deriveMovementState(gameState, player, hint);
 
     case 'capture':
-      return deriveCaptureState(gameState, player, false, moveHint);
+      return deriveCaptureState(gameState, player, false, hint);
 
     case 'chain_capture':
-      return deriveChainCaptureState(gameState, player, moveHint);
+      return deriveChainCaptureState(gameState, player, hint);
 
     case 'line_processing':
-      return deriveLineProcessingState(gameState, player, moveHint);
+      return deriveLineProcessingState(gameState, player, hint);
 
     case 'territory_processing':
-      return deriveTerritoryProcessingState(gameState, player, moveHint);
+      return deriveTerritoryProcessingState(gameState, player, hint);
 
     case 'forced_elimination':
       return deriveForcedEliminationState(gameState, player);
@@ -556,13 +545,12 @@ function deriveMovementState(state: GameState, player: number, moveHint?: Move):
     moveHint?.type === 'no_movement_action' && moveHint.player === player;
 
   // RR-CANON-R075: Trust recorded movement moves during replay.
-  // If Python recorded move_stack/move_ring/overtaking_capture, TS should trust it even
+  // If Python recorded move_stack (legacy move_ring)/overtaking_capture, TS should trust it even
   // if local enumeration doesn't find the move (parity divergence due to state timing).
   const isRecordedMovementMoveForPlayer =
     moveHint &&
     moveHint.player === player &&
     (moveHint.type === 'move_stack' ||
-      moveHint.type === 'move_ring' ||
       moveHint.type === 'overtaking_capture' ||
       moveHint.type === 'continue_capture_segment' ||
       moveHint.type === 'recovery_slide' ||
@@ -593,7 +581,6 @@ function deriveMovementState(state: GameState, player: number, moveHint?: Move):
         (m) =>
           m.player === player &&
           (m.type === 'move_stack' ||
-            m.type === 'move_ring' ||
             m.type === 'overtaking_capture' ||
             m.type === 'continue_capture_segment' ||
             m.type === 'recovery_slide' ||
@@ -746,7 +733,7 @@ function deriveLineProcessingState(
   // RR-CANON-R075: Trust recorded no_line_action moves during replay.
   // If Python recorded no_line_action but TS detects lines (parity divergence due to
   // line detection timing differences), return empty detectedLines to allow the move.
-  // This mirrors the forced_elimination and process_territory_region trust patterns.
+  // This mirrors the forced_elimination and territory-processing trust patterns.
   if (moveHint?.type === 'no_line_action' && detectedLines.length > 0) {
     return {
       phase: 'line_processing',
@@ -760,7 +747,7 @@ function deriveLineProcessingState(
   // RR-CANON-R075: Trust recorded process_line moves during replay.
   // If Python recorded process_line but TS doesn't detect lines (parity divergence due to
   // line detection timing or state differences), create a placeholder line from moveHint.
-  // This mirrors the process_territory_region trust pattern at lines 632-638.
+  // This mirrors the territory-processing trust pattern at lines 632-638.
   if (moveHint?.type === 'process_line' && detectedLines.length === 0) {
     // Use formedLines from moveHint if available, otherwise create placeholder
     if (moveHint.formedLines && moveHint.formedLines.length > 0) {
@@ -786,9 +773,7 @@ function deriveLineProcessingState(
 
   // Check for pending choice from move context
   const validMoves = getValidMoves(state);
-  const hasRewardChoice = validMoves.some(
-    (m) => m.type === 'choose_line_option' || m.type === 'choose_line_reward'
-  );
+  const hasRewardChoice = validMoves.some((m) => m.type === 'choose_line_option');
 
   // RR-CANON-R123: Detect pending line elimination from moveHint.
   // If the incoming move is eliminate_rings_from_stack with eliminationContext='line',
@@ -797,12 +782,9 @@ function deriveLineProcessingState(
     moveHint?.type === 'eliminate_rings_from_stack' &&
     (moveHint as any).eliminationContext === 'line';
 
-  // RR-CANON-R075: Trust recorded choose_line_option/choose_line_reward moves during replay.
+  // RR-CANON-R075: Trust recorded choose_line_option moves during replay.
   // If Python recorded these moves but TS doesn't detect lines, create placeholder line.
-  if (
-    (moveHint?.type === 'choose_line_option' || moveHint?.type === 'choose_line_reward') &&
-    detectedLines.length === 0
-  ) {
+  if (moveHint?.type === 'choose_line_option' && detectedLines.length === 0) {
     if (moveHint.formedLines && moveHint.formedLines.length > 0) {
       const hintLine = moveHint.formedLines[0];
       detectedLines.push({
@@ -829,10 +811,7 @@ function deriveLineProcessingState(
     player,
     detectedLines,
     currentLineIndex: 0,
-    awaitingReward:
-      hasRewardChoice ||
-      moveHint?.type === 'choose_line_option' ||
-      moveHint?.type === 'choose_line_reward',
+    awaitingReward: hasRewardChoice || moveHint?.type === 'choose_line_option',
     pendingLineRewardElimination,
   };
 }
@@ -852,15 +831,11 @@ function deriveTerritoryProcessingState(
     eliminationsRequired: region.isDisconnected ? 1 : 0, // Simplified
   }));
 
-  // If the move being validated is a process_territory_region but disconnectedRegions is empty,
+  // If the move being validated is a choose_territory_option but disconnectedRegions is empty,
   // add a placeholder region. This handles state timing issues during replay/shadow validation
   // where Python may detect more disconnected regions than TS (parity divergence).
-  // RR-CANON-R075: Trust recorded process_territory_region moves during replay.
-  if (
-    (moveHint?.type === 'process_territory_region' ||
-      moveHint?.type === 'choose_territory_option') &&
-    disconnectedRegions.length === 0
-  ) {
+  // RR-CANON-R075: Trust recorded territory-processing moves during replay.
+  if (moveHint?.type === 'choose_territory_option' && disconnectedRegions.length === 0) {
     disconnectedRegions.push({
       positions: moveHint.to ? [moveHint.to] : [{ x: 0, y: 0 }],
       controllingPlayer: player,
@@ -1273,18 +1248,21 @@ export function validateMoveWithFSM(
   includeDebugContext = false,
   options?: FSMValidationOptions
 ): FSMValidationResult {
+  const replayCompatibility = options?.replayCompatibility ?? false;
+  const moveForValidation = replayCompatibility ? normalizeLegacyMove(move) : move;
+
   // Derive FSM state and context from game state
   // Pass move as hint to help state derivation include relevant context
-  const fsmState = deriveStateFromGame(gameState, move);
+  const fsmState = deriveStateFromGame(gameState, moveForValidation);
   const gameContext = deriveGameContext(gameState);
 
   // Convert move to FSM event (do this early for debug context)
-  const event = moveToEvent(move);
+  const event = moveToEvent(moveForValidation);
 
   // Build debug context if logging is enabled or requested
   const debugContext =
     FSM_DEBUG_LOGGER || includeDebugContext
-      ? buildDebugContext(gameState, move, fsmState, gameContext, event)
+      ? buildDebugContext(gameState, moveForValidation, fsmState, gameContext, event)
       : undefined;
 
   // Helper to create result and optionally log
@@ -1301,7 +1279,7 @@ export function validateMoveWithFSM(
   // Validate player attribution: the move must be from the current player.
   // Exceptions for player mismatch:
   // - Bookkeeping moves (no_*_action): may be auto-injected at turn boundaries
-  // - choose_territory_option (legacy alias: process_territory_region): Python may detect more regions than TS, causing
+  // - choose_territory_option: Python may detect more regions than TS, causing
   //   TS to transition players before all Python-recorded territory moves complete
   // - forced_elimination: Python records the player whose rings are being eliminated,
   //   which may differ from the current turn's player in multiplayer games
@@ -1309,13 +1287,12 @@ export function validateMoveWithFSM(
   //   the other player (turn has effectively transitioned)
   // RR-CANON-R075: Trust recorded moves during replay.
   const isPlayerMismatchFromDifferentPlayer = move.player !== gameState.currentPlayer;
-  const replayCompatibility = options?.replayCompatibility ?? false;
   const phaseForMoveCheck =
     fsmState.phase !== 'turn_end' && fsmState.phase !== 'game_over'
       ? (fsmState.phase as GamePhase)
       : null;
   const isCanonicalMoveForPhase = phaseForMoveCheck
-    ? isMoveValidInPhase(move.type as MoveType, phaseForMoveCheck)
+    ? isMoveValidInPhase(moveForValidation.type as MoveType, phaseForMoveCheck)
     : false;
   const isLegacyMoveForPhase = phaseForMoveCheck
     ? isLegacyMoveValidInPhase(move.type as MoveType, phaseForMoveCheck)
@@ -1352,7 +1329,6 @@ export function validateMoveWithFSM(
     move.type === 'no_line_action' ||
     move.type === 'no_territory_action' ||
     move.type === 'choose_territory_option' ||
-    move.type === 'process_territory_region' ||
     move.type === 'forced_elimination';
 
   // For legacy replay, trust the recorded player attribution (RR-CANON-R075)
@@ -1389,7 +1365,13 @@ export function validateMoveWithFSM(
     // pseudo-phases into the shared phase↔MoveType mapping.
     if (fsmState.phase !== 'game_over' && fsmState.phase !== 'turn_end') {
       const phaseForMoveCheck = fsmState.phase as GamePhase;
-      if (isMoveTypeValidForPhase(phaseForMoveCheck, move.type as MoveType)) {
+      if (isMoveTypeValidForPhase(phaseForMoveCheck, moveForValidation.type as MoveType)) {
+        return makeResult({
+          valid: true,
+          currentPhase: fsmState.phase,
+        });
+      }
+      if (replayCompatibility && isLegacyMoveForPhase) {
         return makeResult({
           valid: true,
           currentPhase: fsmState.phase,
@@ -1890,7 +1872,7 @@ export function computeFSMOrchestration(
   // board-local capture availability, so without this check it would advance
   // directly to line_processing even when Python's phase machine enters CAPTURE
   // after MOVE_STACK.
-  if ((move.type === 'move_stack' || move.type === 'move_ring') && move.to) {
+  if (move.type === 'move_stack' && move.to) {
     const stateForCaptureCheck = options?.postMoveStateForChainCheck ?? gameState;
 
     // Enumerate initial (overtaking) captures from the landing position only.
@@ -1999,15 +1981,12 @@ export function computeFSMOrchestration(
   // a two-step process (PROCESS_REGION then ELIMINATE_FROM_STACK for internal
   // eliminations), but the game engine's choose_territory_option move handles
   // internal eliminations atomically. If the FSM stays in territory_processing
-  // after a choose_territory_option move (legacy alias: process_territory_region),
+  // after a choose_territory_option move,
   // transition to turn_end because:
   // 1. The game engine atomically processes the region (including internal eliminations)
   // 2. The orchestrator will surface another pending decision if more regions exist
   // 3. The FSM can't accurately predict whether more regions exist post-move
-  if (
-    (move.type === 'choose_territory_option' || move.type === 'process_territory_region') &&
-    nextState.phase === 'territory_processing'
-  ) {
+  if (move.type === 'choose_territory_option' && nextState.phase === 'territory_processing') {
     // Always transition to turn_end after choose_territory_option
     // The orchestrator handles surfacing additional region decisions if needed
     // Use computeNextNonEliminatedPlayer to skip permanently eliminated players (RR-CANON-R201)
@@ -2181,8 +2160,7 @@ function isLinePhaseMove(moveType: Move['type']): boolean {
   return (
     moveType === 'no_line_action' ||
     moveType === 'process_line' ||
-    moveType === 'choose_line_option' ||
-    moveType === 'choose_line_reward'
+    moveType === 'choose_line_option'
   );
 }
 
@@ -2192,7 +2170,6 @@ function isLinePhaseMove(moveType: Move['type']): boolean {
 function isTerritoryPhaseMove(moveType: Move['type']): boolean {
   return (
     moveType === 'no_territory_action' ||
-    moveType === 'process_territory_region' ||
     moveType === 'choose_territory_option' ||
     moveType === 'skip_territory_processing'
   );

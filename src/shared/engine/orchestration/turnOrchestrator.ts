@@ -70,7 +70,7 @@ import {
   applyPhaseCoercion,
   logPhaseCoercion,
 } from '../legacy/legacyReplayHelper';
-import { assertNoLegacyMoveType } from '../legacy/legacyMoveTypes';
+import { assertNoLegacyMoveType, normalizeLegacyMove } from '../legacy/legacyMoveTypes';
 
 // FSM imports
 import {
@@ -1006,7 +1006,7 @@ function createRegionOrderDecision(state: GameState, regions: Territory[]): Pend
   // When one or more regions are processable for this player and no
   // self-elimination decision is currently outstanding, include the
   // canonical skip_territory_processing Move alongside the explicit
-  // process_territory_region options. This keeps the PendingDecision
+  // choose_territory_option options. This keeps the PendingDecision
   // surface aligned with getValidMoves for territory_processing.
   if (regionMoves.length > 0 && elimMoves.length === 0) {
     const moveNumber = state.moveHistory.length + 1;
@@ -1185,7 +1185,7 @@ function derivePendingDecisionFromFSM(
     }
 
     case 'region_order_required': {
-      // Enumerate process_territory_region moves
+      // Enumerate choose_territory_option moves
       const territoryEliminationContext = didCurrentTurnIncludeRecoverySlide(state, player)
         ? 'recovery'
         : 'territory';
@@ -1293,9 +1293,12 @@ export interface ProcessTurnOptions {
  */
 export function processTurn(
   state: GameState,
-  move: Move,
+  rawMove: Move,
   options?: ProcessTurnOptions
 ): ProcessTurnResult {
+  const replayCompatibility = options?.replayCompatibility ?? false;
+  const move = replayCompatibility ? normalizeLegacyMove(rawMove) : rawMove;
+
   // Detect if phase coercion would be needed for this move
   const coercionResult = detectPhaseCoercion(state, move);
 
@@ -1329,11 +1332,11 @@ export function processTurn(
       throw createLegacyCoercionError({
         currentPhase: state.currentPhase,
         wouldCoerceTo: coercionResult.targetPhase ?? state.currentPhase,
-        moveType: move.type,
+        moveType: rawMove.type,
         gameId: state.id,
         moveNumber: state.moveHistory.length + 1,
         currentPlayer: state.currentPlayer,
-        movePlayer: move.player,
+        movePlayer: rawMove.player,
       });
     }
   }
@@ -1342,17 +1345,13 @@ export function processTurn(
   // that every visited phase is represented by an explicit action, skip, or
   // no-action move per RR-CANON-R075.
   // Skip for legacy replay - FSM validation handles legacy move types correctly.
-  if (!options?.replayCompatibility) {
-    assertNoLegacyMoveType(move, 'processTurn');
+  if (!replayCompatibility) {
+    assertNoLegacyMoveType(rawMove, 'processTurn');
     assertPhaseMoveInvariant(state, move);
   }
 
   // FSM Validation: FSM is now the canonical validator - always enforce validation.
-  const fsmValidationResult = performFSMValidation(
-    state,
-    move,
-    options?.replayCompatibility ?? false
-  );
+  const fsmValidationResult = performFSMValidation(state, move, replayCompatibility);
   if (!fsmValidationResult.valid) {
     const reason = fsmValidationResult.reason || `FSM validation rejected ${move.type} move`;
     throw new Error(
@@ -1371,10 +1370,7 @@ export function processTurn(
   const applyResult = applyMoveWithChainInfo(stateMachine.gameState, move);
 
   // DEBUG: Trace stacks after applyMoveWithChainInfo for choose_line_option
-  if (
-    process.env.RINGRIFT_TRACE_DEBUG === '1' &&
-    (move.type === 'choose_line_option' || move.type === 'choose_line_reward')
-  ) {
+  if (process.env.RINGRIFT_TRACE_DEBUG === '1' && move.type === 'choose_line_option') {
     // eslint-disable-next-line no-console
     console.log('[processTurn] after applyMoveWithChainInfo, stacks:', {
       stackCount: applyResult.nextState.board.stacks.size,
@@ -1404,10 +1400,7 @@ export function processTurn(
   const moveActuallyChangedState = hashBefore !== hashAfter;
 
   // DEBUG: Trace line-phase move processing
-  if (
-    process.env.RINGRIFT_TRACE_DEBUG === '1' &&
-    (move.type === 'choose_line_option' || move.type === 'choose_line_reward')
-  ) {
+  if (process.env.RINGRIFT_TRACE_DEBUG === '1' && move.type === 'choose_line_option') {
     // eslint-disable-next-line no-console
     console.log('[processTurn] LINE_PHASE_MOVE_DEBUG:', {
       moveType: move.type,
@@ -1432,25 +1425,20 @@ export function processTurn(
     move.type === 'no_placement_action' ||
     move.type === 'swap_sides';
 
-  // For decision moves (process_territory_region, eliminate_rings_from_stack, etc.),
+  // For decision moves (choose_territory_option, eliminate_rings_from_stack, etc.),
   // if the move didn't actually change state (e.g., Q23 prerequisite not met), don't
   // process post-move phases - just return the unchanged state.
   //
-  // EXCEPTION: Line-phase decision moves (process_line, choose_line_option, choose_line_reward)
+  // EXCEPTION: Line-phase decision moves (process_line, choose_line_option)
   // MUST always trigger processPostMovePhases because the phase transition logic needs to run
   // regardless of whether the collapse changed state. After choose_line_option, we need to
   // transition to territory_processing even if the line was already processed. This matches
   // Python's behavior which always checks remaining lines and advances phases after any
   // line-phase move (RR-PARITY-FIX-2025-12-13).
-  const isLinePhaseMoveType =
-    move.type === 'process_line' ||
-    move.type === 'choose_line_option' ||
-    move.type === 'choose_line_reward';
+  const isLinePhaseMoveType = move.type === 'process_line' || move.type === 'choose_line_option';
 
   const isTerritoryDecisionMove =
-    move.type === 'process_territory_region' ||
-    move.type === 'choose_territory_option' ||
-    move.type === 'eliminate_rings_from_stack';
+    move.type === 'choose_territory_option' || move.type === 'eliminate_rings_from_stack';
 
   // Territory decision moves should only trigger post-move phases if they changed state
   const isDecisionMove = isLinePhaseMoveType || isTerritoryDecisionMove;
@@ -1477,10 +1465,7 @@ export function processTurn(
     (moveActuallyChangedState || !isDecisionMove || isLinePhaseMoveType);
 
   // DEBUG: Trace post-move processing decision for line-phase moves
-  if (
-    process.env.RINGRIFT_TRACE_DEBUG === '1' &&
-    (move.type === 'choose_line_option' || move.type === 'choose_line_reward')
-  ) {
+  if (process.env.RINGRIFT_TRACE_DEBUG === '1' && move.type === 'choose_line_option') {
     // eslint-disable-next-line no-console
     console.log('[processTurn] POST_MOVE_DECISION:', {
       isPlacementMove,
@@ -1498,10 +1483,7 @@ export function processTurn(
     result = processPostMovePhases(stateMachine, options);
 
     // DEBUG: Trace stacks after processPostMovePhases for choose_line_option
-    if (
-      process.env.RINGRIFT_TRACE_DEBUG === '1' &&
-      (move.type === 'choose_line_option' || move.type === 'choose_line_reward')
-    ) {
+    if (process.env.RINGRIFT_TRACE_DEBUG === '1' && move.type === 'choose_line_option') {
       // eslint-disable-next-line no-console
       console.log('[processTurn] after processPostMovePhases, stacks:', {
         stackCount: stateMachine.gameState.board.stacks.size,
@@ -1566,9 +1548,7 @@ export function processTurn(
   // immediately after territory decisions. The next player must start in
   // ring_placement and emit no_* actions as needed.
   const suppressForcedEliminationForTerritory =
-    move.type === 'choose_territory_option' ||
-    move.type === 'process_territory_region' ||
-    move.type === 'eliminate_rings_from_stack';
+    move.type === 'choose_territory_option' || move.type === 'eliminate_rings_from_stack';
 
   // If the turn is otherwise complete but the current player is blocked
   // with stacks and only a forced-elimination action is available, surface
@@ -1674,11 +1654,9 @@ export function processTurn(
       const isLinePhaseMove =
         move.type === 'no_line_action' ||
         move.type === 'process_line' ||
-        move.type === 'choose_line_option' ||
-        move.type === 'choose_line_reward';
+        move.type === 'choose_line_option';
       const isTerritoryPhaseMove =
         move.type === 'choose_territory_option' ||
-        move.type === 'process_territory_region' ||
         move.type === 'eliminate_rings_from_stack' ||
         move.type === 'no_territory_action' ||
         move.type === 'skip_territory_processing';
@@ -1700,9 +1678,9 @@ export function processTurn(
       } else if (!isPhaseHandledByProcessPostMovePhases) {
         // Apply FSM-derived state for moves NOT handled by processPostMovePhases.
         //
-        // Line-phase moves (no_line_action, process_line, choose_line_option,
-        // choose_line_reward) and territory-phase moves (choose_territory_option,
-        // process_territory_region, eliminate_rings_from_stack, no_territory_action,
+        // Line-phase moves (no_line_action, process_line, choose_line_option) and
+        // territory-phase moves (choose_territory_option, eliminate_rings_from_stack,
+        // no_territory_action,
         // skip_territory_processing) have their phase transitions handled by
         // processPostMovePhases. This includes transitions to forced_elimination
         // when the player had no actions this turn. Do NOT override their phases
@@ -2162,7 +2140,7 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
     }
 
     case 'choose_line_option':
-    case 'choose_line_reward': {
+    case 'choose_line_option': {
       const outcome = applyChooseLineRewardDecision(state, move);
       // RR-CANON-R123: Set pendingLineRewardElimination on GameState for ANM parity
       const nextStateWithFlag: GameState = {
@@ -2189,7 +2167,7 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
       };
     }
 
-    case 'process_territory_region':
+    case 'choose_territory_option':
     case 'choose_territory_option': {
       const outcome = applyProcessTerritoryRegionDecision(state, move);
       return { nextState: outcome.nextState };
@@ -2309,11 +2287,11 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
  * - ring_placement:
  *     place_ring, skip_placement, no_placement_action, swap_sides
  * - movement:
- *     move_stack, overtaking_capture, recovery_slide, skip_recovery, no_movement_action
+ *     move_stack, overtaking_capture, recovery_slide, skip_recovery, no_movement_action, swap_sides
  * - capture:
- *     overtaking_capture, skip_capture
+ *     overtaking_capture, skip_capture, swap_sides
  * - chain_capture:
- *     continue_capture_segment
+ *     continue_capture_segment, swap_sides
  * - line_processing:
  *     process_line, choose_line_option, eliminate_rings_from_stack, no_line_action
  * - territory_processing:
@@ -2322,7 +2300,7 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
  * - forced_elimination:
  *     forced_elimination
  *
- * swap_sides is permitted only in ring_placement (pie rule). Legacy move
+ * swap_sides is permitted only in early phases (pie rule). Legacy move
  * types (move_ring/build_stack/choose_line_reward/process_territory_region/
  * line_formation/territory_claim) are only accepted in replay compatibility
  * mode and must be treated as non-canonical by hosts.
@@ -2635,8 +2613,7 @@ function processPostMovePhases(
   const isLinePhaseMove =
     originalMoveType === 'no_line_action' ||
     originalMoveType === 'process_line' ||
-    originalMoveType === 'choose_line_option' ||
-    originalMoveType === 'choose_line_reward';
+    originalMoveType === 'choose_line_option';
   const shouldCheckLines = stateMachine.currentPhase === 'line_processing' || isLinePhaseMove;
 
   // Process lines
@@ -2664,10 +2641,7 @@ function processPostMovePhases(
     );
 
     // DEBUG: Trace line detection in processPostMovePhases
-    if (
-      process.env.RINGRIFT_TRACE_DEBUG === '1' &&
-      (originalMoveType === 'choose_line_option' || originalMoveType === 'choose_line_reward')
-    ) {
+    if (process.env.RINGRIFT_TRACE_DEBUG === '1' && originalMoveType === 'choose_line_option') {
       const player2Markers = Array.from(updatedStateForLines.board.markers.entries())
         .filter(([, m]) => m.player === 2)
         .map(([k]) => k);
@@ -2726,9 +2700,7 @@ function processPostMovePhases(
     const lineEliminationPending =
       stateMachine.processingState.perTurnFlags.eliminationRewardPending;
     if (
-      (originalMoveType === 'process_line' ||
-        originalMoveType === 'choose_line_option' ||
-        originalMoveType === 'choose_line_reward') &&
+      (originalMoveType === 'process_line' || originalMoveType === 'choose_line_option') &&
       lineEliminationPending
     ) {
       // Stay in line_processing, do not transition to territory_processing
@@ -2819,9 +2791,9 @@ function processPostMovePhases(
     // directly to victory/turn advancement.
     if (originalMoveType !== 'skip_territory_processing') {
       // RR-PARITY-FIX-2024-12-09: After ANY move in territory_processing (including
-      // process_territory_region), re-check for remaining regions. This mirrors
+      // choose_territory_option), re-check for remaining regions. This mirrors
       // Python's phase_machine.py which always checks remaining_regions after each
-      // process_territory_region and stays in territory_processing if more exist.
+      // choose_territory_option and stays in territory_processing if more exist.
       // IMPORTANT: Use stateMachine.gameState (updated after move application),
       // not the stale `state` snapshot from function start.
       const updatedState = stateMachine.gameState;
@@ -2842,12 +2814,12 @@ function processPostMovePhases(
       //
       // Concretely: we only surface elimination_target immediately after a
       // territory region decision move (choose_territory_option / legacy
-      // process_territory_region). After an eliminate_rings_from_stack move, the
+      // choose_territory_option). After an eliminate_rings_from_stack move, the
       // self-elimination requirement has been satisfied and we must not re-open
       // an elimination_target decision based on the stale moveHistory tail.
       const shouldCheckEliminationAfterRegion =
         originalMoveType === 'choose_territory_option' ||
-        originalMoveType === 'process_territory_region';
+        originalMoveType === 'choose_territory_option';
       if (shouldCheckEliminationAfterRegion) {
         // If this turn is in recovery context, the cost is a buried-ring extraction.
         const elimScope: TerritoryEliminationScope = {
@@ -2917,7 +2889,6 @@ function processPostMovePhases(
         const isTerritoryPhaseMove =
           originalMoveType === 'no_territory_action' ||
           originalMoveType === 'choose_territory_option' ||
-          originalMoveType === 'process_territory_region' ||
           originalMoveType === 'eliminate_rings_from_stack';
         if (!isTerritoryPhaseMove) {
           return {
@@ -3244,9 +3215,9 @@ export function validateMove(state: GameState, move: Move): { valid: boolean; re
  * - capture: overtaking_capture, skip_capture.
  * - chain_capture: continue_capture_segment.
  * - line_processing: process_line / choose_line_option (legacy: choose_line_reward).
- * - territory_processing: process_territory_region /
+ * - territory_processing: choose_territory_option /
  *   eliminate_rings_from_stack (+ skip_territory_processing). Legacy replays
- *   may also include choose_territory_option.
+ *   may also include process_territory_region.
  * - forced_elimination: forced_elimination options.
  *
  * When a phase has no interactive moves, this function returns an empty
