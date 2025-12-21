@@ -7,12 +7,16 @@
  * - Import scenarios from uploaded JSON files
  */
 
-import type { GameState, BoardType, Player, TimeControl } from '../../shared/types/game';
+import type { GameState, BoardType, Player, TimeControl, MoveType } from '../../shared/types/game';
 import type { LoadableScenario, ScenarioCategory } from './scenarioTypes';
 import { serializeGameState } from '../../shared/engine/contracts/serialization';
 import { computeGlobalLegalActionsSummary, evaluateVictory, isANMState } from '../../shared/engine';
 import { saveCustomScenario } from './scenarioLoader';
 import { createInitialGameState } from '../../shared/engine/initialState';
+import {
+  isLegacyMoveType,
+  normalizeLegacyMoveType,
+} from '../../shared/engine/legacy/legacyMoveTypes';
 
 /**
  * Metadata to include when saving a game state.
@@ -49,23 +53,37 @@ function inferCategoryFromPhase(phase: string): ScenarioCategory {
     case 'chain_capture':
       return 'chain_capture';
     case 'line_processing':
-    case 'process_line':
-    case 'choose_line_option':
-    case 'choose_line_reward':
-    case 'line_formation':
       return 'line_processing';
     case 'territory_processing':
-    case 'choose_territory_option':
-    case 'process_territory_region':
-    case 'territory_claim':
       return 'territory_processing';
     case 'forced_elimination':
       // Forced elimination is a special 7th phase (RR-CANON-R070) that doesn't
       // map to existing scenario categories; treat as custom for now.
       return 'custom';
     default:
-      return 'custom';
+      break;
   }
+
+  const maybeMoveType = phase as MoveType;
+  const normalized = normalizeLegacyMoveType(maybeMoveType);
+
+  if (normalized === 'process_line' || normalized === 'choose_line_option') {
+    return 'line_processing';
+  }
+  if (normalized === 'choose_territory_option') {
+    return 'territory_processing';
+  }
+
+  if (isLegacyMoveType(maybeMoveType)) {
+    if (maybeMoveType === 'line_formation') {
+      return 'line_processing';
+    }
+    if (maybeMoveType === 'territory_claim') {
+      return 'territory_processing';
+    }
+  }
+
+  return 'custom';
 }
 
 /**
