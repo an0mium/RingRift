@@ -52,10 +52,8 @@ GPU_BOOKKEEPING_MOVES = frozenset({
     "no_movement_action",
     "no_line_action",
     "no_territory_action",
+    # process_line is automatically advanced by CPU rules in some debug flows
     "process_line",
-    "process_territory_region",
-    "choose_line_option",
-    "choose_territory_option",
 })
 
 
