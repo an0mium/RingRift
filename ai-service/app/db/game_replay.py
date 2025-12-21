@@ -1128,9 +1128,12 @@ class GameReplayDB:
                 )
 
                 # Compute state after applying this move (needed for history OR snapshots)
+                # IMPORTANT: Use trace_mode=True since the recorded move sequence includes
+                # explicit forced elimination moves. Without trace_mode, the engine would
+                # auto-apply forced eliminations during turn rotation, causing state divergence.
                 state_after = None
                 if need_state_tracking:
-                    state_after = GameEngine.apply_move(prev_state, move)
+                    state_after = GameEngine.apply_move(prev_state, move, trace_mode=True)
 
                 # Store history entry with before/after states (v4 feature)
                 if store_history_entries and state_after is not None:

@@ -104,8 +104,9 @@ def validate_game(
 
     for i, move in enumerate(moves):
         try:
-            # Apply move
-            next_state = GameEngine.apply_move(current_state, move)
+            # Apply move with trace_mode=True since recorded sequences include
+            # explicit forced elimination moves
+            next_state = GameEngine.apply_move(current_state, move, trace_mode=True)
             computed_hash = _compute_state_hash(next_state)
             moves_applied.append(move)
 
