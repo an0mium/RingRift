@@ -30,13 +30,23 @@ import warnings
 # Import PhaseRequirement types from canonical SSoT module
 from app.game_engine.phase_requirements import PhaseRequirement, PhaseRequirementType
 
-# Import GameEngine and constants from legacy module (still being migrated)
-# NOTE: This import path is stable - the underlying implementation will be
-# migrated to canonical modules without changing the public API.
-from app._game_engine_legacy import (
-    STRICT_NO_MOVE_INVARIANT,
-    GameEngine,
-)
+# Lazy import cache to avoid circular import with _game_engine_legacy
+# The legacy module imports from game_engine.phase_requirements, so we can't
+# import from it at module load time without causing a circular import.
+_lazy_cache = {}
+
+def __getattr__(name):
+    """Lazy attribute access for GameEngine and related symbols."""
+    if name in ("GameEngine", "STRICT_NO_MOVE_INVARIANT"):
+        if name not in _lazy_cache:
+            from app._game_engine_legacy import (
+                STRICT_NO_MOVE_INVARIANT as _STRICT,
+                GameEngine as _GameEngine,
+            )
+            _lazy_cache["GameEngine"] = _GameEngine
+            _lazy_cache["STRICT_NO_MOVE_INVARIANT"] = _STRICT
+        return _lazy_cache[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _warn_legacy_import(name: str) -> None:

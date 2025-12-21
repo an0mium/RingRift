@@ -48,16 +48,6 @@ SSoT checklist" in ``docs/RULES_ENGINE_SURFACE_AUDIT.md``.
 
 from __future__ import annotations
 
-import warnings
-
-# Runtime deprecation warning - emit once per session
-warnings.warn(
-    "app._game_engine_legacy is deprecated and will be removed in Q2 2026. "
-    "Use app.game_engine instead for new code.",
-    DeprecationWarning,
-    stacklevel=2,
-)
-
 import json
 import os
 import sys
@@ -106,6 +96,15 @@ from .rules.recovery import (
 # SSoT generators for move enumeration (Phase 3 consolidation)
 _line_generator = LineGenerator()
 _territory_generator = TerritoryGenerator()
+
+# Runtime deprecation warning - placed after imports to avoid circular import issues
+import warnings
+warnings.warn(
+    "app._game_engine_legacy is deprecated and will be removed in Q2 2026. "
+    "Use app.game_engine instead for new code.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 DEBUG_ENGINE = os.environ.get("RINGRIFT_DEBUG_ENGINE") == "1"
 STRICT_NO_MOVE_INVARIANT = os.environ.get(
