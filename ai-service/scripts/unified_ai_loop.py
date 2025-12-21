@@ -5397,7 +5397,7 @@ class UnifiedAILoop:
             if run_tournament_round_distributed is not None and load_cluster_hosts is not None and filter_available_hosts is not None:
                 try:
                     # Load and filter available cluster hosts
-                    hosts_config = AI_SERVICE_ROOT / "config" / "remote_hosts.yaml"
+                    hosts_config = AI_SERVICE_ROOT / "config" / "distributed_hosts.yaml"
                     cluster_hosts = load_cluster_hosts(str(hosts_config))  # type: ignore[misc]
                     if cluster_hosts:
                         available_hosts = await filter_available_hosts(cluster_hosts)  # type: ignore[misc]

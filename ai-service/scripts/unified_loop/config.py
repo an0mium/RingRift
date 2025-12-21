@@ -621,7 +621,7 @@ class UnifiedLoopConfig:
     enhancements: IntegratedEnhancementsConfig = field(default_factory=IntegratedEnhancementsConfig)
 
     # Host configuration
-    hosts_config_path: str = "config/remote_hosts.yaml"
+    hosts_config_path: str = "config/distributed_hosts.yaml"
 
     # Database paths
     elo_db: str = "data/unified_elo.db"  # Canonical Elo database
