@@ -43,8 +43,11 @@ Naming Conventions:
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from enum import Enum
+
+from app.core.singleton_mixin import SingletonMixin
 
 logger = logging.getLogger(__name__)
 
@@ -121,16 +124,19 @@ class MetricInfo:
         return self.name
 
 
-class MetricCatalog:
+class MetricCatalog(SingletonMixin):
     """Central registry and catalog for all metrics.
 
     Provides discovery, documentation, and lookup for all Prometheus
     metrics used in the RingRift AI service.
+
+    Uses SingletonMixin for thread-safe singleton pattern.
     """
 
     _instance: MetricCatalog | None = None
+    _lock: threading.RLock = threading.RLock()
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._metrics: dict[str, MetricInfo] = {}
         self._by_category: dict[MetricCategory, set[str]] = {
             cat: set() for cat in MetricCategory
@@ -139,11 +145,18 @@ class MetricCatalog:
 
     @classmethod
     def get_instance(cls) -> MetricCatalog:
-        """Get singleton instance."""
-        if cls._instance is None:
-            cls._instance = cls()
-            cls._instance._register_all_metrics()
-        return cls._instance
+        """Get singleton instance.
+
+        Uses SingletonMixin._get_or_create_instance() for thread safety.
+        Automatically registers all metrics on first access.
+        """
+        instance = cls._get_or_create_instance()
+        if not instance._initialized:
+            with cls._lock:
+                if not instance._initialized:
+                    instance._register_all_metrics()
+                    instance._initialized = True
+        return instance
 
     def register(self, info: MetricInfo) -> None:
         """Register a metric in the catalog.

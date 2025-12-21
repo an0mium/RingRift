@@ -131,6 +131,50 @@ class EncodingProvider(Protocol):
         ...
 
 
+# =============================================================================
+# Serialization Protocol
+# =============================================================================
+
+
+from typing import TypeVar
+
+T = TypeVar("T")
+
+
+@runtime_checkable
+class SerializableProtocol(Protocol):
+    """Protocol for serializable objects.
+
+    Implementations: app.core.marshalling.Serializable mixin
+
+    Used by: All dataclasses that need to_dict/from_dict serialization
+
+    Note: Prefer using the Serializable mixin from app.core.marshalling
+    for implementation. This protocol is for type checking.
+
+    Example:
+        from app.core import Serializable
+
+        @dataclass
+        class MyConfig(Serializable):
+            name: str
+            value: int
+
+        config = MyConfig(name="test", value=42)
+        data = config.to_dict()
+        restored = MyConfig.from_dict(data)
+    """
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to dictionary."""
+        ...
+
+    @classmethod
+    def from_dict(cls: type[T], data: dict[str, Any]) -> T:
+        """Deserialize from dictionary."""
+        ...
+
+
 # Type aliases for common patterns
 HashValue = int
 PolicyIndex = int
