@@ -16,17 +16,53 @@ This plan assumes the working tree is unstable due to other agents. Each lane is
 - **Quality gap:** Line coverage ~69% vs >=80% target and scenario matrix expansion still pending (`CURRENT_STATE_ASSESSMENT.md`, `PROJECT_GOALS.md`, `KNOWN_ISSUES.md`).
 - **UX/test polish:** Client coverage and weird-state UX/telemetry alignment are still P1 (`TODO.md`, `docs/UX_RULES_WEIRD_STATES_SPEC.md`).
 - **Data readiness:** Canonical square8 gate now passes; square19/hex still need successful gated runs (`ai-service/TRAINING_DATA_REGISTRY.md`).
+- **Documentation drift:** Core docs still reference `ringrift_complete_rules.md` / `ringrift_compact_rules.md`, but those files are missing from the repo; update references or restore stubs.
 
 ---
 
 ## Priority Order
 
-1. Canonical data pipeline scale-up (square19/hex runs + gate summaries).
-2. IG-GMO experimental tier wiring (AI factory + docs).
-3. Clean-scale validation rerun (baseline/target/AI-heavy with auth refresh + WS companion).
-4. Scenario matrix + endgame coverage.
-5. Client UX/test hardening.
-6. WebSocket lifecycle polish.
+1. Canonical rules parity validation (TS↔Python recovery/capture alignment + parity bundles).
+2. Rules documentation SSoT alignment (missing rulebooks, anchor hygiene).
+3. Canonical data pipeline scale-up (square19/hex runs + gate summaries).
+4. IG-GMO experimental tier wiring (AI factory + docs).
+5. Clean-scale validation rerun (baseline/target/AI-heavy with auth refresh + WS companion).
+6. Scenario matrix + endgame coverage.
+7. Client UX/test hardening.
+8. WebSocket lifecycle polish.
+
+---
+
+## Lane 0: Canonical Rules Parity + Recovery Alignment
+
+**Goal:** Ensure TS/Python core rules align with the canonical spec, especially recovery-in-movement semantics, and resolve any parity divergences.
+
+**Scope:**
+
+- `RULES_CANONICAL_SPEC.md`
+- `src/shared/types/game.ts`
+- `src/shared/engine/**`
+- `ai-service/app/models/core.py`
+- `ai-service/app/rules/**`
+- `ai-service/app/ai/gpu_*`
+- `ai-service/scripts/check_ts_python_replay_parity.py`
+- `ai-service/scripts/diff_state_bundle.py`
+
+**Plan:**
+
+- Run parity with state bundles on a fresh DB and diff the first divergence.
+- Fix any phase/move-type mismatches (especially recovery recorded as movement).
+- Align GPU/internal comments and exports with canonical phase definitions.
+- Update or add targeted parity tests if needed.
+
+**Definition of Done:**
+
+- Parity gate passes on at least one recent DB without semantic/structural mismatches.
+- No documentation/code path implies a standalone recovery phase.
+
+**Progress Log:**
+
+- [ ] Capture parity state bundle and diff output for current divergence.
 
 ---
 
