@@ -936,10 +936,10 @@ function buildForcedEliminationNoHostFEVectors(): ContractTestVector[] {
   baseState.totalRingsEliminated = 0;
 
   // No stacks on board - elimination would come from hand if required
-  // Use process_territory_region move type
+  // Use choose_territory_option move type
   const move: Move = {
     id: 'territory-no-host-fe',
-    type: 'process_territory_region',
+    type: 'choose_territory_option',
     player: 1,
     to: { x: 0, y: 0 }, // sentinel position
     timestamp: new Date(0),
@@ -1176,7 +1176,7 @@ function buildTerritoryLineOverlongSquare8Vectors(): ContractTestVector[] {
     const state1 = result1.nextState as GameState;
     const move2: Move = {
       id: 'overlong-line-step2-reward',
-      type: 'choose_line_reward',
+      type: 'choose_line_option',
       player: 1,
       to: { x: 0, y: 3 },
       timestamp: new Date(0),
@@ -1262,7 +1262,7 @@ function buildTerritoryLineSinglePointSwingVectors(): ContractTestVector[] {
 
   const move: Move = {
     id: 'single-point-swing',
-    type: 'process_territory_region',
+    type: 'choose_territory_option',
     player: 2,
     to: stackPos,
     timestamp: new Date(0),
@@ -1337,7 +1337,7 @@ function buildTerritoryLineDecisionAutoExitVectors(): ContractTestVector[] {
   // No stacks - should auto-exit territory processing
   const move: Move = {
     id: 'decision-auto-exit',
-    type: 'process_territory_region',
+    type: 'choose_territory_option',
     player: 1,
     to: { x: 0, y: 0 }, // sentinel position
     timestamp: new Date(0),
@@ -1547,7 +1547,7 @@ function buildHexCornerRegionVectors(): ContractTestVector[] {
 
   const move: Move = {
     id: 'hex-corner-territory',
-    type: 'process_territory_region',
+    type: 'choose_territory_option',
     player: 1,
     to: cornerPos,
     timestamp: new Date(0),
