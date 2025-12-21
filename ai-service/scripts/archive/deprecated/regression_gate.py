@@ -1,10 +1,24 @@
 #!/usr/bin/env python3
 """Regression Gate - Validates models before promotion to prevent regressions.
 
+.. deprecated:: 2025-12-21
+    This script is superseded by run_strength_regression_gate.py.
+    The run_strength_regression_gate.py script is CI-active and provides
+    bounded matchups, cross-board coverage, and CI-friendly exit codes.
+
+    Use run_strength_regression_gate.py instead::
+
+        python scripts/run_strength_regression_gate.py \\
+            --board-type square8 --num-players 2 \\
+            --output-json results/regression_gate.json
+
+    This standalone script remains for backward compatibility but may be removed
+    in a future release.
+
 This module provides regression testing for model candidates before they are
 promoted to production. It ensures that new models don't regress on key metrics.
 
-Usage:
+Legacy Usage (deprecated):
     # Check if a model passes regression tests
     python scripts/regression_gate.py --model path/to/model.pt --config square8_2p
 

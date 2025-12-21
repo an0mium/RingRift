@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
 """Automated model promotion pipeline.
 
+.. deprecated:: 2025-12-21
+    This script is superseded by unified_promotion_daemon.py.
+    Use the unified daemon instead::
+
+        python scripts/unified_promotion_daemon.py --check-once     # One-time check
+        python scripts/unified_promotion_daemon.py --daemon         # Continuous monitoring
+        python scripts/unified_promotion_daemon.py elo-gate ...     # Elo-based promotion
+
+    This standalone script remains for backward compatibility but may be removed
+    in a future release.
+
 Periodically checks for new trained models, evaluates them via Elo gauntlet,
 and promotes top performers to production if they exceed the threshold.
 
-Usage:
+Legacy Usage (deprecated):
     # One-time evaluation
     python scripts/auto_model_promotion.py --check-once
 
