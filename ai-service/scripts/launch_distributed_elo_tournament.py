@@ -33,6 +33,7 @@ import argparse
 import asyncio
 import json
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -200,6 +201,24 @@ def run_slurm_command(cmd: str, timeout: int = 60) -> tuple[int, str, str]:
         return result.returncode, result.stdout, result.stderr
     except Exception as e:
         return -1, "", str(e)
+
+
+def run_data_sync(extra_args: list[str] | None = None) -> None:
+    """Run aria2-based cluster sync for models/data/Elo DBs."""
+    sync_script = AI_SERVICE_ROOT / "scripts" / "aria2_data_sync.py"
+    if not sync_script.exists():
+        print("[Sync] aria2_data_sync.py not found, skipping data sync.")
+        return
+
+    cmd = [sys.executable, str(sync_script), "cluster-sync"]
+    if extra_args:
+        cmd.extend(extra_args)
+
+    print(f"[Sync] Running: {' '.join(cmd)}")
+    try:
+        subprocess.run(cmd, check=False)
+    except Exception as e:
+        print(f"[Sync] Data sync failed: {e}")
 
 
 def pause_selfplay_jobs() -> tuple[int, list[str]]:
@@ -1274,6 +1293,12 @@ def main():
                         help="Player count for resumed selfplay (default: 3)")
     parser.add_argument("--players", type=int, default=2,
                         help="Number of players per game (2, 3, or 4). Extra slots filled with random.")
+    parser.add_argument("--sync-data", action="store_true",
+                        help="Run aria2 data cluster-sync before launching tournaments")
+    parser.add_argument("--sync-data-after", action="store_true",
+                        help="Run aria2 data cluster-sync after tournaments complete")
+    parser.add_argument("--sync-data-args", type=str, default="",
+                        help="Extra args to pass to aria2_data_sync.py (quoted string)")
 
     args = parser.parse_args()
 
@@ -1281,6 +1306,16 @@ def main():
         nodes, all_hosts = discover_healthy_nodes()
         print(f"\nCluster ready with {len(nodes)} healthy nodes out of {len(all_hosts)} total")
         return
+
+    sync_extra_args: list[str] = []
+    if args.sync_data_args:
+        try:
+            sync_extra_args = shlex.split(args.sync_data_args)
+        except Exception:
+            sync_extra_args = args.sync_data_args.split()
+
+    if args.sync_data:
+        run_data_sync(sync_extra_args)
 
     # Select agents - use lightweight by default to avoid OOM on nodes
     if args.agents:
@@ -1340,6 +1375,9 @@ def main():
             print(f"\n[Tournament] Results saved to {results_file}")
         else:
             print("\n[Tournament] No results collected")
+
+        if args.sync_data_after:
+            run_data_sync(sync_extra_args)
 
     finally:
         # Resume selfplay jobs if we paused them
