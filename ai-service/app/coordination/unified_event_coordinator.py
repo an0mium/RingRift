@@ -47,92 +47,15 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# Event Type Mappings
+# Event Type Mappings (centralized in event_mappings.py)
 # =============================================================================
 
-# Map DataEventType values to CrossProcess event types
-DATA_TO_CROSS_PROCESS_MAP = {
-    # Training events
-    "training_started": "TRAINING_STARTED",
-    "training_completed": "TRAINING_COMPLETED",
-    "training_failed": "TRAINING_FAILED",
-    "training_threshold": "TRAINING_THRESHOLD_REACHED",
-    # Evaluation events
-    "evaluation_completed": "EVALUATION_COMPLETED",
-    "elo_updated": "ELO_UPDATED",
-    # Promotion events
-    "model_promoted": "MODEL_PROMOTED",
-    "promotion_failed": "PROMOTION_FAILED",
-    # Data events
-    "new_games": "NEW_GAMES_AVAILABLE",
-    "sync_completed": "DATA_SYNC_COMPLETED",
-    # Quality events
-    "quality_score_updated": "QUALITY_SCORE_UPDATED",
-    "quality_distribution_changed": "QUALITY_DISTRIBUTION_CHANGED",
-    "high_quality_data_available": "HIGH_QUALITY_DATA_AVAILABLE",
-    "low_quality_data_warning": "LOW_QUALITY_DATA_WARNING",
-    # Regression events
-    "regression_detected": "REGRESSION_DETECTED",
-    "regression_critical": "REGRESSION_CRITICAL",
-    "regression_cleared": "REGRESSION_CLEARED",
-}
-
-# Map StageEvent values to CrossProcess event types (December 2025 - complete mapping)
-STAGE_TO_CROSS_PROCESS_MAP = {
-    # Training events
-    "training_complete": "TRAINING_COMPLETED",
-    "training_started": "TRAINING_STARTED",
-    "training_failed": "TRAINING_FAILED",
-    # Evaluation events
-    "evaluation_complete": "EVALUATION_COMPLETED",
-    "shadow_tournament_complete": "SHADOW_TOURNAMENT_COMPLETE",
-    "elo_calibration_complete": "ELO_CALIBRATION_COMPLETE",
-    # Promotion events
-    "promotion_complete": "MODEL_PROMOTED",
-    "tier_gating_complete": "TIER_GATING_COMPLETE",
-    # Selfplay events
-    "selfplay_complete": "SELFPLAY_BATCH_COMPLETE",
-    "canonical_selfplay_complete": "CANONICAL_SELFPLAY_COMPLETE",
-    "gpu_selfplay_complete": "GPU_SELFPLAY_COMPLETE",
-    # Data/sync events
-    "sync_complete": "DATA_SYNC_COMPLETED",
-    "parity_validation_complete": "PARITY_VALIDATION_COMPLETE",
-    "npz_export_complete": "NPZ_EXPORT_COMPLETE",
-    "cluster_sync_complete": "CLUSTER_SYNC_COMPLETE",
-    "model_sync_complete": "MODEL_SYNC_COMPLETE",
-    # Optimization events
-    "cmaes_complete": "CMAES_COMPLETE",
-    "pbt_complete": "PBT_COMPLETE",
-    "nas_complete": "NAS_COMPLETE",
-    # Utility events
-    "iteration_complete": "ITERATION_COMPLETE",
-}
-
-# Events to bridge from CrossProcess back to DataEventBus (December 2025 - expanded)
-CROSS_PROCESS_TO_DATA_MAP = {
-    # Training events
-    "TRAINING_STARTED": "training_started",
-    "TRAINING_COMPLETED": "training_completed",
-    "TRAINING_FAILED": "training_failed",
-    "TRAINING_THRESHOLD_REACHED": "training_threshold",
-    # Evaluation events
-    "EVALUATION_COMPLETED": "evaluation_completed",
-    "ELO_UPDATED": "elo_updated",
-    # Promotion events
-    "MODEL_PROMOTED": "model_promoted",
-    "PROMOTION_FAILED": "promotion_failed",
-    # Data events
-    "NEW_GAMES_AVAILABLE": "new_games",
-    "DATA_SYNC_COMPLETED": "sync_completed",
-    # Quality events
-    "QUALITY_SCORE_UPDATED": "quality_score_updated",
-    "QUALITY_DISTRIBUTION_CHANGED": "quality_distribution_changed",
-    "HIGH_QUALITY_DATA_AVAILABLE": "high_quality_data_available",
-    # Regression events
-    "REGRESSION_DETECTED": "regression_detected",
-    "REGRESSION_CRITICAL": "regression_critical",
-    "REGRESSION_CLEARED": "regression_cleared",
-}
+# Import centralized event mappings (DRY consolidation - December 2025)
+from app.coordination.event_mappings import (
+    CROSS_PROCESS_TO_DATA_MAP,
+    DATA_TO_CROSS_PROCESS_MAP,
+    STAGE_TO_CROSS_PROCESS_MAP,
+)
 
 
 # =============================================================================

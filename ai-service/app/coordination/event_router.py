@@ -92,24 +92,11 @@ class EventSource(str, Enum):
     ROUTER = "router"               # Originated from this router
 
 
-# Mapping from StageEvent to DataEventType for automatic conversion
-STAGE_TO_DATA_EVENT_MAP: dict[str, str] = {
-    "selfplay_complete": "new_games",
-    "canonical_selfplay_complete": "new_games",
-    "sync_complete": "sync_completed",
-    "training_complete": "training_completed",
-    "training_started": "training_started",
-    "training_failed": "training_failed",
-    "evaluation_complete": "evaluation_completed",
-    "promotion_complete": "model_promoted",
-    "cmaes_complete": "cmaes_completed",
-    "pbt_complete": "pbt_generation_complete",
-    "nas_complete": "nas_completed",
-    "model_sync_complete": "p2p_model_synced",
-}
-
-# Reverse mapping
-DATA_TO_STAGE_EVENT_MAP: dict[str, str] = {v: k for k, v in STAGE_TO_DATA_EVENT_MAP.items()}
+# Import centralized event mappings (DRY - consolidated in event_mappings.py)
+from app.coordination.event_mappings import (
+    DATA_TO_STAGE_EVENT_MAP,
+    STAGE_TO_DATA_EVENT_MAP,
+)
 
 
 @dataclass
