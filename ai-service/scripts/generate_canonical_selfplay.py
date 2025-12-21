@@ -1006,6 +1006,7 @@ def main(argv: list[str] | None = None) -> int:
     distributed_job_timeout_seconds: int = int(args.distributed_job_timeout_seconds or 0)
     distributed_fetch_timeout_seconds: int = int(args.distributed_fetch_timeout_seconds or 0)
     run_analyses = bool(not args.skip_analyses)
+    engine_mode: str | None = getattr(args, "engine_mode", None)
 
     if args.db:
         db_path = Path(args.db).resolve()
@@ -1054,6 +1055,7 @@ def main(argv: list[str] | None = None) -> int:
                         include_training_data_jsonl=False,
                         distributed_job_timeout_seconds=distributed_job_timeout_seconds,
                         distributed_fetch_timeout_seconds=distributed_fetch_timeout_seconds,
+                        engine_mode=engine_mode,
                     )
                 break
 
@@ -1075,6 +1077,7 @@ def main(argv: list[str] | None = None) -> int:
                             include_training_data_jsonl=False,
                             distributed_job_timeout_seconds=distributed_job_timeout_seconds,
                             distributed_fetch_timeout_seconds=distributed_fetch_timeout_seconds,
+                            engine_mode=engine_mode,
                         )
                     break
 
@@ -1097,6 +1100,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_training_data_jsonl=run_analyses and games_to_play > 0,
                 distributed_job_timeout_seconds=distributed_job_timeout_seconds,
                 distributed_fetch_timeout_seconds=distributed_fetch_timeout_seconds,
+                engine_mode=engine_mode,
             )
             if games_to_play > 0:
                 soak_attempts_used += 1
