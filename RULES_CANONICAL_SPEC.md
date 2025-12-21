@@ -606,6 +606,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - A single overtaking capture segment is a triple (`from`, `target`, `landing`) where:
     - `from` contains a stack controlled by P with height H and capHeight CH.
     - `target` contains a stack T with capHeight CH_T (any owner).
+      - Self-capture is legal: `target` may be owned by P.
     - `landing` is an empty cell or a cell with any marker (own or opponent), strictly beyond `target` along one movement direction.
   - Requirements:
     - CH ≥ CH_T.
