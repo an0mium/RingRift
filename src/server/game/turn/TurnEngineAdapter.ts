@@ -34,6 +34,7 @@ import {
   hasValidMoves,
 } from '../../../shared/engine/orchestration/turnOrchestrator';
 import { validateMoveWithFSM } from '../../../shared/engine/fsm/FSMAdapter';
+import { normalizeLegacyMove } from '../../../shared/engine/legacy/legacyMoveTypes';
 import { flagEnabled } from '../../../shared/utils/envFlags';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -136,6 +137,7 @@ export class TurnEngineAdapter {
   async processMove(move: Move): Promise<AdapterMoveResult> {
     const { stateAccessor, decisionHandler, eventEmitter, debugHook, replayMode } = this.deps;
     const beforeState = stateAccessor.getGameState();
+    const moveToApply = replayMode ? normalizeLegacyMove(move) : move;
 
     // Debug checkpoint before processing
     debugHook?.('before-processMove', beforeState);
@@ -227,7 +229,12 @@ export class TurnEngineAdapter {
             skipAutoLineProcessing: true,
           }
         : {};
-      const result = await processTurnAsync(beforeState, move, delegates, processTurnOptions);
+      const result = await processTurnAsync(
+        beforeState,
+        moveToApply,
+        delegates,
+        processTurnOptions
+      );
 
       // Update state
       stateAccessor.updateGameState(result.nextState);
@@ -238,7 +245,7 @@ export class TurnEngineAdapter {
       // Emit state update
       eventEmitter?.emit('game:state_update', {
         state: result.nextState,
-        move,
+        move: moveToApply,
         metadata: result.metadata,
       });
 

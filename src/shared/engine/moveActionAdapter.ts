@@ -57,9 +57,7 @@ export function moveToGameAction(move: Move, state: EngineGameState): GameAction
     case 'process_line':
       return mapProcessLineMove(move, state);
     case 'choose_line_option':
-    case 'choose_line_reward':
       return mapChooseLineRewardMove(move, state);
-    case 'process_territory_region':
     case 'choose_territory_option':
       return mapProcessTerritoryRegionMove(move, state);
     case 'eliminate_rings_from_stack':

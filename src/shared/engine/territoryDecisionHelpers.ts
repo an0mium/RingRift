@@ -57,8 +57,7 @@ function getPendingTerritorySelfEliminationRegion(
     return null;
   }
 
-  const isTerritoryRegionMove =
-    lastMove.type === 'choose_territory_option' || lastMove.type === 'process_territory_region';
+  const isTerritoryRegionMove = lastMove.type === 'choose_territory_option';
   if (!isTerritoryRegionMove) {
     return null;
   }
@@ -86,7 +85,7 @@ function deriveTerritoryEliminationContext(
  *
  * - Backend:
  *   - [`rules/territoryProcessing.processDisconnectedRegionsForCurrentPlayer`](src/server/game/rules/territoryProcessing.ts:1)
- *   - `GameEngine.applyDecisionMove` branches for `process_territory_region`
+ *   - `GameEngine.applyDecisionMove` branches for `choose_territory_option`
  *     and `eliminate_rings_from_stack`.
  * - Sandbox:
  *   - (legacy) `sandboxTerritoryEngine.processDisconnectedRegionsForCurrentPlayerEngine`
@@ -103,7 +102,6 @@ function deriveTerritoryEliminationContext(
  * the canonical **decision surface** as `Move` instances:
  *
  * - `choose_territory_option` – choose which disconnected region to process.
- *   - Legacy alias: `process_territory_region` (accepted for replay only).
  *   - One move per processable region.
  * - `eliminate_rings_from_stack` – pay the mandatory self-elimination cost
  *   after processing a region (or other elimination-triggering effects).
@@ -245,7 +243,7 @@ export function enumerateProcessTerritoryRegionMoves(
 }
 
 /**
- * Result of applying a `process_territory_region` decision.
+ * Result of applying a `choose_territory_option` decision.
  *
  * This mirrors the responsibilities of the backend/sandbox territory engines
  * **excluding** the actual self-elimination step, which is modelled as a
@@ -283,7 +281,7 @@ export interface TerritoryProcessApplicationOutcome {
 }
 
 /**
- * Apply a `process_territory_region` move to the given GameState.
+ * Apply a `choose_territory_option` move to the given GameState.
  *
  * Responsibilities:
  *
@@ -305,9 +303,9 @@ export function applyProcessTerritoryRegionDecision(
   state: GameState,
   move: Move
 ): TerritoryProcessApplicationOutcome {
-  if (move.type !== 'choose_territory_option' && move.type !== 'process_territory_region') {
+  if (move.type !== 'choose_territory_option') {
     throw new Error(
-      `applyProcessTerritoryRegionDecision expected move.type === 'choose_territory_option' (or legacy 'process_territory_region'), got '${move.type}'`
+      `applyProcessTerritoryRegionDecision expected move.type === 'choose_territory_option', got '${move.type}'`
     );
   }
 
@@ -502,7 +500,7 @@ export interface TerritoryEliminationScope {
    * enforce the "must eliminate from outside the processed region" rule.
    *
    * When omitted, the helper may infer the processed region from the most
-   * recent choose_territory_option / process_territory_region Move in
+   * recent choose_territory_option Move in
    * state.moveHistory (when available).
    */
   processedRegion?: Territory;

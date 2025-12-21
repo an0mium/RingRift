@@ -25,6 +25,7 @@ import {
 } from '../../shared/engine/orchestration/turnOrchestrator';
 import { validateMoveWithFSM } from '../../shared/engine/fsm/FSMAdapter';
 import { validatePlacement } from '../../shared/engine/aggregates/PlacementAggregate';
+import { normalizeLegacyMove } from '../../shared/engine/legacy/legacyMoveTypes';
 import {
   debugLog,
   isSandboxAiStallDiagnosticsEnabled,
@@ -262,6 +263,7 @@ export class SandboxOrchestratorAdapter {
       }
 
       const delegates = this.createProcessingDelegates();
+      const moveToApply = normalizeLegacyMove(move);
 
       // Helper to run processTurn and accumulate phase metadata
       let phasesTraversed: string[] = [];
@@ -289,14 +291,14 @@ export class SandboxOrchestratorAdapter {
       // Apply the primary move first so the sandbox engine/state accessor
       // reflect the post-move board BEFORE any pending decisions are surfaced.
       let workingState = initialState;
-      let result = runProcessTurn(workingState, move);
+      let result = runProcessTurn(workingState, moveToApply);
 
       // RR-DEBUG-2025-12-13: Trace decision loop entry for all moves
       debugLog(
         SANDBOX_ORCHESTRATOR_TRACE_DEBUG,
         '[SandboxOrchestratorAdapter.processMove] After runProcessTurn:',
         {
-          moveType: move.type,
+          moveType: moveToApply.type,
           resultStatus: result.status,
           pendingDecision: result.pendingDecision?.type ?? 'none',
           nextPhase: result.nextState.currentPhase,
@@ -305,14 +307,14 @@ export class SandboxOrchestratorAdapter {
       );
 
       const afterPrimary = result.nextState;
-      const primaryEntry = createHistoryEntry(workingState, afterPrimary, move, {
+      const primaryEntry = createHistoryEntry(workingState, afterPrimary, moveToApply, {
         normalizeMoveNumber: true,
       });
       workingState = {
         ...afterPrimary,
         moveHistory: [
           ...workingState.moveHistory,
-          { ...move, moveNumber: primaryEntry.moveNumber },
+          { ...moveToApply, moveNumber: primaryEntry.moveNumber },
         ],
         history: [...workingState.history, primaryEntry],
         lastMoveAt: new Date(),

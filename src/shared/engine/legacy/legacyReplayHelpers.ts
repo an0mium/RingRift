@@ -1,6 +1,7 @@
 import type { GameState } from '../../types/game';
 import type { GameRecord } from '../../types/gameRecord';
 import { reconstructStateAtMoveWithOptions } from '../replayHelpers';
+import { normalizeLegacyMoveType } from './legacyMoveTypes';
 
 /**
  * Legacy replay compatibility helper.
@@ -11,7 +12,15 @@ import { reconstructStateAtMoveWithOptions } from '../replayHelpers';
  * rather than relying on this path long-term.
  */
 export function reconstructStateAtMoveLegacy(record: GameRecord, moveIndex: number): GameState {
-  return reconstructStateAtMoveWithOptions(record, moveIndex, {
+  const normalizedRecord: GameRecord = {
+    ...record,
+    moves: record.moves.map((move) => ({
+      ...move,
+      type: normalizeLegacyMoveType(move.type),
+    })),
+  };
+
+  return reconstructStateAtMoveWithOptions(normalizedRecord, moveIndex, {
     replayCompatibility: true,
     skipAutoLineProcessing: true,
     skipSingleTerritoryAutoProcess: true,
