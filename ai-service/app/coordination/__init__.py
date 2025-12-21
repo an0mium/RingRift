@@ -409,6 +409,7 @@ from app.coordination.event_emitters import (
     emit_host_online,
     emit_node_recovered,
     # New emitters (December 2025)
+    emit_hyperparameter_updated,
     emit_optimization_triggered,
     emit_plateau_detected,
     emit_promotion_complete,

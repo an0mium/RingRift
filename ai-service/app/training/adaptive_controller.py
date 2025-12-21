@@ -28,11 +28,14 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # Event system integration (optional - graceful fallback if not available)
+# December 2025: Migrated to use centralized event_emitters.py
 try:
-    from app.coordination.event_router import (
-        DataEventType,
+    from app.coordination.event_emitters import (
         emit_hyperparameter_updated,
         emit_plateau_detected,
+    )
+    from app.distributed.data_events import (
+        DataEventType,
         get_event_bus,
     )
     HAS_EVENT_SYSTEM = True

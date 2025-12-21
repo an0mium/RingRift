@@ -864,6 +864,60 @@ async def emit_plateau_detected(
         return False
 
 
+async def emit_hyperparameter_updated(
+    config: str,
+    param_name: str,
+    old_value: Any,
+    new_value: Any,
+    optimizer: str = "manual",  # "cmaes", "nas", "manual", "adaptive"
+    **metadata,
+) -> bool:
+    """Emit HYPERPARAMETER_UPDATED event.
+
+    December 2025: Added for adaptive controller integration.
+
+    Args:
+        config: Board configuration
+        param_name: Name of the parameter that changed
+        old_value: Previous value
+        new_value: New value
+        optimizer: What triggered the update
+        **metadata: Additional metadata
+
+    Returns:
+        True if emitted successfully
+    """
+    if not HAS_DATA_EVENTS:
+        return False
+
+    try:
+        bus = get_data_bus()
+        if bus is None:
+            return False
+
+        event = DataEvent(
+            event_type=DataEventType.HYPERPARAMETER_UPDATED,
+            payload={
+                "config": config,
+                "param_name": param_name,
+                "old_value": old_value,
+                "new_value": new_value,
+                "optimizer": optimizer,
+                "timestamp": _get_timestamp(),
+                **metadata,
+            },
+            source="event_emitters",
+        )
+
+        await bus.publish(event)
+        logger.debug(f"Emitted hyperparameter_updated event for {param_name}")
+        return True
+
+    except Exception as e:
+        logger.debug(f"Failed to emit hyperparameter event: {e}")
+        return False
+
+
 async def emit_regression_detected(
     metric_name: str,
     current_value: float,
@@ -1837,6 +1891,8 @@ __all__ = [
     "emit_evaluation_complete",
     "emit_handler_failed",
     "emit_handler_timeout",
+    # Hyperparameter events (December 2025)
+    "emit_hyperparameter_updated",
     "emit_host_offline",
     # Host/Node events (December 2025)
     "emit_host_online",
