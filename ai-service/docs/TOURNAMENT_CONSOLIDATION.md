@@ -1,74 +1,146 @@
-# Tournament Script Consolidation
+# Tournament Implementation Analysis
 
-This document tracks the consolidation of tournament-related scripts.
+This document provides a comprehensive analysis of all tournament implementations in the RingRift codebase, with recommendations for consolidation that preserve all functionality.
 
-## Current State (December 2025)
+## Implementation Matrix
 
-### Canonical Implementations
+### Core Implementations (Keep Exactly As-Is)
 
-| Script                                  | Purpose                                      | Status                               |
-| --------------------------------------- | -------------------------------------------- | ------------------------------------ |
-| `scripts/run_tournament.py`             | Unified entry point with modes               | **CANONICAL**                        |
-| `scripts/run_distributed_tournament.py` | Tier difficulty ladder, training data export | **CANONICAL** for tier tournaments   |
-| `scripts/unified_loop/tournament.py`    | Unified loop integration                     | **CANONICAL** for automated pipeline |
+| Script                          | Purpose                         | Unique Features                                                                    | Dependencies                 |
+| ------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------- | ---------------------------- |
+| `run_distributed_tournament.py` | Tier difficulty ladder (D1-D10) | Deterministic Elo replay, Wilson intervals, training data export, device detection | Core - no dependencies       |
+| `run_model_elo_tournament.py`   | Model vs model evaluation       | Model discovery, persistent Elo database, composite participants, event bus        | Core - critical for training |
+| `run_eval_tournaments.py`       | Eval pool snapshots             | Start from mid/late-game states, per-scenario statistics                           | Unique niche                 |
+| `run_profile_tournament.py`     | Heuristic weight testing        | Weight profile comparison, position-based analysis                                 | Specialized tool             |
+| `unified_loop/tournament.py`    | Unified loop integration        | ShadowTournamentService, host load balancing, event integration                    | Modern replacement           |
 
-### Deprecated (With Notices)
+### Library Modules (Keep As Stable APIs)
 
-| Script                                 | Replacement                      | Notes                             |
-| -------------------------------------- | -------------------------------- | --------------------------------- |
-| `scripts/shadow_tournament_service.py` | `unified_loop/tournament.py`     | Deprecation notice added Dec 2025 |
-| `scripts/pipeline_dashboard.py`        | `scripts/dashboard.py pipeline`  | Deprecation notice added Dec 2025 |
-| `scripts/elo_dashboard.py`             | `scripts/dashboard.py elo`       | Deprecation notice added Dec 2025 |
-| `scripts/composite_elo_dashboard.py`   | `scripts/dashboard.py composite` | Deprecation notice added Dec 2025 |
+| Module                            | Purpose                    | Usage                           |
+| --------------------------------- | -------------------------- | ------------------------------- |
+| `app/tournament/runner.py`        | High-level match execution | Reusable API for Python imports |
+| `app/tournament/orchestrator.py`  | Orchestration API          | Evaluation workflows            |
+| `app/training/tournament.py`      | Low-level match execution  | Core match logic                |
+| `app/training/auto_tournament.py` | Model version pipeline     | Champion promotion              |
 
-### Specialized (Keep As-Is)
+### Specialized Variants (Keep for Scaling)
 
-| Script                                      | Purpose                    | Notes                    |
-| ------------------------------------------- | -------------------------- | ------------------------ |
-| `scripts/run_ssh_distributed_tournament.py` | SSH-based remote execution | Used by p2p_orchestrator |
-| `scripts/run_p2p_elo_tournament.py`         | Peer-to-peer evaluation    | Specialized P2P protocol |
-| `scripts/auto_elo_tournament.py`            | Autonomous daemon          | Runs on cluster nodes    |
-| `scripts/run_profile_tournament.py`         | Performance profiling      | Development tool         |
+| Script                              | Purpose                  | Relationship                                            |
+| ----------------------------------- | ------------------------ | ------------------------------------------------------- |
+| `run_ssh_distributed_tournament.py` | Multi-host orchestration | Wraps `run_distributed_tournament.py` for cluster scale |
+| `run_diverse_tournaments.py`        | All configurations       | Orchestrates runs across board/player combinations      |
 
-## Usage Guide
+### Redundant/Archive Candidates
 
-### For Tier Tournaments (D1-D10)
+| Script                         | Status                  | Replacement                                    |
+| ------------------------------ | ----------------------- | ---------------------------------------------- |
+| `shadow_tournament_service.py` | Deprecated in docstring | `unified_loop/tournament.py`                   |
+| `auto_elo_tournament.py`       | Simple daemon wrapper   | Can fold into monitoring layer                 |
+| `run_tournament.py`            | Router/wrapper          | Direct calls to implementations may be simpler |
 
-```bash
-# Canonical approach
-python scripts/run_distributed_tournament.py \
-    --tiers D1,D2,D3,D4,D5 \
-    --games-per-matchup 20 \
-    --workers 8 \
-    --record-training-data
+## Dependency Graph
+
+```
+run_distributed_tournament.py (CORE)
+├── LadderTierConfig
+├── AIConfig, AIType
+├── GameEngine
+└── Training data export
+
+run_ssh_distributed_tournament.py
+└── Wraps: run_distributed_tournament.py
+
+run_model_elo_tournament.py (CORE)
+├── Model discovery (.pth files)
+├── Elo database (SQLite)
+├── Event bus (elo_updated)
+└── Composite participants
+
+run_eval_tournaments.py
+├── EvalPoolConfig
+└── Snapshot-based evaluation
+
+unified_loop/tournament.py
+├── ShadowTournamentService class
+├── Unified loop events
+└── Improvement optimizer
 ```
 
-### For Model Comparison
+## Preserved Functionality Checklist
 
-```bash
-python scripts/run_tournament.py models \
-    --model-a path/to/model_a.pt \
-    --model-b path/to/model_b.pt \
-    --games 50
-```
+All features below MUST be preserved in any consolidation:
 
-### For Unified Loop Integration
+- [ ] Deterministic Elo replay (run_distributed_tournament.py)
+- [ ] Wilson confidence intervals (run_distributed_tournament.py)
+- [ ] Training data export (run_distributed_tournament.py)
+- [ ] MPS/CUDA/CPU device detection (run_distributed_tournament.py)
+- [ ] Model discovery + persistent leaderboard (run_model_elo_tournament.py)
+- [ ] Composite participant tracking (run_model_elo_tournament.py)
+- [ ] Event bus integration (run_model_elo_tournament.py, unified_loop/tournament.py)
+- [ ] Eval pool snapshots (run_eval_tournaments.py)
+- [ ] Heuristic weight comparison (run_profile_tournament.py)
+- [ ] Multi-host SSH orchestration (run_ssh_distributed_tournament.py)
+- [ ] Multiplayer support with filler AIs (run_distributed_tournament.py)
+- [ ] ShadowTournamentService (unified_loop/tournament.py)
 
-```python
-from scripts.unified_loop.tournament import ShadowTournamentService
+## Current Usage
 
-service = ShadowTournamentService(config, state, event_bus)
-await service.run_shadow_tournament(config_key)
-```
+### Active on Cluster
 
-## Future Consolidation
+- `run_distributed_tournament.py` - Tier tournaments on lambda-h100, lambda-gh200-\*
+- `auto_elo_tournament.py` - Continuous daemon on lambda-gh200-e
+- `unified_loop/tournament.py` - Part of unified AI loop
 
-1. **Phase 1** (Completed): Add deprecation notices
-2. **Phase 2** (Planned): Route all CLI usage through `run_tournament.py`
-3. **Phase 3** (Planned): Merge common tournament logic into `app/tournament/`
+### Active in Training Pipeline
 
-## Related Files
+- `run_model_elo_tournament.py` - Called by p2p_orchestrator.py
+- `app/tournament/orchestrator.py` - Used by training loop
 
-- `app/tournament/runner.py` - Core tournament execution logic
-- `app/tournament/orchestrator.py` - Tournament orchestration
-- `app/tournament/unified_elo_db.py` - Elo database interface
+## Recommendations
+
+### Phase 1: Document (Current)
+
+- ✓ Create this analysis document
+- ✓ Map all dependencies and unique features
+- No deprecations until thorough testing
+
+### Phase 2: Test Coverage
+
+- Add integration tests for each tournament type
+- Verify all features work correctly
+- Create feature parity checklist
+
+### Phase 3: Gradual Consolidation (Future)
+
+- Migrate `shadow_tournament_service.py` users to `unified_loop/tournament.py`
+- Consider if `run_tournament.py` router adds value vs. complexity
+- Archive `auto_elo_tournament.py` if monitoring layer covers functionality
+
+## File Locations
+
+**CLI Scripts:**
+
+- `/scripts/run_distributed_tournament.py` (1710 lines)
+- `/scripts/run_model_elo_tournament.py` (2546 lines)
+- `/scripts/run_ssh_distributed_tournament.py` (652 lines)
+- `/scripts/run_eval_tournaments.py` (527 lines)
+- `/scripts/run_diverse_tournaments.py` (697 lines)
+- `/scripts/run_profile_tournament.py` (406 lines)
+- `/scripts/run_tournament.py` (528 lines) - Router
+- `/scripts/auto_elo_tournament.py` - Daemon
+- `/scripts/shadow_tournament_service.py` - Deprecated
+
+**Libraries:**
+
+- `/app/tournament/runner.py`
+- `/app/tournament/orchestrator.py`
+- `/app/training/tournament.py`
+- `/app/training/auto_tournament.py`
+
+**Unified Loop:**
+
+- `/scripts/unified_loop/tournament.py`
+
+## Conclusion
+
+The tournament system has **excellent separation of concerns** with clear unique functionality for each implementation. The main consolidation opportunity is reducing router/wrapper layers rather than merging core functionality. No functionality should be lost by maintaining the current core implementations.
