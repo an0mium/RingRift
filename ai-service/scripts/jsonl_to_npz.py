@@ -459,9 +459,16 @@ def build_encoder(
         # Use proper hex encoders for compatible training data
         # HEX8 uses 9×9 board, HEXAGONAL uses 25×25
         hex_board_size = 9 if board_type == BoardType.HEX8 else 25
+        # Policy size also differs: hex8 uses 4500, hexagonal uses 91876
+        from app.training.encoding import POLICY_SIZE_HEX8, P_HEX
+        hex_policy_size = POLICY_SIZE_HEX8 if board_type == BoardType.HEX8 else P_HEX
         if encoder_version == "v3":
-            hex_encoder = HexStateEncoderV3(feature_version=feature_version)
-            logger.info(f"Using HexStateEncoderV3 (16 base channels -> 64 total) for {board_type.name} ({hex_board_size}×{hex_board_size})")
+            hex_encoder = HexStateEncoderV3(
+                board_size=hex_board_size,
+                policy_size=hex_policy_size,
+                feature_version=feature_version,
+            )
+            logger.info(f"Using HexStateEncoderV3 (16 base channels -> 64 total) for {board_type.name} ({hex_board_size}×{hex_board_size}, policy={hex_policy_size})")
         else:
             hex_encoder = HexStateEncoder(feature_version=feature_version)
             logger.info(f"Using HexStateEncoder (10 base channels -> 40 total) for {board_type.name} ({hex_board_size}×{hex_board_size})")
