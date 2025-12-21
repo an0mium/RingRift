@@ -21,6 +21,7 @@ import numpy as np
 
 from app.ai.descent_ai import DescentAI
 from app.ai.gmo_ai import GMOAI, GMOConfig
+from app.ai.gumbel_mcts_ai import GumbelMCTSAI
 from app.ai.mcts_ai import MCTSAI
 from app.ai.neural_net import INVALID_MOVE_INDEX, NeuralNetAI, encode_move_for_board
 from app.db import GameReplayDB, get_or_create_db, record_completed_game
@@ -175,7 +176,7 @@ class DataQualityTracker:
 
 
 def extract_mcts_visit_distribution(
-    ai: MCTSAI,
+    ai: MCTSAI | GumbelMCTSAI,
     state: GameState,
     encoder: NeuralNetAI | None = None,
     use_board_aware_encoding: bool = False,
@@ -187,8 +188,9 @@ def extract_mcts_visit_distribution(
 
     Parameters
     ----------
-    ai : MCTSAI
+    ai : MCTSAI | GumbelMCTSAI
         The MCTS AI instance after a search has been performed.
+        Supports both standard MCTSAI and GumbelMCTSAI (Sequential Halving).
     state : GameState
         The game state that was searched (for move encoding).
     encoder : Optional[NeuralNetAI]
@@ -745,6 +747,7 @@ def generate_dataset(
         Default search engine for self-play. One of:
           - "descent" (default): DescentAI-based pipeline
           - "mcts": MCTSAI-based AlphaZero-style pipeline
+          - "gumbel": GumbelMCTSAI with Sequential Halving (sample-efficient)
     engine_mix:
         Engine mixing strategy for diverse data generation. One of:
           - "single" (default): All players use the same engine type.
@@ -801,8 +804,8 @@ def generate_dataset(
     # Validate engine parameters
     engine = engine.lower()
     engine_mix = engine_mix.lower()
-    if engine not in {"descent", "mcts", "gmo"}:
-        raise ValueError(f"Unsupported engine '{engine}'. Expected 'descent', 'mcts', or 'gmo'.")
+    if engine not in {"descent", "mcts", "gumbel", "gmo"}:
+        raise ValueError(f"Unsupported engine '{engine}'. Expected 'descent', 'mcts', 'gumbel', or 'gmo'.")
     if engine_mix not in {"single", "per_game", "per_player"}:
         raise ValueError(f"Unsupported engine_mix '{engine_mix}'. Expected 'single', 'per_game', or 'per_player'.")
     if not 0.0 <= engine_ratio <= 1.0:
@@ -829,11 +832,21 @@ def generate_dataset(
             randomness=0.1 if engine_type == "descent" else 0.0,
             think_time=500,
             nn_model_id=nn_model_id,  # May be None for default behavior
+            # Enable self_play mode for MCTS-based engines during training
+            # This enables Dirichlet noise at root for exploration
+            self_play=engine_type in ("mcts", "gumbel"),
         )
         if engine_type == "descent":
             ai = DescentAI(
                 player_number=player_num,
                 config=ai_config,
+            )
+        elif engine_type == "gumbel":
+            # Gumbel MCTS with Sequential Halving - more sample-efficient search
+            ai = GumbelMCTSAI(
+                player_number=player_num,
+                config=ai_config,
+                board_type=board_type,
             )
         elif engine_type == "gmo":
             # Load GMO model if available
@@ -891,7 +904,7 @@ def generate_dataset(
     ai_p1 = ai_players.get(1)
 
     # Track engine statistics for logging
-    engine_stats = {"descent": 0, "mcts": 0}
+    engine_stats = {"descent": 0, "mcts": 0, "gumbel": 0, "gmo": 0}
 
     print(f"Generating {num_games} {num_players}-player games on {board_type}...")
     if engine_mix != "single":
@@ -1262,6 +1275,53 @@ def generate_dataset(
                         'policy_values': p_values_arr,
                         'player': current_player,
                         'engine': current_engine,  # Track which engine generated this sample
+                        'phase': state.current_phase.value,
+                    }
+                )
+
+            elif current_engine == "gumbel" and isinstance(ai, GumbelMCTSAI) and ai.neural_net:
+                # Gumbel MCTS soft policy targets using visit distributions.
+                # Gumbel MCTS uses Sequential Halving for more sample-efficient
+                # exploration, producing higher-quality policy targets.
+                features, globals_vec = ai.neural_net._extract_features(state)
+
+                # Construct stacked features with history
+                hist_list = state_history[::-1]
+                while len(hist_list) < history_length:
+                    hist_list.append(np.zeros_like(features))
+                hist_list = hist_list[:history_length]
+                stack_list = [features, *hist_list]
+                stacked_features = np.concatenate(stack_list, axis=0)
+
+                # Update history buffer
+                state_history.append(features)
+                if len(state_history) > history_length + 1:
+                    state_history.pop(0)
+
+                # Extract soft policy from Gumbel MCTS visits
+                # GumbelMCTSAI.get_visit_distribution() returns visit-weighted
+                # probabilities from Sequential Halving search.
+                p_indices_arr, p_values_arr = extract_mcts_visit_distribution(
+                    ai,
+                    state,
+                    use_board_aware_encoding=True,
+                )
+
+                # Fallback: 1-hot on selected move if distribution is empty
+                if p_indices_arr.size == 0:
+                    idx = encode_move_for_board(move, state.board)
+                    if idx != INVALID_MOVE_INDEX:
+                        p_indices_arr = np.array([idx], dtype=np.int32)
+                        p_values_arr = np.array([1.0], dtype=np.float32)
+
+                game_history.append(
+                    {
+                        'features': stacked_features,
+                        'globals': globals_vec,
+                        'policy_indices': p_indices_arr,
+                        'policy_values': p_values_arr,
+                        'player': current_player,
+                        'engine': current_engine,
                         'phase': state.current_phase.value,
                     }
                 )
