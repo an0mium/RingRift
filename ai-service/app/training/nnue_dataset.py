@@ -434,6 +434,7 @@ class NNUEDatasetConfig:
     include_draws: bool = True
     late_game_weight: float = 1.0  # Weight for positions near end of game
     balance_outcomes: bool = False  # Balance wins/losses in dataset
+    dual_perspective: bool = True  # Extract from both player perspectives (fixes P1/P2 bias)
 
 
 class NNUESQLiteDataset(Dataset):
@@ -733,40 +734,47 @@ class NNUESQLiteDataset(Dataset):
                     logger.debug(f"Failed to parse state for {game_id}:{move_num}: {e}")
                     continue
 
-                # Get current player from game state
-                current_player = game_state.current_player
-                if current_player is None or current_player < 1:
-                    current_player = 1
-
-                # Calculate value: +1 if current player wins, -1 if loses
-                if winner == current_player:
-                    value = 1.0
-                elif winner is None or winner == 0:
-                    value = 0.0  # Draw
+                # Determine which perspectives to extract from
+                if self.config.dual_perspective:
+                    # Extract from all player perspectives for balanced training
+                    perspectives = list(range(1, self.config.num_players + 1))
                 else:
-                    value = -1.0  # Loss
+                    # Extract only from current player's perspective
+                    current_player = game_state.current_player
+                    if current_player is None or current_player < 1:
+                        current_player = 1
+                    perspectives = [current_player]
 
-                # Skip draws if configured
-                if value == 0.0 and not self.config.include_draws:
-                    continue
+                for player_perspective in perspectives:
+                    # Calculate value: +1 if this player wins, -1 if loses
+                    if winner == player_perspective:
+                        value = 1.0
+                    elif winner is None or winner == 0:
+                        value = 0.0  # Draw
+                    else:
+                        value = -1.0  # Loss
 
-                # Extract NNUE features
-                try:
-                    features = extract_features_from_gamestate(
-                        game_state, current_player
+                    # Skip draws if configured
+                    if value == 0.0 and not self.config.include_draws:
+                        continue
+
+                    # Extract NNUE features from this player's perspective
+                    try:
+                        features = extract_features_from_gamestate(
+                            game_state, player_perspective
+                        )
+                    except Exception as e:
+                        logger.debug(f"Feature extraction failed for {game_id}:{move_num}:P{player_perspective}: {e}")
+                        continue
+
+                    sample = NNUESample(
+                        features=features,
+                        value=value,
+                        player_number=player_perspective,
+                        game_id=game_id,
+                        move_number=move_num,
                     )
-                except Exception as e:
-                    logger.debug(f"Feature extraction failed for {game_id}:{move_num}: {e}")
-                    continue
-
-                sample = NNUESample(
-                    features=features,
-                    value=value,
-                    player_number=current_player,
-                    game_id=game_id,
-                    move_number=move_num,
-                )
-                samples.append(sample)
+                    samples.append(sample)
 
                 if self.max_samples and len(samples) >= self.max_samples:
                     conn.close()
@@ -861,27 +869,34 @@ class NNUESQLiteDataset(Dataset):
                 except Exception:
                     continue
 
-                # Get current player from game state
-                current_player = game_state.current_player
-                if current_player is None or current_player < 1:
-                    current_player = 1
-
-                # Calculate value
-                if winner == current_player:
-                    value = 1.0
-                elif winner is None or winner == 0:
-                    if not self.config.include_draws:
-                        continue
-                    value = 0.0
+                # Determine which perspectives to extract from
+                if self.config.dual_perspective:
+                    # Extract from all player perspectives for balanced training
+                    perspectives = list(range(1, self.config.num_players + 1))
                 else:
-                    value = -1.0
+                    # Extract only from current player's perspective
+                    current_player = game_state.current_player
+                    if current_player is None or current_player < 1:
+                        current_player = 1
+                    perspectives = [current_player]
 
-                # Add to batch
-                batch_states.append(game_state)
-                batch_players.append(current_player)
-                batch_values.append(value)
-                batch_game_ids.append(game_id)
-                batch_move_nums.append(move_num)
+                for player_perspective in perspectives:
+                    # Calculate value
+                    if winner == player_perspective:
+                        value = 1.0
+                    elif winner is None or winner == 0:
+                        if not self.config.include_draws:
+                            continue
+                        value = 0.0
+                    else:
+                        value = -1.0
+
+                    # Add to batch
+                    batch_states.append(game_state)
+                    batch_players.append(player_perspective)
+                    batch_values.append(value)
+                    batch_game_ids.append(game_id)
+                    batch_move_nums.append(move_num)
 
                 # Process batch when full
                 if len(batch_states) >= self.gpu_batch_size:
@@ -1020,38 +1035,45 @@ class NNUESQLiteDataset(Dataset):
 
             # Sample every Nth position
             if move_number % self.config.sample_every_n_moves == 0:
-                # Get current player from state
-                current_player = state.current_player
-                if current_player is None or current_player < 1:
-                    current_player = 1
-
-                # Calculate value: +1 if current player wins, -1 if loses
-                if winner == current_player:
-                    value = 1.0
-                elif winner is None or winner == 0:
-                    value = 0.0  # Draw
+                # Determine which perspectives to extract from
+                if self.config.dual_perspective:
+                    # Extract from all player perspectives for balanced training
+                    perspectives = list(range(1, self.config.num_players + 1))
                 else:
-                    value = -1.0  # Loss
+                    # Extract only from current player's perspective
+                    current_player = state.current_player
+                    if current_player is None or current_player < 1:
+                        current_player = 1
+                    perspectives = [current_player]
 
-                # Skip draws if configured
-                if value == 0.0 and not self.config.include_draws:
-                    pass  # Skip but continue replaying
-                else:
-                    # Extract NNUE features
+                for player_perspective in perspectives:
+                    # Calculate value: +1 if this player wins, -1 if loses
+                    if winner == player_perspective:
+                        value = 1.0
+                    elif winner is None or winner == 0:
+                        value = 0.0  # Draw
+                    else:
+                        value = -1.0  # Loss
+
+                    # Skip draws if configured
+                    if value == 0.0 and not self.config.include_draws:
+                        continue
+
+                    # Extract NNUE features from this player's perspective
                     try:
                         features = extract_features_from_gamestate(
-                            state, current_player
+                            state, player_perspective
                         )
                         sample = NNUESample(
                             features=features,
                             value=value,
-                            player_number=current_player,
+                            player_number=player_perspective,
                             game_id=game_id,
                             move_number=move_number,
                         )
                         samples.append(sample)
                     except Exception as e:
-                        logger.debug(f"Feature extraction failed for {game_id}:{move_number}: {e}")
+                        logger.debug(f"Feature extraction failed for {game_id}:{move_number}:P{player_perspective}: {e}")
 
             # Apply move to advance state
             try:
@@ -1390,27 +1412,34 @@ class NNUEStreamingDataset(IterableDataset):
             except Exception:
                 continue
 
-            current_player = game_state.current_player or 1
-
-            # Calculate value
-            if winner == current_player:
-                value = 1.0
-            elif winner is None or winner == 0:
-                if not self.config.include_draws:
-                    continue
-                value = 0.0
+            # Determine which perspectives to extract from
+            if self.config.dual_perspective:
+                # Extract from all player perspectives for balanced training
+                perspectives = list(range(1, self.config.num_players + 1))
             else:
-                value = -1.0
+                # Extract only from current player's perspective
+                perspectives = [game_state.current_player or 1]
 
-            # Extract features
-            try:
-                features = extract_features_from_gamestate(game_state, current_player)
-            except Exception:
-                continue
+            for player_perspective in perspectives:
+                # Calculate value
+                if winner == player_perspective:
+                    value = 1.0
+                elif winner is None or winner == 0:
+                    if not self.config.include_draws:
+                        continue
+                    value = 0.0
+                else:
+                    value = -1.0
 
-            features_tensor = torch.from_numpy(features).float()
-            value_tensor = torch.tensor([value], dtype=torch.float32)
-            yield features_tensor, value_tensor
+                # Extract features from this player's perspective
+                try:
+                    features = extract_features_from_gamestate(game_state, player_perspective)
+                except Exception:
+                    continue
+
+                features_tensor = torch.from_numpy(features).float()
+                value_tensor = torch.tensor([value], dtype=torch.float32)
+                yield features_tensor, value_tensor
 
         conn.close()
 
