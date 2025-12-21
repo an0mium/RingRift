@@ -52,41 +52,80 @@ except ImportError:
 
 # Prometheus metrics - avoid duplicate registration
 try:
-    from prometheus_client import REGISTRY, Counter, Histogram
+    from prometheus_client import REGISTRY, Counter, Histogram, Gauge
     HAS_PROMETHEUS = True
 
-    if 'ringrift_local_selfplay_games_total' in REGISTRY._names_to_collectors:
-        LOCAL_SELFPLAY_GAMES = REGISTRY._names_to_collectors['ringrift_local_selfplay_games_total']
-    else:
-        LOCAL_SELFPLAY_GAMES = Counter(
-            'ringrift_local_selfplay_games_total',
-            'Total local selfplay games generated',
-            ['config', 'engine']
-        )
+    def _get_or_create_counter(name, desc, labels):
+        if name in REGISTRY._names_to_collectors:
+            return REGISTRY._names_to_collectors[name]
+        return Counter(name, desc, labels)
 
-    if 'ringrift_local_selfplay_samples_total' in REGISTRY._names_to_collectors:
-        LOCAL_SELFPLAY_SAMPLES = REGISTRY._names_to_collectors['ringrift_local_selfplay_samples_total']
-    else:
-        LOCAL_SELFPLAY_SAMPLES = Counter(
-            'ringrift_local_selfplay_samples_total',
-            'Total local selfplay samples generated',
-            ['config', 'engine']
-        )
+    def _get_or_create_histogram(name, desc, labels, buckets):
+        if name in REGISTRY._names_to_collectors:
+            return REGISTRY._names_to_collectors[name]
+        return Histogram(name, desc, labels, buckets=buckets)
 
-    if 'ringrift_local_selfplay_duration_seconds' in REGISTRY._names_to_collectors:
-        LOCAL_SELFPLAY_DURATION = REGISTRY._names_to_collectors['ringrift_local_selfplay_duration_seconds']
-    else:
-        LOCAL_SELFPLAY_DURATION = Histogram(
-            'ringrift_local_selfplay_duration_seconds',
-            'Local selfplay generation duration',
-            ['config', 'engine'],
-            buckets=[10, 30, 60, 120, 300, 600, 1200, 1800, 3600]
-        )
+    def _get_or_create_gauge(name, desc, labels):
+        if name in REGISTRY._names_to_collectors:
+            return REGISTRY._names_to_collectors[name]
+        return Gauge(name, desc, labels)
+
+    # Existing selfplay metrics
+    LOCAL_SELFPLAY_GAMES = _get_or_create_counter(
+        'ringrift_local_selfplay_games_total',
+        'Total local selfplay games generated',
+        ['config', 'engine']
+    )
+    LOCAL_SELFPLAY_SAMPLES = _get_or_create_counter(
+        'ringrift_local_selfplay_samples_total',
+        'Total local selfplay samples generated',
+        ['config', 'engine']
+    )
+    LOCAL_SELFPLAY_DURATION = _get_or_create_histogram(
+        'ringrift_local_selfplay_duration_seconds',
+        'Local selfplay generation duration',
+        ['config', 'engine'],
+        buckets=[10, 30, 60, 120, 300, 600, 1200, 1800, 3600]
+    )
+
+    # Feedback loop observability metrics
+    PRIORITY_ADJUSTMENTS = _get_or_create_counter(
+        'ringrift_selfplay_priority_adjustments_total',
+        'Priority adjustments made by evaluation feedback',
+        ['config', 'reason']  # reason: regression, declining, improving
+    )
+    ENGINE_SELECTIONS = _get_or_create_counter(
+        'ringrift_selfplay_engine_selections_total',
+        'Engine selections by type and trigger',
+        ['config', 'engine', 'reason']  # reason: diversity, quality, throughput
+    )
+    SIGNAL_COMPUTATION_DURATION = _get_or_create_histogram(
+        'ringrift_signal_computation_seconds',
+        'Time to compute training signals for priority',
+        ['config'],
+        buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+    )
+    CONFIG_PRIORITY = _get_or_create_gauge(
+        'ringrift_selfplay_config_priority',
+        'Current priority score for each config',
+        ['config']
+    )
+    DIVERSITY_NEED = _get_or_create_gauge(
+        'ringrift_selfplay_diversity_need',
+        'Current diversity need score for each config',
+        ['config']
+    )
+
 except ImportError:
     HAS_PROMETHEUS = False
     LOCAL_SELFPLAY_GAMES = None
     LOCAL_SELFPLAY_SAMPLES = None
     LOCAL_SELFPLAY_DURATION = None
+    PRIORITY_ADJUSTMENTS = None
+    ENGINE_SELECTIONS = None
+    SIGNAL_COMPUTATION_DURATION = None
+    CONFIG_PRIORITY = None
+    DIVERSITY_NEED = None
 
 
 class LocalSelfplayGenerator:
@@ -202,24 +241,37 @@ class LocalSelfplayGenerator:
             # Regressing/plateauing configs get more selfplay attention
             if self._signal_computer:
                 try:
+                    signal_start = time.time()
                     current_elo = getattr(config_state, 'current_elo', None) or 1500
                     signals = self._signal_computer.compute_signals(
                         current_games=config_state.games_since_training,
                         current_elo=current_elo,
                         config_key=config_key,
                     )
+                    # Record signal computation time
+                    if HAS_PROMETHEUS and SIGNAL_COMPUTATION_DURATION:
+                        SIGNAL_COMPUTATION_DURATION.labels(config=config_key).observe(
+                            time.time() - signal_start
+                        )
+
                     if signals.elo_regression_detected:
                         # Full boost for regression - needs urgent attention
                         priority += 0.20
                         logger.debug(f"[Priority] {config_key}: +0.20 (ELO regression detected)")
+                        if HAS_PROMETHEUS and PRIORITY_ADJUSTMENTS:
+                            PRIORITY_ADJUSTMENTS.labels(config=config_key, reason="regression").inc()
                     elif hasattr(signals, 'elo_trend') and signals.elo_trend < 0:
                         # Partial boost for declining performance
                         priority += 0.10
                         logger.debug(f"[Priority] {config_key}: +0.10 (ELO declining)")
+                        if HAS_PROMETHEUS and PRIORITY_ADJUSTMENTS:
+                            PRIORITY_ADJUSTMENTS.labels(config=config_key, reason="declining").inc()
                     elif hasattr(signals, 'elo_trend') and signals.elo_trend > 20:
                         # Slight reduction for configs doing very well (+20 Elo/hour)
                         # They need less attention, let others catch up
                         priority -= 0.05
+                        if HAS_PROMETHEUS and PRIORITY_ADJUSTMENTS:
+                            PRIORITY_ADJUSTMENTS.labels(config=config_key, reason="improving").inc()
                 except Exception as e:
                     # Don't let signal computation errors break priority
                     logger.debug(f"[Priority] Signal computation failed for {config_key}: {e}")
@@ -280,6 +332,10 @@ class LocalSelfplayGenerator:
 
             priorities[config_key] = priority
 
+            # Emit priority gauge for observability
+            if HAS_PROMETHEUS and CONFIG_PRIORITY:
+                CONFIG_PRIORITY.labels(config=config_key).set(priority)
+
         return priorities
 
     def _get_diversity_need(self, config_key: str) -> float:
@@ -300,19 +356,24 @@ class LocalSelfplayGenerator:
         if not self._training_scheduler:
             return 0.0
 
+        diversity_need = 0.0
         try:
             # Try to get training quality metrics from scheduler
             if hasattr(self._training_scheduler, 'get_training_quality'):
                 quality = self._training_scheduler.get_training_quality(config_key)
                 if quality:
                     if quality.get('overfit_detected'):
-                        return 0.9  # High diversity need
-                    if quality.get('loss_plateau'):
-                        return 0.6  # Moderate diversity need
+                        diversity_need = 0.9  # High diversity need
+                    elif quality.get('loss_plateau'):
+                        diversity_need = 0.6  # Moderate diversity need
         except Exception as e:
             logger.debug(f"[DiversityNeed] Failed to get training quality for {config_key}: {e}")
 
-        return 0.0
+        # Emit diversity need gauge for observability
+        if HAS_PROMETHEUS and DIVERSITY_NEED:
+            DIVERSITY_NEED.labels(config=config_key).set(diversity_need)
+
+        return diversity_need
 
     def get_adaptive_engine(self, config_key: str, quality_threshold: float = 0.7) -> str:
         """Select selfplay engine based on training proximity and diversity needs.
@@ -335,6 +396,8 @@ class LocalSelfplayGenerator:
         if diversity_needed > 0.7:
             # High diversity need: use MCTS for more exploration
             logger.info(f"[AdaptiveEngine] {config_key} diversity={diversity_needed:.2f} > 0.7 -> using 'mcts'")
+            if HAS_PROMETHEUS and ENGINE_SELECTIONS:
+                ENGINE_SELECTIONS.labels(config=config_key, engine="mcts", reason="diversity").inc()
             return "mcts"
 
         priorities = self.get_config_priorities()
@@ -343,9 +406,13 @@ class LocalSelfplayGenerator:
         # Higher priority = closer to training threshold = use higher quality engine
         if priority >= quality_threshold:
             logger.info(f"[AdaptiveEngine] {config_key} priority={priority:.2f} >= {quality_threshold} -> using 'gumbel'")
+            if HAS_PROMETHEUS and ENGINE_SELECTIONS:
+                ENGINE_SELECTIONS.labels(config=config_key, engine="gumbel", reason="quality").inc()
             return "gumbel"
         else:
             logger.debug(f"[AdaptiveEngine] {config_key} priority={priority:.2f} < {quality_threshold} -> using 'descent'")
+            if HAS_PROMETHEUS and ENGINE_SELECTIONS:
+                ENGINE_SELECTIONS.labels(config=config_key, engine="descent", reason="throughput").inc()
             return "descent"
 
     def get_all_adaptive_engines(self) -> dict[str, str]:
