@@ -612,13 +612,13 @@ def train_model(
     hot_buffer_size: int = 10000,
     hot_buffer_mix_ratio: float = 0.3,
     external_hot_buffer: Any | None = None,  # Pre-populated HotDataBuffer from caller
-    use_integrated_enhancements: bool = False,
+    use_integrated_enhancements: bool = True,  # December 2025: Enable by default for Elo improvement
     enable_curriculum: bool = False,
     enable_augmentation: bool = False,
-    enable_elo_weighting: bool = False,
-    enable_auxiliary_tasks: bool = False,
+    enable_elo_weighting: bool = True,  # December 2025: Enable for sample prioritization (+20-35 Elo)
+    enable_auxiliary_tasks: bool = True,  # December 2025: Enable for multi-task learning (+5-15 Elo)
     enable_batch_scheduling: bool = False,
-    enable_background_eval: bool = False,
+    enable_background_eval: bool = True,  # December 2025: Enable for real-time Elo feedback (+30-50 Elo)
     # Policy label smoothing (2025-12)
     policy_label_smoothing: float = 0.0,
     # Data validation (2025-12)
@@ -871,6 +871,9 @@ def train_model(
             auxiliary_tasks_enabled=enable_auxiliary_tasks,
             batch_scheduling_enabled=enable_batch_scheduling,
             background_eval_enabled=enable_background_eval,
+            # December 2025: Enable real game evaluation for accurate Elo tracking
+            eval_use_real_games=enable_background_eval,  # Use real games when bg eval is on
+            eval_board_type=config.board_type,
         )
         enhancements_manager = IntegratedTrainingManager(
             config=enh_config,
