@@ -62,7 +62,9 @@ This plan assumes the working tree is unstable due to other agents. Each lane is
 
 **Progress Log:**
 
-- [ ] Capture parity state bundle and diff output for current divergence.
+- [x] Captured the square8 structural issue and traced it to self-capture gating in older parity runs.
+- [x] Documented self-capture explicitly in the canonical spec and restored legacy rulebook shims.
+- [x] Verified parity gate passes on a square8 DB using the updated codebase (TS replay via NODE_PATH to existing node_modules).
 
 ---
 
