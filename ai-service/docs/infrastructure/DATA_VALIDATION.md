@@ -37,6 +37,8 @@ python scripts/check_ts_python_replay_parity.py --canonical --report parity_repo
 - Post-bridge view semantics (state after bridge placements)
 - Structural issue detection (malformed game records)
 - Semantic divergence checking (logic differences)
+- Legacy mode opens DBs with legacy replay injection enabled; use only for
+  non-canonical recordings or historical diagnostics.
 
 **Exit Codes:**
 
