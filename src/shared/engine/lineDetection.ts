@@ -197,20 +197,70 @@ function isValidPosition(position: Position, board: BoardState): boolean {
   }
 }
 
+/**
+ * Get position keys to try when looking up stacks/markers.
+ *
+ * For hexagonal boards, data may be stored with either "x,y" or "x,y,z" keys.
+ * This helper returns both formats to ensure lookups succeed regardless of
+ * how the data was stored.
+ *
+ * This mirrors Python's _get_position_keys_for_lookup in board_manager.py
+ * to ensure parity between Python and TypeScript line detection.
+ */
+function getPositionKeysForLookup(position: Position, boardType: string): string[] {
+  const primaryKey = positionToString(position);
+  const keys: string[] = [primaryKey];
+
+  // For hex boards, also try the alternate key format
+  if (boardType === 'hexagonal' || boardType === 'hex8') {
+    const parts = primaryKey.split(',');
+    if (parts.length === 3) {
+      // Primary is "x,y,z", also try "x,y"
+      const shortKey = `${parts[0]},${parts[1]}`;
+      keys.push(shortKey);
+    } else if (parts.length === 2) {
+      // Primary is "x,y", also compute and try "x,y,z"
+      const x = parseInt(parts[0], 10);
+      const y = parseInt(parts[1], 10);
+      const z = -x - y;
+      const fullKey = `${x},${y},${z}`;
+      keys.push(fullKey);
+    }
+  }
+
+  return keys;
+}
+
 function getMarker(position: Position, board: BoardState): number | undefined {
-  const posKey = positionToString(position);
-  const marker = getFromMapOrObject(board.markers, posKey);
-  return marker?.player;
+  const keys = getPositionKeysForLookup(position, board.type);
+  for (const key of keys) {
+    const marker = getFromMapOrObject(board.markers, key);
+    if (marker !== undefined) {
+      return marker.player;
+    }
+  }
+  return undefined;
 }
 
 function isCollapsedSpace(position: Position, board: BoardState): boolean {
-  const posKey = positionToString(position);
-  return hasInMapOrObject(board.collapsedSpaces, posKey);
+  const keys = getPositionKeysForLookup(position, board.type);
+  for (const key of keys) {
+    if (hasInMapOrObject(board.collapsedSpaces, key)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function getStack(position: Position, board: BoardState): RingStack | undefined {
-  const posKey = positionToString(position);
-  return getFromMapOrObject(board.stacks, posKey);
+  const keys = getPositionKeysForLookup(position, board.type);
+  for (const key of keys) {
+    const stack = getFromMapOrObject(board.stacks, key);
+    if (stack !== undefined) {
+      return stack;
+    }
+  }
+  return undefined;
 }
 
 // Helper to iterate over Map or plain object (for JSON-deserialized states)
