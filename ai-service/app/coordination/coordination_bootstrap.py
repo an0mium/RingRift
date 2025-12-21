@@ -51,8 +51,12 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 @dataclass
-class CoordinatorStatus:
-    """Status of a single coordinator."""
+class BootstrapCoordinatorStatus:
+    """Status of a single coordinator during bootstrap.
+
+    Note: This is distinct from coordinator_base.CoordinatorStatus (an Enum)
+    which tracks runtime status. This dataclass tracks initialization state.
+    """
 
     name: str
     initialized: bool = False
@@ -68,7 +72,7 @@ class BootstrapState:
     initialized: bool = False
     started_at: datetime | None = None
     completed_at: datetime | None = None
-    coordinators: dict[str, CoordinatorStatus] = field(default_factory=dict)
+    coordinators: dict[str, BootstrapCoordinatorStatus] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     shutdown_requested: bool = False
 
@@ -80,9 +84,9 @@ _state = BootstrapState()
 # Initialization Functions
 # =============================================================================
 
-def _init_resource_coordinator() -> CoordinatorStatus:
+def _init_resource_coordinator() -> BootstrapCoordinatorStatus:
     """Initialize ResourceMonitoringCoordinator."""
-    status = CoordinatorStatus(name="resource_coordinator")
+    status = BootstrapBootstrapCoordinatorStatus(name="resource_coordinator")
     try:
         from app.coordination.resource_monitoring_coordinator import wire_resource_events
 
@@ -102,9 +106,9 @@ def _init_resource_coordinator() -> CoordinatorStatus:
     return status
 
 
-def _init_metrics_orchestrator() -> CoordinatorStatus:
+def _init_metrics_orchestrator() -> BootstrapCoordinatorStatus:
     """Initialize MetricsAnalysisOrchestrator."""
-    status = CoordinatorStatus(name="metrics_orchestrator")
+    status = BootstrapCoordinatorStatus(name="metrics_orchestrator")
     try:
         from app.coordination.metrics_analysis_orchestrator import wire_metrics_events
 
@@ -124,9 +128,9 @@ def _init_metrics_orchestrator() -> CoordinatorStatus:
     return status
 
 
-def _init_optimization_coordinator() -> CoordinatorStatus:
+def _init_optimization_coordinator() -> BootstrapCoordinatorStatus:
     """Initialize OptimizationCoordinator."""
-    status = CoordinatorStatus(name="optimization_coordinator")
+    status = BootstrapCoordinatorStatus(name="optimization_coordinator")
     try:
         from app.coordination.optimization_coordinator import wire_optimization_events
 
@@ -146,9 +150,9 @@ def _init_optimization_coordinator() -> CoordinatorStatus:
     return status
 
 
-def _init_cache_orchestrator() -> CoordinatorStatus:
+def _init_cache_orchestrator() -> BootstrapCoordinatorStatus:
     """Initialize CacheCoordinationOrchestrator."""
-    status = CoordinatorStatus(name="cache_orchestrator")
+    status = BootstrapCoordinatorStatus(name="cache_orchestrator")
     try:
         from app.coordination.cache_coordination_orchestrator import wire_cache_events
 
@@ -168,9 +172,9 @@ def _init_cache_orchestrator() -> CoordinatorStatus:
     return status
 
 
-def _init_model_coordinator() -> CoordinatorStatus:
+def _init_model_coordinator() -> BootstrapCoordinatorStatus:
     """Initialize ModelLifecycleCoordinator."""
-    status = CoordinatorStatus(name="model_coordinator")
+    status = BootstrapCoordinatorStatus(name="model_coordinator")
     try:
         from app.coordination.model_lifecycle_coordinator import wire_model_events
 
@@ -190,31 +194,37 @@ def _init_model_coordinator() -> CoordinatorStatus:
     return status
 
 
-def _init_error_coordinator() -> CoordinatorStatus:
-    """Initialize ErrorRecoveryCoordinator."""
-    status = CoordinatorStatus(name="error_coordinator")
+def _init_health_manager() -> BootstrapCoordinatorStatus:
+    """Initialize UnifiedHealthManager (replaces ErrorRecoveryCoordinator + RecoveryManager)."""
+    status = BootstrapCoordinatorStatus(name="health_manager")
     try:
-        from app.coordination.error_recovery_coordinator import wire_error_events
+        from app.coordination.unified_health_manager import wire_health_events
 
-        coordinator = wire_error_events()
+        manager = wire_health_events()
         status.initialized = True
-        status.subscribed = coordinator._subscribed
+        status.subscribed = manager._subscribed
         status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] ErrorRecoveryCoordinator initialized")
+        logger.info("[Bootstrap] UnifiedHealthManager initialized")
 
     except ImportError as e:
         status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] ErrorRecoveryCoordinator not available: {e}")
+        logger.warning(f"[Bootstrap] UnifiedHealthManager not available: {e}")
     except Exception as e:
         status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize ErrorRecoveryCoordinator: {e}")
+        logger.error(f"[Bootstrap] Failed to initialize UnifiedHealthManager: {e}")
 
     return status
 
 
-def _init_leadership_coordinator() -> CoordinatorStatus:
+def _init_error_coordinator() -> BootstrapCoordinatorStatus:
+    """Initialize ErrorRecoveryCoordinator (DEPRECATED - use _init_health_manager)."""
+    # For backward compatibility, delegate to health manager
+    return _init_health_manager()
+
+
+def _init_leadership_coordinator() -> BootstrapCoordinatorStatus:
     """Initialize LeadershipCoordinator."""
-    status = CoordinatorStatus(name="leadership_coordinator")
+    status = BootstrapCoordinatorStatus(name="leadership_coordinator")
     try:
         from app.coordination.leadership_coordinator import wire_leadership_events
 
@@ -234,9 +244,9 @@ def _init_leadership_coordinator() -> CoordinatorStatus:
     return status
 
 
-def _init_selfplay_orchestrator() -> CoordinatorStatus:
+def _init_selfplay_orchestrator() -> BootstrapCoordinatorStatus:
     """Initialize SelfplayOrchestrator."""
-    status = CoordinatorStatus(name="selfplay_orchestrator")
+    status = BootstrapCoordinatorStatus(name="selfplay_orchestrator")
     try:
         from app.coordination.selfplay_orchestrator import wire_selfplay_events
 
@@ -256,9 +266,9 @@ def _init_selfplay_orchestrator() -> CoordinatorStatus:
     return status
 
 
-def _init_pipeline_orchestrator(auto_trigger: bool = False) -> CoordinatorStatus:
+def _init_pipeline_orchestrator(auto_trigger: bool = False) -> BootstrapCoordinatorStatus:
     """Initialize DataPipelineOrchestrator."""
-    status = CoordinatorStatus(name="pipeline_orchestrator")
+    status = BootstrapCoordinatorStatus(name="pipeline_orchestrator")
     try:
         from app.coordination.data_pipeline_orchestrator import wire_pipeline_events
 
@@ -278,9 +288,9 @@ def _init_pipeline_orchestrator(auto_trigger: bool = False) -> CoordinatorStatus
     return status
 
 
-def _init_task_coordinator() -> CoordinatorStatus:
+def _init_task_coordinator() -> BootstrapCoordinatorStatus:
     """Initialize TaskLifecycleCoordinator."""
-    status = CoordinatorStatus(name="task_coordinator")
+    status = BootstrapCoordinatorStatus(name="task_coordinator")
     try:
         from app.coordination.task_lifecycle_coordinator import wire_task_events
 
@@ -300,9 +310,9 @@ def _init_task_coordinator() -> CoordinatorStatus:
     return status
 
 
-def _init_sync_coordinator() -> CoordinatorStatus:
+def _init_sync_coordinator() -> BootstrapCoordinatorStatus:
     """Initialize SyncCoordinator (SyncScheduler)."""
-    status = CoordinatorStatus(name="sync_coordinator")
+    status = BootstrapCoordinatorStatus(name="sync_coordinator")
     try:
         from app.coordination.sync_coordinator import wire_sync_events
 
@@ -322,9 +332,9 @@ def _init_sync_coordinator() -> CoordinatorStatus:
     return status
 
 
-def _init_training_coordinator() -> CoordinatorStatus:
+def _init_training_coordinator() -> BootstrapCoordinatorStatus:
     """Initialize TrainingCoordinator."""
-    status = CoordinatorStatus(name="training_coordinator")
+    status = BootstrapCoordinatorStatus(name="training_coordinator")
     try:
         from app.coordination.training_coordinator import wire_training_events
 
@@ -344,31 +354,24 @@ def _init_training_coordinator() -> CoordinatorStatus:
     return status
 
 
-def _init_recovery_manager() -> CoordinatorStatus:
-    """Initialize RecoveryManager."""
-    status = CoordinatorStatus(name="recovery_manager")
-    try:
-        from app.coordination.recovery_manager import wire_recovery_events
+def _init_recovery_manager() -> BootstrapCoordinatorStatus:
+    """Initialize RecoveryManager (DEPRECATED - use _init_health_manager).
 
-        coordinator = wire_recovery_events()
-        status.initialized = True
-        status.subscribed = getattr(coordinator, "_subscribed", True)
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] RecoveryManager initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] RecoveryManager not available: {e}")
-    except Exception as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize RecoveryManager: {e}")
-
+    RecoveryManager functionality is now consolidated into UnifiedHealthManager.
+    This function exists for backward compatibility and returns a skip status.
+    """
+    status = BootstrapCoordinatorStatus(name="recovery_manager")
+    status.initialized = True
+    status.subscribed = True
+    status.initialized_at = datetime.now()
+    # Recovery functionality is handled by UnifiedHealthManager
+    logger.debug("[Bootstrap] RecoveryManager skipped - using UnifiedHealthManager")
     return status
 
 
-def _init_transfer_verifier() -> CoordinatorStatus:
+def _init_transfer_verifier() -> BootstrapCoordinatorStatus:
     """Initialize TransferVerifier."""
-    status = CoordinatorStatus(name="transfer_verifier")
+    status = BootstrapCoordinatorStatus(name="transfer_verifier")
     try:
         from app.coordination.transfer_verification import wire_transfer_verifier_events
 
@@ -388,9 +391,9 @@ def _init_transfer_verifier() -> CoordinatorStatus:
     return status
 
 
-def _init_ephemeral_guard() -> CoordinatorStatus:
+def _init_ephemeral_guard() -> BootstrapCoordinatorStatus:
     """Initialize EphemeralDataGuard."""
-    status = CoordinatorStatus(name="ephemeral_guard")
+    status = BootstrapCoordinatorStatus(name="ephemeral_guard")
     try:
         from app.coordination.ephemeral_data_guard import wire_ephemeral_guard_events
 
@@ -410,9 +413,9 @@ def _init_ephemeral_guard() -> CoordinatorStatus:
     return status
 
 
-def _init_queue_populator() -> CoordinatorStatus:
+def _init_queue_populator() -> BootstrapCoordinatorStatus:
     """Initialize QueuePopulator."""
-    status = CoordinatorStatus(name="queue_populator")
+    status = BootstrapCoordinatorStatus(name="queue_populator")
     try:
         from app.coordination.queue_populator import wire_queue_populator_events
 
@@ -432,9 +435,9 @@ def _init_queue_populator() -> CoordinatorStatus:
     return status
 
 
-def _init_multi_provider() -> CoordinatorStatus:
+def _init_multi_provider() -> BootstrapCoordinatorStatus:
     """Initialize MultiProviderOrchestrator."""
-    status = CoordinatorStatus(name="multi_provider")
+    status = BootstrapCoordinatorStatus(name="multi_provider")
     try:
         from app.coordination.multi_provider_orchestrator import wire_orchestrator_events
 
@@ -454,9 +457,9 @@ def _init_multi_provider() -> CoordinatorStatus:
     return status
 
 
-def _init_job_scheduler() -> CoordinatorStatus:
+def _init_job_scheduler() -> BootstrapCoordinatorStatus:
     """Initialize JobScheduler host-dead migration wiring."""
-    status = CoordinatorStatus(name="job_scheduler")
+    status = BootstrapCoordinatorStatus(name="job_scheduler")
     try:
         from app.coordination.job_scheduler import wire_host_dead_to_job_migration
 
@@ -476,9 +479,9 @@ def _init_job_scheduler() -> CoordinatorStatus:
     return status
 
 
-def _init_global_task_coordinator() -> CoordinatorStatus:
+def _init_global_task_coordinator() -> BootstrapCoordinatorStatus:
     """Initialize global TaskCoordinator (separate from TaskLifecycleCoordinator)."""
-    status = CoordinatorStatus(name="global_task_coordinator")
+    status = BootstrapCoordinatorStatus(name="global_task_coordinator")
     try:
         from app.coordination.task_coordinator import wire_task_coordinator_events
 
@@ -525,7 +528,8 @@ def bootstrap_coordination(
     enable_optimization: bool = True,
     enable_cache: bool = True,
     enable_model: bool = True,
-    enable_error: bool = True,
+    enable_error: bool = True,  # Deprecated, use enable_health
+    enable_health: bool = True,  # New: UnifiedHealthManager (replaces error + recovery)
     enable_leadership: bool = True,
     enable_selfplay: bool = True,
     enable_pipeline: bool = True,
@@ -571,7 +575,8 @@ def bootstrap_coordination(
         enable_optimization: Initialize OptimizationCoordinator
         enable_cache: Initialize CacheCoordinationOrchestrator
         enable_model: Initialize ModelLifecycleCoordinator
-        enable_error: Initialize ErrorRecoveryCoordinator
+        enable_error: DEPRECATED - use enable_health instead
+        enable_health: Initialize UnifiedHealthManager (consolidated error + recovery)
         enable_leadership: Initialize LeadershipCoordinator
         enable_selfplay: Initialize SelfplayOrchestrator
         enable_pipeline: Initialize DataPipelineOrchestrator
@@ -609,9 +614,8 @@ def bootstrap_coordination(
         ("global_task_coordinator", enable_global_task, _init_global_task_coordinator),
         ("resource_coordinator", enable_resources, _init_resource_coordinator),
         ("cache_orchestrator", enable_cache, _init_cache_orchestrator),
-        # Infrastructure support layer
-        ("error_coordinator", enable_error, _init_error_coordinator),
-        ("recovery_manager", enable_recovery, _init_recovery_manager),
+        # Infrastructure support layer - UnifiedHealthManager replaces error + recovery
+        ("health_manager", enable_health or enable_error, _init_health_manager),
         ("model_coordinator", enable_model, _init_model_coordinator),
         # Sync and training layer
         ("sync_coordinator", enable_sync, _init_sync_coordinator),
@@ -702,8 +706,7 @@ def shutdown_coordination() -> dict[str, Any]:
         "training_coordinator",
         "sync_coordinator",
         "model_coordinator",
-        "recovery_manager",
-        "error_coordinator",
+        "health_manager",  # Unified: replaces error_coordinator + recovery_manager
         "cache_orchestrator",
         "resource_coordinator",
         "global_task_coordinator",
@@ -738,9 +741,9 @@ def shutdown_coordination() -> dict[str, Any]:
             elif name == "model_coordinator":
                 from app.coordination.model_lifecycle_coordinator import get_model_coordinator
                 coordinator = get_model_coordinator()
-            elif name == "error_coordinator":
-                from app.coordination.error_recovery_coordinator import get_error_coordinator
-                coordinator = get_error_coordinator()
+            elif name == "health_manager":
+                from app.coordination.unified_health_manager import get_health_manager
+                coordinator = get_health_manager()
             elif name == "leadership_coordinator":
                 from app.coordination.leadership_coordinator import get_leadership_coordinator
                 coordinator = get_leadership_coordinator()
@@ -759,9 +762,6 @@ def shutdown_coordination() -> dict[str, Any]:
             elif name == "training_coordinator":
                 from app.coordination.training_coordinator import get_training_coordinator
                 coordinator = get_training_coordinator()
-            elif name == "recovery_manager":
-                from app.coordination.recovery_manager import get_recovery_manager
-                coordinator = get_recovery_manager()
             elif name == "transfer_verifier":
                 from app.coordination.transfer_verification import get_transfer_verifier
                 coordinator = get_transfer_verifier()
@@ -869,8 +869,8 @@ def reset_bootstrap_state() -> None:
 
 
 __all__ = [
+    "BootstrapCoordinatorStatus",
     "BootstrapState",
-    "CoordinatorStatus",
     "bootstrap_coordination",
     "get_bootstrap_status",
     "is_coordination_ready",

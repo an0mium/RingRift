@@ -47,6 +47,17 @@ For canonical rules implementation, see:
     - app/rules/default_engine.py - Rules orchestration
 """
 
+import warnings
+
+# Emit pending deprecation warning on import (will become DeprecationWarning in Q2 2026)
+warnings.warn(
+    "app.rules.legacy is for backward compatibility with old game replays only. "
+    "New code should use canonical rules from app.rules. "
+    "This module will be removed in Q4 2026.",
+    PendingDeprecationWarning,
+    stacklevel=2,
+)
+
 from app.rules.legacy.move_type_aliases import (
     LEGACY_TO_CANONICAL_MOVE_TYPE,
     convert_legacy_move_type,

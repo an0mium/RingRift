@@ -3,14 +3,20 @@ from __future__ import annotations
 """
 Phase state machine for the Python GameEngine.
 
-.. deprecated::
-    This module is **deprecated** in favor of the FSM module (``app.rules.fsm``).
-    FSM is now the canonical game state orchestrator (RR-CANON compliance).
-    The ``advance_phases()`` function remains in use by ``GameEngine._update_phase()``
-    for backward compatibility, but new code should prefer ``compute_fsm_orchestration()``.
+Architecture Note (2025-12):
+----------------------------
+This module and ``app.rules.fsm`` have **complementary roles**:
 
-This module centralises phase and turn transitions, mirroring the
-TypeScript phaseStateMachine + TurnOrchestrator behaviour:
+1. **Phase Transitions** (this module): ACTIVE and canonical
+   - ``advance_phases()`` is the proven, stable implementation for phase advancement
+   - Called by ``GameEngine._update_phase()`` after each move is applied
+   - Mirrors TypeScript phaseStateMachine + TurnOrchestrator behaviour
+
+2. **Move Validation** (``app.rules.fsm``): ACTIVE and canonical
+   - ``validate_move_for_phase()`` validates moves are appropriate for current phase
+   - Used for FSM-level move legality checks
+
+This module centralises phase and turn transitions:
 
 - It is responsible for updating ``current_phase``, ``current_player``,
   and related per-turn bookkeeping after a move has been applied.
@@ -21,9 +27,6 @@ TypeScript phaseStateMachine + TurnOrchestrator behaviour:
   phase requirements and constructed by hosts.
 
 All logic here operates directly on a mutable GameState instance.
-
-See Also:
-    :mod:`app.rules.fsm` - The canonical FSM module for phase transitions.
 """
 
 from dataclasses import dataclass
@@ -118,21 +121,29 @@ def _did_process_territory_region(game_state: GameState, move: Move) -> bool:
     no-op (state unchanged). In that case, the move must NOT be allowed to
     advance/exit TERRITORY_PROCESSING; hosts must still record NO_TERRITORY_ACTION
     to mark the phase as visited (RR-CANON-R075).
+
+    Note: Uses defensive hasattr() checks because Territory class uses 'spaces'
+    attribute, not 'positions'. This was the root cause of the hexagonal parity
+    bug (fixed in commit 7f43c368).
     """
     board = game_state.board
 
-    if move.to is not None and move.to.to_key() in board.collapsed_spaces:
-        return True
+    # Check if move.to is in collapsed_spaces
+    if move.to is not None:
+        to_key = move.to.to_key()
+        if to_key in board.collapsed_spaces:
+            return True
 
+    # Check disconnected_regions - Territory.spaces is a list[Position]
     if move.disconnected_regions:
         for region in move.disconnected_regions:
-            for pos in region.spaces:
-                if pos.to_key() in board.collapsed_spaces:
-                    return True
+            if hasattr(region, "spaces"):
+                for pos in region.spaces:
+                    pos_key = pos.to_key() if hasattr(pos, "to_key") else f"{pos.x},{pos.y}"
+                    if pos_key in board.collapsed_spaces:
+                        return True
 
-    # If we can't determine (malformed move), fall back to "processed" so we
-    # don't accidentally deadlock phase advancement on legacy data.
-    return move.to is None and not move.disconnected_regions
+    return False
 
 
 def _on_line_processing_complete(

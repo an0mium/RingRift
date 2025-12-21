@@ -1,5 +1,11 @@
 """UnifiedErrorRecoveryCoordinator - Centralized failure handling (December 2025).
 
+DEPRECATED: This module has been consolidated into unified_health_manager.py.
+Use UnifiedHealthManager from app.coordination.unified_health_manager instead.
+
+For backward compatibility, this module re-exports from the unified manager.
+This module will be removed in a future release.
+
 This module provides centralized coordination of error recovery across the cluster.
 It tracks failures, coordinates recovery attempts, and provides failure pattern
 analysis for proactive issue resolution.
@@ -43,11 +49,20 @@ from __future__ import annotations
 
 import logging
 import time
+import warnings
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+# Emit deprecation warning on import
+warnings.warn(
+    "error_recovery_coordinator is deprecated. Use unified_health_manager instead. "
+    "Import UnifiedHealthManager from app.coordination.unified_health_manager.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -1,6 +1,12 @@
 """
 Centralized recovery coordination for self-healing cluster operations.
 
+DEPRECATED: This module has been consolidated into unified_health_manager.py.
+Use UnifiedHealthManager from app.coordination.unified_health_manager instead.
+
+For backward compatibility, this module's functionality is preserved.
+This module will be removed in a future release.
+
 This module provides automatic recovery from stuck jobs, unhealthy nodes,
 and other failure conditions without requiring manual intervention.
 
@@ -10,10 +16,19 @@ Extends CoordinatorBase for standardized lifecycle management and stats.
 import asyncio
 import logging
 import time
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
+
+# Emit deprecation warning on import
+warnings.warn(
+    "recovery_manager is deprecated. Use unified_health_manager instead. "
+    "Import UnifiedHealthManager from app.coordination.unified_health_manager.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 from app.coordination.coordinator_base import CoordinatorBase, CoordinatorStatus
 
