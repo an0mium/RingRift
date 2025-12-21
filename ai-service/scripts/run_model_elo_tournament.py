@@ -1950,8 +1950,9 @@ def main():
     parser.add_argument("--baselines-only", action="store_true", help="Run tournament with only baseline players (for calibration)")
     parser.add_argument("--ai-type", choices=[
         "random", "heuristic", "minimax", "gpu_minimax", "mcts", "descent",
-        "policy_only", "gumbel_mcts", "maxn", "brs", "neural_demo"
-    ], default="descent", help="AI type for neural networks when --no-both-ai-types is used (default: descent). All 11 AI types available for diverse training. MaxN/BRS are for multiplayer (3p/4p).")
+        "policy_only", "gumbel_mcts", "maxn", "brs", "neural_demo",
+        "gmo", "gmo_mcts", "ebmo", "ig_gmo"
+    ], default="descent", help="AI type for neural networks when --no-both-ai-types is used (default: descent). Includes experimental AIs: GMO, GMO-MCTS, EBMO, IG-GMO for 2000 Elo target.")
     parser.add_argument("--both-ai-types", action="store_true", default=True, help="Use ALL AI types (MCTS, Descent, Policy-Only, Gumbel MCTS) for comprehensive NN evaluation (DEFAULT: ON)")
     parser.add_argument("--no-both-ai-types", action="store_true", help="Disable multi-AI-type evaluation, use only --ai-type")
     parser.add_argument("--include-nnue", action="store_true", help="Include NNUE models from models/nnue/ directory")
