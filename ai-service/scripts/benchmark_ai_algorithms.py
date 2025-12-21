@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.ai.base import BaseAI
 from app.ai.factory import AIFactory
 from app.game_engine import GameEngine
-from app.models import AIConfig, AIType, BoardType, GameState
+from app.models import AIConfig, AIType, BoardType, GameState, GameStatus
 from app.training.initial_state import create_initial_state
 
 logging.basicConfig(
@@ -174,7 +174,10 @@ def play_match(
     num_moves = 0
     max_moves = 500  # Prevent infinite games
 
-    while not game_state.game_over and num_moves < max_moves:
+    def is_game_over(state: GameState) -> bool:
+        return state.game_status != GameStatus.ACTIVE
+
+    while not is_game_over(game_state) and num_moves < max_moves:
         current_player = game_state.current_player
         ai = agents[current_player]
 
@@ -186,7 +189,7 @@ def play_match(
         num_moves += 1
 
     # Determine winner
-    if game_state.game_over and game_state.winner:
+    if is_game_over(game_state) and game_state.winner:
         winner = game_state.winner
     else:
         winner = 0  # Draw or timeout
