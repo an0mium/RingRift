@@ -136,11 +136,12 @@ CANONICAL_DIFFICULTY_PROFILES: dict[int, DifficultyProfile] = {
         "use_neural_net": True,
     },
     8: {
-        # Expert: MCTS with neural guidance and larger budget
-        "ai_type": AIType.MCTS,
+        # Expert: Gumbel MCTS with neural guidance (upgraded from regular MCTS)
+        # Benchmarks show Gumbel >> MCTS at same budget
+        "ai_type": AIType.GUMBEL_MCTS,
         "randomness": 0.0,
-        "think_time_ms": 9000,
-        "profile_id": "v2-mcts-8-neural",
+        "think_time_ms": 8000,
+        "profile_id": "v2-gumbel-8-expert",
         "use_neural_net": True,
     },
     9: {
@@ -262,6 +263,7 @@ CANONICAL_DIFFICULTY_PROFILES: dict[int, DifficultyProfile] = {
 
 # Overrides for 3-4 player games where MaxN/BRS outperform Minimax
 # Benchmarks show: MaxN > BRS > MCTS in 4P; MaxN ≈ BRS ≈ MCTS in 3P
+# Extended to cover D4-D10 for comprehensive multiplayer support
 MULTIPLAYER_DIFFICULTY_OVERRIDES: dict[int, DifficultyProfile] = {
     4: {
         # For 3-4P: BRS (Best Reply Search) - faster than MaxN, good for 3P
@@ -279,9 +281,50 @@ MULTIPLAYER_DIFFICULTY_OVERRIDES: dict[int, DifficultyProfile] = {
         "profile_id": "v2-maxn-5-mp",
         "use_neural_net": False,
     },
+    6: {
+        # For 3-4P: MaxN with neural guidance
+        "ai_type": AIType.MAXN,
+        "randomness": 0.02,
+        "think_time_ms": 4500,
+        "profile_id": "v2-maxn-6-mp-neural",
+        "use_neural_net": True,
+    },
+    7: {
+        # For 3-4P: MaxN with neural guidance, higher budget
+        "ai_type": AIType.MAXN,
+        "randomness": 0.0,
+        "think_time_ms": 6000,
+        "profile_id": "v2-maxn-7-mp-neural",
+        "use_neural_net": True,
+    },
+    8: {
+        # For 3-4P: MaxN expert with neural guidance
+        "ai_type": AIType.MAXN,
+        "randomness": 0.0,
+        "think_time_ms": 8000,
+        "profile_id": "v2-maxn-8-mp-expert",
+        "use_neural_net": True,
+    },
+    9: {
+        # For 3-4P: MaxN master with neural guidance
+        "ai_type": AIType.MAXN,
+        "randomness": 0.0,
+        "think_time_ms": 12000,
+        "profile_id": "v2-maxn-9-mp-master",
+        "use_neural_net": True,
+    },
+    10: {
+        # For 3-4P: MaxN grandmaster with extended search
+        "ai_type": AIType.MAXN,
+        "randomness": 0.0,
+        "think_time_ms": 18000,
+        "profile_id": "v2-maxn-10-mp-grandmaster",
+        "use_neural_net": True,
+    },
 }
 
 # Overrides for large boards where Minimax is too slow
+# Extended to cover D4-D7 with progressive strength increase
 LARGE_BOARD_DIFFICULTY_OVERRIDES: dict[int, DifficultyProfile] = {
     4: {
         # For large boards: Descent+NN (Minimax too slow)
@@ -299,6 +342,22 @@ LARGE_BOARD_DIFFICULTY_OVERRIDES: dict[int, DifficultyProfile] = {
         "profile_id": "v2-descent-5-large",
         "use_neural_net": True,
     },
+    6: {
+        # For large boards: MCTS with progressive widening
+        "ai_type": AIType.MCTS,
+        "randomness": 0.02,
+        "think_time_ms": 5000,
+        "profile_id": "v2-mcts-6-large",
+        "use_neural_net": True,
+    },
+    7: {
+        # For large boards: MCTS with higher budget
+        "ai_type": AIType.MCTS,
+        "randomness": 0.0,
+        "think_time_ms": 7000,
+        "profile_id": "v2-mcts-7-large",
+        "use_neural_net": True,
+    },
 }
 
 # Difficulty level descriptions for UI/documentation
@@ -309,10 +368,10 @@ DIFFICULTY_DESCRIPTIONS: dict[int, str] = {
     3: "Lower-mid - Policy-only (neural network move selection)",
     4: "Mid-low - Minimax/BRS (2P) or BRS/Descent (3-4P/large boards)",
     5: "Mid - Minimax+NNUE (2P small) / MaxN (3-4P) / Descent+NN (large)",
-    6: "Upper-mid - Descent with neural guidance",
-    7: "High - MCTS with neural guidance",
-    8: "Expert - MCTS with larger search budget",
-    9: "Master - Gumbel MCTS (strongest algorithm)",
+    6: "Upper-mid - Descent with neural guidance / MaxN+NN (3-4P)",
+    7: "High - MCTS with neural guidance / MaxN+NN (3-4P)",
+    8: "Expert - Gumbel MCTS (2P) / MaxN+NN expert (3-4P)",
+    9: "Master - Gumbel MCTS with extended budget",
     10: "Grandmaster - Gumbel MCTS with extended search",
     11: "Ultimate - Gumbel MCTS with 60s think time (nearly unbeatable)",
     # Experimental AI slots (not shown in standard UI)
