@@ -77,7 +77,15 @@ try:
     from app.coordination.cross_process_events import (
         CrossProcessEvent,
         CrossProcessEventPoller,
+        CrossProcessEventQueue,
+        ack_event,
+        ack_events,
+        bridge_to_cross_process,
+        get_event_queue as get_cross_process_queue,
+        poll_events as cp_poll_events,
         publish_event as cp_publish,
+        reset_event_queue as reset_cross_process_queue,
+        subscribe_process,
     )
     HAS_CROSS_PROCESS = True
 except ImportError:
@@ -591,6 +599,18 @@ __all__ = [
     "StageEvent",
     "StageCompletionResult",
     "get_stage_event_bus",
+    # Re-exports from cross_process_events for migration
+    "CrossProcessEvent",
+    "CrossProcessEventPoller",
+    "CrossProcessEventQueue",
+    "ack_event",
+    "ack_events",
+    "bridge_to_cross_process",
+    "get_cross_process_queue",
+    "cp_poll_events",
+    "cp_publish",
+    "reset_cross_process_queue",
+    "subscribe_process",
 ]
 
 

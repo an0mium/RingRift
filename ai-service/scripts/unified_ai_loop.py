@@ -647,8 +647,9 @@ except ImportError:
     FeedbackSignalRouter = None
 
 # Import cross-process event queue for multi-daemon coordination
+# (imported from event_router for consolidation)
 try:
-    from app.coordination.cross_process_events import (
+    from app.coordination.event_router import (
         CrossProcessEvent,
         CrossProcessEventQueue,
     )

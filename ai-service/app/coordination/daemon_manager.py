@@ -555,7 +555,7 @@ class DaemonManager:
     async def _create_cross_process_poller(self) -> None:
         """Create and run cross-process event poller."""
         try:
-            from app.coordination.cross_process_events import CrossProcessEventPoller
+            from app.coordination.event_router import CrossProcessEventPoller
 
             poller = CrossProcessEventPoller()
             poller.start()  # start() is sync, runs in background thread

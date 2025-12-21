@@ -153,10 +153,13 @@ class TestCrossEngineParity:
 
         # Verify format matches expected TypeScript output:
         # meta#players#stacks#markers#collapsed
-        # meta: currentPlayer:currentPhase:gameStatus
+        # meta: currentPlayer:currentPhase:gameStatus:pendingLineRewardElimination
         # players: sorted playerNumber:ringsInHand:eliminatedRings:territorySpaces
+        #
+        # RR-PARITY-FIX-2025-12-21: pendingLineRewardElimination added to meta
+        # to detect ANM divergence between TS and Python engines.
 
-        expected_meta = "1:ring_placement:active"
+        expected_meta = "1:ring_placement:active:0"
         expected_players = "1:18:0:0|2:18:0:0"
 
         parts = fingerprint.split("#")

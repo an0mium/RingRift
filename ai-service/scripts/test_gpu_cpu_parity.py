@@ -226,10 +226,15 @@ def test_seed(seed: int) -> tuple[int, int, int, int, list]:
                 # Line processing moves match by type - take first available
                 matched = v
                 break
-            elif move_type in (MoveType.CHOOSE_TERRITORY_OPTION, MoveType.ELIMINATE_RINGS_FROM_STACK):
-                # Territory processing moves match by type - take first available
+            elif move_type == MoveType.CHOOSE_TERRITORY_OPTION:
+                # Territory processing option moves match by type - take first available
                 matched = v
                 break
+            elif move_type == MoveType.ELIMINATE_RINGS_FROM_STACK:
+                # Elimination moves must match by position (to field)
+                if v_to == m_to:
+                    matched = v
+                    break
             else:
                 v_from = v.from_pos.to_key() if v.from_pos else None
                 m_from = from_pos.to_key() if from_pos else None

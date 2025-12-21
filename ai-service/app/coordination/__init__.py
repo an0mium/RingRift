@@ -49,18 +49,18 @@ from app.coordination.bandwidth_manager import (
     reset_bandwidth_manager,
 )
 
-# Cross-process event queue exports
-from app.coordination.cross_process_events import (
+# Cross-process event queue exports (via event_router for consolidation)
+from app.coordination.event_router import (
     CrossProcessEvent,
     CrossProcessEventPoller,
     CrossProcessEventQueue,
     ack_event,
     ack_events,
     bridge_to_cross_process,
-    get_event_queue,
-    poll_events,
-    publish_event,
-    reset_event_queue,
+    cp_poll_events as poll_events,
+    cp_publish as publish_event,
+    get_cross_process_queue as get_event_queue,
+    reset_cross_process_queue as reset_event_queue,
     subscribe_process,
 )
 

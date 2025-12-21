@@ -72,6 +72,30 @@ DEFAULT_RETENTION_HOURS = 24
 # Subscriber heartbeat timeout (subscribers not polling for this long are considered dead)
 SUBSCRIBER_TIMEOUT_SECONDS = 300  # 5 minutes
 
+# Emit deprecation warning at import time (RR-CONSOLIDATION-2025-12)
+# Only warn if imported directly, not when imported by event_router internally
+import warnings as _warnings
+import traceback as _traceback
+
+def _is_internal_import() -> bool:
+    """Check if this import is from event_router (internal use)."""
+    stack = _traceback.extract_stack()
+    for frame in stack:
+        if "event_router.py" in frame.filename:
+            return True
+    return False
+
+if not _is_internal_import():
+    _warnings.warn(
+        "cross_process_events is deprecated. Import from event_router instead:\n"
+        "  from app.coordination.event_router import (\n"
+        "      CrossProcessEvent, CrossProcessEventQueue, bridge_to_cross_process, ...\n"
+        "  )\n"
+        "This module will be removed in Q2 2026.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
 
 @dataclass
 class CrossProcessEvent:

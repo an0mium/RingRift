@@ -98,12 +98,12 @@ except ImportError:
     def get_stage_event_bus():
         return None
 
-# CrossProcessEventQueue
+# CrossProcessEventQueue (imported from event_router for consolidation)
 try:
-    from app.coordination.cross_process_events import (
+    from app.coordination.event_router import (
         CrossProcessEvent,
         CrossProcessEventQueue,
-        get_event_queue as get_cross_process_queue,
+        get_cross_process_queue,
     )
     HAS_CROSS_PROCESS = True
 except ImportError:
