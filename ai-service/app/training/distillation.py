@@ -47,7 +47,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-from app.utils.torch_utils import safe_load_checkpoint
+from app.utils.torch_utils import get_device, safe_load_checkpoint
 
 try:
     import torch
@@ -133,7 +133,7 @@ class DistillationTrainer:
         self.student = student_model
         self.config = config
         self.optimizer = optimizer
-        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device or get_device(prefer_gpu=True)
 
         # Move models to device
         self.teacher = self.teacher.to(self.device)
@@ -267,7 +267,7 @@ class EnsembleTeacher:
             raise ImportError("PyTorch not available")
 
         self.models = models
-        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device or get_device(prefer_gpu=True)
 
         if weights is None:
             self.weights = [1.0 / len(models)] * len(models)
@@ -379,7 +379,7 @@ def distill_checkpoint_ensemble(
         raise ImportError("PyTorch not available")
 
     # Load teacher models
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device(prefer_gpu=True)
     teachers = []
 
     for path in checkpoint_paths:

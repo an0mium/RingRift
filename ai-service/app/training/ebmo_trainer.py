@@ -40,7 +40,7 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from app.utils.torch_utils import safe_load_checkpoint
+from app.utils.torch_utils import get_device, safe_load_checkpoint
 
 from ..ai.ebmo_network import (
     EBMOConfig,
@@ -200,13 +200,9 @@ class EBMOTrainer:
         self.history: list[TrainingMetrics] = []
 
     def _select_device(self) -> torch.device:
-        """Select training device."""
+        """Select training device using canonical implementation."""
         if self.config.device == "auto":
-            if torch.cuda.is_available():
-                return torch.device("cuda")
-            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-                return torch.device("mps")
-            return torch.device("cpu")
+            return get_device(prefer_gpu=True)
         return torch.device(self.config.device)
 
     def _create_scheduler(self) -> Any | None:

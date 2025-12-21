@@ -173,16 +173,16 @@ class OpeningGenerator:
             num_moves = random.randint(min_moves, max_moves)
 
             for _ in range(num_moves):
-                legal_moves = state.get_legal_moves()
+                legal_moves = env.legal_moves()
                 if not legal_moves:
                     break
 
                 # Random move selection
                 move = random.choice(legal_moves)
 
-                # Record move
+                # Record move (use env.state for current_player)
                 move_dict = {
-                    "player": state.current_player,
+                    "player": env.state.current_player,
                     "from": move.from_position if hasattr(move, "from_position") else None,
                     "to": move.to_position if hasattr(move, "to_position") else None,
                     "move_type": str(type(move).__name__),
@@ -199,8 +199,8 @@ class OpeningGenerator:
 
             # Check uniqueness
             if unique_positions:
-                # Create position hash
-                pos_hash = self._hash_position(state)
+                # Create position hash (use env.state for board access)
+                pos_hash = self._hash_position(env.state)
                 if pos_hash in seen_positions:
                     continue
                 seen_positions.add(pos_hash)
@@ -257,7 +257,7 @@ class OpeningGenerator:
         except ValueError:
             return []
 
-        def explore(env, state, moves_so_far, current_depth):
+        def explore(env, moves_so_far, current_depth):
             if current_depth >= depth:
                 # Create opening from this path
                 if len(moves_so_far) >= 4:
@@ -272,7 +272,7 @@ class OpeningGenerator:
                     openings.append(opening)
                 return
 
-            legal_moves = state.get_legal_moves()
+            legal_moves = env.legal_moves()
             if not legal_moves:
                 return
 
@@ -283,7 +283,7 @@ class OpeningGenerator:
             for move in selected_moves:
                 # Record move
                 move_dict = {
-                    "player": state.current_player,
+                    "player": env.state.current_player,
                     "from": move.from_position if hasattr(move, "from_position") else None,
                     "to": move.to_position if hasattr(move, "to_position") else None,
                     "move_type": str(type(move).__name__),
@@ -295,11 +295,11 @@ class OpeningGenerator:
                     board_type=board_type_enum,
                     num_players=self.num_players,
                 )
-                new_state = new_env.reset()
+                new_env.reset()
 
                 # Replay moves
                 for m in new_moves:
-                    legal = new_state.get_legal_moves()
+                    legal = new_env.legal_moves()
                     # Find matching move
                     matched = None
                     for lm in legal:
@@ -308,19 +308,19 @@ class OpeningGenerator:
                             matched = lm
                             break
                     if matched:
-                        new_state, _, done, _ = new_env.step(matched)
+                        _, _, done, _ = new_env.step(matched)
                         if done:
                             break
 
-                explore(new_env, new_state, new_moves, current_depth + 1)
+                explore(new_env, new_moves, current_depth + 1)
 
         # Start exploration
         env = RingRiftEnv(
             board_type=board_type_enum,
             num_players=self.num_players,
         )
-        state = env.reset()
-        explore(env, state, [], 0)
+        env.reset()
+        explore(env, [], 0)
 
         logger.info(f"Generated {len(openings)} systematic openings")
         return openings

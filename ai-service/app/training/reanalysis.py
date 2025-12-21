@@ -44,10 +44,12 @@ try:
     import torch
     import torch.nn as nn
     from torch.utils.data import Dataset
+    from app.utils.torch_utils import get_device
     HAS_TORCH = True
 except ImportError:
     HAS_TORCH = False
     torch = None
+    get_device = None
 
 
 @dataclass
@@ -107,7 +109,7 @@ class ReanalysisEngine:
 
         self.model = model
         self.config = config
-        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device or get_device(prefer_gpu=True)
 
         self.model = self.model.to(self.device)
         self.model.eval()
