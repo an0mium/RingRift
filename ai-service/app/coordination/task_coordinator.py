@@ -1678,7 +1678,7 @@ def emergency_stop_all() -> None:
 # Main
 # ============================================
 
-def main():
+def main() -> None:
     """Test the task coordinator."""
     import uuid
 

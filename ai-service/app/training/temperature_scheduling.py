@@ -617,7 +617,7 @@ def create_scheduler(preset: str = "default", **kwargs) -> TemperatureScheduler:
     return TemperatureScheduler(config)
 
 
-def main():
+def main() -> None:
     """Demonstrate temperature scheduling."""
     import matplotlib.pyplot as plt
 

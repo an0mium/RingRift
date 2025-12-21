@@ -264,7 +264,8 @@ def run_baseline_evaluation(
     return all_results
 
 
-def main():
+def main() -> None:
+    """Main entry point for GMO baseline evaluation."""
     parser = argparse.ArgumentParser(description="Evaluate GMO against stronger baselines")
     parser.add_argument("--checkpoint", type=str, default=None,
                         help="Path to GMO checkpoint")

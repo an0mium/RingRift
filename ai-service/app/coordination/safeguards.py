@@ -579,7 +579,7 @@ def check_before_spawn(task_type: str, node_id: str) -> tuple[bool, str]:
 # CLI
 # ============================================
 
-def main():
+def main() -> None:
     """CLI for safeguards management."""
     import argparse
 

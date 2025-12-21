@@ -1680,7 +1680,7 @@ def load_hosts_from_yaml(path: Path) -> list[HostConfig]:
 # CLI Entry Point
 # =============================================================================
 
-def main():
+def main() -> None:
     """CLI entry point for unified data sync service."""
     parser = argparse.ArgumentParser(
         description="Unified Data Sync Service",

@@ -634,7 +634,8 @@ def run_selfplay_training(
     logger.info(f"{'='*60}")
 
 
-def main():
+def main() -> None:
+    """Main entry point for GMO self-play training."""
     parser = argparse.ArgumentParser(description="GMO Self-play Training")
     parser.add_argument(
         "--checkpoint",

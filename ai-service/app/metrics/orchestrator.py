@@ -43,6 +43,12 @@ from typing import Final
 
 from prometheus_client import Counter, Gauge, Histogram
 
+from app.metrics.constants import (
+    DURATION_BUCKETS_SECONDS,
+    LATENCY_BUCKETS_SECONDS,
+    SHORT_DURATION_BUCKETS,
+)
+
 # =============================================================================
 # Safe Metric Registration (December 2025: Consolidated)
 # =============================================================================
@@ -69,7 +75,7 @@ SELFPLAY_BATCH_DURATION: Final[Histogram] = _safe_metric(Histogram,
     "ringrift_selfplay_batch_duration_seconds",
     "Duration of selfplay batches in seconds.",
     labelnames=("board_type", "num_players"),
-    buckets=(10, 30, 60, 120, 300, 600, 1200, 1800, 3600),
+    buckets=DURATION_BUCKETS_SECONDS,
 )
 
 SELFPLAY_ERRORS_TOTAL: Final[Counter] = _safe_metric(Counter,
@@ -222,7 +228,7 @@ DATA_SYNC_DURATION: Final[Histogram] = _safe_metric(Histogram,
     "ringrift_data_sync_duration_seconds",
     "Duration of data sync operations.",
     labelnames=("source", "destination"),
-    buckets=(5, 10, 30, 60, 120, 300, 600),
+    buckets=SHORT_DURATION_BUCKETS,
 )
 
 DATA_SYNC_GAMES: Final[Counter] = _safe_metric(Counter,

@@ -1452,7 +1452,7 @@ class DistributedFaultHandler:
         return min(alive_workers)
 
 
-def main():
+def main() -> None:
     """Example usage of fault tolerance features."""
     import tempfile
 

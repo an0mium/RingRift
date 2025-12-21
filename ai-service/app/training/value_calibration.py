@@ -566,7 +566,7 @@ def create_reliability_diagram(report: CalibrationReport, save_path: str | None 
         plt.show()
 
 
-def main():
+def main() -> None:
     """Demonstrate value calibration."""
     import random
 

@@ -53,12 +53,13 @@ try:
     HAS_PROMETHEUS = True
 
     # December 2025: Use centralized metric registry
+    from app.metrics.constants import TRAINING_DURATION_BUCKETS
     from app.metrics.registry import safe_metric as _safe_metric
 
     TRAINING_EPOCHS = _safe_metric(Counter, 'ringrift_training_epochs_total', 'Total training epochs completed', labelnames=['config'])
     TRAINING_LOSS = _safe_metric(Gauge, 'ringrift_training_loss', 'Current training loss', labelnames=['config', 'loss_type'])
     TRAINING_SAMPLES = _safe_metric(Counter, 'ringrift_training_samples_total', 'Total samples processed', labelnames=['config'])
-    TRAINING_DURATION = _safe_metric(Histogram, 'ringrift_training_epoch_duration_seconds', 'Training epoch duration', labelnames=['config'], buckets=[10, 30, 60, 120, 300, 600, 1200, 1800, 3600])
+    TRAINING_DURATION = _safe_metric(Histogram, 'ringrift_training_epoch_duration_seconds', 'Training epoch duration', labelnames=['config'], buckets=TRAINING_DURATION_BUCKETS)
     CALIBRATION_ECE = _safe_metric(Gauge, 'ringrift_calibration_ece', 'Expected Calibration Error', labelnames=['config'])
     CALIBRATION_MCE = _safe_metric(Gauge, 'ringrift_calibration_mce', 'Maximum Calibration Error', labelnames=['config'])
     BATCH_SIZE = _safe_metric(Gauge, 'ringrift_training_batch_size', 'Current training batch size', labelnames=['config'])

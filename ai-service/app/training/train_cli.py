@@ -369,7 +369,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(args)
 
 
-def main():
+def main() -> None:
     """Main entry point for training."""
     # Import here to avoid circular imports and reduce startup time
     from app.training.train import run_cmaes_heuristic_optimization, train_model
