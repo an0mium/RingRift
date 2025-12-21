@@ -263,8 +263,20 @@ describe('FSMAdapter - Branch Coverage', () => {
     });
 
     it('should convert choose_line_reward to CHOOSE_LINE_REWARD event', () => {
+      // RR-CANON-R123: Territory choice = collapse MINIMUM markers (fewer than line length)
+      // Must provide formedLines so extractLineRewardChoice can compare counts
       const move = createTestMove('choose_line_reward', {
-        collapsedMarkers: [{ x: 1, y: 1 }], // Territory choice
+        collapsedMarkers: [{ x: 1, y: 1 }], // 1 marker collapsed
+        formedLines: [
+          {
+            positions: [
+              { x: 1, y: 1 },
+              { x: 2, y: 1 },
+              { x: 3, y: 1 },
+            ],
+            player: 1,
+          },
+        ], // 3 markers in line - fewer collapsed = territory choice
       });
       const event = moveToEvent(move);
       expect(event).toEqual({ type: 'CHOOSE_LINE_REWARD', choice: 'territory' });

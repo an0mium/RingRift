@@ -152,31 +152,61 @@ function createAutoCompleteMove(phase: string, player: number): Move {
 }
 
 /**
+ * Add a move to the state's moveHistory, returning a new state.
+ * This is needed because processTurn does NOT add the move to moveHistory internally;
+ * hosts are expected to add moves after processTurn returns.
+ */
+function addMoveToHistory(
+  state: typeof processTurn extends (s: infer S, ...args: any[]) => any ? S : never,
+  move: Move
+): typeof state {
+  return {
+    ...state,
+    moveHistory: [...state.moveHistory, move],
+  };
+}
+
+/**
  * Auto-complete a turn by processing through remaining phases until 'complete'.
  * Used when vectors expect 'complete' but orchestrator returns 'awaiting_decision'.
  * This handles the multi-phase turn model where movement/capture triggers
  * line_processing and territory_processing phases.
+ *
+ * @param initialResult - The result from the previous processTurn call
+ * @param precedingMove - The move that was applied to get initialResult (needed for moveHistory)
+ * @param maxIterations - Maximum number of auto-complete iterations
  */
 function autoCompleteTurn(
   initialResult: ReturnType<typeof processTurn>,
+  precedingMove: Move,
   maxIterations = 10
 ): ReturnType<typeof processTurn> {
   let result = initialResult;
+  let lastMove = precedingMove;
   let iterations = 0;
 
   while (result.status === 'awaiting_decision' && iterations < maxIterations) {
-    const state = result.nextState;
-    const phase = state.currentPhase;
+    // Add the preceding move to the state's moveHistory before the next processTurn call.
+    // This is critical for computeHadAnyActionThisTurn to correctly detect real actions.
+    const stateWithHistory = addMoveToHistory(result.nextState, lastMove);
+    const phase = stateWithHistory.currentPhase;
 
     // Only auto-complete line_processing and territory_processing phases
     if (phase !== 'line_processing' && phase !== 'territory_processing') {
       // Can't auto-complete other phases (capture, chain_capture, etc.)
-      break;
+      // Return result with updated moveHistory
+      return { ...result, nextState: stateWithHistory };
     }
 
-    const autoMove = createAutoCompleteMove(phase, state.currentPlayer);
-    result = processTurn(state, autoMove);
+    const autoMove = createAutoCompleteMove(phase, stateWithHistory.currentPlayer);
+    result = processTurn(stateWithHistory, autoMove);
+    lastMove = autoMove;
     iterations++;
+  }
+
+  // Add the last move to history in the final result
+  if (lastMove !== precedingMove) {
+    result = { ...result, nextState: addMoveToHistory(result.nextState, lastMove) };
   }
 
   return result;
@@ -231,7 +261,7 @@ function runVector(vector: ContractTestVector): {
     // This handles the multi-phase turn model where movement/capture triggers
     // line_processing and territory_processing phases automatically
     if (vector.expectedOutput.status === 'complete' && result.status === 'awaiting_decision') {
-      result = autoCompleteTurn(result);
+      result = autoCompleteTurn(result, move);
     }
 
     // Validate assertions against the result state
@@ -513,7 +543,7 @@ describe.skip('Multi-step contract sequences', () => {
 
         // Auto-complete multi-phase turns if vector expects 'complete' status
         if (vector.expectedOutput.status === 'complete' && result.status === 'awaiting_decision') {
-          result = autoCompleteTurn(result);
+          result = autoCompleteTurn(result, move);
         }
 
         const validation = validateAgainstAssertions(
