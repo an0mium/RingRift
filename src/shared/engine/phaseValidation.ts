@@ -88,6 +88,10 @@ export const VALID_MOVES_BY_PHASE: Readonly<Record<GamePhase, readonly MoveType[
     'no_line_action',
     // Deprecated legacy move type; accepted for replay only.
     'line_formation',
+    // Legacy replay: capture moves may appear after line_processing phase transition
+    'skip_capture',
+    'overtaking_capture',
+    'continue_capture_segment',
   ],
   territory_processing: [
     'choose_territory_option',
@@ -98,14 +102,21 @@ export const VALID_MOVES_BY_PHASE: Readonly<Record<GamePhase, readonly MoveType[
     // Deprecated legacy move type; accepted for replay only.
     'territory_claim',
   ],
-  forced_elimination: ['forced_elimination'],
+  // Legacy replay: turn transition moves may appear after forced_elimination phase
+  forced_elimination: [
+    'forced_elimination',
+    'no_territory_action',
+    'place_ring',
+    'skip_placement',
+    'no_placement_action',
+  ],
   game_over: [],
 } as const;
 
 /**
  * Canonical phase → MoveType contract for recordings (RR-CANON-R070/R075).
  *
- * This mapping is intended to match Python's `ai-service/app/rules/history_contract.py`
+ * This mapping is intended to match Python's \`ai-service/app/rules/history_contract.py\`
  * and excludes legacy aliases and deprecated move types. Use this for:
  * - write-time canonical history enforcement,
  * - TS↔Python contract drift guards,
@@ -140,8 +151,14 @@ export const CANONICAL_VALID_MOVES_BY_PHASE: Readonly<Record<GamePhase, readonly
     'skip_territory_processing',
     'no_territory_action',
   ],
-  // Note: no_territory_action allowed for replay compatibility (see VALID_MOVES_BY_PHASE)
-  forced_elimination: ['forced_elimination', 'no_territory_action'],
+  // Legacy replay: turn transition moves may appear after forced_elimination phase
+  forced_elimination: [
+    'forced_elimination',
+    'no_territory_action',
+    'place_ring',
+    'skip_placement',
+    'no_placement_action',
+  ],
   game_over: [],
 } as const;
 

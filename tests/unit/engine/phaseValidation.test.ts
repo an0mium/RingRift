@@ -206,10 +206,11 @@ describe('phaseValidation', () => {
   // getPhasesForMoveType Tests
   // ===========================================================================
   describe('getPhasesForMoveType', () => {
-    it('returns ring_placement and forced_elimination for place_ring (legacy replay compat)', () => {
+    // Legacy replay: place_ring is valid in ring_placement and forced_elimination
+    it('returns ring_placement and forced_elimination for place_ring', () => {
       const phases = getPhasesForMoveType('place_ring');
       expect(phases).toContain('ring_placement');
-      expect(phases).toContain('forced_elimination'); // Legacy replay compatibility
+      expect(phases).toContain('forced_elimination');
       expect(phases.length).toBe(2);
     });
 
@@ -218,14 +219,12 @@ describe('phaseValidation', () => {
       expect(phases).toContain('movement');
     });
 
-    // RR-CANON-R123: eliminate_rings_from_stack is valid in line_processing, territory_processing,
-    // and forced_elimination (legacy replay compatibility)
-    it('returns multiple phases for eliminate_rings_from_stack (RR-CANON-R123 + legacy compat)', () => {
+    // RR-CANON-R123: eliminate_rings_from_stack is valid in line_processing and territory_processing
+    it('returns line and territory phases for eliminate_rings_from_stack (RR-CANON-R123)', () => {
       const phases = getPhasesForMoveType('eliminate_rings_from_stack');
       expect(phases).toContain('territory_processing');
       expect(phases).toContain('line_processing');
-      expect(phases).toContain('forced_elimination'); // Legacy replay compatibility
-      expect(phases.length).toBe(3);
+      expect(phases.length).toBe(2);
     });
 
     it('returns all non-game_over phases for resign (always valid)', () => {

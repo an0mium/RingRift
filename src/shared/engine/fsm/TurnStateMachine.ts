@@ -935,9 +935,8 @@ function handleForcedElimination(
       ]);
     }
 
-    // Replay compatibility: NO_TERRITORY_ACTION may appear in forced_elimination phase
-    // during replay when the previous move's handler transitioned early.
-    // Transition to turn_end to allow the next player's turn to begin.
+    // Legacy replay compatibility: NO_TERRITORY_ACTION from territory_processing
+    // can appear in forced_elimination when the phase transitioned inline.
     case 'NO_TERRITORY_ACTION':
       return ok<TurnEndState>(
         {
@@ -948,8 +947,7 @@ function handleForcedElimination(
         [{ type: 'CHECK_VICTORY' }]
       );
 
-    // Legacy replay compatibility: PLACE_RING from next player indicates turn has transitioned.
-    // Accept it and transition to ring_placement for that player.
+    // Legacy replay compatibility: PLACE_RING from next player after turn transition
     case 'PLACE_RING': {
       const nextPlayerNum = nextPlayer(state.player, context.numPlayers);
       return ok<RingPlacementState>(
@@ -964,7 +962,7 @@ function handleForcedElimination(
       );
     }
 
-    // Legacy replay compatibility: SKIP_PLACEMENT from next player
+    // Legacy replay compatibility: SKIP_PLACEMENT from next player after turn transition
     case 'SKIP_PLACEMENT': {
       const nextPlayerNum = nextPlayer(state.player, context.numPlayers);
       return ok<MovementState>(
@@ -980,7 +978,7 @@ function handleForcedElimination(
       );
     }
 
-    // Legacy replay compatibility: NO_PLACEMENT_ACTION from next player
+    // Legacy replay compatibility: NO_PLACEMENT_ACTION from next player after turn transition
     case 'NO_PLACEMENT_ACTION': {
       const nextPlayerNum = nextPlayer(state.player, context.numPlayers);
       return ok<MovementState>(
