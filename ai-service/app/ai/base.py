@@ -26,10 +26,18 @@ from ..models import AIConfig, GameState, Move, MoveType
 from ..rules.interfaces import RulesEngine
 from .swap_evaluation import SwapEvaluator
 
+# Centralized seeding utilities (Lane 3 Consolidation 2025-12)
+try:
+    from app.training.seed_utils import derive_ai_seed as _derive_ai_seed
+    HAS_SEED_UTILS = True
+except ImportError:
+    HAS_SEED_UTILS = False
+    _derive_ai_seed = None
+
 T = TypeVar("T")
 
 
-def derive_training_seed(config: AIConfig, player_number: int) -> int:
+def derive_training_seed(config: AIConfig, player_number: int, game_id: str = "") -> int:
     """Derive a deterministic but non-SSOT RNG seed.
 
     This helper is used only when no explicit ``rng_seed`` is supplied on
@@ -42,18 +50,29 @@ def derive_training_seed(config: AIConfig, player_number: int) -> int:
       experiment-local randomness by threading a seed through their own
       configuration objects.
 
-    The current implementation mirrors the legacy behaviour by mixing the
-    difficulty and player number into a 32‑bit value. Callers that care about
-    experiment-level control should pass ``rng_seed`` explicitly instead of
-    relying on this fallback.
+    Lane 3 Consolidation (2025-12):
+        When seed_utils is available, delegates to the centralized derive_ai_seed()
+        function which provides better entropy mixing via MD5 hashing. Falls back
+        to legacy implementation if seed_utils not available.
 
     Args:
         config: AI configuration used to derive the seed.
         player_number: The player index this AI controls (1‑based).
+        game_id: Optional game identifier for per-game variation.
 
     Returns:
         A 32‑bit integer seed suitable for initialising :class:`random.Random`.
     """
+    # Use centralized seed derivation when available (Lane 3 2025-12)
+    if HAS_SEED_UTILS and _derive_ai_seed is not None:
+        base_seed = config.difficulty * 1_000_003
+        raw_ai_type = getattr(config, "ai_type", None)
+        ai_type = (
+            str(raw_ai_type.value) if hasattr(raw_ai_type, "value") else str(raw_ai_type or "unknown")
+        )
+        return _derive_ai_seed(base_seed, ai_type, player_number, game_id)
+
+    # Legacy fallback: simple XOR mixing
     base = (config.difficulty * 1_000_003) ^ (player_number * 97_911)
     return int(base & 0xFFFFFFFF)
 

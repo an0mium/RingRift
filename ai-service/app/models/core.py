@@ -163,6 +163,7 @@ class AIType(str, Enum):
     GMO_MCTS = "gmo_mcts"  # GMO-guided MCTS (uses GMO for move priors in tree search)
     IG_GMO = "ig_gmo"  # Experimental: Information-Gain GMO (MI-based exploration + GNN)
     CAGE = "cage"  # Constraint-Aware Graph Energy-based move optimization (GNN + primal-dual)
+    IMPROVED_MCTS = "improved_mcts"  # Advanced MCTS with PUCT, progressive widening, transposition tables
 
 
 class Position(BaseModel):

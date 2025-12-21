@@ -39,6 +39,12 @@ from .nnue import (
     get_feature_dim,
 )
 
+try:  # pragma: no cover
+    from ..training.selfplay_config import normalize_engine_mode
+except Exception:  # pragma: no cover
+    def normalize_engine_mode(raw_mode: str) -> str:
+        return str(raw_mode).strip().lower()
+
 
 def get_hidden_dim_for_board(board_type: BoardType, board_size: int = 0) -> int:
     """Auto-select hidden dimension based on board type and size.
@@ -1732,7 +1738,8 @@ class NNUEPolicyDataset(Dataset):
 
                 # Detect selfplay data source and coordinate format
                 source = game.get("source", "")
-                engine_mode = game.get("engine_mode", "")
+                raw_engine_mode = game.get("engine_mode", "")
+                engine_mode = normalize_engine_mode(raw_engine_mode) if raw_engine_mode else ""
 
                 # GPU heuristic uses offset coords for hex boards
                 is_gpu_heuristic = (
@@ -1742,7 +1749,7 @@ class NNUEPolicyDataset(Dataset):
                 # Gumbel MCTS and other CPU modes use cube coords (z omitted, derived from x+y)
                 is_gumbel_mcts = (
                     "gumbel" in source.lower() or
-                    engine_mode == "gumbel_mcts"
+                    engine_mode == "gumbel-mcts"
                 )
                 # For phase handling: both GPU and Gumbel need special treatment
                 is_gpu_selfplay = is_gpu_heuristic or is_gumbel_mcts

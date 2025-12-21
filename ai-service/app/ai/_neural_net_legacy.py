@@ -1,5 +1,25 @@
 """Neural-network-backed AI implementation for RingRift.
 
+.. deprecated:: December 2025
+    This module is the LEGACY neural network implementation kept for backward
+    compatibility. It contains the original architecture before the December 2025
+    encoder/decoder refactoring.
+
+    **For new code, use:**
+    - :mod:`app.ai.neural_net` - Canonical neural network module
+    - :mod:`app.ai.neural_net.square_encoding` - Action encoding/decoding
+    - :mod:`app.ai.neural_net.network` - Network architecture
+
+    **This module will be removed** once all dependent code has migrated to the
+    new encoding system. The new system provides cleaner separation between
+    board encoding and action decoding.
+
+    **Current usage:**
+    - Re-exported via :mod:`app.ai.neural_net` for backwards compatibility
+    - Used by older checkpoint loading code
+
+    **DO NOT** add new code that depends on this module.
+
 This module implements the convolutional policy/value network used by the
 Python AI service and the :class:`NeuralNetAI` wrapper that integrates it
 with the shared :class:`BaseAI` interface.
@@ -23,6 +43,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import warnings
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -30,6 +51,14 @@ from typing import Any
 import numpy as np
 import torch
 import torch.nn as nn
+
+# Emit deprecation warning on import (only once per session)
+warnings.warn(
+    "The app.ai._neural_net_legacy module is deprecated and will be removed in a future version. "
+    "Use app.ai.neural_net for new code. See module docstring for migration guidance.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 from ..models import (
     BoardState,
