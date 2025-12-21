@@ -2022,7 +2022,6 @@ def main():
 
     # === PROCESS SAFEGUARDS ===
     # Limit torch.compile workers to prevent process sprawl
-    import os
     cpu_count = os.cpu_count() or 8
     # Use conservative worker limits based on CPU count
     max_torch_workers = max(2, min(cpu_count // 4, 4))
