@@ -1062,8 +1062,10 @@ def check_game_parity(
     game_id: str,
     view: str = "post_move",
     state_bundles_dir: Path | None = None,
+    *,
+    enforce_canonical_history: bool = True,
 ) -> GameParityResult:
-    db = GameReplayDB(str(db_path))
+    db = GameReplayDB(str(db_path), enforce_canonical_history=enforce_canonical_history)
     meta = db.get_game_metadata(game_id)
     if not meta:
         raise RuntimeError(f"Game {game_id} not found in {db_path}")
@@ -1598,6 +1600,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     mode = args.mode
+    enforce_canonical_history = mode == "canonical"
 
     if args.progress_every is not None:
         os.environ["RINGRIFT_PARITY_PROGRESS_EVERY"] = str(int(args.progress_every))
@@ -1634,7 +1637,7 @@ def main() -> None:
     # then exit without running the full parity sweep.
     if args.trace_game:
         for db_path in db_paths:
-            db = GameReplayDB(str(db_path))
+            db = GameReplayDB(str(db_path), enforce_canonical_history=enforce_canonical_history)
             try:
                 meta = db.get_game_metadata(args.trace_game)
             except Exception:
@@ -1680,7 +1683,7 @@ def main() -> None:
         state_bundles_dir.mkdir(parents=True, exist_ok=True)
 
     for db_path in db_paths:
-        db = GameReplayDB(str(db_path))
+        db = GameReplayDB(str(db_path), enforce_canonical_history=enforce_canonical_history)
         games = db.query_games(limit=100000)
         if not games:
             continue
@@ -1702,6 +1705,7 @@ def main() -> None:
                     game_id,
                     view=args.view,
                     state_bundles_dir=state_bundles_dir,
+                    enforce_canonical_history=enforce_canonical_history,
                 )
             except Exception as exc:  # pragma: no cover - defensive logging
                 structural_issues.append(
