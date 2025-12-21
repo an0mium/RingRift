@@ -234,6 +234,32 @@ class TestFSMParityMovement:
         assert fsm_result.next_phase == GamePhase.LINE_PROCESSING
         assert legacy_phase == GamePhase.LINE_PROCESSING
 
+    def test_skip_recovery_advances_to_line_processing(self):
+        """SKIP_RECOVERY should advance to LINE_PROCESSING."""
+        state = _make_game_state(GamePhase.MOVEMENT, current_player=1)
+        move = _make_move(MoveType.SKIP_RECOVERY, player=1)
+
+        fsm_result, legacy_phase, _legacy_player, parity_ok = _run_parity_check(state, move)
+
+        assert parity_ok, f"FSM: {fsm_result.next_phase}, Legacy: {legacy_phase}"
+        assert fsm_result.next_phase == GamePhase.LINE_PROCESSING
+        assert legacy_phase == GamePhase.LINE_PROCESSING
+
+
+class TestFSMParityCapture:
+    """Test FSM parity for capture phase transitions."""
+
+    def test_skip_capture_advances_to_line_processing(self):
+        """SKIP_CAPTURE should advance to LINE_PROCESSING."""
+        state = _make_game_state(GamePhase.CAPTURE, current_player=1)
+        move = _make_move(MoveType.SKIP_CAPTURE, player=1)
+
+        fsm_result, legacy_phase, _legacy_player, parity_ok = _run_parity_check(state, move)
+
+        assert parity_ok, f"FSM: {fsm_result.next_phase}, Legacy: {legacy_phase}"
+        assert fsm_result.next_phase == GamePhase.LINE_PROCESSING
+        assert legacy_phase == GamePhase.LINE_PROCESSING
+
 
 class TestFSMParityLineProcessing:
     """Test FSM parity for line_processing phase transitions."""
