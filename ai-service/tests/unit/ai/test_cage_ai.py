@@ -3,8 +3,8 @@
 import pytest
 import torch
 
-from app.ai.cage_ai import CAGE_AI, CAGEAI, create_cage_ai
-from app.ai.cage_network import CAGEConfig
+from app.ai.archive.cage_ai import CAGE_AI, CAGEAI, create_cage_ai
+from app.ai.archive.cage_network import CAGEConfig
 from app.models import AIConfig, BoardType
 from app.training.initial_state import create_initial_state
 

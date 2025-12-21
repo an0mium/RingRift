@@ -1199,6 +1199,15 @@ class MutableGameState:
 
         Determines the next phase based on the move type and current state.
         Also checks for victory conditions.
+
+        Note on RR-CANON-R075 Compliance:
+            This method directly assigns self._phase for performance in tree search
+            (make/unmake pattern). This is an intentional optimization that bypasses
+            the FSM state machine. The phase transitions here MUST mirror the
+            canonical FSM transitions in app/rules/fsm.py.
+
+            Validation: Parity tests in tests/unit/fsm/ verify that phase sequences
+            produced by this method match canonical FSM transitions.
         """
         # First check for game over after the move
         if self._check_victory_conditions():

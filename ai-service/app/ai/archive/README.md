@@ -1,0 +1,83 @@
+# Archived AI Implementations
+
+This directory contains experimental AI implementations that were archived on 2025-12-21.
+These implementations are not actively used in production but contain valuable patterns
+that may be harvested for future development.
+
+## Archived Files
+
+### gmo_mcts_hybrid.py (405 lines)
+
+**Status**: Archived prototype
+**Reason for archival**: Superseded by pure Gumbel MCTS in the production ladder; retained only for explicit experimental runs
+
+**Valuable patterns to harvest:**
+
+- GMO-based prior policy generation for MCTS (`_get_gmo_priors`)
+- Uncertainty-based exploration bonus blending
+- Integration pattern between gradient-based and tree-search methods
+- `MCTSNode` class with UCB score calculation
+
+**Potential future use:**
+
+- Could inform hybrid approaches combining learned priors with MCTS
+- Uncertainty exploration bonus concept applicable to other AI types
+
+---
+
+### cage_ai.py (233 lines) + cage_network.py
+
+**Status**: Research prototype
+**Reason for archival**: Never deployed to production ladder
+
+**Valuable patterns to harvest:**
+
+- Graph neural network for board representation (`board_to_graph`)
+- Primal-dual optimization for constrained move selection
+- Energy-based move evaluation (lower energy = better move)
+
+**Potential future use:**
+
+- GNN approach could improve position understanding for complex board states
+- Constraint-aware optimization applicable to legal move filtering
+
+---
+
+### ebmo_online.py (621 lines)
+
+**Status**: Experimental, limited testing
+**Reason for archival**: Online learning not stable enough for production
+
+**Valuable patterns to harvest:**
+
+- TD-Energy updates during gameplay
+- Rolling buffer of recent games (`GameRecord`, `Transition` dataclasses)
+- Outcome-weighted contrastive loss (winner moves -> low energy)
+- Per-game gradient accumulation with eligibility traces
+
+**Potential future use:**
+
+- Online learning infrastructure could enable real-time adaptation
+- TD-Energy concept could improve value network training
+- Game record structure reusable for any replay-based learning
+
+---
+
+## Deprecation Notice
+
+These files are preserved for reference but should NOT be imported in new code.
+If you need functionality from these modules:
+
+1. Review the "valuable patterns" section above
+2. Extract the relevant pattern into an active module
+3. Update imports to use the active module
+4. Do NOT add new dependencies on archived code
+
+## Restoration
+
+If an archived implementation needs to be restored:
+
+1. Move file from `archive/` to parent `ai/` directory
+2. Update `app/ai/__init__.py` exports if needed
+3. Add to AI factory if production use is intended
+4. Update this README to remove the restored file

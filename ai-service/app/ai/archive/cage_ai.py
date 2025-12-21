@@ -6,7 +6,7 @@ A novel AI that uses:
 3. Primal-dual optimization to stay on legal move manifold
 
 Usage:
-    from app.ai.cage_ai import CAGE_AI
+    from app.ai.archive.cage_ai import CAGE_AI
     from app.models import AIConfig
 
     config = AIConfig(difficulty=5)
@@ -23,14 +23,14 @@ from typing import Any
 
 import torch
 
-from ..models import AIConfig, GameState, Move
-from .base import BaseAI
-from .cage_network import (
+from app.models import AIConfig, GameState, Move
+from app.ai.base import BaseAI
+from app.ai.archive.cage_network import (
     CAGEConfig,
     CAGENetwork,
     board_to_graph,
 )
-from .ebmo_network import ActionFeatureExtractor
+from app.ai.ebmo_network import ActionFeatureExtractor
 
 logger = logging.getLogger(__name__)
 

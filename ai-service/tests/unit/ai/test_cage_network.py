@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from app.ai.cage_network import (
+from app.ai.archive.cage_network import (
     CAGEConfig,
     CAGEEnergyHead,
     CAGENetwork,

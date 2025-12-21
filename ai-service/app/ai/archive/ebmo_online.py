@@ -7,7 +7,7 @@ Implements continuous learning for EBMO without batch training:
 - Real-time weight updates after each game
 
 Usage:
-    from app.ai.ebmo_online import EBMOOnlineLearner
+    from app.ai.archive.ebmo_online import EBMOOnlineLearner
 
     learner = EBMOOnlineLearner(model, device='mps')
 
@@ -27,8 +27,8 @@ from typing import Any
 
 import torch
 
-from ..models import GameState, Move
-from .ebmo_network import ActionFeatureExtractor, EBMONetwork
+from app.models import GameState, Move
+from app.ai.ebmo_network import ActionFeatureExtractor, EBMONetwork
 
 logger = logging.getLogger(__name__)
 

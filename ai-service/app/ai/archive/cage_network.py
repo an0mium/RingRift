@@ -12,7 +12,7 @@ Key innovations:
 - Enables interpretable energy decomposition
 
 Usage:
-    from app.ai.cage_network import CAGENetwork, CAGEConfig
+    from app.ai.archive.cage_network import CAGENetwork, CAGEConfig
 
     config = CAGEConfig()
     network = CAGENetwork(config)
@@ -34,7 +34,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..models import (
+from app.models import (
     BoardType,
     GameState,
 )

@@ -25,7 +25,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 
-from app.ai.cage_network import CAGEConfig, CAGENetwork
+from app.ai.archive.cage_network import CAGEConfig, CAGENetwork
 from app.ai.heuristic_ai import HeuristicAI
 from app.game_engine import GameEngine
 from app.models.core import AIConfig, BoardType

@@ -249,6 +249,15 @@ CANONICAL_DIFFICULTY_PROFILES: dict[int, DifficultyProfile] = {
         "profile_id": "v3-gmov2-explore-19-experimental",
         "use_neural_net": True,
     },
+    20: {
+        # Improved MCTS: Advanced MCTS with PUCT, progressive widening, transposition tables
+        # Based on AlphaZero-style search with tree reuse and virtual loss
+        "ai_type": AIType.IMPROVED_MCTS,
+        "randomness": 0.0,
+        "think_time_ms": 8000,
+        "profile_id": "v3-improved-mcts-20-experimental",
+        "use_neural_net": True,
+    },
 }
 
 # Overrides for 3-4 player games where MaxN/BRS outperform Minimax
@@ -315,6 +324,7 @@ DIFFICULTY_DESCRIPTIONS: dict[int, str] = {
     17: "Experimental - GMO-MCTS (GMO-guided tree search)",
     18: "Experimental - GMO v2 (attention + ensemble optimization)",
     19: "Experimental - GMO v2 Explorer (high exploration variant)",
+    20: "Experimental - Improved MCTS (PUCT + progressive widening + transposition)",
 }
 
 # Board types considered "large" (Minimax too slow)
@@ -589,14 +599,17 @@ class AIFactory:
             from app.ai.gmo_v2 import GMOv2AI
             ai_class = GMOv2AI
         elif ai_type == AIType.GMO_MCTS:
-            from app.ai.gmo_mcts_hybrid import GMOMCTSHybrid
+            from app.ai.archive.gmo_mcts_hybrid import GMOMCTSHybrid
             ai_class = GMOMCTSHybrid
         elif ai_type == AIType.IG_GMO:
             from app.ai.ig_gmo import IGGMO
             ai_class = IGGMO
         elif ai_type == AIType.CAGE:
-            from app.ai.cage_ai import CAGE_AI
+            from app.ai.archive.cage_ai import CAGE_AI
             ai_class = CAGE_AI
+        elif ai_type == AIType.IMPROVED_MCTS:
+            from app.ai.improved_mcts_ai import ImprovedMCTSAI
+            ai_class = ImprovedMCTSAI
         else:
             raise ValueError(f"Unsupported AI type: {ai_type}")
 
@@ -888,7 +901,7 @@ class AIFactory:
                 rng_seed=rng_seed,
                 nn_model_id=nn_model_id,
             )
-            from app.ai.gmo_mcts_hybrid import GMOMCTSConfig, GMOMCTSHybrid
+            from app.ai.archive.gmo_mcts_hybrid import GMOMCTSConfig, GMOMCTSHybrid
             hybrid_config = GMOMCTSConfig(num_simulations=num_simulations, device="cpu")
             return GMOMCTSHybrid(player_number, config, hybrid_config=hybrid_config)
 
@@ -928,8 +941,32 @@ class AIFactory:
                 rng_seed=rng_seed,
                 nn_model_id=nn_model_id,
             )
-            from app.ai.cage_ai import CAGE_AI
+            from app.ai.archive.cage_ai import CAGE_AI
             return CAGE_AI(player_number, config, model_path=model_path)
+
+        # Improved MCTS AI (advanced MCTS with PUCT, progressive widening, etc.)
+        if agent_key == "improved_mcts" or agent_key.startswith("improved_mcts_"):
+            # Parse optional simulation count: improved_mcts_500, improved_mcts_1000
+            num_simulations = 400
+            if "_" in agent_key and agent_key != "improved_mcts":
+                try:
+                    parts = agent_key.split("_")
+                    if len(parts) >= 3:
+                        num_simulations = int(parts[2])
+                except (ValueError, IndexError):
+                    pass
+
+            config = AIConfig(
+                difficulty=7,
+                think_time=num_simulations * 10,  # Rough heuristic
+                rng_seed=rng_seed,
+                nn_model_id=nn_model_id,
+                use_neural_net=nn_model_id is not None,
+            )
+            from app.ai.improved_mcts_ai import ImprovedMCTSAI
+            from app.mcts import MCTSConfig
+            mcts_config = MCTSConfig(num_simulations=num_simulations)
+            return ImprovedMCTSAI(player_number, config, mcts_config=mcts_config)
 
         if agent_key.startswith("difficulty_") or agent_key.startswith("level_"):
             # Parse difficulty level: difficulty_5, level_7, etc.
