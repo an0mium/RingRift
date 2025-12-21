@@ -26,24 +26,24 @@
     "returncode": 0
   },
   "anm_ok": true,
-  "archived_dest_db": "/Users/armand/Development/RingRift/ai-service/data/games/canonical_square8_2p.db.archived_20251220_235959",
+  "archived_dest_db": null,
   "board_type": "square8",
   "canonical_config": {
-    "games_checked": 1,
+    "games_checked": 50,
     "non_canonical_games": 0,
     "sample_issues": {}
   },
   "canonical_history": {
-    "games_checked": 1,
+    "games_checked": 50,
     "non_canonical_games": 0,
     "sample_issues": {}
   },
-  "canonical_ok": false,
+  "canonical_ok": true,
   "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/canonical_square8_2p.db",
   "db_stats": {
-    "games_completed": 1,
-    "games_total": 1,
-    "moves_total": 155,
+    "games_completed": 50,
+    "games_total": 50,
+    "moves_total": 6719,
     "swap_sides": {
       "games": 0,
       "moves": 0
@@ -72,57 +72,25 @@
       "end_of_game_only_divergences": [],
       "games_with_end_of_game_only_divergence": 0,
       "games_with_non_canonical_history": 0,
-      "games_with_semantic_divergence": 1,
+      "games_with_semantic_divergence": 0,
       "games_with_structural_issues": 0,
       "legacy_mode": false,
-      "mismatch_counts_by_dimension": {
-        "current_phase": 1,
-        "state_hash": 1
-      },
+      "mismatch_counts_by_dimension": {},
       "mode": "canonical",
-      "passed_canonical_parity_gate": false,
-      "returncode": 1,
-      "semantic_divergences": [
-        {
-          "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/canonical_square8_2p.db",
-          "diverged_at": 40,
-          "game_id": "96248e1a-4709-428f-a5a5-2798c6e6ec7d",
-          "is_end_of_game_only": false,
-          "mismatch_context": "post_move",
-          "mismatch_kinds": ["current_phase", "state_hash"],
-          "python_summary": {
-            "current_phase": "line_processing",
-            "current_player": 2,
-            "game_status": "active",
-            "is_anm": false,
-            "move_index": 39,
-            "state_hash": "18e7ebbdbf6b6526"
-          },
-          "structure": "good",
-          "structure_reason": null,
-          "total_moves_python": 155,
-          "total_moves_ts": 155,
-          "ts_summary": {
-            "current_phase": "chain_capture",
-            "current_player": 2,
-            "game_status": "active",
-            "is_anm": false,
-            "move_index": 40,
-            "state_hash": "594b9c818bc51bca"
-          }
-        }
-      ],
+      "passed_canonical_parity_gate": true,
+      "returncode": 0,
+      "semantic_divergences": [],
       "structural_issues": [],
       "summary_path": "/Users/armand/Development/RingRift/ai-service/data/games/canonical_square8_2p.db.parity_summary.json",
       "total_databases": 1,
-      "total_games_checked": 1,
+      "total_games_checked": 50,
       "view_mode": "post_move"
     },
-    "passed_canonical_parity_gate": false,
+    "passed_canonical_parity_gate": true,
     "returncode": 0,
     "seed": null,
     "soak_log_jsonl_path": "/Users/armand/Development/RingRift/ai-service/logs/selfplay/soak.canonical_square8_2p.square8.2p.light.jsonl",
-    "soak_returncode": 1,
+    "soak_returncode": 0,
     "soak_summary_path": "/Users/armand/Development/RingRift/ai-service/logs/selfplay/soak.canonical_square8_2p.square8.2p.light.summary.json",
     "stage": "complete"
   },
