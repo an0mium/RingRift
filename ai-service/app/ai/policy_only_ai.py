@@ -158,6 +158,14 @@ class PolicyOnlyAI(BaseAI):
             return np.ones(len(valid_moves))
 
         try:
+            # Ensure model is initialized for this board type before extracting features
+            # This sets up the correct encoder (hex vs square) based on the model architecture
+            from .game_state_utils import infer_num_players
+            self.neural_net._ensure_model_initialized(
+                game_state.board.type,
+                num_players=infer_num_players(game_state),
+            )
+
             # Update history for the current game state (critical for model accuracy)
             # The neural network was trained with history, so we need to track it
             current_features, _ = self.neural_net._extract_features(game_state)

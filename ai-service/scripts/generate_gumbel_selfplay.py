@@ -60,6 +60,8 @@ def find_move_index(move, legal_moves: list) -> int:
 
     This ensures the mcts_policy indices match what the policy network expects
     during training, which uses engine.get_valid_moves() ordering.
+
+    CRITICAL: For hex boards, this must compare z coordinates as well as x,y.
     """
     move_type = getattr(move, 'type', None)
     move_from = getattr(move, 'from_pos', None)
@@ -75,11 +77,19 @@ def find_move_index(move, legal_moves: list) -> int:
         if move_from is not None and legal_from is not None:
             if move_from.x != legal_from.x or move_from.y != legal_from.y:
                 continue
+            # Also check z coordinate for hex boards
+            if move_from.z is not None and legal_from.z is not None:
+                if move_from.z != legal_from.z:
+                    continue
         elif move_from is not None or legal_from is not None:
             continue
         if move_to is not None and legal_to is not None:
             if move_to.x != legal_to.x or move_to.y != legal_to.y:
                 continue
+            # Also check z coordinate for hex boards
+            if move_to.z is not None and legal_to.z is not None:
+                if move_to.z != legal_to.z:
+                    continue
         elif move_to is not None or legal_to is not None:
             continue
         return i
@@ -160,8 +170,29 @@ def generate_game(
         # Get legal moves in the same order as training uses
         legal_moves = engine.get_valid_moves(state, current_player)
 
+        if not legal_moves:
+            break  # No legal moves available
+
         # Get move from Gumbel MCTS
-        move = ai.select_move(state)
+        ai_move = ai.select_move(state)
+
+        # CRITICAL: Use the matching move from legal_moves, not the AI's move object.
+        # The AI's move might have incorrect position data (e.g., wrong z coordinates for hex).
+        # Using the engine's move ensures positions match what replay will expect.
+        move = None
+        if ai_move is not None:
+            move_idx = find_move_index(ai_move, legal_moves)
+            if move_idx >= 0:
+                # Use the engine's move with canonical positions
+                move = legal_moves[move_idx]
+            else:
+                # AI returned invalid move - fall back to random legal move
+                import random
+                move = random.choice(legal_moves)
+                logger.debug(f"AI returned invalid move, using random fallback")
+
+        if move is None:
+            move = legal_moves[0]  # Fallback to first legal move
 
         # Get visit distribution (soft targets) with corrected indices
         mcts_policy = {}

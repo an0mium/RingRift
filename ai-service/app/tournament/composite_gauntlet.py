@@ -181,6 +181,7 @@ class CompositeGauntlet:
             "square8": self._BoardType.SQUARE8,
             "square19": self._BoardType.SQUARE19,
             "hexagonal": self._BoardType.HEXAGONAL,
+            "hex8": self._BoardType.HEX8,
         }
         return board_map.get(self.board_type, self._BoardType.SQUARE8)
 

@@ -265,7 +265,7 @@ async def main():
         "--board",
         type=str,
         default="square8",
-        choices=["square8", "square19", "hexagonal"],
+        choices=["square8", "square19", "hexagonal", "hex8"],
     )
     parser.add_argument("--players", type=int, default=2)
     parser.add_argument(
