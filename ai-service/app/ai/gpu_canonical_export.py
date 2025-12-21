@@ -271,12 +271,12 @@ def validate_canonical_move_sequence(
     allowed_moves_by_phase = {
         "ring_placement": {"place_ring", "skip_placement", "no_placement_action", "swap_sides"},
         "movement": {
-            "move_stack", "move_ring", "build_stack",
-            "overtaking_capture", "continue_capture_segment",  # captures in movement phase
+            "move_stack",
+            "overtaking_capture",
             "recovery_slide", "skip_recovery",  # recovery in movement phase
             "no_movement_action",
         },
-        "capture": {"overtaking_capture", "continue_capture_segment", "skip_capture"},
+        "capture": {"overtaking_capture", "skip_capture"},
         "chain_capture": {"continue_capture_segment"},
         "line_processing": {"process_line", "choose_line_option", "no_line_action", "eliminate_rings_from_stack"},
         "territory_processing": {
@@ -292,17 +292,20 @@ def validate_canonical_move_sequence(
 
     for i, move in enumerate(moves):
         move_type = move.get("type", "unknown")
-        phase = move.get("phase", "ring_placement")
+        phase = move.get("phase")
         player = move.get("player", 0)
 
         # Check player number is valid
         if player < 1 or player > num_players:
             errors.append(f"Move {i}: Invalid player {player}")
 
+        if not phase:
+            errors.append(f"Move {i}: missing phase")
+            continue
+
         # Check move type is valid for phase
         allowed = allowed_moves_by_phase.get(phase, set())
-        generic_types = {"place_ring", "move_stack", "overtaking_capture", "continue_capture_segment"}
-        if move_type not in allowed and allowed and move_type not in generic_types:
+        if move_type not in allowed:
             errors.append(f"Move {i}: {move_type} not valid in {phase} phase")
 
     is_valid = len(errors) == 0
