@@ -47,13 +47,13 @@ These scripts are actively called by `p2p_orchestrator.py`:
 
 ## KEEP - Useful Utilities
 
-| Script                       | Purpose             |
-| ---------------------------- | ------------------- |
-| `analyze_training_run.py`    | Training analysis   |
-| `analyze_game_statistics.py` | Game statistics     |
-| `benchmark_*.py`             | Various benchmarks  |
-| `compare_models_elo.py`      | ELO comparison      |
-| `debug_*.py`                 | Debugging utilities |
+| Script                       | Purpose           |
+| ---------------------------- | ----------------- |
+| `analyze_training_run.py`    | Training analysis |
+| `analyze_game_statistics.py` | Game statistics   |
+| `compare_models_elo.py`      | ELO comparison    |
+
+**Note:** Debug utilities and EBMO benchmarks were archived in 2025-12; use git history if needed.
 
 ---
 
@@ -89,14 +89,14 @@ All superseded by `p2p_orchestrator.py`:
 
 ### Training Orchestration
 
-| Script                        | Replacement               |
-| ----------------------------- | ------------------------- |
-| `auto_training_pipeline.py`   | P2P orchestrator          |
-| `auto_training_trigger.py`    | P2P orchestrator          |
-| `continuous_training_loop.py` | P2P orchestrator          |
-| `curriculum_training.py`      | P2P orchestrator          |
-| `training_orchestrator.py`    | P2P orchestrator (DELETE) |
-| `job_scheduler.py`            | P2P orchestrator (DELETE) |
+| Script                        | Replacement                 |
+| ----------------------------- | --------------------------- |
+| `auto_training_pipeline.py`   | P2P orchestrator            |
+| `auto_training_trigger.py`    | P2P orchestrator            |
+| `continuous_training_loop.py` | P2P orchestrator (archived) |
+| `curriculum_training.py`      | P2P orchestrator            |
+| `training_orchestrator.py`    | P2P orchestrator (DELETE)   |
+| `job_scheduler.py`            | P2P orchestrator (DELETE)   |
 
 ### Unified Scripts (superseded by P2P orchestrator)
 

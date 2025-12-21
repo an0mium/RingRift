@@ -88,14 +88,11 @@ python scripts/cli.py health
 
 ### Training
 
-- `multi_config_training_loop.py` - **Multi-board training coordinator** (52KB)
-  - Adaptive curriculum based on Elo ratings
-  - Balance mode for underrepresented configs
-  - Supports hex8, square8, square19, hexagonal configurations
-  - **Dynamic JSONL directory discovery** (2025-12-17) - auto-discovers selfplay data sources
-  - Victory-type balanced sampling (`--sampling-weights victory_type`)
-  - Policy label smoothing, hex augmentation
-  - Start: `python scripts/multi_config_training_loop.py --configs all`
+- `unified_ai_loop.py` - **Canonical multi-board training orchestrator**
+  - Multi-board training configured via `config/unified_loop.yaml`
+  - Balance mode and curriculum selection are integrated in the loop
+  - Policy label smoothing and augmentation run via the unified training stack
+  - Start: `python scripts/unified_ai_loop.py --start --config config/unified_loop.yaml`
 - `run_nn_training_baseline.py` - **Primary NN training script** (21KB)
   - Board-specific hyperparameters from `config/hyperparameters.json`
   - Optimized settings: batch_size=256, warmup_epochs=5, cosine scheduler
@@ -329,7 +326,12 @@ python scripts/cli.py health
   - TS/Python parity + canonical history validation
   - FE/territory fixture tests
   - Produces health summary JSON
-  - Start: `python scripts/generate_canonical_selfplay.py --board-type square8 --num-games 50`
+  - Start: `python scripts/generate_canonical_selfplay.py --board square8 --num-games 50 --db data/games/canonical_square8_2p.db --summary data/games/db_health.canonical_square8_2p.json`
+  - Defaults to `canonical_<board>_<players>p.db` when `--db` is omitted
+  - For square19/hex, the script defaults `RINGRIFT_USE_MAKE_UNMAKE=true` and `RINGRIFT_USE_FAST_TERRITORY=false` unless set
+- `run_parity_and_history_gate.py` - **Parity + canonical history gate for existing DBs**
+  - Wraps check_ts_python_replay_parity.py + check_canonical_phase_history.py
+  - Start: `python scripts/run_parity_and_history_gate.py --db data/games/canonical_square8_2p.db --summary-json data/games/db_health.canonical_square8_2p.json`
 
 ### Hyperparameter Optimization
 

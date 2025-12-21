@@ -362,22 +362,25 @@ python scripts/auto_training_pipeline.py \
 --selfplay-games 100     # Games for policy selfplay
 ```
 
-### Multi-Config Training Loop
+### Multi-Config Training
 
-The `scripts/multi_config_training_loop.py` orchestrates training across board/player configurations:
+Multi-board training is configured in `config/unified_loop.yaml` and run via the unified loop:
 
-```bash
-python scripts/multi_config_training_loop.py \
-    --configs square8_2p square8_3p hex8_2p \
-    --iterations 10
+```yaml
+# config/unified_loop.yaml (example)
+training:
+  boards: [square8, square19, hex8]
+  players: [2, 3, 4]
 ```
 
-**Features:**
+```bash
+python scripts/unified_ai_loop.py --start --config config/unified_loop.yaml
+```
 
-- **BALANCE MODE**: Prioritizes under-represented configurations
-- **ADAPTIVE CURRICULUM**: Prioritizes configs with lower Elo ratings
-- **JSONL Passthrough**: Automatically passes JSONL data to policy training
-- **Auto-KL Loss**: Enables KL loss when MCTS data available
+**Notes:**
+
+- Balance mode and curriculum selection are handled inside `scripts/unified_ai_loop.py`.
+- Policy training passthrough uses the unified loop config (`policy_training` section).
 
 ### Environment Variables
 

@@ -25,9 +25,14 @@ For the extended workflow, see `docs/runbooks/PARITY_VERIFICATION_RUNBOOK.md`.
 ## Canonical History Validation
 
 - For a single DB:
-  - `PYTHONPATH=. python scripts/check_canonical_phase_history.py --db <db>`
+  - `PYTHONPATH=. python scripts/run_parity_and_history_gate.py --db <db> --summary-json data/games/db_health.<db_name>.json`
+  - (If you only need history, `PYTHONPATH=. python scripts/check_canonical_phase_history.py --db <db>`)
 - For all canonical DBs:
   - `PYTHONPATH=. python scripts/run_canonical_guards.py`
+
+Note: For square19/hex DBs, `run_parity_and_history_gate.py` defaults
+`RINGRIFT_USE_MAKE_UNMAKE=true` and `RINGRIFT_USE_FAST_TERRITORY=false`
+unless those env vars are already set.
 
 ## Escalation
 

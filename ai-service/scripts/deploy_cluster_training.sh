@@ -49,11 +49,13 @@ start_training() {
     local addr=$2
     local port=$3
     local script=$4
+    shift 4
+    local extra_args=("$@")
 
     echo "=== Starting training on $name ==="
 
     # Run training in background
-    ssh -o StrictHostKeyChecking=no -p $port root@$addr "cd $REPO_PATH && nohup python $script > /tmp/training_$name.log 2>&1 &" 2>/dev/null
+    ssh -o StrictHostKeyChecking=no -p $port root@$addr "cd $REPO_PATH && nohup python $script ${extra_args[*]} > /tmp/training_$name.log 2>&1 &" 2>/dev/null
 
     echo "=== Training started on $name (check /tmp/training_$name.log) ==="
 }
@@ -69,10 +71,16 @@ case $ACTION in
         done
         ;;
     "train")
-        SCRIPT=${2:-"scripts/train_ebmo_contrastive.py"}
+        SCRIPT=${2:-""}
+        if [ -z "$SCRIPT" ]; then
+            echo "Usage: $0 train <script> [args...]"
+            echo "Note: EBMO training scripts were archived; pass a current training script."
+            exit 1
+        fi
+        shift 2
         for name in "${!NODES[@]}"; do
             IFS=':' read -r addr port <<< "${NODES[$name]}"
-            start_training "$name" "$addr" "$port" "$SCRIPT"
+            start_training "$name" "$addr" "$port" "$SCRIPT" "$@"
         done
         ;;
     "status")

@@ -558,6 +558,9 @@ PYTHONPATH=. python scripts/check_ts_python_replay_parity.py \
   --db data/games/canonical_square8.db \
   --fail-on-divergence
 
+# For training readiness, re-run the same check against the primary DB:
+#   --db data/games/canonical_square8_2p.db
+
 # 2. Contract vectors + plateau snapshots
 PYTHONPATH=. python scripts/run_parity_healthcheck.py --fail-on-mismatch
 ```

@@ -328,12 +328,10 @@ ssh -R 8770:localhost:8770 relay-server
 
 ### Multi-Config Training
 
-Train multiple board types in parallel:
+Configure multi-board training in `config/unified_loop.yaml` and run the unified loop:
 
 ```bash
-python scripts/multi_config_training_loop.py \
-  --configs square8_2p square8_4p hex8_2p \
-  --iterations 100
+python scripts/unified_ai_loop.py --start --config config/unified_loop.yaml
 ```
 
 ### Curriculum Training

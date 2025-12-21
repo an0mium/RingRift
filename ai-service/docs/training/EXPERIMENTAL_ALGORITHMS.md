@@ -86,13 +86,16 @@ move = ai.select_move(game_state)
 
 ### Training Scripts
 
-| Script                              | Purpose                     |
-| ----------------------------------- | --------------------------- |
-| `scripts/train_ebmo.py`             | Basic training              |
-| `scripts/train_ebmo_quality.py`     | Quality-focused training    |
-| `scripts/train_ebmo_curriculum.py`  | Curriculum learning         |
-| `scripts/generate_ebmo_selfplay.py` | Self-play data generation   |
-| `scripts/benchmark_ebmo_ladder.py`  | Benchmark against AI ladder |
+**Note:** EBMO scripts were archived in 2025-12; the active entry point is
+`python -m app.training.ebmo_trainer`.
+
+| Script                                           | Purpose                     |
+| ------------------------------------------------ | --------------------------- |
+| `scripts/archive/ebmo/train_ebmo.py`             | Basic training (archived)   |
+| `scripts/archive/ebmo/train_ebmo_quality.py`     | Quality training (archived) |
+| `scripts/archive/ebmo/train_ebmo_curriculum.py`  | Curriculum (archived)       |
+| `scripts/archive/ebmo/generate_ebmo_selfplay.py` | Self-play data (archived)   |
+| `scripts/archive/ebmo/benchmark_ebmo_ladder.py`  | Benchmark (archived)        |
 
 ### Environment Variables
 

@@ -544,7 +544,7 @@ Major improvements to k6 load testing infrastructure:
   - `app/ai/ebmo_online.py`: TD-Energy updates during gameplay
   - Rolling buffer for stability
   - Outcome-weighted contrastive loss
-  - Test script: `scripts/test_ebmo_online.py`
+  - Test script (archived): `scripts/archive/ebmo/test_ebmo_online.py`
 
 ### 36. Unused Import Cleanup ✓
 

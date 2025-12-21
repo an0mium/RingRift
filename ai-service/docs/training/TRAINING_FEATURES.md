@@ -2290,7 +2290,7 @@ The urgency score (0-1) determines training prioritization:
 | Config Options            | `scripts/unified_loop/config.py`         | TrainingConfig dataclass                 |
 | Orchestrator Integration  | `scripts/unified_loop/training.py`       | TrainingScheduler                        |
 | P2P Integration           | `scripts/p2p_orchestrator.py`            | Distributed training                     |
-| Multi-config Loop         | `scripts/multi_config_training_loop.py`  | Batch training                           |
+| Multi-config Loop         | `scripts/unified_ai_loop.py`             | Multi-board training via config          |
 | Streaming Pipeline        | `app/training/streaming_pipeline.py`     | Async DB polling with dual buffers       |
 | Async Shadow Validation   | `app/ai/shadow_validation.py`            | Non-blocking GPU/CPU parity check        |
 | Connection Pooling        | `app/distributed/unified_wal.py`         | Thread-local SQLite connection pool      |

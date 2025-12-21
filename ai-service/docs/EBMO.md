@@ -2,6 +2,8 @@
 
 An energy-based approach to game move selection that applies SPEN-style test-time optimization to board game AI, using continuous action embeddings with projection to legal discrete moves.
 
+**Status:** Archived (2025-12). EBMO scripts were removed from the active codebase; usage examples below are historical and may require git history to restore.
+
 ## Overview
 
 EBMO applies structured prediction energy networks (SPENs) to game move selection: learn an energy function E(s, a) over (state, action) pairs, then use gradient descent to find low-energy actions at inference time, projecting to the nearest legal discrete move.
@@ -110,29 +112,29 @@ ai = AIFactory.create_for_tournament("ebmo", player_number=1)
 ### Training
 
 ```bash
-# Train on cluster
-python scripts/train_ebmo.py \
-  --data-dir data/training \
+# Train via the active EBMO trainer entry point
+python -m app.training.ebmo_trainer \
+  --train-dir data/training \
   --epochs 100 \
   --batch-size 512 \
   --lr 0.001 \
   --output-dir models/ebmo
 
 # With specific options
-python scripts/train_ebmo.py \
-  --data-dir data/training/ebmo_sq8 \
+python -m app.training.ebmo_trainer \
+  --train-dir data/training/ebmo_sq8 \
   --epochs 100 \
   --batch-size 512 \
-  --num-negatives 7 \
-  --outcome-weight 0.5 \
-  --device cuda
+  --lr 0.001
 ```
+
+Legacy EBMO scripts were archived under `scripts/archive/ebmo/`.
 
 ### Expert Data Generation
 
 ```bash
-# Generate training data from strong AI play
-python scripts/generate_ebmo_expert_data.py \
+# Generate training data from strong AI play (archived helper)
+python scripts/archive/ebmo/generate_ebmo_expert_data.py \
   --num-games 500 \
   --engine heuristic \
   --depth 5 \
@@ -142,8 +144,8 @@ python scripts/generate_ebmo_expert_data.py \
 ### Expert Data Training
 
 ```bash
-# Train directly on the expert NPZ format
-python scripts/train_ebmo_expert.py \
+# Train directly on the expert NPZ format (archived helper)
+python scripts/archive/ebmo/train_ebmo_expert.py \
   --data data/training/ebmo_expert.npz \
   --epochs 50 \
   --batch-size 256 \
@@ -153,11 +155,11 @@ python scripts/train_ebmo_expert.py \
 ### Evaluation & Diagnostics
 
 ```bash
-# Quick win-rate sanity check (direct eval mode)
-python scripts/eval_ebmo_quick.py
+# Quick win-rate sanity check (archived helper)
+python scripts/archive/ebmo/eval_ebmo_quick.py
 
-# Inspect energy distribution and gradient behavior
-python scripts/diagnose_ebmo.py --model models/ebmo/ebmo_improved_best.pt
+# Inspect energy distribution and gradient behavior (archived helper)
+python scripts/archive/ebmo/diagnose_ebmo.py --model models/ebmo/ebmo_improved_best.pt
 ```
 
 Direct evaluation mode can also be enabled via:
@@ -175,8 +177,8 @@ ebmo_config = EBMOConfig(use_direct_eval=True)
 These runs should be executed on a cluster host; results are not yet recorded.
 
 ```bash
-python scripts/eval_ebmo_quick.py
-python scripts/diagnose_ebmo.py --model models/ebmo/ebmo_improved_best.pt
+python scripts/archive/ebmo/eval_ebmo_quick.py
+python scripts/archive/ebmo/diagnose_ebmo.py --model models/ebmo/ebmo_improved_best.pt
 ```
 
 Record results here:
@@ -311,16 +313,17 @@ config = AIConfig(
 
 ## Files
 
-| File                                      | Description                          |
-| ----------------------------------------- | ------------------------------------ |
-| `app/ai/ebmo_network.py`                  | Network architecture, loss functions |
-| `app/ai/ebmo_ai.py`                       | AI agent implementation              |
-| `app/training/ebmo_dataset.py`            | Dataset with contrastive sampling    |
-| `app/training/ebmo_trainer.py`            | Training loop                        |
-| `scripts/train_ebmo.py`                   | Training script                      |
-| `scripts/generate_ebmo_expert_data.py`    | Expert data generation               |
-| `scripts/generate_search_labeled_data.py` | Search-labeled data generation       |
-| `scripts/train_ebmo_quality.py`           | Quality-labeled training script      |
+| File                                                | Description                          |
+| --------------------------------------------------- | ------------------------------------ |
+| `app/ai/ebmo_network.py`                            | Network architecture, loss functions |
+| `app/ai/ebmo_ai.py`                                 | AI agent implementation              |
+| `app/training/ebmo_dataset.py`                      | Dataset with contrastive sampling    |
+| `app/training/ebmo_trainer.py`                      | Training loop                        |
+| `app/training/ebmo_trainer.py`                      | Training loop (CLI entry point)      |
+| `scripts/archive/ebmo/train_ebmo.py`                | Archived training script             |
+| `scripts/archive/ebmo/generate_ebmo_expert_data.py` | Archived expert data generation      |
+| `scripts/generate_search_labeled_data.py`           | Search-labeled data generation       |
+| `scripts/archive/ebmo/train_ebmo_quality.py`        | Archived quality-labeled training    |
 
 ## Potential Advantages
 

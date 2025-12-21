@@ -5,6 +5,7 @@
 EBMO is a novel AI algorithm that uses **gradient descent on action embeddings** at inference time to select moves. Unlike traditional policy networks or MCTS, EBMO treats move selection as a continuous optimization problem.
 
 **Current Status:** Functional prototype that beats Random AI but loses to Heuristic AI.
+**Archive Note:** EBMO scripts were archived in 2025-12; script references below are historical and may require git history to restore.
 
 ## Benchmark Results (December 2025)
 
@@ -74,14 +75,14 @@ metrics = ai.end_game(winner)
 
 ## Key Files
 
-| File                                    | Purpose                          |
-| --------------------------------------- | -------------------------------- |
-| `app/ai/ebmo_network.py`                | EBMO neural network architecture |
-| `app/ai/ebmo_ai.py`                     | EBMO AI agent implementation     |
-| `app/ai/ebmo_online.py`                 | Online/continuous learning       |
-| `models/ebmo_56ch/ebmo_quality_best.pt` | Trained 56-channel model         |
-| `scripts/eval_ebmo_56ch.py`             | Evaluation script                |
-| `scripts/benchmark_ebmo_ladder.py`      | Ladder benchmark script          |
+| File                                            | Purpose                          |
+| ----------------------------------------------- | -------------------------------- |
+| `app/ai/ebmo_network.py`                        | EBMO neural network architecture |
+| `app/ai/ebmo_ai.py`                             | EBMO AI agent implementation     |
+| `app/ai/ebmo_online.py`                         | Online/continuous learning       |
+| `models/ebmo_56ch/ebmo_quality_best.pt`         | Trained 56-channel model         |
+| `scripts/archive/ebmo/eval_ebmo_56ch.py`        | Evaluation script (archived)     |
+| `scripts/archive/ebmo/benchmark_ebmo_ladder.py` | Ladder benchmark (archived)      |
 
 ## Learnings
 

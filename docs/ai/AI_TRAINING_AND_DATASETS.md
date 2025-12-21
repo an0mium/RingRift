@@ -141,6 +141,9 @@ PYTHONPATH=. python scripts/run_parity_and_history_gate.py \
   --summary-json data/games/db_health.<db_name>.json
 ```
 
+For square19/hex DBs, the wrapper defaults `RINGRIFT_USE_MAKE_UNMAKE=true` and
+`RINGRIFT_USE_FAST_TERRITORY=false` unless those env vars are already set.
+
 Refer to the parity runbook for interpretation and troubleshooting: [`docs/runbooks/PARITY_VERIFICATION_RUNBOOK.md`](../runbooks/PARITY_VERIFICATION_RUNBOOK.md).
 
 ---

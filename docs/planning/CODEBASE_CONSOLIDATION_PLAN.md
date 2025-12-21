@@ -206,23 +206,23 @@ app.utils.load_throttle
 
 **Current State:** 11 scripts with overlapping functionality
 
-| Script                                               | Lines | Imports | Status                             |
-| ---------------------------------------------------- | ----- | ------- | ---------------------------------- |
-| `run_tournament.py`                                  | 800+  | 9       | **KEEP - Unified hub**             |
-| `run_model_elo_tournament.py`                        | 1200+ | 14      | **KEEP - Core evaluation**         |
-| `run_distributed_tournament.py`                      | 900+  | 5+      | **KEEP - Distributed ladder**      |
-| `run_eval_tournaments.py`                            | 400+  | 2       | **KEEP**                           |
-| `run_diverse_tournaments.py`                         | 500+  | 3       | **KEEP**                           |
-| `run_ssh_distributed_tournament.py`                  | 300+  | 2       | **KEEP**                           |
-| `run_p2p_elo_tournament.py`                          | 400+  | 2       | **KEEP**                           |
-| `auto_elo_tournament.py`                             | 350+  | 1       | CONSOLIDATE into run_tournament.py |
-| `launch_distributed_elo_tournament.py`               | 200+  | 1       | CONSOLIDATE                        |
-| `shadow_tournament_service.py`                       | 300+  | 1       | EVALUATE                           |
-| `deprecated/run_ai_tournament.py`                    | 570   | 0       | **REMOVE**                         |
-| `deprecated/run_axis_aligned_tournament.py`          | 671   | 0       | **REMOVE**                         |
-| `deprecated/run_crossboard_difficulty_tournament.py` | 302   | 0       | **REMOVE**                         |
+| Script                                                       | Lines | Imports | Status                             |
+| ------------------------------------------------------------ | ----- | ------- | ---------------------------------- |
+| `run_tournament.py`                                          | 800+  | 9       | **KEEP - Unified hub**             |
+| `run_model_elo_tournament.py`                                | 1200+ | 14      | **KEEP - Core evaluation**         |
+| `run_distributed_tournament.py`                              | 900+  | 5+      | **KEEP - Distributed ladder**      |
+| `run_eval_tournaments.py`                                    | 400+  | 2       | **KEEP**                           |
+| `run_diverse_tournaments.py`                                 | 500+  | 3       | **KEEP**                           |
+| `run_ssh_distributed_tournament.py`                          | 300+  | 2       | **KEEP**                           |
+| `run_p2p_elo_tournament.py`                                  | 400+  | 2       | **KEEP**                           |
+| `auto_elo_tournament.py`                                     | 350+  | 1       | CONSOLIDATE into run_tournament.py |
+| `launch_distributed_elo_tournament.py`                       | 200+  | 1       | CONSOLIDATE                        |
+| `shadow_tournament_service.py`                               | 300+  | 1       | EVALUATE                           |
+| `archive/deprecated/run_ai_tournament.py`                    | 570   | 0       | **ARCHIVED**                       |
+| `archive/deprecated/run_axis_aligned_tournament.py`          | 671   | 0       | **ARCHIVED**                       |
+| `archive/deprecated/run_crossboard_difficulty_tournament.py` | 302   | 0       | **ARCHIVED**                       |
 
-**Consolidation Strategy:** See `docs/planning/TOURNAMENT_ELO_CONSOLIDATION_PLAN.md`
+**Consolidation Strategy:** See `ai-service/docs/planning/TOURNAMENT_ELO_CONSOLIDATION_PLAN.md`
 
 ---
 
@@ -288,13 +288,13 @@ app.utils.load_throttle
 | `multi_config_training_loop.py` | REMOVE (experimental) |
 | `population_based_training.py` | REMOVE (research) |
 
-**Consolidation Strategy:** See `docs/planning/NN_STRENGTHENING_PLAN.md` Section F (Closed-loop automation)
+**Consolidation Strategy:** See `ai-service/docs/planning/NN_STRENGTHENING_PLAN.md` Section F (Closed-loop automation)
 
 ---
 
 ### Target 5: EBMO Training Variants
 
-**Current State:** 16 scripts with no cross-imports
+**Current State:** 16 scripts archived (no cross-imports)
 
 ```
 train_ebmo.py
@@ -319,8 +319,8 @@ tune_ebmo_hyperparams.py
 
 **Consolidation Strategy:**
 
-1. Archive all 16 files to `scripts/archive/ebmo/`
-2. If EBMO is revived, consolidate into single `train_ebmo.py` with `--mode` flag
+1. Archived all 16 files under `scripts/archive/ebmo/` and removed from `scripts/` (completed)
+2. If EBMO is revived, consolidate into a single CLI (prefer `app/training/ebmo_trainer.py`)
 
 ---
 
@@ -345,8 +345,8 @@ minimal_hex8_debug.py
 
 **Consolidation Strategy:**
 
-1. Archive all to `scripts/archive/debug/`
-2. Keep `debug_ts_python_state_diff.py` if `diff_state_bundle.py` is in use
+1. Archived debug utilities under `scripts/archive/debug/` (completed)
+2. Use `diff_state_bundle.py` for parity diffs; archived scripts are reference-only
 
 ---
 
@@ -356,31 +356,18 @@ minimal_hex8_debug.py
 
 **Goal:** Remove files with zero dependencies
 
-| Task                                 | Files | Risk | Status      |
-| ------------------------------------ | ----- | ---- | ----------- |
-| Remove deprecated tournament scripts | 3     | None | [ ] Pending |
-| Archive debug scripts                | 23    | None | [ ] Pending |
-| Archive EBMO training variants       | 16    | None | [ ] Pending |
+| Task                                 | Files | Risk | Status   |
+| ------------------------------------ | ----- | ---- | -------- |
+| Remove deprecated tournament scripts | 3     | None | [x] Done |
+| Archive debug scripts                | 23    | None | [x] Done |
+| Archive EBMO training variants       | 16    | None | [x] Done |
 
 **Total:** 42 files removed/archived
 
-**Commands:**
+**Commands (completed):**
 
-```bash
-# Create archive directories
-mkdir -p ai-service/scripts/archive/{deprecated,debug,ebmo}
-
-# Move deprecated tournament scripts
-mv ai-service/scripts/deprecated/*.py ai-service/scripts/archive/deprecated/
-
-# Move debug scripts
-mv ai-service/scripts/debug_*.py ai-service/scripts/archive/debug/
-mv ai-service/scripts/minimal_*_debug.py ai-service/scripts/archive/debug/
-
-# Move EBMO variants
-mv ai-service/scripts/*ebmo*.py ai-service/scripts/archive/ebmo/
-mv ai-service/scripts/train_ebmo*.py ai-service/scripts/archive/ebmo/
-```
+Scripts are now under `ai-service/scripts/archive/{deprecated,debug,ebmo}/` and removed from
+`ai-service/scripts/`. Use git history if a restore is needed.
 
 ---
 
@@ -462,18 +449,16 @@ mv ai-service/scripts/train_ebmo*.py ai-service/scripts/archive/ebmo/
 ### Files Safe to Remove (Zero Risk)
 
 ```
-# Deprecated tournament scripts (3 files, 1,543 lines)
-ai-service/scripts/deprecated/run_ai_tournament.py
-ai-service/scripts/deprecated/run_axis_aligned_tournament.py
-ai-service/scripts/deprecated/run_crossboard_difficulty_tournament.py
+# Deprecated tournament scripts (archived)
+ai-service/scripts/archive/deprecated/run_ai_tournament.py
+ai-service/scripts/archive/deprecated/run_axis_aligned_tournament.py
+ai-service/scripts/archive/deprecated/run_crossboard_difficulty_tournament.py
 
-# Debug scripts (23 files, ~3,745 lines)
-ai-service/scripts/debug_*.py
-ai-service/scripts/minimal_*_debug.py
+# Debug scripts (archived)
+ai-service/scripts/archive/debug/
 
-# EBMO variants (16 files, ~4,000 lines)
-ai-service/scripts/*ebmo*.py
-ai-service/scripts/train_ebmo*.py
+# EBMO variants (archived)
+ai-service/scripts/archive/ebmo/
 ```
 
 ### Files to Consolidate (Medium Risk)
@@ -669,7 +654,7 @@ Legacy files are being migrated incrementally. Current status:
 
 ## Related Documents
 
-- `docs/planning/TOURNAMENT_ELO_CONSOLIDATION_PLAN.md` - Tournament consolidation details
+- `ai-service/docs/planning/TOURNAMENT_ELO_CONSOLIDATION_PLAN.md` - Tournament consolidation details
 - `ai-service/docs/planning/NN_STRENGTHENING_PLAN.md` - Training pipeline automation
 - `KNOWN_ISSUES.md` - Current bugs and gaps
 - `TODO.md` - Active task tracker
@@ -702,28 +687,67 @@ Legacy files are being migrated incrementally. Current status:
 
 ---
 
-## Appendix B: Orphaned Module Categories
+## Appendix B: Stranded Code - Integration Prioritization
 
-### High-Value Integration Candidates
+**Principle:** Prioritize integration and utilization over archiving when code provides
+valuable functionality not already covered in the codebase.
 
-| Module                                 | Value  | Integration Path        |
-| -------------------------------------- | ------ | ----------------------- |
-| `app.training.opening_book`            | HIGH   | Wire into selfplay      |
-| `app.training.optimized_pipeline`      | HIGH   | Evaluate as replacement |
-| `app.training.pbt`                     | MEDIUM | Wire into training loop |
-| `app.models.transformer_model`         | MEDIUM | Test as architecture    |
-| `app.training.uncertainty_calibration` | MEDIUM | Add to evaluation       |
-| `app.ai.gmo_v2`                        | MEDIUM | Wire into factory       |
+### INTEGRATE - High Priority (Production-Ready) ✅ COMPLETE
 
-### Low-Value / Remove Candidates
+| Module                               | Value  | Integration Point                         | Status      |
+| ------------------------------------ | ------ | ----------------------------------------- | ----------- |
+| `app.training.optimized_pipeline`    | HIGH   | Wired into train_loop.py                  | ✅ Complete |
+| `app.training.distillation`          | HIGH   | Re-exported from training_enhancements.py | ✅ Complete |
+| `app.training.adversarial_positions` | HIGH   | Wired into model_lifecycle.py             | ✅ Complete |
+| `app.training.auto_data_discovery`   | MEDIUM | Wired into data_coordinator.py            | ✅ Complete |
 
-| Module                                    | Reason                    |
-| ----------------------------------------- | ------------------------- |
-| `app.ai.numba_eval`                       | Experimental optimization |
-| `app.ai.parallel_eval`                    | Superseded by GPU eval    |
-| `app.ai.lightweight_*`                    | Experimental              |
-| `app.p2p.*`                               | Incomplete feature        |
-| `app.training.test_exploration_diversity` | Should be in tests/       |
+**Integration Details (2025-12-20):**
+
+1. **optimized_pipeline.py** → `train_loop.py`
+   - `run_training_loop(use_optimized_pipeline=True)` uses OptimizedTrainingPipeline
+   - Provides: export caching, distributed locks, health monitoring, curriculum feedback
+
+2. **adversarial_positions.py** → `model_lifecycle.py`
+   - `ModelRetentionManager.validate_model_robustness()` uses AdversarialGenerator
+   - Uses UNCERTAINTY and REPLAY strategies for efficient robustness testing
+
+3. **auto_data_discovery.py** → `data_coordinator.py`
+   - `TrainingDataCoordinator.prepare_for_training()` runs auto-discovery
+   - Configurable via `enable_auto_discovery=True` (default)
+
+4. **distillation.py** → `training_enhancements.py`
+   - All distillation classes re-exported from unified training API
+   - Import from `app.training.training_enhancements`
+
+### EXPERIMENTAL - Keep with Feature Flags
+
+| Module                       | Flag                          | Integration Point       |
+| ---------------------------- | ----------------------------- | ----------------------- |
+| `app.ai.gmo_policy_provider` | `RINGRIFT_USE_GMO_POLICY=1`   | MCTS policy selection   |
+| `app.training.opening_book`  | `RINGRIFT_USE_OPENING_BOOK=1` | Selfplay initialization |
+
+### KEEP - Active Production Dependencies
+
+| Module                                         | Reason                            |
+| ---------------------------------------------- | --------------------------------- |
+| `app.ai.batch_eval`                            | Core dependency of HeuristicAI    |
+| `app.ai.lightweight_eval`, `lightweight_state` | Used by evaluation modules        |
+| `app.ai.numba_eval`                            | JIT functions for HeuristicAI     |
+| `app.ai.swap_evaluation`                       | Used by BaseAI and HeuristicAI    |
+| `app.p2p.*`                                    | Part of active P2P infrastructure |
+
+### EXPERIMENTAL - GMO Research Direction
+
+GMO (Gradient Move Optimization) is a novel approach available as experimental AI types:
+
+| Module                       | Status       | Notes                                                  |
+| ---------------------------- | ------------ | ------------------------------------------------------ |
+| `app.ai.gmo_ai`              | Active       | D13/D14/D17, enable at D3 with `RINGRIFT_USE_IG_GMO=1` |
+| `app.ai.gmo_v2`              | Experimental | Enhanced version with attention + ensemble             |
+| `app.ai.gmo_policy_provider` | Experimental | GMO-based priors for MCTS                              |
+
+**Recommendation:** If pursuing GMO research, consolidate gmo_ai.py + gmo_v2.py
+into unified implementation with config-driven architecture selection.
 
 ---
 

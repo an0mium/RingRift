@@ -192,7 +192,8 @@ This replaces PolicyOnly at D3 with the experimental AI for A/B testing.
 Run the ladder benchmark:
 
 ```bash
-python scripts/benchmark_ebmo_ladder.py
+# Archived in 2025-12 (script removed from repo; use git history if needed)
+# python scripts/archive/ebmo/benchmark_ebmo_ladder.py
 ```
 
 This tests EBMO against:

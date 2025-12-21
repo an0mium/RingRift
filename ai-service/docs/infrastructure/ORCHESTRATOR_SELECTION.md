@@ -8,7 +8,7 @@
 | **P2P Cluster**       | `p2p_orchestrator.py`                  | Multi-node P2P coordination, distributed selfplay    |
 | **Slurm HPC**         | `unified_ai_loop.py`                   | Stable Slurm cluster with shared filesystem          |
 | **Sync Operations**   | `app/distributed/sync_orchestrator.py` | Unified entry point for data/model/elo/registry sync |
-| **Multi-Board Train** | `multi_config_training_loop.py`        | Train across hex8/square8/square19 configs           |
+| **Multi-Board Train** | `unified_ai_loop.py`                   | Multi-board training via unified loop config         |
 | **Elo Tournament**    | `auto_elo_tournament.py`               | Automated Elo evaluation with Slack alerts           |
 | **Model Promotion**   | `model_promotion_manager.py`           | Manual promotion, Elo testing, rollback              |
 
@@ -208,7 +208,7 @@ Do you need continuous AI improvement?
 │  └─ unified_ai_loop.py (with regression gate)
 │
 ├─ No, need multi-board/multi-player training
-│  └─ multi_config_training_loop.py
+│  └─ unified_ai_loop.py (multi-board config)
 │
 └─ No, need distributed P2P selfplay
    └─ p2p_orchestrator.py
@@ -218,10 +218,9 @@ Do you need continuous AI improvement?
 
 ## Configuration Files
 
-| Script                          | Config File                                     |
-| ------------------------------- | ----------------------------------------------- |
-| `unified_ai_loop.py`            | `config/unified_loop.yaml`                      |
-| `p2p_orchestrator.py`           | `config/unified_loop.yaml` (p2p section)        |
-| `multi_config_training_loop.py` | `config/unified_loop.yaml`                      |
-| `model_promotion_manager.py`    | Uses CLI args or `config/promotion_daemon.yaml` |
-| `auto_elo_tournament.py`        | `config/unified_loop.yaml`                      |
+| Script                       | Config File                                     |
+| ---------------------------- | ----------------------------------------------- |
+| `unified_ai_loop.py`         | `config/unified_loop.yaml`                      |
+| `p2p_orchestrator.py`        | `config/unified_loop.yaml` (p2p section)        |
+| `model_promotion_manager.py` | Uses CLI args or `config/promotion_daemon.yaml` |
+| `auto_elo_tournament.py`     | `config/unified_loop.yaml`                      |

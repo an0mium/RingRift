@@ -378,15 +378,10 @@ JSON report at `{run_dir}/nnue_policy_training_report.json`:
 
 ## Integration with Orchestrators
 
-### Multi-Config Training Loop
+### Multi-Config Training
 
-The `scripts/multi_config_training_loop.py` automatically passes JSONL data to policy training:
-
-```python
-# In multi_config_training_loop.py
-ENABLE_POLICY_TRAINING = True
-POLICY_AUTO_KL_LOSS = os.environ.get("RINGRIFT_POLICY_AUTO_KL_LOSS", "1") == "1"
-```
+Multi-config orchestration is now handled by `scripts/unified_ai_loop.py`. Policy training is
+configured via the unified loop config instead of per-script flags.
 
 ### Unified AI Loop
 

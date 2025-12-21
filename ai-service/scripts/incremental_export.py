@@ -53,7 +53,7 @@ from scripts.jsonl_to_npz import (
     build_encoder,
 )
 
-# JSONL source directories (same as multi_config_training_loop.py)
+# JSONL source directories (shared with unified_ai_loop.py configs)
 CONFIG_JSONL_DIRS: dict[tuple[str, int], list[str]] = {
     ("square8", 2): [
         "data/selfplay/canonical",

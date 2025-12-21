@@ -166,6 +166,10 @@ python scripts/generate_canonical_selfplay.py \
   2>&1 | tee logs/selfplay/canonical_square19.log
 ```
 
+Note: For square19/hex, `generate_canonical_selfplay.py` defaults
+`RINGRIFT_USE_MAKE_UNMAKE=true` and `RINGRIFT_USE_FAST_TERRITORY=false`
+unless you override those env vars.
+
 ## Target Game Counts
 
 Per AI Training Pipeline requirements:

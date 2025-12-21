@@ -103,6 +103,10 @@ PYTHONPATH=. python scripts/generate_canonical_selfplay.py \
   --summary data/games/db_health.canonical_hexagonal.json
 ```
 
+For square19/hex runs, `generate_canonical_selfplay.py` defaults
+`RINGRIFT_USE_MAKE_UNMAKE=true` and `RINGRIFT_USE_FAST_TERRITORY=false`
+unless those env vars are already set.
+
 **Validation Steps:**
 
 1. Run a self-play soak (skipped when `--num-games 0`)
