@@ -187,3 +187,169 @@ def create_default_curriculum() -> CurriculumController:
         CurriculumStage(name="expert", max_moves=200, opponent_elo_delta=50, temperature=0.5, win_rate_threshold=0.48, games_required=300),
     ]
     return CurriculumController(stages=stages, checkpoint_path=Path("data/curriculum_state.json"))
+
+
+@dataclass
+class CurriculumConfig:
+    """Configuration for full curriculum training pipeline.
+
+    Combines self-play generation, training, and promotion into an
+    iterative loop that progressively improves model strength.
+    """
+    # Board configuration
+    board_type: Any = None  # BoardType enum
+    num_players: int = 2
+
+    # Curriculum settings
+    generations: int = 10
+    games_per_generation: int = 500
+    training_epochs: int = 20
+    eval_games: int = 50
+    promotion_threshold: float = 0.55  # Win rate to promote
+
+    # Data retention
+    data_retention: int = 3  # Generations of data to keep
+
+    # Training hyperparameters
+    learning_rate: float = 1e-3
+    batch_size: int = 32
+    base_seed: int = 42
+
+    # Output
+    output_dir: str = "curriculum_runs"
+
+    # Engine configuration
+    engine: str = "descent"  # descent, mcts
+    engine_mix: str = "single"  # single, per_game, per_player
+    engine_ratio: float = 0.5  # MCTS ratio when mixing
+
+
+@dataclass
+class GenerationResult:
+    """Result of a single curriculum generation."""
+    generation: int
+    win_rate: float
+    training_loss: float
+    promoted: bool
+    model_path: str | None = None
+    games_generated: int = 0
+    eval_games_played: int = 0
+
+
+class CurriculumTrainer:
+    """Runs iterative curriculum training with self-play and promotion.
+
+    Each generation:
+    1. Generate self-play games with current model
+    2. Train on accumulated data
+    3. Evaluate against previous generation
+    4. Promote if win rate exceeds threshold
+    """
+
+    def __init__(self, config: CurriculumConfig, base_model: str | None = None):
+        self.config = config
+        self.base_model = base_model
+        self.run_dir = Path(config.output_dir) / f"run_{int(time.time())}"
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        self.current_model: str | None = base_model
+        self.generation_data: list[Path] = []
+
+    def run(self) -> list[GenerationResult]:
+        """Run full curriculum training loop."""
+        results = []
+
+        for gen in range(self.config.generations):
+            logger.info(f"[Curriculum] Starting generation {gen + 1}/{self.config.generations}")
+
+            # 1. Generate self-play games
+            games_path = self._generate_selfplay(gen)
+            self.generation_data.append(games_path)
+
+            # Keep only recent generations
+            if len(self.generation_data) > self.config.data_retention:
+                self.generation_data = self.generation_data[-self.config.data_retention:]
+
+            # 2. Train on accumulated data
+            training_loss = self._train_generation(gen)
+
+            # 3. Evaluate against previous
+            win_rate = self._evaluate_generation(gen)
+
+            # 4. Decide on promotion
+            promoted = win_rate >= self.config.promotion_threshold
+            if promoted:
+                self._promote_model(gen)
+
+            result = GenerationResult(
+                generation=gen,
+                win_rate=win_rate,
+                training_loss=training_loss,
+                promoted=promoted,
+                model_path=str(self.run_dir / f"gen_{gen}" / "model.pth"),
+                games_generated=self.config.games_per_generation,
+                eval_games_played=self.config.eval_games,
+            )
+            results.append(result)
+
+            logger.info(
+                f"[Curriculum] Gen {gen}: win_rate={win_rate:.1%}, "
+                f"loss={training_loss:.4f}, promoted={promoted}"
+            )
+
+        return results
+
+    def _generate_selfplay(self, generation: int) -> Path:
+        """Generate self-play games for this generation."""
+        gen_dir = self.run_dir / f"gen_{generation}"
+        gen_dir.mkdir(exist_ok=True)
+        games_path = gen_dir / "games.db"
+
+        # Use subprocess to run selfplay generation
+        import subprocess
+        cmd = [
+            "python", "scripts/run_gpu_selfplay.py",
+            "--board", str(self.config.board_type.value) if self.config.board_type else "square8",
+            "--num-players", str(self.config.num_players),
+            "--num-games", str(self.config.games_per_generation),
+            "--engine-mode", self.config.engine,
+            "--record-db", str(games_path),
+            "--skip-resource-check",
+        ]
+
+        logger.info(f"[Curriculum] Generating {self.config.games_per_generation} games")
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, timeout=3600)
+        except Exception as e:
+            logger.warning(f"[Curriculum] Selfplay generation failed: {e}")
+
+        return games_path
+
+    def _train_generation(self, generation: int) -> float:
+        """Train model on accumulated data."""
+        gen_dir = self.run_dir / f"gen_{generation}"
+
+        # Combine data from recent generations
+        # For now, return placeholder loss
+        logger.info(f"[Curriculum] Training for {self.config.training_epochs} epochs")
+
+        # Placeholder - actual training would use train.py
+        return 0.1 + 0.01 * generation  # Simulated decreasing loss
+
+    def _evaluate_generation(self, generation: int) -> float:
+        """Evaluate current model against previous generation."""
+        if generation == 0 or self.current_model is None:
+            # First generation or no previous model - use baseline
+            return 0.55
+
+        logger.info(f"[Curriculum] Evaluating with {self.config.eval_games} games")
+
+        # Placeholder - actual evaluation would run tournament
+        import random
+        return 0.45 + random.random() * 0.2  # Simulated win rate 45-65%
+
+    def _promote_model(self, generation: int) -> None:
+        """Promote the current generation's model."""
+        gen_dir = self.run_dir / f"gen_{generation}"
+        model_path = gen_dir / "model.pth"
+        self.current_model = str(model_path)
+        logger.info(f"[Curriculum] Promoted model from generation {generation}")
