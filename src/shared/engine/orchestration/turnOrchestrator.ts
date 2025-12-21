@@ -1262,6 +1262,15 @@ export interface ProcessTurnOptions {
   breakOnDecisionRequired?: boolean;
 
   /**
+   * RR-PARITY-FIX-2025-12-21: Track the original non-bookkeeping move that
+   * started this turn sequence. This is needed because when processing
+   * intermediate bookkeeping moves (no_line_action, no_territory_action),
+   * the move history hasn't been updated yet, so computeHadAnyActionThisTurn
+   * would incorrectly return false.
+   */
+  turnSequenceRealMoves?: Move[];
+
+  /**
    * Enable legacy/parity replay tolerance.
    *
    * @deprecated Use strict mode with explicit error handling for legacy records.
@@ -1371,7 +1380,9 @@ export function processTurn(
   const hashBefore = hashGameState(stateMachine.gameState);
 
   // Apply the move based on type
-  const applyResult = applyMoveWithChainInfo(stateMachine.gameState, move);
+  // RR-FIX-2024-12-21: Pass options to applyMoveWithChainInfo so handlers can access
+  // turnSequenceRealMoves for accurate hadAnyActionThisTurn checks.
+  const applyResult = applyMoveWithChainInfo(stateMachine.gameState, move, options);
 
   // DEBUG: Trace stacks after applyMoveWithChainInfo for choose_line_option
   if (process.env.RINGRIFT_TRACE_DEBUG === '1' && move.type === 'choose_line_option') {
@@ -1873,7 +1884,11 @@ interface ApplyMoveResult {
  * Apply a move to the game state based on move type.
  * For capture moves, also returns chain capture continuation info.
  */
-function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
+function applyMoveWithChainInfo(
+  state: GameState,
+  move: Move,
+  options?: ProcessTurnOptions
+): ApplyMoveResult {
   switch (move.type) {
     case 'swap_sides': {
       const validation = validateSwapSidesMove(state, move.player);
@@ -2211,7 +2226,13 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
       const alreadyInForcedElimination = state.currentPhase === 'forced_elimination';
 
       if (!alreadyInForcedElimination) {
-        const hadAnyAction = computeHadAnyActionThisTurn(state, move);
+        // RR-FIX-2024-12-21: Pass turnSequenceRealMoves for accurate action detection
+        // when processing bookkeeping moves in a multi-phase turn.
+        const hadAnyAction = computeHadAnyActionThisTurn(
+          state,
+          move,
+          options?.turnSequenceRealMoves
+        );
         const hasStacks = playerHasStacksOnBoard(state, move.player);
 
         if (!hadAnyAction && hasStacks) {
@@ -2510,24 +2531,13 @@ function performFSMValidation(
  */
 function processPostMovePhases(
   stateMachine: PhaseStateMachine,
-  _options?: ProcessTurnOptions
+  options?: ProcessTurnOptions
 ): {
   pendingDecision?: PendingDecision;
   victoryResult?: VictoryState;
 } {
   const state = stateMachine.gameState;
   const originalMoveType = stateMachine.processingState.originalMove.type as string;
-
-  // DEBUG: Log state at start of processPostMovePhases
-  console.log('[processPostMovePhases] DEBUG entry:', {
-    originalMoveType,
-    stacks: Array.from(state.board.stacks.entries()).map(([k, v]) => ({
-      k,
-      rings: v.rings,
-      stackHeight: v.stackHeight,
-    })),
-  });
-
   // Handle forced_elimination phase completion - skip straight to victory check
   // and turn rotation since the elimination is the final action in the player's turn.
   // Per RR-CANON-R070, forced_elimination is the 7th and final phase.
@@ -2790,9 +2800,12 @@ function processPostMovePhases(
     });
     const hasTerritoryRegions = regionsForPlayer.length > 0;
     // Pass currentMove for parity with Python where move is in history during phase checks
+    // RR-FIX-2024-12-21: Also pass turnSequenceRealMoves for multi-phase turns where
+    // the original move hasn't been added to history yet (host adds after processTurn returns).
     const hadAnyActionThisTurn = computeHadAnyActionThisTurn(
       stateMachine.gameState,
-      stateMachine.processingState.originalMove
+      stateMachine.processingState.originalMove,
+      options?.turnSequenceRealMoves
     );
     const playerHasStacks = playerHasStacksOnBoard(stateMachine.gameState, player);
 
@@ -2970,9 +2983,12 @@ function processPostMovePhases(
     // the canonical FSM helper so TS and Python stay aligned.
     const currentPlayer = stateMachine.gameState.currentPlayer;
     // Pass currentMove for parity with Python where move is in history during phase checks
+    // RR-FIX-2024-12-21: Also pass turnSequenceRealMoves for multi-phase turns where
+    // the original move hasn't been added to history yet (host adds after processTurn returns).
     const hadAnyActionThisTurn = computeHadAnyActionThisTurn(
       stateMachine.gameState,
-      stateMachine.processingState.originalMove
+      stateMachine.processingState.originalMove,
+      options?.turnSequenceRealMoves
     );
     const playerHasStacks = playerHasStacksOnBoard(stateMachine.gameState, currentPlayer);
 
@@ -3126,7 +3142,25 @@ export async function processTurnAsync(
   delegates: TurnProcessingDelegates,
   options?: ProcessTurnOptions
 ): Promise<ProcessTurnResult> {
-  let result = processTurn(state, move, options);
+  // RR-PARITY-FIX-2025-12-21: Track non-bookkeeping moves for this turn sequence.
+  // This is needed because move history isn't updated until the host adds them
+  // after processTurnAsync returns. When processing intermediate bookkeeping moves,
+  // computeHadAnyActionThisTurn needs to know about the original real move.
+  const turnSequenceRealMoves: Move[] = options?.turnSequenceRealMoves
+    ? [...options.turnSequenceRealMoves]
+    : [];
+
+  // Track the initial move if it's a real action (not bookkeeping)
+  if (!isNoActionBookkeepingMove(move.type)) {
+    turnSequenceRealMoves.push(move);
+  }
+
+  const optionsWithRealMoves: ProcessTurnOptions = {
+    ...options,
+    turnSequenceRealMoves,
+  };
+
+  let result = processTurn(state, move, optionsWithRealMoves);
 
   // Process any pending decisions
   while (result.status === 'awaiting_decision' && result.pendingDecision) {
@@ -3166,8 +3200,16 @@ export async function processTurnAsync(
       payload: { decision, chosenMove },
     });
 
-    // Continue processing with the chosen move
-    result = processTurn(result.nextState, chosenMove, options);
+    // RR-PARITY-FIX-2025-12-21: Track the chosen move if it's a real action
+    if (!isNoActionBookkeepingMove(chosenMove.type)) {
+      turnSequenceRealMoves.push(chosenMove);
+    }
+
+    // Continue processing with the chosen move, passing accumulated real moves
+    result = processTurn(result.nextState, chosenMove, {
+      ...optionsWithRealMoves,
+      turnSequenceRealMoves,
+    });
   }
 
   return result;
@@ -3637,17 +3679,24 @@ export function hasValidMoves(state: GameState): boolean {
  * player. Forced no-op bookkeeping moves (no_*_action) are ignored; voluntary
  * skips (skip_*) count as actions.
  */
-function computeHadAnyActionThisTurn(state: GameState, currentMove?: Move): boolean {
+function computeHadAnyActionThisTurn(
+  state: GameState,
+  currentMove?: Move,
+  turnSequenceRealMoves?: Move[]
+): boolean {
   const currentPlayer = state.currentPlayer;
   const history = state.moveHistory;
 
-  // DEBUG: Log inputs
-  console.log('[computeHadAnyActionThisTurn] DEBUG:', {
-    currentPlayer,
-    currentMoveType: currentMove?.type,
-    historyLength: history.length,
-    recentMoves: history.slice(-5).map((m) => ({ type: m.type, player: m.player })),
-  });
+  // RR-PARITY-FIX-2025-12-21: Check turnSequenceRealMoves first.
+  // This tracks non-bookkeeping moves that have been processed in the current
+  // async turn sequence but haven't been added to history yet.
+  if (turnSequenceRealMoves && turnSequenceRealMoves.length > 0) {
+    for (const move of turnSequenceRealMoves) {
+      if (move.player === currentPlayer && !isNoActionBookkeepingMove(move.type)) {
+        return true;
+      }
+    }
+  }
 
   // Include the current move being processed if provided.
   // This is needed for parity with Python, where the move is already
