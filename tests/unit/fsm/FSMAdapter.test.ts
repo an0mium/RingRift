@@ -577,6 +577,8 @@ describe('FSMAdapter', () => {
         'process_line',
         'choose_line_option',
         'choose_line_reward',
+        // RR-CANON-R123: line reward elimination uses eliminate_rings_from_stack
+        'eliminate_rings_from_stack',
         'no_line_action',
         'line_formation',
       ],
@@ -588,7 +590,8 @@ describe('FSMAdapter', () => {
         'skip_territory_processing',
         'territory_claim',
       ],
-      forced_elimination: ['forced_elimination'],
+      // no_territory_action allowed for replay compatibility
+      forced_elimination: ['forced_elimination', 'no_territory_action'],
       game_over: [],
     };
 

@@ -98,7 +98,10 @@ export const VALID_MOVES_BY_PHASE: Readonly<Record<GamePhase, readonly MoveType[
     // Deprecated legacy move type; accepted for replay only.
     'territory_claim',
   ],
-  forced_elimination: ['forced_elimination'],
+  // Note: no_territory_action allowed here for replay compatibility - during replay,
+  // the previous move's handler may transition to forced_elimination, but the recorded
+  // sequence has no_territory_action as the next move (from territory_processing phase)
+  forced_elimination: ['forced_elimination', 'no_territory_action'],
   game_over: [],
 } as const;
 
@@ -140,7 +143,8 @@ export const CANONICAL_VALID_MOVES_BY_PHASE: Readonly<Record<GamePhase, readonly
     'skip_territory_processing',
     'no_territory_action',
   ],
-  forced_elimination: ['forced_elimination'],
+  // Note: no_territory_action allowed for replay compatibility (see VALID_MOVES_BY_PHASE)
+  forced_elimination: ['forced_elimination', 'no_territory_action'],
   game_over: [],
 } as const;
 

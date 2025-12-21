@@ -133,8 +133,9 @@ describe('phaseValidation', () => {
       expect(isMoveValidInPhase('resign', 'game_over')).toBe(true);
     });
 
-    it('returns false for eliminate_rings_from_stack in line_processing', () => {
-      expect(isMoveValidInPhase('eliminate_rings_from_stack', 'line_processing')).toBe(false);
+    // RR-CANON-R123: eliminate_rings_from_stack is valid in line_processing for line reward elimination
+    it('returns true for eliminate_rings_from_stack in line_processing (RR-CANON-R123)', () => {
+      expect(isMoveValidInPhase('eliminate_rings_from_stack', 'line_processing')).toBe(true);
     });
 
     it('returns true for eliminate_rings_from_stack in territory_processing', () => {
@@ -216,10 +217,12 @@ describe('phaseValidation', () => {
       expect(phases).toContain('movement');
     });
 
-    it('returns multiple phases for eliminate_rings_from_stack', () => {
+    // RR-CANON-R123: eliminate_rings_from_stack is valid in BOTH line_processing AND territory_processing
+    it('returns multiple phases for eliminate_rings_from_stack (RR-CANON-R123)', () => {
       const phases = getPhasesForMoveType('eliminate_rings_from_stack');
       expect(phases).toContain('territory_processing');
-      expect(phases.length).toBe(1);
+      expect(phases).toContain('line_processing');
+      expect(phases.length).toBe(2);
     });
 
     it('returns all non-game_over phases for resign (always valid)', () => {
