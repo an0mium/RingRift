@@ -689,6 +689,53 @@ async def emit_tier_promotion_safe(
     )
 
 
+async def emit_crossboard_promotion_safe(
+    candidate_id: str,
+    tier: str,
+    target_elo: float,
+    mean_elo: float,
+    min_elo: float,
+    configs_passed: int,
+    configs_total: int,
+    promotion_applied: bool,
+    source: str = ""
+) -> bool:
+    """Safely emit CROSSBOARD_PROMOTION event for multi-config promotions.
+
+    This event is emitted when a model is evaluated across all board/player
+    configurations and either meets or fails to meet the promotion threshold.
+
+    Args:
+        candidate_id: ID of the candidate model
+        tier: Difficulty tier evaluated (e.g., "D8")
+        target_elo: Target Elo threshold
+        mean_elo: Mean Elo across all configs
+        min_elo: Minimum Elo (weakest config)
+        configs_passed: Number of configs that passed threshold
+        configs_total: Total number of configs evaluated
+        promotion_applied: Whether ladder was updated
+        source: Source component name
+
+    Returns:
+        True if emitted successfully, False otherwise.
+    """
+    return await emit_event_safe(
+        "CROSSBOARD_PROMOTION",
+        {
+            "candidate_id": candidate_id,
+            "tier": tier,
+            "target_elo": target_elo,
+            "mean_elo": mean_elo,
+            "min_elo": min_elo,
+            "configs_passed": configs_passed,
+            "configs_total": configs_total,
+            "promotion_applied": promotion_applied,
+            "eligible": configs_passed == configs_total,
+        },
+        source
+    )
+
+
 # =============================================================================
 # Sync wrappers (for non-async contexts)
 # =============================================================================

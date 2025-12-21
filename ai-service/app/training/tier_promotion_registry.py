@@ -13,6 +13,25 @@ DEFAULT_SQUARE8_2P_REGISTRY_PATH = os.fspath(
     AI_SERVICE_ROOT / "config" / "tier_candidate_registry.square8_2p.json"
 )
 
+# Registry directory for all board/player configurations.
+REGISTRY_DIR = AI_SERVICE_ROOT / "config" / "tier_registries"
+
+
+def _get_registry_path(board: str, num_players: int) -> str:
+    """Return the registry path for a specific board/player configuration."""
+    return os.fspath(REGISTRY_DIR / f"tier_candidate_registry.{board}_{num_players}p.json")
+
+
+def _board_str_to_enum(board: str) -> BoardType:
+    """Convert board string to BoardType enum."""
+    mapping = {
+        "square8": BoardType.SQUARE8,
+        "square19": BoardType.SQUARE19,
+        "hexagonal": BoardType.HEXAGONAL,
+        "hex": BoardType.HEXAGONAL,
+    }
+    return mapping.get(board.lower(), BoardType.SQUARE8)
+
 
 def _default_square8_two_player_registry() -> dict[str, Any]:
     """Return an empty candidate registry for square8 2-player tiers."""
@@ -220,3 +239,282 @@ def update_square8_two_player_registry_for_run(
     )
     save_square8_two_player_registry(registry, path=path)
     return entry
+
+
+# =============================================================================
+# Generic Multi-Config Registry API
+# =============================================================================
+
+
+def _default_config_registry(board: str, num_players: int) -> dict[str, Any]:
+    """Return an empty candidate registry for a specific board/player config."""
+    return {
+        "board": board,
+        "num_players": num_players,
+        "tiers": {},
+    }
+
+
+def load_config_registry(
+    board: str,
+    num_players: int,
+    path: str | None = None,
+) -> dict[str, Any]:
+    """Load the candidate registry for a specific board/player configuration.
+
+    When *path* is None, the default registry path under ``ai-service/config/tier_registries``
+    is used. If the file does not exist, an empty default structure is returned.
+
+    Args:
+        board: Board identifier (e.g., "square8", "square19", "hexagonal").
+        num_players: Number of players (2, 3, or 4).
+        path: Optional override path for the registry file.
+
+    Returns:
+        The registry dictionary for this configuration.
+    """
+    registry_path = path or _get_registry_path(board, num_players)
+    if not os.path.exists(registry_path):
+        return _default_config_registry(board, num_players)
+
+    with open(registry_path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_config_registry(
+    registry: dict[str, Any],
+    board: str,
+    num_players: int,
+    path: str | None = None,
+) -> None:
+    """Persist the candidate registry for a specific board/player configuration.
+
+    The JSON is written with indentation and sorted keys for stable,
+    human-auditable diffs.
+
+    Args:
+        registry: The registry dictionary to save.
+        board: Board identifier (e.g., "square8", "square19", "hexagonal").
+        num_players: Number of players (2, 3, or 4).
+        path: Optional override path for the registry file.
+    """
+    registry_path = path or _get_registry_path(board, num_players)
+    registry_dir = os.path.dirname(registry_path)
+    if registry_dir:
+        os.makedirs(registry_dir, exist_ok=True)
+
+    with open(registry_path, "w", encoding="utf-8") as f:
+        json.dump(registry, f, indent=2, sort_keys=True)
+
+
+def get_current_ladder_model_for_config_tier(
+    tier: str,
+    board: str,
+    num_players: int,
+) -> dict[str, Any]:
+    """Return a small summary of the live ladder assignment for a tier.
+
+    This is a generalized version of :func:`get_current_ladder_model_for_tier`
+    that works for any board/player configuration.
+
+    Args:
+        tier: Tier name (e.g., "D4", "D6").
+        board: Board identifier (e.g., "square8", "square19", "hexagonal").
+        num_players: Number of players (2, 3, or 4).
+
+    Returns:
+        Dictionary with tier configuration details.
+    """
+    tier_name = str(tier).upper()
+    if not tier_name.startswith("D") or not tier_name[1:].isdigit():
+        raise ValueError(f"Unsupported tier name {tier!r}; expected like 'D4'.")
+
+    difficulty = int(tier_name[1:])
+    board_type = _board_str_to_enum(board)
+
+    cfg = ladder_config.get_ladder_tier_config(
+        difficulty=difficulty,
+        board_type=board_type,
+        num_players=num_players,
+    )
+
+    return {
+        "tier": tier_name,
+        "difficulty": difficulty,
+        "board": board,
+        "board_type": board_type.value,
+        "num_players": num_players,
+        "model_id": cfg.model_id,
+        "heuristic_profile_id": cfg.heuristic_profile_id,
+        "ai_type": (
+            cfg.ai_type.value
+            if isinstance(cfg.ai_type, AIType)
+            else str(cfg.ai_type)
+        ),
+        "ladder_source": "app.config.ladder_config",
+    }
+
+
+def record_config_promotion_plan(
+    registry: dict[str, Any],
+    tier: str,
+    candidate_id: str,
+    run_dir: str,
+    promotion_plan: dict[str, Any],
+    board: str,
+    num_players: int,
+) -> dict[str, Any]:
+    """Add or update a candidate entry in a config-specific registry.
+
+    This is a generalized version of :func:`record_promotion_plan` that works
+    for any board/player configuration.
+
+    Args:
+        registry: In-memory registry structure to be updated.
+        tier: Difficulty tier name (e.g., "D4").
+        candidate_id: Candidate identifier.
+        run_dir: Path to the training/gating run directory.
+        promotion_plan: Parsed promotion_plan.json payload.
+        board: Board identifier (e.g., "square8").
+        num_players: Number of players (2, 3, or 4).
+
+    Returns:
+        The candidate entry dictionary that was added or updated.
+    """
+    tier_name = str(tier).upper()
+    status = _status_from_decision(
+        str(promotion_plan.get("decision", "reject"))
+    )
+
+    registry.setdefault("board", board)
+    registry.setdefault("num_players", num_players)
+
+    tiers = registry.setdefault("tiers", {})
+    tier_block = tiers.setdefault(
+        tier_name,
+        {
+            "current": get_current_ladder_model_for_config_tier(tier_name, board, num_players),
+            "candidates": [],
+        },
+    )
+
+    # Ensure the "current" block is kept in sync with the live ladder.
+    tier_block["current"] = get_current_ladder_model_for_config_tier(tier_name, board, num_players)
+
+    candidates = tier_block.setdefault("candidates", [])
+    candidate_entry: dict[str, Any] | None = None
+
+    for entry in candidates:
+        if entry.get("candidate_id") == candidate_id or entry.get(
+            "candidate_model_id"
+        ) == candidate_id:
+            candidate_entry = entry
+            break
+
+    if candidate_entry is None:
+        candidate_entry = {
+            "candidate_id": candidate_id,
+            "candidate_model_id": candidate_id,
+        }
+        candidates.append(candidate_entry)
+
+    candidate_entry["tier"] = tier_name
+    candidate_entry["board"] = board
+    candidate_entry["num_players"] = num_players
+    candidate_entry["source_run_dir"] = os.fspath(run_dir)
+    candidate_entry.setdefault("training_report", "training_report.json")
+    candidate_entry.setdefault("gate_report", "gate_report.json")
+    candidate_entry.setdefault("promotion_plan", "promotion_plan.json")
+
+    # Track the model / profile identifiers when available.
+    model_id = promotion_plan.get("candidate_model_id") or promotion_plan.get(
+        "candidate_id"
+    )
+    if model_id is not None:
+        candidate_entry["model_id"] = model_id
+    heuristic_profile_id = promotion_plan.get("candidate_heuristic_profile_id")
+    if heuristic_profile_id is not None:
+        candidate_entry["heuristic_profile_id"] = heuristic_profile_id
+
+    candidate_entry["status"] = status
+    return candidate_entry
+
+
+def update_config_registry_for_run(
+    tier: str,
+    candidate_id: str,
+    run_dir: str,
+    promotion_plan: dict[str, Any],
+    board: str,
+    num_players: int,
+    path: str | None = None,
+) -> dict[str, Any]:
+    """Load, update, and persist a config-specific tier candidate registry.
+
+    This is a generalized version of :func:`update_square8_two_player_registry_for_run`
+    that works for any board/player configuration.
+
+    Args:
+        tier: Difficulty tier name (e.g., "D4").
+        candidate_id: Candidate identifier.
+        run_dir: Path to the training/gating run directory.
+        promotion_plan: Parsed promotion_plan.json payload.
+        board: Board identifier (e.g., "square8", "square19", "hexagonal").
+        num_players: Number of players (2, 3, or 4).
+        path: Optional override path for the registry file.
+
+    Returns:
+        The candidate entry dictionary that was added or updated.
+    """
+    registry = load_config_registry(board, num_players, path=path)
+    entry = record_config_promotion_plan(
+        registry=registry,
+        tier=tier,
+        candidate_id=candidate_id,
+        run_dir=run_dir,
+        promotion_plan=promotion_plan,
+        board=board,
+        num_players=num_players,
+    )
+    save_config_registry(registry, board, num_players, path=path)
+    return entry
+
+
+def load_all_config_registries() -> dict[str, dict[str, Any]]:
+    """Load all config registries that exist on disk.
+
+    Returns:
+        Dictionary mapping config key (e.g., "square8_2p") to registry contents.
+    """
+    from app.training.crossboard_strength import ALL_BOARD_CONFIGS, config_key
+
+    registries = {}
+    for board, num_players in ALL_BOARD_CONFIGS:
+        key = config_key(board, num_players)
+        registry = load_config_registry(board, num_players)
+        if registry.get("tiers"):  # Only include non-empty registries
+            registries[key] = registry
+    return registries
+
+
+def get_all_promoted_candidates() -> list[dict[str, Any]]:
+    """Get all candidates that have been promoted across all configurations.
+
+    Returns:
+        List of candidate entries with status "gated_promote".
+    """
+    registries = load_all_config_registries()
+    promoted = []
+
+    for config_key, registry in registries.items():
+        for tier_name, tier_data in registry.get("tiers", {}).items():
+            for candidate in tier_data.get("candidates", []):
+                if candidate.get("status") == "gated_promote":
+                    # Add config context
+                    candidate_with_context = {
+                        **candidate,
+                        "config_key": config_key,
+                    }
+                    promoted.append(candidate_with_context)
+
+    return promoted

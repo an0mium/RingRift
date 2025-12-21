@@ -120,6 +120,7 @@ class DataEventType(Enum):
 
     # Tier gating events
     TIER_PROMOTION = "tier_promotion"
+    CROSSBOARD_PROMOTION = "crossboard_promotion"  # Multi-config promotion decision
 
     # Parity validation events
     PARITY_VALIDATION_STARTED = "parity_validation_started"
@@ -676,7 +677,7 @@ def _bridge_to_cross_process(event: DataEvent) -> None:
         return
 
     try:
-        from app.coordination.cross_process_events import bridge_to_cross_process
+        from app.coordination.event_router import bridge_to_cross_process
         bridge_to_cross_process(event.event_type.value, event.payload, event.source)
     except Exception as e:
         # Don't fail the main event if cross-process bridging fails
