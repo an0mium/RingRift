@@ -543,6 +543,50 @@ class ImprovementOptimizer:
 
         return False
 
+    def get_selfplay_priority_boost(self, config_key: str) -> float:
+        """Get priority boost for selfplay based on improvement signals.
+
+        When training is going well (promotion streak, high data quality),
+        we should accelerate selfplay to feed more data into the successful pipeline.
+
+        Args:
+            config_key: Config identifier
+
+        Returns:
+            Priority boost value (-0.1 to +0.15):
+            - Positive: Config is on a streak, deserves more selfplay attention
+            - Negative: Config is underperforming, reduce selfplay focus
+            - Zero: Neutral, no adjustment
+        """
+        boost = 0.0
+
+        # Promotion streak bonus (+0.10 to +0.15)
+        if self._state.consecutive_promotions >= 3:
+            boost += 0.15
+            logger.debug(f"[ImprovementOptimizer] {config_key}: +0.15 (3+ promotion streak)")
+        elif self._state.consecutive_promotions >= 2:
+            boost += 0.10
+            logger.debug(f"[ImprovementOptimizer] {config_key}: +0.10 (2 promotion streak)")
+
+        # Config-specific boost from past success
+        config_boost = self._state.config_boosts.get(config_key, 1.0)
+        if config_boost < 0.8:
+            # This config has earned faster cycles, boost its selfplay too
+            boost += 0.10
+            logger.debug(f"[ImprovementOptimizer] {config_key}: +0.10 (earned faster cycles)")
+
+        # High recent Elo gains (+0.05)
+        if self._state.best_elo_gain > 50:
+            boost += 0.05
+            logger.debug(f"[ImprovementOptimizer] {config_key}: +0.05 (recent Elo breakthrough)")
+
+        # Penalize if data quality is low (-0.10)
+        if self._state.parity_success_rate < 0.8:
+            boost -= 0.10
+            logger.debug(f"[ImprovementOptimizer] {config_key}: -0.10 (low data quality)")
+
+        return max(-0.10, min(0.15, boost))  # Clamp to reasonable range
+
     def get_improvement_metrics(self) -> dict[str, Any]:
         """Get metrics for monitoring improvement efficiency."""
         self._cleanup_old_times()
@@ -660,6 +704,15 @@ def record_training_complete(
 def get_improvement_metrics() -> dict[str, Any]:
     """Get improvement efficiency metrics."""
     return get_improvement_optimizer().get_improvement_metrics()
+
+
+def get_selfplay_priority_boost(config_key: str) -> float:
+    """Get selfplay priority boost based on improvement signals.
+
+    Returns a value from -0.10 to +0.15 that should be added to
+    the selfplay priority score for this config.
+    """
+    return get_improvement_optimizer().get_selfplay_priority_boost(config_key)
 
 
 def reset_improvement_optimizer() -> None:

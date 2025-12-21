@@ -35,6 +35,14 @@ except ImportError:
     DataEvent = None
     DataEventType = None
 
+# Import improvement optimizer for positive feedback amplification
+try:
+    from app.training.improvement_optimizer import get_selfplay_priority_boost
+    HAS_IMPROVEMENT_OPTIMIZER = True
+except ImportError:
+    HAS_IMPROVEMENT_OPTIMIZER = False
+    get_selfplay_priority_boost = None
+
 # Coordinator-only mode - skip local CPU-intensive work
 DISABLE_LOCAL_TASKS = os.environ.get("RINGRIFT_DISABLE_LOCAL_TASKS", "").lower() in ("1", "true", "yes", "on")
 
@@ -201,6 +209,7 @@ class LocalSelfplayGenerator:
         2. Curriculum weights (higher weight = higher priority)
         3. Time since last training (longer = higher priority)
         4. Evaluation feedback (regressing configs get priority boost)
+        5. Improvement optimizer (promotion streaks get accelerated)
 
         Returns:
             Config key with highest priority, or None if no configs
@@ -276,6 +285,22 @@ class LocalSelfplayGenerator:
                     # Don't let signal computation errors break priority
                     logger.debug(f"[Priority] Signal computation failed for {config_key}: {e}")
 
+            # Factor 5: Improvement optimizer - amplify successful patterns
+            # Weight: up to 15% boost for configs on promotion streaks
+            if HAS_IMPROVEMENT_OPTIMIZER and get_selfplay_priority_boost:
+                try:
+                    improvement_boost = get_selfplay_priority_boost(config_key)
+                    if improvement_boost != 0:
+                        priority += improvement_boost
+                        if improvement_boost > 0:
+                            logger.debug(f"[Priority] {config_key}: +{improvement_boost:.2f} (improvement streak)")
+                            if HAS_PROMETHEUS and PRIORITY_ADJUSTMENTS:
+                                PRIORITY_ADJUSTMENTS.labels(config=config_key, reason="improvement_streak").inc()
+                        else:
+                            logger.debug(f"[Priority] {config_key}: {improvement_boost:.2f} (low data quality)")
+                except Exception as e:
+                    logger.debug(f"[Priority] Improvement optimizer failed for {config_key}: {e}")
+
             if priority > best_priority:
                 best_priority = priority
                 best_config = config_key
@@ -329,6 +354,14 @@ class LocalSelfplayGenerator:
                         priority -= 0.05
                 except Exception:
                     pass  # Silent fallback if signal computation fails
+
+            # Factor 5: Improvement optimizer - amplify successful patterns
+            if HAS_IMPROVEMENT_OPTIMIZER and get_selfplay_priority_boost:
+                try:
+                    improvement_boost = get_selfplay_priority_boost(config_key)
+                    priority += improvement_boost
+                except Exception:
+                    pass  # Silent fallback
 
             priorities[config_key] = priority
 
