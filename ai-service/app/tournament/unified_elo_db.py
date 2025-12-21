@@ -560,9 +560,11 @@ class EloDatabase:
 
     # Pinned baselines that should not have their ELO updated (anchor points)
     # These use prefix matching - any participant_id starting with these is pinned
+    # Random at 400 Elo is the anchor that prevents rating inflation across the system
     PINNED_BASELINES = {
         "baseline_random": 400.0,  # Random player pinned at 400 ELO as anchor
-        "none:random": 400.0,      # Alternative random naming convention
+        "none:random": 400.0,      # Composite format prefix (matches none:random:d1, etc.)
+        "none:random:d1": 400.0,   # Explicit composite format for D1 random
         "random": 400.0,           # Simple random prefix
         "tier1_random": 400.0,     # Tier 1 difficulty = random, pinned at 400
     }

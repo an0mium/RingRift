@@ -54,6 +54,7 @@ DEFAULT_ELO_DB_PATH = UNIFIED_ELO_DB
 # Import canonical thresholds
 try:
     from app.config.thresholds import (
+        BASELINE_ELO_RANDOM,
         ELO_K_FACTOR,
         INITIAL_ELO_RATING,
         MIN_GAMES_FOR_ELO,
@@ -63,6 +64,28 @@ except ImportError:
     INITIAL_ELO_RATING = 1500.0
     ELO_K_FACTOR = 32
     MIN_GAMES_FOR_ELO = 30
+    BASELINE_ELO_RANDOM = 400
+
+
+def _is_random_participant(participant_id: str) -> bool:
+    """Check if participant is a random baseline that should be anchored at 400 Elo.
+
+    Random players serve as the anchor point for the entire rating system.
+    Their rating is fixed at BASELINE_ELO_RANDOM (400) to prevent rating inflation.
+    """
+    pid_lower = participant_id.lower()
+    # Composite format: none:random:d1
+    if pid_lower.startswith("none:random"):
+        return True
+    # Legacy formats
+    if pid_lower in ("random", "baseline_random", "tier1_random"):
+        return True
+    # Robust check: "random" in name but not "heuristic" or other algorithms
+    if "random" in pid_lower and not any(
+        x in pid_lower for x in ("heuristic", "minimax", "mcts", "descent", "neural")
+    ):
+        return True
+    return False
 
 # Import coordination for single-writer enforcement
 # Using the new coordination module (cluster_coordinator is deprecated)
@@ -443,7 +466,38 @@ class EloService:
         board_type: str,
         num_players: int
     ) -> EloRating:
-        """Get participant's Elo rating, creating initial if needed."""
+        """Get participant's Elo rating, creating initial if needed.
+
+        Note: Random players are anchored at BASELINE_ELO_RANDOM (400) to serve
+        as the fixed reference point and prevent rating inflation.
+        """
+        # Anchor random participants at fixed Elo to prevent rating drift
+        if _is_random_participant(participant_id):
+            # Still fetch games_played from DB for stats, but rating is fixed
+            conn = self._get_connection()
+            cursor = conn.execute("""
+                SELECT games_played, wins, losses, draws, last_update
+                FROM elo_ratings
+                WHERE participant_id = ? AND board_type = ? AND num_players = ?
+            """, (participant_id, board_type, num_players))
+            row = cursor.fetchone()
+            if row:
+                return EloRating(
+                    participant_id=participant_id,
+                    rating=float(BASELINE_ELO_RANDOM),  # ANCHORED
+                    games_played=row["games_played"],
+                    wins=row["wins"],
+                    losses=row["losses"],
+                    draws=row["draws"],
+                    last_update=row["last_update"] or 0.0,
+                    confidence=1.0  # Random is always reliable as anchor
+                )
+            return EloRating(
+                participant_id=participant_id,
+                rating=float(BASELINE_ELO_RANDOM),  # ANCHORED
+                confidence=1.0
+            )
+
         conn = self._get_connection()
         cursor = conn.execute("""
             SELECT rating, games_played, wins, losses, draws, last_update
@@ -518,6 +572,15 @@ class EloService:
 
         new_rating_a = rating_a.rating + change_a
         new_rating_b = rating_b.rating + change_b
+
+        # ANCHOR: Force random players back to fixed Elo (prevents rating inflation)
+        # Random serves as the anchor point for the entire rating system
+        if _is_random_participant(participant_a):
+            new_rating_a = float(BASELINE_ELO_RANDOM)
+            change_a = 0.0  # No effective change for anchored player
+        if _is_random_participant(participant_b):
+            new_rating_b = float(BASELINE_ELO_RANDOM)
+            change_b = 0.0  # No effective change for anchored player
 
         elo_after = {participant_a: new_rating_a, participant_b: new_rating_b}
         elo_changes = {participant_a: change_a, participant_b: change_b}
