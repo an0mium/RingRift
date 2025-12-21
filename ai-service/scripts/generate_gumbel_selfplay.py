@@ -29,9 +29,10 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from app.ai.gumbel_mcts_ai import GumbelMCTSAI
-from app.models import AIConfig, BoardType
+from app.models import AIConfig, BoardType, GameStatus, Move, MoveType, Position
 from app.rules.default_engine import DefaultRulesEngine
 from app.training.env import RingRiftEnv
+from app.training.initial_state import create_initial_state
 from app.training.selfplay_config import EngineMode, SelfplayConfig, create_argument_parser
 
 logging.basicConfig(
@@ -253,6 +254,80 @@ def generate_game(
     }
 
 
+def parse_move_for_validation(move_data: dict) -> Move:
+    """Parse a move from serialized format for validation."""
+    import uuid
+    move_type = MoveType(move_data["type"])
+    player = move_data["player"]
+
+    from_pos = None
+    if "from" in move_data:
+        f = move_data["from"]
+        from_pos = Position(x=f["x"], y=f["y"], z=f.get("z"))
+
+    to_pos = None
+    if "to" in move_data:
+        t = move_data["to"]
+        to_pos = Position(x=t["x"], y=t["y"], z=t.get("z"))
+
+    capture_target = None
+    if "capture_target" in move_data:
+        ct = move_data["capture_target"]
+        capture_target = Position(x=ct["x"], y=ct["y"], z=ct.get("z"))
+
+    placement_count = move_data.get("placement_count")
+
+    return Move(
+        id=str(uuid.uuid4()),
+        type=move_type,
+        player=player,
+        from_pos=from_pos,
+        to=to_pos,
+        capture_target=capture_target,
+        placement_count=placement_count,
+    )
+
+
+def validate_game(game_data: dict) -> tuple[bool, str]:
+    """Validate a generated game by replaying it.
+
+    Returns (passed, message).
+    """
+    board_type = BoardType(game_data["board_type"])
+    engine = DefaultRulesEngine()
+    state = create_initial_state(
+        board_type=board_type,
+        num_players=game_data["num_players"],
+    )
+
+    for move_idx, move_data in enumerate(game_data["moves"]):
+        recorded_type = move_data["type"]
+        recorded_player = move_data["player"]
+
+        engine_player = state.current_player
+        engine_phase = state.current_phase.value
+
+        valid_moves = engine.get_valid_moves(state, engine_player)
+        valid_types = set(m.type.value for m in valid_moves)
+
+        if recorded_player != engine_player:
+            return False, f"Move {move_idx}: player mismatch (recorded={recorded_player}, engine={engine_player})"
+
+        if recorded_type not in valid_types:
+            return False, f"Move {move_idx}: type '{recorded_type}' not valid in phase '{engine_phase}'"
+
+        try:
+            move = parse_move_for_validation(move_data)
+            state = engine.apply_move(state, move)
+        except Exception as e:
+            return False, f"Move {move_idx}: apply error - {e}"
+
+        if state.game_status != GameStatus.ACTIVE:
+            break
+
+    return True, f"{len(game_data['moves'])} moves, winner=P{game_data.get('winner', '?')}"
+
+
 def main():
     # Use unified argument parser from SelfplayConfig
     parser = create_argument_parser(
@@ -319,35 +394,55 @@ def main():
     # Generate games
     start_time = time.time()
     games_generated = 0
+    games_validated = 0
+    games_failed_validation = 0
     moves_with_policy = 0
+    max_retries = 3  # Max retries per game slot
 
     with open(output_path, 'w') as f:
         for game_idx in range(args.num_games):
-            try:
-                game = generate_game(env, ai_players, game_idx, args.max_moves)
-                if game:
-                    # Count moves with MCTS policy
-                    policy_count = sum(1 for m in game["moves"] if m.get("mcts_policy"))
-                    moves_with_policy += policy_count
+            for retry in range(max_retries):
+                try:
+                    game = generate_game(env, ai_players, game_idx, args.max_moves)
+                    if game:
+                        # Validate the game before writing
+                        passed, msg = validate_game(game)
+                        if passed:
+                            # Count moves with MCTS policy
+                            policy_count = sum(1 for m in game["moves"] if m.get("mcts_policy"))
+                            moves_with_policy += policy_count
 
-                    f.write(json.dumps(game) + "\n")
-                    games_generated += 1
+                            f.write(json.dumps(game) + "\n")
+                            games_generated += 1
+                            games_validated += 1
+                            break  # Success, move to next game
+                        else:
+                            games_failed_validation += 1
+                            if retry < max_retries - 1:
+                                logger.debug(f"Game {game_idx} failed validation (attempt {retry+1}): {msg}")
+                            else:
+                                logger.warning(f"Game {game_idx} failed validation after {max_retries} attempts: {msg}")
+                except Exception as e:
+                    if retry < max_retries - 1:
+                        logger.debug(f"Game {game_idx} generation error (attempt {retry+1}): {e}")
+                    else:
+                        logger.warning(f"Game {game_idx} failed after {max_retries} attempts: {e}")
 
-                    if (game_idx + 1) % 10 == 0:
-                        elapsed = time.time() - start_time
-                        rate = games_generated / elapsed
-                        eta = (args.num_games - games_generated) / rate if rate > 0 else 0
-                        logger.info(f"Game {game_idx + 1}/{args.num_games} ({rate:.2f} games/s, ETA: {eta:.0f}s)")
-            except Exception as e:
-                logger.warning(f"Failed game {game_idx}: {e}")
+            if (game_idx + 1) % 10 == 0:
+                elapsed = time.time() - start_time
+                rate = games_generated / elapsed if elapsed > 0 else 0
+                eta = (args.num_games - game_idx - 1) / rate if rate > 0 else 0
+                logger.info(f"Game {game_idx + 1}/{args.num_games} ({games_validated} valid, {rate:.2f} games/s, ETA: {eta:.0f}s)")
 
     elapsed = time.time() - start_time
     logger.info("=" * 60)
     logger.info("GENERATION COMPLETE")
     logger.info("=" * 60)
-    logger.info(f"Games generated: {games_generated}")
+    logger.info(f"Games generated (validated): {games_generated}")
+    logger.info(f"Validation failures: {games_failed_validation}")
     logger.info(f"Moves with MCTS policy: {moves_with_policy}")
-    logger.info(f"Time: {elapsed:.1f}s ({games_generated/elapsed:.2f} games/s)")
+    rate = games_generated / elapsed if elapsed > 0 else 0
+    logger.info(f"Time: {elapsed:.1f}s ({rate:.2f} games/s)")
     logger.info(f"Output: {output_path}")
 
 

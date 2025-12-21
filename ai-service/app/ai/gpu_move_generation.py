@@ -1431,8 +1431,6 @@ def apply_single_chain_capture(
             state.buried_at[game_idx, p, to_y, to_x] = True
             state.buried_at[game_idx, p, from_y, from_x] = False
 
-    # Mark the FROM position as visited (per CPU/TS parity - prevents landing cycles)
-    state.chain_visited_mask[game_idx, from_y, from_x] = True
     state.capture_chain_depth[game_idx] += 1
 
     return to_y, to_x
@@ -1625,13 +1623,8 @@ def apply_single_initial_capture(
     # Mark as being in a capture chain (for subsequent chain captures)
     # After the initial capture, we transition to CHAIN_CAPTURE phase for any
     # subsequent captures, matching CPU phase machine behavior.
-    # Clear visited mask when entering new chain, then mark from as visited
-    if not state.in_capture_chain[game_idx]:
-        state.chain_visited_mask[game_idx] = False
     state.in_capture_chain[game_idx] = True
     state.capture_chain_depth[game_idx] = 1
-    # Mark the FROM position as visited (per CPU/TS parity - prevents landing cycles)
-    state.chain_visited_mask[game_idx, from_y, from_x] = True
     state.current_phase[game_idx] = GamePhase.CHAIN_CAPTURE
 
     return to_y, to_x
