@@ -130,7 +130,67 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Simulate evaluation without actually running games.",
     )
+    parser.add_argument(
+        "--skip-parity-gate",
+        action="store_true",
+        help="Skip parity validation gate (not recommended for production).",
+    )
+    parser.add_argument(
+        "--parity-databases",
+        nargs="*",
+        help="Specific databases for parity validation.",
+    )
     return parser.parse_args(argv)
+
+
+def run_parity_gate(
+    run_dir: str,
+    databases: list[str] | None = None,
+    demo: bool = False,
+) -> dict[str, Any]:
+    """Run parity validation gate before tier evaluations.
+
+    Args:
+        run_dir: Directory to store parity gate results.
+        databases: Optional list of database paths to validate.
+        demo: If True, use reduced game counts.
+
+    Returns:
+        Parity gate summary dict with 'overall_passed' key.
+    """
+    logger.info("Running parity validation gate...")
+
+    parity_output = os.path.join(run_dir, "parity_gate_report.json")
+
+    cmd = [
+        sys.executable,
+        os.path.join(SCRIPT_DIR, "run_automated_parity_gate.py"),
+        "--output-json", parity_output,
+        "--emit-events",
+    ]
+
+    if demo:
+        cmd.append("--demo")
+
+    if databases:
+        cmd.extend(["--databases"] + databases)
+
+    try:
+        subprocess.run(cmd, check=False, cwd=PROJECT_ROOT, capture_output=True)
+
+        # Load the parity gate results
+        if os.path.exists(parity_output):
+            with open(parity_output, encoding="utf-8") as f:
+                return json.load(f)
+
+    except Exception as e:
+        logger.error(f"Parity gate failed: {e}")
+
+    # Fallback: assume parity failed
+    return {
+        "overall_passed": False,
+        "error": "Parity gate execution failed",
+    }
 
 
 def _parse_config_list(config_strs: list[str] | None) -> list[tuple[str, int]]:
@@ -375,6 +435,41 @@ def main(argv: list[str] | None = None) -> int:
         f"target={args.target_elo} Elo, tier={args.tier}"
     )
 
+    # Run parity gate first (unless skipped)
+    parity_result = None
+    if not args.skip_parity_gate and not args.dry_run:
+        parity_result = run_parity_gate(
+            run_dir=run_dir,
+            databases=args.parity_databases,
+            demo=args.demo,
+        )
+
+        if not parity_result.get("overall_passed", False):
+            logger.error("Parity gate FAILED - blocking promotion")
+            print("\n" + "=" * 60)
+            print("PARITY GATE FAILED")
+            print("=" * 60)
+            print("Promotion blocked due to parity validation failures.")
+            print("Fix parity issues before attempting promotion.")
+            print("=" * 60)
+
+            # Write partial report
+            report = {
+                "candidate_id": args.candidate_id,
+                "tier": args.tier,
+                "parity_gate": parity_result,
+                "blocked": True,
+                "reason": "Parity validation failed",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            report_path = os.path.join(run_dir, ORCHESTRATOR_REPORT_FILENAME)
+            with open(report_path, "w", encoding="utf-8") as f:
+                json.dump(report, f, indent=2, sort_keys=True)
+
+            return 1
+
+        logger.info("Parity gate PASSED - proceeding with tier evaluations")
+
     # Run evaluations
     results = run_all_evaluations(
         configs=configs,
@@ -405,6 +500,7 @@ def main(argv: list[str] | None = None) -> int:
         "tier": args.tier,
         "target_elo": args.target_elo,
         "configs_evaluated": len(configs),
+        "parity_gate": parity_result if parity_result else {"skipped": True},
         "aggregation": aggregation,
         "promotion_check": promotion_check,
         "per_config_results": results,
