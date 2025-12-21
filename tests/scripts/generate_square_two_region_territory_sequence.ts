@@ -13,7 +13,7 @@ function main() {
   // Region B first (the second region in the surfaced list), then Region A.
   const regionBMove: Move = {
     id: 'square-two-region-B',
-    type: 'process_territory_region',
+    type: 'choose_territory_option',
     player: 1,
     disconnectedRegions: [regionB],
     to: regionB.spaces[0],
@@ -27,7 +27,7 @@ function main() {
 
   const regionAMove: Move = {
     id: 'square-two-region-A',
-    type: 'process_territory_region',
+    type: 'choose_territory_option',
     player: 1,
     disconnectedRegions: [regionA],
     to: regionA.spaces[0],

@@ -228,8 +228,8 @@ describe('FSMAdapter - Branch Coverage', () => {
       expect(event).toBeNull();
     });
 
-    it('should convert move_ring to MOVE_STACK event', () => {
-      const move = createTestMove('move_ring', { from: { x: 1, y: 1 }, to: { x: 2, y: 2 } });
+    it('should convert move_stack to MOVE_STACK event', () => {
+      const move = createTestMove('move_stack', { from: { x: 1, y: 1 }, to: { x: 2, y: 2 } });
       const event = moveToEvent(move);
       expect(event).toEqual({
         type: 'MOVE_STACK',
@@ -262,10 +262,10 @@ describe('FSMAdapter - Branch Coverage', () => {
       expect(event).toEqual({ type: 'PROCESS_LINE', lineIndex: 0 });
     });
 
-    it('should convert choose_line_reward to CHOOSE_LINE_REWARD event', () => {
+    it('should convert choose_line_option to CHOOSE_LINE_REWARD event', () => {
       // RR-CANON-R123: Territory choice = collapse MINIMUM markers (fewer than line length)
       // Must provide formedLines so extractLineRewardChoice can compare counts
-      const move = createTestMove('choose_line_reward', {
+      const move = createTestMove('choose_line_option', {
         collapsedMarkers: [{ x: 1, y: 1 }], // 1 marker collapsed
         formedLines: [
           {
@@ -282,14 +282,14 @@ describe('FSMAdapter - Branch Coverage', () => {
       expect(event).toEqual({ type: 'CHOOSE_LINE_REWARD', choice: 'territory' });
     });
 
-    it('should convert choose_line_reward without markers to eliminate choice', () => {
-      const move = createTestMove('choose_line_reward');
+    it('should convert choose_line_option without markers to eliminate choice', () => {
+      const move = createTestMove('choose_line_option');
       const event = moveToEvent(move);
       expect(event).toEqual({ type: 'CHOOSE_LINE_REWARD', choice: 'eliminate' });
     });
 
-    it('should convert process_territory_region to PROCESS_REGION event', () => {
-      const move = createTestMove('process_territory_region');
+    it('should convert choose_territory_option to PROCESS_REGION event', () => {
+      const move = createTestMove('choose_territory_option');
       const event = moveToEvent(move);
       expect(event).toEqual({ type: 'PROCESS_REGION', regionIndex: 0 });
     });
@@ -441,8 +441,8 @@ describe('FSMAdapter - Branch Coverage', () => {
       expect(isMoveTypeValidForPhase('movement', 'move_stack')).toBe(true);
     });
 
-    it('should reject move_ring in movement phase (legacy alias)', () => {
-      expect(isMoveTypeValidForPhase('movement', 'move_ring')).toBe(false);
+    it('should reject move_stack in movement phase (legacy alias)', () => {
+      expect(isMoveTypeValidForPhase('movement', 'move_stack')).toBe(false);
     });
 
     it('should allow overtaking_capture in movement phase', () => {

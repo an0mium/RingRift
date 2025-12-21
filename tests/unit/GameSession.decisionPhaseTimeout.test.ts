@@ -121,7 +121,7 @@ describe('GameSession Decision Phase Timeout Guards', () => {
             playerNumber: 1,
             phase: 'territory_processing',
             autoSelectedMoveId: 'move-123',
-            reason: 'Decision timeout: auto-selected process_territory_region',
+            reason: 'Decision timeout: auto-selected choose_territory_option',
           },
           timestamp: new Date().toISOString(),
         };
@@ -384,7 +384,7 @@ describe('Decision Phase Timeout Integration', () => {
       moveHistory: [],
     };
 
-    const regionMove = { id: 'region-1', type: 'process_territory_region' as const, player: 2 };
+    const regionMove = { id: 'region-1', type: 'choose_territory_option' as const, player: 2 };
 
     (session as any).gameEngine = {
       getGameState: jest.fn(() => state),
@@ -481,7 +481,7 @@ describe('Decision Phase Timeout Integration', () => {
 
     const regionMoveA = {
       id: 'region-A',
-      type: 'process_territory_region' as const,
+      type: 'choose_territory_option' as const,
       player: 1,
       disconnectedRegions: [
         {
@@ -495,7 +495,7 @@ describe('Decision Phase Timeout Integration', () => {
 
     const regionMoveB = {
       id: 'region-B',
-      type: 'process_territory_region' as const,
+      type: 'choose_territory_option' as const,
       player: 1,
       disconnectedRegions: [
         {
@@ -848,7 +848,7 @@ describe('Decision Phase Timeout Integration', () => {
 
       const regionMoveA = {
         id: 'region-A',
-        type: 'process_territory_region' as const,
+        type: 'choose_territory_option' as const,
         player: 1,
         disconnectedRegions: [
           {
@@ -862,7 +862,7 @@ describe('Decision Phase Timeout Integration', () => {
 
       const regionMoveB = {
         id: 'region-B',
-        type: 'process_territory_region' as const,
+        type: 'choose_territory_option' as const,
         player: 1,
         disconnectedRegions: [
           {

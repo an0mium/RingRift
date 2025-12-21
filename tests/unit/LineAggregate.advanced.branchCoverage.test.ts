@@ -553,7 +553,7 @@ describe('LineAggregate - Advanced Branch Coverage', () => {
 
       expect(() => {
         mutateChooseLineReward(state, {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           player: 1,
           lineIndex: 0,
           selection: 'MINIMUM_COLLAPSE',
@@ -720,7 +720,7 @@ describe('LineAggregate - Advanced Branch Coverage', () => {
       expect(result.pendingLineRewardElimination).toBe(false);
     });
 
-    it('returns no-op for overlength line (requires choose_line_reward)', () => {
+    it('returns no-op for overlength line (requires choose_line_option)', () => {
       // 4-player game has threshold 4, so 5 markers is overlength
       const state = createTestGameState({ numPlayers: 4 });
       state.board.formedLines = [
@@ -776,7 +776,7 @@ describe('LineAggregate - Advanced Branch Coverage', () => {
       state.board.formedLines = [];
 
       const result = applyChooseLineRewardDecision(state, {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         player: 1,
         to: { x: 0, y: 0 },
         formedLines: [
@@ -809,7 +809,7 @@ describe('LineAggregate - Advanced Branch Coverage', () => {
       ];
 
       const result = applyChooseLineRewardDecision(state, {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         player: 1,
         to: { x: 0, y: 0 },
         formedLines: [state.board.formedLines[0]],
@@ -844,7 +844,7 @@ describe('LineAggregate - Advanced Branch Coverage', () => {
       ];
 
       const result = applyChooseLineRewardDecision(state, {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         player: 1,
         to: { x: 0, y: 0 },
         formedLines: [state.board.formedLines[0]],
@@ -881,7 +881,7 @@ describe('LineAggregate - Advanced Branch Coverage', () => {
       ];
 
       const result = applyChooseLineRewardDecision(state, {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         player: 1,
         to: { x: 0, y: 0 },
         formedLines: [state.board.formedLines[0]],
@@ -919,7 +919,7 @@ describe('LineAggregate - Advanced Branch Coverage', () => {
       ];
 
       const result = applyChooseLineRewardDecision(state, {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         player: 1,
         to: { x: 0, y: 0 },
         formedLines: [state.board.formedLines[0]],

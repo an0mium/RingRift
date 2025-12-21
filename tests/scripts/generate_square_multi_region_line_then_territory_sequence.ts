@@ -55,7 +55,7 @@ function main() {
 
   const lineMove: Move = {
     id: 'square-multi-region-line',
-    type: 'choose_line_reward',
+    type: 'choose_line_option',
     player: 1,
     thinkTime: 0,
     timestamp: new Date('2025-12-03T00:00:00.000Z'),
@@ -78,7 +78,7 @@ function main() {
   // two-region scenario are available for explicit territory decisions.
   const regionBMove: Move = {
     id: 'square-multi-region-regionB',
-    type: 'process_territory_region',
+    type: 'choose_territory_option',
     player: 1,
     disconnectedRegions: [regionB],
     to: regionB.spaces[0],
@@ -92,7 +92,7 @@ function main() {
 
   const regionAMove: Move = {
     id: 'square-multi-region-regionA',
-    type: 'process_territory_region',
+    type: 'choose_territory_option',
     player: 1,
     disconnectedRegions: [regionA],
     to: regionA.spaces[0],

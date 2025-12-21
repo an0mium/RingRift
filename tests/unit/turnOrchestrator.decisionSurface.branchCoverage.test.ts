@@ -436,7 +436,7 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
       expect(result.nextState.board.stacks.has(positionToString({ x: 3, y: 3 }))).toBe(false);
     });
 
-    it('processes a move_ring move', () => {
+    it('processes a move_stack move', () => {
       const board = createEmptyBoard();
       board.stacks.set(positionToString({ x: 3, y: 3 }), createStack(1, 3));
 
@@ -447,7 +447,7 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
 
       const move: Move = {
         id: 'move-1',
-        type: 'move_ring',
+        type: 'move_stack',
         player: 1,
         from: { x: 3, y: 3 },
         to: { x: 3, y: 5 },
@@ -811,7 +811,7 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
         (m) =>
           m.type === 'skip_territory_processing' ||
           m.type === 'no_territory_action' ||
-          m.type === 'process_territory_region'
+          m.type === 'choose_territory_option'
       );
       // At minimum, moves should be enumerable (could be empty if no valid actions)
       expect(Array.isArray(moves)).toBe(true);

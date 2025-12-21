@@ -29,7 +29,7 @@ import { snapshotFromGameState, snapshotsEqual, diffSnapshots } from '../utils/s
  *   - For a two-region layout where both regions are eligible for the same
  *     moving player, verify that backend GameEngine and ClientSandboxEngine:
  *       1) Enumerate the same choose_territory_option decisions (legacy alias:
- *          process_territory_region) from
+ *          choose_territory_option) from
  *          getValidMoves / sandbox territory helpers,
  *       2) Process both regions in the same region-key order,
  *       3) Surface explicit eliminate_rings_from_stack decisions once all

@@ -42,7 +42,7 @@ describe('TerritoryValidator', () => {
     it('rejects when not in territory_processing phase', () => {
       state.currentPhase = 'movement';
       const action: ProcessTerritoryAction = {
-        type: 'process_territory_region',
+        type: 'choose_territory_option',
         playerId: 1,
         regionId: 'region-1',
       };
@@ -54,7 +54,7 @@ describe('TerritoryValidator', () => {
 
     it('rejects when it is not the acting player turn', () => {
       const action: ProcessTerritoryAction = {
-        type: 'process_territory_region',
+        type: 'choose_territory_option',
         playerId: 2,
         regionId: 'region-1',
       };
@@ -66,7 +66,7 @@ describe('TerritoryValidator', () => {
 
     it('rejects when the referenced region does not exist', () => {
       const action: ProcessTerritoryAction = {
-        type: 'process_territory_region',
+        type: 'choose_territory_option',
         playerId: 1,
         regionId: 'missing-region',
       };
@@ -84,7 +84,7 @@ describe('TerritoryValidator', () => {
       region.isDisconnected = false;
 
       const action: ProcessTerritoryAction = {
-        type: 'process_territory_region',
+        type: 'choose_territory_option',
         playerId: 1,
         regionId: 'region-1',
       };
@@ -96,7 +96,7 @@ describe('TerritoryValidator', () => {
 
     it('accepts a valid territory processing action', () => {
       const action: ProcessTerritoryAction = {
-        type: 'process_territory_region',
+        type: 'choose_territory_option',
         playerId: 1,
         regionId: 'region-1',
       };

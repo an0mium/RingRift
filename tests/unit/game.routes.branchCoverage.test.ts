@@ -363,15 +363,15 @@ describe('Game Routes branch coverage', () => {
       expect(move.lineIndex).toBe(0);
     });
 
-    it('validates choose_line_reward move', () => {
+    it('validates choose_line_option move', () => {
       const move = {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         player: 1,
         lineIndex: 0,
         rewardType: 'COLLAPSE_ALL',
       };
 
-      expect(move.type).toBe('choose_line_reward');
+      expect(move.type).toBe('choose_line_option');
       expect(['COLLAPSE_ALL', 'MINIMUM_COLLAPSE']).toContain(move.rewardType);
     });
   });

@@ -276,7 +276,7 @@ export function createNearVictoryTerritoryFixture(
   // Create the winning move
   const winningMove: Move = {
     id: `process-victory-region-${Date.now()}`,
-    type: 'process_territory_region',
+    type: 'choose_territory_option',
     player: 1,
     to: pendingRegionSpaces[0],
     disconnectedRegions: [

@@ -21,7 +21,7 @@ import { findDisconnectedRegionsOnBoard } from '../../src/client/sandbox/sandbox
 // its extensive console diagnostics can exceed Jest reporter limits. Core territory
 // parity is covered by TerritoryDecisions.GameEngine_vs_Sandbox and related suites.
 
-// Skip this test suite when orchestrator adapter is enabled - no process_territory_region action found (intentional divergence)
+// Skip this test suite when orchestrator adapter is enabled - no choose_territory_option action found (intentional divergence)
 const skipWithOrchestrator = process.env.ORCHESTRATOR_ADAPTER_ENABLED === 'true';
 
 (skipWithOrchestrator ? describe.skip : describe)(
@@ -93,10 +93,10 @@ const skipWithOrchestrator = process.env.ORCHESTRATOR_ADAPTER_ENABLED === 'true'
       // line-reward eliminations and region-processing moves may shift the absolute
       // moveNumber while preserving the same geometric/territory scenario. Rather
       // than pinning to a hard-coded moveNumber, locate the first explicit
-      // process_territory_region decision for player 2 and treat that as the
+      // choose_territory_option decision for player 2 and treat that as the
       // canonical inspection point.
       const targetIndex = trace.entries.findIndex(
-        (entry) => entry.action.type === 'process_territory_region' && entry.action.player === 2
+        (entry) => entry.action.type === 'choose_territory_option' && entry.action.player === 2
       );
       expect(targetIndex).toBeGreaterThanOrEqual(0);
 
@@ -126,7 +126,6 @@ const skipWithOrchestrator = process.env.ORCHESTRATOR_ADAPTER_ENABLED === 'true'
         const matching = findMatchingBackendMove(move, backendValidMoves);
 
         if (!matching) {
-          // eslint-disable-next-line no-console
           console.error('[TerritoryDecision.seed5Move45] backend prefix replay mismatch', {
             moveNumber: move.moveNumber,
             type: move.type,
@@ -212,7 +211,7 @@ const skipWithOrchestrator = process.env.ORCHESTRATOR_ADAPTER_ENABLED === 'true'
 
       const backendValidMovesAt45 = backendEngine.getValidMoves(backendMovingPlayer);
       const backendRegionMoves = backendValidMovesAt45.filter(
-        (m) => m.type === 'process_territory_region'
+        (m) => m.type === 'choose_territory_option'
       );
       const backendEliminationMoves = backendValidMovesAt45.filter(
         (m) => m.type === 'eliminate_rings_from_stack'
@@ -223,7 +222,7 @@ const skipWithOrchestrator = process.env.ORCHESTRATOR_ADAPTER_ENABLED === 'true'
       const sandboxDecisionMoves: Move[] =
         sandboxEngineAny.getValidTerritoryProcessingMovesForCurrentPlayer() ?? [];
       const sandboxDecisionRegionMoves = sandboxDecisionMoves.filter(
-        (m) => m.type === 'process_territory_region'
+        (m) => m.type === 'choose_territory_option'
       );
       const sandboxDecisionEliminationMoves = sandboxDecisionMoves.filter(
         (m) => m.type === 'eliminate_rings_from_stack'

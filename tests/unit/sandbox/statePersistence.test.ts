@@ -99,15 +99,15 @@ describe('statePersistence', () => {
       expect(scenario.category).toBe('line_processing');
     });
 
-    it('should infer category from phase - choose_line_reward', () => {
-      const gameState = createMockGameState({ currentPhase: 'choose_line_reward' });
+    it('should infer category from phase - choose_line_option', () => {
+      const gameState = createMockGameState({ currentPhase: 'choose_line_option' });
       const scenario = saveCurrentGameState(gameState, { name: 'Test' });
 
       expect(scenario.category).toBe('line_processing');
     });
 
-    it('should infer category from phase - process_territory_region', () => {
-      const gameState = createMockGameState({ currentPhase: 'process_territory_region' });
+    it('should infer category from phase - choose_territory_option', () => {
+      const gameState = createMockGameState({ currentPhase: 'choose_territory_option' });
       const scenario = saveCurrentGameState(gameState, { name: 'Test' });
 
       expect(scenario.category).toBe('territory_processing');

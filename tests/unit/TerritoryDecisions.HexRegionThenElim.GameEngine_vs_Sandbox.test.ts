@@ -203,7 +203,7 @@ const skipWithOrchestrator =
 
       if (!snapshotsEqual(backendAfterRegionSnap, sandboxAfterRegionSnap)) {
         console.error(
-          '[HexTerritoryParity] mismatch after process_territory_region',
+          '[HexTerritoryParity] mismatch after choose_territory_option',
           diffSnapshots(backendAfterRegionSnap, sandboxAfterRegionSnap)
         );
       }

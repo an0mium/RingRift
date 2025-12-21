@@ -13,7 +13,7 @@ describe('turnOrchestrator – skip_territory_processing', () => {
 
     const regionMove: Move = {
       id: 'region-1',
-      type: 'process_territory_region',
+      type: 'choose_territory_option',
       player: initialState.currentPlayer,
       to: { x: 2, y: 2 },
       disconnectedRegions: [
@@ -35,7 +35,7 @@ describe('turnOrchestrator – skip_territory_processing', () => {
 
     const moves = getValidMoves(initialState as GameState);
 
-    const hasRegionMove = moves.some((m) => m.type === 'process_territory_region');
+    const hasRegionMove = moves.some((m) => m.type === 'choose_territory_option');
     const hasSkipMove = moves.some((m) => m.type === 'skip_territory_processing');
 
     expect(hasRegionMove).toBe(true);

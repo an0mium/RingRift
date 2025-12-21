@@ -66,7 +66,7 @@ function keyFromPositions(positions: Position[]): string {
 
 describe('Orchestrator.Sandbox multi-phase scenarios (ClientSandboxEngine + SandboxOrchestratorAdapter)', () => {
   /**
-   * Scenario B (sandbox) – process_territory_region + explicit
+   * Scenario B (sandbox) – choose_territory_option + explicit
    * eliminate_rings_from_stack via orchestrator adapter.
    *
    * This mirrors the backend Scenario B for
@@ -77,9 +77,9 @@ describe('Orchestrator.Sandbox multi-phase scenarios (ClientSandboxEngine + Sand
    *      Player 2 and an outside stack for Player 1.
    *   2) Enter territory_processing for Player 1.
    *   3) Use SandboxOrchestratorAdapter.getValidMoves() to surface
-   *      process_territory_region Moves and assert no elimination
+   *      choose_territory_option Moves and assert no elimination
    *      decisions appear before a region is processed.
-   *   4) Apply a process_territory_region Move via
+   *   4) Apply a choose_territory_option Move via
    *      ClientSandboxEngine.applyCanonicalMove (orchestrator-backed).
    *   5) Assert that region spaces collapse to Player 1's territory and
    *      victim stacks are removed.
@@ -158,7 +158,7 @@ describe('Orchestrator.Sandbox multi-phase scenarios (ClientSandboxEngine + Sand
       expect(validation.valid).toBe(true);
     }
 
-    // Construct a canonical process_territory_region decision using the shared
+    // Construct a canonical choose_territory_option decision using the shared
     // helper with a test-only override region, mirroring the backend scenario.
     const regionTerritory: Territory = {
       spaces: regionSpaces,

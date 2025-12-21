@@ -305,7 +305,7 @@ describe('moveActionAdapter', () => {
       });
     });
 
-    describe('choose_line_reward', () => {
+    describe('choose_line_option', () => {
       it('should convert to COLLAPSE_ALL when no collapsedMarkers', () => {
         const state = createMockState();
         state.board.formedLines = [
@@ -319,7 +319,7 @@ describe('moveActionAdapter', () => {
         ] as unknown as EngineGameState['board']['formedLines'];
 
         const move: Move = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           player: 1,
           to: { x: 0, y: 0 },
           formedLines: [
@@ -354,7 +354,7 @@ describe('moveActionAdapter', () => {
         ] as unknown as EngineGameState['board']['formedLines'];
 
         const move: Move = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           player: 1,
           to: { x: 0, y: 0 },
           formedLines: [
@@ -393,7 +393,7 @@ describe('moveActionAdapter', () => {
         ] as unknown as EngineGameState['board']['formedLines'];
 
         const move: Move = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           player: 1,
           to: { x: 0, y: 0 },
           formedLines: [
@@ -421,7 +421,7 @@ describe('moveActionAdapter', () => {
       });
     });
 
-    describe('process_territory_region', () => {
+    describe('choose_territory_option', () => {
       it('should convert to ProcessTerritoryAction', () => {
         const state = createMockState();
         state.board.territories = new Map([
@@ -429,7 +429,7 @@ describe('moveActionAdapter', () => {
         ]) as unknown as EngineGameState['board']['territories'];
 
         const move: Move = {
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: { x: 0, y: 0 },
           disconnectedRegions: [{ controllingPlayer: 1, spaces: [{ x: 0, y: 0 }] }],
@@ -446,7 +446,7 @@ describe('moveActionAdapter', () => {
         state.board.territories = new Map();
 
         const move: Move = {
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: { x: 0, y: 0 },
         } as Move;
@@ -462,7 +462,7 @@ describe('moveActionAdapter', () => {
         ]) as unknown as EngineGameState['board']['territories'];
 
         const move: Move = {
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: { x: 0, y: 0 },
           // No disconnectedRegions metadata
@@ -480,7 +480,7 @@ describe('moveActionAdapter', () => {
         ]) as unknown as EngineGameState['board']['territories'];
 
         const move: Move = {
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: { x: 0, y: 0 },
         } as Move;
@@ -545,7 +545,7 @@ describe('moveActionAdapter', () => {
       });
     });
 
-    describe('process_territory_region edge cases', () => {
+    describe('choose_territory_option edge cases', () => {
       it('should skip non-disconnected regions when looking for match', () => {
         const state = createMockState();
         state.board.territories = new Map([
@@ -560,7 +560,7 @@ describe('moveActionAdapter', () => {
         ]) as unknown as EngineGameState['board']['territories'];
 
         const move: Move = {
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: { x: 0, y: 0 },
           disconnectedRegions: [{ controllingPlayer: 1, spaces: [{ x: 0, y: 0 }] }],
@@ -579,7 +579,7 @@ describe('moveActionAdapter', () => {
         ]) as unknown as EngineGameState['board']['territories'];
 
         const move: Move = {
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: { x: 0, y: 0 },
           disconnectedRegions: [{ controllingPlayer: 1, spaces: [{ x: 0, y: 0 }] }],
@@ -611,7 +611,7 @@ describe('moveActionAdapter', () => {
         ]) as unknown as EngineGameState['board']['territories'];
 
         const move: Move = {
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: { x: 0, y: 0 },
           disconnectedRegions: [{ controllingPlayer: 1, spaces: [{ x: 0, y: 0 }] }],
@@ -629,7 +629,7 @@ describe('moveActionAdapter', () => {
         ]) as unknown as EngineGameState['board']['territories'];
 
         const move: Move = {
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: { x: 0, y: 0 },
           disconnectedRegions: [{ controllingPlayer: 1, spaces: [{ x: 0, y: 0 }] }],
@@ -831,7 +831,7 @@ describe('moveActionAdapter', () => {
 
         const move = gameActionToMove(action, state);
 
-        // Canonical line option move type (legacy alias: choose_line_reward).
+        // Canonical line option move type (legacy alias: choose_line_option).
         expect(move.type).toBe('choose_line_option');
         expect(move.collapsedMarkers).toHaveLength(2);
       });
@@ -866,7 +866,7 @@ describe('moveActionAdapter', () => {
 
         const move = gameActionToMove(action, state);
 
-        // Canonical territory decision move type (legacy alias: process_territory_region).
+        // Canonical territory decision move type (legacy alias: choose_territory_option).
         expect(move.type).toBe('choose_territory_option');
         expect(move.disconnectedRegions).toHaveLength(1);
       });

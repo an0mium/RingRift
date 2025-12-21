@@ -154,7 +154,7 @@ describe('GameEngine LPS + Line/Territory Cross-Interaction Scenarios', () => {
 
       // There should be movement options for P1
       const movementMoves = orchMoves.filter(
-        (m) => m.type === 'move_ring' || m.type === 'move_stack'
+        (m) => m.type === 'move_stack' || m.type === 'move_stack'
       );
       expect(movementMoves.length).toBeGreaterThanOrEqual(0);
 
@@ -525,7 +525,7 @@ describe('GameEngine LPS + Line/Territory Cross-Interaction Scenarios', () => {
       const orchMoves = harness.adapter.getValidMovesFor(orchState);
 
       const lineMoves = orchMoves.filter(
-        (m) => m.type === 'process_line' || m.type === 'choose_line_reward'
+        (m) => m.type === 'process_line' || m.type === 'choose_line_option'
       );
 
       // Line processing moves should exist

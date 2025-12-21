@@ -165,7 +165,7 @@ describe('LineMutator branch coverage', () => {
         state.board.formedLines = [line];
 
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: 0,
           selection: 'COLLAPSE_ALL',
@@ -187,7 +187,7 @@ describe('LineMutator branch coverage', () => {
         state.board.formedLines = [line];
 
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: 0,
           selection: 'MINIMUM_COLLAPSE',
@@ -209,7 +209,7 @@ describe('LineMutator branch coverage', () => {
         state.board.formedLines = [line];
 
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: 0,
           selection: 'MINIMUM_COLLAPSE',
@@ -380,7 +380,7 @@ describe('LineMutator branch coverage', () => {
 
         // Use ChooseLineReward to bypass the line length check
         const action: ChooseLineRewardAction = {
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           playerId: 1,
           lineIndex: 0,
           selection: 'COLLAPSE_ALL',

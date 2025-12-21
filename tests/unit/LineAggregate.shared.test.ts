@@ -472,7 +472,7 @@ describe('LineAggregate', () => {
       state.pendingLineRewardElimination = false;
 
       const result = validateChooseLineReward(state, {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         player: 1,
         source: 'hand',
       });

@@ -247,7 +247,7 @@ describe('TerritoryParity.square8.R1Fixtures – mini-line and reward collapse p
     expect(afterS).toBe(beforeS);
   });
 
-  it('Game 85ecc4fa… k=32: choose_line_reward with collapsedMarkers collapses only 6,1–6,3 like Python', () => {
+  it('Game 85ecc4fa… k=32: choose_line_option with collapsedMarkers collapses only 6,1–6,3 like Python', () => {
     const state = makeEmptyState('85ecc4fa-k31');
     const board = state.board;
 
@@ -309,7 +309,7 @@ describe('TerritoryParity.square8.R1Fixtures – mini-line and reward collapse p
 
     const move: Move = {
       id: 'choose-line-reward-0-6,0-min-1',
-      type: 'choose_line_reward',
+      type: 'choose_line_option',
       player: 1,
       to: pos(6, 0),
       formedLines: [

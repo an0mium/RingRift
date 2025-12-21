@@ -312,7 +312,7 @@ describe('TerritoryAggregate - Branch Coverage (Advanced)', () => {
 
       const move = {
         id: 'process-region-0,0',
-        type: 'process_territory_region' as const,
+        type: 'choose_territory_option' as const,
         player: 1,
         to: { x: 0, y: 0 },
         disconnectedRegions: [region],
@@ -338,7 +338,7 @@ describe('TerritoryAggregate - Branch Coverage (Advanced)', () => {
 
       const move = {
         id: 'process-region-0,0',
-        type: 'process_territory_region' as const,
+        type: 'choose_territory_option' as const,
         player: 1,
         to: { x: 0, y: 0 },
         disconnectedRegions: [],
@@ -360,7 +360,7 @@ describe('TerritoryAggregate - Branch Coverage (Advanced)', () => {
       // No stacks at all - no regions to process
       const move = {
         id: 'process-region-0,0',
-        type: 'process_territory_region' as const,
+        type: 'choose_territory_option' as const,
         player: 1,
         to: { x: 0, y: 0 },
         timestamp: new Date(),
@@ -385,7 +385,7 @@ describe('TerritoryAggregate - Branch Coverage (Advanced)', () => {
 
       const move = {
         id: 'process-region-7,7',
-        type: 'process_territory_region' as const,
+        type: 'choose_territory_option' as const,
         player: 1,
         to: { x: 7, y: 7 },
         timestamp: new Date(),
@@ -409,7 +409,7 @@ describe('TerritoryAggregate - Branch Coverage (Advanced)', () => {
 
       const move = {
         id: 'process-region-0-0,0',
-        type: 'process_territory_region' as const,
+        type: 'choose_territory_option' as const,
         player: 1,
         timestamp: new Date(),
         thinkTime: 0,
@@ -443,7 +443,7 @@ describe('TerritoryAggregate - Branch Coverage (Advanced)', () => {
 
       const move = {
         id: 'process-region-2,2',
-        type: 'process_territory_region' as const,
+        type: 'choose_territory_option' as const,
         player: 1,
         to: { x: 2, y: 2 },
         disconnectedRegions: [region],

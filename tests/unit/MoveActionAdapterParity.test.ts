@@ -325,7 +325,7 @@ describe('Move↔GameAction adapter – round-trip semantics', () => {
     });
   });
 
-  it('maps process_line / choose_line_reward using formedLines metadata and back', () => {
+  it('maps process_line / choose_line_option using formedLines metadata and back', () => {
     const players = createPlayers();
     const sharedState = createInitialGameState('adapter-lines', 'square8', players, timeControl);
 
@@ -369,11 +369,11 @@ describe('Move↔GameAction adapter – round-trip semantics', () => {
     expect(processBack.formedLines).toBeDefined();
     expect(processBack.formedLines![0].positions).toEqual(linePositions);
 
-    // choose_line_reward with minimum-collapse subset
+    // choose_line_option with minimum-collapse subset
     const minSubset = linePositions.slice(0, 3);
     const chooseMove: Move = {
       id: 'choose-line-0',
-      type: 'choose_line_reward',
+      type: 'choose_line_option',
       player: 1,
       to: linePositions[0],
       formedLines: [line],
@@ -394,7 +394,7 @@ describe('Move↔GameAction adapter – round-trip semantics', () => {
     expect((chooseBack as any).collapsedMarkers).toEqual(minSubset);
   });
 
-  it('maps process_territory_region using disconnectedRegions metadata and back', () => {
+  it('maps choose_territory_option using disconnectedRegions metadata and back', () => {
     const players = createPlayers();
     const sharedState = createInitialGameState(
       'adapter-territory',
@@ -418,7 +418,7 @@ describe('Move↔GameAction adapter – round-trip semantics', () => {
 
     const move: Move = {
       id: 'proc-region',
-      type: 'process_territory_region',
+      type: 'choose_territory_option',
       player: 1,
       to: regionSpaces[0],
       disconnectedRegions: [region],

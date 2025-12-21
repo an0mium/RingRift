@@ -27,13 +27,13 @@ import {
  * Scenario:
  *   - A single disconnected region exists for player 1, satisfying the
  *     self-elimination prerequisite (stacks both inside and outside).
- *   - We apply a single process_territory_region decision move in both
+ *   - We apply a single choose_territory_option decision move in both
  *     engines using their respective core helpers.
  *   - We then apply a single eliminate_rings_from_stack decision move
  *     from a stack outside the region.
  *
  * Expectations:
- *   - After process_territory_region:
+ *   - After choose_territory_option:
  *       - Backend and sandbox board+player snapshots match.
  *       - Backend pendingTerritorySelfElimination === true.
  *       - Sandbox _pendingTerritorySelfElimination === true.
@@ -188,7 +188,7 @@ const skipWithOrchestrator = process.env.ORCHESTRATOR_ADAPTER_ENABLED === 'true'
       const { baseBoard, players, region, regionSpaces, movingPlayer, outsidePos } =
         buildRegionFixture();
 
-      // --- Sandbox path: process_territory_region then eliminate_rings_from_stack ---
+      // --- Sandbox path: choose_territory_option then eliminate_rings_from_stack ---
       const sandboxConfig: SandboxConfig = {
         boardType,
         numPlayers: players.length,
@@ -228,7 +228,7 @@ const skipWithOrchestrator = process.env.ORCHESTRATOR_ADAPTER_ENABLED === 'true'
 
       const regionMoveSandbox: Move = {
         id: 'process-region-test',
-        type: 'process_territory_region',
+        type: 'choose_territory_option',
         player: movingPlayer,
         disconnectedRegions: [region],
         timestamp: new Date(0),
@@ -251,7 +251,7 @@ const skipWithOrchestrator = process.env.ORCHESTRATOR_ADAPTER_ENABLED === 'true'
       expect(sandboxAfterRegion.currentPhase).toBe('territory_processing');
       expect(sandboxAfterRegion.currentPlayer).toBe(movingPlayer);
 
-      // --- Backend path: applyDecisionMove(process_territory_region) via core helper ---
+      // --- Backend path: applyDecisionMove(choose_territory_option) via core helper ---
       const timeControl = { initialTime: 0, increment: 0, type: 'rapid' as const };
       const backendEngine = new GameEngine(
         'territory-pending-flag-test',
@@ -277,7 +277,7 @@ const skipWithOrchestrator = process.env.ORCHESTRATOR_ADAPTER_ENABLED === 'true'
 
       const regionMoveBackend: Move = {
         id: 'process-region-test',
-        type: 'process_territory_region',
+        type: 'choose_territory_option',
         player: movingPlayer,
         disconnectedRegions: [region],
         timestamp: new Date(0),
@@ -301,9 +301,8 @@ const skipWithOrchestrator = process.env.ORCHESTRATOR_ADAPTER_ENABLED === 'true'
       expect(backendAfterRegion.currentPlayer).toBe(movingPlayer);
 
       if (!snapshotsEqual(backendRegionSnap, sandboxRegionSnap)) {
-        // eslint-disable-next-line no-console
         console.error(
-          '[TerritoryPendingFlag] mismatch after process_territory_region',
+          '[TerritoryPendingFlag] mismatch after choose_territory_option',
           diffSnapshots(backendRegionSnap, sandboxRegionSnap)
         );
       }
@@ -366,7 +365,6 @@ const skipWithOrchestrator = process.env.ORCHESTRATOR_ADAPTER_ENABLED === 'true'
       );
 
       if (!snapshotsEqual(backendFinalSnap, sandboxFinalSnap)) {
-        // eslint-disable-next-line no-console
         console.error(
           '[TerritoryPendingFlag] mismatch after eliminate_rings_from_stack',
           diffSnapshots(backendFinalSnap, sandboxFinalSnap)

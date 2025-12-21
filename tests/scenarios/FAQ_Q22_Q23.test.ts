@@ -78,18 +78,18 @@ describeOrSkip('FAQ Q22-Q23: Graduated Line Rewards & Territory Prerequisites', 
         gameState.currentPhase = 'line_processing';
         gameState.currentPlayer = 1;
 
-        // Look for choose_line_reward move (explicit Option 1)
+        // Look for choose_line_option move (explicit Option 1)
         // Note: Default behavior may be Option 2, but we're testing the concept
         const moves = engine.getValidMoves(1);
         const lineProcessMoves = moves.filter(
-          (m: any) => m.type === 'process_line' || m.type === 'choose_line_reward'
+          (m: any) => m.type === 'process_line' || m.type === 'choose_line_option'
         );
 
         expect(lineProcessMoves.length).toBeGreaterThan(0);
 
         // If explicit choice is available, select Option 1
         const option1Move = lineProcessMoves.find(
-          (m: any) => m.type === 'choose_line_reward' && m.option === 'collapse_all'
+          (m: any) => m.type === 'choose_line_option' && m.option === 'collapse_all'
         );
 
         if (option1Move) {
@@ -326,7 +326,7 @@ describeOrSkip('FAQ Q22-Q23: Graduated Line Rewards & Territory Prerequisites', 
         // outside that specific region; other eligible regions remain
         // processable.
         const moves = engine.getValidMoves(1);
-        const territoryMoves = moves.filter((m: any) => m.type === 'process_territory_region');
+        const territoryMoves = moves.filter((m: any) => m.type === 'choose_territory_option');
 
         const interiorRegionMoves = territoryMoves.filter(
           (m: any) =>
@@ -444,7 +444,7 @@ describeOrSkip('FAQ Q22-Q23: Graduated Line Rewards & Territory Prerequisites', 
         gameState.currentPlayer = 1;
 
         const moves = engine.getValidMoves(1);
-        const territoryMoves = moves.filter((m: any) => m.type === 'process_territory_region');
+        const territoryMoves = moves.filter((m: any) => m.type === 'choose_territory_option');
 
         // NOW should be able to process
         expect(territoryMoves.length).toBeGreaterThan(0);
@@ -460,7 +460,7 @@ describeOrSkip('FAQ Q22-Q23: Graduated Line Rewards & Territory Prerequisites', 
         //
         // In this FAQ geometry there are TWO disconnected regions (inner and
         // outer). The shared detector enumerates the large outer region first,
-        // so the first `process_territory_region` move returned by
+        // so the first `choose_territory_option` move returned by
         // GameEngine.getValidMoves processes that outer region.
         //
         // According to §12.2 / FAQ Q23:
@@ -476,7 +476,7 @@ describeOrSkip('FAQ Q22-Q23: Graduated Line Rewards & Territory Prerequisites', 
         // for a total of 4 rings credited to Blue.
         //
         // NOTE: The interior 3×3 block is a second disconnected region that
-        // could also be processed with an additional `process_territory_region`
+        // could also be processed with an additional `choose_territory_option`
         // move; its numeric invariants are covered by the dedicated rules-layer
         // tests in territoryProcessing.rules.* and sandboxTerritory*.rules.*.
         expect(finalBlue.eliminatedRings).toBe(initialEliminated + 4);

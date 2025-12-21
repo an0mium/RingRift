@@ -12,7 +12,7 @@ function main() {
 
   const regionMove: Move = {
     id: 'square-region-1',
-    type: 'process_territory_region',
+    type: 'choose_territory_option',
     player: 1,
     disconnectedRegions: [region],
     to: region.spaces[0],

@@ -249,7 +249,7 @@ export function createBackendEngineFromInitialState(initial: GameState): GameEng
 
   // For trace/parity harnesses, enable Move-driven decision phases so that
   // line and territory processing are expressed as explicit canonical Moves
-  // (process_line, choose_line_reward, process_territory_region,
+  // (process_line, choose_line_option, choose_territory_option,
   // eliminate_rings_from_stack) instead of being resolved purely via
   // processAutomaticConsequences. This keeps backend behaviour aligned with
   // the sandbox trace model, which records these decisions as distinct

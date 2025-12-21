@@ -11,7 +11,7 @@ function main() {
 
   const regionBMove: Move = {
     id: 'square19-two-region-B',
-    type: 'process_territory_region',
+    type: 'choose_territory_option',
     player: 1,
     disconnectedRegions: [regionB],
     to: regionB.spaces[0],
@@ -25,7 +25,7 @@ function main() {
 
   const regionAMove: Move = {
     id: 'square19-two-region-A',
-    type: 'process_territory_region',
+    type: 'choose_territory_option',
     player: 1,
     disconnectedRegions: [regionA],
     to: regionA.spaces[0],

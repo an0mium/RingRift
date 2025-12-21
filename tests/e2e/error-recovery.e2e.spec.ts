@@ -258,12 +258,12 @@ test.describe('Error Recovery - WebSocket Disconnection', () => {
     // 7) Assert that the HUD reflects post-decision state and that the
     //    recent-moves log includes an auto-resolved decision move.
     //
-    // We expect a process_line / choose_line_reward move to appear after
+    // We expect a process_line / choose_line_option move to appear after
     // the timeout; assert that at least one of these appears in the log.
     await expect(page.locator('text=/Recent moves/i')).toBeVisible({ timeout: 15_000 });
     const decisionMoveEntry = page
       .locator('li')
-      .filter({ hasText: /process_line|choose_line_reward/i });
+      .filter({ hasText: /process_line|choose_line_option/i });
     await expect(decisionMoveEntry).toBeVisible({ timeout: 15_000 });
 
     // Additionally, assert that the game has progressed out of the original

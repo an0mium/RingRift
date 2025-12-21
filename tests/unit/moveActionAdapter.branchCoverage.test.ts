@@ -364,7 +364,7 @@ describe('moveActionAdapter branch coverage', () => {
       });
     });
 
-    describe('choose_line_reward', () => {
+    describe('choose_line_option', () => {
       it('maps to COLLAPSE_ALL when no collapsedMarkers', () => {
         const state = makeEngineState();
         const line = makeLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]);
@@ -372,7 +372,7 @@ describe('moveActionAdapter branch coverage', () => {
 
         const move: Move = {
           id: 'test',
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           player: 1,
           to: pos(0, 0),
           formedLines: [line],
@@ -393,7 +393,7 @@ describe('moveActionAdapter branch coverage', () => {
 
         const move: Move = {
           id: 'test',
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           player: 1,
           to: pos(0, 0),
           formedLines: [line],
@@ -414,7 +414,7 @@ describe('moveActionAdapter branch coverage', () => {
 
         const move: Move = {
           id: 'test',
-          type: 'choose_line_reward',
+          type: 'choose_line_option',
           player: 1,
           to: pos(0, 0),
           formedLines: [line],
@@ -430,15 +430,15 @@ describe('moveActionAdapter branch coverage', () => {
       });
     });
 
-    describe('process_territory_region', () => {
-      it('maps process_territory_region move', () => {
+    describe('choose_territory_option', () => {
+      it('maps choose_territory_option move', () => {
         const state = makeEngineState();
         const territory = makeTerritory(1, [pos(0, 0), pos(1, 0)]);
         state.board.territories = new Map([['region-0', territory]]);
 
         const move: Move = {
           id: 'test',
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: pos(0, 0),
           disconnectedRegions: [territory],
@@ -458,7 +458,7 @@ describe('moveActionAdapter branch coverage', () => {
 
         const move: Move = {
           id: 'test',
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: pos(0, 0),
           timestamp: new Date(),
@@ -478,7 +478,7 @@ describe('moveActionAdapter branch coverage', () => {
 
         const move: Move = {
           id: 'test',
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: pos(0, 0),
           // No disconnectedRegions
@@ -498,7 +498,7 @@ describe('moveActionAdapter branch coverage', () => {
 
         const move: Move = {
           id: 'test',
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: pos(0, 0),
           timestamp: new Date(),
@@ -519,7 +519,7 @@ describe('moveActionAdapter branch coverage', () => {
         const moveTerritory = makeTerritory(1, [pos(5, 5), pos(6, 5)]);
         const move: Move = {
           id: 'test',
-          type: 'process_territory_region',
+          type: 'choose_territory_option',
           player: 1,
           to: pos(5, 5),
           disconnectedRegions: [moveTerritory],
@@ -957,7 +957,7 @@ describe('moveActionAdapter branch coverage', () => {
 
       const move: Move = {
         id: 'test',
-        type: 'process_territory_region',
+        type: 'choose_territory_option',
         player: 1,
         to: pos(5, 5),
         disconnectedRegions: [disconnectedTerritory],
@@ -984,7 +984,7 @@ describe('moveActionAdapter branch coverage', () => {
 
       const move: Move = {
         id: 'test',
-        type: 'process_territory_region',
+        type: 'choose_territory_option',
         player: 1,
         to: pos(5, 5),
         disconnectedRegions: [player1Territory],
@@ -1011,7 +1011,7 @@ describe('moveActionAdapter branch coverage', () => {
 
       const move: Move = {
         id: 'test',
-        type: 'process_territory_region',
+        type: 'choose_territory_option',
         player: 1,
         to: pos(5, 5),
         disconnectedRegions: [matchingTerritory],

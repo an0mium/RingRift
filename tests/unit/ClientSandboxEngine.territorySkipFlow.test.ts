@@ -56,13 +56,13 @@ describe('ClientSandboxEngine – territory processing skip flow (orchestrator)'
 
     // Prepare synthetic territory decision moves for the shared orchestrator.
     // We stub the aggregate enumerators so that getValidMoves(...) surfaces
-    // one or more process_territory_region moves for the current player and
+    // one or more choose_territory_option moves for the current player and
     // no explicit elimination options, ensuring skip_territory_processing is
     // also present in the canonical Move surface.
     const baseMoveNumber = state.moveHistory.length + 1;
     const regionMoveA: Move = {
       id: 'process-region-a',
-      type: 'process_territory_region',
+      type: 'choose_territory_option',
       player: currentPlayer,
       to: regionA.spaces[0],
       disconnectedRegions: [regionA],
@@ -72,7 +72,7 @@ describe('ClientSandboxEngine – territory processing skip flow (orchestrator)'
     } as Move;
     const regionMoveB: Move = {
       id: 'process-region-b',
-      type: 'process_territory_region',
+      type: 'choose_territory_option',
       player: currentPlayer,
       to: regionB.spaces[0],
       disconnectedRegions: [regionB],
@@ -106,9 +106,9 @@ describe('ClientSandboxEngine – territory processing skip flow (orchestrator)'
 
     // 1) From the orchestrator-backed sandbox surface, enumerate valid moves
     // for the current player in territory_processing. We expect at least one
-    // process_territory_region move and a skip_territory_processing move.
+    // choose_territory_option move and a skip_territory_processing move.
     const initialMoves: Move[] = engine.getValidMoves(currentPlayer);
-    const initialRegionMoves = initialMoves.filter((m) => m.type === 'process_territory_region');
+    const initialRegionMoves = initialMoves.filter((m) => m.type === 'choose_territory_option');
     const initialSkipMoves = initialMoves.filter((m) => m.type === 'skip_territory_processing');
 
     expect(initialRegionMoves.length).toBeGreaterThan(0);
@@ -165,7 +165,7 @@ describe('ClientSandboxEngine – territory processing skip flow (orchestrator)'
     const baseMoveNumber = baseState.moveHistory.length + 1;
     const regionMoveA: Move = {
       id: 'process-region-a',
-      type: 'process_territory_region',
+      type: 'choose_territory_option',
       player: currentPlayer,
       to: regionA.spaces[0],
       disconnectedRegions: [regionA],
@@ -175,7 +175,7 @@ describe('ClientSandboxEngine – territory processing skip flow (orchestrator)'
     } as Move;
     const regionMoveB: Move = {
       id: 'process-region-b',
-      type: 'process_territory_region',
+      type: 'choose_territory_option',
       player: currentPlayer,
       to: regionB.spaces[0],
       disconnectedRegions: [regionB],
@@ -211,7 +211,7 @@ describe('ClientSandboxEngine – territory processing skip flow (orchestrator)'
 
     // 2) Seed a sandbox engine with this post-region state and stub
     // territory enumerators so that getValidMoves surfaces both another
-    // process_territory_region and a skip_territory_processing move.
+    // choose_territory_option and a skip_territory_processing move.
     jest
       .spyOn(TerritoryAggregate, 'enumerateProcessTerritoryRegionMoves')
       .mockImplementation(() => [regionMoveB]);
@@ -236,7 +236,7 @@ describe('ClientSandboxEngine – territory processing skip flow (orchestrator)'
     const eliminatedBefore = { ...before.board.eliminatedRings };
 
     const movesAfterRegion: Move[] = engine.getValidMoves(currentPlayer);
-    const regionMovesAfter = movesAfterRegion.filter((m) => m.type === 'process_territory_region');
+    const regionMovesAfter = movesAfterRegion.filter((m) => m.type === 'choose_territory_option');
     const skipMovesAfter = movesAfterRegion.filter((m) => m.type === 'skip_territory_processing');
 
     expect(regionMovesAfter.length).toBeGreaterThan(0);

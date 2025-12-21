@@ -174,7 +174,7 @@ describe('LineValidator', () => {
     it('should return valid for FULL_COLLAPSE selection', () => {
       const state = createMockState();
       const action: ChooseLineRewardAction = {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         playerId: 1,
         lineIndex: 0,
         selection: 'FULL_COLLAPSE',
@@ -188,7 +188,7 @@ describe('LineValidator', () => {
     it('should reject when not in line_processing phase', () => {
       const state = createMockState({ currentPhase: 'movement' as GamePhase });
       const action: ChooseLineRewardAction = {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         playerId: 1,
         lineIndex: 0,
         selection: 'FULL_COLLAPSE',
@@ -203,7 +203,7 @@ describe('LineValidator', () => {
     it('should reject when not players turn', () => {
       const state = createMockState({ currentPlayer: 2 });
       const action: ChooseLineRewardAction = {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         playerId: 1,
         lineIndex: 0,
         selection: 'FULL_COLLAPSE',
@@ -218,7 +218,7 @@ describe('LineValidator', () => {
     it('should reject negative line index', () => {
       const state = createMockState();
       const action: ChooseLineRewardAction = {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         playerId: 1,
         lineIndex: -1,
         selection: 'FULL_COLLAPSE',
@@ -233,7 +233,7 @@ describe('LineValidator', () => {
     it('should reject out of bounds line index', () => {
       const state = createMockState();
       const action: ChooseLineRewardAction = {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         playerId: 1,
         lineIndex: 10,
         selection: 'FULL_COLLAPSE',
@@ -249,7 +249,7 @@ describe('LineValidator', () => {
       const state = createMockState();
       state.board.formedLines = [createFormedLine({ player: 2 })];
       const action: ChooseLineRewardAction = {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         playerId: 1,
         lineIndex: 0,
         selection: 'FULL_COLLAPSE',
@@ -280,7 +280,7 @@ describe('LineValidator', () => {
         }),
       ];
       const action: ChooseLineRewardAction = {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         playerId: 1,
         lineIndex: 0,
         selection: 'MINIMUM_COLLAPSE',
@@ -301,7 +301,7 @@ describe('LineValidator', () => {
     it('should reject MINIMUM_COLLAPSE without collapsed positions', () => {
       const state = createMockState();
       const action: ChooseLineRewardAction = {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         playerId: 1,
         lineIndex: 0,
         selection: 'MINIMUM_COLLAPSE',
@@ -318,7 +318,7 @@ describe('LineValidator', () => {
     it('should reject MINIMUM_COLLAPSE with wrong number of positions', () => {
       const state = createMockState();
       const action: ChooseLineRewardAction = {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         playerId: 1,
         lineIndex: 0,
         selection: 'MINIMUM_COLLAPSE',
@@ -341,7 +341,7 @@ describe('LineValidator', () => {
         players: [{ playerNumber: 1 }, { playerNumber: 2 }, { playerNumber: 3 }],
       });
       const action: ChooseLineRewardAction = {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         playerId: 1,
         lineIndex: 0,
         selection: 'MINIMUM_COLLAPSE',
@@ -366,7 +366,7 @@ describe('LineValidator', () => {
         players: [{ playerNumber: 1 }, { playerNumber: 2 }, { playerNumber: 3 }],
       });
       const action: ChooseLineRewardAction = {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         playerId: 1,
         lineIndex: 0,
         selection: 'MINIMUM_COLLAPSE',
@@ -392,7 +392,7 @@ describe('LineValidator', () => {
         players: [{ playerNumber: 1 }, { playerNumber: 2 }, { playerNumber: 3 }],
       });
       const action: ChooseLineRewardAction = {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         playerId: 1,
         lineIndex: 0,
         selection: 'MINIMUM_COLLAPSE',
@@ -415,7 +415,7 @@ describe('LineValidator', () => {
         players: [{ playerNumber: 1 }, { playerNumber: 2 }, { playerNumber: 3 }],
       });
       const action: ChooseLineRewardAction = {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         playerId: 1,
         lineIndex: 0,
         selection: 'MINIMUM_COLLAPSE',
@@ -438,7 +438,7 @@ describe('LineValidator', () => {
         players: [{ playerNumber: 1 }, { playerNumber: 2 }, { playerNumber: 3 }],
       });
       const action: ChooseLineRewardAction = {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         playerId: 1,
         lineIndex: 0,
         selection: 'MINIMUM_COLLAPSE',
@@ -475,7 +475,7 @@ describe('LineValidator', () => {
       ];
 
       const action: ChooseLineRewardAction = {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         playerId: 1,
         lineIndex: 0,
         selection: 'MINIMUM_COLLAPSE',

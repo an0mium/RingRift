@@ -105,7 +105,7 @@ function groupVectorsBySequenceTag(
  * Convert a contract vector move to the Move type expected by processTurn.
  *
  * IMPORTANT: contract moves may carry additional decision-specific fields
- * (e.g. disconnectedRegions for process_territory_region, eliminationFromStack
+ * (e.g. disconnectedRegions for choose_territory_option, eliminationFromStack
  * for eliminate_rings_from_stack). We must preserve those fields when
  * reconstructing the Move, otherwise the orchestrator/aggregates may treat
  * the move as a no-op (because key context is missing).
@@ -441,7 +441,7 @@ describe('Contract Test Vectors', () => {
     });
 
     // SKIP 2025-12-06: Territory vectors have phase/move mismatches (eliminate_rings_from_stack
-    // and process_territory_region moves in wrong phases). Vector data needs regeneration.
+    // and choose_territory_option moves in wrong phases). Vector data needs regeneration.
     // See: docs/SKIPPED_TESTS_TRIAGE.md, PA-1 task
     it.skip('should pass all territory vectors', () => {
       for (const vector of vectors) {

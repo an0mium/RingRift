@@ -1003,7 +1003,7 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
         (m) =>
           m.type === 'no_line_action' ||
           m.type === 'process_line' ||
-          m.type === 'choose_line_reward'
+          m.type === 'choose_line_option'
       );
       // At minimum, moves array should be returned (may be empty if phase auto-transitions)
       expect(moves).toBeDefined();
@@ -1032,7 +1032,7 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
       const territoryRelatedMove = moves.find(
         (m) =>
           m.type === 'no_territory_action' ||
-          m.type === 'process_territory_region' ||
+          m.type === 'choose_territory_option' ||
           m.type === 'skip_territory_processing'
       );
       // At minimum, moves array should be returned (may be empty if phase auto-transitions)

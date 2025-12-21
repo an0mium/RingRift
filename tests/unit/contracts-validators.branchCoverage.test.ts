@@ -801,7 +801,7 @@ describe('contracts/validators.ts - Branch Coverage', () => {
           options: [
             {
               id: 'opt-1',
-              type: 'choose_line_reward',
+              type: 'choose_line_option',
               player: 1,
               to: { x: 0, y: 0 },
               timestamp: new Date().toISOString(),
@@ -934,7 +934,7 @@ describe('contracts/validators.ts - Branch Coverage', () => {
     it('ZodMoveTypeSchema validates all move types', () => {
       const moveTypes = [
         'place_ring',
-        'move_ring',
+        'move_stack',
         'build_stack',
         'move_stack',
         'skip_placement',
@@ -942,8 +942,8 @@ describe('contracts/validators.ts - Branch Coverage', () => {
         'continue_capture_segment',
         'recovery_slide',
         'process_line',
-        'choose_line_reward',
-        'process_territory_region',
+        'choose_line_option',
+        'choose_territory_option',
         'eliminate_rings_from_stack',
         'forced_elimination',
         'no_territory_action',

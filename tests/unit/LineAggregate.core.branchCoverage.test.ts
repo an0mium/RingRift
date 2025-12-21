@@ -679,7 +679,7 @@ describe('LineAggregate - Core Branch Coverage', () => {
       ];
 
       const result = applyChooseLineRewardDecision(state, {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         lineIndex: 0,
         selection: 'COLLAPSE_ALL',
         line: {
@@ -767,7 +767,7 @@ describe('LineAggregate - Core Branch Coverage', () => {
       ];
 
       const result = mutateChooseLineReward(state, {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         player: 1,
         lineIndex: 0,
         rewardChoice: 'COLLAPSE_ALL',
@@ -806,7 +806,7 @@ describe('LineAggregate - Core Branch Coverage', () => {
       ];
 
       const result = mutateChooseLineReward(state, {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         player: 1,
         lineIndex: 0,
         rewardChoice: 'MINIMUM_COLLAPSE',

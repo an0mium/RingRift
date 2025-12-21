@@ -278,7 +278,7 @@ describe('phaseStateMachine branch coverage', () => {
 
     describe('territory_processing phase', () => {
       it('stays in territory_processing (handled by turn advance)', () => {
-        const result = determineNextPhase('territory_processing', 'process_territory_region', {
+        const result = determineNextPhase('territory_processing', 'choose_territory_option', {
           hasMoreLinesToProcess: false,
           hasMoreRegionsToProcess: true,
           chainCapturesAvailable: false,

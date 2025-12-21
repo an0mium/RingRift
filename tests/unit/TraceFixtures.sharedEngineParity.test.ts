@@ -120,7 +120,7 @@ function loadTraceFixtures(): LoadedTraceFixture[] {
  * These tests replay canonical trace fixtures through the shared GameEngine
  * and verify state hash parity at each step. All 9 fixtures pass:
  * - placement_and_movement, continue_capture, overtaking_capture
- * - process_line, choose_line_reward (both variants), eliminate_stack
+ * - process_line, choose_line_option (both variants), eliminate_stack
  * - skip_placement, process_territory
  */
 describe('Trace fixtures shared-engine self-consistency', () => {

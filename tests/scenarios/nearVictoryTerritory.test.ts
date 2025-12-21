@@ -74,7 +74,7 @@ describe('Near-victory territory scenarios', () => {
 
       it('should have a valid winning move defined', () => {
         expect(fixture.winningMove).toBeDefined();
-        expect(fixture.winningMove.type).toBe('process_territory_region');
+        expect(fixture.winningMove.type).toBe('choose_territory_option');
         expect(fixture.winningMove.player).toBe(1);
         expect(fixture.winningMove.disconnectedRegions).toBeDefined();
         expect(fixture.winningMove.disconnectedRegions).toHaveLength(1);
@@ -224,7 +224,7 @@ describe('Near-victory territory scenarios', () => {
       // Verify it can be parsed back
       const parsed = JSON.parse(jsonString);
       expect(parsed.gameState.currentPhase).toBe('territory_processing');
-      expect(parsed.winningMove.type).toBe('process_territory_region');
+      expect(parsed.winningMove.type).toBe('choose_territory_option');
     });
   });
 

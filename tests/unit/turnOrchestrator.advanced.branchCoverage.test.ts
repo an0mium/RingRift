@@ -107,7 +107,7 @@ describe('TurnOrchestrator advanced branch coverage', () => {
     });
 
     it('handles line processing with no_line_action', () => {
-      // FSM validates that choose_line_reward is only valid when awaitingReward is true,
+      // FSM validates that choose_line_option is only valid when awaitingReward is true,
       // which requires actual line detection via findLinesForPlayer(). Setting up
       // a valid line formation is complex, so we test no_line_action instead.
       // Full line reward testing is done in integration/parity tests.
@@ -750,7 +750,7 @@ describe('TurnOrchestrator advanced branch coverage', () => {
       expect(result.nextState).toBeDefined();
     });
 
-    it('handles process_territory_region move', () => {
+    it('handles choose_territory_option move', () => {
       const state = createBaseState('territory_processing');
 
       // Add a stack for the player
@@ -764,7 +764,7 @@ describe('TurnOrchestrator advanced branch coverage', () => {
       });
 
       const move = createMove(
-        'process_territory_region',
+        'choose_territory_option',
         1,
         { x: 3, y: 3 },
         {
@@ -1222,7 +1222,7 @@ describe('TurnOrchestrator advanced branch coverage', () => {
 
       const moves = getValidMoves(state);
 
-      // Should include process_territory_region and skip options
+      // Should include choose_territory_option and skip options
       expect(moves.length).toBeGreaterThan(0);
     });
   });

@@ -214,8 +214,8 @@ describe('TurnOrchestrator core branch coverage', () => {
       });
     });
 
-    describe('move_ring move', () => {
-      it('processes move_ring with from position', () => {
+    describe('move_stack move', () => {
+      it('processes move_stack with from position', () => {
         const state = createBaseState('movement');
         state.board.stacks.set('3,3', {
           position: { x: 3, y: 3 },
@@ -224,7 +224,7 @@ describe('TurnOrchestrator core branch coverage', () => {
           composition: [{ player: 1, count: 1 }],
           rings: [1],
         });
-        const move = createMove('move_ring', 1, { x: 4, y: 3 }, { from: { x: 3, y: 3 } });
+        const move = createMove('move_stack', 1, { x: 4, y: 3 }, { from: { x: 3, y: 3 } });
 
         const result = processTurn(state, move);
 
@@ -345,9 +345,9 @@ describe('TurnOrchestrator core branch coverage', () => {
       });
     });
 
-    describe('choose_line_reward move', () => {
+    describe('choose_line_option move', () => {
       it('processes line reward choice', () => {
-        // FSM validates that choose_line_reward is only valid when awaitingReward is true,
+        // FSM validates that choose_line_option is only valid when awaitingReward is true,
         // which requires a line with length >= 3 that was just processed. Since setting
         // up that full state is complex, we test no_line_action instead (which is the
         // bookkeeping move for when no lines need processing).
@@ -361,11 +361,11 @@ describe('TurnOrchestrator core branch coverage', () => {
       });
     });
 
-    describe('process_territory_region move', () => {
+    describe('choose_territory_option move', () => {
       it('processes territory region', () => {
         const state = createBaseState('territory_processing');
         const move = createMove(
-          'process_territory_region',
+          'choose_territory_option',
           1,
           { x: 0, y: 0 },
           {
@@ -386,12 +386,12 @@ describe('TurnOrchestrator core branch coverage', () => {
         expect(result.nextState.gameStatus).toBe('active');
       });
 
-      it('coerces phase for process_territory_region outside territory_processing (replay tolerance)', () => {
-        // Replay-tolerance: process_territory_region in ring_placement/movement/line_processing
+      it('coerces phase for choose_territory_option outside territory_processing (replay tolerance)', () => {
+        // Replay-tolerance: choose_territory_option in ring_placement/movement/line_processing
         // is coerced to territory_processing phase to handle TS/Python parity edge cases.
         const state = createBaseState('ring_placement');
         const move = createMove(
-          'process_territory_region',
+          'choose_territory_option',
           1,
           { x: 0, y: 0 },
           {
@@ -552,8 +552,8 @@ describe('TurnOrchestrator core branch coverage', () => {
       });
     });
 
-    describe('move_ring validation', () => {
-      it('validates move_ring with valid from', () => {
+    describe('move_stack validation', () => {
+      it('validates move_stack with valid from', () => {
         const state = createBaseState('movement');
         state.board.stacks.set('3,3', {
           position: { x: 3, y: 3 },
@@ -562,16 +562,16 @@ describe('TurnOrchestrator core branch coverage', () => {
           composition: [{ player: 1, count: 1 }],
           rings: [1],
         });
-        const move = createMove('move_ring', 1, { x: 4, y: 3 }, { from: { x: 3, y: 3 } });
+        const move = createMove('move_stack', 1, { x: 4, y: 3 }, { from: { x: 3, y: 3 } });
 
         const result = validateMove(state, move);
 
         expect(result).toHaveProperty('valid');
       });
 
-      it('returns invalid for move_ring without from', () => {
+      it('returns invalid for move_stack without from', () => {
         const state = createBaseState('movement');
-        const move = createMove('move_ring', 1, { x: 4, y: 3 });
+        const move = createMove('move_stack', 1, { x: 4, y: 3 });
 
         const result = validateMove(state, move);
 
@@ -697,9 +697,9 @@ describe('TurnOrchestrator core branch coverage', () => {
         expect(result.valid).toBe(true);
       });
 
-      it('returns valid for choose_line_reward', () => {
+      it('returns valid for choose_line_option', () => {
         const state = createBaseState('line_processing');
-        const move = createMove('choose_line_reward', 1, { x: 0, y: 0 });
+        const move = createMove('choose_line_option', 1, { x: 0, y: 0 });
 
         const result = validateMove(state, move);
 
@@ -1163,7 +1163,7 @@ describe('TurnOrchestrator core branch coverage', () => {
     it('handles decision move that does not change state', () => {
       const state = createBaseState('territory_processing');
       const move = createMove(
-        'process_territory_region',
+        'choose_territory_option',
         1,
         { x: 0, y: 0 },
         {

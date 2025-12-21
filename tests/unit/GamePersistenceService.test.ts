@@ -957,7 +957,7 @@ describe('GamePersistenceService', () => {
     it('should include decisionAutoResolved in serialized move when present', async () => {
       const moveWithAutoResolved = {
         id: 'm1',
-        type: 'process_territory_region' as const,
+        type: 'choose_territory_option' as const,
         player: 1,
         to: { x: 3, y: 3 },
         timestamp: new Date(),
@@ -1039,7 +1039,7 @@ describe('GamePersistenceService', () => {
           playerId: 'p1',
           moveNumber: 1,
           position: { from: { x: 2, y: 2 }, to: { x: 3, y: 3 } },
-          moveType: 'move_ring',
+          moveType: 'move_stack',
           moveData: null,
           timestamp: new Date(),
         },

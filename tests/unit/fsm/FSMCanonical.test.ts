@@ -73,8 +73,8 @@ describe('FSM Canonical Orchestrator', () => {
           invalidMoves: [
             'move_stack',
             'overtaking_capture',
-            'choose_line_reward',
-            'process_territory_region',
+            'choose_line_option',
+            'choose_territory_option',
           ],
         },
         {
@@ -87,7 +87,7 @@ describe('FSM Canonical Orchestrator', () => {
             'skip_recovery',
             'swap_sides',
           ],
-          invalidMoves: ['place_ring', 'choose_line_reward', 'process_territory_region'],
+          invalidMoves: ['place_ring', 'choose_line_option', 'choose_territory_option'],
         },
         {
           phase: 'capture',
@@ -102,7 +102,7 @@ describe('FSM Canonical Orchestrator', () => {
         {
           phase: 'chain_capture',
           validMoves: ['continue_capture_segment', 'swap_sides'],
-          invalidMoves: ['place_ring', 'move_stack', 'choose_line_reward', 'no_movement_action'],
+          invalidMoves: ['place_ring', 'move_stack', 'choose_line_option', 'no_movement_action'],
         },
         {
           phase: 'line_processing',
@@ -115,8 +115,8 @@ describe('FSM Canonical Orchestrator', () => {
           invalidMoves: [
             'place_ring',
             'move_stack',
-            'choose_line_reward',
-            'process_territory_region',
+            'choose_line_option',
+            'choose_territory_option',
             'overtaking_capture',
           ],
         },
@@ -131,8 +131,8 @@ describe('FSM Canonical Orchestrator', () => {
           invalidMoves: [
             'place_ring',
             'move_stack',
-            'choose_line_reward',
-            'process_territory_region',
+            'choose_line_option',
+            'choose_territory_option',
             'overtaking_capture',
           ],
         },
@@ -385,7 +385,7 @@ describe('FSM Canonical Orchestrator', () => {
     it('should return INVALID_EVENT for wrong phase moves', () => {
       const state = createGame();
       // Use process_line which is only valid in line_processing phase
-      // (process_territory_region is now trusted during replay for parity tolerance)
+      // (choose_territory_option is now trusted during replay for parity tolerance)
       const move = makeMove({
         type: 'process_line',
         player: 1,
@@ -398,13 +398,13 @@ describe('FSM Canonical Orchestrator', () => {
       expect(result.errorCode).toBe('INVALID_EVENT');
     });
 
-    it('should trust process_territory_region during replay (parity tolerance)', () => {
-      // process_territory_region is trusted during replay because Python may detect
+    it('should trust choose_territory_option during replay (parity tolerance)', () => {
+      // choose_territory_option is trusted during replay because Python may detect
       // more disconnected regions than TypeScript. This allows replaying Python-recorded
       // moves even when TS has already transitioned out of territory_processing.
       const state = createGame();
       const move = makeMove({
-        type: 'process_territory_region',
+        type: 'choose_territory_option',
         player: 1,
         to: { x: 0, y: 0 },
       });

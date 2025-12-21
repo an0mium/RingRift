@@ -330,14 +330,14 @@ export function seedTerritoryRegionWithOutsideStack(
 /**
  * Utility to filter a Move[] down to "real actions" – placements,
  * movements, and captures – excluding explicit decision moves like
- * process_line, choose_line_reward, process_territory_region, and
+ * process_line, choose_line_option, choose_territory_option, and
  * eliminate_rings_from_stack.
  */
 export function filterRealActionMoves(moves: Move[]): Move[] {
   const realTypes: Move['type'][] = [
     'place_ring',
     'skip_placement',
-    'move_ring',
+    'move_stack',
     'move_stack',
     'overtaking_capture',
     'continue_capture_segment',

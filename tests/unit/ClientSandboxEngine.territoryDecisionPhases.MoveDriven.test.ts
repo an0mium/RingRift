@@ -29,7 +29,7 @@ import {
  * - Reconstructs the sandbox GameState at the start of the
  *   `territory_processing` phase from the provided fixture.
  * - Uses the shared `enumerateProcessTerritoryRegionMoves` helper to
- *   derive the canonical `process_territory_region` Move for the current
+ *   derive the canonical `choose_territory_option` Move for the current
  *   player.
  * - Applies that Move via `ClientSandboxEngine.applyCanonicalMove`
  *   (orchestrator-backed path) and asserts that the region’s spaces are:
@@ -212,7 +212,7 @@ describe('ClientSandboxEngine territory decision phases (Move-driven)', () => {
     return engine;
   }
 
-  it('applies canonical process_territory_region so region spaces collapse and counts update', async () => {
+  it('applies canonical choose_territory_option so region spaces collapse and counts update', async () => {
     const engine = createSandboxEngineFromFixture();
     const before = engine.getGameState();
 
@@ -221,7 +221,7 @@ describe('ClientSandboxEngine territory decision phases (Move-driven)', () => {
 
     const movingPlayer = before.currentPlayer;
 
-    // Derive the canonical process_territory_region Move from the shared helper.
+    // Derive the canonical choose_territory_option Move from the shared helper.
     const territoryMoves = enumerateProcessTerritoryRegionMoves(before, movingPlayer);
     expect(territoryMoves.length).toBeGreaterThan(0);
 

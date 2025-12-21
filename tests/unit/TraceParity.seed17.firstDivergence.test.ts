@@ -56,9 +56,9 @@ maybeDescribe('Trace parity first-divergence helper: square8 / 2p / seed=17', ()
       if (candidate.player !== reference.player) continue;
 
       const isSimpleMovementPair =
-        (reference.type === 'move_ring' && candidate.type === 'move_stack') ||
-        (reference.type === 'move_stack' && candidate.type === 'move_ring') ||
-        (reference.type === 'move_ring' && candidate.type === 'move_ring') ||
+        (reference.type === 'move_stack' && candidate.type === 'move_stack') ||
+        (reference.type === 'move_stack' && candidate.type === 'move_stack') ||
+        (reference.type === 'move_stack' && candidate.type === 'move_stack') ||
         (reference.type === 'move_stack' && candidate.type === 'move_stack');
 
       if (isSimpleMovementPair) {
@@ -120,8 +120,8 @@ maybeDescribe('Trace parity first-divergence helper: square8 / 2p / seed=17', ()
       }
 
       if (
-        reference.type === 'choose_line_reward' &&
-        candidate.type === 'choose_line_reward' &&
+        reference.type === 'choose_line_option' &&
+        candidate.type === 'choose_line_option' &&
         reference.formedLines &&
         reference.formedLines[0] &&
         candidate.formedLines &&
@@ -180,8 +180,8 @@ maybeDescribe('Trace parity first-divergence helper: square8 / 2p / seed=17', ()
       // region being processed matches exactly (up to set equality of
       // spaces). This keeps the strict helper aligned with the looser
       // move-matcher used by the main trace harness.
-      if (reference.type === 'process_territory_region') {
-        if (candidate.type !== 'process_territory_region') {
+      if (reference.type === 'choose_territory_option') {
+        if (candidate.type !== 'choose_territory_option') {
           continue;
         }
 

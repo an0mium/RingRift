@@ -241,11 +241,11 @@ describe('GameEngine line formation scenarios (square8)', () => {
     // the apply function with explicit collapsedMarkers
     const minCollapseSegment = linePositions.slice(0, requiredLength);
 
-    // Create a synthetic choose_line_reward move for Option 2 (minimum collapse)
+    // Create a synthetic choose_line_option move for Option 2 (minimum collapse)
     const minCollapseMove = {
       ...rewardMoves[0],
       id: `choose-line-reward-0-min-segment`,
-      type: 'choose_line_reward' as const,
+      type: 'choose_line_option' as const,
       collapsedMarkers: minCollapseSegment,
     };
 
@@ -279,11 +279,11 @@ describe('GameEngine line formation scenarios (square8)', () => {
     }
   });
 
-  test('line_processing_getValidMoves_exposes_process_line_and_rich_choose_line_reward_moves', () => {
+  test('line_processing_getValidMoves_exposes_process_line_and_rich_choose_line_option_moves', () => {
     // Rules reference:
     // - Section 11.2–11.3: when multiple lines exist for the moving player,
     //   line_processing should surface one process_line move per line.
-    // - Overlength lines expose a richer choose_line_reward surface:
+    // - Overlength lines expose a richer choose_line_option surface:
     //   - One collapse-all reward (implicit Option 1).
     //   - One or more minimum-collapse contiguous segments of length L
     //     (Option 2-style rewards).

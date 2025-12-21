@@ -80,7 +80,7 @@ maybeTest('export mixed line+multi-region territory snapshot for Python parity',
 
   const lineMove: Move = {
     id: 'square-multi-region-line',
-    type: 'choose_line_reward',
+    type: 'choose_line_option',
     player: 1,
     thinkTime: 0,
     timestamp: new Date('2025-12-03T00:00:00.000Z'),
@@ -102,7 +102,7 @@ maybeTest('export mixed line+multi-region territory snapshot for Python parity',
   // STEP 2: Explicitly process Region B.
   const regionBMove: Move = {
     id: 'square-multi-region-regionB',
-    type: 'process_territory_region',
+    type: 'choose_territory_option',
     player: 1,
     disconnectedRegions: [
       {
@@ -123,7 +123,7 @@ maybeTest('export mixed line+multi-region territory snapshot for Python parity',
   // STEP 3: Explicitly process Region A.
   const regionAMove: Move = {
     id: 'square-multi-region-regionA',
-    type: 'process_territory_region',
+    type: 'choose_territory_option',
     player: 1,
     disconnectedRegions: [
       {

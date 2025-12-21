@@ -427,7 +427,7 @@ describe('TerritoryAggregate - Branch Coverage (Edge Cases)', () => {
 
       const move = {
         id: 'process-region-0,0',
-        type: 'process_territory_region' as const,
+        type: 'choose_territory_option' as const,
         player: 1,
         to: { x: 0, y: 0 },
         disconnectedRegions: [region],
@@ -475,7 +475,7 @@ describe('TerritoryAggregate - Branch Coverage (Edge Cases)', () => {
 
       const move = {
         id: 'process-region-0,0',
-        type: 'process_territory_region' as const,
+        type: 'choose_territory_option' as const,
         player: 1,
         to: { x: 0, y: 0 },
         disconnectedRegions: [region],
@@ -520,7 +520,7 @@ describe('TerritoryAggregate - Branch Coverage (Edge Cases)', () => {
 
       const move = {
         id: 'process-region-0,0',
-        type: 'process_territory_region' as const,
+        type: 'choose_territory_option' as const,
         player: 1,
         to: { x: 0, y: 0 },
         disconnectedRegions: [region],
@@ -770,7 +770,7 @@ describe('TerritoryAggregate - Branch Coverage (Edge Cases)', () => {
 
       const move = {
         id: 'process-region-7,7',
-        type: 'process_territory_region' as const,
+        type: 'choose_territory_option' as const,
         player: 1,
         to: { x: 7, y: 7 },
         disconnectedRegions: [], // Empty - triggers fallback derivation
@@ -795,7 +795,7 @@ describe('TerritoryAggregate - Branch Coverage (Edge Cases)', () => {
 
       const move = {
         id: 'process-region-0-0,0', // ID contains region key
-        type: 'process_territory_region' as const,
+        type: 'choose_territory_option' as const,
         player: 1,
         // No 'to' field - forces id-based lookup
         timestamp: new Date(),
@@ -818,7 +818,7 @@ describe('TerritoryAggregate - Branch Coverage (Edge Cases)', () => {
 
       const move = {
         id: 'process-region-test',
-        type: 'process_territory_region' as const,
+        type: 'choose_territory_option' as const,
         player: 1,
         disconnectedRegions: [], // Empty - triggers fallback
         timestamp: new Date(),

@@ -76,14 +76,14 @@ describe('RuleEngine - Branch Coverage', () => {
       expect(ruleEngine.validateMove(move, state)).toBe(false);
     });
 
-    it('validates move_ring as legacy alias', () => {
+    it('validates move_stack as legacy alias', () => {
       const state = createTestGameState();
       state.currentPhase = 'movement';
       state.currentPlayer = 1;
       addStack(state.board, pos(2, 2), 1);
 
       const move: Move = {
-        type: 'move_ring',
+        type: 'move_stack',
         player: 1,
         from: pos(2, 2),
         to: pos(3, 2),
@@ -347,13 +347,13 @@ describe('RuleEngine - Branch Coverage', () => {
       expect(typeof result).toBe('boolean');
     });
 
-    it('validates choose_line_reward move', () => {
+    it('validates choose_line_option move', () => {
       const state = createTestGameState();
       state.currentPhase = 'line_decision';
       state.currentPlayer = 1;
 
       const move: Move = {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         player: 1,
         lineIndex: 0,
         rewardChoice: 'COLLAPSE_ALL',
@@ -395,13 +395,13 @@ describe('RuleEngine - Branch Coverage', () => {
   // Territory processing validation branches
   // ==========================================================================
   describe('validateTerritoryProcessingMove branches', () => {
-    it('validates process_territory_region move', () => {
+    it('validates choose_territory_option move', () => {
       const state = createTestGameState();
       state.currentPhase = 'territory_processing';
       state.currentPlayer = 1;
 
       const move: Move = {
-        type: 'process_territory_region',
+        type: 'choose_territory_option',
         player: 1,
       };
       const result = ruleEngine.validateMove(move, state);
@@ -458,7 +458,7 @@ describe('RuleEngine - Branch Coverage', () => {
       expect(result).toBe(false);
     });
 
-    it('rejects process_territory_region when disconnectedRegions[0] does not match any existing region', () => {
+    it('rejects choose_territory_option when disconnectedRegions[0] does not match any existing region', () => {
       const state = createTestGameState();
       state.currentPhase = 'territory_processing';
       state.currentPlayer = 1;
@@ -482,7 +482,7 @@ describe('RuleEngine - Branch Coverage', () => {
       } as any;
 
       const move: Move = {
-        type: 'process_territory_region',
+        type: 'choose_territory_option',
         player: 1,
         disconnectedRegions: [mismatchedRegion],
       } as any;
@@ -777,13 +777,13 @@ describe('RuleEngine - Branch Coverage', () => {
       expect(typeof result).toBe('boolean');
     });
 
-    it('rejects choose_line_reward in wrong phase', () => {
+    it('rejects choose_line_option in wrong phase', () => {
       const state = createTestGameState();
       state.currentPhase = 'movement';
       state.currentPlayer = 1;
 
       const move: Move = {
-        type: 'choose_line_reward',
+        type: 'choose_line_option',
         player: 1,
         lineIndex: 0,
         selection: 'COLLAPSE_ALL',
@@ -798,13 +798,13 @@ describe('RuleEngine - Branch Coverage', () => {
   // Territory processing validation
   // ==========================================================================
   describe('territory processing validation', () => {
-    it('rejects process_territory_region in wrong phase', () => {
+    it('rejects choose_territory_option in wrong phase', () => {
       const state = createTestGameState();
       state.currentPhase = 'movement';
       state.currentPlayer = 1;
 
       const move: Move = {
-        type: 'process_territory_region',
+        type: 'choose_territory_option',
         player: 1,
         regionId: 'region-1',
       } as Move;

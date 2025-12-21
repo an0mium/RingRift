@@ -624,11 +624,11 @@ describe('TurnOrchestrator ANM and Recovery branch coverage', () => {
   });
 
   // =========================================================================
-  // processTurn - process_territory_region
+  // processTurn - choose_territory_option
   // =========================================================================
 
-  describe('processTurn - process_territory_region', () => {
-    it('handles process_territory_region in territory_processing phase', () => {
+  describe('processTurn - choose_territory_option', () => {
+    it('handles choose_territory_option in territory_processing phase', () => {
       const board = createEmptyBoard(8);
       // Create enclosed territory
       for (let x = 2; x <= 4; x++) {
@@ -645,7 +645,7 @@ describe('TurnOrchestrator ANM and Recovery branch coverage', () => {
 
       const move: Move = {
         id: 'test-process-territory',
-        type: 'process_territory_region',
+        type: 'choose_territory_option',
         player: 1,
         to: { x: 3, y: 3 }, // Center of territory
         timestamp: new Date().toISOString(),

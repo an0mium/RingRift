@@ -782,7 +782,7 @@ function generateChooseLineRewardFixture(engineState: EngineGameState): StateAct
 
   const move: Move = {
     id: 'fixture-square8-2p-choose-line-reward',
-    type: 'choose_line_reward',
+    type: 'choose_line_option',
     player: 1,
     to: { x: 0, y: 0 }, // Sentinel
     formedLines: [line],
@@ -807,7 +807,7 @@ function generateChooseLineRewardFixture(engineState: EngineGameState): StateAct
 
   if (event.type !== 'ACTION_PROCESSED') {
     return {
-      id: 'square8_2p.choose_line_reward',
+      id: 'square8_2p.choose_line_option',
       version: 'v1',
       boardType,
       description: 'Player 1 chooses minimum collapse for line of 5.',
@@ -824,7 +824,7 @@ function generateChooseLineRewardFixture(engineState: EngineGameState): StateAct
   const sharedAfter = toSharedState(engineAfter, boardType);
 
   return {
-    id: 'square8_2p.choose_line_reward',
+    id: 'square8_2p.choose_line_option',
     version: 'v1',
     boardType,
     description: 'Player 1 chooses minimum collapse for line of 5.',
@@ -874,7 +874,7 @@ function generateChooseLineRewardCollapseAllFixture(
 
   const move: Move = {
     id: 'fixture-square8-2p-choose-line-reward-collapse-all',
-    type: 'choose_line_reward',
+    type: 'choose_line_option',
     player: 1,
     to: { x: 0, y: 0 }, // Sentinel
     formedLines: [line],
@@ -899,7 +899,7 @@ function generateChooseLineRewardCollapseAllFixture(
 
   if (event.type !== 'ACTION_PROCESSED') {
     return {
-      id: 'square8_2p.choose_line_reward.collapse_all',
+      id: 'square8_2p.choose_line_option.collapse_all',
       version: 'v1',
       boardType,
       description: 'Player 1 chooses collapse-all reward for line of 5.',
@@ -916,7 +916,7 @@ function generateChooseLineRewardCollapseAllFixture(
   const sharedAfter = toSharedState(engineAfter, boardType);
 
   return {
-    id: 'square8_2p.choose_line_reward.collapse_all',
+    id: 'square8_2p.choose_line_option.collapse_all',
     version: 'v1',
     boardType,
     description: 'Player 1 chooses collapse-all reward for line of 5.',
@@ -964,7 +964,7 @@ function generateProcessTerritoryFixture(engineState: EngineGameState): StateAct
 
   const move: Move = {
     id: 'fixture-square8-2p-process-territory',
-    type: 'process_territory_region',
+    type: 'choose_territory_option',
     player: 1,
     to: { x: 0, y: 0 }, // Sentinel
     disconnectedRegions: [region],
@@ -1505,7 +1505,7 @@ function generateMultiRegionTerritoryFixtureForBoard(
 
   const move: Move = {
     id: `fixture-${boardType}-2p-process-territory-multi-region`,
-    type: 'process_territory_region',
+    type: 'choose_territory_option',
     player: 1,
     to: { x: 0, y: 0 },
     disconnectedRegions: [region2],
@@ -1911,17 +1911,17 @@ function generateV1Fixtures(): void {
   const chooseLineRewardMinimumTrace = makeTraceFromStateAction(
     boardType,
     chooseLineRewardFixture,
-    'choose_line_reward_minimum_collapse'
+    'choose_line_option_minimum_collapse'
   );
   const chooseLineRewardCollapseAllTrace = makeTraceFromStateAction(
     boardType,
     chooseLineRewardCollapseAllFixture,
-    'choose_line_reward_collapse_all'
+    'choose_line_option_collapse_all'
   );
   const processTerritoryTrace = makeTraceFromStateAction(
     boardType,
     processTerritoryFixture,
-    'process_territory_region'
+    'choose_territory_option'
   );
   const eliminateStackTrace = makeTraceFromStateAction(
     boardType,
@@ -1957,11 +1957,11 @@ function generateV1Fixtures(): void {
       data: processLineFixture,
     },
     {
-      name: 'state_action.square8_2p.choose_line_reward.json',
+      name: 'state_action.square8_2p.choose_line_option.json',
       data: chooseLineRewardFixture,
     },
     {
-      name: 'state_action.square8_2p.choose_line_reward.collapse_all.json',
+      name: 'state_action.square8_2p.choose_line_option.collapse_all.json',
       data: chooseLineRewardCollapseAllFixture,
     },
     {
@@ -1997,11 +1997,11 @@ function generateV1Fixtures(): void {
       data: processLineTrace,
     },
     {
-      name: 'trace.square8_2p.choose_line_reward.minimum_collapse.json',
+      name: 'trace.square8_2p.choose_line_option.minimum_collapse.json',
       data: chooseLineRewardMinimumTrace,
     },
     {
-      name: 'trace.square8_2p.choose_line_reward.collapse_all.json',
+      name: 'trace.square8_2p.choose_line_option.collapse_all.json',
       data: chooseLineRewardCollapseAllTrace,
     },
     {

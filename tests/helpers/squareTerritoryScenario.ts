@@ -12,7 +12,7 @@ import { createInitialGameState } from '../../src/shared/engine/initialState';
 export interface SquareTerritoryScenario {
   /** Initial GameState before any territory decisions are applied. */
   initialState: GameState;
-  /** Disconnected region to be processed by process_territory_region. */
+  /** Disconnected region to be processed by choose_territory_option. */
   region: Territory;
   /** Stack position used for mandatory self-elimination after region processing. */
   outsideStackPosition: Position;
@@ -21,9 +21,9 @@ export interface SquareTerritoryScenario {
 export interface SquareTwoRegionTerritoryScenario {
   /** Initial GameState before any territory decisions are applied. */
   initialState: GameState;
-  /** First disconnected region (Region A) to be processed by process_territory_region. */
+  /** First disconnected region (Region A) to be processed by choose_territory_option. */
   regionA: Territory;
-  /** Second disconnected region (Region B) to be processed by process_territory_region. */
+  /** Second disconnected region (Region B) to be processed by choose_territory_option. */
   regionB: Territory;
   /**
    * Outside stack positions for the moving player used for mandatory

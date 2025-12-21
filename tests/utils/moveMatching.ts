@@ -20,19 +20,19 @@ export function positionsEqual(a?: Position, b?: Position): boolean {
  * Loosely compare two Moves for equivalence in parity/debug contexts.
  *
  * The goal is to treat semantically identical actions as equal even
- * when minor metadata (e.g. placementCount, move_ring vs move_stack)
+ * when minor metadata (e.g. placementCount, move_stack vs move_stack)
  * differs between engines.
  */
 export function movesLooselyMatch(a: Move, b: Move): boolean {
   if (a.player !== b.player) return false;
 
   // Treat simple non-capture movements as equivalent whether they are
-  // labelled move_ring (legacy) or move_stack (canonical), as long as
+  // labelled move_stack (legacy) or move_stack (canonical), as long as
   // from/to match.
   const isSimpleMovementPair =
-    (a.type === 'move_ring' && b.type === 'move_stack') ||
-    (a.type === 'move_stack' && b.type === 'move_ring') ||
-    (a.type === 'move_ring' && b.type === 'move_ring') ||
+    (a.type === 'move_stack' && b.type === 'move_stack') ||
+    (a.type === 'move_stack' && b.type === 'move_stack') ||
+    (a.type === 'move_stack' && b.type === 'move_stack') ||
     (a.type === 'move_stack' && b.type === 'move_stack');
 
   if (isSimpleMovementPair) {
@@ -62,10 +62,10 @@ export function movesLooselyMatch(a: Move, b: Move): boolean {
   // For line-processing decisions, require that the underlying line
   // geometry (and, when present, collapsedMarkers for reward choices)
   // matches across engines. This prevents trace replays from pairing a
-  // sandbox process_line / choose_line_reward Move with a backend
+  // sandbox process_line / choose_line_option Move with a backend
   // candidate that targets a different line, which would desynchronise
   // stack heights and phases even when types/players match.
-  if (a.type === 'process_line' || a.type === 'choose_line_reward') {
+  if (a.type === 'process_line' || a.type === 'choose_line_option') {
     const aLine = a.formedLines && a.formedLines[0];
     const bLine = b.formedLines && b.formedLines[0];
 
@@ -90,7 +90,7 @@ export function movesLooselyMatch(a: Move, b: Move): boolean {
         }
       }
 
-      if (a.type === 'choose_line_reward') {
+      if (a.type === 'choose_line_option') {
         const aCollapsed = a.collapsedMarkers ?? [];
         const bCollapsed = b.collapsedMarkers ?? [];
 
@@ -126,11 +126,11 @@ export function movesLooselyMatch(a: Move, b: Move): boolean {
   // region being processed matches exactly (up to set equality of
   // spaces) when both moves carry region metadata. This prevents the
   // trace replay harness from treating *any* choose_territory_option
-  // (legacy alias: process_territory_region)
+  // (legacy alias: choose_territory_option)
   // Move for the same player as equivalent and instead ensures we
   // select the backend candidate whose region geometry matches the
   // sandbox trace.
-  if (a.type === 'choose_territory_option' || a.type === 'process_territory_region') {
+  if (a.type === 'choose_territory_option' || a.type === 'choose_territory_option') {
     const aRegion = a.disconnectedRegions && a.disconnectedRegions[0];
     const bRegion = b.disconnectedRegions && b.disconnectedRegions[0];
 

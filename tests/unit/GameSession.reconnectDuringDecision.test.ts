@@ -159,7 +159,7 @@ describe('GameSession reconnect-during-decision edge cases', () => {
 
       const regionMove: Move = {
         id: 'region-1',
-        type: 'process_territory_region',
+        type: 'choose_territory_option',
         player: 2,
         thinkTime: 0,
         timestamp: new Date(),

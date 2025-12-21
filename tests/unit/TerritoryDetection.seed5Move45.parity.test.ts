@@ -60,8 +60,7 @@ const skipWithOrchestrator = process.env.ORCHESTRATOR_ADAPTER_ENABLED === 'true'
 
       const targetIndex = trace.entries.findIndex(
         (e) =>
-          e.action.type === 'choose_territory_option' ||
-          e.action.type === 'process_territory_region'
+          e.action.type === 'choose_territory_option' || e.action.type === 'choose_territory_option'
       );
       expect(targetIndex).toBeGreaterThanOrEqual(0);
 
