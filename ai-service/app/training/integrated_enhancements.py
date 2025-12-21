@@ -691,6 +691,9 @@ class IntegratedTrainingManager:
         """
         if self._auxiliary_module is not None:
             torch, _ = _get_torch_nn()
+            # Move auxiliary module to same device as features if needed
+            if hasattr(features, 'device'):
+                self._auxiliary_module = self._auxiliary_module.to(features.device)
             predictions = self._auxiliary_module(features)
             return self._auxiliary_module.compute_loss(predictions, targets)
 

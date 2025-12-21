@@ -393,7 +393,7 @@ def import_to_database(
                     logger.debug(f"Failed to store snapshot at move {snap.get('move_number', '?')}: {snap_e}")
 
             if snapshots_stored > 0:
-                stats["snapshots_stored"] = stats.get("snapshots_stored", 0) + snapshots_stored
+                stats["snapshots_stored"] += snapshots_stored
 
             stats["imported"] += 1
 
