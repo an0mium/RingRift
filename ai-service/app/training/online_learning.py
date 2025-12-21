@@ -216,6 +216,48 @@ class OnlineLearner(Protocol):
         ...
 
 
+class TDStepLearner(Protocol):
+    """Protocol for single-step TD learning implementations.
+
+    This extends online learning with real-time per-move updates.
+    Not recommended for general use - only for aggressive adaptation scenarios.
+
+    The key pattern is TD-Energy learning:
+    - E(s,a) should predict gamma * E(s', a') for temporal consistency
+    - Update immediately after each transition for real-time learning
+    - Uses small learning rate to prevent instability
+    """
+
+    def td_step_update(
+        self,
+        state: "GameState",
+        move: "Move",
+        player: int,
+        next_state: "GameState",
+        next_move: "Move",
+        reward: float = 0.0,
+    ) -> float:
+        """Single TD-style update step.
+
+        TD-Energy Pattern:
+            target = reward + gamma * E(s', a')
+            error = E(s, a) - target
+            loss = error^2
+
+        Args:
+            state: Current state
+            move: Action taken
+            player: Acting player
+            next_state: Resulting state
+            next_move: Best/actual next move (for computing target energy)
+            reward: Immediate reward (usually 0 except at game end)
+
+        Returns:
+            TD error (for logging/monitoring)
+        """
+        ...
+
+
 # =============================================================================
 # EBMO Online Learning Implementation
 # =============================================================================
@@ -375,8 +417,9 @@ __all__ = [
     # Data structures
     "Transition",
     "GameRecord",
-    # Protocol
+    # Protocols
     "OnlineLearner",
+    "TDStepLearner",
     # EBMO implementation
     "EBMOOnlineConfig",
     "EBMOOnlineLearner",
