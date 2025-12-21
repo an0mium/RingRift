@@ -327,6 +327,13 @@ def import_to_database(
             if initial_state_data:
                 if isinstance(initial_state_data, str):
                     initial_state_data = json.loads(initial_state_data)
+                # Ensure boardType is set correctly from record metadata
+                # GPU selfplay initial_state often lacks boardType
+                if not initial_state_data.get("boardType") and not initial_state_data.get("board_type"):
+                    initial_state_data["boardType"] = record["board_type"]
+                    # Also ensure board.type is set correctly
+                    if "board" in initial_state_data:
+                        initial_state_data["board"]["type"] = record["board_type"]
                 initial_state = GameState.model_validate(initial_state_data)
             else:
                 # Create placeholder initial state
