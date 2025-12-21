@@ -91,9 +91,16 @@ ai-service/data/selfplay/
 ai-service/data/selfplay/**/*.jsonl
 ai-service/data/selfplay/**/*.json
 ai-service/data/gmo_sweep/
+ai-service/data/gmo_selfplay/
+ai-service/data/gmo_ablation/
+ai-service/data/gumbel_selfplay/
 ai-service/data/synced_selfplay/
 ai-service/data/training/
 ai-service/data/export_cache/
+ai-service/data/critical_positions/
+ai-service/data/gauntlet_stage1/
+ai-service/data/test_pipeline/
+ai-service/data/training_runs/
 # Tournament game logs (large jsonl files)
 ai-service/data/tournaments/**/*.jsonl
 ai-service/**/*.pth
@@ -123,6 +130,7 @@ ai-service/parity_state_bundles/
 ai-service/parity_debug_*/
 ai-service/parity_failures/
 ai-service/parity_fixtures/**/*.json
+ai-service/ts_py_*/
 
 # Local cluster configuration (contains personal IPs/hostnames)
 ai-service/scripts/cluster_workers.txt
@@ -165,6 +173,9 @@ ai-service/db_health.*.json
 ai-service/db_health.*.analysis/
 ai-service/data/db_health/*.analysis/
 ai-service/data/*.db.bak
+ai-service/data/*.db.tmp-*
+ai-service/data/*.parity_summary.json
+ai-service/data/*evaluation_bundle*.json
 
 # Local environment backups
 .env.bak
@@ -189,7 +200,6 @@ ai-service/data/canonical/
 ai-service/data/gh200_sync/
 ai-service/data/iterative/
 ai-service/data/vs_heuristic/
-
 # Runtime ladder overrides / logs (local-only)
 ai-service/data/ladder_runtime_overrides.json
 ai-service/data/auto_promotion_log.json

@@ -390,6 +390,7 @@ CI is defined in [`.github/workflows/ci.yml`](./.github/workflows/ci.yml). For P
 - `docker-build` – Docker Buildx build of the main `Dockerfile` (tagged `ringrift:test`, push disabled) to validate image build correctness in CI.
 - `python-rules-parity` – TS→Python rules-parity fixture generation followed by `pytest ai-service/tests/parity/test_rules_parity_fixtures.py` (primary TS↔Python rules parity signal).
 - `python-dependency-audit` – `pip-audit -r ai-service/requirements.txt --severity HIGH` over the AI-service dependency set.
+- `replay-parity-check`, `replay-parity-check-3p`, `replay-parity-check-4p` – TS↔Python replay parity validation via `.github/workflows/parity-ci.yml`. These jobs generate fresh canonical games on-the-fly and verify that TypeScript and Python engines produce identical game states for 2P, 3P, and 4P configurations. **Required for PRs touching engine code paths.**
 
 The `e2e-tests` Playwright job is **CI-blocking**. Infrastructure (Postgres, Redis) is configured via GitHub Actions services, and Playwright has retry support (2x in CI) for flaky test resilience. Contributors should:
 
