@@ -83,6 +83,8 @@ export const VALID_MOVES_BY_PHASE: Readonly<Record<GamePhase, readonly MoveType[
     'process_line',
     'choose_line_option',
     'choose_line_reward',
+    // RR-CANON-R123: line reward elimination uses eliminate_rings_from_stack
+    'eliminate_rings_from_stack',
     'no_line_action',
     // Deprecated legacy move type; accepted for replay only.
     'line_formation',
@@ -126,7 +128,12 @@ export const CANONICAL_VALID_MOVES_BY_PHASE: Readonly<Record<GamePhase, readonly
   ],
   capture: ['overtaking_capture', 'continue_capture_segment', 'skip_capture'],
   chain_capture: ['continue_capture_segment'],
-  line_processing: ['process_line', 'choose_line_option', 'no_line_action'],
+  line_processing: [
+    'process_line',
+    'choose_line_option',
+    'eliminate_rings_from_stack',
+    'no_line_action',
+  ],
   territory_processing: [
     'choose_territory_option',
     'eliminate_rings_from_stack',

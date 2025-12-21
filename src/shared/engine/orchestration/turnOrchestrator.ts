@@ -74,7 +74,6 @@ import {
   onLineProcessingComplete,
   onTerritoryProcessingComplete,
   computeFSMOrchestration,
-  extractLineRewardChoice,
   type FSMOrchestrationResult,
 } from '../fsm';
 
@@ -1371,6 +1370,11 @@ export function processTurn(
   }
 
   stateMachine.updateGameState(applyResult.nextState);
+  if (applyResult.pendingLineRewardElimination !== undefined) {
+    stateMachine.updateFlags({
+      eliminationRewardPending: applyResult.pendingLineRewardElimination,
+    });
+  }
 
   // DEBUG: Log mustMoveFromStackKey propagation
   if (process.env.RINGRIFT_TRACE_DEBUG === '1') {
@@ -1861,6 +1865,8 @@ interface ApplyMoveResult {
   chainCapturePosition?: Position;
   /** Pending decision for forced elimination or other deferred actions */
   pendingDecision?: PendingDecision;
+  /** Line reward elimination pending after line collapse (RR-CANON-R123) */
+  pendingLineRewardElimination?: boolean;
 }
 
 /**
@@ -2132,13 +2138,19 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
 
     case 'process_line': {
       const outcome = applyProcessLineDecision(state, move);
-      return { nextState: outcome.nextState };
+      return {
+        nextState: outcome.nextState,
+        pendingLineRewardElimination: outcome.pendingLineRewardElimination,
+      };
     }
 
     case 'choose_line_option':
     case 'choose_line_reward': {
       const outcome = applyChooseLineRewardDecision(state, move);
-      return { nextState: outcome.nextState };
+      return {
+        nextState: outcome.nextState,
+        pendingLineRewardElimination: outcome.pendingLineRewardElimination,
+      };
     }
 
     case 'no_line_action': {
@@ -2678,9 +2690,13 @@ function processPostMovePhases(
     // RR-CANON-R123: After choose_line_option with 'eliminate' choice, the player
     // must execute a separate eliminate_rings_from_stack move. Stay in line_processing
     // and surface a decision for the elimination.
+    const lineEliminationPending =
+      stateMachine.processingState.perTurnFlags.eliminationRewardPending;
     if (
-      (originalMoveType === 'choose_line_option' || originalMoveType === 'choose_line_reward') &&
-      extractLineRewardChoice(stateMachine.processingState.originalMove) === 'eliminate'
+      (originalMoveType === 'process_line' ||
+        originalMoveType === 'choose_line_option' ||
+        originalMoveType === 'choose_line_reward') &&
+      lineEliminationPending
     ) {
       // Stay in line_processing, do not transition to territory_processing
       return {

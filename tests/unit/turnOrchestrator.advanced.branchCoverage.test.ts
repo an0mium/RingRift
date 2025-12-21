@@ -17,6 +17,7 @@ import {
   getValidMoves,
   hasValidMoves,
 } from '../../src/shared/engine/orchestration/turnOrchestrator';
+import { CanonicalRecordError } from '../../src/shared/engine/errors/CanonicalRecordError';
 import type {
   GameState,
   GamePhase,
@@ -25,7 +26,6 @@ import type {
   Board,
   Position,
 } from '../../src/shared/types/game';
-import { positionToString } from '../../src/shared/types/game';
 
 describe('TurnOrchestrator advanced branch coverage', () => {
   const createPlayer = (playerNumber: number, ringsInHand: number = 18): Player => ({
@@ -833,6 +833,31 @@ describe('TurnOrchestrator advanced branch coverage', () => {
       // Should have some moves available (either forced elimination or end_turn)
       expect(Array.isArray(moves)).toBe(true);
     });
+
+    it('returns forced_elimination moves with elimination metadata in forced_elimination phase', () => {
+      const state = createBaseState('forced_elimination');
+      state.players[0].ringsInHand = 0;
+      state.board.size = 1;
+      state.board.stacks.set('0,0', {
+        position: { x: 0, y: 0 },
+        stackHeight: 3,
+        capHeight: 2,
+        controllingPlayer: 1,
+        composition: [{ player: 1, count: 3 }],
+        rings: [1, 1, 1],
+      });
+
+      const moves = getValidMoves(state);
+      const forcedMoves = moves.filter((move) => move.type === 'forced_elimination');
+
+      expect(forcedMoves.length).toBeGreaterThan(0);
+      forcedMoves.forEach((move) => {
+        expect(move.eliminationFromStack).toBeDefined();
+        expect(move.eliminatedRings?.length).toBeGreaterThan(0);
+        expect(move.eliminatedRings?.[0].player).toBe(1);
+        expect(move.eliminatedRings?.[0].count).toBe(2);
+      });
+    });
   });
 
   describe('ANM resolution (lines 100-158, 504-507)', () => {
@@ -1362,15 +1387,33 @@ describe('TurnOrchestrator advanced branch coverage', () => {
       expect(result).toBe(true);
     });
   });
+
+  describe('canonical phase coercion', () => {
+    it('throws CanonicalRecordError for phase-mismatched move in strict mode', () => {
+      const state = createBaseState('ring_placement');
+      const move = createMove('skip_territory_processing', 1, { x: 0, y: 0 });
+
+      let caught: unknown;
+      try {
+        processTurn(state, move);
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(CanonicalRecordError);
+      const canonicalError = caught as CanonicalRecordError;
+      expect(canonicalError.type).toBe('LEGACY_COERCION_DETECTED');
+      expect(canonicalError.expectedPhase).toBe('ring_placement');
+      expect(canonicalError.actualPhase).toBe('territory_processing');
+      expect(canonicalError.moveType).toBe('skip_territory_processing');
+    });
+  });
 });
 /**
  * Advanced branch coverage for turnOrchestrator focused on forced-elimination
  * pending decisions that are emitted when a player is blocked but still has
  * stacks (RR-CANON-R072/R100/R205).
  */
-
-import { processTurn } from '../../src/shared/engine/orchestration/turnOrchestrator';
-import type { GameState, GamePhase, Move, Player, Board } from '../../src/shared/types/game';
 
 const createPlayer = (playerNumber: number, ringsInHand: number): Player => ({
   id: `player-${playerNumber}`,
