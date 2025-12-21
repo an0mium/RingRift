@@ -254,6 +254,33 @@ def _record_game_if_enabled(
         print(f"[Tournament] Recording failed for game {game_id}: {e}")
 
 
+def _register_composite_participant(
+    db: "EloDatabase",
+    participant_id: str,
+    model: dict[str, Any],
+    ai_type: str,
+    config: dict[str, Any],
+) -> None:
+    """Register a composite participant with metadata for ELO tracking."""
+    metadata = {
+        "is_composite": True,
+        "parent_participant_id": model.get("model_id"),
+        "nn_model_id": model.get("model_id"),
+        "nn_model_path": model.get("model_path"),
+        "ai_type": ai_type,
+        "algorithm_config": config,
+    }
+    db.register_participant(
+        participant_id=participant_id,
+        participant_type="model",
+        ai_type=ai_type,
+        use_neural_net=True,
+        model_path=model.get("model_path"),
+        model_version=model.get("version"),
+        metadata=metadata,
+    )
+
+
 # ============================================
 # Game Execution with Neural Networks
 # ============================================
@@ -1067,18 +1094,38 @@ def run_model_matchup(
             is_baseline_a = model_a.get("model_path", "").startswith("__BASELINE") or model_a.get("ai_type") in baseline_ai_types
             is_baseline_b = model_b.get("model_path", "").startswith("__BASELINE") or model_b.get("ai_type") in baseline_ai_types
 
+            config_a = STANDARD_ALGORITHM_CONFIGS.get(model_a_ai_type, {})
+            config_b = STANDARD_ALGORITHM_CONFIGS.get(model_b_ai_type, {})
+
             # Only create composite IDs for neural network models (not baselines)
             if not is_baseline_a:
                 participant_a = make_composite_participant_id(
                     nn_id=model_a["model_id"],
                     ai_type=model_a_ai_type,
-                    config=STANDARD_ALGORITHM_CONFIGS.get(model_a_ai_type, {}),
+                    config=config_a,
                 )
             if not is_baseline_b:
                 participant_b = make_composite_participant_id(
                     nn_id=model_b["model_id"],
                     ai_type=model_b_ai_type,
-                    config=STANDARD_ALGORITHM_CONFIGS.get(model_b_ai_type, {}),
+                    config=config_b,
+                )
+
+            if not is_baseline_a:
+                _register_composite_participant(
+                    db=db,
+                    participant_id=participant_a,
+                    model=model_a,
+                    ai_type=model_a_ai_type,
+                    config=config_a,
+                )
+            if not is_baseline_b:
+                _register_composite_participant(
+                    db=db,
+                    participant_id=participant_b,
+                    model=model_b,
+                    ai_type=model_b_ai_type,
+                    config=config_b,
                 )
 
             # Update winner to use composite ID if needed
@@ -1955,6 +2002,43 @@ def is_model_archived(db: EloDatabase, model_id: str, board_type: str, num_playe
         return False
 
 
+def unarchive_model(db: EloDatabase, model_id: str, board_type: str, num_players: int) -> bool:
+    """Remove a model from the archived_models table.
+
+    Returns True if the model was unarchived, False if it wasn't archived.
+    """
+    conn = db._get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            DELETE FROM archived_models
+            WHERE model_id = ? AND board_type = ? AND num_players = ?
+        """, (model_id, board_type, num_players))
+        conn.commit()
+        return cursor.rowcount > 0
+    except sqlite3.OperationalError:
+        # Table doesn't exist - nothing to unarchive
+        return False
+
+
+def unarchive_discovered_models(db: EloDatabase, models: list[dict], board_type: str, num_players: int) -> int:
+    """Unarchive any discovered models that are marked as archived in the database.
+
+    This handles the case where model files were restored from archived/ directory
+    to models/ directory but the database still has them marked as archived.
+
+    Returns the count of models unarchived.
+    """
+    unarchived_count = 0
+    for m in models:
+        model_id = m.get("model_id", "")
+        if is_model_archived(db, model_id, board_type, num_players):
+            if unarchive_model(db, model_id, board_type, num_players):
+                print(f"  Unarchived: {model_id} (model file exists)")
+                unarchived_count += 1
+    return unarchived_count
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run model Elo tournament")
     parser.add_argument("--board", default="square8", help="Board type")
@@ -2214,12 +2298,27 @@ def main():
         nn_models = [(m, elo) for m, elo in model_elos if m.get("ai_type") not in baseline_ai_types]
         top_nn = [m for m, _ in nn_models[:args.top_elo]]
         models = top_nn + baselines
+        print(f"\n--top-elo {args.top_elo} selection breakdown:")
+        print(f"  Total models before selection: {len(model_elos)}")
+        print(f"  Baselines (all kept): {len(baselines)}")
+        print(f"  NN models found: {len(nn_models)}")
+        print(f"  Top NN selected: {len(top_nn)}")
+        if top_nn:
+            top_idx = min(args.top_elo - 1, len(nn_models) - 1)
+            print(f"  Top NN ELO range: {nn_models[0][1]:.0f} - {nn_models[top_idx][1]:.0f}")
+            for i, (m, elo) in enumerate(nn_models[:min(5, args.top_elo)]):
+                print(f"    #{i+1}: {m['model_id'][:50]} (ELO: {elo:.0f})")
         print(f"Using top {args.top_elo} models by ELO rating + {len(baselines)} baselines")
 
     # Register models
     register_models(db, models)
 
-    # Filter out archived models
+    # Auto-unarchive discovered models (handles case where files restored from archived/)
+    unarchived = unarchive_discovered_models(db, models, args.board, args.players)
+    if unarchived > 0:
+        print(f"Auto-unarchived {unarchived} models (files exist in models/)")
+
+    # Filter out archived models (only those not present in filesystem)
     active_models = [m for m in models if not is_model_archived(db, m["model_id"], args.board, args.players)]
     if len(active_models) < len(models):
         print(f"Filtered out {len(models) - len(active_models)} archived models")

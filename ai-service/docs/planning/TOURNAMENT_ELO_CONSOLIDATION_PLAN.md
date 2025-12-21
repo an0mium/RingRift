@@ -43,9 +43,9 @@
 
 - `scripts/run_eval_tournaments.py`
   - State-pool evaluation (mid/late game snapshots).
-- `scripts/run_tournament.py` (`weights` mode; legacy entrypoint: `scripts/deprecated/run_axis_aligned_tournament.py`), `scripts/run_profile_tournament.py`
+- `scripts/run_tournament.py` (`weights` mode; legacy entrypoint at `scripts/archive/deprecated/run_axis_aligned_tournament.py`), `scripts/run_profile_tournament.py`
   - Heuristic profile diagnostics and structured evaluation.
-- `scripts/run_tournament.py` (`crossboard` mode; legacy entrypoint: `scripts/deprecated/run_crossboard_difficulty_tournament.py`)
+- `scripts/run_tournament.py` (`crossboard` mode; legacy entrypoint at `scripts/archive/deprecated/run_crossboard_difficulty_tournament.py`)
   - Multi-board difficulty comparisons.
 
 ### Gauntlets / composite Elo

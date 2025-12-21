@@ -11,13 +11,13 @@ Modes:
   ssh          - SSH-distributed tournament [DEPRECATED - use distributed mode]
   eval         - Evaluation pool tournament (run_eval_tournaments.py)
   diverse      - All board/player configs (run_diverse_tournaments.py)
-  weights      - Heuristic weight profiles [DEPRECATED]
-  crossboard   - Cross-board analysis [DEPRECATED]
+  weights      - Heuristic weight profiles [ARCHIVED]
+  crossboard   - Cross-board analysis [ARCHIVED]
 
-Deprecated standalone scripts moved to scripts/deprecated/:
-  - run_ai_tournament.py (use basic mode or run_distributed_tournament.py)
-  - run_axis_aligned_tournament.py (use weights mode if needed)
-  - run_crossboard_difficulty_tournament.py (use crossboard mode if needed)
+Deprecated standalone scripts removed from the repo (archived under scripts/archive/deprecated):
+  - run_ai_tournament.py (basic mode is handled here)
+  - run_axis_aligned_tournament.py (weights mode archived)
+  - run_crossboard_difficulty_tournament.py (crossboard mode archived)
 
 Note: run_ssh_distributed_tournament.py is kept in scripts/ as it's used by p2p_orchestrator.
 
@@ -83,7 +83,7 @@ def create_parser() -> argparse.ArgumentParser:
     # Create subparsers for each mode
     subparsers = parser.add_subparsers(dest="mode", help="Tournament mode")
 
-    # Basic mode (from run_ai_tournament.py)
+    # Basic mode (consolidated)
     basic = subparsers.add_parser("basic", help="Basic AI vs AI tournament")
     basic.add_argument("--p1", type=str, default="heuristic", help="Player 1 AI type")
     basic.add_argument("--p1-diff", type=int, default=5, help="Player 1 difficulty")
@@ -95,7 +95,7 @@ def create_parser() -> argparse.ArgumentParser:
     basic.add_argument(
         "--export-jsonl",
         action="store_true",
-        help="Emit legacy games.jsonl output (uses legacy runner path)",
+        help="Legacy games.jsonl output (archived; DB recording only)",
     )
 
     # Models mode (from run_model_elo_tournament.py)
@@ -141,8 +141,8 @@ def create_parser() -> argparse.ArgumentParser:
     diverse.add_argument("--continuous", action="store_true", help="Run continuously")
     diverse.add_argument("--interval", type=int, default=3600, help="Interval between runs (seconds)")
 
-    # Weights mode (from run_axis_aligned_tournament.py)
-    weights = subparsers.add_parser("weights", help="Heuristic weight profile tournament")
+    # Weights mode (archived)
+    weights = subparsers.add_parser("weights", help="Heuristic weight profile tournament (archived)")
     weights.add_argument("--board", type=str, default="square8", help="Board type")
     weights.add_argument(
         "--boards",
@@ -182,8 +182,8 @@ def create_parser() -> argparse.ArgumentParser:
         help="Legacy alias for including baseline AIs",
     )
 
-    # Crossboard mode (from run_crossboard_difficulty_tournament.py)
-    crossboard = subparsers.add_parser("crossboard", help="Cross-board difficulty analysis")
+    # Crossboard mode (archived)
+    crossboard = subparsers.add_parser("crossboard", help="Cross-board difficulty analysis (archived)")
     crossboard.add_argument("--boards", type=str, default="square8,square19,hexagonal", help="Boards to compare")
     crossboard.add_argument("--players", type=int, default=2, help="Number of players")
     crossboard.add_argument("--tiers", type=str, default="D1-D10", help="Tiers to include")
@@ -251,23 +251,104 @@ def create_parser() -> argparse.ArgumentParser:
 
 def run_basic_tournament(args: argparse.Namespace, config: Any) -> int:
     """Run basic AI vs AI tournament."""
-    # Delegate to original script logic
-    from scripts.deprecated.run_ai_tournament import main as ai_tournament_main
+    from app.db.unified_recording import RecordSource
+    from app.tournament import AIAgent, AIAgentRegistry, TournamentRunner
+    from app.tournament.recording import TournamentRecordingOptions
+    from app.tournament.scheduler import RoundRobinScheduler
+    from scripts.lib.cli import parse_board_type
 
-    # Convert args to original format
-    sys.argv = [
-        "run_ai_tournament.py",
-        "--p1", args.p1,
-        "--p1-diff", str(args.p1_diff),
-        "--p2", args.p2,
-        "--p2-diff", str(args.p2_diff),
-        "--board", args.board,
-        "--games", str(args.games),
-        "--max-moves", str(args.max_moves),
-    ]
+    def agent_type_from_name(name: str):
+        from app.tournament import AgentType
+
+        key = name.strip().lower()
+        if key == "random":
+            return AgentType.RANDOM
+        if key == "heuristic":
+            return AgentType.HEURISTIC
+        if key == "minimax":
+            return AgentType.MINIMAX
+        if key == "mcts":
+            return AgentType.MCTS
+        if key == "descent":
+            return AgentType.DESCENT
+        return AgentType.HEURISTIC
+
     if args.export_jsonl:
-        sys.argv.extend(["--output-dir", args.output_dir])
-    return ai_tournament_main()
+        logger.warning("Legacy JSONL export is archived; defaulting to DB recording.")
+
+    board_type = parse_board_type(args.board)
+    p1_id = f"{args.p1.lower()}_d{args.p1_diff}"
+    p2_id = f"{args.p2.lower()}_d{args.p2_diff}"
+
+    registry = AIAgentRegistry()
+    registry.register(AIAgent(
+        agent_id=p1_id,
+        name=p1_id,
+        agent_type=agent_type_from_name(args.p1),
+        search_depth=max(1, int(args.p1_diff)),
+        metadata={"difficulty": int(args.p1_diff)},
+    ))
+    registry.register(AIAgent(
+        agent_id=p2_id,
+        name=p2_id,
+        agent_type=agent_type_from_name(args.p2),
+        search_depth=max(1, int(args.p2_diff)),
+        metadata={"difficulty": int(args.p2_diff)},
+    ))
+
+    recording_options = TournamentRecordingOptions(
+        enabled=True,
+        source=RecordSource.TOURNAMENT,
+        engine_mode="ai_vs_ai",
+        db_prefix="tournament",
+        db_dir="data/games",
+        tags=[
+            "ai_vs_ai",
+            "run_tournament",
+            f"board_{board_type.value}",
+            "players_2",
+        ],
+        extra_metadata={
+            "p1_ai": args.p1,
+            "p1_difficulty": args.p1_diff,
+            "p2_ai": args.p2,
+            "p2_difficulty": args.p2_diff,
+            "source": "run_tournament.py",
+        },
+    )
+
+    scheduler = RoundRobinScheduler(
+        games_per_pairing=args.games,
+        shuffle_order=False,
+    )
+    runner = TournamentRunner(
+        agent_registry=registry,
+        scheduler=scheduler,
+        max_workers=1,
+        max_moves=args.max_moves,
+        seed=args.seed,
+        persist_to_unified_elo=False,
+        recording_options=recording_options,
+    )
+
+    results = runner.run_tournament(
+        agent_ids=[p1_id, p2_id],
+        board_type=board_type,
+        num_players=2,
+        games_per_pairing=args.games,
+    )
+    results.compute_stats()
+
+    p1_stats = results.agent_stats.get(p1_id, {})
+    p2_stats = results.agent_stats.get(p2_id, {})
+
+    print("\n" + "=" * 40)
+    print("Final Results:")
+    print(f"  {args.p1} (P1): {p1_stats.get('wins', 0)} wins")
+    print(f"  {args.p2} (P2): {p2_stats.get('wins', 0)} wins")
+    print(f"  Draws: {p1_stats.get('draws', 0)}")
+    print("=" * 40)
+    return 0
 
 
 def run_models_tournament(args: argparse.Namespace, config: Any) -> int:
@@ -374,68 +455,14 @@ def run_diverse_tournament(args: argparse.Namespace, config: Any) -> int:
 
 def run_weights_tournament(args: argparse.Namespace, config: Any) -> int:
     """Run heuristic weight profile tournament."""
-    from scripts.deprecated.run_axis_aligned_tournament import main as weights_main
-
-    boards = args.boards or args.board
-    games_per_pair = args.games_per_pair or args.games
-    seed = args.weights_seed if args.weights_seed is not None else args.seed
-    sys_argv = [
-        "run_axis_aligned_tournament.py",
-        "--boards", boards,
-        "--profiles-dir", args.profiles_dir,
-        "--games-per-pair", str(games_per_pair),
-    ]
-    if args.max_moves is not None:
-        sys_argv.extend(["--max-moves", str(args.max_moves)])
-    if seed is not None:
-        sys_argv.extend(["--seed", str(seed)])
-    if args.weights_output:
-        sys_argv.extend(["--output", args.weights_output])
-    if args.include_baselines or args.include_baseline:
-        sys_argv.append("--include-baseline")
-
-    sys.argv = sys_argv
-    return weights_main()
+    print("Weights mode is archived. Use scripts/archive/deprecated/run_axis_aligned_tournament.py if needed.")
+    return 2
 
 
 def run_crossboard_tournament(args: argparse.Namespace, config: Any) -> int:
     """Run cross-board difficulty analysis."""
-    from scripts.deprecated.run_crossboard_difficulty_tournament import main as crossboard_main
-
-    games_per_matchup = args.games_per_matchup or args.games
-    seed = args.crossboard_seed if args.crossboard_seed is not None else args.seed
-    sys_argv = [
-        "run_crossboard_difficulty_tournament.py",
-        "--boards", args.boards,
-        "--tiers", args.tiers,
-        "--games-per-matchup", str(games_per_matchup),
-    ]
-    if args.players is not None:
-        sys_argv.extend(["--num-players", str(args.players)])
-    if args.workers is not None:
-        sys_argv.extend(["--workers", str(args.workers)])
-    if seed is not None:
-        sys_argv.extend(["--seed", str(seed)])
-    if args.think_time_scale is not None:
-        sys_argv.extend(["--think-time-scale", str(args.think_time_scale)])
-    if args.max_moves is not None:
-        sys_argv.extend(["--max-moves", str(args.max_moves)])
-    if args.wilson_confidence is not None:
-        sys_argv.extend(["--wilson-confidence", str(args.wilson_confidence)])
-    if args.nn_model_id:
-        sys_argv.extend(["--nn-model-id", args.nn_model_id])
-    if args.output_dir:
-        sys_argv.extend(["--output-dir", args.output_dir])
-    if args.output_json:
-        sys_argv.extend(["--output-json", args.output_json])
-    if args.board_report:
-        for item in args.board_report:
-            sys_argv.extend(["--board-report", item])
-    if args.demo:
-        sys_argv.append("--demo")
-
-    sys.argv = sys_argv
-    return crossboard_main()
+    print("Crossboard mode is archived. Use scripts/archive/deprecated/run_crossboard_difficulty_tournament.py if needed.")
+    return 2
 
 
 # Mode dispatch table
