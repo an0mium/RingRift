@@ -978,16 +978,18 @@ def apply_placement_moves_batch_vectorized(
     state.cap_height[game_indices, y, x] = new_cap.to(state.cap_height.dtype)
 
     # Handle buried rings for opponent stacks - vectorized with index_put_
+    # December 2025: All capped rings become buried when opponent places on top
     is_opponent = ~is_empty & (dest_owner != 0) & (dest_owner != players)
     if is_opponent.any():
         opp_games = game_indices[is_opponent]
         opp_owners = dest_owner[is_opponent].long()
         opp_y = y[is_opponent]
         opp_x = x[is_opponent]
-        opp_ones = torch.ones(opp_games.shape[0], dtype=state.buried_rings.dtype, device=device)
+        # Use dest_cap instead of 1 - all capped rings of the destination owner become buried
+        opp_caps = dest_cap[is_opponent].to(state.buried_rings.dtype)
         state.buried_rings.index_put_(
             (opp_games, opp_owners),
-            opp_ones,
+            opp_caps,
             accumulate=True
         )
         # Track buried ring position (December 2025 - recovery fix)
