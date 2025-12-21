@@ -641,7 +641,7 @@ describe('MovementAggregate - Branch Coverage', () => {
       const result = applyMovement(state, move);
       expect(result.success).toBe(false);
       if (!result.success) {
-        expect(result.reason).toContain("Expected 'move_stack' or 'move_ring'");
+        expect(result.reason).toContain("Expected 'move_stack' move");
       }
     });
 
@@ -706,7 +706,7 @@ describe('MovementAggregate - Branch Coverage', () => {
       }
     });
 
-    it('handles move_ring type', () => {
+    it('rejects move_ring type (legacy alias)', () => {
       const state = makeBaseState();
       const move: Move = {
         id: 'test',
@@ -720,7 +720,7 @@ describe('MovementAggregate - Branch Coverage', () => {
       };
 
       const result = applyMovement(state, move);
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
     });
   });
 

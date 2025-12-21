@@ -408,7 +408,7 @@ describe('Validation Schemas', () => {
       expect(numberPositionResult.success).toBe(false);
 
       const missingToResult = MoveSchema.safeParse({
-        moveType: 'move_ring',
+        moveType: 'move_stack',
         position: {
           from: { x: 0, y: 0 },
         } as any,

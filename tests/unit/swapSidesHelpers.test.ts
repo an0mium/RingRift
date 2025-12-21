@@ -242,7 +242,7 @@ describe('swapSidesHelpers', () => {
       const result = validateSwapSidesMove(state, 2);
       expect(result).toEqual({
         valid: false,
-        reason: 'swap_sides is only available at the start of an interactive turn',
+        reason: 'swap_sides is only available at the start of ring placement',
       });
     });
 
@@ -251,7 +251,7 @@ describe('swapSidesHelpers', () => {
       const result = validateSwapSidesMove(state, 2);
       expect(result).toEqual({
         valid: false,
-        reason: 'swap_sides is only available at the start of an interactive turn',
+        reason: 'swap_sides is only available at the start of ring placement',
       });
     });
 

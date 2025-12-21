@@ -441,8 +441,8 @@ describe('FSMAdapter - Branch Coverage', () => {
       expect(isMoveTypeValidForPhase('movement', 'move_stack')).toBe(true);
     });
 
-    it('should allow move_ring in movement phase', () => {
-      expect(isMoveTypeValidForPhase('movement', 'move_ring')).toBe(true);
+    it('should reject move_ring in movement phase (legacy alias)', () => {
+      expect(isMoveTypeValidForPhase('movement', 'move_ring')).toBe(false);
     });
 
     it('should allow overtaking_capture in movement phase', () => {
@@ -473,10 +473,8 @@ describe('FSMAdapter - Branch Coverage', () => {
       expect(isMoveTypeValidForPhase('line_processing', 'no_line_action')).toBe(true);
     });
 
-    it('should allow process_territory_region in territory_processing phase', () => {
-      expect(isMoveTypeValidForPhase('territory_processing', 'process_territory_region')).toBe(
-        true
-      );
+    it('should allow choose_territory_option in territory_processing phase', () => {
+      expect(isMoveTypeValidForPhase('territory_processing', 'choose_territory_option')).toBe(true);
     });
 
     it('should allow no_territory_action in territory_processing phase', () => {
@@ -513,9 +511,9 @@ describe('FSMAdapter - Branch Coverage', () => {
     it('should return movement allowed types', () => {
       const types = getAllowedMoveTypesForPhase('movement');
       expect(types).toContain('move_stack');
-      expect(types).toContain('move_ring');
       expect(types).toContain('overtaking_capture');
       expect(types).toContain('no_movement_action');
+      expect(types).toContain('swap_sides');
     });
 
     it('should return empty array for game_over phase', () => {

@@ -562,16 +562,14 @@ describe('FSMAdapter', () => {
       ring_placement: ['place_ring', 'skip_placement', 'no_placement_action', 'swap_sides'],
       movement: [
         'move_stack',
-        'move_ring',
-        'build_stack',
         'overtaking_capture',
-        'continue_capture_segment',
         'recovery_slide',
         'skip_recovery',
         'no_movement_action',
+        'swap_sides',
       ],
-      capture: ['overtaking_capture', 'continue_capture_segment', 'skip_capture'],
-      chain_capture: ['continue_capture_segment'],
+      capture: ['overtaking_capture', 'skip_capture', 'swap_sides'],
+      chain_capture: ['continue_capture_segment', 'swap_sides'],
       line_processing: [
         'process_line',
         'choose_line_option',
@@ -658,12 +656,12 @@ describe('FSMAdapter', () => {
       }
     });
 
-    it('should treat swap_sides as valid in ring_placement only', () => {
-      // swap_sides is a ring_placement-only move (pie rule).
+    it('should treat swap_sides as valid in early phases only', () => {
+      // swap_sides is a pie-rule meta move allowed in ring_placement and early capture flow.
       expect(isMoveTypeValidForPhase('ring_placement', 'swap_sides')).toBe(true);
-      expect(isMoveTypeValidForPhase('movement', 'swap_sides')).toBe(false);
-      expect(isMoveTypeValidForPhase('capture', 'swap_sides')).toBe(false);
-      expect(isMoveTypeValidForPhase('chain_capture', 'swap_sides')).toBe(false);
+      expect(isMoveTypeValidForPhase('movement', 'swap_sides')).toBe(true);
+      expect(isMoveTypeValidForPhase('capture', 'swap_sides')).toBe(true);
+      expect(isMoveTypeValidForPhase('chain_capture', 'swap_sides')).toBe(true);
       expect(isMoveTypeValidForPhase('line_processing', 'swap_sides')).toBe(false);
       expect(isMoveTypeValidForPhase('territory_processing', 'swap_sides')).toBe(false);
     });

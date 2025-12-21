@@ -51,14 +51,25 @@ const MANDATORY_RECORD_PHASES: GamePhase[] = [
  * no valid move types.
  */
 const PHASE_TO_VALID_MOVE_TYPES: Partial<Record<GamePhase, MoveType[]>> = {
-  ring_placement: ['place_ring', 'skip_placement', 'no_placement_action'],
-  movement: ['move_stack', 'move_ring', 'build_stack', 'no_movement_action'],
-  capture: ['overtaking_capture', 'skip_capture'],
-  chain_capture: ['continue_capture_segment', 'overtaking_capture'],
-  line_processing: ['process_line', 'choose_line_option', 'choose_line_reward', 'no_line_action'],
+  ring_placement: ['place_ring', 'skip_placement', 'no_placement_action', 'swap_sides'],
+  movement: [
+    'move_stack',
+    'overtaking_capture',
+    'no_movement_action',
+    'recovery_slide',
+    'skip_recovery',
+    'swap_sides',
+  ],
+  capture: ['overtaking_capture', 'skip_capture', 'swap_sides'],
+  chain_capture: ['continue_capture_segment', 'swap_sides'],
+  line_processing: [
+    'process_line',
+    'choose_line_option',
+    'eliminate_rings_from_stack',
+    'no_line_action',
+  ],
   territory_processing: [
     'choose_territory_option',
-    'process_territory_region',
     'eliminate_rings_from_stack',
     'skip_territory_processing',
     'no_territory_action',
@@ -158,11 +169,12 @@ function inferPhaseFromMoveType(moveType: MoveType): GamePhase | null {
     case 'place_ring':
     case 'skip_placement':
     case 'no_placement_action':
+    case 'swap_sides':
       return 'ring_placement';
     case 'move_stack':
-    case 'move_ring':
-    case 'build_stack':
     case 'no_movement_action':
+    case 'recovery_slide':
+    case 'skip_recovery':
       return 'movement';
     case 'overtaking_capture':
     case 'skip_capture':
@@ -171,16 +183,14 @@ function inferPhaseFromMoveType(moveType: MoveType): GamePhase | null {
       return 'chain_capture';
     case 'process_line':
     case 'choose_line_option':
-    case 'choose_line_reward':
     case 'no_line_action':
       return 'line_processing';
+    case 'eliminate_rings_from_stack':
+      // Appears in line_processing and territory_processing; default to earliest phase.
+      return 'line_processing';
     case 'choose_territory_option':
-    case 'process_territory_region':
     case 'skip_territory_processing':
     case 'no_territory_action':
-      return 'territory_processing';
-    case 'eliminate_rings_from_stack':
-      // Could be territory_processing or forced_elimination - need context
       return 'territory_processing';
     case 'forced_elimination':
       return 'forced_elimination';
@@ -290,12 +300,14 @@ describe('INV-PHASE-RECORDING invariant (RR-CANON-R074/R075)', () => {
       expect(inferPhaseFromMoveType('place_ring')).toBe('ring_placement');
       expect(inferPhaseFromMoveType('skip_placement')).toBe('ring_placement');
       expect(inferPhaseFromMoveType('no_placement_action')).toBe('ring_placement');
+      expect(inferPhaseFromMoveType('swap_sides')).toBe('ring_placement');
     });
 
     it('correctly infers movement phase', () => {
       expect(inferPhaseFromMoveType('move_stack')).toBe('movement');
-      expect(inferPhaseFromMoveType('move_ring')).toBe('movement');
       expect(inferPhaseFromMoveType('no_movement_action')).toBe('movement');
+      expect(inferPhaseFromMoveType('recovery_slide')).toBe('movement');
+      expect(inferPhaseFromMoveType('skip_recovery')).toBe('movement');
     });
 
     it('correctly infers capture phases', () => {
@@ -307,10 +319,9 @@ describe('INV-PHASE-RECORDING invariant (RR-CANON-R074/R075)', () => {
     it('correctly infers processing phases', () => {
       expect(inferPhaseFromMoveType('process_line')).toBe('line_processing');
       expect(inferPhaseFromMoveType('choose_line_option')).toBe('line_processing');
-      expect(inferPhaseFromMoveType('choose_line_reward')).toBe('line_processing');
       expect(inferPhaseFromMoveType('no_line_action')).toBe('line_processing');
+      expect(inferPhaseFromMoveType('eliminate_rings_from_stack')).toBe('line_processing');
       expect(inferPhaseFromMoveType('choose_territory_option')).toBe('territory_processing');
-      expect(inferPhaseFromMoveType('process_territory_region')).toBe('territory_processing'); // legacy alias
       expect(inferPhaseFromMoveType('no_territory_action')).toBe('territory_processing');
     });
 
