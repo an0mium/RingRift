@@ -4084,9 +4084,8 @@ class GameEngine:
                     if dx == 0 and dy == 0:
                         continue
                     new_x, new_y = pos.x + dx, pos.y + dy
-                    # Bounds check
-                    limit = 8 if board_type == BoardType.SQUARE8 else 19
-                    if 0 <= new_x < limit and 0 <= new_y < limit:
+                    # Bounds check - use size parameter from BOARD_CONFIGS
+                    if 0 <= new_x < size and 0 <= new_y < size:
                         adjacent.append(Position(x=new_x, y=new_y))
 
         elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
@@ -4125,8 +4124,8 @@ class GameEngine:
             # 6 directions for hexagonal board
             directions = [(1, 0, -1), (-1, 0, 1), (0, 1, -1), (0, -1, 1), (1, -1, 0), (-1, 1, 0)]
 
-        limit = 8 if board_type == BoardType.SQUARE8 else 19
-        # Hex boards: size = radius + 1 (TS BOARD_CONFIGS). Radius = size - 1.
+        # Use size from board for bounds checking
+        # For hex boards: size = radius + 1 (TS BOARD_CONFIGS). Radius = size - 1.
         radius = size - 1
 
         for dx, dy, dz in directions:
@@ -4139,9 +4138,9 @@ class GameEngine:
                 curr_y += dy
                 curr_z += dz
 
-                # Check bounds
+                # Check bounds - use size from BOARD_CONFIGS
                 if board_type in [BoardType.SQUARE8, BoardType.SQUARE19]:
-                    if not (0 <= curr_x < limit and 0 <= curr_y < limit):
+                    if not (0 <= curr_x < size and 0 <= curr_y < size):
                         break
                 elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
                     if not (abs(curr_x) <= radius and abs(curr_y) <= radius and abs(curr_z) <= radius):

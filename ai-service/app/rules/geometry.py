@@ -30,18 +30,18 @@ class BoardGeometry:
         neighbors: list[Position] = []
 
         if board_type in (BoardType.SQUARE8, BoardType.SQUARE19):
-            limit = 8 if board_type == BoardType.SQUARE8 else 19
+            # Use board_size parameter from BOARD_CONFIGS
             for dx in (-1, 0, 1):
                 for dy in (-1, 0, 1):
                     if dx == 0 and dy == 0:
                         continue
                     nx, ny = position.x + dx, position.y + dy
-                    if 0 <= nx < limit and 0 <= ny < limit:
+                    if 0 <= nx < board_size and 0 <= ny < board_size:
                         neighbors.append(Position(x=nx, y=ny))
 
         elif board_type in (BoardType.HEX8, BoardType.HEXAGONAL):
-            # HEX8: radius=4, HEXAGONAL: radius=12
-            radius = 4 if board_type == BoardType.HEX8 else (board_size - 1)
+            # For hex boards: size = radius + 1 (TS BOARD_CONFIGS), so radius = size - 1
+            radius = board_size - 1
             directions = [
                 (1, 0, -1), (-1, 0, 1),
                 (0, 1, -1), (0, -1, 1),
@@ -128,13 +128,16 @@ class BoardGeometry:
         board_type: BoardType,
         board_size: int
     ) -> bool:
-        """Check if a position is within board bounds"""
+        """Check if a position is within board bounds.
+
+        Uses board_size from BOARD_CONFIGS for consistency with canonical spec.
+        """
         if board_type in (BoardType.SQUARE8, BoardType.SQUARE19):
-            limit = 8 if board_type == BoardType.SQUARE8 else 19
-            return 0 <= pos.x < limit and 0 <= pos.y < limit
+            # Use board_size parameter from BOARD_CONFIGS
+            return 0 <= pos.x < board_size and 0 <= pos.y < board_size
         elif board_type in (BoardType.HEX8, BoardType.HEXAGONAL):
-            # HEX8: radius=4, HEXAGONAL: radius=12
-            radius = 4 if board_type == BoardType.HEX8 else (board_size - 1)
+            # For hex boards: size = radius + 1 (TS BOARD_CONFIGS), so radius = size - 1
+            radius = board_size - 1
             z = pos.z if pos.z is not None else -pos.x - pos.y
             return (abs(pos.x) <= radius and
                     abs(pos.y) <= radius and
