@@ -754,7 +754,13 @@ async def main_async(args: argparse.Namespace) -> int:
         start_time = time.time()
 
         if args.distributed:
-            results = await run_tournament_round_distributed(configs, hosts)
+            results = await run_tournament_round_distributed(
+                configs,
+                hosts,
+                host_failure_threshold=args.host_failure_threshold,
+                ssh_retries=args.ssh_retries,
+                reassign_failed_jobs=args.reassign_failed_jobs,
+            )
         else:
             results = run_tournament_round_local(configs)
 
@@ -837,7 +843,36 @@ def main() -> int:
         help="Show what would be run without executing",
     )
 
+    # Resilience options
+    parser.add_argument(
+        "--host-failure-threshold",
+        type=int,
+        default=3,
+        help="Consecutive failures before marking host as degraded (default: 3)",
+    )
+    parser.add_argument(
+        "--ssh-retries",
+        type=int,
+        default=3,
+        help="Number of SSH retry attempts for transient failures (default: 3)",
+    )
+    parser.add_argument(
+        "--reassign-failed-jobs",
+        action="store_true",
+        default=True,
+        help="Reassign failed jobs from degraded hosts to healthy hosts (default: True)",
+    )
+    parser.add_argument(
+        "--no-reassign-failed-jobs",
+        action="store_true",
+        help="Disable job reassignment from degraded hosts",
+    )
+
     args = parser.parse_args()
+
+    # Handle --no-reassign-failed-jobs flag
+    if args.no_reassign_failed_jobs:
+        args.reassign_failed_jobs = False
 
     return asyncio.run(main_async(args))
 

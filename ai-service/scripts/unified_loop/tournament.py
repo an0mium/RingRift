@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import random
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +20,28 @@ from .config import DataEvent, DataEventType, EvaluationConfig
 
 if TYPE_CHECKING:
     from unified_ai_loop import EventBus, UnifiedLoopState
+
+
+def _is_network_error(error: Exception | str) -> bool:
+    """Check if an error appears to be network-related."""
+    error_str = str(error).lower()
+    network_indicators = [
+        "connection", "timeout", "timed out", "broken pipe",
+        "unreachable", "refused", "reset by peer", "network",
+        "ssh", "socket", "eof", "disconnect",
+    ]
+    return any(indicator in error_str for indicator in network_indicators)
+
+
+def _exponential_backoff_delay(
+    attempt: int,
+    base_delay: float = 2.0,
+    max_delay: float = 30.0,
+) -> float:
+    """Calculate exponential backoff delay with jitter."""
+    delay = min(base_delay * (2 ** attempt), max_delay)
+    jitter = delay * 0.2 * random.random()
+    return delay + jitter
 
 # Import improvement optimizer for adaptive intervals
 try:
@@ -88,22 +111,56 @@ class ShadowTournamentService:
         self._host_index: int = 0
         # Track host availability for load balancing
         self._host_busy: dict[str, bool] = {h["name"]: False for h in self.TOURNAMENT_HOSTS}
+        # Host health tracking for resilience
+        self._host_consecutive_failures: dict[str, int] = {}
+        self._degraded_hosts: set[str] = set()
+        self._host_failure_threshold: int = 3  # Mark degraded after 3 consecutive failures
+        self._ssh_retries: int = 3  # Number of SSH retry attempts
+
+    def _record_host_success(self, host_name: str) -> None:
+        """Record a successful operation on a host."""
+        self._host_consecutive_failures[host_name] = 0
+
+    def _record_host_failure(self, host_name: str, error: str) -> bool:
+        """Record a failure on a host. Returns True if host became degraded."""
+        count = self._host_consecutive_failures.get(host_name, 0) + 1
+        self._host_consecutive_failures[host_name] = count
+
+        if count >= self._host_failure_threshold and host_name not in self._degraded_hosts:
+            self._degraded_hosts.add(host_name)
+            print(f"[ShadowTournament] Host {host_name} marked as degraded after {count} failures: {error}")
+            return True
+        return False
+
+    def _is_host_degraded(self, host_name: str) -> bool:
+        """Check if a host is marked as degraded."""
+        return host_name in self._degraded_hosts
 
     def _get_next_tournament_host(self) -> dict[str, Any]:
-        """Get next available tournament host using round-robin."""
-        # Try to find an available host
+        """Get next available tournament host using round-robin, skipping degraded hosts."""
+        # Try to find an available, non-degraded host
         for _ in range(len(self.TOURNAMENT_HOSTS)):
             host = self.TOURNAMENT_HOSTS[self._host_index]
             self._host_index = (self._host_index + 1) % len(self.TOURNAMENT_HOSTS)
-            if not self._host_busy.get(host["name"], False):
+            host_name = host["name"]
+            if not self._host_busy.get(host_name, False) and not self._is_host_degraded(host_name):
                 return host
-        # All busy - just use round-robin regardless
+
+        # All non-degraded hosts are busy - find any non-degraded host
+        for _ in range(len(self.TOURNAMENT_HOSTS)):
+            host = self.TOURNAMENT_HOSTS[self._host_index]
+            self._host_index = (self._host_index + 1) % len(self.TOURNAMENT_HOSTS)
+            if not self._is_host_degraded(host["name"]):
+                return host
+
+        # All hosts degraded - use round-robin (with warning)
+        print("[ShadowTournament] WARNING: All hosts are degraded, using round-robin anyway")
         host = self.TOURNAMENT_HOSTS[self._host_index]
         self._host_index = (self._host_index + 1) % len(self.TOURNAMENT_HOSTS)
         return host
 
     async def _run_remote_tournament(self, host: dict[str, Any], config_key: str) -> dict[str, Any]:
-        """Run tournament on remote host via SSH."""
+        """Run tournament on remote host via SSH with retry logic."""
         parts = config_key.rsplit("_", 1)
         board_type = parts[0]
         num_players = int(parts[1].replace("p", ""))
@@ -111,6 +168,11 @@ class ShadowTournamentService:
         ssh_target = host["ssh"]
         ringrift_path = host["ringrift_path"]
         host_name = host["name"]
+
+        # Skip degraded hosts
+        if self._is_host_degraded(host_name):
+            print(f"[ShadowTournament] Skipping degraded host {host_name}")
+            return {"config": config_key, "error": "host_degraded", "success": False, "host": host_name}
 
         # Build remote command
         remote_cmd = f'''cd {ringrift_path} && source venv/bin/activate && \\
@@ -120,40 +182,82 @@ class ShadowTournamentService:
             --games {self.config.shadow_games_per_config} \\
             --quick --include-baselines 2>&1'''
 
-        try:
-            self._host_busy[host_name] = True
-            print(f"[ShadowTournament] Dispatching {config_key} to {host_name} ({ssh_target})")
+        last_error: str | None = None
 
-            proc = await asyncio.create_subprocess_exec(
-                "ssh", "-i", os.path.expanduser("~/.ssh/id_cluster"),
-                "-o", "ConnectTimeout=15", "-o", "BatchMode=yes",
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
-                ssh_target, remote_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=900)
+        # Retry loop for transient SSH failures
+        for attempt in range(self._ssh_retries):
+            try:
+                self._host_busy[host_name] = True
+                if attempt == 0:
+                    print(f"[ShadowTournament] Dispatching {config_key} to {host_name} ({ssh_target})")
+                else:
+                    print(f"[ShadowTournament] Retry {attempt + 1}/{self._ssh_retries}: {config_key} on {host_name}")
 
-            success = proc.returncode == 0
-            if not success:
-                stderr_text = stderr.decode()[:500] if stderr else ""
-                print(f"[ShadowTournament] {config_key} on {host_name} failed: {stderr_text}")
+                proc = await asyncio.create_subprocess_exec(
+                    "ssh", "-i", os.path.expanduser("~/.ssh/id_cluster"),
+                    "-o", "ConnectTimeout=15", "-o", "BatchMode=yes",
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
+                    ssh_target, remote_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=900)
 
-            return {
-                "config": config_key,
-                "games_played": self.config.shadow_games_per_config,
-                "success": success,
-                "host": host_name,
-            }
-        except asyncio.TimeoutError:
-            print(f"[ShadowTournament] {config_key} on {host_name} timed out after 900s")
-            return {"config": config_key, "error": "timeout", "success": False, "host": host_name}
-        except Exception as e:
-            print(f"[ShadowTournament] {config_key} on {host_name} error: {e}")
-            return {"config": config_key, "error": str(e), "success": False, "host": host_name}
-        finally:
-            self._host_busy[host_name] = False
+                success = proc.returncode == 0
+                if success:
+                    self._record_host_success(host_name)
+                    return {
+                        "config": config_key,
+                        "games_played": self.config.shadow_games_per_config,
+                        "success": True,
+                        "host": host_name,
+                    }
+                else:
+                    stderr_text = stderr.decode()[:500] if stderr else ""
+                    last_error = stderr_text
+                    print(f"[ShadowTournament] {config_key} on {host_name} failed: {stderr_text}")
+
+                    # Check if this is a network error (should retry)
+                    if _is_network_error(stderr_text) and attempt < self._ssh_retries - 1:
+                        self._record_host_failure(host_name, stderr_text)
+                        delay = _exponential_backoff_delay(attempt)
+                        print(f"[ShadowTournament] Network error, retrying in {delay:.1f}s...")
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        # Non-network error or last attempt
+                        self._record_host_failure(host_name, stderr_text)
+                        break
+
+            except asyncio.TimeoutError:
+                last_error = "SSH timeout after 900s"
+                print(f"[ShadowTournament] {config_key} on {host_name} timed out after 900s")
+                self._record_host_failure(host_name, last_error)
+                # Don't retry timeouts - they indicate the command ran too long
+                break
+
+            except Exception as e:
+                last_error = str(e)
+                print(f"[ShadowTournament] {config_key} on {host_name} error: {e}")
+
+                if _is_network_error(e) and attempt < self._ssh_retries - 1:
+                    became_degraded = self._record_host_failure(host_name, last_error)
+                    if became_degraded:
+                        break  # Host became degraded, stop retrying
+                    delay = _exponential_backoff_delay(attempt)
+                    print(f"[ShadowTournament] Network error, retrying in {delay:.1f}s...")
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    self._record_host_failure(host_name, last_error)
+                    break
+
+            finally:
+                self._host_busy[host_name] = False
+
+        # All retries exhausted
+        return {"config": config_key, "error": last_error, "success": False, "host": host_name}
 
     async def run_shadow_tournament(self, config_key: str) -> dict[str, Any]:
         """Run a quick shadow tournament for a configuration on remote hosts."""
@@ -190,56 +294,101 @@ class ShadowTournamentService:
             return {"config": config_key, "error": str(e), "success": False}
 
     async def run_full_tournament(self) -> dict[str, Any]:
-        """Run a full tournament across all configurations on best remote host."""
+        """Run a full tournament across all configurations on best remote host with retry logic."""
         await self.event_bus.publish(DataEvent(
             event_type=DataEventType.EVALUATION_STARTED,
             payload={"type": "full"}
         ))
 
-        try:
-            # Use the most powerful host (vast-5090-quad with 512 CPUs) for full tournaments
-            host = self.TOURNAMENT_HOSTS[0]  # vast-5090-quad
-            ssh_target = host["ssh"]
-            ringrift_path = host["ringrift_path"]
-            host_name = host["name"]
+        # Find best non-degraded host (sorted by CPU count)
+        host = None
+        for h in self.TOURNAMENT_HOSTS:
+            if not self._is_host_degraded(h["name"]):
+                host = h
+                break
 
-            remote_cmd = f'''cd {ringrift_path} && source venv/bin/activate && \\
-                python scripts/run_model_elo_tournament.py \\
-                --all-configs \\
-                --games {self.config.full_tournament_games} \\
-                --include-baselines 2>&1'''
+        if host is None:
+            print("[ShadowTournament] WARNING: All hosts degraded, using first host anyway")
+            host = self.TOURNAMENT_HOSTS[0]
 
-            print(f"[ShadowTournament] Running full tournament on {host_name} ({ssh_target})")
+        ssh_target = host["ssh"]
+        ringrift_path = host["ringrift_path"]
+        host_name = host["name"]
 
-            proc = await asyncio.create_subprocess_exec(
-                "ssh", "-i", os.path.expanduser("~/.ssh/id_cluster"),
-                "-o", "ConnectTimeout=15", "-o", "BatchMode=yes",
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
-                ssh_target, remote_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            _stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=3600)
+        remote_cmd = f'''cd {ringrift_path} && source venv/bin/activate && \\
+            python scripts/run_model_elo_tournament.py \\
+            --all-configs \\
+            --games {self.config.full_tournament_games} \\
+            --include-baselines 2>&1'''
 
-            result = {
-                "type": "full",
-                "success": proc.returncode == 0,
-                "host": host_name,
-            }
+        last_error: str | None = None
 
-            self.state.total_evaluations += 1
+        # Retry loop for transient SSH failures
+        for attempt in range(self._ssh_retries):
+            try:
+                if attempt == 0:
+                    print(f"[ShadowTournament] Running full tournament on {host_name} ({ssh_target})")
+                else:
+                    print(f"[ShadowTournament] Retry {attempt + 1}/{self._ssh_retries}: full tournament on {host_name}")
 
-            await self.event_bus.publish(DataEvent(
-                event_type=DataEventType.EVALUATION_COMPLETED,
-                payload=result
-            ))
+                proc = await asyncio.create_subprocess_exec(
+                    "ssh", "-i", os.path.expanduser("~/.ssh/id_cluster"),
+                    "-o", "ConnectTimeout=15", "-o", "BatchMode=yes",
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
+                    ssh_target, remote_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=3600)
 
-            return result
+                if proc.returncode == 0:
+                    self._record_host_success(host_name)
+                    result = {
+                        "type": "full",
+                        "success": True,
+                        "host": host_name,
+                    }
+                    self.state.total_evaluations += 1
+                    await self.event_bus.publish(DataEvent(
+                        event_type=DataEventType.EVALUATION_COMPLETED,
+                        payload=result
+                    ))
+                    return result
+                else:
+                    stderr_text = stderr.decode()[:500] if stderr else ""
+                    last_error = stderr_text
+                    if _is_network_error(stderr_text) and attempt < self._ssh_retries - 1:
+                        self._record_host_failure(host_name, stderr_text)
+                        delay = _exponential_backoff_delay(attempt)
+                        print(f"[ShadowTournament] Network error, retrying in {delay:.1f}s...")
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        self._record_host_failure(host_name, stderr_text)
+                        break
 
-        except Exception as e:
-            print(f"[ShadowTournament] Error running full tournament: {e}")
-            return {"type": "full", "error": str(e), "success": False}
+            except asyncio.TimeoutError:
+                last_error = "SSH timeout after 3600s"
+                print(f"[ShadowTournament] Full tournament on {host_name} timed out after 3600s")
+                self._record_host_failure(host_name, last_error)
+                break
+
+            except Exception as e:
+                last_error = str(e)
+                print(f"[ShadowTournament] Error running full tournament: {e}")
+                if _is_network_error(e) and attempt < self._ssh_retries - 1:
+                    self._record_host_failure(host_name, last_error)
+                    delay = _exponential_backoff_delay(attempt)
+                    print(f"[ShadowTournament] Network error, retrying in {delay:.1f}s...")
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    self._record_host_failure(host_name, last_error)
+                    break
+
+        # All retries exhausted
+        return {"type": "full", "error": last_error, "success": False, "host": host_name}
 
     async def run_parallel_shadow_tournaments(
         self,

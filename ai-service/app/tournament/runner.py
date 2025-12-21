@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import random
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -19,6 +20,26 @@ from .recording import TournamentRecordingOptions
 from .scheduler import Match, TournamentScheduler
 
 logger = logging.getLogger(__name__)
+
+
+def _exponential_backoff_delay(
+    attempt: int,
+    base_delay: float = 0.5,
+    max_delay: float = 5.0,
+) -> float:
+    """Calculate exponential backoff delay with jitter.
+
+    Args:
+        attempt: Zero-indexed attempt number
+        base_delay: Base delay in seconds
+        max_delay: Maximum delay in seconds
+
+    Returns:
+        Delay in seconds with jitter applied
+    """
+    delay = min(base_delay * (2 ** attempt), max_delay)
+    jitter = delay * 0.2 * random.random()
+    return delay + jitter
 
 
 def extract_model_metadata(model_path: str) -> dict[str, Any]:
@@ -247,6 +268,7 @@ class TournamentRunner:
         persist_to_unified_elo: bool = True,
         tournament_id: str | None = None,
         recording_options: TournamentRecordingOptions | None = None,
+        match_retries: int = 2,
     ):
         """Initialize tournament runner.
 
@@ -260,6 +282,7 @@ class TournamentRunner:
             persist_to_unified_elo: If True, persist results to unified Elo database.
             tournament_id: Optional tournament ID for tracking.
             recording_options: Optional recording configuration for canonical replay data.
+            match_retries: Number of retry attempts for failed matches (default: 2).
         """
         self.agent_registry = agent_registry
         self.scheduler = scheduler
@@ -271,6 +294,7 @@ class TournamentRunner:
         self.persist_to_unified_elo = persist_to_unified_elo
         self.tournament_id = tournament_id
         self.recording_options = recording_options or TournamentRecordingOptions()
+        self.match_retries = match_retries
 
         self.results: TournamentResults | None = None
         self._match_executor: Callable | None = None
@@ -357,37 +381,72 @@ class TournamentRunner:
         completed = 0
 
         if self._match_executor:
-            # Use custom executor (for distributed execution)
+            # Use custom executor (for distributed execution) with retry logic
             for match in matches:
-                try:
-                    result = self._match_executor(match, agents)
+                result = None
+                last_error = None
+                for attempt in range(self.match_retries):
+                    try:
+                        result = self._match_executor(match, agents)
+                        break  # Success
+                    except Exception as e:
+                        last_error = e
+                        if attempt < self.match_retries - 1:
+                            delay = _exponential_backoff_delay(attempt)
+                            logger.warning(
+                                f"Match {match.match_id} failed (attempt {attempt + 1}/{self.match_retries}), "
+                                f"retrying in {delay:.1f}s: {e}"
+                            )
+                            time.sleep(delay)
+
+                if result is not None:
                     self._process_result(match, result)
                     completed += 1
                     if progress_callback:
                         progress_callback(completed, total_matches)
-                except Exception as e:
-                    logger.error(f"Match {match.match_id} failed: {e}")
-                    self.scheduler.mark_match_failed(match.match_id, str(e))
+                else:
+                    logger.error(f"Match {match.match_id} failed after {self.match_retries} attempts: {last_error}")
+                    self.scheduler.mark_match_failed(match.match_id, str(last_error))
         else:
-            # Local parallel execution
+            # Local parallel execution with retry support
+            def execute_with_retries(match: Match) -> tuple[Match, MatchResult | None, Exception | None]:
+                """Execute a match with retry logic."""
+                last_error: Exception | None = None
+                for attempt in range(self.match_retries):
+                    try:
+                        result = self._execute_match_local(match, agents)
+                        return (match, result, None)
+                    except Exception as e:
+                        last_error = e
+                        if attempt < self.match_retries - 1:
+                            delay = _exponential_backoff_delay(attempt)
+                            logger.warning(
+                                f"Match {match.match_id} failed (attempt {attempt + 1}/{self.match_retries}), "
+                                f"retrying in {delay:.1f}s: {e}"
+                            )
+                            time.sleep(delay)
+                return (match, None, last_error)
+
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 futures = {
-                    executor.submit(
-                        self._execute_match_local, match, agents
-                    ): match
+                    executor.submit(execute_with_retries, match): match
                     for match in matches
                 }
 
                 for future in as_completed(futures):
                     match = futures[future]
                     try:
-                        result = future.result()
-                        self._process_result(match, result)
-                        completed += 1
-                        if progress_callback:
-                            progress_callback(completed, total_matches)
+                        returned_match, result, error = future.result()
+                        if result is not None:
+                            self._process_result(returned_match, result)
+                            completed += 1
+                            if progress_callback:
+                                progress_callback(completed, total_matches)
+                        else:
+                            logger.error(f"Match {returned_match.match_id} failed after {self.match_retries} attempts: {error}")
+                            self.scheduler.mark_match_failed(returned_match.match_id, str(error))
                     except Exception as e:
-                        logger.error(f"Match {match.match_id} failed: {e}")
+                        logger.error(f"Match {match.match_id} execution error: {e}")
                         self.scheduler.mark_match_failed(match.match_id, str(e))
 
         # Finalize
