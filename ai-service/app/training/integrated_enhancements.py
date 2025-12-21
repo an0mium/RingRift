@@ -694,6 +694,19 @@ class IntegratedTrainingManager:
             # Move auxiliary module to same device as features if needed
             if hasattr(features, 'device'):
                 self._auxiliary_module = self._auxiliary_module.to(features.device)
+            # Check if input dimension matches, reinitialize if needed
+            actual_dim = features.shape[-1] if len(features.shape) > 1 else features.shape[0]
+            expected_dim = self._auxiliary_module.game_length_head.net[0].in_features
+            if actual_dim != expected_dim:
+                from app.training.auxiliary_tasks import AuxiliaryTaskModule, AuxTaskConfig
+                aux_config = AuxTaskConfig(
+                    enabled=True,
+                    game_length_weight=self.config.aux_game_length_weight,
+                    piece_count_weight=self.config.aux_piece_count_weight,
+                    outcome_weight=self.config.aux_outcome_weight,
+                )
+                self._auxiliary_module = AuxiliaryTaskModule(actual_dim, aux_config).to(features.device)
+                logger.info(f"[IntegratedEnhancements] Reinitialized auxiliary module with dim={actual_dim}")
             predictions = self._auxiliary_module(features)
             return self._auxiliary_module.compute_loss(predictions, targets)
 
