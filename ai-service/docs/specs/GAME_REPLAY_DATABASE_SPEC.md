@@ -295,6 +295,7 @@ class GameReplayDB:
         self,
         game_id: str,
         move_number: int,
+        auto_inject: Optional[bool] = None,
     ) -> Optional[GameState]:
         """Reconstruct state at a specific move number."""
         ...
@@ -651,6 +652,11 @@ def get_state_at_move(game_id: str, target_move: int) -> GameState:
 
     return state
 ```
+
+Notes:
+
+- Canonical DBs default to strict replay (no phase injection).
+- Legacy DBs may opt in to phase injection via `auto_inject=True`.
 
 ---
 

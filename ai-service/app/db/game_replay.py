@@ -1504,7 +1504,7 @@ class GameReplayDB:
         self,
         game_id: str,
         move_number: int,
-        auto_inject: bool = True,
+        auto_inject: bool | None = None,
     ) -> GameState | None:
         """Reconstruct state at a specific move number.
 
@@ -1521,10 +1521,12 @@ class GameReplayDB:
         Args:
             game_id: Game identifier
             move_number: The move number to reconstruct state after
-            auto_inject: If True (default), automatically inject missing
-                bookkeeping moves (no_territory_action, etc.) when needed
-                to handle non-canonical recordings. If False, requires
-                canonical recordings and will raise RuntimeError on gaps.
+            auto_inject: If True, automatically inject missing bookkeeping
+                moves (no_territory_action, etc.) when needed to handle
+                non-canonical recordings. If False, requires canonical
+                recordings and will raise RuntimeError on gaps. When None
+                (default), injection is enabled only for non-canonical DBs
+                opened with enforce_canonical_history=False.
 
         Returns:
             GameState after the specified move, or None if not found.
@@ -1532,6 +1534,10 @@ class GameReplayDB:
         Raises:
             RuntimeError: If auto_inject=False and recorded moves have phase gaps.
         """
+        # Default to strict replay for canonical DBs; legacy DBs opt in.
+        if auto_inject is None:
+            auto_inject = not self._enforce_canonical_history
+
         # Import here to avoid circular imports
         from app.game_engine import GameEngine
 
@@ -1552,6 +1558,14 @@ class GameReplayDB:
             state = GameEngine.apply_move(state, move, trace_mode=True)
 
         return state
+
+    def get_state_at_move_legacy(self, game_id: str, move_number: int) -> GameState | None:
+        """Legacy replay helper that always enables phase injection.
+
+        Prefer get_state_at_move() for canonical DBs. This helper exists to
+        make legacy replay opt-in and explicit.
+        """
+        return self.get_state_at_move(game_id, move_number, auto_inject=True)
 
     def _get_game_move_count(self, game_id: str) -> int:
         """Get total number of moves recorded for a game.

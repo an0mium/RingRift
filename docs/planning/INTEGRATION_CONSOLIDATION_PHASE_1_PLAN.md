@@ -46,15 +46,16 @@ Acceptance criteria:
 3. **AI engine naming**: Verified factory.py properly normalizes CLI hyphens to
    internal underscores (line 768). No changes needed.
 
-### Pending (Python legacy replay separation)
+### Completed (Python legacy replay separation)
 
-The following Python code paths need extraction to `app/rules/legacy/`:
+Python legacy replay injection is now isolated and opt-in:
 
-1. **`app/db/game_replay.py:_auto_inject_before_move()`** (~200 lines)
-   - Auto-injects bookkeeping moves to bridge phase gaps in non-canonical recordings
-   - Contains extensive RR-PARITY-FIX comments for phase coercion
-   - Target: Extract to `app/rules/legacy/replay_phase_injection.py`
-   - Deprecation: Q2 2026 (after canonical data migration complete)
+1. **`app/db/game_replay.py:get_state_at_move()` defaults to strict replay** when
+   `enforce_canonical_history=True`, and only enables phase injection for
+   legacy DBs opened with `enforce_canonical_history=False`.
+2. **Legacy injection logic lives in** `app/rules/legacy/replay_phase_injection.py`
+   and is accessed via explicit helper calls (e.g., `get_state_at_move_legacy`).
+3. **Deprecation target:** Q2 2026 (after canonical data migration complete).
 
 ## Next Consolidation Lanes (Future phases)
 
