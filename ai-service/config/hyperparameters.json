@@ -220,62 +220,65 @@
     "hex8_2p": {
       "optimized": false,
       "confidence": "low",
-      "tuning_method": "interpolated_defaults",
-      "last_tuned": "2025-12-20T00:00:00Z",
+      "tuning_method": "medium_model_defaults",
+      "last_tuned": "2025-12-21T00:00:00Z",
       "tuning_trials": 0,
       "hyperparameters": {
-        "learning_rate": 1e-4,
+        "learning_rate": 0.0001,
         "batch_size": 256,
-        "hidden_dim": 256,
-        "num_hidden_layers": 2,
-        "num_filters": 128,
-        "num_res_blocks": 8,
-        "weight_decay": 1e-4,
+        "hidden_dim": 384,
+        "num_hidden_layers": 3,
+        "num_filters": 192,
+        "num_res_blocks": 12,
+        "weight_decay": 1e-5,
         "dropout": 0.1,
+        "epochs": 100,
         "value_weight": 1.0,
         "policy_weight": 1.0
       },
-      "notes": "Initial defaults for hex8 2p - smaller board needs less capacity (1,192 games available)"
+      "notes": "December 2025: Upgraded to medium_model (192 filters, 12 blocks) - hex8 is smaller board"
     },
     "hex8_3p": {
       "optimized": false,
       "confidence": "low",
-      "tuning_method": "interpolated_defaults",
-      "last_tuned": "2025-12-20T00:00:00Z",
+      "tuning_method": "medium_model_defaults",
+      "last_tuned": "2025-12-21T00:00:00Z",
       "tuning_trials": 0,
       "hyperparameters": {
-        "learning_rate": 5e-5,
+        "learning_rate": 0.0001,
         "batch_size": 256,
         "hidden_dim": 384,
-        "num_hidden_layers": 2,
-        "num_filters": 128,
-        "num_res_blocks": 8,
+        "num_hidden_layers": 3,
+        "num_filters": 192,
+        "num_res_blocks": 12,
         "weight_decay": 5e-5,
         "dropout": 0.15,
+        "epochs": 100,
         "value_weight": 1.5,
         "policy_weight": 0.9
       },
-      "notes": "Initial defaults for hex8 3p - needs Bayesian tuning (546 games available)"
+      "notes": "December 2025: Upgraded to medium_model (192 filters, 12 blocks) - hex8 is smaller board"
     },
     "hex8_4p": {
       "optimized": false,
       "confidence": "low",
-      "tuning_method": "interpolated_defaults",
-      "last_tuned": "2025-12-20T00:00:00Z",
+      "tuning_method": "medium_model_defaults",
+      "last_tuned": "2025-12-21T00:00:00Z",
       "tuning_trials": 0,
       "hyperparameters": {
-        "learning_rate": 5e-5,
+        "learning_rate": 0.0001,
         "batch_size": 256,
         "hidden_dim": 384,
         "num_hidden_layers": 3,
-        "num_filters": 128,
-        "num_res_blocks": 8,
+        "num_filters": 192,
+        "num_res_blocks": 12,
         "weight_decay": 5e-5,
         "dropout": 0.2,
+        "epochs": 100,
         "value_weight": 1.8,
         "policy_weight": 1.0
       },
-      "notes": "Initial defaults for hex8 4p - needs Bayesian tuning (246 games available)"
+      "notes": "December 2025: Upgraded to medium_model (192 filters, 12 blocks) - hex8 is smaller board"
     }
   },
   "tuning_config": {
