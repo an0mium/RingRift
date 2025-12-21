@@ -1071,7 +1071,7 @@ class P2PIntegrationManager:
 
     async def _check_elo_divergence(self, local_db: Path, node_elo: dict, threshold: float = 50.0) -> bool:
         """Check if node Elo ratings have diverged from local."""
-        from app.tournament.unified_elo_db import EloDatabase
+        from app.tournament import EloDatabase
 
         try:
             elo_db = EloDatabase(local_db)

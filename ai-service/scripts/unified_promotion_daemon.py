@@ -316,7 +316,7 @@ class PromotionChecker:
     def get_current_best(self, board_type: str, num_players: int) -> dict | None:
         """Get current best model for config from Elo DB."""
         try:
-            from app.tournament.unified_elo_db import get_elo_database
+            from app.tournament import get_elo_database
             db = get_elo_database()
             leaderboard = db.get_leaderboard(board_type, num_players, limit=1)
             if leaderboard:

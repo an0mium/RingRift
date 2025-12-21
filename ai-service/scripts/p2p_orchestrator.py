@@ -12883,7 +12883,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
         try:
             # Get current Elo from unified database
-            from app.tournament.unified_elo_db import get_elo_database
+            from app.tournament import get_elo_database
             db = get_elo_database()
 
             parts = config_key.rsplit("_", 1)
@@ -12984,7 +12984,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
             # 2. Record to unified Elo database
             try:
-                from app.tournament.unified_elo_db import get_elo_database
+                from app.tournament import get_elo_database
                 db = get_elo_database()
                 # Rankings: 0 = winner, 1 = loser
                 rankings = [0, 1] if win_rate > 0.5 else [1, 0]
@@ -23108,7 +23108,7 @@ print(json.dumps({{
         }
 
         try:
-            from app.tournament.unified_elo_db import get_elo_database
+            from app.tournament import get_elo_database
             db = get_elo_database()
 
             # Get top 5 models by ELO (single optimized query)

@@ -30,10 +30,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from app.tournament.unified_elo_db import (
-    DEFAULT_DB_PATH as UNIFIED_ELO_DB_PATH,
-    EloDatabase,
-)
+from app.tournament import EloDatabase
+from app.training.elo_service import ELO_DB_PATH as UNIFIED_ELO_DB_PATH
 
 
 def import_from_old_db(db: EloDatabase, old_db_path: Path) -> int:

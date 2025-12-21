@@ -49,9 +49,20 @@ import sqlite3
 import threading
 import time
 import uuid
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+# Emit deprecation warning on import (December 2025)
+warnings.warn(
+    "unified_elo_db is deprecated since 2025-12. "
+    "Use app.training.elo_service.EloService instead, which provides "
+    "training feedback signals and better cluster coordination. "
+    "This module will be removed in 2025-Q2.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 from .elo import EloCalculator
 

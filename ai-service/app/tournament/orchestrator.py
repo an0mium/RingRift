@@ -137,7 +137,7 @@ class TournamentOrchestrator:
     def elo_db(self):
         """Lazy-load Elo database."""
         if self._elo_db is None:
-            from app.tournament.unified_elo_db import get_elo_database
+            from app.tournament import get_elo_database
             self._elo_db = get_elo_database()
         return self._elo_db
 

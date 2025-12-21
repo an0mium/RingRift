@@ -52,7 +52,7 @@ except ImportError:
 
 # Import unified ELO database for alias sync
 try:
-    from app.tournament.unified_elo_db import UnifiedEloRating, get_elo_database
+    from app.tournament import UnifiedEloRating, get_elo_database
     HAS_UNIFIED_ELO = True
 except ImportError:
     HAS_UNIFIED_ELO = False

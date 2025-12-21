@@ -34,7 +34,7 @@ SCRIPT_DIR = Path(__file__).parent
 AI_SERVICE_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
-from app.tournament.unified_elo_db import EloDatabase
+from app.tournament import EloDatabase
 from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("model_culling")

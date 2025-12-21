@@ -72,7 +72,7 @@ def register_gmo_in_elo(
         from app.training.elo_service import EloService
     except ImportError:
         logger.warning("EloService not available, trying unified_elo_db")
-        from app.tournament.unified_elo_db import UnifiedEloDatabase
+        from app.tournament import EloDatabase as UnifiedEloDatabase
 
         db = UnifiedEloDatabase(str(db_path))
         db.register_participant(
