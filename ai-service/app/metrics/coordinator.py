@@ -307,17 +307,26 @@ async def collect_all_coordinator_metrics() -> dict[str, Any]:
         "total_errors": 0,
     }
 
-    # Try to get RecoveryManager stats
+    # Try to get UnifiedHealthManager stats (consolidates RecoveryManager + ErrorRecoveryCoordinator)
     try:
-        from app.coordination.recovery_manager import RecoveryManager
-        rm = RecoveryManager()
-        stats = await rm.get_stats()
-        metrics["coordinators"]["RecoveryManager"] = stats
-        update_coordinator_status("RecoveryManager", stats.get("status", "unknown"))
-        update_coordinator_uptime("RecoveryManager", stats.get("uptime_seconds", 0))
+        from app.coordination.unified_health_manager import UnifiedHealthManager
+        uhm = UnifiedHealthManager.get_instance()
+        stats = await uhm.get_stats()
+        metrics["coordinators"]["UnifiedHealthManager"] = {
+            "status": stats.get("status", "unknown"),
+            "total_errors": stats.get("total_errors", 0),
+            "errors_by_severity": stats.get("errors_by_severity", {}),
+            "recovery_attempts": stats.get("recovery_attempts", 0),
+            "successful_recoveries": stats.get("successful_recoveries", 0),
+            "failed_recoveries": stats.get("failed_recoveries", 0),
+            "recovery_rate": stats.get("recovery_rate", 0.0),
+            "uptime_seconds": stats.get("uptime_seconds", 0),
+        }
+        update_coordinator_status("UnifiedHealthManager", stats.get("status", "unknown"))
+        update_coordinator_uptime("UnifiedHealthManager", stats.get("uptime_seconds", 0))
         update_recovery_stats(stats)
     except Exception as e:
-        logger.debug(f"Could not collect RecoveryManager metrics: {e}")
+        logger.debug(f"Could not collect UnifiedHealthManager metrics: {e}")
 
     # Try to get BandwidthManager stats
     try:
@@ -363,14 +372,25 @@ def _collect_sync() -> dict[str, Any]:
     metrics = {"coordinators": {}}
 
     try:
-        from app.coordination.recovery_manager import RecoveryManager
-        rm = RecoveryManager()
-        stats = rm.get_recovery_stats()
-        metrics["coordinators"]["RecoveryManager"] = stats
-        update_coordinator_status("RecoveryManager", stats.get("status", "unknown"))
+        # Use UnifiedHealthManager (consolidates RecoveryManager + ErrorRecoveryCoordinator)
+        from app.coordination.unified_health_manager import UnifiedHealthManager
+        uhm = UnifiedHealthManager.get_instance()
+        stats = uhm.get_status()
+        metrics["coordinators"]["UnifiedHealthManager"] = {
+            "status": stats.get("status", "unknown"),
+            "total_errors": stats.get("total_errors", 0),
+            "errors_by_severity": stats.get("errors_by_severity", {}),
+            "recovery_attempts": stats.get("recovery_attempts", 0),
+            "successful_recoveries": stats.get("successful_recoveries", 0),
+            "failed_recoveries": stats.get("failed_recoveries", 0),
+            "recovery_rate": stats.get("recovery_rate", 0.0),
+            "uptime_seconds": round(uhm.uptime_seconds, 2),
+        }
+        update_coordinator_status("UnifiedHealthManager", stats.get("status", "unknown"))
+        update_coordinator_uptime("UnifiedHealthManager", round(uhm.uptime_seconds, 2))
         update_recovery_stats(stats)
     except Exception as e:
-        logger.debug(f"Could not collect RecoveryManager metrics (sync): {e}")
+        logger.debug(f"Could not collect UnifiedHealthManager metrics (sync): {e}")
 
     try:
         from app.coordination.bandwidth_manager import get_bandwidth_manager
