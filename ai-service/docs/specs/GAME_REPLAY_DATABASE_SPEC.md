@@ -389,7 +389,7 @@ interface GameMetadata {
   players: PlayerMetadata[];
 }
 
-// GET /api/replay/:gameId/state?moveNumber=N
+// GET /api/replay/:gameId/state?moveNumber=N&legacy=true
 interface ReplayState {
   gameState: GameState;
   moveNumber: number;

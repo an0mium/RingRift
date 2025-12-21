@@ -320,6 +320,13 @@ async def get_game(game_id: str):
 async def get_state_at_move(
     game_id: str,
     move_number: int = Query(0, ge=0, description="Move number (0 = initial state)"),
+    legacy: bool = Query(
+        False,
+        description=(
+            "Enable legacy replay phase injection for non-canonical records. "
+            "Use only for historical/legacy DBs."
+        ),
+    ),
 ):
     """Get reconstructed game state at a specific move.
 
@@ -346,7 +353,10 @@ async def get_state_at_move(
         if move_number == 0:
             state = db.get_initial_state(game_id)
         else:
-            state = db.get_state_at_move(game_id, move_number - 1)
+            if legacy:
+                state = db.get_state_at_move_legacy(game_id, move_number - 1)
+            else:
+                state = db.get_state_at_move(game_id, move_number - 1)
 
         if state is None:
             raise HTTPException(

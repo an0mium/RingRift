@@ -566,6 +566,8 @@ class BatchGameState:
             board_type = BoardType.SQUARE19
         elif self.board_size == 25:
             board_type = BoardType.HEXAGONAL
+        elif self.board_size == 9:
+            board_type = BoardType.HEX8
         else:
             board_type = BoardType.SQUARE8
 
