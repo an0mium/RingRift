@@ -706,11 +706,11 @@ describe('MovementAggregate - Branch Coverage', () => {
       }
     });
 
-    it('rejects move_stack type (legacy alias)', () => {
+    it('rejects move_ring type (legacy alias)', () => {
       const state = makeBaseState();
       const move: Move = {
         id: 'test',
-        type: 'move_stack',
+        type: 'move_ring' as any, // Legacy alias for move_stack
         player: 1,
         from: pos(3, 3),
         to: pos(6, 3),
@@ -720,6 +720,7 @@ describe('MovementAggregate - Branch Coverage', () => {
       };
 
       const result = applyMovement(state, move);
+      // Legacy move types are rejected by applyMovement
       expect(result.success).toBe(false);
     });
   });

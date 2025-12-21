@@ -520,21 +520,21 @@ describe('moveActionAdapter', () => {
         const move = { type: 'build_stack', player: 1, to: { x: 0, y: 0 } } as Move;
         const state = createMockState();
 
-        expect(() => moveToGameAction(move, state)).toThrow('legacy/experimental');
+        expect(() => moveToGameAction(move, state)).toThrow('legacy-only');
       });
 
       it('should throw for line_formation', () => {
         const move = { type: 'line_formation', player: 1, to: { x: 0, y: 0 } } as Move;
         const state = createMockState();
 
-        expect(() => moveToGameAction(move, state)).toThrow('legacy/experimental');
+        expect(() => moveToGameAction(move, state)).toThrow('legacy-only');
       });
 
       it('should throw for territory_claim', () => {
         const move = { type: 'territory_claim', player: 1, to: { x: 0, y: 0 } } as Move;
         const state = createMockState();
 
-        expect(() => moveToGameAction(move, state)).toThrow('legacy/experimental');
+        expect(() => moveToGameAction(move, state)).toThrow('legacy-only');
       });
 
       it('should throw for unknown move type', () => {

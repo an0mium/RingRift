@@ -582,9 +582,7 @@ describe('moveActionAdapter branch coverage', () => {
           moveNumber: 1,
         };
 
-        expect(() => moveToGameAction(move, state)).toThrow(
-          'legacy/experimental and is not supported'
-        );
+        expect(() => moveToGameAction(move, state)).toThrow('legacy-only and is not supported');
       });
 
       it('throws for line_formation', () => {
@@ -599,7 +597,7 @@ describe('moveActionAdapter branch coverage', () => {
           moveNumber: 1,
         };
 
-        expect(() => moveToGameAction(move, state)).toThrow('legacy/experimental');
+        expect(() => moveToGameAction(move, state)).toThrow('legacy-only');
       });
 
       it('throws for territory_claim', () => {
@@ -614,7 +612,7 @@ describe('moveActionAdapter branch coverage', () => {
           moveNumber: 1,
         };
 
-        expect(() => moveToGameAction(move, state)).toThrow('legacy/experimental');
+        expect(() => moveToGameAction(move, state)).toThrow('legacy-only');
       });
 
       it('throws for unknown move type', () => {

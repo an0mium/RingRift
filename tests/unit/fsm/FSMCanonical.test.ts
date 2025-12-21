@@ -126,7 +126,6 @@ describe('FSM Canonical Orchestrator', () => {
           invalidMoves: [
             'place_ring',
             'move_stack',
-            'choose_line_option',
             'choose_territory_option',
             'overtaking_capture',
           ],
@@ -139,13 +138,7 @@ describe('FSM Canonical Orchestrator', () => {
             'choose_territory_option',
             'no_territory_action',
           ],
-          invalidMoves: [
-            'place_ring',
-            'move_stack',
-            'choose_line_option',
-            'choose_territory_option',
-            'overtaking_capture',
-          ],
+          invalidMoves: ['place_ring', 'move_stack', 'choose_line_option', 'overtaking_capture'],
         },
       ];
 
@@ -427,7 +420,7 @@ describe('FSM Canonical Orchestrator', () => {
   });
 
   describe('Meta Move Types', () => {
-    it('should allow swap_sides only in early phases (pie rule)', () => {
+    it('should allow swap_sides only in ring_placement (pie rule)', () => {
       expect(isMoveTypeValidForPhase('ring_placement', 'swap_sides')).toBe(true);
       expect(isMoveTypeValidForPhase('movement', 'swap_sides')).toBe(false);
       expect(isMoveTypeValidForPhase('capture', 'swap_sides')).toBe(false);

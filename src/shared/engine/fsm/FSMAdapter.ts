@@ -1277,16 +1277,9 @@ export function validateMoveWithFSM(
     return result;
   };
 
-  // Validate player attribution: the move must be from the current player.
-  // Exceptions for player mismatch:
-  // - Bookkeeping moves (no_*_action): may be auto-injected at turn boundaries
-  // - choose_territory_option: Python may detect more regions than TS, causing
-  //   TS to transition players before all Python-recorded territory moves complete
-  // - forced_elimination: Python records the player whose rings are being eliminated,
-  //   which may differ from the current turn's player in multiplayer games
-  // - Legacy replay pattern: when FSM is in a post-move phase but next move is from
-  //   the other player (turn has effectively transitioned)
-  // RR-CANON-R075: Trust recorded moves during replay.
+  // Validate player attribution: in canonical mode the move must be from the
+  // current player. Replay compatibility trusts recorded moves (RR-CANON-R075),
+  // including legacy turn-transition mismatches handled below.
   const isPlayerMismatchFromDifferentPlayer = move.player !== gameState.currentPlayer;
   const phaseForMoveCheck =
     fsmState.phase !== 'turn_end' && fsmState.phase !== 'game_over'
@@ -1315,7 +1308,7 @@ export function validateMoveWithFSM(
       fsmState.phase === 'territory_processing');
 
   // For legacy turn transitions, skip FSM validation entirely and trust the recorded move.
-  // The phase validation has already been expanded to allow these patterns.
+  // Legacy phase validation covers these patterns; canonical validation does not.
   if (isLegacyTurnTransition) {
     return makeResult({
       valid: true,
@@ -1324,16 +1317,8 @@ export function validateMoveWithFSM(
     });
   }
 
-  const isPlayerMismatchExempt =
-    move.type === 'no_placement_action' ||
-    move.type === 'no_movement_action' ||
-    move.type === 'no_line_action' ||
-    move.type === 'no_territory_action' ||
-    move.type === 'choose_territory_option' ||
-    move.type === 'forced_elimination';
-
   // For legacy replay, trust the recorded player attribution (RR-CANON-R075)
-  if (!isPlayerMismatchExempt && !replayCompatibility && move.player !== gameState.currentPlayer) {
+  if (!replayCompatibility && move.player !== gameState.currentPlayer) {
     return makeResult({
       valid: false,
       currentPhase: fsmState.phase,

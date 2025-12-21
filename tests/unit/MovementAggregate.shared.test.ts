@@ -807,7 +807,7 @@ describe('MovementAggregate.applyMovement', () => {
     if (result.success) {
       throw new Error('Expected applyMovement to fail for non-movement move type');
     }
-    expect(result.reason).toMatch(/Expected 'move_stack' or 'move_stack'/);
+    expect(result.reason).toMatch(/Expected 'move_stack' move/);
   });
 
   test('rejects movement moves without a from position', () => {

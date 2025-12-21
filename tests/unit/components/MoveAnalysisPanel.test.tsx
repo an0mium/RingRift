@@ -119,7 +119,7 @@ describe('MoveAnalysisPanel', () => {
       { type: 'forced_elimination', expected: 'Forced Elimination' },
       { type: 'swap_sides', expected: 'Swap Sides' },
       { type: 'recovery_slide', expected: 'Recovery' },
-      { type: 'skip_recovery', expected: 'Skip Recovery' },
+      { type: 'skip_recovery', expected: 'Recovery' },
     ];
 
     moveTypeTestCases.forEach(({ type, expected }) => {
