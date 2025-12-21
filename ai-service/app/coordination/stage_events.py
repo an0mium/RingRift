@@ -1,5 +1,16 @@
 """Stage-based event system for pipeline orchestration.
 
+.. deprecated:: December 2025
+    This module is being superseded by the unified event router.
+    For new code, prefer using:
+
+        from app.coordination.event_router import (
+            get_router, publish, subscribe
+        )
+
+    The unified router automatically routes to all event buses including
+    stage events. This module remains functional for backwards compatibility.
+
 This module provides an event bus for pipeline stage completion notifications,
 enabling event-driven pipeline execution with immediate downstream triggering.
 

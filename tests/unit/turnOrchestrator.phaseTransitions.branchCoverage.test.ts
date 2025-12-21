@@ -158,10 +158,15 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
 
       const result = processTurn(state, move);
       expect(result.nextState).toBeDefined();
-      // Should either be in territory_processing or have advanced
-      expect(['territory_processing', 'ring_placement', 'movement', 'game_over']).toContain(
-        result.nextState.currentPhase
-      );
+      // Should either be in territory_processing, have advanced, or enter forced_elimination
+      // (forced_elimination triggers when player has no real actions this turn but has stacks)
+      expect([
+        'territory_processing',
+        'ring_placement',
+        'movement',
+        'game_over',
+        'forced_elimination',
+      ]).toContain(result.nextState.currentPhase);
     });
 
     it('transitions to forced_elimination when player has no actions', () => {
@@ -204,9 +209,21 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
       board.stacks.set('3,3', createStack(1, 2));
       board.stacks.set('5,5', createStack(2, 2));
 
+      // Add a previous "real action" so forced_elimination is not triggered
+      const previousRealAction: Move = {
+        id: 'move-0',
+        type: 'move_stack',
+        player: 1,
+        from: { x: 2, y: 3 },
+        to: { x: 3, y: 3 },
+        timestamp: Date.now() - 1000,
+        moveNumber: 0,
+      };
+
       const state = createBaseState('territory_processing', {
         board,
         players: [createPlayer(1, { ringsInHand: 0 }), createPlayer(2, { ringsInHand: 5 })],
+        moveHistory: [previousRealAction],
       });
 
       const move: Move = {
@@ -232,12 +249,24 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
       board.stacks.set('3,3', createStack(1, 2));
       board.stacks.set('5,5', createStack(2, 2));
 
+      // Add a previous "real action" so forced_elimination is not triggered
+      const previousRealAction: Move = {
+        id: 'move-0',
+        type: 'move_stack',
+        player: 1,
+        from: { x: 2, y: 3 },
+        to: { x: 3, y: 3 },
+        timestamp: Date.now() - 1000,
+        moveNumber: 0,
+      };
+
       const state = createBaseState('territory_processing', {
         board,
         players: [
           createPlayer(1, { ringsInHand: 0 }),
           createPlayer(2, { ringsInHand: 0 }), // Next player has no rings
         ],
+        moveHistory: [previousRealAction],
       });
 
       const move: Move = {
@@ -293,12 +322,25 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
       board.stacks.set('3,3', createStack(1, 2));
       board.stacks.set('5,5', createStack(2, 2));
 
+      // Add a previous "real action" to move history so forced_elimination is not triggered.
+      // Per RR-CANON-R070, forced_elimination only triggers when player had NO real actions this turn.
+      const previousRealAction: Move = {
+        id: 'move-0',
+        type: 'move_stack',
+        player: 1,
+        from: { x: 2, y: 3 },
+        to: { x: 3, y: 3 },
+        timestamp: Date.now() - 1000,
+        moveNumber: 0,
+      };
+
       const state = createBaseState('territory_processing', {
         board,
         players: [
           createPlayer(1, { ringsInHand: 5, eliminatedRings: 0 }),
           createPlayer(2, { ringsInHand: 5, eliminatedRings: 0 }),
         ],
+        moveHistory: [previousRealAction],
       });
 
       const move: Move = {
@@ -520,6 +562,17 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
       board.stacks.set('4,4', createStack(2, 2));
       board.stacks.set('6,6', createStack(3, 2));
 
+      // Add a previous "real action" so forced_elimination is not triggered
+      const previousRealAction: Move = {
+        id: 'move-0',
+        type: 'move_stack',
+        player: 1,
+        from: { x: 1, y: 2 },
+        to: { x: 2, y: 2 },
+        timestamp: Date.now() - 1000,
+        moveNumber: 0,
+      };
+
       const state = createBaseState('territory_processing', {
         board,
         players: [
@@ -530,6 +583,7 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
         currentPlayer: 1,
         maxPlayers: 3,
         totalRingsInPlay: 54, // 3 players * 18 rings
+        moveHistory: [previousRealAction],
       });
 
       const move: Move = {
@@ -553,6 +607,17 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
       board.stacks.set('2,2', createStack(1, 2));
       board.stacks.set('4,4', createStack(2, 2));
 
+      // Add a previous "real action" for player 2 so forced_elimination is not triggered
+      const previousRealAction: Move = {
+        id: 'move-0',
+        type: 'move_stack',
+        player: 2,
+        from: { x: 3, y: 4 },
+        to: { x: 4, y: 4 },
+        timestamp: Date.now() - 1000,
+        moveNumber: 0,
+      };
+
       const state = createBaseState('territory_processing', {
         board,
         players: [
@@ -560,6 +625,7 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
           createPlayer(2, { ringsInHand: 0 }),
         ],
         currentPlayer: 2, // Currently player 2's turn
+        moveHistory: [previousRealAction],
       });
 
       const move: Move = {
@@ -1050,6 +1116,17 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
       board.stacks.set('3,3', createStack(1, 2));
       board.stacks.set('5,5', createStack(2, 2));
 
+      // Add a previous "real action" so forced_elimination is not triggered
+      const previousRealAction: Move = {
+        id: 'move-0',
+        type: 'move_stack',
+        player: 1,
+        from: { x: 2, y: 3 },
+        to: { x: 3, y: 3 },
+        timestamp: Date.now() - 1000,
+        moveNumber: 0,
+      };
+
       const state = createBaseState('territory_processing', {
         board,
         players: [
@@ -1057,6 +1134,7 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
           createPlayer(2, { ringsInHand: 10 }), // Next player has rings
         ],
         currentPlayer: 1,
+        moveHistory: [previousRealAction],
       });
 
       const move: Move = {
@@ -1080,6 +1158,17 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
       board.stacks.set('3,3', createStack(1, 2));
       board.stacks.set('5,5', createStack(2, 2));
 
+      // Add a previous "real action" so forced_elimination is not triggered
+      const previousRealAction: Move = {
+        id: 'move-0',
+        type: 'move_stack',
+        player: 1,
+        from: { x: 2, y: 3 },
+        to: { x: 3, y: 3 },
+        timestamp: Date.now() - 1000,
+        moveNumber: 0,
+      };
+
       const state = createBaseState('territory_processing', {
         board,
         players: [
@@ -1087,6 +1176,7 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
           createPlayer(2, { ringsInHand: 0 }), // Next player has no rings
         ],
         currentPlayer: 1,
+        moveHistory: [previousRealAction],
       });
 
       const move: Move = {

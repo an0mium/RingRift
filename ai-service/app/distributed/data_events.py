@@ -1,5 +1,21 @@
 """Data Pipeline Event System.
 
+.. deprecated:: December 2025
+    This module is being superseded by the unified event router.
+    For new code, prefer using:
+
+        from app.coordination.event_router import (
+            get_router, publish, subscribe, DataEventType
+        )
+
+    The unified router provides:
+    - Automatic routing to all event buses (data, stage, cross-process)
+    - Cross-process event persistence
+    - Event flow auditing
+    - Unified subscription management
+
+    This module remains fully functional for backwards compatibility.
+
 This module provides an event bus for coordinating components of the
 AI self-improvement loop. Events allow loose coupling between:
 - Data collection

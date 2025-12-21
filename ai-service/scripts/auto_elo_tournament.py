@@ -1,10 +1,27 @@
 #!/usr/bin/env python3
 """Automated ELO tournament runner with Slack alerts.
 
+.. deprecated:: 2025-12-20
+    This script is now consolidated into run_model_elo_tournament.py.
+    Use the unified tournament runner instead::
+
+        # Run once
+        python scripts/run_model_elo_tournament.py --run --include-baselines
+
+        # Run with specific config
+        python scripts/run_model_elo_tournament.py --board square8 --players 2 --run
+
+    For daemon-style continuous operation, use unified_promotion_daemon.py:
+
+        python scripts/unified_promotion_daemon.py --daemon
+
+    This standalone script remains for backward compatibility but will emit
+    a deprecation warning when run directly.
+
 Runs periodic tournaments to track model quality and alert on regressions.
 Designed to run as a cron job or systemd timer.
 
-Usage:
+Usage (deprecated):
     # Run once
     python scripts/auto_elo_tournament.py
 
@@ -13,6 +30,9 @@ Usage:
 
     # Dry run (check what would happen)
     python scripts/auto_elo_tournament.py --dry-run
+
+Preferred usage:
+    python scripts/run_model_elo_tournament.py --run --include-baselines
 """
 
 import argparse
@@ -282,6 +302,15 @@ def run_daemon(interval_seconds: int = 14400, rotate_configs: bool = True):
 
 
 def main():
+    import warnings
+    warnings.warn(
+        "auto_elo_tournament.py is deprecated. "
+        "Use 'run_model_elo_tournament.py --run' or 'unified_promotion_daemon.py --daemon' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    print("WARNING: This script is deprecated. Use 'run_model_elo_tournament.py --run' instead.\n")
+
     parser = argparse.ArgumentParser(description="Automated ELO tournament runner")
     parser.add_argument("--daemon", action="store_true", help="Run as daemon")
     parser.add_argument("--interval", type=int, default=14400,

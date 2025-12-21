@@ -23,6 +23,7 @@ export interface FSMDecisionSurface {
   pendingDecisionType?:
     | 'chain_capture'
     | 'line_order_required'
+    | 'line_elimination_required'
     | 'no_line_action_required'
     | 'region_order_required'
     | 'no_territory_action_required'
@@ -79,6 +80,7 @@ export interface ProcessTurnResult {
 export type DecisionType =
   | 'line_order'
   | 'line_reward'
+  | 'line_elimination_required'
   | 'region_order'
   | 'elimination_target'
   | 'capture_direction'
@@ -185,6 +187,16 @@ export interface ChainCaptureDecision extends PendingDecisionBase {
 }
 
 /**
+ * Decision requiring eliminate_rings_from_stack after choose_line_option with 'eliminate'.
+ * RR-CANON-R123: Line elimination is a separate move from the line option choice.
+ */
+export interface LineEliminationDecision extends PendingDecisionBase {
+  type: 'line_elimination_required';
+  /** Position of the line where elimination is pending */
+  linePosition?: Position;
+}
+
+/**
  * Bookkeeping decision when no line actions available.
  * RR-CANON-R075: Explicit no-action move required for replay determinism.
  */
@@ -241,6 +253,7 @@ export interface NoPlacementActionDecision extends PendingDecisionBase {
 export type PendingDecision =
   | LineOrderDecision
   | LineRewardDecision
+  | LineEliminationDecision
   | RegionOrderDecision
   | EliminationTargetDecision
   | CaptureDirectionDecision

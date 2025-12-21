@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import random
 from datetime import datetime
 from pathlib import Path
 
@@ -311,7 +312,9 @@ def generate_diverse_games(
         # Play as player 1
         for i in tqdm(range(games_as_p1), desc=f"vs {opp_type} (as P1)"):
             game_id = f"diverse_{opp_type}_p1_{i}"
-            gmo_ai.reset_for_new_game()
+            # Use random seed per game for varied behavior
+            game_seed = random.randint(0, 0xFFFFFFFF)
+            gmo_ai.reset_for_new_game(rng_seed=game_seed)
             opponent = create_opponent(opp_type, player_number=2)
 
             winner, game_states, game_moves = play_game(
@@ -329,7 +332,9 @@ def generate_diverse_games(
         # Play as player 2
         for i in tqdm(range(games_as_p2), desc=f"vs {opp_type} (as P2)"):
             game_id = f"diverse_{opp_type}_p2_{i}"
-            gmo_ai.reset_for_new_game()
+            # Use random seed per game for varied behavior
+            game_seed = random.randint(0, 0xFFFFFFFF)
+            gmo_ai.reset_for_new_game(rng_seed=game_seed)
             opponent = create_opponent(opp_type, player_number=1)
 
             winner, game_states, game_moves = play_game(
@@ -434,7 +439,9 @@ def evaluate_model(gmo_ai: GMOAI, num_games: int = 10) -> dict[str, float]:
         wins = 0
         for i in range(num_games):
             game_id = f"eval_{opp_type}_{i}"
-            gmo_ai.reset_for_new_game()
+            # Use random seed per game for varied behavior
+            game_seed = random.randint(0, 0xFFFFFFFF)
+            gmo_ai.reset_for_new_game(rng_seed=game_seed)
             opponent = create_opponent(opp_type, player_number=2)
 
             winner, _, _ = play_game(gmo_ai, opponent, gmo_player=1, game_id=game_id)

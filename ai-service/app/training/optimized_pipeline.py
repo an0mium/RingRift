@@ -42,6 +42,7 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -869,13 +870,17 @@ class OptimizedTrainingPipeline:
         )
 
 
-# Singleton instance
+# Singleton instance (thread-safe)
 _pipeline_instance: OptimizedTrainingPipeline | None = None
+_pipeline_lock = threading.Lock()
 
 
 def get_optimized_pipeline() -> OptimizedTrainingPipeline:
-    """Get the global optimized training pipeline instance."""
+    """Get the global optimized training pipeline instance (thread-safe)."""
     global _pipeline_instance
     if _pipeline_instance is None:
-        _pipeline_instance = OptimizedTrainingPipeline()
+        with _pipeline_lock:
+            # Double-check locking pattern
+            if _pipeline_instance is None:
+                _pipeline_instance = OptimizedTrainingPipeline()
     return _pipeline_instance

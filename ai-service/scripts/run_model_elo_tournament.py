@@ -67,6 +67,7 @@ from app.models import (
 from app.rules.default_engine import DefaultRulesEngine
 from app.training.initial_state import create_initial_state
 from app.utils.victory_type import derive_victory_type
+from scripts.lib.resilience import exponential_backoff_delay
 
 # Composite participant support for per-algorithm ELO tracking
 try:
@@ -899,6 +900,7 @@ def run_model_matchup(
     recording_metadata_base: dict[str, Any] | None = None,
     recording_lock: threading.Lock | None = None,
     use_composite: bool = False,
+    game_retries: int = 3,
 ) -> dict[str, int]:
     """Run multiple games between two models and update Elo.
 
@@ -978,32 +980,47 @@ def run_model_matchup(
         else:
             ai_type_a = ai_type_b = nn_ai_type
 
-        try:
-            if is_baseline_match:
-                # Use generic model-vs-model for baseline players
-                result = play_model_vs_model_game(
-                    model_a=play_a,
-                    model_b=play_b,
-                    board_type=board_type_enum,
-                    num_players=num_players,
-                    max_moves=10000,
-                    save_game_history=jsonl_enabled,
-                )
-            else:
-                # Use NN-specific game play for neural networks
-                result = play_nn_vs_nn_game(
-                    model_a_path=play_a["model_path"],
-                    model_b_path=play_b["model_path"],
-                    board_type=board_type_enum,
-                    num_players=num_players,
-                    max_moves=10000,
-                    mcts_simulations=50,  # Faster games
-                    save_game_history=jsonl_enabled,
-                    ai_type_a=ai_type_a,
-                    ai_type_b=ai_type_b,
-                )
-        except FileNotFoundError as e:
-            print(f"Skipping game: {e}")
+        # Run game with retry logic for transient failures
+        result = None
+        for attempt in range(game_retries):
+            try:
+                if is_baseline_match:
+                    # Use generic model-vs-model for baseline players
+                    result = play_model_vs_model_game(
+                        model_a=play_a,
+                        model_b=play_b,
+                        board_type=board_type_enum,
+                        num_players=num_players,
+                        max_moves=10000,
+                        save_game_history=jsonl_enabled,
+                    )
+                else:
+                    # Use NN-specific game play for neural networks
+                    result = play_nn_vs_nn_game(
+                        model_a_path=play_a["model_path"],
+                        model_b_path=play_b["model_path"],
+                        board_type=board_type_enum,
+                        num_players=num_players,
+                        max_moves=10000,
+                        mcts_simulations=50,  # Faster games
+                        save_game_history=jsonl_enabled,
+                        ai_type_a=ai_type_a,
+                        ai_type_b=ai_type_b,
+                    )
+                break  # Success
+            except FileNotFoundError as e:
+                print(f"Skipping game: {e}")
+                break  # Don't retry missing files
+            except Exception as e:
+                if attempt < game_retries - 1:
+                    delay = exponential_backoff_delay(attempt, base_delay=0.5, max_delay=5.0)
+                    print(f"Game {game_num} failed (attempt {attempt + 1}/{game_retries}): {e}, retrying in {delay:.1f}s...")
+                    time.sleep(delay)
+                else:
+                    print(f"Game {game_num} failed after {game_retries} attempts: {e}")
+                    results["errors"] += 1
+
+        if result is None:
             continue
 
         if result.get("error") or result.get("winner") == "error":
@@ -1628,6 +1645,7 @@ def run_all_config_tournaments(
                     recording_metadata_base=config_metadata,
                     recording_lock=recording_lock,
                     use_composite=getattr(args, "composite", False),
+                    game_retries=args.game_retries,
                 )
                 games_completed += args.games
                 print(f"A={results['model_a_wins']} B={results['model_b_wins']} D={results['draws']}")
@@ -1803,6 +1821,7 @@ def run_continuous_tournament(
                         recording_metadata_base=iteration_metadata,
                         recording_lock=recording_lock,
                         use_composite=getattr(args, "composite", False),
+                        game_retries=args.game_retries,
                     )
                     games_completed += args.games
                     total_wins += results["model_a_wins"] + results["model_b_wins"]
@@ -2104,6 +2123,10 @@ def main():
     # Performance optimization
     parser.add_argument("--no-compile", action="store_true",
                         help="Disable torch.compile() for faster startup (reduces per-game overhead at cost of inference speed)")
+
+    # Resilience options
+    parser.add_argument("--game-retries", type=int, default=3,
+                        help="Number of retries for transient game failures (default: 3)")
 
     args = parser.parse_args()
 
@@ -2419,6 +2442,7 @@ def main():
                 recording_metadata_base=recording_metadata_base,
                 recording_lock=_RECORDING_LOCK,
                 use_composite=getattr(args, "composite", False),
+                game_retries=args.game_retries,
             )
             return (matchup_idx, m1, m2, results, None)
         except Exception as e:
@@ -2469,6 +2493,7 @@ def main():
                     recording_metadata_base=recording_metadata_base,
                     recording_lock=_RECORDING_LOCK,
                     use_composite=getattr(args, "composite", False),
+                    game_retries=args.game_retries,
                 )
 
                 games_completed += args.games

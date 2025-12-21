@@ -9,7 +9,10 @@ Run with: pytest tests/unit/test_property_based.py -v --hypothesis-show-statisti
 import numpy as np
 import pytest
 import torch
-from hypothesis import (
+
+pytest.importorskip("hypothesis")
+
+from hypothesis import (  # noqa: E402
     assume,
     given,
     settings,

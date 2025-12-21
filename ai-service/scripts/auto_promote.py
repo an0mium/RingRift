@@ -1,6 +1,17 @@
 #!/usr/bin/env python3
 """Automated Model Promotion Pipeline.
 
+.. deprecated:: 2025-12-20
+    This script is now consolidated into unified_promotion_daemon.py.
+    Use the unified daemon instead::
+
+        python scripts/unified_promotion_daemon.py --check-once     # Check and promote
+        python scripts/unified_promotion_daemon.py --daemon         # Run continuously
+        python scripts/unified_promotion_daemon.py --dry-run        # Preview without changes
+
+    This standalone script remains for backward compatibility but will emit
+    a deprecation warning when run directly.
+
 Monitors ELO database and automatically promotes models that meet production criteria.
 Handles:
 - Detection of production-ready models
@@ -8,17 +19,19 @@ Handles:
 - Notification via Slack
 - Rollback capability
 
-Usage:
+Usage (deprecated):
     python scripts/auto_promote.py              # Check and promote
     python scripts/auto_promote.py --daemon     # Run continuously
     python scripts/auto_promote.py --dry-run    # Preview without changes
+
+Preferred usage:
+    python scripts/unified_promotion_daemon.py --check-once
 """
 
 import argparse
 import json
 import os
 import shutil
-import sqlite3
 import subprocess
 import sys
 import time
@@ -29,12 +42,13 @@ SCRIPT_DIR = Path(__file__).parent
 AI_SERVICE_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
-from app.config.thresholds import (
+from scripts.lib.elo_queries import (
+    DEFAULT_DB,
     PRODUCTION_ELO_THRESHOLD,
     PRODUCTION_MIN_GAMES,
+    get_production_candidates as _get_production_candidates,
+    get_top_models,
 )
-
-DEFAULT_DB = AI_SERVICE_ROOT / "data" / "unified_elo.db"
 PRODUCTION_DIR = AI_SERVICE_ROOT / "models" / "production"
 PROMOTION_LOG = AI_SERVICE_ROOT / "data" / ".promotion_history.json"
 
@@ -116,30 +130,16 @@ def find_model_file(model_id: str) -> Path | None:
 
 
 def get_production_candidates(db_path: Path) -> list[dict]:
-    """Get models that meet production criteria."""
-    if not db_path.exists():
-        return []
-    
-    conn = sqlite3.connect(str(db_path))
-    cursor = conn.execute("""
-        SELECT participant_id, rating, games_played
-        FROM elo_ratings
-        WHERE rating >= ? AND games_played >= ?
-          AND participant_id NOT LIKE 'baseline_%'
-        ORDER BY rating DESC
-    """, (PRODUCTION_ELO_THRESHOLD, PRODUCTION_MIN_GAMES))
-    
-    candidates = []
-    for row in cursor.fetchall():
-        model_id, rating, games = row
-        candidates.append({
-            "model_id": model_id,
-            "rating": rating,
-            "games": games,
-        })
-    
-    conn.close()
-    return candidates
+    """Get models that meet production criteria using unified query library."""
+    models = _get_production_candidates(db_path, include_baselines=False)
+    return [
+        {
+            "model_id": m.participant_id,
+            "rating": m.rating,
+            "games": m.games_played,
+        }
+        for m in models
+    ]
 
 
 def promote_model(model_id: str, rating: float, dry_run: bool = False) -> bool:
@@ -218,6 +218,15 @@ def run_promotion(db_path: Path, dry_run: bool = False) -> list[str]:
 
 
 def main():
+    import warnings
+    warnings.warn(
+        "auto_promote.py is deprecated. "
+        "Use 'unified_promotion_daemon.py --check-once' or '--daemon' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    print("WARNING: This script is deprecated. Use 'unified_promotion_daemon.py' instead.\n")
+
     parser = argparse.ArgumentParser(description="Automated Model Promotion")
     parser.add_argument("--db", type=Path, default=DEFAULT_DB, help="ELO database path")
     parser.add_argument("--daemon", action="store_true", help="Run continuously")
@@ -257,24 +266,15 @@ def main():
             print(f"\nNewly promoted: {len(promoted)}")
         else:
             print("No models meet production criteria yet.")
-            
-            # Show closest candidates
-            conn = sqlite3.connect(str(args.db))
-            cursor = conn.execute("""
-                SELECT participant_id, rating, games_played
-                FROM elo_ratings
-                WHERE participant_id NOT LIKE 'baseline_%'
-                ORDER BY rating DESC
-                LIMIT 5
-            """)
+
+            # Show closest candidates using unified query
+            top_models = get_top_models(args.db, limit=5, include_baselines=False)
             print("\nClosest candidates:")
-            for row in cursor.fetchall():
-                model_id, rating, games = row
-                elo_needed = max(0, PRODUCTION_ELO_THRESHOLD - rating)
-                games_needed = max(0, PRODUCTION_MIN_GAMES - games)
-                print(f"  {model_id[:50]}")
-                print(f"    ELO: {rating:.1f} (need +{elo_needed:.1f}), Games: {games} (need +{games_needed})")
-            conn.close()
+            for model in top_models:
+                elo_needed = max(0, PRODUCTION_ELO_THRESHOLD - model.rating)
+                games_needed = max(0, PRODUCTION_MIN_GAMES - model.games_played)
+                print(f"  {model.participant_id[:50]}")
+                print(f"    ELO: {model.rating:.1f} (need +{elo_needed:.1f}), Games: {model.games_played} (need +{games_needed})")
 
 
 if __name__ == "__main__":

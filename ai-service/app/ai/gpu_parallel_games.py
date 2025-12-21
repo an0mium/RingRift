@@ -1776,18 +1776,22 @@ class ParallelGameRunner:
         # Process the lines (collapses markers to territory, sets pending elimination flag)
         process_lines_batch(self.state, mask)
         # RR-CANON-R123: Auto-apply line elimination for self-play (no interactive choice)
-        apply_line_elimination_batch(self.state, mask)
+        # Capture elimination positions for move recording
+        elimination_positions = apply_line_elimination_batch(self.state, mask)
 
         # Record canonical moves to move_history
         # Games WITH lines: record CHOOSE_LINE_OPTION (player "chose" to process lines)
         # Games WITHOUT lines: record NO_LINE_ACTION
-        self._record_line_phase_moves(mask, games_with_lines)
+        self._record_line_phase_moves(mask, games_with_lines, elimination_positions)
 
         # After line processing, advance to TERRITORY_PROCESSING phase
         self.state.current_phase[mask] = GamePhase.TERRITORY_PROCESSING
 
     def _record_line_phase_moves(
-        self, mask: torch.Tensor, games_with_lines: torch.Tensor
+        self,
+        mask: torch.Tensor,
+        games_with_lines: torch.Tensor,
+        elimination_positions: dict[int, tuple[int, int]],
     ) -> None:
         """Record canonical line processing moves to move_history.
 
@@ -1801,6 +1805,7 @@ class ParallelGameRunner:
         Args:
             mask: Games being processed in this phase
             games_with_lines: Which games had lines to process
+            elimination_positions: Dict mapping game_idx to (y, x) of eliminated stack
         """
         from .gpu_game_types import MoveType
 
@@ -1837,12 +1842,14 @@ class ParallelGameRunner:
 
                 # Second: record the elimination move (if space)
                 if move_count < self.state.max_history_moves:
+                    # Get elimination position from the dict (y, x)
+                    elim_y, elim_x = elimination_positions.get(g, (-1, -1))
                     self.state.move_history[g, move_count, 0] = MoveType.ELIMINATE_RINGS_FROM_STACK
                     self.state.move_history[g, move_count, 1] = player
-                    self.state.move_history[g, move_count, 2] = -1  # Position filled by apply_line_elimination
-                    self.state.move_history[g, move_count, 3] = -1
-                    self.state.move_history[g, move_count, 4] = -1
-                    self.state.move_history[g, move_count, 5] = -1
+                    self.state.move_history[g, move_count, 2] = -1  # from_y (not used)
+                    self.state.move_history[g, move_count, 3] = -1  # from_x (not used)
+                    self.state.move_history[g, move_count, 4] = elim_y  # to_y: row of eliminated stack
+                    self.state.move_history[g, move_count, 5] = elim_x  # to_x: col of eliminated stack
                     self.state.move_history[g, move_count, 6] = GamePhase.LINE_PROCESSING
                     self.state.move_count[g] += 1
             else:
@@ -1875,8 +1882,11 @@ class ParallelGameRunner:
         # Capture territory counts BEFORE processing (to detect if territory was claimed)
         territory_before = self.state.territory_count.clone()
 
-        # Process territory claims
-        compute_territory_batch(self.state, mask)
+        # Process territory claims and capture elimination positions
+        # Use current_player_only=True to match CPU semantics (process only current player's regions)
+        territory_elimination_positions = compute_territory_batch(
+            self.state, mask, current_player_only=True
+        )
 
         # Check which games claimed territory
         territory_after = self.state.territory_count
@@ -1884,8 +1894,8 @@ class ParallelGameRunner:
         territory_changed = (territory_after.sum(dim=1) != territory_before.sum(dim=1))
         games_with_territory = mask & territory_changed
 
-        # Record canonical territory moves
-        self._record_territory_phase_moves(mask, games_with_territory)
+        # Record canonical territory moves (including elimination)
+        self._record_territory_phase_moves(mask, games_with_territory, territory_elimination_positions)
 
         # Cascade check: Did territory processing create new marker lines?
         # This can happen if territory collapse removes stacks that were blocking
@@ -1913,17 +1923,24 @@ class ParallelGameRunner:
             self.state.current_phase[still_territory] = GamePhase.END_TURN
 
     def _record_territory_phase_moves(
-        self, mask: torch.Tensor, games_with_territory: torch.Tensor
+        self,
+        mask: torch.Tensor,
+        games_with_territory: torch.Tensor,
+        elimination_positions: dict[int, list[tuple[int, int, int]]],
     ) -> None:
         """Record canonical territory processing moves to move_history.
 
-        Per canonical contract, TERRITORY_PROCESSING phase must emit either:
-        - CHOOSE_TERRITORY_OPTION: when territory was claimed
-        - NO_TERRITORY_ACTION: when no territory was available
+        Per canonical contract (RR-CANON-R145), TERRITORY_PROCESSING phase must emit:
+        - Games WITH territory: CHOOSE_TERRITORY_OPTION + ELIMINATE_RINGS_FROM_STACK
+        - Games WITHOUT territory: NO_TERRITORY_ACTION
+
+        The elimination move is separate per CPU engine semantics: after each
+        CHOOSE_TERRITORY_OPTION, an ELIMINATE_RINGS_FROM_STACK follows.
 
         Args:
             mask: Games being processed in this phase
             games_with_territory: Which games had territory to claim
+            elimination_positions: Dict mapping game_idx to list of (player, y, x) eliminations
         """
         from .gpu_game_types import MoveType
 
@@ -1944,18 +1961,48 @@ class ParallelGameRunner:
                 continue
 
             player = int(players[i].item())
-            move_type = MoveType.CHOOSE_TERRITORY_OPTION if had_territory[i] else MoveType.NO_TERRITORY_ACTION
 
-            # Record to move_history (7 columns: move_type, player, from_y, from_x, to_y, to_x, phase)
-            self.state.move_history[g, move_count, 0] = move_type
-            self.state.move_history[g, move_count, 1] = player
-            self.state.move_history[g, move_count, 2] = -1  # No position for territory moves
-            self.state.move_history[g, move_count, 3] = -1
-            self.state.move_history[g, move_count, 4] = -1
-            self.state.move_history[g, move_count, 5] = -1
-            self.state.move_history[g, move_count, 6] = GamePhase.TERRITORY_PROCESSING
+            if had_territory[i]:
+                # RR-CANON-R145: Record CHOOSE_TERRITORY_OPTION + ELIMINATE_RINGS_FROM_STACK
+                # First: record the territory choice move
+                self.state.move_history[g, move_count, 0] = MoveType.CHOOSE_TERRITORY_OPTION
+                self.state.move_history[g, move_count, 1] = player
+                self.state.move_history[g, move_count, 2] = -1  # No position for choice
+                self.state.move_history[g, move_count, 3] = -1
+                self.state.move_history[g, move_count, 4] = -1
+                self.state.move_history[g, move_count, 5] = -1
+                self.state.move_history[g, move_count, 6] = GamePhase.TERRITORY_PROCESSING
+                self.state.move_count[g] += 1
+                move_count += 1
 
-            self.state.move_count[g] += 1
+                # Second: record the elimination move(s) for current player (if space)
+                # Note: CPU records one CHOOSE + ELIMINATE pair per region for current player.
+                # GPU batches all territory processing but we only record current player's eliminations.
+                elims = elimination_positions.get(g, [])
+                for elim_player, elim_y, elim_x in elims:
+                    if elim_player != player:
+                        continue  # Only record eliminations for current player
+                    if move_count >= self.state.max_history_moves:
+                        break
+                    self.state.move_history[g, move_count, 0] = MoveType.ELIMINATE_RINGS_FROM_STACK
+                    self.state.move_history[g, move_count, 1] = elim_player
+                    self.state.move_history[g, move_count, 2] = -1  # from_y (not used)
+                    self.state.move_history[g, move_count, 3] = -1  # from_x (not used)
+                    self.state.move_history[g, move_count, 4] = elim_y  # to_y: row of eliminated stack
+                    self.state.move_history[g, move_count, 5] = elim_x  # to_x: col of eliminated stack
+                    self.state.move_history[g, move_count, 6] = GamePhase.TERRITORY_PROCESSING
+                    self.state.move_count[g] += 1
+                    move_count += 1
+            else:
+                # No territory: record NO_TERRITORY_ACTION
+                self.state.move_history[g, move_count, 0] = MoveType.NO_TERRITORY_ACTION
+                self.state.move_history[g, move_count, 1] = player
+                self.state.move_history[g, move_count, 2] = -1
+                self.state.move_history[g, move_count, 3] = -1
+                self.state.move_history[g, move_count, 4] = -1
+                self.state.move_history[g, move_count, 5] = -1
+                self.state.move_history[g, move_count, 6] = GamePhase.TERRITORY_PROCESSING
+                self.state.move_count[g] += 1
 
     def _check_for_new_lines(self, mask: torch.Tensor) -> torch.Tensor:
         """Check which games have new marker lines after territory processing.
@@ -2388,8 +2435,8 @@ class ParallelGameRunner:
             # RR-CANON-R123: Auto-apply line elimination for cascade processing
             apply_line_elimination_batch(self.state, single_game_mask)
 
-            # After line processing, check for territory claims
-            compute_territory_batch(self.state, single_game_mask)
+            # After line processing, check for territory claims (current player only)
+            compute_territory_batch(self.state, single_game_mask, current_player_only=True)
 
             # Continue loop to check if territory processing created new lines
             # (e.g., by removing markers that were blocking a line)

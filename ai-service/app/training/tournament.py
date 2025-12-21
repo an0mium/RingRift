@@ -115,7 +115,7 @@ class Tournament:
         # Tracks R172 LPS wins separately from elimination/territory.
         self.victory_reasons: dict[str, int] = dict.fromkeys(VICTORY_REASONS, 0)
 
-    def _create_ai(self, player_number: int, model_path: str) -> DescentAI:
+    def _create_ai(self, player_number: int, model_path: str, game_idx: int = 0) -> DescentAI:
         """Create an AI instance with specific model weights.
 
         Uses the full model path as nn_model_id so NeuralNetAI loads and caches
@@ -124,13 +124,20 @@ class Tournament:
 
         Note: NeuralNetAI supports .pth paths directly as nn_model_id (see
         neural_net.py line 3653-3673).
+
+        Args:
+            player_number: Player number (1-indexed)
+            model_path: Path to the model weights
+            game_idx: Game index for seed derivation (ensures varied games)
         """
+        # Derive unique seed per (game, player) for varied but reproducible games
+        game_seed = (game_idx * 1_000_003 + player_number * 97_911) & 0xFFFFFFFF
         # Pass full path - NeuralNetAI detects .pth suffix and loads directly
         config = AIConfig(
             difficulty=10,
             randomness=0.1,
             think_time=500,
-            rngSeed=None,
+            rngSeed=game_seed,
             nn_model_id=model_path,  # Full path supported since 2025-12
         )
         return DescentAI(player_number, config)
@@ -186,10 +193,10 @@ class Tournament:
                         model = self.model_path_b
                         label = "B"
 
-                ais[player_num] = self._create_ai(player_num, model)
+                ais[player_num] = self._create_ai(player_num, model, game_idx=i)
                 seat_labels[player_num] = label
 
-            winner, final_state = self._play_game_multiplayer(ais)
+            winner, final_state = self._play_game_multiplayer(ais, game_idx=i)
 
             # Track victory reason for LPS and other victory types.
             victory_reason = infer_victory_reason(final_state)
@@ -250,18 +257,19 @@ class Tournament:
         return self._play_game_multiplayer({1: ai1, 2: ai2})
 
     def _play_game_multiplayer(
-        self, ais: dict[int, DescentAI]
+        self, ais: dict[int, DescentAI], game_idx: int = 0
     ) -> tuple[int | None, GameState]:
         """Play a single game with any number of players.
 
         Args:
             ais: Dictionary mapping player number to AI instance.
+            game_idx: Game index for seed derivation.
 
         Returns:
             A tuple of (winner player number or None, final GameState).
         """
-        # Initialize game state
-        state = self._create_initial_state()
+        # Initialize game state with game-specific seed
+        state = self._create_initial_state(game_idx=game_idx)
         move_count = 0
         termination_reason = None
 
@@ -345,11 +353,14 @@ class Tournament:
         self.ratings["A"] = ra + self.k_elo * (sa - ea)
         self.ratings["B"] = rb + self.k_elo * (sb - eb)
 
-    def _create_initial_state(self) -> GameState:
+    def _create_initial_state(self, game_idx: int = 0) -> GameState:
         """Create initial game state for any board type and player count.
 
         Uses centralized BOARD_CONFIGS and victory threshold calculations
         from app.rules.core to ensure consistency with the game engine.
+
+        Args:
+            game_idx: Game index for seed derivation (ensures varied initial states)
         """
         from app.rules.core import (
             BOARD_CONFIGS,
@@ -388,10 +399,13 @@ class Tournament:
         victory_threshold = get_victory_threshold(self.board_type, self.num_players)
         territory_threshold = get_territory_victory_threshold(self.board_type)
 
+        # Derive unique seed per game for varied initial states
+        state_seed = (game_idx * 1_000_003 + 12345) & 0xFFFFFFFF
+
         return GameState(
             id="tournament",
             boardType=self.board_type,
-            rngSeed=None,
+            rngSeed=state_seed,
             board=BoardState(
                 type=self.board_type,
                 size=size,

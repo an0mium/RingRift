@@ -46,6 +46,11 @@ from app.models import BoardType
 
 # Unified logging setup
 from scripts.lib.logging_config import setup_script_logging
+from scripts.lib.resilience import (
+    HostHealthTracker,
+    exponential_backoff_delay,
+    is_network_error,
+)
 from scripts.run_distributed_tournament import DistributedTournament, TournamentState
 
 logger = setup_script_logging("run_ssh_distributed_tournament")
@@ -355,8 +360,44 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--retries",
         type=int,
-        default=1,
-        help="Retries per shard on failure (default: 1).",
+        default=3,
+        help="Retries per shard on failure (default: 3).",
+    )
+    parser.add_argument(
+        "--host-failure-threshold",
+        type=int,
+        default=3,
+        help="Consecutive failures before marking a host as degraded (default: 3).",
+    )
+    parser.add_argument(
+        "--scp-retries",
+        type=int,
+        default=3,
+        help="Retries for SCP file transfers (default: 3).",
+    )
+    parser.add_argument(
+        "--graceful-degradation",
+        action="store_true",
+        default=True,
+        help="Continue tournament even if some hosts fail (default: True).",
+    )
+    parser.add_argument(
+        "--no-graceful-degradation",
+        action="store_false",
+        dest="graceful_degradation",
+        help="Fail fast if any host fails.",
+    )
+    parser.add_argument(
+        "--reassign-failed-jobs",
+        action="store_true",
+        default=True,
+        help="Reassign jobs from failed hosts to healthy hosts (default: True).",
+    )
+    parser.add_argument(
+        "--no-reassign-failed-jobs",
+        action="store_false",
+        dest="reassign_failed_jobs",
+        help="Do not reassign jobs from failed hosts.",
     )
     parser.add_argument(
         "--run-id",
@@ -527,22 +568,69 @@ def main(argv: Sequence[str] | None = None) -> int:
             logger.info(f"{slot.id}: {len(tasks)} matchup(s)")
         return 0
 
-    # Ensure remote output dir exists per host before launching shards.
+    # Initialize host health tracker for resilient execution
+    health_tracker = HostHealthTracker(failure_threshold=args.host_failure_threshold)
+
+    # Ensure remote output dir exists per host before launching shards (with retries).
+    hosts_ready: set[str] = set()
     for host_name, cfg in eligible_hosts.items():
         executor = SSHExecutor(cfg)
         mkdir_cmd = _shell_join(["mkdir", "-p", remote_run_dir])
-        result = executor.run(mkdir_cmd, timeout=30)
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Failed to create {remote_run_dir!r} on {host_name}: {result.stderr}"
-            )
 
-    def run_slot(slot: WorkerSlot) -> list[Path]:
+        setup_success = False
+        for attempt in range(3):
+            result = executor.run(mkdir_cmd, timeout=30)
+            if result.returncode == 0:
+                setup_success = True
+                hosts_ready.add(host_name)
+                break
+            logger.warning(
+                f"Host setup attempt {attempt + 1}/3 failed for {host_name}: {result.stderr}"
+            )
+            if attempt < 2:
+                delay = exponential_backoff_delay(attempt)
+                logger.info(f"Retrying {host_name} setup in {delay:.1f}s...")
+                time.sleep(delay)
+
+        if not setup_success:
+            health_tracker.record_failure(host_name, f"Setup failed: {result.stderr}")
+            if args.graceful_degradation:
+                logger.warning(f"Marking {host_name} as unavailable (setup failed)")
+            else:
+                raise RuntimeError(
+                    f"Failed to create {remote_run_dir!r} on {host_name}: {result.stderr}"
+                )
+
+    if not hosts_ready:
+        raise RuntimeError("No hosts could be set up successfully")
+
+    logger.info(f"Hosts ready: {len(hosts_ready)}/{len(eligible_hosts)}")
+
+    def run_slot(slot: WorkerSlot) -> tuple[list[Path], list[Matchup]]:
+        """Run tournament matchups on a worker slot.
+
+        Returns:
+            Tuple of (fetched checkpoint paths, failed matchups for this slot)
+        """
+        # Skip if host is already degraded
+        if health_tracker.is_degraded(slot.host_name):
+            tasks = assignments.get(slot, [])
+            logger.warning(f"[{slot.id}] Skipping - host is degraded")
+            return [], list(tasks)
+
         cfg = eligible_hosts[slot.host_name]
         executor = SSHExecutor(cfg)
         fetched: list[Path] = []
+        slot_failed_matchups: list[Matchup] = []
         tasks = assignments.get(slot, [])
+
         for tier_a, tier_b in tasks:
+            # Check if host became degraded during execution
+            if health_tracker.is_degraded(slot.host_name):
+                logger.warning(f"[{slot.id}] Host degraded during execution, stopping")
+                slot_failed_matchups.append((tier_a, tier_b))
+                continue
+
             matchup_id = f"{tier_a}_vs_{tier_b}"
             checkpoint_rel = f"{remote_run_dir}/{matchup_id}.checkpoint.json"
             report_rel = f"{remote_run_dir}/{matchup_id}.report.json"
@@ -564,43 +652,197 @@ def main(argv: Sequence[str] | None = None) -> int:
                 require_neural_net=args.require_neural_net,
             )
 
+            # Execute with exponential backoff retries
             last_error: str | None = None
-            for attempt in range(max(1, int(args.retries))):
-                logger.info(f"[{slot.id}] {matchup_id} (attempt {attempt + 1})")
+            max_retries = max(1, int(args.retries))
+            for attempt in range(max_retries):
+                logger.info(f"[{slot.id}] {matchup_id} (attempt {attempt + 1}/{max_retries})")
                 result = executor.run(remote_cmd, timeout=int(args.job_timeout_sec))
                 if result.returncode == 0:
                     last_error = None
+                    health_tracker.record_success(slot.host_name)
                     break
+
                 last_error = (
                     f"rc={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
                 )
-                logger.warning(f"[{slot.id}] {matchup_id} failed: {result.returncode}")
+                logger.warning(f"[{slot.id}] {matchup_id} failed (attempt {attempt + 1}): rc={result.returncode}")
+
+                # Check for network-related errors
+                if is_network_error(result.stderr or ""):
+                    became_degraded = health_tracker.record_failure(slot.host_name, last_error)
+                    if became_degraded:
+                        logger.error(f"[{slot.id}] Host marked as degraded after network errors")
+                        break
+
+                # Exponential backoff before retry
+                if attempt < max_retries - 1:
+                    delay = exponential_backoff_delay(attempt)
+                    logger.info(f"[{slot.id}] Retrying in {delay:.1f}s...")
+                    time.sleep(delay)
 
             if last_error is not None:
-                raise RuntimeError(f"[{slot.id}] {matchup_id} failed:\n{last_error}")
+                slot_failed_matchups.append((tier_a, tier_b))
+                if not args.graceful_degradation:
+                    raise RuntimeError(f"[{slot.id}] {matchup_id} failed:\n{last_error}")
+                logger.error(f"[{slot.id}] {matchup_id} failed after {max_retries} attempts")
+                continue
 
+            # SCP with retries and exponential backoff
             remote_checkpoint_abs = resolve_remote_path(cfg, checkpoint_rel)
             local_checkpoint = local_shards_dir / f"{matchup_id}.checkpoint.json"
-            scp_result = executor.scp_from(
-                remote_checkpoint_abs, str(local_checkpoint), timeout=300
-            )
-            if scp_result.returncode != 0:
-                raise RuntimeError(
-                    f"[{slot.id}] scp failed for {matchup_id}: {scp_result.stderr}"
-                )
-            fetched.append(local_checkpoint)
-        return fetched
 
-    # Execute all worker slots concurrently.
+            scp_success = False
+            scp_error = ""
+            for scp_attempt in range(max(1, args.scp_retries)):
+                scp_result = executor.scp_from(
+                    remote_checkpoint_abs, str(local_checkpoint), timeout=300
+                )
+                if scp_result.returncode == 0:
+                    scp_success = True
+                    break
+                scp_error = scp_result.stderr or "Unknown SCP error"
+                logger.warning(
+                    f"[{slot.id}] SCP attempt {scp_attempt + 1}/{args.scp_retries} failed: {scp_error}"
+                )
+                if scp_attempt < args.scp_retries - 1:
+                    delay = exponential_backoff_delay(scp_attempt, base_delay=2.0)
+                    logger.info(f"[{slot.id}] Retrying SCP in {delay:.1f}s...")
+                    time.sleep(delay)
+
+            if not scp_success:
+                slot_failed_matchups.append((tier_a, tier_b))
+                if not args.graceful_degradation:
+                    raise RuntimeError(f"[{slot.id}] SCP failed for {matchup_id}: {scp_error}")
+                logger.error(f"[{slot.id}] SCP failed for {matchup_id} after {args.scp_retries} attempts")
+                continue
+
+            fetched.append(local_checkpoint)
+            logger.info(f"[{slot.id}] {matchup_id} completed successfully")
+
+        return fetched, slot_failed_matchups
+
+    # Execute all worker slots concurrently with graceful degradation.
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     shard_paths: list[Path] = []
-    with ThreadPoolExecutor(max_workers=len(worker_slots)) as pool:
-        futures = {pool.submit(run_slot, slot): slot for slot in worker_slots}
+    all_failed_matchups: list[Matchup] = []
+    failed_slots: dict[str, str] = {}
+
+    # Filter worker slots to only those on ready hosts
+    active_slots = [s for s in worker_slots if s.host_name in hosts_ready]
+    inactive_slots = [s for s in worker_slots if s.host_name not in hosts_ready]
+
+    for slot in inactive_slots:
+        tasks = assignments.get(slot, [])
+        if tasks:
+            all_failed_matchups.extend(tasks)
+            logger.warning(
+                f"[{slot.id}] host not ready - deferring {len(tasks)} matchup(s) for reassignment"
+            )
+
+    if not active_slots:
+        raise RuntimeError("No active worker slots available after host setup")
+
+    logger.info(f"Executing on {len(active_slots)} worker slots across {len(hosts_ready)} hosts")
+
+    with ThreadPoolExecutor(max_workers=len(active_slots)) as pool:
+        futures = {pool.submit(run_slot, slot): slot for slot in active_slots}
         for future in as_completed(futures):
             slot = futures[future]
-            shard_paths.extend(future.result())
-            logger.info(f"[{slot.id}] done")
+            try:
+                paths, failed = future.result()
+                shard_paths.extend(paths)
+                all_failed_matchups.extend(failed)
+                if failed:
+                    logger.warning(f"[{slot.id}] completed with {len(failed)} failed matchup(s)")
+                else:
+                    logger.info(f"[{slot.id}] done")
+            except Exception as e:
+                failed_slots[slot.id] = str(e)
+                # Mark all tasks from this slot as failed
+                tasks = assignments.get(slot, [])
+                all_failed_matchups.extend(tasks)
+                if args.graceful_degradation:
+                    logger.error(f"[{slot.id}] failed with exception: {e}")
+                else:
+                    raise
+
+    # Reassign failed matchups to healthy hosts if enabled
+    if all_failed_matchups and args.reassign_failed_jobs:
+        healthy_hosts = health_tracker.get_healthy_hosts(eligible_hosts.keys())
+        if healthy_hosts:
+            logger.info(
+                f"Attempting to reassign {len(all_failed_matchups)} failed matchup(s) "
+                f"to {len(healthy_hosts)} healthy host(s)"
+            )
+
+            # Build new worker slots from healthy hosts only
+            reassign_slots = [
+                s for s in worker_slots
+                if s.host_name in healthy_hosts and s.host_name in hosts_ready
+            ]
+
+            if reassign_slots:
+                # Distribute failed matchups across healthy slots
+                reassign_assignments: dict[WorkerSlot, list[Matchup]] = {
+                    s: [] for s in reassign_slots
+                }
+                for i, matchup in enumerate(all_failed_matchups):
+                    slot = reassign_slots[i % len(reassign_slots)]
+                    reassign_assignments[slot].append(matchup)
+
+                # Update assignments for the retry
+                for slot, matchups in reassign_assignments.items():
+                    if matchups:
+                        assignments[slot] = matchups
+
+                logger.info(f"Reassigned {len(all_failed_matchups)} matchup(s), retrying...")
+
+                # Retry with reassigned matchups
+                retry_failed: list[Matchup] = []
+                with ThreadPoolExecutor(max_workers=len(reassign_slots)) as retry_pool:
+                    retry_futures = {
+                        retry_pool.submit(run_slot, slot): slot
+                        for slot, matchups in reassign_assignments.items()
+                        if matchups
+                    }
+                    for future in as_completed(retry_futures):
+                        slot = retry_futures[future]
+                        try:
+                            paths, failed = future.result()
+                            shard_paths.extend(paths)
+                            retry_failed.extend(failed)
+                            if paths:
+                                logger.info(f"[{slot.id}] reassignment: {len(paths)} succeeded")
+                            if failed:
+                                logger.warning(f"[{slot.id}] reassignment: {len(failed)} still failed")
+                        except Exception as e:
+                            logger.error(f"[{slot.id}] reassignment failed: {e}")
+                            tasks = reassign_assignments.get(slot, [])
+                            retry_failed.extend(tasks)
+
+                all_failed_matchups = retry_failed
+        else:
+            logger.error("No healthy hosts available for reassignment")
+
+    # Log final status
+    if failed_slots:
+        logger.warning(f"Failed slots: {list(failed_slots.keys())}")
+    if all_failed_matchups:
+        logger.warning(f"Failed matchups (not recovered): {len(all_failed_matchups)}")
+        for tier_a, tier_b in all_failed_matchups[:10]:  # Show first 10
+            logger.warning(f"  - {tier_a} vs {tier_b}")
+        if len(all_failed_matchups) > 10:
+            logger.warning(f"  ... and {len(all_failed_matchups) - 10} more")
+
+    # Log host health summary
+    health_summary = health_tracker.get_failure_summary()
+    if health_summary:
+        logger.info("Host health summary:")
+        for host, info in health_summary.items():
+            status = "DEGRADED" if info["degraded"] else "OK"
+            logger.info(f"  {host}: {status} (failures: {info['consecutive_failures']})")
 
     # Aggregate checkpoints into one report.
     combined_matches = []

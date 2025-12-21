@@ -125,4 +125,6 @@ export {
   compareFSMWithLegacy,
   type FSMOrchestrationResult,
   type FSMDecisionSurface,
+  // Line reward extraction
+  extractLineRewardChoice,
 } from './FSMAdapter';

@@ -18,25 +18,26 @@ Usage:
 """
 
 import argparse
-import json
 import os
-import sqlite3
-import subprocess
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent
 AI_SERVICE_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
-from app.config.thresholds import (
+from scripts.lib.elo_queries import (
+    DEFAULT_DB,
     PRODUCTION_ELO_THRESHOLD,
     PRODUCTION_MIN_GAMES,
+    get_games_by_config,
+    get_games_last_n_hours,
+    get_model_stats,
+    get_production_candidates,
+    get_top_models,
 )
-
-DEFAULT_DB = AI_SERVICE_ROOT / "data" / "unified_elo.db"
 
 # ANSI colors
 GREEN = "\033[92m"
@@ -61,65 +62,36 @@ def progress_bar(current: float, target: float, width: int = 20) -> str:
 
 
 def get_dashboard_data(db_path: Path) -> dict:
-    """Gather all dashboard data."""
+    """Gather all dashboard data using unified query library."""
     if not db_path.exists():
         return {"error": "Database not found"}
-    
-    conn = sqlite3.connect(str(db_path))
+
     data = {}
-    
-    # Top models
-    cursor = conn.execute("""
-        SELECT participant_id, rating, games_played
-        FROM elo_ratings
-        WHERE participant_id NOT LIKE 'baseline_%'
-        ORDER BY rating DESC
-        LIMIT 10
-    """)
+
+    # Top models (using unified query)
+    top_models = get_top_models(db_path, limit=10, include_baselines=False)
     data["top_models"] = [
-        {"id": r[0], "elo": r[1], "games": r[2]}
-        for r in cursor.fetchall()
+        {"id": m.participant_id, "elo": m.rating, "games": m.games_played}
+        for m in top_models
     ]
-    
-    # Total stats
-    cursor = conn.execute("""
-        SELECT COUNT(*), SUM(games_played)
-        FROM elo_ratings
-        WHERE participant_id NOT LIKE 'baseline_%'
-    """)
-    row = cursor.fetchone()
-    data["total_models"] = row[0] or 0
-    data["total_games"] = row[1] or 0
-    
-    # Production ready
-    cursor = conn.execute("""
-        SELECT COUNT(*)
-        FROM elo_ratings
-        WHERE rating >= ? AND games_played >= ?
-          AND participant_id NOT LIKE 'baseline_%'
-    """, (PRODUCTION_ELO_THRESHOLD, PRODUCTION_MIN_GAMES))
-    data["production_ready"] = cursor.fetchone()[0]
-    
-    # Recent games (last hour)
-    cursor = conn.execute("""
-        SELECT COUNT(*)
-        FROM match_history
-        WHERE timestamp > ?
-    """, (time.time() - 3600,))
-    data["games_last_hour"] = cursor.fetchone()[0]
-    
-    # Games by config
-    cursor = conn.execute("""
-        SELECT board_type, num_players, COUNT(*)
-        FROM match_history
-        GROUP BY board_type, num_players
-    """)
-    data["config_games"] = {
-        f"{r[0]}_{r[1]}p": r[2]
-        for r in cursor.fetchall()
-    }
-    
-    conn.close()
+
+    # Total stats (using unified query)
+    stats = get_model_stats(db_path)
+    if stats:
+        data["total_models"] = stats.total_models
+        data["total_games"] = stats.total_games
+        data["production_ready"] = stats.production_ready
+    else:
+        data["total_models"] = 0
+        data["total_games"] = 0
+        data["production_ready"] = 0
+
+    # Recent games (using unified query)
+    data["games_last_hour"] = get_games_last_n_hours(db_path, hours=1)
+
+    # Games by config (using unified query)
+    data["config_games"] = get_games_by_config(db_path)
+
     return data
 
 

@@ -447,7 +447,12 @@ describe('TurnOrchestrator advanced branch coverage', () => {
         onProcessingEvent: jest.fn(),
       };
 
-      const result = await processTurnAsync(state, processLineMove, delegates);
+      // Use replayCompatibility for this test since the mock delegate returns a move
+      // for a different phase (skip_territory_processing during line_processing).
+      // In strict mode (default), this would throw CanonicalRecordError.
+      const result = await processTurnAsync(state, processLineMove, delegates, {
+        replayCompatibility: true,
+      });
 
       expect(result.nextState).toBeDefined();
       // Async processing should complete and advance to next player

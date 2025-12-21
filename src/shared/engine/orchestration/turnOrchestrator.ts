@@ -64,6 +64,8 @@ import type {
 import { PhaseStateMachine, createTurnProcessingState } from './phaseStateMachine';
 import { flagEnabled, debugLog, fsmTraceLog } from '../../utils/envFlags';
 import { applySwapSidesIdentitySwap, validateSwapSidesMove } from '../swapSidesHelpers';
+import { createLegacyCoercionError } from '../errors/CanonicalRecordError';
+import { detectPhaseCoercion, applyPhaseCoercion, logPhaseCoercion } from './legacyReplayHelper';
 
 // FSM imports
 import {
@@ -72,6 +74,7 @@ import {
   onLineProcessingComplete,
   onTerritoryProcessingComplete,
   computeFSMOrchestration,
+  extractLineRewardChoice,
   type FSMOrchestrationResult,
 } from '../fsm';
 
@@ -1219,6 +1222,9 @@ function derivePendingDecisionFromFSM(
 
 /**
  * Options for processTurn behavior.
+ *
+ * @see RULES_CANONICAL_SPEC.md RR-CANON-R073 (NO phase skipping)
+ * @see RULES_CANONICAL_SPEC.md RR-CANON-R075 (Every phase transition recorded)
  */
 export interface ProcessTurnOptions {
   /**
@@ -1250,6 +1256,11 @@ export interface ProcessTurnOptions {
   /**
    * Enable legacy/parity replay tolerance.
    *
+   * @deprecated Use strict mode with explicit error handling for legacy records.
+   * This option will be removed in a future version.
+   * Legacy records should be validated via check_canonical_phase_history.py
+   * and quarantined rather than silently coerced.
+   *
    * When true, the orchestrator may coerce `currentPhase` and/or `currentPlayer`
    * to match the incoming recorded move type in order to replay legacy logs and
    * TS↔Python parity fixtures that were produced before strict canonical phase
@@ -1257,6 +1268,9 @@ export interface ProcessTurnOptions {
    *
    * Canonical write paths should keep this **false** so that phase/move
    * mismatches fail fast instead of being silently corrected.
+   *
+   * @see RULES_CANONICAL_SPEC.md RR-CANON-R073 (NO phase skipping)
+   * @see RULES_CANONICAL_SPEC.md RR-CANON-R075 (Every phase transition recorded)
    */
   replayCompatibility?: boolean;
 }
@@ -1269,143 +1283,54 @@ export interface ProcessTurnOptions {
  *
  * For cases requiring async decision resolution (human player choices),
  * use processTurnAsync or check the 'awaiting_decision' status.
+ *
+ * @see RULES_CANONICAL_SPEC.md RR-CANON-R073 (NO phase skipping)
+ * @see RULES_CANONICAL_SPEC.md RR-CANON-R075 (Every phase transition recorded)
  */
 export function processTurn(
   state: GameState,
   move: Move,
   options?: ProcessTurnOptions
 ): ProcessTurnResult {
-  if (options?.replayCompatibility) {
-    // Replay-tolerance: when the recorded move type disagrees with the current
-    // phase (e.g., territory moves applied while state says forced_elimination),
-    // coerce the phase to the canonical phase for the move type. This keeps
-    // host-level bookkeeping explicit and avoids injecting forced_elimination
-    // into territory replay, matching RR-CANON-R075/R076.
-    if (
-      state.gameStatus === 'active' &&
-      state.currentPhase === 'forced_elimination' &&
-      (move.type === 'process_territory_region' ||
-        move.type === 'choose_territory_option' ||
-        move.type === 'eliminate_rings_from_stack' ||
-        move.type === 'skip_territory_processing' ||
-        move.type === 'no_territory_action')
-    ) {
-      state = { ...state, currentPhase: 'territory_processing' as GamePhase };
-    } else if (
-      state.gameStatus === 'active' &&
-      state.currentPhase === 'forced_elimination' &&
-      (move.type === 'process_line' ||
-        move.type === 'choose_line_option' ||
-        move.type === 'choose_line_reward' ||
-        move.type === 'no_line_action')
-    ) {
-      state = { ...state, currentPhase: 'line_processing' as GamePhase };
-    } else if (
-      state.gameStatus === 'active' &&
-      state.currentPhase === 'forced_elimination' &&
-      (move.type === 'place_ring' ||
-        move.type === 'skip_placement' ||
-        move.type === 'no_placement_action')
-    ) {
-      state = { ...state, currentPhase: 'ring_placement' as GamePhase };
-    } else if (
-      // Replay-tolerance for TS/Python parity: When in territory_processing, movement,
-      // line_processing, or ring_placement and a placement move comes in for a different
-      // player, this indicates Python skipped intermediate players (who had no turn-material)
-      // and advanced to the next active player. Coerce to ring_placement and update the
-      // current player. This handles RR-CANON-R073 turn rotation and player-skip semantics.
-      state.gameStatus === 'active' &&
-      (state.currentPhase === 'territory_processing' ||
-        state.currentPhase === 'movement' ||
-        state.currentPhase === 'line_processing' ||
-        state.currentPhase === 'ring_placement') &&
-      (move.type === 'place_ring' ||
-        move.type === 'skip_placement' ||
-        move.type === 'no_placement_action') &&
-      move.player !== state.currentPlayer
-    ) {
-      state = {
-        ...state,
-        currentPhase: 'ring_placement' as GamePhase,
-        currentPlayer: move.player,
-      };
-    } else if (
-      // Replay-tolerance for TS/Python parity: When in ring_placement/movement
-      // and a forced_elimination move comes in, coerce the phase to forced_elimination.
-      // This happens when Python's phase machine recorded forced_elimination but TS's
-      // replay engine has already advanced to the next turn's start phase.
-      state.gameStatus === 'active' &&
-      (state.currentPhase === 'ring_placement' || state.currentPhase === 'movement') &&
-      move.type === 'forced_elimination'
-    ) {
-      state = { ...state, currentPhase: 'forced_elimination' as GamePhase };
-    } else if (
-      // Replay-tolerance for TS/Python parity: When in line_processing and a capture
-      // move comes in, coerce the phase back to movement/chain_capture. This happens
-      // when Python records captures with the pre-move phase (movement) but TS's
-      // post-move processing has already advanced to line_processing.
-      state.gameStatus === 'active' &&
-      state.currentPhase === 'line_processing' &&
-      (move.type === 'overtaking_capture' || move.type === 'continue_capture_segment')
-    ) {
-      // Coerce to the appropriate capture phase based on move type
-      const targetPhase = move.type === 'continue_capture_segment' ? 'chain_capture' : 'movement';
-      state = { ...state, currentPhase: targetPhase as GamePhase };
-    } else if (
-      // Replay-tolerance for TS/Python parity: When in ring_placement/movement/line_processing
-      // and a territory move comes in, coerce to territory_processing. This happens when
-      // Python records multiple territory moves or TS's bridge processing advanced past territory.
-      state.gameStatus === 'active' &&
-      (state.currentPhase === 'ring_placement' ||
-        state.currentPhase === 'movement' ||
-        state.currentPhase === 'line_processing') &&
-      (move.type === 'choose_territory_option' ||
-        move.type === 'process_territory_region' ||
-        move.type === 'no_territory_action' ||
-        move.type === 'eliminate_rings_from_stack' ||
-        move.type === 'skip_territory_processing')
-    ) {
-      state = { ...state, currentPhase: 'territory_processing' as GamePhase };
-    } else if (
-      // Sandbox AI multi-player tolerance: When in territory_processing but a capture/movement
-      // move comes in from the next player (due to async state synchronization), coerce back to
-      // the appropriate phase and player. This happens when sandbox AI enumerates moves before
-      // the orchestrator has fully advanced through all post-move phases.
-      // Also handles no_movement_action for TS/Python parity: when Python's turn rotation advances
-      // past territory_processing but TS's post-move phases didn't run (RR-CANON-R073).
-      state.gameStatus === 'active' &&
-      state.currentPhase === 'territory_processing' &&
-      (move.type === 'overtaking_capture' ||
-        move.type === 'continue_capture_segment' ||
-        move.type === 'move_stack' ||
-        move.type === 'move_ring' ||
-        move.type === 'no_movement_action')
-    ) {
-      const targetPhase =
-        move.type === 'continue_capture_segment'
-          ? 'chain_capture'
-          : move.type === 'overtaking_capture' ||
-              move.type === 'move_stack' ||
-              move.type === 'move_ring' ||
-              move.type === 'no_movement_action'
-            ? 'movement'
-            : state.currentPhase;
-      // Also coerce the currentPlayer to match the move's player if they differ
-      const targetPlayer = move.player !== state.currentPlayer ? move.player : state.currentPlayer;
-      state = { ...state, currentPhase: targetPhase as GamePhase, currentPlayer: targetPlayer };
-    } else if (
-      // Replay-tolerance for TS/Python parity: When in movement phase but a line-processing
-      // move comes in (no_line_action, process_line, choose_line_option), coerce to line_processing.
-      // This happens when Python's post-capture processing advanced to line_processing but TS's
-      // replay stayed in movement phase due to timing differences in phase advancement.
-      state.gameStatus === 'active' &&
-      state.currentPhase === 'movement' &&
-      (move.type === 'no_line_action' ||
-        move.type === 'process_line' ||
-        move.type === 'choose_line_option' ||
-        move.type === 'choose_line_reward')
-    ) {
-      state = { ...state, currentPhase: 'line_processing' as GamePhase };
+  // Detect if phase coercion would be needed for this move
+  const coercionResult = detectPhaseCoercion(state, move);
+
+  if (coercionResult.needsCoercion) {
+    if (options?.replayCompatibility) {
+      // DEPRECATED: Legacy replay compatibility mode
+      // This code path will be removed in a future version.
+      // Use check_canonical_phase_history.py to validate records.
+
+      console.warn(
+        '[DEPRECATED] replayCompatibility is deprecated. ' +
+          'Non-canonical records should be quarantined, not silently coerced. ' +
+          'This option will be removed in a future version. ' +
+          `Coercing: ${coercionResult.reason}`
+      );
+
+      // Log the coercion for analysis
+      logPhaseCoercion(
+        state.id,
+        state.moveHistory.length + 1,
+        coercionResult,
+        state.currentPhase,
+        state.currentPlayer
+      );
+
+      // Apply the coercion (quarantined in legacyReplayHelper.ts)
+      state = applyPhaseCoercion(state, coercionResult);
+    } else {
+      // STRICT MODE (default): Reject non-canonical records with detailed error
+      // Per RR-CANON-R073/R075: No phase skipping, every phase transition recorded
+      throw createLegacyCoercionError({
+        currentPhase: state.currentPhase,
+        wouldCoerceTo: coercionResult.targetPhase ?? state.currentPhase,
+        moveType: move.type,
+        gameId: state.id,
+        moveNumber: state.moveHistory.length + 1,
+        currentPlayer: state.currentPlayer,
+        movePlayer: move.player,
+      });
     }
   }
 
@@ -1522,7 +1447,12 @@ export function processTurn(
   const isTurnEndingTerritoryMove =
     move.type === 'skip_territory_processing' || move.type === 'no_territory_action';
 
-  let result: { pendingDecision?: PendingDecision; victoryResult?: VictoryState } = {};
+  // RR-PARITY-FIX-2025-12-20: Capture pendingDecision from applyMoveWithChainInfo.
+  // For no_territory_action, the handler may return a forced elimination decision
+  // which needs to be surfaced even when needsPostMoveProcessing is false.
+  let result: { pendingDecision?: PendingDecision; victoryResult?: VictoryState } = {
+    ...(applyResult.pendingDecision && { pendingDecision: applyResult.pendingDecision }),
+  };
   // Line-phase moves ALWAYS need post-move processing for phase transitions (RR-PARITY-FIX-2025-12-13)
   const needsPostMoveProcessing =
     !isPlacementMove &&
@@ -1720,12 +1650,22 @@ export function processTurn(
       // After eliminate_rings_from_stack, processPostMovePhases already advances to the
       // next player's ring_placement. Without this inclusion, the FSM result would
       // override that state, causing the game to get stuck in territory_processing.
+      // RR-FIX-2025-12-20: Also exclude line-phase moves. After no_line_action, if
+      // forced_elimination is triggered, processPostMovePhases already transitions
+      // to forced_elimination. Without this exclusion, FSM would override with
+      // territory_processing, causing PHASE_MOVE_INVARIANT errors.
+      const isLinePhaseMove =
+        move.type === 'no_line_action' ||
+        move.type === 'process_line' ||
+        move.type === 'choose_line_option' ||
+        move.type === 'choose_line_reward';
       const isTerritoryPhaseMove =
         move.type === 'choose_territory_option' ||
         move.type === 'process_territory_region' ||
         move.type === 'eliminate_rings_from_stack' ||
         move.type === 'no_territory_action' ||
         move.type === 'skip_territory_processing';
+      const isPhaseHandledByProcessPostMovePhases = isLinePhaseMove || isTerritoryPhaseMove;
 
       // Handle game_over transition (e.g., from resign)
       if (fsmOrchResult.nextPhase === 'game_over') {
@@ -1740,23 +1680,20 @@ export function processTurn(
               ? finalState.players.find((p) => p.playerNumber !== move.player)?.playerNumber
               : undefined,
         };
-      } else if (!isTerritoryPhaseMove) {
-        // Apply FSM-derived state for all **non-territory** moves.
+      } else if (!isPhaseHandledByProcessPostMovePhases) {
+        // Apply FSM-derived state for moves NOT handled by processPostMovePhases.
         //
-        // For territory-processing moves themselves (choose_territory_option,
-        // process_territory_region legacy alias,
-        // no_territory_action, skip_territory_processing), the canonical
-        // post-move behaviour is:
-        //   - Recompute remaining territory regions for the active player.
-        //   - Stay in territory_processing while regions remain.
-        //   - Only when no regions remain, call onTerritoryProcessingComplete
-        //     to decide between forced_elimination and turn_end.
-        // This logic is implemented in processPostMovePhases and mirrors
-        // Python's phase_machine, so we leave finalState as computed there.
+        // Line-phase moves (no_line_action, process_line, choose_line_option,
+        // choose_line_reward) and territory-phase moves (choose_territory_option,
+        // process_territory_region, eliminate_rings_from_stack, no_territory_action,
+        // skip_territory_processing) have their phase transitions handled by
+        // processPostMovePhases. This includes transitions to forced_elimination
+        // when the player had no actions this turn. Do NOT override their phases
+        // with FSM results, as that would cause PHASE_MOVE_INVARIANT errors.
         //
         // Note: computeFSMOrchestration already resolves 'turn_end' to the
         // actual starting phase (ring_placement / movement) for the **next**
-        // player, so we can safely apply it for non-territory moves.
+        // player, so we can safely apply it for other moves.
         finalState = {
           ...finalState,
           currentPhase: fsmOrchResult.nextPhase as GamePhase,
@@ -1765,10 +1702,10 @@ export function processTurn(
       }
 
       // Phase 1: Use FSM decision surface as the canonical source for pending decisions.
-      // Derive PendingDecision from FSM orchestration result. Territory-phase moves
-      // continue to use the legacy orchestrator surface for region/no_territory
+      // Derive PendingDecision from FSM orchestration result. Line-phase and territory-phase
+      // moves continue to use the legacy orchestrator surface for region/no_territory
       // decisions to keep TS/Python parity with canonical history.
-      const fsmDerivedDecision = !isTerritoryPhaseMove
+      const fsmDerivedDecision = !isPhaseHandledByProcessPostMovePhases
         ? derivePendingDecisionFromFSM(finalState, fsmOrchResult)
         : undefined;
 
@@ -1922,6 +1859,8 @@ interface ApplyMoveResult {
   nextState: GameState;
   chainCaptureRequired?: boolean;
   chainCapturePosition?: Position;
+  /** Pending decision for forced elimination or other deferred actions */
+  pendingDecision?: PendingDecision;
 }
 
 /**
@@ -2239,13 +2178,20 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
       const hasStacks = playerHasStacksOnBoard(state, move.player);
 
       if (!hadAnyAction && hasStacks) {
-        return {
-          nextState: {
-            ...state,
-            currentPlayer: move.player,
-            currentPhase: 'forced_elimination' as GamePhase,
-          },
+        // Transition to forced_elimination and surface the pending decision
+        const nextState = {
+          ...state,
+          currentPlayer: move.player,
+          currentPhase: 'forced_elimination' as GamePhase,
         };
+        const forcedDecision = createForcedEliminationDecision(nextState);
+        if (forcedDecision && forcedDecision.options.length > 0) {
+          return {
+            nextState,
+            pendingDecision: forcedDecision,
+          };
+        }
+        // No valid forced elimination options - fall through to turn rotation
       }
 
       // No forced elimination needed - rotate to next player
@@ -2729,6 +2675,28 @@ function processPostMovePhases(
       };
     }
 
+    // RR-CANON-R123: After choose_line_option with 'eliminate' choice, the player
+    // must execute a separate eliminate_rings_from_stack move. Stay in line_processing
+    // and surface a decision for the elimination.
+    if (
+      (originalMoveType === 'choose_line_option' || originalMoveType === 'choose_line_reward') &&
+      extractLineRewardChoice(stateMachine.processingState.originalMove) === 'eliminate'
+    ) {
+      // Stay in line_processing, do not transition to territory_processing
+      return {
+        pendingDecision: {
+          type: 'line_elimination_required',
+          player: updatedStateForLines.currentPlayer,
+          options: [],
+          linePosition: stateMachine.processingState.originalMove.to,
+          context: {
+            description:
+              'Line option "eliminate" chosen - explicit eliminate_rings_from_stack required per RR-CANON-R123',
+          },
+        },
+      };
+    }
+
     // Line-phase move was applied and no more lines; decide the next phase using
     // the canonical FSM helper so TS and Python share the same semantics.
     const player = updatedStateForLines.currentPlayer;
@@ -2938,8 +2906,13 @@ function processPostMovePhases(
 
     if (phaseAfterTerritory === 'forced_elimination') {
       // Player had no actions in any phase this turn but still controls stacks.
-      // Only surface forced_elimination when it is the sole interactive option,
-      // matching the ANM/FE invariants used by Python.
+      // RR-PARITY-FIX-2025-12-20: ALWAYS transition when phase logic dictates
+      // forced_elimination. Previously the transition was inside the summary
+      // condition, causing phase invariant violations when checks failed.
+      stateMachine.transitionTo('forced_elimination');
+
+      // Only surface forced_elimination decision when it is the sole interactive
+      // option, matching the ANM/FE invariants used by Python.
       const summary = computeGlobalLegalActionsSummary(stateMachine.gameState, currentPlayer);
       if (
         summary.hasTurnMaterial &&
@@ -2947,7 +2920,6 @@ function processPostMovePhases(
         !summary.hasGlobalPlacementAction &&
         !summary.hasPhaseLocalInteractiveMove
       ) {
-        stateMachine.transitionTo('forced_elimination');
         const forcedDecision = createForcedEliminationDecision(stateMachine.gameState);
         if (forcedDecision && forcedDecision.options.length > 0) {
           return {
@@ -2963,7 +2935,7 @@ function processPostMovePhases(
       }
       // Fallback: if summary indicates that forced_elimination is not actually
       // available, treat this as a normal turn-end and fall through to the
-      // generic rotation logic below. Canonical states should not hit this path.
+      // generic rotation logic below. We're now correctly in forced_elimination phase.
     }
 
     // phaseAfterTerritory === 'turn_end' – either the player took at least one

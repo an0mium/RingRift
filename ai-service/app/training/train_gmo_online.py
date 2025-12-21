@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import random
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -212,8 +213,9 @@ def run_online_training(
 
         game_id = f"online_{game_num}_{opp_name}"
 
-        # Reset GMO for new game
-        gmo_ai.reset_for_new_game()
+        # Reset GMO for new game with random seed for varied behavior
+        game_seed = random.randint(0, 0xFFFFFFFF)
+        gmo_ai.reset_for_new_game(rng_seed=game_seed)
         # Update player number for this game
         gmo_ai.player_number = gmo_player
 

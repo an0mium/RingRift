@@ -25,6 +25,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import random
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -136,6 +137,7 @@ def create_baseline_ai(
     player: int,
     board_type: Any,  # BoardType
     difficulty: int | None = None,
+    game_seed: int | None = None,
 ) -> Any:
     """Create an AI instance for a baseline opponent.
 
@@ -144,17 +146,24 @@ def create_baseline_ai(
         player: Player number (1 or 2)
         board_type: Board type enum
         difficulty: Optional difficulty override
+        game_seed: Optional seed for RNG variation per game
 
     Returns:
         AI instance ready to play
     """
     _ensure_game_modules()
 
+    # Derive player-specific seed for varied but reproducible behavior
+    ai_rng_seed = None
+    if game_seed is not None:
+        ai_rng_seed = (game_seed * 104729 + player * 7919) & 0xFFFFFFFF
+
     if baseline == BaselineOpponent.RANDOM:
         config = AIConfig(
             ai_type=AIType.RANDOM,
             board_type=board_type,
             difficulty=difficulty or 1,
+            rngSeed=ai_rng_seed,
         )
         return RandomAI(player, config)
 
@@ -163,6 +172,7 @@ def create_baseline_ai(
             ai_type=AIType.HEURISTIC,
             board_type=board_type,
             difficulty=difficulty or 5,
+            rngSeed=ai_rng_seed,
         )
         return HeuristicAI(player, config)
 
@@ -176,6 +186,7 @@ def create_neural_ai(
     model_path: str | Path | None = None,
     model_getter: Callable[[], Any] | None = None,
     temperature: float = 0.5,
+    game_seed: int | None = None,
 ) -> Any:
     """Create a neural network AI instance.
 
@@ -185,11 +196,17 @@ def create_neural_ai(
         model_path: Path to model checkpoint (for file-based loading)
         model_getter: Callable that returns model weights (for in-memory loading)
         temperature: Policy temperature for move selection
+        game_seed: Optional seed for RNG variation per game
 
     Returns:
         PolicyOnlyAI instance
     """
     _ensure_game_modules()
+
+    # Derive player-specific seed for varied but reproducible behavior
+    ai_rng_seed = None
+    if game_seed is not None:
+        ai_rng_seed = (game_seed * 104729 + player * 7919) & 0xFFFFFFFF
 
     if model_path is not None:
         config = AIConfig(
@@ -199,6 +216,7 @@ def create_neural_ai(
             use_neural_net=True,
             nn_model_id=str(model_path),
             policy_temperature=temperature,
+            rngSeed=ai_rng_seed,
         )
         return PolicyOnlyAI(player, config, board_type=board_type)
 
@@ -229,6 +247,7 @@ def create_neural_ai(
             use_neural_net=True,
             nn_state_dict=state_dict,
             policy_temperature=temperature,
+            rngSeed=ai_rng_seed,
         )
         return PolicyOnlyAI(player, config, board_type=board_type)
 
@@ -337,14 +356,19 @@ def run_baseline_gauntlet(
             candidate_player = 1 if game_num % 2 == 0 else 2
             opponent_player = 2 if game_num % 2 == 0 else 1
 
+            # Derive unique seed per game for varied behavior
+            game_seed = random.randint(0, 0xFFFFFFFF)
+
             try:
                 candidate_ai = create_neural_ai(
                     candidate_player, board_type,
                     model_path=model_path,
                     model_getter=model_getter,
+                    game_seed=game_seed,
                 )
                 opponent_ai = create_baseline_ai(
-                    baseline, opponent_player, board_type
+                    baseline, opponent_player, board_type,
+                    game_seed=game_seed,
                 )
 
                 game_result = play_single_game(

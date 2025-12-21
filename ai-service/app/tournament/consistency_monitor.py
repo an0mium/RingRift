@@ -308,6 +308,12 @@ class ConsistencyMonitor:
                 limit=50,
             )
 
+            # Filter out entries with None values (non-composite participants)
+            leaderboard = [
+                p for p in leaderboard
+                if p.get("nn_model_id") is not None and p.get("ai_algorithm") is not None
+            ]
+
             if len(leaderboard) < 3:
                 return InvariantCheck(
                     name="Elo Transitivity",
@@ -330,8 +336,8 @@ class ConsistencyMonitor:
                 rating_b = p_b["rating"]
                 rating_c = p_c["rating"]
 
-                # Expected A > B > C based on ratings
-                if rating_a > rating_b > rating_c:
+                # Expected A >= B >= C based on ratings (sorted desc, ties allowed)
+                if rating_a >= rating_b >= rating_c:
                     correct_predictions += 1
                 total_predictions += 1
 

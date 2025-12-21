@@ -578,19 +578,25 @@ class DistributedNNGauntlet:
         try:
             from app.execution.game_executor import GameExecutor
 
+            # Derive per-game, per-player seeds for varied behavior
+            # Use game_num to ensure different games have different seeds
+            base_seed = (task.game_num * 1_000_003 + 12345) & 0x7FFFFFFF
+
             # Map model IDs to player configs
             player_configs = []
 
             # Model agent (player 0)
             # Use mcts_25 for fast gauntlet evaluation (25 simulations = ~0.15s/move)
+            player_0_seed = (base_seed * 104729 + 1 * 7919) & 0x7FFFFFFF
             if task.model_id == "random_ai":
-                player_configs.append({"ai_type": "random", "difficulty": 1})
+                player_configs.append({"ai_type": "random", "difficulty": 1, "rngSeed": player_0_seed})
             elif task.model_id.startswith("gmo"):
                 # GMO model - use GMO AI type
                 player_configs.append({
                     "ai_type": "gmo",
                     "difficulty": 5,
                     "nn_model_id": task.model_id,
+                    "rngSeed": player_0_seed,
                 })
             else:
                 model_path = self.model_dir / f"{task.model_id}.pth"
@@ -600,20 +606,23 @@ class DistributedNNGauntlet:
                         "ai_type": "mcts_25",
                         "difficulty": 5,
                         "nn_model_id": task.model_id,
+                        "rngSeed": player_0_seed,
                     })
                 else:
                     # Model file not found, use MCTS fallback without NN
-                    player_configs.append({"ai_type": "mcts_25", "difficulty": 4})
+                    player_configs.append({"ai_type": "mcts_25", "difficulty": 4, "rngSeed": player_0_seed})
 
             # Baseline agent (player 1)
+            player_1_seed = (base_seed * 104729 + 2 * 7919) & 0x7FFFFFFF
             if task.baseline_id == "random_ai":
-                player_configs.append({"ai_type": "random", "difficulty": 1})
+                player_configs.append({"ai_type": "random", "difficulty": 1, "rngSeed": player_1_seed})
             elif task.baseline_id.startswith("gmo"):
                 # GMO baseline - use GMO AI type
                 player_configs.append({
                     "ai_type": "gmo",
                     "difficulty": 5,
                     "nn_model_id": task.baseline_id,
+                    "rngSeed": player_1_seed,
                 })
             else:
                 baseline_path = self.model_dir / f"{task.baseline_id}.pth"
@@ -622,13 +631,15 @@ class DistributedNNGauntlet:
                         "ai_type": "mcts_25",
                         "difficulty": 5,
                         "nn_model_id": task.baseline_id,
+                        "rngSeed": player_1_seed,
                     })
                 else:
-                    player_configs.append({"ai_type": "mcts_25", "difficulty": 4})
+                    player_configs.append({"ai_type": "mcts_25", "difficulty": 4, "rngSeed": player_1_seed})
 
             # Add random players for 3p/4p games
-            while len(player_configs) < num_players:
-                player_configs.append({"ai_type": "random", "difficulty": 1})
+            for extra_player_idx in range(len(player_configs), num_players):
+                extra_seed = (base_seed * 104729 + (extra_player_idx + 1) * 7919) & 0x7FFFFFFF
+                player_configs.append({"ai_type": "random", "difficulty": 1, "rngSeed": extra_seed})
 
             # Run game using GameExecutor
             executor = GameExecutor(board_type=board_type, num_players=num_players)

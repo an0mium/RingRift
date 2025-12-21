@@ -8,7 +8,10 @@ Run with: pytest tests/gpu/test_gpu_property_based.py -v --hypothesis-show-stati
 
 import pytest
 import torch
-from hypothesis import (
+
+pytest.importorskip("hypothesis")
+
+from hypothesis import (  # noqa: E402
     assume,
     given,
     settings,

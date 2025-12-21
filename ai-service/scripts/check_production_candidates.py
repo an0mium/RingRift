@@ -14,7 +14,6 @@ Usage:
 """
 
 import argparse
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -24,143 +23,50 @@ AI_SERVICE_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 from app.config.thresholds import (
-    PRODUCTION_ELO_THRESHOLD,
-    PRODUCTION_MIN_GAMES,
     PRODUCTION_MIN_WIN_RATE_VS_HEURISTIC,
     PRODUCTION_MIN_WIN_RATE_VS_RANDOM,
-    ELO_TIER_NOVICE,
-    ELO_TIER_INTERMEDIATE,
-    ELO_TIER_ADVANCED,
-    ELO_TIER_EXPERT,
-    ELO_TIER_MASTER,
-    ELO_TIER_GRANDMASTER,
 )
-
-DEFAULT_DB = AI_SERVICE_ROOT / "data" / "unified_elo.db"
-
-
-def get_elo_tier(rating: float) -> str:
-    """Get tier name for an ELO rating."""
-    if rating >= ELO_TIER_GRANDMASTER:
-        return "Grandmaster"
-    elif rating >= ELO_TIER_MASTER:
-        return "Master"
-    elif rating >= ELO_TIER_EXPERT:
-        return "Expert (Production)"
-    elif rating >= ELO_TIER_ADVANCED:
-        return "Advanced"
-    elif rating >= ELO_TIER_INTERMEDIATE:
-        return "Intermediate"
-    elif rating >= ELO_TIER_NOVICE:
-        return "Novice"
-    else:
-        return "Beginner"
+from scripts.lib.elo_queries import (
+    DEFAULT_DB,
+    PRODUCTION_ELO_THRESHOLD,
+    PRODUCTION_MIN_GAMES,
+    get_games_by_config,
+    get_near_production,
+    get_production_candidates as _get_production_candidates,
+    get_tier_name,
+)
 
 
 def check_candidates(db_path: Path) -> list[dict]:
-    """Find models meeting production criteria."""
+    """Find models meeting production criteria using unified query library."""
     if not db_path.exists():
         print(f"Database not found: {db_path}")
         return []
 
-    conn = sqlite3.connect(str(db_path))
-
-    # Get all non-baseline models with sufficient games
-    cursor = conn.execute("""
-        SELECT participant_id, rating, games_played, board_type, num_players
-        FROM elo_ratings
-        WHERE games_played >= ?
-          AND participant_id NOT LIKE 'baseline_%'
-        ORDER BY rating DESC
-    """, (PRODUCTION_MIN_GAMES,))
-
-    candidates = []
-    for row in cursor.fetchall():
-        model_id, rating, games, board_type, num_players = row
-
-        # Check ELO threshold
-        if rating < PRODUCTION_ELO_THRESHOLD:
-            continue
-
-        # Calculate win rates vs baselines (from match history)
-        # Simplified: just check ELO for now, win rate can be computed later
-        candidates.append({
-            "model_id": model_id,
-            "rating": rating,
-            "games": games,
-            "board_type": board_type or "unknown",
-            "num_players": num_players or 2,
-            "tier": get_elo_tier(rating),
-            "meets_elo": rating >= PRODUCTION_ELO_THRESHOLD,
-            "meets_games": games >= PRODUCTION_MIN_GAMES,
-        })
-
-    conn.close()
-    return candidates
+    models = _get_production_candidates(db_path, include_baselines=False)
+    return [
+        {
+            "model_id": m.participant_id,
+            "rating": m.rating,
+            "games": m.games_played,
+            "board_type": m.board_type or "unknown",
+            "num_players": m.num_players or 2,
+            "tier": get_tier_name(m.rating),
+            "meets_elo": m.rating >= PRODUCTION_ELO_THRESHOLD,
+            "meets_games": m.games_played >= PRODUCTION_MIN_GAMES,
+        }
+        for m in models
+    ]
 
 
 def get_near_candidates(db_path: Path) -> list[dict]:
-    """Find models close to production threshold."""
-    if not db_path.exists():
-        return []
-
-    conn = sqlite3.connect(str(db_path))
-
-    # Models with 50+ games and ELO >= 1500 (close to production)
-    cursor = conn.execute("""
-        SELECT participant_id, rating, games_played, board_type, num_players
-        FROM elo_ratings
-        WHERE games_played >= 50
-          AND rating >= 1500
-          AND rating < ?
-          AND participant_id NOT LIKE 'baseline_%'
-        ORDER BY rating DESC
-        LIMIT 10
-    """, (PRODUCTION_ELO_THRESHOLD,))
-
-    near = []
-    for row in cursor.fetchall():
-        model_id, rating, games, board_type, num_players = row
-        elo_needed = PRODUCTION_ELO_THRESHOLD - rating
-        games_needed = max(0, PRODUCTION_MIN_GAMES - games)
-
-        near.append({
-            "model_id": model_id,
-            "rating": rating,
-            "games": games,
-            "board_type": board_type or "unknown",
-            "num_players": num_players or 2,
-            "tier": get_elo_tier(rating),
-            "elo_needed": elo_needed,
-            "games_needed": games_needed,
-        })
-
-    conn.close()
-    return near
+    """Find models close to production threshold using unified query library."""
+    return get_near_production(db_path, min_games=50, min_elo=1500, limit=10)
 
 
 def get_config_coverage(db_path: Path) -> dict:
-    """Get game count coverage by config."""
-    if not db_path.exists():
-        return {}
-
-    conn = sqlite3.connect(str(db_path))
-
-    cursor = conn.execute("""
-        SELECT board_type, num_players, COUNT(*) as games
-        FROM match_history
-        GROUP BY board_type, num_players
-        ORDER BY games DESC
-    """)
-
-    coverage = {}
-    for row in cursor.fetchall():
-        board_type, num_players, games = row
-        key = f"{board_type}_{num_players}p"
-        coverage[key] = games
-
-    conn.close()
-    return coverage
+    """Get game count coverage by config using unified query library."""
+    return get_games_by_config(db_path)
 
 
 def main():

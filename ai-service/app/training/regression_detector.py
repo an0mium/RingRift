@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -537,13 +538,14 @@ class RegressionDetector:
 # =============================================================================
 
 _detector_instance: RegressionDetector | None = None
+_detector_lock = threading.Lock()
 
 
 def get_regression_detector(
     config: RegressionConfig | None = None,
     connect_event_bus: bool = True,
 ) -> RegressionDetector:
-    """Get or create the singleton regression detector.
+    """Get or create the singleton regression detector (thread-safe).
 
     Args:
         config: Optional configuration (only used on first call)
@@ -556,7 +558,10 @@ def get_regression_detector(
     global _detector_instance
 
     if _detector_instance is None:
-        _detector_instance = RegressionDetector(config)
+        with _detector_lock:
+            # Double-check locking pattern
+            if _detector_instance is None:
+                _detector_instance = RegressionDetector(config)
 
     # Connect to event bus if requested and not already connected
     if connect_event_bus and _detector_instance._event_bus is None:

@@ -64,11 +64,27 @@ import { connectDatabase, disconnectDatabase } from '../src/server/database/conn
 import type { PrismaClient } from '@prisma/client';
 import { CanonicalReplayEngine } from '../src/shared/replay/CanonicalReplayEngine';
 
-// Known-bad recordings that should be skipped until regenerated.
+/**
+ * Known-bad recordings that should be skipped until regenerated.
+ *
+ * These games violate canonical phase recording rules (RR-CANON-R073/R075) and
+ * cannot be replayed without phase coercion. They should be:
+ * 1. Validated via check_canonical_phase_history.py
+ * 2. Quarantined or regenerated with canonical recording
+ * 3. NOT used for training data generation
+ *
+ * @see RULES_CANONICAL_SPEC.md RR-CANON-R073 (NO phase skipping)
+ * @see RULES_CANONICAL_SPEC.md RR-CANON-R075 (Every phase transition recorded)
+ */
 const DEFAULT_SKIP_GAME_IDS = new Set<string>([
-  // canonical_square8.db: territory -> no_placement_action off-phase, missing initial state (non-canonical).
+  // canonical_square8.db: territory -> no_placement_action off-phase, missing initial state.
+  // REASON: Recording lacks explicit no_territory_action before turn rotation.
+  // FIX: Regenerate with canonical Python engine that enforces RR-CANON-R075.
   '151ba34a-b7bf-4845-a779-5232221f592e',
-  // selfplay.db: chain_capture interrupted by no_line_action bookkeeping (legacy recording bug).
+
+  // selfplay.db: chain_capture interrupted by no_line_action bookkeeping.
+  // REASON: Legacy recording bug where bookkeeping moves were injected mid-chain.
+  // FIX: Regenerate games; chain_capture phase must complete before line_processing.
   '6b8b1145-7078-476b-a72f-75a35faecb5e',
 ]);
 
@@ -512,15 +528,34 @@ function isMoveValidInPhase(moveType: Move['type'], phase: GamePhase): boolean {
 /**
  * Synthesize bookkeeping moves to bridge between current state and next recorded move.
  *
- * This is needed for legacy recordings that don't include explicit bookkeeping
- * moves (no_line_action, no_territory_action) for phases that had no action.
- * The modern engine requires explicit bookkeeping for phase invariant enforcement.
+ * @deprecated This function is a LEGACY COMPATIBILITY WORKAROUND for non-canonical
+ * recordings that don't include explicit bookkeeping moves (no_line_action,
+ * no_territory_action) for phases that had no action.
  *
- * @param currentPhase The engine's current phase
- * @param currentPlayer The engine's current player
- * @param nextMove The next recorded move to apply
- * @param moveNumberBase Base move number for synthesized moves
- * @returns Array of bookkeeping moves to inject before nextMove
+ * Per RR-CANON-R075, every phase transition MUST be recorded as an explicit move.
+ * This function violates that rule by synthesizing moves that weren't recorded.
+ *
+ * For canonical recordings, this function should NEVER be needed. If you find
+ * yourself relying on this for new recordings, the recording pipeline is broken
+ * and should be fixed instead.
+ *
+ * Use cases where this is acceptable:
+ * - Historical analysis of legacy databases (pre-2024-12 recordings)
+ * - One-time migration scripts to identify non-canonical patterns
+ * - TS↔Python parity debugging of non-canonical recordings
+ *
+ * Use cases where this is NOT acceptable:
+ * - Training data generation (use only canonical recordings)
+ * - Production gameplay (recordings must be canonical)
+ * - New self-play databases (Python engine must record all phases)
+ *
+ * @see RULES_CANONICAL_SPEC.md RR-CANON-R073 (NO phase skipping)
+ * @see RULES_CANONICAL_SPEC.md RR-CANON-R075 (Every phase transition recorded)
+ *
+ * @param currentState - The engine's current state
+ * @param nextMove - The next recorded move to apply
+ * @param moveNumberBase - Base move number for synthesized moves
+ * @returns Array of bookkeeping moves to inject before nextMove (ideally empty for canonical recordings)
  */
 function synthesizeBookkeepingMoves(
   currentState: GameState,
@@ -569,7 +604,8 @@ function synthesizeBookkeepingMoves(
   } else {
     // Same player - check if we need to bridge phases
     // Find the expected phase for the next move type
-    const nextMovePhase = getMovePhase(nextMove.type);
+    // RR-CANON-R123: Use context-aware getMovePhaseWithContext for eliminate_rings_from_stack
+    const nextMovePhase = getMovePhaseWithContext(nextMove);
     if (!nextMovePhase) return synthesized;
 
     const currentIdx = PHASE_ORDER.indexOf(currentPhase);
@@ -625,6 +661,9 @@ function getMovePhase(moveType: Move['type']): GamePhase | null {
     case 'choose_territory_option':
     case 'skip_territory_processing':
     case 'no_territory_action':
+      return 'territory_processing';
+    // RR-CANON-R123: eliminate_rings_from_stack can be in line_processing or territory_processing.
+    // Use getMovePhaseWithContext for context-aware determination.
     case 'eliminate_rings_from_stack':
       return 'territory_processing';
     case 'forced_elimination':
@@ -632,6 +671,21 @@ function getMovePhase(moveType: Move['type']): GamePhase | null {
     default:
       return null;
   }
+}
+
+/**
+ * Get the phase a move belongs to, considering move context.
+ * RR-CANON-R123: eliminate_rings_from_stack with eliminationContext='line' is line_processing.
+ */
+function getMovePhaseWithContext(move: Move): GamePhase | null {
+  if (move.type === 'eliminate_rings_from_stack') {
+    const context = (move as any).eliminationContext;
+    if (context === 'line') {
+      return 'line_processing';
+    }
+    return 'territory_processing';
+  }
+  return getMovePhase(move.type);
 }
 
 /**

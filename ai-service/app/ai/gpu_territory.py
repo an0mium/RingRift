@@ -316,7 +316,8 @@ def _is_color_disconnected(
 def compute_territory_batch(
     state: BatchGameState,
     game_mask: torch.Tensor | None = None,
-) -> None:
+    current_player_only: bool = False,
+) -> dict[int, list[tuple[int, int, int]]]:
     """Compute and update territory claims (in-place).
 
     Per RR-CANON-R140-R146:
@@ -337,7 +338,14 @@ def compute_territory_batch(
     Args:
         state: BatchGameState to modify
         game_mask: Mask of games to process
+        current_player_only: If True, only process regions for the current_player of each game.
+            This matches CPU semantics where territory is processed turn-by-turn.
+
+    Returns:
+        Dictionary mapping game_idx to list of (player, y, x) elimination positions.
+        Each entry represents a self-elimination performed for a region.
     """
+    elimination_positions: dict[int, list[tuple[int, int, int]]] = {}
     batch_size = state.batch_size
     board_size = state.board_size
 
@@ -347,6 +355,12 @@ def compute_territory_batch(
     for g in range(batch_size):
         if not game_mask[g]:
             continue
+
+        # Determine which players to process for
+        if current_player_only:
+            target_players = [int(state.current_player[g].item())]
+        else:
+            target_players = list(range(1, state.num_players + 1))
 
         # R140: Find all maximal regions of non-collapsed cells
         all_regions = _find_all_regions(state, g)
@@ -390,7 +404,7 @@ def compute_territory_batch(
                 # Determine which player can process it
 
                 # For each player who could claim this territory
-                for player in range(1, state.num_players + 1):
+                for player in target_players:
                     # Get positions in the region
                     region_positions = region
 
@@ -466,6 +480,11 @@ def compute_territory_batch(
                     # Player CAUSED these eliminations (self-elimination counts for victory)
                     state.rings_caused_eliminated[g, player] += cap_height
 
+                    # Track elimination position for move recording
+                    if g not in elimination_positions:
+                        elimination_positions[g] = []
+                    elimination_positions[g].append((player, cap_y, cap_x))
+
                     # Update territory count
                     state.territory_count[g, player] += territory_count
 
@@ -487,6 +506,8 @@ def compute_territory_batch(
             stack_owner_np = state.stack_owner[g].cpu().numpy()
             is_collapsed_np = state.is_collapsed[g].cpu().numpy()
             marker_owner_np = state.marker_owner[g].cpu().numpy() if hasattr(state, 'marker_owner') else None
+
+    return elimination_positions
 
 
 __all__ = [

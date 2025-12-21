@@ -16,6 +16,11 @@ Usage (from ai-service/):
 
   # Include TS orchestrator invariant soak as well:
   PYTHONPATH=. python scripts/run_canonical_guards.py --with-ts
+
+Notes:
+  - For square19/hex DBs, parity samples default to
+    RINGRIFT_USE_MAKE_UNMAKE=true and RINGRIFT_USE_FAST_TERRITORY=false
+    unless those environment variables are already set.
 """
 
 import argparse

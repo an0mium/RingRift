@@ -394,6 +394,24 @@ Scripts are now under `ai-service/scripts/archive/{deprecated,debug,ebmo}/` and 
 
 ---
 
+### Phase 2b: Archive Audit and Code Quality Assessment (2025-12-20)
+
+**Goal:** Verify orphaned/stranded code is actually underutilized
+
+**Findings:**
+
+| Module                          | Initially Flagged As      | Actual Status           | Notes                                                    |
+| ------------------------------- | ------------------------- | ----------------------- | -------------------------------------------------------- |
+| `fast_geometry.py`              | Underutilized (5 imports) | ✅ Well-integrated      | Used by heuristic_ai, descent_ai, swap_evaluation        |
+| `evaluation_provider.py`        | Orphaned                  | ✅ Well-designed        | Protocol used by descent, mcts, maxn AI classes          |
+| `lightweight_state.py`          | Underutilized (3 imports) | ✅ Alternative approach | Complements MutableGameState, different use case         |
+| `multi_config_training_loop.py` | Archived                  | ✅ Features in main     | AdaptiveCurriculum, NPZ merge already in unified_ai_loop |
+
+**Conclusion:** Many "orphaned" modules are actually well-integrated through composition
+and protocols. The codebase follows good practices with dependency injection.
+
+---
+
 ### Phase 3: Medium-Risk Consolidation (Week 3)
 
 **Goal:** Consolidate scripts with 3+ dependencies
@@ -564,12 +582,41 @@ ai-service/scripts/robust_cluster_monitor.py
 
 - [x] Audit training pipeline dependencies
 - [x] Consolidate single-scheme pipelines (archived: continuous_training_loop.py, multi_config_training_loop.py)
-- [ ] Create deprecated wrapper for `auto_promote.py`
-- [ ] Update references (9 scripts)
-- [ ] Run test suite
-- [ ] Commit
+- [x] Create deprecated wrapper for `auto_promote.py`
+- [x] Create deprecated wrapper for `auto_elo_tournament.py`
+- [x] Update references (9 scripts)
+- [x] Run test suite
+- [x] Commit
 
 **Total Archived: 47 files** → See `ai-service/scripts/archive/README.md`
+
+### Phase 3b: SSoT Query Consolidation - COMPLETED (2025-12-20)
+
+Created unified ELO database query library to consolidate duplicate SQL patterns:
+
+- [x] Created `scripts/lib/elo_queries.py` with unified query functions:
+  - `get_production_candidates()` - Models meeting production criteria
+  - `get_top_models()` - Top N models with filtering options
+  - `get_all_ratings()` - All participant ratings as dictionary
+  - `get_model_stats()` - Summary statistics (totals, production-ready count)
+  - `get_games_by_config()` - Config coverage statistics
+  - `get_games_last_n_hours()` - Recent game activity
+  - `get_near_production()` - Models close to production threshold
+  - `get_models_by_tier()` - Count of models per tier
+
+- [x] Added deprecation wrappers pointing to unified entry points:
+  - `auto_promote.py` → `unified_promotion_daemon.py --check-once/--daemon`
+  - `auto_elo_tournament.py` → `run_model_elo_tournament.py --run`
+  - `elo_promotion_gate.py` → `unified_promotion_daemon.py elo-gate`
+  - `run_parity_promotion_gate.py` → `unified_promotion_daemon.py parity-gate`
+
+- [x] Refactored scripts to use unified query library:
+  - `elo_dashboard.py` - Now uses elo_queries for all DB access
+  - `auto_promote.py` - Uses elo_queries.get_production_candidates
+  - `check_production_candidates.py` - Uses elo_queries for all queries
+
+- [x] Created SSoT compliance test:
+  - `tests/test_thresholds_usage.py` - Verifies threshold constants imported from canonical source
 
 ### Phase 4: Code Quality Cleanup - ANALYZED (2025-12-20)
 

@@ -22,6 +22,7 @@ scripts/backup_models.sh
 scripts/auto_consolidate_nfs.sh
 
 # Cluster-specific operational scripts with private IPs (use .example templates)
+scripts/lib/cluster_common.sh
 scripts/aggregate_gh200_data.sh
 scripts/cluster/cluster_health.sh
 scripts/collect_and_merge_selfplay.sh

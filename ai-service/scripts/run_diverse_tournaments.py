@@ -44,6 +44,13 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# Import resilience utilities
+from scripts.lib.resilience import (
+    HostHealthTracker,
+    exponential_backoff_delay,
+    is_network_error,
+)
+
 # Unified logging setup
 import contextlib
 
@@ -185,19 +192,37 @@ def load_cluster_hosts(config_path: str | None = None) -> list[ClusterHost]:
     return hosts
 
 
-async def check_host_available(host: ClusterHost, timeout: int = 10) -> bool:
-    """Check if a host is reachable and ready."""
+async def check_host_available(host: ClusterHost, timeout: int = 10, retries: int = 2) -> bool:
+    """Check if a host is reachable and ready with retries.
+
+    Args:
+        host: Cluster host to check
+        timeout: Timeout per attempt in seconds
+        retries: Number of retry attempts on failure
+
+    Returns:
+        True if host is reachable, False otherwise
+    """
     cmd = [*host.ssh_cmd_prefix(), "echo ok"]
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        return proc.returncode == 0 and b"ok" in stdout
-    except Exception:
-        return False
+
+    for attempt in range(retries):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            if proc.returncode == 0 and b"ok" in stdout:
+                return True
+        except Exception as e:
+            if attempt < retries - 1:
+                delay = exponential_backoff_delay(attempt, base_delay=1.0, max_delay=5.0)
+                logger.debug(f"Host check failed for {host.name}, retrying in {delay:.1f}s: {e}")
+                await asyncio.sleep(delay)
+            continue
+
+    return False
 
 
 async def filter_available_hosts(hosts: list[ClusterHost]) -> list[ClusterHost]:
@@ -295,9 +320,37 @@ def run_tournament_local(config: TournamentConfig) -> TournamentResult:
         )
 
 
-async def run_tournament_remote(host: ClusterHost, config: TournamentConfig) -> TournamentResult:
-    """Run a tournament on a remote host via SSH."""
+async def run_tournament_remote(
+    host: ClusterHost,
+    config: TournamentConfig,
+    health_tracker: HostHealthTracker | None = None,
+    ssh_retries: int = 3,
+) -> TournamentResult:
+    """Run a tournament on a remote host via SSH with retry logic.
+
+    Args:
+        host: Remote host to run on
+        config: Tournament configuration
+        health_tracker: Optional tracker for host health
+        ssh_retries: Number of retry attempts for transient SSH failures
+
+    Returns:
+        TournamentResult with success/failure status
+    """
     start_time = time.time()
+
+    # Check if host is degraded
+    if health_tracker and health_tracker.is_degraded(host.name):
+        logger.warning(f"[{host.name}] Skipping degraded host")
+        return TournamentResult(
+            config=config,
+            host=host.name,
+            success=False,
+            games_completed=0,
+            samples_generated=0,
+            duration_sec=0,
+            error="Host is degraded",
+        )
 
     logger.info(f"[{host.name}] Starting: {config.board_type} {config.num_players}p, {config.num_games} games")
 
@@ -330,61 +383,90 @@ async def run_tournament_remote(host: ClusterHost, config: TournamentConfig) -> 
     )
 
     remote_cmd = f"cd {ai_service_path} && {venv_cmd}mkdir -p data/tournaments && {selfplay_cmd}"
-
     ssh_cmd = [*host.ssh_cmd_prefix(), remote_cmd]
 
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *ssh_cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
+    # Retry loop for transient SSH failures
+    last_error: str | None = None
+    for attempt in range(ssh_retries):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *ssh_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
 
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=7200)
-        output = stdout.decode("utf-8", errors="replace")
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=7200)
+            output = stdout.decode("utf-8", errors="replace")
 
-        duration = time.time() - start_time
-        games_completed, samples_generated = parse_selfplay_output(output)
+            duration = time.time() - start_time
+            games_completed, samples_generated = parse_selfplay_output(output)
 
-        success = proc.returncode == 0 and games_completed > 0
+            success = proc.returncode == 0 and games_completed > 0
 
-        logger.info(
-            f"[{host.name}] Complete: {config.board_type} {config.num_players}p, "
-            f"{games_completed} games, {duration:.0f}s"
-        )
+            if success:
+                if health_tracker:
+                    health_tracker.record_success(host.name)
+                logger.info(
+                    f"[{host.name}] Complete: {config.board_type} {config.num_players}p, "
+                    f"{games_completed} games, {duration:.0f}s"
+                )
+            else:
+                last_error = output[-500:]
+                if health_tracker and is_network_error(output):
+                    became_degraded = health_tracker.record_failure(host.name, last_error)
+                    if became_degraded:
+                        logger.error(f"[{host.name}] marked as degraded")
 
-        return TournamentResult(
-            config=config,
-            host=host.name,
-            success=success,
-            games_completed=games_completed,
-            samples_generated=samples_generated,
-            duration_sec=duration,
-            error=output[-500:] if not success else None,
-        )
+            return TournamentResult(
+                config=config,
+                host=host.name,
+                success=success,
+                games_completed=games_completed,
+                samples_generated=samples_generated,
+                duration_sec=duration,
+                error=last_error if not success else None,
+            )
 
-    except asyncio.TimeoutError:
-        logger.error(f"[{host.name}] Timeout: {config.board_type} {config.num_players}p")
-        return TournamentResult(
-            config=config,
-            host=host.name,
-            success=False,
-            games_completed=0,
-            samples_generated=0,
-            duration_sec=time.time() - start_time,
-            error="SSH timeout after 2 hours",
-        )
-    except Exception as e:
-        logger.error(f"[{host.name}] Error: {config.board_type} {config.num_players}p: {e}")
-        return TournamentResult(
-            config=config,
-            host=host.name,
-            success=False,
-            games_completed=0,
-            samples_generated=0,
-            duration_sec=time.time() - start_time,
-            error=str(e),
-        )
+        except asyncio.TimeoutError:
+            last_error = "SSH timeout after 2 hours"
+            logger.error(f"[{host.name}] Timeout: {config.board_type} {config.num_players}p")
+            if health_tracker:
+                health_tracker.record_failure(host.name, last_error)
+            # Don't retry timeouts - they indicate the command ran but took too long
+            break
+
+        except Exception as e:
+            last_error = str(e)
+            if is_network_error(e):
+                if health_tracker:
+                    became_degraded = health_tracker.record_failure(host.name, last_error)
+                    if became_degraded:
+                        logger.error(f"[{host.name}] marked as degraded after network error")
+                        break
+
+                if attempt < ssh_retries - 1:
+                    delay = exponential_backoff_delay(attempt, base_delay=2.0, max_delay=30.0)
+                    logger.warning(
+                        f"[{host.name}] SSH error (attempt {attempt + 1}/{ssh_retries}), "
+                        f"retrying in {delay:.1f}s: {e}"
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+            else:
+                # Non-network error, don't retry
+                logger.error(f"[{host.name}] Error: {config.board_type} {config.num_players}p: {e}")
+                break
+
+    # All retries failed
+    return TournamentResult(
+        config=config,
+        host=host.name,
+        success=False,
+        games_completed=0,
+        samples_generated=0,
+        duration_sec=time.time() - start_time,
+        error=last_error,
+    )
 
 
 def parse_selfplay_output(output: str) -> tuple[int, int]:
@@ -410,9 +492,22 @@ def parse_selfplay_output(output: str) -> tuple[int, int]:
 async def run_tournament_round_distributed(
     configs: list[TournamentConfig],
     hosts: list[ClusterHost],
+    host_failure_threshold: int = 3,
+    ssh_retries: int = 3,
+    reassign_failed_jobs: bool = True,
 ) -> list[TournamentResult]:
-    """Run tournaments distributed across hosts in parallel."""
+    """Run tournaments distributed across hosts in parallel with resilience.
 
+    Args:
+        configs: Tournament configurations to run
+        hosts: Available cluster hosts
+        host_failure_threshold: Failures before marking host as degraded
+        ssh_retries: Number of SSH retry attempts per tournament
+        reassign_failed_jobs: Whether to reassign jobs from degraded hosts
+
+    Returns:
+        List of tournament results
+    """
     if not hosts:
         logger.error("No available hosts for distributed execution")
         return []
@@ -425,22 +520,61 @@ async def run_tournament_round_distributed(
 
     logger.info(f"Running {len(configs)} tournaments across {len(available_hosts)} hosts")
 
+    # Create host health tracker
+    health_tracker = HostHealthTracker(failure_threshold=host_failure_threshold)
+
     # Create task queue
     results: list[TournamentResult] = []
     pending_configs = list(configs)
+    failed_configs: list[TournamentConfig] = []  # Configs to reassign
     running_tasks: dict[asyncio.Task, tuple[ClusterHost, TournamentConfig]] = {}
     host_busy: dict[str, bool] = {h.name: False for h in available_hosts}
 
-    while pending_configs or running_tasks:
-        # Start new tasks on idle hosts
+    while pending_configs or running_tasks or failed_configs:
+        # Get healthy hosts (filter out degraded ones)
+        healthy_host_names = health_tracker.get_healthy_hosts([h.name for h in available_hosts])
+
+        # Reassign failed configs to healthy hosts
+        if reassign_failed_jobs and failed_configs and healthy_host_names:
+            pending_configs.extend(failed_configs)
+            logger.info(f"Reassigning {len(failed_configs)} failed jobs to healthy hosts")
+            failed_configs = []
+
+        # Start new tasks on idle healthy hosts
         for host in available_hosts:
+            if host.name not in healthy_host_names:
+                continue  # Skip degraded hosts
             if not host_busy[host.name] and pending_configs:
                 config = pending_configs.pop(0)
-                task = asyncio.create_task(run_tournament_remote(host, config))
+                task = asyncio.create_task(
+                    run_tournament_remote(
+                        host,
+                        config,
+                        health_tracker=health_tracker,
+                        ssh_retries=ssh_retries,
+                    )
+                )
                 running_tasks[task] = (host, config)
                 host_busy[host.name] = True
 
         if not running_tasks:
+            # No running tasks - check if we have pending work but no healthy hosts
+            if pending_configs or failed_configs:
+                if not healthy_host_names:
+                    logger.error("All hosts are degraded, cannot complete remaining tasks")
+                    # Record remaining as failed
+                    for cfg in pending_configs + failed_configs:
+                        results.append(TournamentResult(
+                            config=cfg,
+                            host="none",
+                            success=False,
+                            games_completed=0,
+                            samples_generated=0,
+                            duration_sec=0,
+                            error="All hosts degraded",
+                        ))
+                    pending_configs = []
+                    failed_configs = []
             break
 
         # Wait for at least one task to complete
@@ -457,6 +591,17 @@ async def run_tournament_round_distributed(
             try:
                 result = task.result()
                 results.append(result)
+
+                # Check if job should be reassigned
+                if not result.success and reassign_failed_jobs:
+                    if health_tracker.is_degraded(host.name) and is_network_error(result.error or ""):
+                        # Network failure on degraded host - reassign
+                        failed_configs.append(config)
+                        logger.info(
+                            f"Job {config.board_type} {config.num_players}p will be reassigned "
+                            f"(host {host.name} is degraded)"
+                        )
+
             except Exception as e:
                 logger.error(f"Task failed for {config.board_type} {config.num_players}p: {e}")
                 results.append(TournamentResult(
@@ -468,6 +613,11 @@ async def run_tournament_round_distributed(
                     duration_sec=0,
                     error=str(e),
                 ))
+
+    # Log health summary
+    summary = health_tracker.get_failure_summary()
+    if any(info["degraded"] for info in summary.values()):
+        logger.warning(f"Host health summary: {summary}")
 
     return results
 

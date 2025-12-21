@@ -211,13 +211,33 @@ export function moveToEvent(move: Move): TurnEvent | null {
 
 /**
  * Extract line reward choice from move data.
+ *
+ * RR-CANON-R123: The choice is determined by comparing collapsed markers to line length:
+ * - Option 1 (eliminate): Collapse ALL markers → ring elimination reward
+ * - Option 2 (territory): Collapse MINIMUM markers (cap-height from each end) → no reward
+ *
+ * If collapsedMarkers.length == line.length: Option 1 (eliminate)
+ * If collapsedMarkers.length < line.length: Option 2 (territory)
  */
-function extractLineRewardChoice(move: Move): LineRewardChoice {
-  // Option 1 = eliminate (ring recovery), Option 2 = territory
-  // Determine from collapsedMarkers presence - if specified, it's territory
-  if (move.collapsedMarkers && move.collapsedMarkers.length > 0) {
-    return 'territory';
+export function extractLineRewardChoice(move: Move): LineRewardChoice {
+  // Get the line length from formedLines if available
+  const line = move.formedLines?.[0];
+  const lineLength = line?.length ?? line?.positions?.length ?? 0;
+  const collapsedCount = move.collapsedMarkers?.length ?? 0;
+
+  // If we have both line length and collapsed markers, compare them
+  if (lineLength > 0 && collapsedCount > 0) {
+    // Option 2 (territory) = collapse MINIMUM (fewer than all markers)
+    // Option 1 (eliminate) = collapse ALL markers
+    if (collapsedCount < lineLength) {
+      return 'territory';
+    }
+    // collapsedCount >= lineLength means collapse all (Option 1)
+    return 'eliminate';
   }
+
+  // Fallback: if no collapsed markers at all, assume eliminate (Option 1)
+  // This handles old recordings that didn't track collapsedMarkers
   return 'eliminate';
 }
 
@@ -388,15 +408,20 @@ export function deriveStateFromGame(gameState: GameState, moveHint?: Move): Turn
   let phase = gameState.currentPhase;
   if (
     moveHint?.type === 'process_territory_region' ||
-    moveHint?.type === 'choose_territory_option' ||
-    moveHint?.type === 'eliminate_rings_from_stack'
+    moveHint?.type === 'choose_territory_option'
   ) {
-    // RR-FIX-2025-12-13: Include eliminate_rings_from_stack in territory phase coercion.
-    // After eliminate_rings_from_stack, processPostMovePhases already advanced to the
-    // next player's ring_placement. When FSM is called afterward, the game state's
-    // currentPhase won't match the move's originating phase. Coercing to
-    // territory_processing ensures the FSM derives the correct state for validation.
     phase = 'territory_processing';
+  } else if (moveHint?.type === 'eliminate_rings_from_stack') {
+    // RR-CANON-R123: Check eliminationContext to determine correct phase.
+    // Line-context eliminations belong to line_processing, territory-context to territory_processing.
+    const elimContext = (moveHint as any).eliminationContext;
+    if (elimContext === 'line') {
+      phase = 'line_processing';
+    } else {
+      // Default to territory_processing for backwards compatibility with historical games
+      // that didn't record eliminationContext or used it for territory claims.
+      phase = 'territory_processing';
+    }
   } else if (
     moveHint?.type === 'choose_line_option' ||
     moveHint?.type === 'choose_line_reward' ||
@@ -762,12 +787,50 @@ function deriveLineProcessingState(
     (m) => m.type === 'choose_line_option' || m.type === 'choose_line_reward'
   );
 
+  // RR-CANON-R123: Detect pending line elimination from moveHint.
+  // If the incoming move is eliminate_rings_from_stack with eliminationContext='line',
+  // set pendingLineRewardElimination so the FSM allows this move.
+  const pendingLineRewardElimination =
+    moveHint?.type === 'eliminate_rings_from_stack' &&
+    (moveHint as any).eliminationContext === 'line';
+
+  // RR-CANON-R075: Trust recorded choose_line_option/choose_line_reward moves during replay.
+  // If Python recorded these moves but TS doesn't detect lines, create placeholder line.
+  if (
+    (moveHint?.type === 'choose_line_option' || moveHint?.type === 'choose_line_reward') &&
+    detectedLines.length === 0
+  ) {
+    if (moveHint.formedLines && moveHint.formedLines.length > 0) {
+      const hintLine = moveHint.formedLines[0];
+      detectedLines.push({
+        positions: hintLine.positions,
+        player: hintLine.player ?? player,
+        requiresChoice: true,
+      });
+    } else {
+      // Fallback placeholder
+      detectedLines.push({
+        positions: [
+          { x: 0, y: 0 },
+          { x: 1, y: 1 },
+          { x: 2, y: 2 },
+        ],
+        player,
+        requiresChoice: true,
+      });
+    }
+  }
+
   return {
     phase: 'line_processing',
     player,
     detectedLines,
     currentLineIndex: 0,
-    awaitingReward: hasRewardChoice,
+    awaitingReward:
+      hasRewardChoice ||
+      moveHint?.type === 'choose_line_option' ||
+      moveHint?.type === 'choose_line_reward',
+    pendingLineRewardElimination,
   };
 }
 
@@ -1343,7 +1406,15 @@ const PHASE_EVENT_TYPES: Record<TurnState['phase'], ReadonlyArray<TurnEvent['typ
   ],
   capture: ['CAPTURE', 'END_CHAIN', 'RESIGN', 'TIMEOUT'],
   chain_capture: ['CONTINUE_CHAIN', 'END_CHAIN', 'RESIGN', 'TIMEOUT'],
-  line_processing: ['PROCESS_LINE', 'CHOOSE_LINE_REWARD', 'NO_LINE_ACTION', 'RESIGN', 'TIMEOUT'],
+  // RR-CANON-R123: ELIMINATE_FROM_STACK is valid in line_processing for line-reward eliminations.
+  line_processing: [
+    'PROCESS_LINE',
+    'CHOOSE_LINE_REWARD',
+    'ELIMINATE_FROM_STACK',
+    'NO_LINE_ACTION',
+    'RESIGN',
+    'TIMEOUT',
+  ],
   territory_processing: [
     'PROCESS_REGION',
     'ELIMINATE_FROM_STACK',
@@ -1596,6 +1667,12 @@ export interface FSMDecisionSurface {
    * Number of rings that must be eliminated.
    */
   forcedEliminationCount: number;
+
+  /**
+   * RR-CANON-R123: Pending line elimination after choose_line_option with 'eliminate' choice.
+   * When true, the player must execute eliminate_rings_from_stack before territory_processing.
+   */
+  pendingLineElimination?: boolean;
 }
 
 /**
@@ -1615,6 +1692,7 @@ export interface FSMOrchestrationResult {
   pendingDecisionType?:
     | 'chain_capture'
     | 'line_order_required'
+    | 'line_elimination_required'
     | 'no_line_action_required'
     | 'region_order_required'
     | 'no_territory_action_required'
@@ -1941,6 +2019,19 @@ export function computeFSMOrchestration(
         pendingRegions: [],
         chainContinuations: [],
         forcedEliminationCount: 0,
+      };
+    } else if (lineState.pendingLineRewardElimination) {
+      // RR-CANON-R123: After choose_line_option with 'eliminate' choice,
+      // the player must execute a separate eliminate_rings_from_stack move.
+      // Surface a decision so the orchestrator knows not to transition to territory_processing.
+      pendingDecisionType = 'line_elimination_required';
+      decisionSurface = {
+        pendingLines: [],
+        pendingRegions: [],
+        chainContinuations: [],
+        forcedEliminationCount: 0,
+        // Include flag for orchestrator to surface the elimination decision
+        pendingLineElimination: true,
       };
     } else if (!isLinePhaseMove(move.type)) {
       pendingDecisionType = 'no_line_action_required';

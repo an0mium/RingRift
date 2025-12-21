@@ -98,6 +98,7 @@ from app.models import AIConfig, AIType, BoardType, GameStatus
 from app.training.initial_state import create_initial_state
 from app.training.significance import wilson_score_interval
 from scripts.lib.logging_config import setup_script_logging
+from scripts.lib.resilience import exponential_backoff_delay
 
 logger = setup_script_logging("run_distributed_tournament")
 
@@ -774,8 +775,10 @@ class DistributedTournament:
         filler_ai_type: str = "Random",
         filler_difficulty: int = 1,
         record_replay_db: bool = True,
+        game_retries: int = 3,
     ):
         self.tiers = sorted(tiers, key=lambda t: int(t[1:]))
+        self.game_retries = game_retries
         self.games_per_matchup = games_per_matchup
         self.board_type = board_type
 
@@ -919,21 +922,46 @@ class DistributedTournament:
                 actual_a, actual_b = tier_b, tier_a
 
             seed = base_seed + game_idx
-            result = run_single_game(
-                actual_a, actual_b,
-                self.board_type, seed,
-                max_moves=self.max_moves,
-                worker_name=worker_name,
-                game_index=game_idx,
-                think_time_scale=self.think_time_scale,
-                nn_model_id=self.nn_model_id,
-                fail_fast=self.fail_fast,
-                num_players=self.num_players,
-                filler_ai_type=self.filler_ai_type,
-                filler_difficulty=self.filler_difficulty,
-                record_training_data=self.record_training_data,
-                record_replay_db=self.record_replay_db,
-            )
+
+            # Run game with retry logic
+            result = None
+            last_error = None
+            for attempt in range(self.game_retries):
+                try:
+                    result = run_single_game(
+                        actual_a, actual_b,
+                        self.board_type, seed,
+                        max_moves=self.max_moves,
+                        worker_name=worker_name,
+                        game_index=game_idx,
+                        think_time_scale=self.think_time_scale,
+                        nn_model_id=self.nn_model_id,
+                        fail_fast=self.fail_fast,
+                        num_players=self.num_players,
+                        filler_ai_type=self.filler_ai_type,
+                        filler_difficulty=self.filler_difficulty,
+                        record_training_data=self.record_training_data,
+                        record_replay_db=self.record_replay_db,
+                    )
+                    break  # Success
+                except Exception as e:
+                    last_error = e
+                    if attempt < self.game_retries - 1:
+                        delay = exponential_backoff_delay(attempt, base_delay=0.5, max_delay=5.0)
+                        logger.warning(
+                            f"Game {game_idx} failed (attempt {attempt + 1}/{self.game_retries}): {e}, "
+                            f"retrying in {delay:.1f}s..."
+                        )
+                        time.sleep(delay)
+                    else:
+                        logger.error(f"Game {game_idx} failed after {self.game_retries} attempts: {e}")
+                        if self.fail_fast:
+                            raise
+
+            # If all retries failed, skip this game
+            if result is None:
+                logger.warning(f"Skipping game {game_idx} after all retries failed")
+                continue
 
             if game_idx % 2 == 1:
                 result = MatchResult(
@@ -1374,6 +1402,12 @@ def parse_args() -> argparse.Namespace:
         help="Abort the tournament on the first matchup/game exception.",
     )
     parser.add_argument(
+        "--game-retries",
+        type=int,
+        default=3,
+        help="Number of retries for failed individual games (default: 3).",
+    )
+    parser.add_argument(
         "--num-players",
         type=int,
         default=2,
@@ -1589,6 +1623,7 @@ def main() -> None:
         filler_ai_type=args.filler_ai,
         filler_difficulty=args.filler_difficulty,
         record_replay_db=not args.skip_replay_db,
+        game_retries=args.game_retries,
     )
 
     # Configure training data export if requested

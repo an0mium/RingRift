@@ -5,7 +5,10 @@ import sys
 from typing import TYPE_CHECKING
 
 import pytest
-from hypothesis import (
+
+pytest.importorskip("hypothesis")
+
+from hypothesis import (  # noqa: E402
     given,
     settings,
     strategies as st,

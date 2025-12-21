@@ -452,18 +452,21 @@ def run_heuristic_tier_eval(
 
         # Configure candidate and baseline heuristic AIs. Difficulty is kept
         # fixed; strength differences are expressed via profile ids.
+        # Use different seeds per player to avoid identical RNG sequences
+        candidate_seed = (game_seed * 104729 + candidate_seat * 7919) & 0x7FFFFFFF
+        baseline_seed = (game_seed * 104729 + baseline_seat * 7919) & 0x7FFFFFFF
         candidate_config = AIConfig(
             difficulty=5,
             randomness=0.0,
             think_time=0,
-            rngSeed=game_seed,
+            rngSeed=candidate_seed,
             heuristic_profile_id=tier_spec.candidate_profile_id,
         )
         baseline_config = AIConfig(
             difficulty=5,
             randomness=0.0,
             think_time=0,
-            rngSeed=game_seed,
+            rngSeed=baseline_seed,
             heuristic_profile_id=tier_spec.baseline_profile_id,
         )
 

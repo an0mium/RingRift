@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass
@@ -304,15 +305,19 @@ class CurriculumFeedback:
         return total_recent >= min_games
 
 
-# Singleton instance
+# Singleton instance (thread-safe)
 _feedback_instance: CurriculumFeedback | None = None
+_feedback_lock = threading.Lock()
 
 
 def get_curriculum_feedback() -> CurriculumFeedback:
-    """Get the global curriculum feedback instance."""
+    """Get the global curriculum feedback instance (thread-safe)."""
     global _feedback_instance
     if _feedback_instance is None:
-        _feedback_instance = CurriculumFeedback()
+        with _feedback_lock:
+            # Double-check locking pattern
+            if _feedback_instance is None:
+                _feedback_instance = CurriculumFeedback()
     return _feedback_instance
 
 

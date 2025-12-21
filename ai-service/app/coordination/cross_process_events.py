@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
 """Cross-Process Event Queue using SQLite.
 
+.. deprecated:: December 2025
+    This module is being superseded by the unified event router.
+    For new code, prefer using:
+
+        from app.coordination.event_router import (
+            get_router, publish, subscribe
+        )
+
+    The unified router automatically routes events to the cross-process queue
+    when cross_process=True. This module remains functional for backwards
+    compatibility and is used internally by the router.
+
 This module provides a SQLite-backed event queue that allows different
 processes (cluster_orchestrator, continuous_improvement_daemon, pipeline_orchestrator)
 to communicate events across process boundaries.

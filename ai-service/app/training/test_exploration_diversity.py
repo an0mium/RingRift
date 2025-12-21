@@ -112,7 +112,9 @@ def play_games_and_collect_data(
             opponent = AIFactory.create(AIType.HEURISTIC, player_number=opp_player, config=AIConfig(difficulty=4))
 
         gmo_ai.player_number = gmo_player
-        gmo_ai.reset_for_new_game()
+        # Use game-specific seed for varied but reproducible behavior
+        game_seed = (game_idx * 12345 + 7919) & 0xFFFFFFFF
+        gmo_ai.reset_for_new_game(rng_seed=game_seed)
 
         state = create_initial_state(
             game_id=f"diversity_{game_idx}",

@@ -141,6 +141,8 @@ export interface LineProcessingState {
   readonly detectedLines: DetectedLine[];
   readonly currentLineIndex: number;
   readonly awaitingReward: boolean;
+  /** RR-CANON-R123: true when line elimination is pending after Option 1 collapse. */
+  readonly pendingLineRewardElimination?: boolean;
 }
 
 export interface TerritoryProcessingState {
@@ -686,18 +688,36 @@ function handleLineProcessing(
       const line = state.detectedLines[state.currentLineIndex];
       const nextIndex = state.currentLineIndex + 1;
 
+      // RR-CANON-R123: Option 1 (eliminate) requires a separate eliminate_rings_from_stack move.
+      // Stay in line_processing with pendingLineRewardElimination flag set.
+      const requiresElimination = event.choice === 'eliminate';
+
+      if (requiresElimination) {
+        // Stay in line_processing until elimination is completed.
+        return ok<LineProcessingState>(
+          {
+            ...state,
+            awaitingReward: false,
+            pendingLineRewardElimination: true,
+          },
+          [{ type: 'APPLY_LINE_REWARD', choice: event.choice, line }]
+        );
+      }
+
+      // Option 2 (territory/minimum-collapse): no elimination needed, proceed normally.
       if (nextIndex < state.detectedLines.length) {
         return ok<LineProcessingState>(
           {
             ...state,
             currentLineIndex: nextIndex,
             awaitingReward: false,
+            pendingLineRewardElimination: false,
           },
           [{ type: 'APPLY_LINE_REWARD', choice: event.choice, line }]
         );
       }
 
-      // All lines processed
+      // All lines processed, no elimination pending
       return ok<TerritoryProcessingState>(
         {
           phase: 'territory_processing',
@@ -707,6 +727,40 @@ function handleLineProcessing(
           eliminationsPending: [],
         },
         [{ type: 'APPLY_LINE_REWARD', choice: event.choice, line }]
+      );
+    }
+
+    // RR-CANON-R123: Handle elimination from stack after line reward (Option 1).
+    case 'ELIMINATE_FROM_STACK': {
+      if (!state.pendingLineRewardElimination) {
+        return guardFailed(state, event, 'No line elimination pending');
+      }
+
+      const nextIndex = state.currentLineIndex + 1;
+
+      if (nextIndex < state.detectedLines.length) {
+        // More lines to process
+        return ok<LineProcessingState>(
+          {
+            ...state,
+            currentLineIndex: nextIndex,
+            awaitingReward: false,
+            pendingLineRewardElimination: false,
+          },
+          [{ type: 'ELIMINATE_RINGS', target: event.target, count: event.count }]
+        );
+      }
+
+      // All lines processed, proceed to territory_processing
+      return ok<TerritoryProcessingState>(
+        {
+          phase: 'territory_processing',
+          player: state.player,
+          disconnectedRegions: [],
+          currentRegionIndex: 0,
+          eliminationsPending: [],
+        },
+        [{ type: 'ELIMINATE_RINGS', target: event.target, count: event.count }]
       );
     }
 

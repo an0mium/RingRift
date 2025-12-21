@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -493,13 +494,17 @@ class TrainingHealthMonitor(BaseHealthMonitor):
         return "\n".join(lines)
 
 
-# Singleton instance
+# Singleton instance (thread-safe)
 _monitor_instance: TrainingHealthMonitor | None = None
+_monitor_lock = threading.Lock()
 
 
 def get_training_health_monitor() -> TrainingHealthMonitor:
-    """Get the global training health monitor instance."""
+    """Get the global training health monitor instance (thread-safe)."""
     global _monitor_instance
     if _monitor_instance is None:
-        _monitor_instance = TrainingHealthMonitor()
+        with _monitor_lock:
+            # Double-check locking pattern
+            if _monitor_instance is None:
+                _monitor_instance = TrainingHealthMonitor()
     return _monitor_instance

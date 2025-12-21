@@ -1186,7 +1186,8 @@ class MutableGameState:
             x = round(from_pos.x + step_x * i)
             y = round(from_pos.y + step_y * i)
             pos_kwargs: dict[str, Any] = {"x": x, "y": y}
-            if from_pos.z is not None or to_pos.z is not None:
+            # Mirror TS: only include z when the destination carries z.
+            if to_pos.z is not None:
                 z = round(dz_from + step_z * i)
                 pos_kwargs["z"] = z
             path.append(Position(**pos_kwargs))

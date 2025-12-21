@@ -296,7 +296,7 @@ def _eliminate_one_ring_from_any_stack(
     state: BatchGameState,
     game_idx: int,
     player: int,
-) -> bool:
+) -> tuple[bool, int, int]:
     """Eliminate one ring from any controlled stack.
 
     Per RR-CANON-R122: Any controlled stack is eligible for line elimination,
@@ -311,7 +311,9 @@ def _eliminate_one_ring_from_any_stack(
         player: Player performing elimination
 
     Returns:
-        True if elimination was performed, False if no eligible stack found
+        Tuple of (success, y, x) where success indicates if elimination was
+        performed, and (y, x) is the position of the eliminated stack.
+        Returns (False, -1, -1) if no eligible stack found.
     """
     stack_owner_np = state.stack_owner[game_idx].cpu().numpy()
     stack_height_np = state.stack_height[game_idx].cpu().numpy()
@@ -320,7 +322,7 @@ def _eliminate_one_ring_from_any_stack(
     positions = np.argwhere(eligible)
 
     if len(positions) == 0:
-        return False
+        return False, -1, -1
 
     y, x = int(positions[0, 0]), int(positions[0, 1])
     stack_height = int(stack_height_np[y, x])
@@ -355,7 +357,7 @@ def _eliminate_one_ring_from_any_stack(
         # Cap not fully eliminated, player keeps ownership
         state.cap_height[game_idx, y, x] = new_cap_height
 
-    return True
+    return True, y, x
 
 
 def process_lines_batch(
@@ -445,7 +447,7 @@ def process_lines_batch(
 def apply_line_elimination_batch(
     state: BatchGameState,
     game_mask: torch.Tensor | None = None,
-) -> None:
+) -> dict[int, tuple[int, int]]:
     """Apply pending line eliminations for games with pending_line_elimination set.
 
     RR-CANON-R123: Line elimination is a separate explicit move. This function
@@ -457,7 +459,13 @@ def apply_line_elimination_batch(
     Args:
         state: BatchGameState to modify
         game_mask: Optional mask of games to process (default: active games)
+
+    Returns:
+        Dictionary mapping game_idx to (y, x) position of eliminated stack.
+        Only includes games where elimination was actually performed.
     """
+    elimination_positions: dict[int, tuple[int, int]] = {}
+
     if game_mask is None:
         game_mask = state.get_active_mask()
 
@@ -465,13 +473,17 @@ def apply_line_elimination_batch(
     pending_mask = state.pending_line_elimination & game_mask
 
     if not pending_mask.any():
-        return
+        return elimination_positions
 
     # Process each pending game
     for g in pending_mask.nonzero(as_tuple=True)[0].tolist():
         player = int(state.current_player[g].item())
-        _eliminate_one_ring_from_any_stack(state, g, player)
+        success, y, x = _eliminate_one_ring_from_any_stack(state, g, player)
+        if success:
+            elimination_positions[g] = (y, x)
         state.pending_line_elimination[g] = False
+
+    return elimination_positions
 
 
 __all__ = [
