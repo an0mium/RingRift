@@ -2518,6 +2518,16 @@ function processPostMovePhases(
   const state = stateMachine.gameState;
   const originalMoveType = stateMachine.processingState.originalMove.type as string;
 
+  // DEBUG: Log state at start of processPostMovePhases
+  console.log('[processPostMovePhases] DEBUG entry:', {
+    originalMoveType,
+    stacks: Array.from(state.board.stacks.entries()).map(([k, v]) => ({
+      k,
+      rings: v.rings,
+      stackHeight: v.stackHeight,
+    })),
+  });
+
   // Handle forced_elimination phase completion - skip straight to victory check
   // and turn rotation since the elimination is the final action in the player's turn.
   // Per RR-CANON-R070, forced_elimination is the 7th and final phase.
@@ -3630,6 +3640,14 @@ export function hasValidMoves(state: GameState): boolean {
 function computeHadAnyActionThisTurn(state: GameState, currentMove?: Move): boolean {
   const currentPlayer = state.currentPlayer;
   const history = state.moveHistory;
+
+  // DEBUG: Log inputs
+  console.log('[computeHadAnyActionThisTurn] DEBUG:', {
+    currentPlayer,
+    currentMoveType: currentMove?.type,
+    historyLength: history.length,
+    recentMoves: history.slice(-5).map((m) => ({ type: m.type, player: m.player })),
+  });
 
   // Include the current move being processed if provided.
   // This is needed for parity with Python, where the move is already

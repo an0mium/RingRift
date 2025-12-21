@@ -734,6 +734,13 @@ export function mutateCapture(
   // Per RR-CANON-R101/R102: landing on any marker (own or opponent) removes the marker
   // and eliminates the top ring of the attacking stack's cap.
   const landingMarker = newState.board.markers.get(toKey);
+  // DEBUG: Log landing marker check
+  console.log('[mutateCapture] DEBUG landing marker check:', {
+    toKey,
+    landingMarker,
+    markersOnBoard: Array.from(newState.board.markers.keys()),
+    stackAtLanding: newState.board.stacks.get(toKey),
+  });
   if (landingMarker) {
     // Remove the marker (do not collapse it)
     newState.board.markers.delete(toKey);
@@ -775,6 +782,13 @@ export function mutateCapture(
 
   // 6. Update timestamps
   newState.lastMoveAt = new Date();
+
+  // DEBUG: Log final state before returning
+  console.log('[mutateCapture] DEBUG returning state:', {
+    toKey,
+    stackAtLanding: newState.board.stacks.get(toKey),
+    allStacks: Array.from(newState.board.stacks.keys()),
+  });
 
   return newState;
 }
