@@ -705,10 +705,10 @@ export function applySimpleMovement(
  * and returns a discriminated union result.
  */
 export function applyMovement(state: GameState, move: Move): MovementMutationResult {
-  if (move.type !== 'move_stack' && move.type !== 'move_ring') {
+  if (move.type !== 'move_stack') {
     return {
       success: false,
-      reason: `Expected 'move_stack' or 'move_ring' move, got '${move.type}'`,
+      reason: `Expected 'move_stack' move, got '${move.type}'`,
     };
   }
 

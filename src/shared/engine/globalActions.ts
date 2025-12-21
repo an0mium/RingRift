@@ -252,6 +252,20 @@ export function hasPhaseLocalInteractiveMove(state: GameState, player: number): 
     }
 
     case 'line_processing': {
+      // RR-CANON-R123: When pendingLineRewardElimination is true, the player
+      // must execute an eliminate_rings_from_stack move. This counts as an
+      // interactive move for ANM calculation, matching Python's behavior.
+      if (state.pendingLineRewardElimination) {
+        // Player has controlled stacks -> elimination moves exist
+        for (const stack of state.board.stacks.values()) {
+          if (stack.controllingPlayer === player && stack.stackHeight > 0) {
+            return true;
+          }
+        }
+        // No controlled stacks means no elimination possible (edge case)
+        return false;
+      }
+
       const moves = enumerateProcessLineMoves(state, player, {
         detectionMode: 'detect_now',
       });

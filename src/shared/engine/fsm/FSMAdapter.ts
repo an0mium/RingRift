@@ -1379,9 +1379,9 @@ export function validateMoveWithFSM(
 
   // Check event conversion
   if (!event) {
-    // Meta-moves (swap_sides, line_formation, territory_claim) don't have FSM events
-    // but are allowed in any phase. If the move type is explicitly permitted for the
-    // current phase, let it through - the orchestrator handles meta-moves specially.
+    // Meta-moves (swap_sides, line_formation, territory_claim) don't have FSM events.
+    // If the move type is explicitly permitted for the current phase, let it through -
+    // the orchestrator handles meta-moves specially.
     //
     // TurnState['phase'] includes internal pseudo-phases such as 'turn_end' that are
     // not part of the public GamePhase contract. Only call isMoveTypeValidForPhase

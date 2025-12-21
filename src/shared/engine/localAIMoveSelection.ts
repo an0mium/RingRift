@@ -226,9 +226,7 @@ export function chooseLocalMoveFromCandidates(
     (m) => m.type === 'overtaking_capture' || m.type === 'continue_capture_segment'
   );
 
-  const simpleMovementMoves = nonPlacementMoves.filter(
-    (m) => m.type === 'move_stack' || m.type === 'move_ring' || m.type === 'build_stack'
-  );
+  const simpleMovementMoves = nonPlacementMoves.filter((m) => m.type === 'move_stack');
 
   let pool: Move[] = [];
 

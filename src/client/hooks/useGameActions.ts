@@ -21,16 +21,11 @@ import { getChoiceViewModel } from '../adapters/choiceViewModels';
 import type { ChoiceViewModel } from '../adapters/choiceViewModels';
 
 /** Type guard to check if a player matches the authenticated user */
-function isUserPlayer(
-  gameState: GameState | null,
-  userId: string | undefined
-): boolean {
+function isUserPlayer(gameState: GameState | null, userId: string | undefined): boolean {
   if (!gameState || !userId) return false;
   const players = gameState.players;
   if (!Array.isArray(players)) return false;
-  return players.some(
-    (p) => p.id === userId || (p as { userId?: string }).userId === userId
-  );
+  return players.some((p) => p.id === userId || (p as { userId?: string }).userId === userId);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -56,7 +51,7 @@ export interface PlacementAction {
  * Simplified movement action
  */
 export interface MovementAction {
-  type: 'move_stack' | 'move_ring';
+  type: 'move_stack';
   from: Position;
   to: Position;
 }

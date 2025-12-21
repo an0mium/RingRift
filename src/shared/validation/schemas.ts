@@ -225,22 +225,18 @@ export const PositionSchema = z.object({
 // - This is the simplified wire-level move payload used by WebSockets/HTTP
 //   (`MovePayload` in src/shared/types/game.ts), not the full internal Move.
 // - It intentionally omits decision-only move types such as
-//   'process_line', 'choose_line_reward', 'process_territory_region', and
+//   'process_line', 'choose_line_option', 'choose_territory_option', and
 //   'eliminate_rings_from_stack', which are carried by separate
 //   player-choice/decision payloads rather than the generic player_move
 //   channel.
 export const MoveSchema = z.object({
   moveType: z.enum([
     'place_ring',
-    'move_ring',
-    'build_stack',
     'move_stack',
     'overtaking_capture',
     'continue_capture_segment',
     'skip_placement',
     'swap_sides',
-    'line_formation',
-    'territory_claim',
     'recovery_slide', // RR-CANON-R110–R115: marker recovery action
     'skip_recovery', // RR-CANON-R115: explicit recovery skip
   ]),

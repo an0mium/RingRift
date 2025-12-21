@@ -15,15 +15,12 @@
 import type { GameState, GamePhase } from '../types/game';
 
 /**
- * Interactive phases where swap_sides can be offered.
- * Swap is not available during line/territory processing phases.
+ * Phases where swap_sides can be offered.
+ *
+ * Per RR-CANON R180-R184, the pie rule is only available at the start of
+ * Player 2's first turn, which always begins in ring_placement.
  */
-const SWAP_ELIGIBLE_PHASES: GamePhase[] = [
-  'ring_placement',
-  'movement',
-  'capture',
-  'chain_capture',
-];
+const SWAP_ELIGIBLE_PHASES: GamePhase[] = ['ring_placement'];
 
 /**
  * Determine whether the current game state should offer a swap_sides
@@ -37,7 +34,7 @@ const SWAP_ELIGIBLE_PHASES: GamePhase[] = [
  * 2. Game is active
  * 3. Exactly 2 players
  * 4. Current player is Player 2
- * 5. Current phase is interactive (not line/territory processing)
+ * 5. Current phase is ring_placement
  * 6. At least one move from Player 1 exists
  * 7. No moves from Player 2 exist (other than potential swap_sides)
  * 8. No swap_sides move has been applied yet
@@ -74,7 +71,7 @@ export function shouldOfferSwapSides(state: GameState): boolean {
     return false;
   }
 
-  // 5. Only available in interactive phases
+  // 5. Only available in ring_placement
   if (!SWAP_ELIGIBLE_PHASES.includes(state.currentPhase)) {
     return false;
   }
@@ -134,7 +131,7 @@ export function validateSwapSidesMove(
   if (!SWAP_ELIGIBLE_PHASES.includes(state.currentPhase)) {
     return {
       valid: false,
-      reason: 'swap_sides is only available at the start of an interactive turn',
+      reason: 'swap_sides is only available at the start of ring placement',
     };
   }
 

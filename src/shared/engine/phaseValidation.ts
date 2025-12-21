@@ -39,9 +39,9 @@ export type MoveType = GameMoveType;
  *
  * Rules derivation (canonical):
  * - ring_placement: place_ring, skip_placement, no_placement_action, swap_sides
- * - movement: move_stack, overtaking_capture, recovery_slide, skip_recovery, no_movement_action, swap_sides
- * - capture: overtaking_capture, skip_capture, swap_sides
- * - chain_capture: continue_capture_segment, swap_sides
+ * - movement: move_stack, overtaking_capture, recovery_slide, skip_recovery, no_movement_action
+ * - capture: overtaking_capture, skip_capture
+ * - chain_capture: continue_capture_segment
  * - line_processing: process_line, choose_line_option, eliminate_rings_from_stack, no_line_action
  * - territory_processing: choose_territory_option, eliminate_rings_from_stack,
  *   no_territory_action, skip_territory_processing
@@ -58,10 +58,9 @@ export const VALID_MOVES_BY_PHASE: Readonly<Record<GamePhase, readonly MoveType[
     'recovery_slide',
     'skip_recovery',
     'no_movement_action',
-    'swap_sides',
   ],
-  capture: ['overtaking_capture', 'skip_capture', 'swap_sides'],
-  chain_capture: ['continue_capture_segment', 'swap_sides'],
+  capture: ['overtaking_capture', 'skip_capture'],
+  chain_capture: ['continue_capture_segment'],
   line_processing: [
     'process_line',
     'choose_line_option',

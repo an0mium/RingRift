@@ -48,7 +48,6 @@ export function moveToGameAction(move: Move, state: EngineGameState): GameAction
     case 'skip_placement':
       return mapSkipPlacementMove(move);
     case 'move_stack':
-    case 'move_ring':
       return mapMoveStackMove(move);
     case 'overtaking_capture':
       return mapOvertakingCaptureMove(move);
@@ -133,7 +132,7 @@ function mapSkipPlacementMove(move: Move): SkipPlacementAction {
 
 function mapMoveStackMove(move: Move): MoveStackAction {
   if (!move.from) {
-    throw new MoveMappingError('move_stack/move_ring Move is missing from position', move);
+    throw new MoveMappingError('move_stack Move is missing from position', move);
   }
   return {
     type: 'MOVE_STACK',

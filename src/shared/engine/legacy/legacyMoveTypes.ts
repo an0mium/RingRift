@@ -1,12 +1,8 @@
-import type { Move, MoveType } from '../../types/game';
-
-export type LegacyMoveType =
-  | 'choose_line_reward'
-  | 'process_territory_region'
-  | 'line_formation'
-  | 'territory_claim';
+import type { Move, MoveType, LegacyMoveType } from '../../types/game';
 
 export const LEGACY_MOVE_TYPES: readonly LegacyMoveType[] = [
+  'move_ring',
+  'build_stack',
   'choose_line_reward',
   'process_territory_region',
   'line_formation',
@@ -19,6 +15,9 @@ export function isLegacyMoveType(moveType: MoveType): moveType is LegacyMoveType
 
 export function normalizeLegacyMoveType(moveType: MoveType): MoveType {
   switch (moveType) {
+    case 'move_ring':
+    case 'build_stack':
+      return 'move_stack';
     case 'choose_line_reward':
       return 'choose_line_option';
     case 'process_territory_region':

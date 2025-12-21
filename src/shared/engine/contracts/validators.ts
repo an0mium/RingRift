@@ -51,8 +51,6 @@ export function parsePosition(data: unknown): ZodPosition {
 
 export const ZodMoveTypeSchema = z.enum([
   'place_ring',
-  'move_ring',
-  'build_stack',
   'move_stack',
   'skip_placement',
   'no_placement_action',

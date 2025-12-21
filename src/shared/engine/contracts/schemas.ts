@@ -48,8 +48,6 @@ export const MoveTypeSchema = {
     'skip_placement',
     'no_placement_action',
     'move_stack',
-    'move_ring',
-    'build_stack',
     'no_movement_action',
     'overtaking_capture',
     'continue_capture_segment',

@@ -96,7 +96,7 @@ export interface ActionAvailabilityDelegates {
  *
  * Real actions are:
  * - Ring placement (place_ring)
- * - Non-capture stack movement (move_stack, move_ring, build_stack)
+ * - Non-capture stack movement (move_stack; legacy aliases move_ring/build_stack)
  * - Overtaking capture (overtaking_capture)
  *
  * NOT real actions (for LPS purposes):

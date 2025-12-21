@@ -38,10 +38,9 @@ export const LEGACY_VALID_MOVES_BY_PHASE: Readonly<Record<GamePhase, readonly Mo
     'continue_capture_segment',
     'recovery_slide',
     'skip_recovery',
-    'swap_sides',
   ],
-  capture: ['overtaking_capture', 'continue_capture_segment', 'skip_capture', 'swap_sides'],
-  chain_capture: ['overtaking_capture', 'continue_capture_segment', 'swap_sides'],
+  capture: ['overtaking_capture', 'continue_capture_segment', 'skip_capture'],
+  chain_capture: ['overtaking_capture', 'continue_capture_segment'],
   line_processing: [
     'process_line',
     'choose_line_option',

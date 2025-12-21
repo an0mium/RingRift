@@ -2007,8 +2007,7 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
       };
     }
 
-    case 'move_stack':
-    case 'move_ring': {
+    case 'move_stack': {
       if (!move.from) {
         throw new Error('Move.from is required for movement moves');
       }
@@ -2151,8 +2150,13 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
 
     case 'process_line': {
       const outcome = applyProcessLineDecision(state, move);
+      // RR-CANON-R123: Set pendingLineRewardElimination on GameState for ANM parity
+      const nextStateWithFlag: GameState = {
+        ...outcome.nextState,
+        pendingLineRewardElimination: outcome.pendingLineRewardElimination,
+      };
       return {
-        nextState: outcome.nextState,
+        nextState: nextStateWithFlag,
         pendingLineRewardElimination: outcome.pendingLineRewardElimination,
       };
     }
@@ -2160,8 +2164,13 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
     case 'choose_line_option':
     case 'choose_line_reward': {
       const outcome = applyChooseLineRewardDecision(state, move);
+      // RR-CANON-R123: Set pendingLineRewardElimination on GameState for ANM parity
+      const nextStateWithFlag: GameState = {
+        ...outcome.nextState,
+        pendingLineRewardElimination: outcome.pendingLineRewardElimination,
+      };
       return {
-        nextState: outcome.nextState,
+        nextState: nextStateWithFlag,
         pendingLineRewardElimination: outcome.pendingLineRewardElimination,
       };
     }
@@ -2188,6 +2197,16 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
 
     case 'eliminate_rings_from_stack': {
       const outcome = applyEliminateRingsFromStackDecision(state, move);
+      // RR-CANON-R123: Clear pendingLineRewardElimination when line elimination is applied
+      const elimContext = (move as any).eliminationContext;
+      if (elimContext === 'line' && state.pendingLineRewardElimination) {
+        return {
+          nextState: {
+            ...outcome.nextState,
+            pendingLineRewardElimination: false,
+          },
+        };
+      }
       return { nextState: outcome.nextState };
     }
 
@@ -2305,8 +2324,9 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
  *     forced_elimination
  *
  * swap_sides is permitted only in ring_placement (pie rule). Legacy move
- * types (line_formation, territory_claim) are only accepted in replay
- * compatibility mode and must be treated as non-canonical by hosts.
+ * types (move_ring/build_stack/choose_line_reward/process_territory_region/
+ * line_formation/territory_claim) are only accepted in replay compatibility
+ * mode and must be treated as non-canonical by hosts.
  */
 function assertPhaseMoveInvariant(state: GameState, move: Move): void {
   const phase = state.currentPhase;
@@ -2562,7 +2582,7 @@ function processPostMovePhases(
     });
   }
 
-  // RR-CANON-R070 / Section 4.3: After a non-capturing movement (move_stack/move_ring),
+  // RR-CANON-R070 / Section 4.3: After a non-capturing movement (move_stack; legacy move_ring),
   // the player may opt to make an overtaking capture before proceeding to line processing.
   // Check if the original move was a simple movement and if capture opportunities exist
   // FROM THE LANDING POSITION (not from all stacks).
