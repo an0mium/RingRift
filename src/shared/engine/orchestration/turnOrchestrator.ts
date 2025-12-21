@@ -3189,7 +3189,9 @@ export function validateMove(state: GameState, move: Move): { valid: boolean; re
       return { valid: true };
     }
 
-    case 'move_stack': {
+    case 'move_stack':
+    case 'move_ring':
+    case 'build_stack': {
       if (!move.from) {
         return { valid: false, reason: 'Move.from is required' };
       }
@@ -3238,9 +3240,9 @@ export function validateMove(state: GameState, move: Move): { valid: boolean; re
  * only **interactive** moves:
  *
  * - ring_placement: place_ring, skip_placement (when eligible).
- * - movement: move_stack, overtaking_capture,
- *   continue_capture_segment.
- * - capture / chain_capture: capture segments + skip_capture.
+ * - movement: move_stack, overtaking_capture, recovery_slide, skip_recovery.
+ * - capture: overtaking_capture, skip_capture.
+ * - chain_capture: continue_capture_segment.
  * - line_processing: process_line / choose_line_option (legacy: choose_line_reward).
  * - territory_processing: process_territory_region /
  *   eliminate_rings_from_stack (+ skip_territory_processing). Legacy replays
