@@ -14,7 +14,6 @@ Usage:
 
 import argparse
 import json
-import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -24,102 +23,50 @@ AI_SERVICE_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 from app.config.thresholds import (
-    PRODUCTION_ELO_THRESHOLD,
-    PRODUCTION_MIN_GAMES,
-    ELO_TIER_NOVICE,
-    ELO_TIER_INTERMEDIATE,
     ELO_TIER_ADVANCED,
     ELO_TIER_EXPERT,
-    ELO_TIER_MASTER,
     ELO_TIER_GRANDMASTER,
+    ELO_TIER_INTERMEDIATE,
+    ELO_TIER_MASTER,
+    ELO_TIER_NOVICE,
 )
-
-DEFAULT_DB = AI_SERVICE_ROOT / "data" / "unified_elo.db"
-
-TIER_THRESHOLDS = [
-    (ELO_TIER_GRANDMASTER, "Grandmaster", "GM"),
-    (ELO_TIER_MASTER, "Master", "M"),
-    (ELO_TIER_EXPERT, "Expert", "E"),
-    (ELO_TIER_ADVANCED, "Advanced", "A"),
-    (ELO_TIER_INTERMEDIATE, "Intermediate", "I"),
-    (ELO_TIER_NOVICE, "Novice", "N"),
-    (0, "Beginner", "B"),
-]
-
-
-def get_tier(rating: float) -> tuple[str, str]:
-    """Get tier name and abbreviation for rating."""
-    for threshold, name, abbr in TIER_THRESHOLDS:
-        if rating >= threshold:
-            return name, abbr
-    return "Beginner", "B"
+from scripts.lib.elo_queries import (
+    DEFAULT_DB,
+    PRODUCTION_ELO_THRESHOLD,
+    PRODUCTION_MIN_GAMES,
+    get_model_stats,
+    get_models_by_tier,
+    get_tier_abbr,
+    get_tier_name,
+    get_top_models,
+)
 
 
 def get_leaderboard(db_path: Path, config: str = None, include_baselines: bool = False,
                     tier: str = None, limit: int = 20) -> list[dict]:
-    """Get leaderboard data."""
-    if not db_path.exists():
-        return []
-
-    conn = sqlite3.connect(str(db_path))
-
-    query = """
-        SELECT participant_id, rating, games_played, board_type, num_players
-        FROM elo_ratings
-        WHERE 1=1
-    """
-    params = []
-
-    if not include_baselines:
-        query += " AND participant_id NOT LIKE 'baseline_%'"
-
-    if config:
-        parts = config.rsplit("_", 1)
-        if len(parts) == 2:
-            board_type = parts[0]
-            num_players = int(parts[1].replace("p", ""))
-            query += " AND board_type = ? AND num_players = ?"
-            params.extend([board_type, num_players])
-
-    if tier:
-        tier_lower = tier.lower()
-        for threshold, name, _abbr in TIER_THRESHOLDS:
-            if name.lower() == tier_lower:
-                next_threshold = 10000  # Very high default
-                for i, (t, n, _) in enumerate(TIER_THRESHOLDS):
-                    if n.lower() == tier_lower and i > 0:
-                        next_threshold = TIER_THRESHOLDS[i - 1][0]
-                        break
-                query += " AND rating >= ? AND rating < ?"
-                params.extend([threshold, next_threshold])
-                break
-
-    query += " ORDER BY rating DESC LIMIT ?"
-    params.append(limit)
-
-    cursor = conn.execute(query, params)
+    """Get leaderboard data using unified query library."""
+    models = get_top_models(
+        db_path,
+        limit=limit,
+        include_baselines=include_baselines,
+        config=config,
+        tier=tier,
+    )
 
     results = []
-    for i, row in enumerate(cursor.fetchall(), 1):
-        model_id, rating, games, board_type, num_players = row
-        tier_name, tier_abbr = get_tier(rating)
-
-        # Check production eligibility
-        production_ready = rating >= PRODUCTION_ELO_THRESHOLD and games >= PRODUCTION_MIN_GAMES
-
+    for i, model in enumerate(models, 1):
         results.append({
             "rank": i,
-            "model_id": model_id,
-            "rating": round(rating, 1),
-            "games": games,
-            "board_type": board_type or "unknown",
-            "num_players": num_players or 2,
-            "tier": tier_name,
-            "tier_abbr": tier_abbr,
-            "production_ready": production_ready,
+            "model_id": model.participant_id,
+            "rating": round(model.rating, 1),
+            "games": model.games_played,
+            "board_type": model.board_type or "unknown",
+            "num_players": model.num_players or 2,
+            "tier": get_tier_name(model.rating),
+            "tier_abbr": get_tier_abbr(model.rating),
+            "production_ready": model.is_production_ready,
         })
 
-    conn.close()
     return results
 
 
@@ -157,48 +104,21 @@ def format_leaderboard(data: list[dict], title: str = "ELO LEADERBOARD") -> str:
 
 
 def get_summary(db_path: Path) -> dict:
-    """Get summary statistics."""
-    if not db_path.exists():
+    """Get summary statistics using unified query library."""
+    stats = get_model_stats(db_path)
+    if not stats:
         return {}
 
-    conn = sqlite3.connect(str(db_path))
-
-    # Total models and games
-    cursor = conn.execute("SELECT COUNT(*), SUM(games_played) FROM elo_ratings WHERE participant_id NOT LIKE 'baseline_%'")
-    total_models, total_games = cursor.fetchone()
-
-    # Models by tier
-    tier_counts = {}
-    for threshold, name, _abbr in TIER_THRESHOLDS:
-        cursor = conn.execute(
-            "SELECT COUNT(*) FROM elo_ratings WHERE rating >= ? AND participant_id NOT LIKE 'baseline_%'",
-            (threshold,)
-        )
-        count = cursor.fetchone()[0]
-        tier_counts[name] = count
-
-    # Production ready
-    cursor = conn.execute(
-        "SELECT COUNT(*) FROM elo_ratings WHERE rating >= ? AND games_played >= ? AND participant_id NOT LIKE 'baseline_%'",
-        (PRODUCTION_ELO_THRESHOLD, PRODUCTION_MIN_GAMES)
-    )
-    production_ready = cursor.fetchone()[0]
-
-    # Best model
-    cursor = conn.execute(
-        "SELECT participant_id, rating FROM elo_ratings WHERE participant_id NOT LIKE 'baseline_%' ORDER BY rating DESC LIMIT 1"
-    )
-    best = cursor.fetchone()
-
-    conn.close()
+    # Get tier counts using unified query
+    tier_counts = get_models_by_tier(db_path, include_baselines=False)
 
     return {
-        "total_models": total_models or 0,
-        "total_games": total_games or 0,
+        "total_models": stats.total_models,
+        "total_games": stats.total_games,
         "tier_counts": tier_counts,
-        "production_ready": production_ready,
-        "best_model": best[0] if best else None,
-        "best_rating": best[1] if best else 0,
+        "production_ready": stats.production_ready,
+        "best_model": stats.best_model,
+        "best_rating": stats.best_rating,
     }
 
 

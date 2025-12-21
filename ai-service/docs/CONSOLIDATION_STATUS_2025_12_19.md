@@ -571,22 +571,123 @@ Automated cleanup of unused imports across distributed modules:
 
 ---
 
-## Future Enhancements (Planned)
+## Completed Enhancements
 
-### Training Pipeline Feedback Loops
+### Training Pipeline Feedback Loops ✓
 
-A detailed plan exists at `~/.claude/plans/reactive-cooking-pony.md` for:
+Implemented per plan at `~/.claude/plans/reactive-cooking-pony.md` (commit `064d7b60`):
 
-1. **Evaluation Feedback to Selfplay Priority** (~60 lines)
+1. **Evaluation Feedback to Selfplay Priority** ✓
+   - `LocalSelfplayGenerator.get_prioritized_config()` now uses 5 priority factors
+   - Includes ELO regression detection via `ImprovementOptimizer`
    - Regressing configs get priority boost for more selfplay data
-   - Uses `UnifiedSignalComputer.elo_trend` signals
+   - Implementation: `scripts/unified_loop/selfplay.py:142-240`
 
-2. **Diversity Signal to Engine Selection** (~30 lines)
-   - When training shows overfitting, use more exploratory selfplay
-   - Switch to MCTS when `diversity_needed > 0.7`
+2. **Diversity Signal to Engine Selection** ✓
+   - `LocalSelfplayGenerator._get_diversity_need()` checks training quality
+   - Switches to MCTS when `diversity_needed > 0.7`
+   - Implementation: `scripts/unified_loop/selfplay.py:386-410`
 
-3. **Training Quality Exposure** (~30 lines)
-   - Add `get_training_quality()` to `unified_orchestrator.py`
-   - Detect loss plateau and overfitting signals
+3. **Training Quality Exposure** ✓
+   - `TrainingScheduler.get_training_quality()` added
+   - Detects loss plateau, overfitting, parity failures
+   - Implementation: `scripts/unified_loop/training.py:943-989`
 
-**Status**: Plan complete, implementation pending
+**Status**: ✅ IMPLEMENTED (December 2025)
+
+---
+
+## Phase 8 Consolidation Work (December 21, 2025)
+
+### 38. Debug Utilities Harvested ✓
+
+Consolidated debug utilities from archived scripts into main codebase:
+
+- **Created `app/utils/debug_utils.py`** (583 lines)
+  - `StateDiffer`: State comparison and diff generation
+  - `GameReplayDebugger`: Game replay with phase tracing
+  - `summarize_game_state()`: Human-readable state summaries
+  - `compare_states()`: Quick state comparison
+  - `GPU_BOOKKEEPING_MOVES`: Constants for GPU/CPU parity debugging
+
+**Source Archives:**
+
+- `scripts/archive/debug/debug_ts_python_state_diff.py`
+- `scripts/archive/debug/debug_gpu_cpu_parity.py`
+
+### 39. Device Management Consolidated ✓
+
+Created canonical device detection in `app/utils/torch_utils.py`:
+
+- **Canonical Functions:**
+  - `get_device(prefer_gpu, device_id, local_rank)` - Unified device detection
+  - `get_device_info()` - Detailed device information
+
+- **Deprecated Implementations (now delegate):**
+  - `app/training/utils.py:get_device()` → emits DeprecationWarning
+  - `app/training/utils.py:get_device_info()` → emits DeprecationWarning
+  - `app/ai/gpu_batch.py:get_device()` → delegates to canonical
+  - `app/ai/gpu_kernels.py:get_device()` → delegates to canonical
+
+- **Updated `app/utils/__init__.py`:**
+  - Exports `get_device`, `get_device_info` at package level
+
+### 40. Event Router Enabled by Default ✓
+
+- Changed `USE_ROUTER_BY_DEFAULT = True` in `app/distributed/event_helpers.py`
+- All event emissions now route through unified router
+- Provides: EventBus + StageEventBus + CrossProcessEventQueue integration
+
+### 41. Deprecation Warnings Added ✓
+
+Added deprecation notices to superseded modules:
+
+- `app/tournament/unified_elo_db.py` → Use `app.training.elo_service.EloService`
+- `scripts/lib/data_quality.py` → Use `app.quality.unified_quality`
+
+### 42. Hexagonal Parity Bug Documented ✓
+
+Created `docs/runbooks/HEXAGONAL_PARITY_BUG.md`:
+
+- Phase divergence at ~k=989 in hexagonal games
+- Python: `territory_processing` vs TypeScript: `forced_elimination`
+- Occurs after `NO_TERRITORY_ACTION` bookkeeping move
+- Blocks canonical hex training
+
+### 43. Legacy Module Audit ✓
+
+**Neural Net Legacy (`app/ai/_neural_net_legacy.py`):**
+
+- Migration in progress (Phases 1-4 complete)
+- Remaining to migrate: `NeuralNetAI`, cache functions, move encoding
+- NOT ready for archival - active migration
+
+**Game Engine Legacy (`app/_game_engine_legacy.py`):**
+
+- Still actively used by 3 files:
+  - `app/rules/default_engine.py`
+  - `app/game_engine/__init__.py`
+  - `scripts/detect_gpu_cpu_divergence.py`
+- NOT ready for archival - provides `GameEngine`, `PhaseRequirement`
+
+---
+
+## Current Consolidation Priorities
+
+### Priority 1: Complete (December 2025)
+
+- ✅ Device management consolidation
+- ✅ Event router unification
+- ✅ Debug utilities harvested
+- ✅ Deprecation warnings added
+
+### Priority 2: In Progress
+
+- Neural net legacy migration (Phases 5+ pending)
+- Game engine modularization (blocked by widespread usage)
+
+### Priority 3: Planned
+
+- Complete EventBus import migration (63 files still direct)
+- Consolidate training enhancements modules
+- Cache system unification

@@ -618,6 +618,114 @@ Created unified ELO database query library to consolidate duplicate SQL patterns
 - [x] Created SSoT compliance test:
   - `tests/test_thresholds_usage.py` - Verifies threshold constants imported from canonical source
 
+### Phase 3c: Unified Alert Infrastructure - COMPLETED (2025-12-21)
+
+Consolidated Slack notification functions and refactored ELO dashboard scripts:
+
+- [x] Extended `scripts/lib/alerts.py` with unified Slack notification support:
+  - `get_slack_webhook()` - Unified webhook resolution (env vars + file)
+  - `send_slack_notification()` - Single entry point for Slack alerts
+  - `slack_handler()` - AlertManager-compatible Slack handler
+  - `send_simple_alert()` - Convenience function for quick alerts
+
+- [x] Refactored ELO scripts to use elo_queries library:
+  - `elo_leaderboard.py` - Uses `get_top_models`, `get_model_stats`, `get_models_by_tier`
+  - `elo_alerts.py` - Uses `get_production_candidates`, `get_top_models`, `get_games_by_config`
+  - Removed inline SQL from both scripts
+  - Removed duplicate `get_slack_webhook()` implementations
+
+- [x] Verified `INITIAL_ELO_RATING = 1500.0` already in `app/config/thresholds.py`
+  - Added re-export in `elo_queries.py`
+
+**Impact:** Eliminated ~200 lines of duplicate code across 4 scripts, established single entry point for Slack notifications.
+
+### Phase 3d: Tournament CLI & Threshold Consolidation - COMPLETED (2025-12-21)
+
+Consolidated tournament helper functions and eliminated hardcoded thresholds:
+
+- [x] Added `ARCHIVE_ELO_THRESHOLD = 1400` to `app/config/thresholds.py`
+- [x] Expanded `scripts/lib/tournament_cli.py` with archive/matchmaking helpers:
+  - `archive_low_elo_models()` - Archive models below threshold
+  - `is_model_archived()` - Check archive status
+  - `unarchive_model()` / `unarchive_discovered_models()` - Restore models
+  - `get_archived_models()` - Query archived models
+  - `generate_elo_based_matchups()` - Elo-based pairing
+  - `filter_archived_models()` - Filter out archived models
+  - `ensure_archived_models_table()` - Table creation helper
+
+- [x] Refactored `run_model_elo_tournament.py`:
+  - Imports functions from `tournament_cli.py` instead of defining locally
+  - Uses `ARCHIVE_ELO_THRESHOLD` from thresholds.py
+  - Removed ~170 lines of duplicate code
+
+- [x] Audited scripts for hardcoded thresholds:
+  - `prune_models.py` - Now uses `ARCHIVE_ELO_THRESHOLD`
+  - `filter_training_data.py` - Now uses `PRODUCTION_ELO_THRESHOLD`
+  - `elo_monitor.py` - Now uses `ELO_TIER_EXPERT`, `ELO_TIER_MASTER`
+  - `training_dashboard.py` - Now uses `PRODUCTION_ELO_THRESHOLD`, `INITIAL_ELO_RATING`
+
+**Impact:** Eliminated ~170 lines of duplicate archive/matchmaking code, consolidated 4+ hardcoded threshold usages to SSoT constants.
+
+### Phase 3e: Multi-Channel Alert Infrastructure - COMPLETED (2025-12-21)
+
+Extended unified alert infrastructure with Discord support and consolidated remaining alert implementations:
+
+- [x] Added Discord notification support to `scripts/lib/alerts.py`:
+  - `get_discord_webhook()` - Unified webhook resolution
+  - `send_discord_notification()` - Discord-specific sender
+  - `discord_handler()` - AlertManager-compatible Discord handler
+  - `send_alert()` - Multi-channel alert (Slack + Discord)
+  - `DISCORD_COLORS` - Color mapping for Discord embeds
+
+- [x] Converted `scripts/monitor/alerting.py` to re-export layer:
+  - Imports from `scripts/lib/alerts.py`
+  - Maintains backwards compatibility with deprecation warnings
+  - `send_slack_alert` and `send_discord_alert` emit deprecation warnings
+
+- [x] Updated `scripts/gpu_cluster_manager.py`:
+  - Changed import from `scripts.monitor.alerting` to `scripts.lib.alerts`
+  - Local AlertManager uses unified `send_alert()` via `USE_UNIFIED_ALERTING`
+
+- [x] Audit findings - well-structured areas:
+  - File transfer utilities (`scripts/lib/transfer.py`) already comprehensive
+  - ELO query layer (`scripts/lib/elo_queries.py`) appropriately separate from EloService
+  - Validator classes already consolidated via `unified_data_validator.py`
+
+**Impact:** Unified Slack + Discord alerting, eliminated duplicate alert implementations, established single entry point for all notifications.
+
+### Phase 3f: ELO Infrastructure Consolidation - COMPLETED (2025-12-21)
+
+Consolidated ELO database imports and protected calibration baselines:
+
+- [x] Protected non-NN algorithms from archiving:
+  - Added `PROTECTED_ALGORITHM_PATTERNS` to `scripts/lib/tournament_cli.py`
+  - Added `is_protected_algorithm()` function for pattern matching
+  - Updated SQL in `archive_low_elo_models()` to exclude protected patterns
+  - Protected: random, heuristic, minimax, MCTS, NNUE, baseline\_\*
+
+- [x] Fixed remaining hardcoded thresholds:
+  - `scripts/monitor_improvement.py` - Uses `PRODUCTION_ELO_THRESHOLD`, `ARCHIVE_ELO_THRESHOLD`, `PRODUCTION_MIN_GAMES`
+  - `scripts/estimate_elo.py` - Uses `ELO_K_FACTOR`, `INITIAL_ELO_RATING`
+
+- [x] Migrated 11 files from `app.tournament.unified_elo_db` to public API:
+  - `scripts/gauntlet_to_elo.py` → `from app.tournament import EloDatabase`
+  - `scripts/model_culling.py` → `from app.tournament import EloDatabase`
+  - `scripts/migrate_elo_to_unified.py` → `from app.tournament import EloDatabase, UnifiedEloRating`
+  - `scripts/consolidate_elo_databases.py` → Uses `app.tournament` + `app.training.elo_service`
+  - `scripts/run_model_elo_tournament.py` → `from app.tournament import EloDatabase`
+  - `scripts/model_promotion_manager.py` → `from app.tournament import UnifiedEloRating, get_elo_database`
+  - `scripts/gmo_integration.py` → `from app.tournament import EloDatabase`
+  - `scripts/unified_promotion_daemon.py` → `from app.tournament import get_elo_database`
+  - `scripts/p2p_orchestrator.py` (3 locations) → `from app.tournament import get_elo_database`
+  - `app/tournament/orchestrator.py` → `from app.tournament import get_elo_database`
+  - `app/integration/p2p_integration.py` → `from app.tournament import EloDatabase`
+
+- [x] Verified `elo_queries.py` SSoT usage:
+  - Key scripts already using it: `auto_promote.py`, `check_production_candidates.py`, `elo_leaderboard.py`, `elo_alerts.py`, `elo_dashboard.py`
+  - Remaining inline SQL is in specialized scripts (migration, sync, analytics) with specific needs
+
+**Impact:** Eliminated direct imports from deprecated `unified_elo_db` module, protected ELO calibration anchors from accidental archiving, centralized threshold usage.
+
 ### Phase 4: Code Quality Cleanup - ANALYZED (2025-12-20)
 
 Analysis revealed that most "commented code" is actually documentation:

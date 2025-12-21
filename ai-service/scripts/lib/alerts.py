@@ -32,12 +32,13 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -456,3 +457,404 @@ def check_cpu_alert(
             details={"cpu_percent": percent},
         )
     return None
+
+
+# =============================================================================
+# Slack Notification Support
+# =============================================================================
+
+# Emoji mapping for alert severity and types
+SLACK_EMOJI = {
+    # Severity-based emojis
+    AlertSeverity.DEBUG: ":mag:",
+    AlertSeverity.INFO: ":information_source:",
+    AlertSeverity.WARNING: ":warning:",
+    AlertSeverity.ERROR: ":x:",
+    AlertSeverity.CRITICAL: ":rotating_light:",
+    # Special emojis for common scenarios
+    "success": ":white_check_mark:",
+    "trophy": ":trophy:",
+    "rocket": ":rocket:",
+    "robot": ":robot_face:",
+}
+
+
+def get_slack_webhook() -> str | None:
+    """Get Slack webhook URL from environment or config file.
+
+    Checks in order:
+    1. RINGRIFT_SLACK_WEBHOOK environment variable
+    2. SLACK_WEBHOOK_URL environment variable
+    3. ~/.ringrift_slack_webhook file
+
+    Returns:
+        Webhook URL string, or None if not configured
+    """
+    # Check environment variables
+    webhook = os.environ.get("RINGRIFT_SLACK_WEBHOOK")
+    if webhook:
+        return webhook
+
+    webhook = os.environ.get("SLACK_WEBHOOK_URL")
+    if webhook:
+        return webhook
+
+    # Check config file
+    webhook_file = Path.home() / ".ringrift_slack_webhook"
+    if webhook_file.exists():
+        try:
+            return webhook_file.read_text().strip()
+        except Exception:
+            pass
+
+    return None
+
+
+def send_slack_notification(
+    message: str,
+    severity: AlertSeverity | str = AlertSeverity.INFO,
+    title: str | None = None,
+    webhook_url: str | None = None,
+    username: str = "RingRift Alert",
+    timeout: int = 10,
+) -> bool:
+    """Send a notification to Slack.
+
+    Args:
+        message: The message body to send
+        severity: Alert severity (determines emoji) or custom emoji key
+        title: Optional bold title for the message
+        webhook_url: Override webhook URL (otherwise uses get_slack_webhook)
+        username: Slack username to display
+        timeout: Request timeout in seconds
+
+    Returns:
+        True if sent successfully, False otherwise
+    """
+    webhook = webhook_url or get_slack_webhook()
+
+    # Determine emoji
+    if isinstance(severity, AlertSeverity):
+        emoji = SLACK_EMOJI.get(severity, ":robot_face:")
+    else:
+        emoji = SLACK_EMOJI.get(severity, ":robot_face:")
+
+    # Format message
+    if title:
+        text = f"{emoji} *{title}*\n{message}"
+    else:
+        text = f"{emoji} {message}"
+
+    if webhook:
+        payload = {
+            "text": text,
+            "username": username,
+        }
+        try:
+            result = subprocess.run(
+                [
+                    "curl", "-s", "-X", "POST",
+                    "-H", "Content-Type: application/json",
+                    "-d", json.dumps(payload),
+                    webhook,
+                ],
+                capture_output=True,
+                timeout=timeout,
+            )
+            if result.returncode == 0:
+                logger.debug(f"Slack notification sent: {title or message[:50]}")
+                return True
+            else:
+                logger.warning(f"Slack notification failed: {result.stderr.decode('utf-8', errors='replace')}")
+                return False
+        except subprocess.TimeoutExpired:
+            logger.warning("Slack notification timed out")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to send Slack notification: {e}")
+            return False
+    else:
+        # No webhook configured - log to console instead
+        severity_str = severity.value.upper() if isinstance(severity, AlertSeverity) else str(severity).upper()
+        print(f"[{severity_str}] {title or ''} {message}")
+        return False
+
+
+def slack_handler(
+    webhook_url: str | None = None,
+    username: str = "RingRift Alert",
+    min_severity: AlertSeverity = AlertSeverity.WARNING,
+) -> AlertHandler:
+    """Create an AlertManager handler that sends alerts to Slack.
+
+    Args:
+        webhook_url: Override webhook URL
+        username: Slack username to display
+        min_severity: Minimum severity to send to Slack
+
+    Returns:
+        Alert handler function for use with AlertManager.add_handler()
+
+    Usage:
+        manager = AlertManager(name="my_monitor")
+        manager.add_handler(slack_handler())
+        manager.add_alert(alert)
+        manager.flush()  # Sends to Slack
+    """
+    def handler(alert: Alert) -> None:
+        if alert.severity < min_severity:
+            return
+
+        send_slack_notification(
+            message=alert.message,
+            severity=alert.severity,
+            title=f"[{alert.source}] {alert.alert_type.value}",
+            webhook_url=webhook_url,
+            username=username,
+        )
+
+    return handler
+
+
+def send_simple_alert(
+    message: str,
+    alert_type: str = "info",
+    title: str = "RingRift Alert",
+) -> bool:
+    """Simple convenience function for sending alerts.
+
+    This is a simplified interface for scripts that don't need
+    the full AlertManager infrastructure.
+
+    Args:
+        message: The alert message
+        alert_type: One of "info", "success", "warning", "error", "trophy", "rocket"
+        title: Title for the alert
+
+    Returns:
+        True if sent to Slack, False if printed to console
+
+    Usage:
+        from scripts.lib.alerts import send_simple_alert
+        send_simple_alert("Model promoted!", "success", "Promotion")
+    """
+    severity_map = {
+        "info": AlertSeverity.INFO,
+        "success": "success",  # Use special emoji
+        "warning": AlertSeverity.WARNING,
+        "error": AlertSeverity.ERROR,
+        "critical": AlertSeverity.CRITICAL,
+        "trophy": "trophy",
+        "rocket": "rocket",
+    }
+    severity = severity_map.get(alert_type, AlertSeverity.INFO)
+    return send_slack_notification(message, severity=severity, title=title)
+
+
+# =============================================================================
+# Discord Notification Support
+# =============================================================================
+
+# Color mapping for Discord embeds (decimal RGB values)
+DISCORD_COLORS = {
+    AlertSeverity.DEBUG: 0x808080,    # Gray
+    AlertSeverity.INFO: 0x36a64f,     # Green
+    AlertSeverity.WARNING: 0xff9800,  # Orange
+    AlertSeverity.ERROR: 0xf44336,    # Red
+    AlertSeverity.CRITICAL: 0x9c27b0, # Purple
+}
+
+
+def get_discord_webhook() -> str | None:
+    """Get Discord webhook URL from environment or config file.
+
+    Checks in order:
+    1. RINGRIFT_DISCORD_WEBHOOK environment variable
+    2. DISCORD_WEBHOOK_URL environment variable
+    3. ~/.ringrift_discord_webhook file
+
+    Returns:
+        Webhook URL string, or None if not configured
+    """
+    webhook = os.environ.get("RINGRIFT_DISCORD_WEBHOOK")
+    if webhook:
+        return webhook
+
+    webhook = os.environ.get("DISCORD_WEBHOOK_URL")
+    if webhook:
+        return webhook
+
+    webhook_file = Path.home() / ".ringrift_discord_webhook"
+    if webhook_file.exists():
+        try:
+            return webhook_file.read_text().strip()
+        except Exception:
+            pass
+
+    return None
+
+
+def send_discord_notification(
+    message: str,
+    severity: AlertSeverity = AlertSeverity.INFO,
+    title: str | None = None,
+    webhook_url: str | None = None,
+    node_id: str = "",
+    timeout: int = 10,
+) -> bool:
+    """Send a notification to Discord.
+
+    Args:
+        message: The message body to send
+        severity: Alert severity (determines color)
+        title: Optional title for the embed
+        webhook_url: Override webhook URL (otherwise uses get_discord_webhook)
+        node_id: Optional node identifier for footer
+        timeout: Request timeout in seconds
+
+    Returns:
+        True if sent successfully, False otherwise
+    """
+    import urllib.error
+    import urllib.request
+
+    webhook = webhook_url or get_discord_webhook()
+
+    if not webhook:
+        # No webhook configured - log to console
+        severity_str = severity.value.upper()
+        print(f"[{severity_str}] {title or ''} {message}")
+        return False
+
+    # Get color and emoji
+    color = DISCORD_COLORS.get(severity, 0x808080)
+    emoji = SLACK_EMOJI.get(severity, ":robot_face:")
+
+    # Build embed
+    embed = {
+        "title": f"{emoji} {title}" if title else f"{emoji} Alert",
+        "description": message,
+        "color": color,
+        "timestamp": datetime.now().isoformat(),
+    }
+
+    if node_id:
+        embed["footer"] = {"text": f"RingRift AI | {node_id}"}
+    else:
+        embed["footer"] = {"text": "RingRift AI"}
+
+    payload = {"embeds": [embed]}
+
+    try:
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            webhook,
+            data=data,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if resp.status in (200, 204):
+                logger.debug(f"Discord notification sent: {title or message[:50]}")
+                return True
+            else:
+                logger.warning(f"Discord notification failed: status {resp.status}")
+                return False
+    except urllib.error.URLError as e:
+        logger.warning(f"Discord notification failed: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Failed to send Discord notification: {e}")
+        return False
+
+
+def discord_handler(
+    webhook_url: str | None = None,
+    min_severity: AlertSeverity = AlertSeverity.WARNING,
+) -> AlertHandler:
+    """Create an AlertManager handler that sends alerts to Discord.
+
+    Args:
+        webhook_url: Override webhook URL
+        min_severity: Minimum severity to send to Discord
+
+    Returns:
+        Alert handler function for use with AlertManager.add_handler()
+
+    Usage:
+        manager = AlertManager(name="my_monitor")
+        manager.add_handler(discord_handler())
+        manager.add_alert(alert)
+        manager.flush()  # Sends to Discord
+    """
+    def handler(alert: Alert) -> None:
+        if alert.severity < min_severity:
+            return
+
+        send_discord_notification(
+            message=alert.message,
+            severity=alert.severity,
+            title=f"[{alert.source}] {alert.alert_type.value}",
+            webhook_url=webhook_url,
+        )
+
+    return handler
+
+
+# =============================================================================
+# Unified Multi-Channel Alerting
+# =============================================================================
+
+def send_alert(
+    message: str,
+    severity: AlertSeverity = AlertSeverity.INFO,
+    title: str | None = None,
+    node_id: str = "",
+    slack_url: str | None = None,
+    discord_url: str | None = None,
+) -> bool:
+    """Send alert to all configured channels (Slack and/or Discord).
+
+    This is the primary entry point for sending alerts. It automatically
+    discovers configured webhooks and sends to all available channels.
+
+    Args:
+        message: The alert message
+        severity: Alert severity level
+        title: Optional title for the alert
+        node_id: Optional node identifier
+        slack_url: Override Slack webhook URL
+        discord_url: Override Discord webhook URL
+
+    Returns:
+        True if at least one alert was sent successfully
+
+    Usage:
+        from scripts.lib.alerts import send_alert, AlertSeverity
+        send_alert("Training complete!", AlertSeverity.INFO, "Training")
+    """
+    success = False
+
+    # Send to Slack
+    slack = slack_url or get_slack_webhook()
+    if slack:
+        if send_slack_notification(
+            message=message,
+            severity=severity,
+            title=title,
+            webhook_url=slack,
+        ):
+            success = True
+
+    # Send to Discord
+    discord = discord_url or get_discord_webhook()
+    if discord:
+        if send_discord_notification(
+            message=message,
+            severity=severity,
+            title=title,
+            webhook_url=discord,
+            node_id=node_id,
+        ):
+            success = True
+
+    return success

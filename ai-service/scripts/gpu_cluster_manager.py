@@ -46,7 +46,7 @@ except ImportError:
     USE_UNIFIED_HOSTS = False
 
 try:
-    from scripts.monitor.alerting import (
+    from scripts.lib.alerts import (
         AlertSeverity,
         send_alert as unified_send_alert,
     )

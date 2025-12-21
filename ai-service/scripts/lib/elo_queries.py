@@ -38,6 +38,7 @@ from app.config.thresholds import (
     ELO_TIER_INTERMEDIATE,
     ELO_TIER_MASTER,
     ELO_TIER_NOVICE,
+    INITIAL_ELO_RATING,
     PRODUCTION_ELO_THRESHOLD,
     PRODUCTION_MIN_GAMES,
 )
@@ -514,6 +515,7 @@ __all__ = [
     "ModelRating",
     "ModelStats",
     # Thresholds (re-exported for convenience)
+    "INITIAL_ELO_RATING",
     "PRODUCTION_ELO_THRESHOLD",
     "PRODUCTION_MIN_GAMES",
     "TIER_THRESHOLDS",

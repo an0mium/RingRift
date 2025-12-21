@@ -15,24 +15,26 @@ Usage:
 
 import argparse
 import json
-import os
-import sqlite3
-import subprocess
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent
 AI_SERVICE_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
-from app.config.thresholds import (
+from scripts.lib.alerts import send_simple_alert
+from scripts.lib.elo_queries import (
+    DEFAULT_DB,
     PRODUCTION_ELO_THRESHOLD,
     PRODUCTION_MIN_GAMES,
+    get_games_by_config,
+    get_last_game_timestamp,
+    get_production_candidates,
+    get_top_models,
 )
 
-DEFAULT_DB = AI_SERVICE_ROOT / "data" / "unified_elo.db"
 STATE_FILE = AI_SERVICE_ROOT / "data" / ".elo_alert_state.json"
 
 # Alert thresholds
@@ -41,50 +43,9 @@ STALE_HOURS = 4  # Alert if no games in 4 hours
 MIN_GAMES_PER_CONFIG = 100  # Alert if config has fewer games
 
 
-def get_slack_webhook():
-    """Get Slack webhook URL from environment or file."""
-    webhook = os.environ.get("RINGRIFT_SLACK_WEBHOOK") or os.environ.get("SLACK_WEBHOOK_URL")
-    if webhook:
-        return webhook
-
-    webhook_file = Path.home() / ".ringrift_slack_webhook"
-    if webhook_file.exists():
-        return webhook_file.read_text().strip()
-
-    return None
-
-
 def send_slack_alert(message: str, alert_type: str = "info"):
-    """Send alert to Slack."""
-    webhook = get_slack_webhook()
-
-    emoji = {
-        "info": ":information_source:",
-        "success": ":white_check_mark:",
-        "warning": ":warning:",
-        "error": ":x:",
-        "trophy": ":trophy:",
-        "rocket": ":rocket:",
-    }.get(alert_type, ":robot_face:")
-
-    if webhook:
-        payload = {
-            "text": f"{emoji} *RingRift ELO Alert*\n{message}",
-            "username": "ELO Monitor",
-        }
-        try:
-            subprocess.run(
-                ["curl", "-s", "-X", "POST", "-H", "Content-Type: application/json",
-                 "-d", json.dumps(payload), webhook],
-                capture_output=True, timeout=10
-            )
-            return True
-        except Exception as e:
-            print(f"Failed to send Slack alert: {e}")
-            return False
-    else:
-        print(f"[{alert_type.upper()}] {message}")
-        return False
+    """Send alert to Slack using unified alert library."""
+    return send_simple_alert(message, alert_type, "RingRift ELO Alert")
 
 
 def load_state() -> dict:
@@ -109,82 +70,58 @@ def save_state(state: dict):
 
 
 def check_production_promotions(db_path: Path, state: dict) -> list[str]:
-    """Check for new production-ready models."""
+    """Check for new production-ready models using unified query library."""
     alerts = []
 
-    conn = sqlite3.connect(str(db_path))
-    cursor = conn.execute("""
-        SELECT participant_id, rating, games_played
-        FROM elo_ratings
-        WHERE rating >= ? AND games_played >= ?
-          AND participant_id NOT LIKE 'baseline_%'
-        ORDER BY rating DESC
-    """, (PRODUCTION_ELO_THRESHOLD, PRODUCTION_MIN_GAMES))
+    models = get_production_candidates(db_path, include_baselines=False)
 
     current_production = []
-    for row in cursor.fetchall():
-        model_id, rating, games = row
-        current_production.append(model_id)
+    for model in models:
+        current_production.append(model.participant_id)
 
-        if model_id not in state.get("production_models", []):
+        if model.participant_id not in state.get("production_models", []):
             alerts.append(
                 f":rocket: *New Production Model!*\n"
-                f"  Model: `{model_id}`\n"
-                f"  ELO: {rating:.1f} | Games: {games}"
+                f"  Model: `{model.participant_id}`\n"
+                f"  ELO: {model.rating:.1f} | Games: {model.games_played}"
             )
 
-    conn.close()
     state["production_models"] = current_production
     return alerts
 
 
 def check_regressions(db_path: Path, state: dict) -> list[str]:
-    """Check for ELO regressions in top models."""
+    """Check for ELO regressions in top models using unified query library."""
     alerts = []
 
-    conn = sqlite3.connect(str(db_path))
-    cursor = conn.execute("""
-        SELECT participant_id, rating
-        FROM elo_ratings
-        WHERE participant_id NOT LIKE 'baseline_%'
-        ORDER BY rating DESC
-        LIMIT 5
-    """)
+    models = get_top_models(db_path, limit=5, include_baselines=False)
 
     current_top = {}
-    for row in cursor.fetchall():
-        model_id, rating = row
-        current_top[model_id] = rating
+    for model in models:
+        current_top[model.participant_id] = model.rating
 
-        old_rating = state.get("top_models", {}).get(model_id)
-        if old_rating and old_rating - rating > REGRESSION_THRESHOLD:
+        old_rating = state.get("top_models", {}).get(model.participant_id)
+        if old_rating and old_rating - model.rating > REGRESSION_THRESHOLD:
             alerts.append(
                 f":warning: *ELO Regression Detected*\n"
-                f"  Model: `{model_id}`\n"
-                f"  Was: {old_rating:.1f} | Now: {rating:.1f} ({rating - old_rating:+.1f})"
+                f"  Model: `{model.participant_id}`\n"
+                f"  Was: {old_rating:.1f} | Now: {model.rating:.1f} ({model.rating - old_rating:+.1f})"
             )
 
-    conn.close()
     state["top_models"] = current_top
     return alerts
 
 
 def check_stale_tournaments(db_path: Path, state: dict) -> list[str]:
-    """Check for stale tournament activity."""
+    """Check for stale tournament activity using unified query library."""
     alerts = []
 
-    conn = sqlite3.connect(str(db_path))
-    cursor = conn.execute("""
-        SELECT MAX(timestamp) FROM match_history
-    """)
+    last_timestamp = get_last_game_timestamp(db_path)
 
-    result = cursor.fetchone()
-    conn.close()
-
-    if result and result[0]:
+    if last_timestamp:
         try:
             # timestamp is stored as Unix epoch
-            last_game = datetime.fromtimestamp(result[0])
+            last_game = datetime.fromtimestamp(last_timestamp)
             hours_since = (datetime.now() - last_game).total_seconds() / 3600
 
             if hours_since > STALE_HOURS:
@@ -205,18 +142,10 @@ def check_stale_tournaments(db_path: Path, state: dict) -> list[str]:
 
 
 def check_config_coverage(db_path: Path) -> list[str]:
-    """Check for underrepresented configs."""
+    """Check for underrepresented configs using unified query library."""
     alerts = []
 
-    conn = sqlite3.connect(str(db_path))
-    cursor = conn.execute("""
-        SELECT board_type, num_players, COUNT(*) as games
-        FROM match_history
-        GROUP BY board_type, num_players
-    """)
-
-    coverage = {f"{r[0]}_{r[1]}p": r[2] for r in cursor.fetchall()}
-    conn.close()
+    coverage = get_games_by_config(db_path)
 
     all_configs = [
         "square8_2p", "square8_3p", "square8_4p",
