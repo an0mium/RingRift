@@ -115,8 +115,8 @@ def player_has_stacks_on_board(game_state: GameState, player: int) -> bool:
 
 def _did_process_territory_region(game_state: GameState, move: Move) -> bool:
     """
-    True iff a CHOOSE_TERRITORY_OPTION / PROCESS_TERRITORY_REGION move actually
-    collapsed at least one space in the chosen region.
+    True iff a CHOOSE_TERRITORY_OPTION move actually collapsed at least one
+    space in the chosen region.
 
     TS `applyProcessTerritoryRegionDecision` treats non-processable regions as a
     no-op (state unchanged). In that case, the move must NOT be allowed to
