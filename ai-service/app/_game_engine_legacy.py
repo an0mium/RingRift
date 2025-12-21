@@ -3096,6 +3096,10 @@ class GameEngine:
         for stack_key, stack in board.stacks.items():
             if stack.controlling_player == player_number and stack.stack_height > 0:
                 pos = stack.position
+                # Note: moveNumber is set to len(history), not len(history)+1, because
+                # this enumeration happens AFTER the previous line choice move was
+                # appended to history. The elimination move follows immediately.
+                # The DB will assign the actual move_number on storage.
                 moves.append(
                     Move(
                         id=f"eliminate-line-{stack_key}",
@@ -3106,7 +3110,7 @@ class GameEngine:
                         elimination_context="line",
                         timestamp=game_state.last_move_at,
                         thinkTime=0,
-                        moveNumber=len(game_state.move_history) + 1,
+                        moveNumber=len(game_state.move_history),
                     )
                 )
 

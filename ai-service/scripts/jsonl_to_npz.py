@@ -399,8 +399,16 @@ class HexEncoderWrapper:
         self.board_size = board_size
 
     def _extract_features(self, state: GameState):
-        """Extract features using the hex encoder's encode method."""
-        return self._encoder.encode(state)
+        """Extract features using the hex encoder's encode method.
+
+        HexStateEncoder (V2) has encode(), HexStateEncoderV3 has encode_state().
+        """
+        if hasattr(self._encoder, 'encode'):
+            return self._encoder.encode(state)
+        elif hasattr(self._encoder, 'encode_state'):
+            return self._encoder.encode_state(state)
+        else:
+            raise AttributeError(f"Encoder {type(self._encoder).__name__} has no encode or encode_state method")
 
 
 def build_encoder(
