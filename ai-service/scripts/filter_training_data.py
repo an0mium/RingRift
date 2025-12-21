@@ -45,10 +45,12 @@ SELFPLAY_DIR = AI_SERVICE_ROOT / "data" / "selfplay"
 TRAINING_DIR = AI_SERVICE_ROOT / "data" / "training"
 ELO_DB_PATH = AI_SERVICE_ROOT / "data" / "unified_elo.db"
 
+from app.config.thresholds import PRODUCTION_ELO_THRESHOLD
+
 # Quality thresholds
 DEFAULT_MIN_AVG_ELO = 1350  # Minimum average Elo of participants
 DEFAULT_MIN_WINNER_ELO = 1300  # Minimum Elo of winning player
-HIGH_QUALITY_ELO = 1600  # Games above this get bonus weight
+HIGH_QUALITY_ELO = PRODUCTION_ELO_THRESHOLD  # Games above this get bonus weight
 
 
 @dataclass

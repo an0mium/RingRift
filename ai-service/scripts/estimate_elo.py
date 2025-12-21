@@ -33,6 +33,13 @@ from app.game_engine import GameEngine
 from app.models import AIConfig, BoardType
 from app.training.initial_state import create_initial_state
 
+# Import canonical ELO thresholds
+try:
+    from app.config.thresholds import ELO_K_FACTOR, INITIAL_ELO_RATING
+except ImportError:
+    INITIAL_ELO_RATING = 1500.0
+    ELO_K_FACTOR = 32
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -46,7 +53,7 @@ class Player:
     name: str
     ai_type: str
     config: dict[str, Any]
-    elo: float = 1500.0
+    elo: float = field(default_factory=lambda: INITIAL_ELO_RATING)
     wins: int = 0
     losses: int = 0
     draws: int = 0
@@ -73,7 +80,7 @@ class MatchResult:
 class EloRating:
     """Elo rating system."""
 
-    def __init__(self, k_factor: float = 32.0, initial_rating: float = 1500.0):
+    def __init__(self, k_factor: float = ELO_K_FACTOR, initial_rating: float = INITIAL_ELO_RATING):
         self.k_factor = k_factor
         self.initial_rating = initial_rating
         self.ratings: dict[str, float] = {}

@@ -30,6 +30,7 @@ SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from app.config.thresholds import ELO_TIER_EXPERT, ELO_TIER_MASTER
 from scripts.lib.alerts import (
     Alert,
     AlertSeverity,
@@ -432,10 +433,10 @@ class StatusReporter:
         )
 
         for rating in sorted_ratings:
-            # Color based on Elo
-            if rating.elo >= 1800:
+            # Color based on Elo tiers (from thresholds.py)
+            if rating.elo >= ELO_TIER_MASTER:
                 color = "green"
-            elif rating.elo >= 1600:
+            elif rating.elo >= ELO_TIER_EXPERT:
                 color = "yellow"
             else:
                 color = "red"

@@ -35,6 +35,8 @@ SCRIPT_DIR = Path(__file__).parent
 AI_SERVICE_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
+from app.config.thresholds import INITIAL_ELO_RATING, PRODUCTION_ELO_THRESHOLD
+
 # Paths
 MODELS_DIR = AI_SERVICE_ROOT / "models"
 DATA_DIR = AI_SERVICE_ROOT / "data"
@@ -255,7 +257,7 @@ def generate_html(stats: list[dict[str, Any]]) -> str:
         <tr><th>Config</th><th>Models</th><th>ELO Best</th><th>ELO Avg</th><th>ELO Games</th><th>Holdout</th><th>Promoted</th></tr>
 """
     for s in stats:
-        elo_class = "highlight" if s["elo_best"] > 1600 else ("warning" if s["elo_best"] < 1500 and s["elo_best"] > 0 else "")
+        elo_class = "highlight" if s["elo_best"] > PRODUCTION_ELO_THRESHOLD else ("warning" if s["elo_best"] < INITIAL_ELO_RATING and s["elo_best"] > 0 else "")
         elo_best_str = f"{s['elo_best']:.0f}" if s['elo_best'] > 0 else "-"
         elo_avg_str = f"{s['elo_avg']:.0f}" if s['elo_avg'] > 0 else "-"
         html += f"""        <tr>
