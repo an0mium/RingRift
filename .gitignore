@@ -163,6 +163,7 @@ backups/
 ai-service/data/*.db.backup*
 ai-service/db_health.*.json
 ai-service/db_health.*.analysis/
+ai-service/data/db_health/*.analysis/
 ai-service/data/*.db.bak
 
 # Local environment backups
