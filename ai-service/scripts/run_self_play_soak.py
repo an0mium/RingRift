@@ -525,9 +525,11 @@ def _parse_board_type(name: str) -> BoardType:
         return BoardType.SQUARE8
     if name == "square19":
         return BoardType.SQUARE19
+    if name == "hex8":
+        return BoardType.HEX8
     if name == "hexagonal":
         return BoardType.HEXAGONAL
-    raise SystemExit(f"Unknown board type: {name!r} " "(expected square8|square19|hexagonal)")
+    raise SystemExit(f"Unknown board type: {name!r} " "(expected square8|square19|hex8|hexagonal)")
 
 
 def _canonical_termination_reason(

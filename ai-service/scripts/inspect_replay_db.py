@@ -46,7 +46,7 @@ def _parse_board_type(name: str | None) -> BoardType | None:
     try:
         return BoardType(name)
     except ValueError:
-        raise SystemExit(f"Unknown board type: {name!r} (expected square8|square19|hexagonal)")
+        raise SystemExit(f"Unknown board type: {name!r} (expected square8|square19|hex8|hexagonal)")
 
 
 def _print_stats(db: GameReplayDB) -> None:
