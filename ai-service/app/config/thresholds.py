@@ -104,6 +104,102 @@ ELO_TIER_GRANDMASTER = 2000  # Exceptional model
 ARCHIVE_ELO_THRESHOLD = 1400
 
 # =============================================================================
+# Absolute Elo Targets Per Configuration (December 2025)
+# =============================================================================
+# Target 2000+ Elo for all 12 board/player combinations
+# This drives training priority - configs further from target get more resources
+
+# Global target - all configurations should achieve this Elo
+ELO_TARGET_ALL_CONFIGS = 2000.0
+
+# Per-configuration targets (can be customized if some combos are harder)
+ELO_TARGETS_BY_CONFIG: dict[str, float] = {
+    # Square 8x8 board
+    "square8_2p": 2000.0,
+    "square8_3p": 2000.0,
+    "square8_4p": 2000.0,
+    # Square 19x19 board
+    "square19_2p": 2000.0,
+    "square19_3p": 2000.0,
+    "square19_4p": 2000.0,
+    # Hex 8 board
+    "hex8_2p": 2000.0,
+    "hex8_3p": 2000.0,
+    "hex8_4p": 2000.0,
+    # Hexagonal (11) board
+    "hexagonal_2p": 2000.0,
+    "hexagonal_3p": 2000.0,
+    "hexagonal_4p": 2000.0,
+}
+
+# All 12 configuration keys for iteration
+ALL_CONFIG_KEYS = list(ELO_TARGETS_BY_CONFIG.keys())
+
+# Minimum Elo threshold to consider a config "production-ready"
+# Models must exceed this AND relative improvement thresholds
+ELO_PRODUCTION_GATE = 2000.0
+
+
+def get_elo_target(config_key: str) -> float:
+    """Get the Elo target for a specific configuration.
+
+    Args:
+        config_key: Configuration key like 'square8_2p', 'hexagonal_4p'
+
+    Returns:
+        Target Elo for this configuration (default: 2000.0)
+    """
+    return ELO_TARGETS_BY_CONFIG.get(config_key, ELO_TARGET_ALL_CONFIGS)
+
+
+def get_elo_gap(config_key: str, current_elo: float) -> float:
+    """Calculate the gap between current Elo and target.
+
+    Args:
+        config_key: Configuration key
+        current_elo: Current best Elo for this config
+
+    Returns:
+        Positive gap (target - current), or 0 if target met
+    """
+    target = get_elo_target(config_key)
+    return max(0.0, target - current_elo)
+
+
+def is_target_met(config_key: str, current_elo: float) -> bool:
+    """Check if a configuration has met its Elo target.
+
+    Args:
+        config_key: Configuration key
+        current_elo: Current best Elo for this config
+
+    Returns:
+        True if current_elo >= target
+    """
+    return current_elo >= get_elo_target(config_key)
+
+
+def get_priority_weight(config_key: str, current_elo: float) -> float:
+    """Calculate training priority weight based on Elo gap.
+
+    Configs further from target get higher priority (more training resources).
+    Uses quadratic scaling so large gaps get exponentially more attention.
+
+    Args:
+        config_key: Configuration key
+        current_elo: Current best Elo for this config
+
+    Returns:
+        Priority weight (1.0 = baseline, higher = more urgent)
+    """
+    if is_target_met(config_key, current_elo):
+        return 0.1  # Maintenance mode for configs at target
+
+    gap = get_elo_gap(config_key, current_elo)
+    # Quadratic scaling: 100 gap = 2x, 200 gap = 5x, 300 gap = 10x
+    return min(10.0, 1.0 + (gap / 100) ** 1.5)
+
+# =============================================================================
 # Elo Rating System
 # =============================================================================
 
