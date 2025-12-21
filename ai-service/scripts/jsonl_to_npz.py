@@ -287,6 +287,29 @@ def _process_gpu_selfplay_record(
     # Parse initial state
     initial_state = deserialize_game_state(initial_state_dict)
 
+    # Fix board_type from record's top-level field (GPU selfplay bug workaround)
+    # GPU selfplay sometimes saves wrong board_type in initial_state
+    record_board_type_str = record.get("board_type")
+    record_board_size = record.get("board_size", initial_state.board.size)
+    if record_board_type_str:
+        try:
+            correct_board_type = BoardType(record_board_type_str)
+            if initial_state.board.type != correct_board_type:
+                # Create a new board with correct type and size
+                from app.models import BoardState
+                initial_state.board = BoardState(
+                    type=correct_board_type,
+                    size=record_board_size,  # Use record's board_size too
+                    stacks=initial_state.board.stacks,
+                    markers=initial_state.board.markers,
+                    collapsed_spaces=initial_state.board.collapsed_spaces,
+                    eliminated_rings=initial_state.board.eliminated_rings,
+                    formed_lines=initial_state.board.formed_lines,
+                    territories=initial_state.board.territories,
+                )
+        except (ValueError, KeyError):
+            pass  # Keep original if record has invalid board_type
+
     # Parse moves
     moves = [parse_move(m) for m in moves_list]
     total_moves = len(moves)
