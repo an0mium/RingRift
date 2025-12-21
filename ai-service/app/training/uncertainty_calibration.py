@@ -546,7 +546,8 @@ def run_temperature_calibration(
     return optimal_temp
 
 
-def main():
+def main() -> None:
+    """Main entry point for uncertainty calibration study."""
     parser = argparse.ArgumentParser(description="GMO Uncertainty Calibration Study")
     parser.add_argument("--checkpoint", type=str, default=None,
                         help="Path to GMO checkpoint")

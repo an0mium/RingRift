@@ -561,7 +561,8 @@ def train_gmo(
 # CLI
 # =============================================================================
 
-def main():
+def main() -> None:
+    """Main entry point for GMO training."""
     parser = argparse.ArgumentParser(description="Train GMO AI")
     parser.add_argument(
         "--data-path",

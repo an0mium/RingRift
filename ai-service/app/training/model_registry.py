@@ -1230,7 +1230,7 @@ def reset_model_registry() -> None:
     _model_registry = None
 
 
-def main():
+def main() -> None:
     """Example usage of the model registry."""
     import tempfile
 

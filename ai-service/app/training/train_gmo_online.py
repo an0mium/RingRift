@@ -290,7 +290,8 @@ def run_online_training(
     return stats
 
 
-def main():
+def main() -> None:
+    """Main entry point for GMO online learning."""
     parser = argparse.ArgumentParser(description="Train GMO with online learning")
     parser.add_argument("--checkpoint", type=str, default=None,
                         help="Path to initial checkpoint")

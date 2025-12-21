@@ -550,7 +550,8 @@ def run_diverse_training(
     logger.info("="*60)
 
 
-def main():
+def main() -> None:
+    """Main entry point for GMO diverse opponent training."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s"

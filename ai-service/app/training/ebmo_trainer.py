@@ -645,7 +645,7 @@ class EBMOTrainer:
 # =============================================================================
 
 
-def main():
+def main() -> None:
     """Command-line training entry point."""
     import argparse
 
