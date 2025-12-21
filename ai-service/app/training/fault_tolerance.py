@@ -75,6 +75,8 @@ def retry_with_backoff(
     Decorator that retries a function with exponential backoff.
 
     .. deprecated:: December 2025
+        Scheduled for removal in Q2 2026.
+
         For new code, prefer using::
 
             from app.core.error_handler import retry
@@ -161,6 +163,8 @@ def async_retry_with_backoff(
     Async decorator that retries an async function with exponential backoff.
 
     .. deprecated:: December 2025
+        Scheduled for removal in Q2 2026.
+
         For new code, prefer using::
 
             from app.core.error_handler import retry_async

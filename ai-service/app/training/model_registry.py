@@ -2,6 +2,8 @@
 Automated Model Registry for RingRift AI.
 
 .. deprecated:: December 2025
+    Scheduled for removal in Q2 2026.
+
     For new code, prefer importing from :mod:`app.training.unified_model_store`
     which provides a simpler API with automatic event emission::
 

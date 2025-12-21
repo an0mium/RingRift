@@ -65,8 +65,15 @@ _AI_CLASSES = {
 }
 
 
-def __getattr__(name: str):
-    """Lazy loading for AI implementation classes."""
+def __getattr__(name: str) -> type:
+    """Lazy loading for AI implementation classes.
+
+    Returns:
+        The requested AI class type.
+
+    Raises:
+        AttributeError: If the attribute is not a known AI class.
+    """
     if name in _AI_CLASSES:
         import importlib
         module = importlib.import_module(_AI_CLASSES[name])

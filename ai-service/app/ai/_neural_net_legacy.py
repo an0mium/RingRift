@@ -1,6 +1,8 @@
 """Neural-network-backed AI implementation for RingRift.
 
 .. deprecated:: December 2025
+    Scheduled for removal in Q1 2026.
+
     This module is the LEGACY neural network implementation kept for backward
     compatibility. It contains the original architecture before the December 2025
     encoder/decoder refactoring.
@@ -11,7 +13,7 @@
     - :mod:`app.ai.neural_net.network` - Network architecture
 
     **This module will be removed** once all dependent code has migrated to the
-    new encoding system. The new system provides cleaner separation between
+    new encoding system (target: Q1 2026). The new system provides cleaner separation between
     board encoding and action decoding.
 
     **Current usage:**

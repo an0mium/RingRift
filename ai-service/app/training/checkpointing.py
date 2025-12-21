@@ -1,6 +1,8 @@
 """Checkpointing utilities for training.
 
 .. deprecated:: December 2025
+    Scheduled for removal in Q2 2026.
+
     For new code, prefer importing from :mod:`app.training.checkpoint_unified`
     which provides a unified checkpoint manager with additional features::
 

@@ -382,11 +382,17 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> type:
     """Lazy loading for deprecated cluster_coordinator symbols.
 
     This avoids triggering deprecation warnings on every import of app.distributed.
     The warning only fires when someone actually accesses these deprecated symbols.
+
+    Returns:
+        The requested deprecated symbol (class or function).
+
+    Raises:
+        AttributeError: If the attribute is not a known symbol.
     """
     import warnings
 

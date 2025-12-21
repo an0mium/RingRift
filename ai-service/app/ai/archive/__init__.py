@@ -25,8 +25,15 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
-    """Lazy import archived modules only when accessed."""
+def __getattr__(name: str) -> type:
+    """Lazy import archived modules only when accessed.
+
+    Returns:
+        The requested archived class type.
+
+    Raises:
+        AttributeError: If the attribute is not a known archived class.
+    """
     if name in ("GMOMCTSHybrid", "GMOMCTSConfig"):
         # Unarchived 2025-12-21 - redirect to main ai module
         from app.ai.gmo_mcts_hybrid import GMOMCTSConfig, GMOMCTSHybrid
