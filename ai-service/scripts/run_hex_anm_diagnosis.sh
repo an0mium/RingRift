@@ -17,30 +17,31 @@ echo ""
 mkdir -p "${OUTPUT_DIR}"
 
 # Step 1: Generate fresh hex games with parity validation
-echo "Step 1: Generating 5 hex games with parity validation..."
-python "${SCRIPT_DIR}/generate_gumbel_selfplay.py" \
+echo "Step 1: Generating 10 hex games with parity validation..."
+PYTHONPATH="${PROJECT_ROOT}" python "${SCRIPT_DIR}/generate_gumbel_selfplay.py" \
     --board hexagonal \
     --num-players 2 \
-    --games 5 \
+    --num-games 10 \
     --validate-parity \
-    --emit-state-bundles-dir "${OUTPUT_DIR}/bundles" \
-    --output "${OUTPUT_DIR}/games.db" \
+    --db "${OUTPUT_DIR}/games.db" \
+    --output "${OUTPUT_DIR}/games.jsonl" \
+    --verbose \
     2>&1 | tee "${OUTPUT_DIR}/generation.log"
 
 # Step 2: Run parity check with detailed output
 echo ""
 echo "Step 2: Running parity check..."
-python "${SCRIPT_DIR}/check_ts_python_replay_parity.py" \
+PYTHONPATH="${PROJECT_ROOT}" python "${SCRIPT_DIR}/check_ts_python_replay_parity.py" \
     --db "${OUTPUT_DIR}/games.db" \
     --emit-state-bundles-dir "${OUTPUT_DIR}/bundles" \
-    --json-output "${OUTPUT_DIR}/parity_results.json" \
+    --summary-json "${OUTPUT_DIR}/parity_results.json" \
     2>&1 | tee "${OUTPUT_DIR}/parity.log" || true
 
 # Step 3: Analyze ANM divergences
 echo ""
 echo "Step 3: Analyzing ANM divergences..."
 if [ -f "${OUTPUT_DIR}/parity_results.json" ]; then
-    python "${SCRIPT_DIR}/diagnose_anm_divergence.py" \
+    PYTHONPATH="${PROJECT_ROOT}" python "${SCRIPT_DIR}/diagnose_anm_divergence.py" \
         --parity-gate "${OUTPUT_DIR}/parity_results.json" \
         --verbose \
         2>&1 | tee "${OUTPUT_DIR}/diagnosis.log"
