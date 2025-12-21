@@ -1116,10 +1116,6 @@ def generate_chain_capture_moves_from_position(
     This function checks captures only from the specified position, not all stacks.
     Uses cap_height comparison per RR-CANON-R101.
 
-    Per CPU/TS parity: landings on previously visited positions are filtered out
-    to prevent infinite cycles. The chain_visited_mask tracks which positions
-    have been the origin of capture segments during this chain.
-
     Optimized 2025-12-13: Pre-extract numpy arrays to avoid .item() calls.
 
     Args:
@@ -1139,8 +1135,6 @@ def generate_chain_capture_moves_from_position(
     stack_height_np = state.stack_height[game_idx].cpu().numpy()
     cap_height_np = state.cap_height[game_idx].cpu().numpy()
     is_collapsed_np = state.is_collapsed[game_idx].cpu().numpy()
-    # Extract visited mask to filter out landing on previously visited positions
-    chain_visited_np = state.chain_visited_mask[game_idx].cpu().numpy()
 
     # Verify we control this stack
     if stack_owner_np[from_y, from_x] != player:
@@ -1220,12 +1214,6 @@ def generate_chain_capture_moves_from_position(
             # Landing must be empty (markers are allowed).
             if stack_owner_np[landing_y, landing_x] != 0:
                 break
-
-            # Filter out landing on previously visited positions to prevent cycles.
-            # Per CPU/TS parity, landing on any position that was the origin of a
-            # previous capture segment in this chain is illegal.
-            if chain_visited_np[landing_y, landing_x]:
-                continue
 
             captures.append((landing_y, landing_x))
 
@@ -1415,7 +1403,7 @@ def apply_single_chain_capture(
         # If attacker has no buried rings (cap == height), and target is same color,
         # the entire resulting stack is same color, so cap = new_height.
         new_owner = player
-        new_cap = new_height - landing_ring_cost
+        new_cap = new_height
         if new_cap <= 0:
             new_cap = 1
     else:
@@ -1610,7 +1598,7 @@ def apply_single_initial_capture(
         # If attacker has no buried rings (cap == height), and target is same color,
         # the entire resulting stack is same color, so cap = new_height.
         new_owner = player
-        new_cap = new_height - landing_ring_cost
+        new_cap = new_height
         if new_cap <= 0:
             new_cap = 1
     else:

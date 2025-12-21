@@ -302,6 +302,9 @@ def _eliminate_one_ring_from_any_stack(
     Per RR-CANON-R122: Any controlled stack is eligible for line elimination,
     including height-1 standalone rings.
 
+    December 2025: Fixed to properly update cap_height, ownership, and buried
+    ring tracking when eliminating a ring.
+
     Args:
         state: BatchGameState to modify
         game_idx: Game index
@@ -321,13 +324,36 @@ def _eliminate_one_ring_from_any_stack(
 
     y, x = int(positions[0, 0]), int(positions[0, 1])
     stack_height = int(stack_height_np[y, x])
+    cap_height = int(state.cap_height[game_idx, y, x].item())
+    new_height = stack_height - 1
+    new_cap_height = cap_height - 1 if cap_height > 0 else 0
 
-    state.stack_height[game_idx, y, x] = stack_height - 1
+    state.stack_height[game_idx, y, x] = new_height
     state.eliminated_rings[game_idx, player] += 1
     state.rings_caused_eliminated[game_idx, player] += 1
 
-    if stack_height - 1 == 0:
+    if new_height == 0:
+        # Stack fully eliminated - clear ownership and buried tracking
         state.stack_owner[game_idx, y, x] = 0
+        state.cap_height[game_idx, y, x] = 0
+        # Clear buried_at and decrement buried_rings for all players
+        for p in range(1, state.num_players + 1):
+            if state.buried_at[game_idx, p, y, x].item():
+                state.buried_at[game_idx, p, y, x] = False
+                state.buried_rings[game_idx, p] -= 1
+    elif new_cap_height <= 0:
+        # Cap fully eliminated but stack remains - ownership transfers
+        opponent = 1 if player == 2 else 2
+        state.stack_owner[game_idx, y, x] = opponent
+        # New cap is all remaining rings (opponent now controls)
+        state.cap_height[game_idx, y, x] = new_height
+        # If opponent had buried ring here, it's now exposed as cap
+        if state.buried_at[game_idx, opponent, y, x].item():
+            state.buried_at[game_idx, opponent, y, x] = False
+            state.buried_rings[game_idx, opponent] -= 1
+    else:
+        # Cap not fully eliminated, player keeps ownership
+        state.cap_height[game_idx, y, x] = new_cap_height
 
     return True
 

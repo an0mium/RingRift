@@ -1974,7 +1974,6 @@ def main():
 
     # Handle --no-compile flag to disable torch.compile() for faster startup
     if args.no_compile:
-        import os
         os.environ["RINGRIFT_DISABLE_TORCH_COMPILE"] = "1"
         print("[Tournament] torch.compile() disabled for faster startup")
 
@@ -1985,9 +1984,8 @@ def main():
         print("[Tournament] Training mode enabled: games will be tagged as 'elo_selfplay' for training pool inclusion")
 
     import socket
-    import os as os_module  # Ensure os is available in this scope
     node_id = socket.gethostname()
-    worker_id = str(args.worker_id or os_module.getpid())
+    worker_id = str(args.worker_id or os.getpid())
     jsonl_enabled = not args.no_jsonl
     jsonl_dir = Path(args.jsonl_dir) if args.jsonl_dir else None
 
