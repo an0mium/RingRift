@@ -566,10 +566,9 @@ describe('FSMAdapter', () => {
         'recovery_slide',
         'skip_recovery',
         'no_movement_action',
-        'swap_sides',
       ],
-      capture: ['overtaking_capture', 'skip_capture', 'swap_sides'],
-      chain_capture: ['continue_capture_segment', 'swap_sides'],
+      capture: ['overtaking_capture', 'skip_capture'],
+      chain_capture: ['continue_capture_segment'],
       line_processing: [
         'process_line',
         'choose_line_option',
@@ -583,8 +582,8 @@ describe('FSMAdapter', () => {
         'no_territory_action',
         'skip_territory_processing',
       ],
-      // Canonical: only forced_elimination is valid
-      forced_elimination: ['forced_elimination'],
+      // Canonical: forced_elimination, plus no_territory_action for replay compatibility
+      forced_elimination: ['forced_elimination', 'no_territory_action'],
       game_over: [],
     };
 
@@ -656,12 +655,12 @@ describe('FSMAdapter', () => {
       }
     });
 
-    it('should treat swap_sides as valid in early phases only', () => {
-      // swap_sides is a pie-rule meta move allowed in ring_placement and early capture flow.
+    it('should treat swap_sides as valid in ring_placement only', () => {
+      // Per canonical spec, swap_sides (pie rule) is only valid during ring_placement phase
       expect(isMoveTypeValidForPhase('ring_placement', 'swap_sides')).toBe(true);
-      expect(isMoveTypeValidForPhase('movement', 'swap_sides')).toBe(true);
-      expect(isMoveTypeValidForPhase('capture', 'swap_sides')).toBe(true);
-      expect(isMoveTypeValidForPhase('chain_capture', 'swap_sides')).toBe(true);
+      expect(isMoveTypeValidForPhase('movement', 'swap_sides')).toBe(false);
+      expect(isMoveTypeValidForPhase('capture', 'swap_sides')).toBe(false);
+      expect(isMoveTypeValidForPhase('chain_capture', 'swap_sides')).toBe(false);
       expect(isMoveTypeValidForPhase('line_processing', 'swap_sides')).toBe(false);
       expect(isMoveTypeValidForPhase('territory_processing', 'swap_sides')).toBe(false);
     });

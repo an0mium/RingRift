@@ -122,19 +122,20 @@ describe('swapSidesHelpers', () => {
       expect(shouldOfferSwapSides(state)).toBe(false);
     });
 
-    it('should return true in movement phase', () => {
+    // Per SWAP_ELIGIBLE_PHASES, swap_sides is only offered in ring_placement
+    it('should return false in movement phase', () => {
       const state = createBaseState({ currentPhase: 'movement' as GamePhase });
-      expect(shouldOfferSwapSides(state)).toBe(true);
+      expect(shouldOfferSwapSides(state)).toBe(false);
     });
 
-    it('should return true in capture phase', () => {
+    it('should return false in capture phase', () => {
       const state = createBaseState({ currentPhase: 'capture' as GamePhase });
-      expect(shouldOfferSwapSides(state)).toBe(true);
+      expect(shouldOfferSwapSides(state)).toBe(false);
     });
 
-    it('should return true in chain_capture phase', () => {
+    it('should return false in chain_capture phase', () => {
       const state = createBaseState({ currentPhase: 'chain_capture' as GamePhase });
-      expect(shouldOfferSwapSides(state)).toBe(true);
+      expect(shouldOfferSwapSides(state)).toBe(false);
     });
 
     it('should return false when moveHistory is empty', () => {

@@ -70,7 +70,7 @@ import {
   applyPhaseCoercion,
   logPhaseCoercion,
 } from '../legacy/legacyReplayHelper';
-import { assertNoLegacyMoveType, normalizeLegacyMove } from '../legacy/legacyMoveTypes';
+import { assertNoLegacyMoveType, isLegacyMoveType, normalizeLegacyMove } from '../legacy/legacyMoveTypes';
 
 // FSM imports
 import {
@@ -1234,8 +1234,8 @@ export interface ProcessTurnOptions {
   /**
    * When true, even single territory regions will return a decision instead
    * of being auto-processed. This is used in replay contexts where explicit
-   * choose_territory_option moves from recordings should be used
-   * (legacy alias: process_territory_region).
+   * choose_territory_option moves from recordings should be used. Legacy
+   * aliases are only normalized in replay-compatibility paths.
    */
   skipSingleTerritoryAutoProcess?: boolean;
 
@@ -1635,7 +1635,7 @@ export function processTurn(
       });
     } else {
       // Territory-phase moves (choose_territory_option, eliminate_rings_from_stack,
-      // no_territory_action, skip_territory_processing; legacy alias: process_territory_region)
+      // no_territory_action, skip_territory_processing)
       // have their post-move phase/player semantics driven by the shared orchestrator +
       // TurnStateMachine helpers (onLineProcessingComplete / onTerritoryProcessingComplete),
       // which are already aligned with Python's phase_machine. To avoid double-advancing
@@ -2196,27 +2196,35 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
       //
       // Per RR-CANON-R070: If player had NO actions this turn AND still has stacks,
       // go to forced_elimination. Otherwise, rotate to next player.
-      const hadAnyAction = computeHadAnyActionThisTurn(state, move);
-      const hasStacks = playerHasStacksOnBoard(state, move.player);
+      //
+      // RR-REPLAY-COMPAT: If already in forced_elimination, skip the check and rotate.
+      // This handles replay scenarios where processPostMovePhases transitioned to
+      // forced_elimination, but the recorded sequence has no_territory_action next.
+      const alreadyInForcedElimination = state.currentPhase === 'forced_elimination';
 
-      if (!hadAnyAction && hasStacks) {
-        // Transition to forced_elimination and surface the pending decision
-        const nextState = {
-          ...state,
-          currentPlayer: move.player,
-          currentPhase: 'forced_elimination' as GamePhase,
-        };
-        const forcedDecision = createForcedEliminationDecision(nextState);
-        if (forcedDecision && forcedDecision.options.length > 0) {
-          return {
-            nextState,
-            pendingDecision: forcedDecision,
+      if (!alreadyInForcedElimination) {
+        const hadAnyAction = computeHadAnyActionThisTurn(state, move);
+        const hasStacks = playerHasStacksOnBoard(state, move.player);
+
+        if (!hadAnyAction && hasStacks) {
+          // Transition to forced_elimination and surface the pending decision
+          const nextState = {
+            ...state,
+            currentPlayer: move.player,
+            currentPhase: 'forced_elimination' as GamePhase,
           };
+          const forcedDecision = createForcedEliminationDecision(nextState);
+          if (forcedDecision && forcedDecision.options.length > 0) {
+            return {
+              nextState,
+              pendingDecision: forcedDecision,
+            };
+          }
+          // No valid forced elimination options - fall through to turn rotation
         }
-        // No valid forced elimination options - fall through to turn rotation
       }
 
-      // No forced elimination needed - rotate to next player
+      // No forced elimination needed (or already was in FE) - rotate to next player
       const noTerritoryPlayers = state.players;
       const noTerritoryPlayerIndex = noTerritoryPlayers.findIndex(
         (p) => p.playerNumber === move.player
@@ -3133,6 +3141,14 @@ export async function processTurnAsync(
  * This function may be removed in a future release.
  */
 export function validateMove(state: GameState, move: Move): { valid: boolean; reason?: string } {
+  if (isLegacyMoveType(move.type)) {
+    return {
+      valid: false,
+      reason:
+        'Legacy move types are not valid for canonical validation. Use legacy replay adapters.',
+    };
+  }
+
   switch (move.type) {
     case 'place_ring': {
       const action = {
@@ -3160,9 +3176,7 @@ export function validateMove(state: GameState, move: Move): { valid: boolean; re
       return { valid: true };
     }
 
-    case 'move_stack':
-    case 'move_ring':
-    case 'build_stack': {
+    case 'move_stack': {
       if (!move.from) {
         return { valid: false, reason: 'Move.from is required' };
       }
@@ -3214,10 +3228,9 @@ export function validateMove(state: GameState, move: Move): { valid: boolean; re
  * - movement: move_stack, overtaking_capture, recovery_slide, skip_recovery.
  * - capture: overtaking_capture, skip_capture.
  * - chain_capture: continue_capture_segment.
- * - line_processing: process_line / choose_line_option (legacy: choose_line_reward).
+ * - line_processing: process_line / choose_line_option.
  * - territory_processing: choose_territory_option /
- *   eliminate_rings_from_stack (+ skip_territory_processing). Legacy replays
- *   may also include process_territory_region.
+ *   eliminate_rings_from_stack (+ skip_territory_processing).
  * - forced_elimination: forced_elimination options.
  *
  * When a phase has no interactive moves, this function returns an empty

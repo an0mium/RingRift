@@ -74,7 +74,10 @@ export const VALID_MOVES_BY_PHASE: Readonly<Record<GamePhase, readonly MoveType[
     'no_territory_action',
     'skip_territory_processing',
   ],
-  forced_elimination: ['forced_elimination'],
+  // RR-REPLAY-COMPAT: no_territory_action allowed in forced_elimination for replay compatibility.
+  // During replay, no_line_action may trigger forced_elimination transition inline,
+  // but recorded sequence may have no_territory_action as the next explicit move.
+  forced_elimination: ['forced_elimination', 'no_territory_action'],
   game_over: [],
 } as const;
 

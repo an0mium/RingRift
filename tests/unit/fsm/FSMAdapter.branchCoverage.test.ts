@@ -441,10 +441,6 @@ describe('FSMAdapter - Branch Coverage', () => {
       expect(isMoveTypeValidForPhase('movement', 'move_stack')).toBe(true);
     });
 
-    it('should reject move_stack in movement phase (legacy alias)', () => {
-      expect(isMoveTypeValidForPhase('movement', 'move_stack')).toBe(false);
-    });
-
     it('should allow overtaking_capture in movement phase', () => {
       expect(isMoveTypeValidForPhase('movement', 'overtaking_capture')).toBe(true);
     });
@@ -513,7 +509,7 @@ describe('FSMAdapter - Branch Coverage', () => {
       expect(types).toContain('move_stack');
       expect(types).toContain('overtaking_capture');
       expect(types).toContain('no_movement_action');
-      expect(types).toContain('swap_sides');
+      // Note: swap_sides is only valid in ring_placement per phase validation matrix
     });
 
     it('should return empty array for game_over phase', () => {

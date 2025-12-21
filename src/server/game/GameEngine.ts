@@ -1230,8 +1230,6 @@ export class GameEngine {
 
       const isMovementOrCaptureType =
         move.type === 'move_stack' ||
-        move.type === 'move_ring' ||
-        move.type === 'build_stack' ||
         move.type === 'overtaking_capture' ||
         move.type === 'continue_capture_segment';
 
@@ -1471,14 +1469,14 @@ export class GameEngine {
 
       const option1Move = validMoves.find(
         (m) =>
-          (m.type === 'choose_line_option' || m.type === 'choose_line_reward') &&
+          m.type === 'choose_line_option' &&
           m.id.includes(lineKey) &&
           m.collapsedMarkers?.length === line.positions.length
       );
 
       const option2Move = validMoves.find(
         (m) =>
-          (m.type === 'choose_line_option' || m.type === 'choose_line_reward') &&
+          m.type === 'choose_line_option' &&
           m.id.includes(lineKey) &&
           m.collapsedMarkers?.length === requiredLength
       );
@@ -2413,8 +2411,6 @@ export class GameEngine {
       moves = moves.filter((m) => {
         const isMovementOrCaptureType =
           m.type === 'move_stack' ||
-          m.type === 'move_ring' ||
-          m.type === 'build_stack' ||
           m.type === 'overtaking_capture' ||
           m.type === 'continue_capture_segment';
 
@@ -2644,7 +2640,7 @@ export class GameEngine {
 
           const movementMoves = this.ruleEngine.getValidMoves(tempMovementState);
           const hasMovementLocal = movementMoves.some(
-            (m) => m.type === 'move_stack' || m.type === 'move_ring' || m.type === 'build_stack'
+            (m) => m.type === 'move_stack'
           );
 
           const tempCaptureState: GameState = {

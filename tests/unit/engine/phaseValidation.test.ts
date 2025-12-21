@@ -226,12 +226,11 @@ describe('phaseValidation', () => {
       expect(phases).not.toContain('game_over');
     });
 
-    it('returns movement, capture, and chain_capture for continue_capture_segment', () => {
+    // RR-CANON-R089: continue_capture_segment is only valid in chain_capture phase
+    it('returns chain_capture for continue_capture_segment', () => {
       const phases = getPhasesForMoveType('continue_capture_segment');
-      expect(phases).toContain('movement');
-      expect(phases).toContain('capture');
       expect(phases).toContain('chain_capture');
-      expect(phases.length).toBe(3);
+      expect(phases.length).toBe(1);
     });
   });
 
