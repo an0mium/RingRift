@@ -3545,7 +3545,7 @@ def train_from_file(
 
 # Re-export CLI functions for backwards compatibility
 # The actual implementations are in train_cli.py
-from app.training.train_cli import main
+from app.training.train_cli import main, parse_args
 
 if __name__ == "__main__":
     main()

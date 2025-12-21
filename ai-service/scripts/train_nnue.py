@@ -278,6 +278,7 @@ def parse_board_type(value: str) -> BoardType:
         "sq19": BoardType.SQUARE19,
         "hexagonal": BoardType.HEXAGONAL,
         "hex": BoardType.HEXAGONAL,
+        "hex8": BoardType.HEX8,
     }
     key = value.lower()
     if key not in mapping:

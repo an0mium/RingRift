@@ -16,11 +16,18 @@ import signal
 import tempfile
 import threading
 import time
+import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+# Filter deprecation warnings for retry_with_backoff - we're testing the deprecated API intentionally
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:retry_with_backoff is deprecated:DeprecationWarning",
+    "ignore:async_retry_with_backoff is deprecated:DeprecationWarning",
+)
 
 from app.training.checkpoint_unified import UnifiedCheckpointConfig
 from app.training.fault_tolerance import (

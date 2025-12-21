@@ -74,6 +74,9 @@ class StreamingConfig:
     quality_lookup: dict[str, float] | None = None
     elo_lookup: dict[str, float] | None = None
 
+    # Freshness filter - exclude games older than N days (None = no limit)
+    freshness_window_days: int | None = None
+
 
 @dataclass
 class GameSample:
@@ -155,10 +158,12 @@ class DatabasePoller:
         db_path: Path,
         board_type: str | None = None,
         num_players: int | None = None,
+        freshness_window_days: int | None = None,
     ):
         self.db_path = db_path
         self.board_type = board_type
         self.num_players = num_players
+        self.freshness_window_days = freshness_window_days
         self._last_poll_time: float = 0
         self._last_game_count: int = 0
         self._seen_game_ids: set[str] = set()
@@ -194,6 +199,11 @@ class DatabasePoller:
             if self.num_players:
                 query += " AND num_players = ?"
                 params.append(self.num_players)
+
+            # Freshness window - only include games from last N days
+            if self.freshness_window_days is not None:
+                query += " AND completed_at >= datetime('now', ?)"
+                params.append(f"-{self.freshness_window_days} days")
 
             query += " ORDER BY completed_at DESC LIMIT ?"
             params.append(limit)
@@ -351,7 +361,10 @@ class StreamingDataPipeline:
 
         # Initialize components
         self.buffer = CircularBuffer(self.config.buffer_size)
-        self.poller = DatabasePoller(db_path, board_type, num_players)
+        self.poller = DatabasePoller(
+            db_path, board_type, num_players,
+            freshness_window_days=self.config.freshness_window_days,
+        )
 
         # Async DB polling with ThreadPoolExecutor
         self._db_executor = ThreadPoolExecutor(max_workers=db_pool_size, thread_name_prefix="db_poll")
