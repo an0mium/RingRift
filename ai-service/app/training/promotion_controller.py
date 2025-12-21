@@ -48,10 +48,23 @@ except ImportError:
 
 # Import centralized timeout constants (December 2025)
 try:
-    from app.config.thresholds import URLOPEN_SHORT_TIMEOUT, URLOPEN_TIMEOUT
+    from app.config.thresholds import (
+        URLOPEN_SHORT_TIMEOUT,
+        URLOPEN_TIMEOUT,
+        ELO_TARGET_ALL_CONFIGS,
+        get_elo_target,
+        get_elo_gap,
+        is_target_met,
+    )
+    HAS_ELO_TARGETS = True
 except ImportError:
     URLOPEN_SHORT_TIMEOUT = 5
     URLOPEN_TIMEOUT = 10
+    ELO_TARGET_ALL_CONFIGS = 2000.0
+    HAS_ELO_TARGETS = False
+    get_elo_target = lambda k: 2000.0
+    get_elo_gap = lambda k, e: max(0.0, 2000.0 - e)
+    is_target_met = lambda k, e: e >= 2000.0
 
 # Event bus integration for auto-promotion on Elo changes (December 2025)
 try:
@@ -98,6 +111,11 @@ class PromotionCriteria:
     tier_elo_threshold: float | None = None
     tier_games_required: int = 100
 
+    # Absolute Elo targets (December 2025)
+    # If enabled, models must meet both relative AND absolute Elo criteria
+    require_absolute_elo_target: bool = True
+    absolute_elo_target: float = ELO_TARGET_ALL_CONFIGS  # Default: 2000.0
+
 
 @dataclass
 class PromotionDecision:
@@ -118,6 +136,12 @@ class PromotionDecision:
     current_tier: str | None = None
     target_tier: str | None = None
 
+    # Absolute Elo target tracking (December 2025)
+    elo_target: float | None = None
+    elo_gap: float | None = None
+    target_met: bool = False
+    blocked_by_target: bool = False  # True if would promote but for target gate
+
     # Metadata
     evaluated_at: str = field(default_factory=lambda: datetime.now().isoformat())
     criteria_used: PromotionCriteria | None = None
@@ -135,6 +159,10 @@ class PromotionDecision:
             "confidence": self.confidence,
             "current_tier": self.current_tier,
             "target_tier": self.target_tier,
+            "elo_target": self.elo_target,
+            "elo_gap": self.elo_gap,
+            "target_met": self.target_met,
+            "blocked_by_target": self.blocked_by_target,
             "evaluated_at": self.evaluated_at,
         }
 
@@ -340,9 +368,16 @@ class PromotionController:
             except Exception as e:
                 logger.warning(f"Failed to get baseline Elo: {e}")
 
+        # Calculate absolute Elo target status (December 2025)
+        config_key = f"{board_type}_{num_players}p"
+        elo_target = get_elo_target(config_key)
+        elo_gap_value = get_elo_gap(config_key, current_elo or 0)
+        target_met = is_target_met(config_key, current_elo or 0)
+
         # Check promotion criteria
         should_promote = False
         reason = ""
+        blocked_by_target = False
 
         if games_played < self.criteria.min_games_played:
             reason = f"Insufficient games ({games_played} < {self.criteria.min_games_played})"
@@ -350,9 +385,24 @@ class PromotionController:
             reason = f"Insufficient Elo improvement ({elo_improvement:.1f} < {self.criteria.min_elo_improvement})"
         elif win_rate is not None and win_rate < self.criteria.min_win_rate:
             reason = f"Win rate too low ({win_rate:.2%} < {self.criteria.min_win_rate:.2%})"
+        elif self.criteria.require_absolute_elo_target and not target_met:
+            # Model meets relative criteria but not absolute target
+            blocked_by_target = True
+            reason = (
+                f"Below absolute Elo target: {current_elo or 0:.0f} < {elo_target:.0f} "
+                f"(gap: {elo_gap_value:.0f} Elo). "
+                f"Meets relative criteria (Elo +{elo_improvement or 0:.1f}, {games_played} games)"
+            )
+            logger.info(
+                f"Model {model_id} blocked by absolute Elo target: "
+                f"{(current_elo or 0):.0f} < {elo_target:.0f} for {config_key}"
+            )
         else:
             should_promote = True
-            reason = f"Meets all criteria: Elo +{elo_improvement or 0:.1f}, {games_played} games"
+            reason = (
+                f"Meets all criteria: Elo +{elo_improvement or 0:.1f}, {games_played} games, "
+                f"absolute Elo {current_elo or 0:.0f} >= {elo_target:.0f}"
+            )
 
         decision = PromotionDecision(
             model_id=model_id,
@@ -363,6 +413,10 @@ class PromotionController:
             elo_improvement=elo_improvement,
             games_played=games_played,
             win_rate=win_rate,
+            elo_target=elo_target,
+            elo_gap=elo_gap_value,
+            target_met=target_met,
+            blocked_by_target=blocked_by_target,
             criteria_used=self.criteria,
         )
 

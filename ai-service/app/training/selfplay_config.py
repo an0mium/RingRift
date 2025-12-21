@@ -44,6 +44,30 @@ class EngineMode(str, Enum):
     CAGE = "cage"  # Constraint-Aware Graph Energy-based optimization (GNN + primal-dual)
 
 
+ENGINE_MODE_ALIASES: dict[str, str] = {
+    # Common alias forms (underscores vs hyphens)
+    "gumbel_mcts": EngineMode.GUMBEL_MCTS.value,
+    "gumbel": EngineMode.GUMBEL_MCTS.value,
+    "policy_only": EngineMode.POLICY_ONLY.value,
+    "nnue_guided": EngineMode.NNUE_GUIDED.value,
+    "nn_minimax": EngineMode.NN_MINIMAX.value,
+    "nn_descent": EngineMode.NN_DESCENT.value,
+    # Common shorthand
+    "mcts-only": EngineMode.MCTS.value,
+    "mcts_only": EngineMode.MCTS.value,
+    "descent": EngineMode.DESCENT_ONLY.value,
+    "heuristic": EngineMode.HEURISTIC.value,
+    "heuristic_only": EngineMode.HEURISTIC.value,
+    "random-only": EngineMode.RANDOM.value,
+}
+
+
+def normalize_engine_mode(raw_mode: str) -> str:
+    """Normalize engine mode aliases to canonical EngineMode values."""
+    normalized = raw_mode.strip().lower()
+    return ENGINE_MODE_ALIASES.get(normalized, normalized)
+
+
 class OutputFormat(str, Enum):
     """Output format for game data."""
     JSONL = "jsonl"
@@ -152,9 +176,7 @@ class SelfplayConfig:
 
         # Convert string engine mode to enum
         if isinstance(self.engine_mode, str):
-            engine_mode = self.engine_mode
-            if engine_mode == "random-only":
-                engine_mode = "random"
+            engine_mode = normalize_engine_mode(self.engine_mode)
             self.engine_mode = EngineMode(engine_mode)
 
         # Convert string output format to enum
@@ -263,8 +285,8 @@ def create_argument_parser(
     # Engine settings
     engine_group = parser.add_argument_group("Engine Settings")
     engine_choices = [e.value for e in EngineMode]
-    if "random-only" not in engine_choices:
-        engine_choices.append("random-only")
+    engine_choices.extend(ENGINE_MODE_ALIASES.keys())
+    engine_choices = sorted(set(engine_choices))
 
     engine_group.add_argument(
         "--engine-mode", "-e",
