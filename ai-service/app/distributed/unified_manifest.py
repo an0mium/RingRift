@@ -452,6 +452,18 @@ class DataManifest:
             "ON dead_letter_queue(source_host, resolved)"
         )
 
+        # Migrate host_states table for ephemeral support
+        host_state_cols = {row[1] for row in cursor.execute("PRAGMA table_info(host_states)")}
+        host_state_migrations = {
+            "is_ephemeral": "INTEGER DEFAULT 0",
+            "storage_type": "TEXT DEFAULT 'persistent'",
+            "poll_interval": "INTEGER DEFAULT 60",
+        }
+        for col, col_type in host_state_migrations.items():
+            if col not in host_state_cols:
+                logger.info(f"Migrating host_states: adding column {col}")
+                cursor.execute(f"ALTER TABLE host_states ADD COLUMN {col} {col_type}")
+
         cursor.execute(
             "INSERT OR IGNORE INTO manifest_metadata (key, value, updated_at) "
             "VALUES ('schema_version', ?, strftime('%s', 'now'))",
