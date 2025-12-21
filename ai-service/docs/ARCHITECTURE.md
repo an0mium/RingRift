@@ -52,7 +52,9 @@ AI instances are cached with LRU eviction (512 max) to maintain persistent searc
 
 ### 2. AI Implementations (`app/ai/`)
 
-Multi-algorithm strategy supporting 11 difficulty levels:
+Multi-algorithm strategy supporting 11 production + 8 experimental difficulty levels:
+
+**Production Tier (D1-D11)**:
 
 | Level | Algorithm | Description                                      |
 | ----- | --------- | ------------------------------------------------ |
@@ -65,14 +67,29 @@ Multi-algorithm strategy supporting 11 difficulty levels:
 | 9-10  | Descent   | AlphaZero-style UBFM search with neural guidance |
 | 11    | Ultimate  | Extended Descent with 60s think time             |
 
+**Experimental Tier (D12-D19)** - Research algorithms for 2000+ Elo:
+
+| Level | Algorithm     | Description                                |
+| ----- | ------------- | ------------------------------------------ |
+| 12    | EBMO          | Energy-Based Model Optimization            |
+| 13    | GMO           | Gradient Move Optimization (68.8% vs MCTS) |
+| 14    | IG-GMO        | Information-Geometric GMO                  |
+| 15    | Gumbel-MCTS   | Gumbel-based MCTS for soft policy targets  |
+| 16    | Improved MCTS | PUCT + transposition tables                |
+| 17    | GMO-MCTS      | Hybrid: GMO priors + MCTS tree search      |
+| 18-19 | GMO v2        | Enhanced GMO with uncertainty estimation   |
+
 Key modules:
 
 - `factory.py` - AIFactory for difficulty → algorithm mapping
 - `heuristic_ai.py` - Territory, capture, stability evaluation
 - `mcts_ai.py` - UCB/RAVE tree search
 - `descent_ai.py` - Upper Confidence Bound From Max
-- `neural_net.py` - ResNet-style CNN architectures
+- `neural_net/` - ResNet-style CNN architectures (v2, v3, v4)
 - `nnue.py` - NNUE incremental evaluation
+- `gumbel_mcts_ai.py` - Gumbel-MCTS with soft policy targets
+- `gmo_ai.py`, `gmo_v2.py` - Gradient Move Optimization variants
+- `gmo_mcts_hybrid.py` - GMO + MCTS hybrid for exploration
 
 ### 3. Game Engine (`app/rules/`, `app/game_engine.py`)
 
