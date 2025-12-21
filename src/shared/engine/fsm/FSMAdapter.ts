@@ -50,6 +50,7 @@ import { hasAnyGlobalMovementOrCapture, playerHasAnyRings } from '../globalActio
 import { isEligibleForRecovery } from '../playerStateHelpers';
 import { VALID_MOVES_BY_PHASE, isMoveValidInPhase } from '../phaseValidation';
 import { getEffectiveLineLengthThreshold, getEffectiveRingsPerPlayer } from '../rulesConfig';
+import { isValidPosition } from '../validators/utils';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TURN ROTATION HELPERS
@@ -487,10 +488,11 @@ function deriveRingPlacementState(
   // if local enumeration doesn't find the position as valid (parity divergence).
   // IMPORTANT: Only trust positions that are within board bounds - out-of-bounds
   // positions are definitively invalid regardless of parity considerations.
-  const boardSize = BOARD_CONFIGS[state.board.type as BoardType]?.size ?? 8;
+  const boardType = state.board.type as BoardType;
+  const boardSize = BOARD_CONFIGS[boardType]?.size ?? 8;
   const isPositionInBounds = (pos: Position | undefined): boolean => {
     if (!pos) return false;
-    return pos.x >= 0 && pos.x < boardSize && pos.y >= 0 && pos.y < boardSize;
+    return isValidPosition(pos, boardType, boardSize);
   };
   const isRecordedPlacementMoveForPlayer =
     moveHint?.type === 'place_ring' &&

@@ -86,7 +86,8 @@ def validate_game(game_data: dict, game_idx: int, verbose: bool = False) -> tupl
         # Parse and apply move
         try:
             move = parse_move(move_data)
-            state = engine.apply_move(state, move)
+            # Use trace_mode=True to match generation semantics
+            state = engine.apply_move(state, move, trace_mode=True)
         except Exception as e:
             return False, f"Move {move_idx}: apply error - {e}"
 
