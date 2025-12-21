@@ -19,6 +19,7 @@ from app.models import (  # type: ignore
     MoveType,
     Player,
     Position,
+    RingStack,
     TimeControl,
 )
 from app.rules.phase_machine import PhaseTransitionInput, advance_phases
@@ -370,6 +371,102 @@ def test_compute_had_any_action_returns_true_after_place_ring():
 
     # PLACE_RING is a real action, so had_any_action should be True
     assert compute_had_any_action_this_turn(state) is True
+
+
+def test_compute_had_any_action_considers_current_move_when_history_empty():
+    """
+    compute_had_any_action_this_turn should account for the current move even
+    when it is not yet in move_history (mirrors TS behaviour).
+    """
+    state = _make_minimal_state(GamePhase.TERRITORY_PROCESSING, current_player=1)
+    now = datetime.now()
+
+    skip_move = Move(
+        id="m-skip",
+        type=MoveType.SKIP_TERRITORY_PROCESSING,
+        player=1,
+        to=Position(x=0, y=0),
+        timestamp=now,
+        thinkTime=0,
+        moveNumber=1,
+    )
+    assert compute_had_any_action_this_turn(state, current_move=skip_move) is True
+
+    no_action_move = Move(
+        id="m-no-territory",
+        type=MoveType.NO_TERRITORY_ACTION,
+        player=1,
+        to=Position(x=0, y=0),
+        timestamp=now,
+        thinkTime=0,
+        moveNumber=1,
+    )
+    assert compute_had_any_action_this_turn(state, current_move=no_action_move) is False
+
+
+def test_no_territory_action_enters_forced_elimination_when_blocked():
+    """
+    NO_TERRITORY_ACTION should enter FORCED_ELIMINATION when the player has
+    no actions this turn but still controls stacks.
+    """
+    state = _make_minimal_state(GamePhase.TERRITORY_PROCESSING, current_player=1)
+    state.players[0].rings_in_hand = 0
+
+    stack_pos = Position(x=0, y=0)
+    state.board.stacks[stack_pos.to_key()] = RingStack(
+        position=stack_pos,
+        rings=[1],
+        stackHeight=1,
+        capHeight=1,
+        controllingPlayer=1,
+    )
+
+    now = datetime.now()
+    state.move_history = [
+        Move(
+            id="m1",
+            type=MoveType.NO_PLACEMENT_ACTION,
+            player=1,
+            to=Position(x=0, y=0),
+            timestamp=now,
+            thinkTime=0,
+            moveNumber=1,
+        ),
+        Move(
+            id="m2",
+            type=MoveType.NO_MOVEMENT_ACTION,
+            player=1,
+            to=Position(x=0, y=0),
+            timestamp=now,
+            thinkTime=0,
+            moveNumber=2,
+        ),
+        Move(
+            id="m3",
+            type=MoveType.NO_LINE_ACTION,
+            player=1,
+            to=Position(x=0, y=0),
+            timestamp=now,
+            thinkTime=0,
+            moveNumber=3,
+        ),
+    ]
+
+    move = Move(
+        id="m4",
+        type=MoveType.NO_TERRITORY_ACTION,
+        player=1,
+        to=Position(x=0, y=0),
+        timestamp=now,
+        thinkTime=0,
+        moveNumber=4,
+    )
+
+    inp = PhaseTransitionInput(game_state=state, last_move=move, trace_mode=False)
+    advance_phases(inp)
+
+    assert state.current_player == 1
+    assert state.current_phase == GamePhase.FORCED_ELIMINATION
 
 
 # -----------------------------------------------------------------------------

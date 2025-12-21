@@ -611,7 +611,7 @@ def compute_fsm_orchestration(
 
     elif current_phase == GamePhase.TERRITORY_PROCESSING:
         if move_type == MoveType.NO_TERRITORY_ACTION:
-            had_action = compute_had_any_action_this_turn(game_state)
+            had_action = compute_had_any_action_this_turn(game_state, current_move=last_move)
             has_stacks = player_has_stacks_on_board(game_state, current_player)
             if not had_action and has_stacks:
                 next_phase = GamePhase.FORCED_ELIMINATION
@@ -621,7 +621,7 @@ def compute_fsm_orchestration(
         elif move_type == MoveType.SKIP_TERRITORY_PROCESSING:
             # Voluntary early stop when region decisions exist.
             # This counts as an action for FE gating (see compute_had_any_action_this_turn).
-            had_action = compute_had_any_action_this_turn(game_state)
+            had_action = compute_had_any_action_this_turn(game_state, current_move=last_move)
             has_stacks = player_has_stacks_on_board(game_state, current_player)
             if not had_action and has_stacks:
                 next_phase = GamePhase.FORCED_ELIMINATION
@@ -649,7 +649,10 @@ def compute_fsm_orchestration(
                 if territory_moves:
                     next_phase = GamePhase.TERRITORY_PROCESSING  # Stay
                 else:
-                    had_action = compute_had_any_action_this_turn(game_state)
+                    had_action = compute_had_any_action_this_turn(
+                        game_state,
+                        current_move=last_move,
+                    )
                     has_stacks = player_has_stacks_on_board(game_state, current_player)
                     if not had_action and has_stacks:
                         next_phase = GamePhase.FORCED_ELIMINATION

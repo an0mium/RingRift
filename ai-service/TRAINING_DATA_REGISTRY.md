@@ -37,9 +37,9 @@ These targets define when large-board datasets are considered ready for training
 
 ### Pending Re-Gate / Needs Regeneration
 
-| Database                 | Board Type | Players | Status           | Gate Summary                       | Issue                                                                                                                                                                                                                                                |
-| ------------------------ | ---------- | ------- | ---------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `canonical_hexagonal.db` | hexagonal  | 2       | **pending_gate** | db_health.canonical_hexagonal.json | 2025-12-20 PAR-02b audit: Gate summary shows `canonical_ok=false`, `passed_canonical_parity_gate=false`, `games_with_structural_issues=1`. Structural error at k=709: "Invalid recovery slide: No buried ring for player 2". **NEEDS REGENERATION.** |
+| Database                 | Board Type | Players | Status           | Gate Summary                         | Issue                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------ | ---------- | ------- | ---------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `canonical_hexagonal.db` | hexagonal  | 2       | **pending_gate** | canonical_hexagonal.parity_gate.json | 2025-12-21 regeneration attempt failed parity: Phase divergence at k=989 (`territory_processing` in Python vs `forced_elimination` in TS). Failure bundle: `parity_failures/canonical_hexagonal__4cbcffac-*.parity_failure.json`. Previous 2025-12-20 issue was recovery slide; new issue is phase transition after `no_territory_action`. **BLOCKED: Requires hex-specific phase transition parity fix in Python GameEngine.** |
 
 ### Legacy / Non-Canonical
 
@@ -57,6 +57,16 @@ _None retained._ All legacy/non-canonical DBs were deleted as part of the 2025-1
 ---
 
 ### Gate Notes (2025-12-07)
+
+- 2025-12-21 HEX-PARITY-01 regeneration attempt: Attempted to regenerate `canonical_hexagonal.db`
+  using `run_canonical_selfplay_parity_gate.py`. Parity gate **failed** at k=989 with a phase
+  transition divergence: Python reports `territory_processing` while TS reports `forced_elimination`
+  after a `no_territory_action` move. This is a **different bug** than the 2025-12-20 recovery slide
+  issue. The divergence occurs in late-game stalemate scenarios where the phase state machine
+  transitions differently between implementations. A parity failure bundle was saved to:
+  `parity_failures/canonical_hexagonal__4cbcffac-083f-42b8-8c69-44628889ef34__k989.parity_failure.json`.
+  **FOLLOW-UP REQUIRED:** Fix hex-specific phase transition parity in Python GameEngine
+  (likely in territory→forced_elimination transition logic).
 
 - 2025-12-20 PAR-02b hex parity audit: Verified that the PAR-01 self-capture fix (removal of
   `controlling_player != player` check in [`capture_chain.py:266-272`](app/rules/capture_chain.py:266))
@@ -90,17 +100,18 @@ _None retained._ All legacy/non-canonical DBs were deleted as part of the 2025-1
 
 ### Model Provenance Table
 
-| Model File                                | Training Data               | Status                  | Notes                                                                                                                                   |
-| ----------------------------------------- | --------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `ringrift_v1.pth`                         | Legacy selfplay DBs         | **legacy_noncanonical** | Main model, needs retraining on canonical data                                                                                          |
-| `ringrift_v1.pth.legacy`                  | Early selfplay DBs          | **legacy_noncanonical** | Original v1, historical only                                                                                                            |
-| `ringrift_v1_legacy_nested.pth`           | Legacy nested replay export | **legacy_noncanonical** | Do not use                                                                                                                              |
-| `ringrift_v1_mps.pth`                     | Legacy selfplay DBs         | **legacy_noncanonical** | MPS variant, needs retraining                                                                                                           |
-| `ringrift_v1_mps_2025*.pth`               | Legacy selfplay DBs         | **legacy_noncanonical** | MPS checkpoints                                                                                                                         |
-| `ringrift_v1_2025*.pth`                   | Legacy selfplay DBs         | **legacy_noncanonical** | v1 checkpoints from Nov 2025                                                                                                            |
-| `ringrift_from_replays_square8.pth`       | Mixed replay DBs            | **legacy_noncanonical** | Trained from legacy replays                                                                                                             |
-| `ringrift_from_replays_square8_2025*.pth` | Mixed replay DBs            | **legacy_noncanonical** | Checkpoints from legacy replays                                                                                                         |
-| `ringrift_v1_hex*.pth`                    | Legacy hex DBs (radius 10)  | ⚠️ **DEPRECATED_R10**   | Old hex geometry (331 cells, 36 rings, 21×21 input). Do not load; retrain on new radius-12 geometry (469 cells, 96 rings, 25×25 input). |
+| Model File                                | Training Data                                        | Status                  | Notes                                                                                                                                                                                            |
+| ----------------------------------------- | ---------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ringrift_v1.pth`                         | Legacy selfplay DBs                                  | **legacy_noncanonical** | Main model, needs retraining on canonical data                                                                                                                                                   |
+| `ringrift_v1.pth.legacy`                  | Early selfplay DBs                                   | **legacy_noncanonical** | Original v1, historical only                                                                                                                                                                     |
+| `ringrift_v1_legacy_nested.pth`           | Legacy nested replay export                          | **legacy_noncanonical** | Do not use                                                                                                                                                                                       |
+| `ringrift_v1_mps.pth`                     | Legacy selfplay DBs                                  | **legacy_noncanonical** | MPS variant, needs retraining                                                                                                                                                                    |
+| `ringrift_v1_mps_2025*.pth`               | Legacy selfplay DBs                                  | **legacy_noncanonical** | MPS checkpoints                                                                                                                                                                                  |
+| `ringrift_v1_2025*.pth`                   | Legacy selfplay DBs                                  | **legacy_noncanonical** | v1 checkpoints from Nov 2025                                                                                                                                                                     |
+| `ringrift_from_replays_square8.pth`       | Mixed replay DBs                                     | **legacy_noncanonical** | Trained from legacy replays                                                                                                                                                                      |
+| `ringrift_from_replays_square8_2025*.pth` | Mixed replay DBs                                     | **legacy_noncanonical** | Checkpoints from legacy replays                                                                                                                                                                  |
+| `ringrift_v1_hex*.pth`                    | Legacy hex DBs (radius 10)                           | ⚠️ **DEPRECATED_R10**   | Old hex geometry (331 cells, 36 rings, 21×21 input). Do not load; retrain on new radius-12 geometry (469 cells, 96 rings, 25×25 input).                                                          |
+| `nnue_policy_square8_2p_canonical.pth`    | Gumbel MCTS selfplay (838 games, early-game focused) | **canonical**           | 2025-12-21 V6 model: 60.23% policy accuracy, 55% win rate vs baseline (100-game A/B test). Conservative hyperparams (80 epochs, 0.0002 LR) on first 50 moves. Best performing NNUE policy model. |
 
 ### Target Canonical Models
 

@@ -63,7 +63,10 @@ def _is_no_action_bookkeeping_move(move_type: MoveType) -> bool:
     }
 
 
-def compute_had_any_action_this_turn(game_state: GameState) -> bool:
+def compute_had_any_action_this_turn(
+    game_state: GameState,
+    current_move: Move | None = None,
+) -> bool:
     """
     Python analogue of the TS computeHadAnyActionThisTurn helper.
 
@@ -75,6 +78,15 @@ def compute_had_any_action_this_turn(game_state: GameState) -> bool:
     """
     current_player = game_state.current_player
     history = game_state.move_history
+
+    # Mirror TS computeHadAnyActionThisTurn: include the current move being
+    # applied when it may not yet be present in move_history.
+    if (
+        current_move is not None
+        and current_move.player == current_player
+        and not _is_no_action_bookkeeping_move(current_move.type)
+    ):
+        return True
 
     for move in reversed(history):
         if move.player != current_player:
@@ -123,24 +135,61 @@ def _did_process_territory_region(game_state: GameState, move: Move) -> bool:
     return move.to is None and not move.disconnected_regions
 
 
-def _on_line_processing_complete(game_state: GameState, *, trace_mode: bool) -> None:
+def _on_line_processing_complete(
+    game_state: GameState,
+    *,
+    trace_mode: bool,
+    last_move: Move | None = None,
+) -> None:
     """
     Shared helper for exiting LINE_PROCESSING.
 
-    Per RR-CANON-R075, every phase must be visited and produce a recorded
-    action. Always advance to TERRITORY_PROCESSING so hosts can emit
-    no_territory_action when there are no regions. The subsequent
-    _on_territory_processing_complete will handle the FE/turn-end decision.
+    Mirrors TS processPostMovePhases behavior after line-phase completion:
+
+    - If at least one canonical territory region exists, the next phase is
+      `territory_processing`.
+    - If no territory regions exist AND the player had **no actions this turn**
+      AND they still control stacks, the next phase is `forced_elimination`
+      (per RR-CANON-R070/R204).
+    - Otherwise, advance to territory_processing where _on_territory_processing_complete
+      will handle the FE/turn-end decision.
+
+    RR-FIX-HEX-PARITY-01-2025-12-21: Previously this function always advanced to
+    territory_processing, but TS can skip directly to forced_elimination when
+    !hasTerritoryRegions && !hadAnyActionThisTurn && playerHasStacks. This caused
+    hex board parity divergence where Python stayed in territory_processing while
+    TS transitioned to forced_elimination after no_line_action.
     """
     from app.game_engine import GameEngine
 
+    current_player = game_state.current_player
+    had_any_action = compute_had_any_action_this_turn(game_state, current_move=last_move)
+    has_stacks = player_has_stacks_on_board(game_state, current_player)
+
+    # Check if any territory regions exist (mirrors TS processPostMovePhases)
+    territory_moves = GameEngine._get_territory_processing_moves(game_state, current_player)
+    has_territory_regions = len(territory_moves) > 0
+
+    if not has_territory_regions and not had_any_action and has_stacks:
+        # Per TS parity: skip territory_processing and go directly to forced_elimination
+        # when no territory regions exist and player had no actions but has material.
+        # This matches TS onLineProcessingComplete -> 'forced_elimination' branch.
+        game_state.current_phase = GamePhase.FORCED_ELIMINATION
+        return
+
+    # Otherwise, advance to territory_processing
     GameEngine._advance_to_territory_processing(
         game_state,
         trace_mode=trace_mode,
     )
 
 
-def _on_territory_processing_complete(game_state: GameState, *, trace_mode: bool) -> None:
+def _on_territory_processing_complete(
+    game_state: GameState,
+    *,
+    trace_mode: bool,
+    last_move: Move | None = None,
+) -> None:
     """
     Shared helper for exiting TERRITORY_PROCESSING.
 
@@ -155,7 +204,7 @@ def _on_territory_processing_complete(game_state: GameState, *, trace_mode: bool
     from app.game_engine import GameEngine
 
     current_player = game_state.current_player
-    had_any_action = compute_had_any_action_this_turn(game_state)
+    had_any_action = compute_had_any_action_this_turn(game_state, current_move=last_move)
     has_stacks = player_has_stacks_on_board(game_state, current_player)
 
     if not had_any_action and has_stacks:
@@ -332,7 +381,11 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
             # CHOOSE_LINE_OPTION move (legacy: CHOOSE_LINE_REWARD).
             game_state.current_phase = GamePhase.LINE_PROCESSING
         else:
-            _on_line_processing_complete(game_state, trace_mode=trace_mode)
+            _on_line_processing_complete(
+                game_state,
+                trace_mode=trace_mode,
+                last_move=last_move,
+            )
 
     elif last_move.type == MoveType.NO_LINE_ACTION:
         # Forced no-op: player entered line_processing but had no lines to process.
@@ -343,7 +396,11 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
         # - enter FORCED_ELIMINATION when the player had no actions this turn but
         #   still controls stacks; or
         # - end the turn and rotate to the next player.
-        _on_line_processing_complete(game_state, trace_mode=trace_mode)
+        _on_line_processing_complete(
+            game_state,
+            trace_mode=trace_mode,
+            last_move=last_move,
+        )
         # If we landed in TERRITORY_PROCESSING with no regions, surface the
         # requirement so hosts record NO_TERRITORY_ACTION (prevents silent
         # territory skip leaving the next placement in the wrong phase).
@@ -389,7 +446,11 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
             # entered TERRITORY_PROCESSING and had *no* eligible territory decisions
             # at all (forced no-op). It is not required as a "closing" move after
             # executing territory decisions.
-            _on_territory_processing_complete(game_state, trace_mode=trace_mode)
+            _on_territory_processing_complete(
+                game_state,
+                trace_mode=trace_mode,
+                last_move=last_move,
+            )
 
     elif last_move.type in (
         MoveType.CHOOSE_TERRITORY_OPTION,
@@ -421,21 +482,33 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
             # - enter FORCED_ELIMINATION when the player had no actions this
             #   entire turn but still controls stacks; or
             # - end the turn and rotate to the next player.
-            _on_territory_processing_complete(game_state, trace_mode=trace_mode)
+            _on_territory_processing_complete(
+                game_state,
+                trace_mode=trace_mode,
+                last_move=last_move,
+            )
 
     elif last_move.type == MoveType.SKIP_TERRITORY_PROCESSING:
         # Voluntary stop: territory processing is an optional subset. Treat the
         # phase as complete for this player and delegate to the shared
         # post-territory helper so we either enter FORCED_ELIMINATION (ANM +
         # material) or end the turn and rotate to the next player.
-        _on_territory_processing_complete(game_state, trace_mode=trace_mode)
+        _on_territory_processing_complete(
+            game_state,
+            trace_mode=trace_mode,
+            last_move=last_move,
+        )
 
     elif last_move.type == MoveType.NO_TERRITORY_ACTION:
         # Forced no-op: player entered territory_processing but had no eligible
         # regions. Per RR-CANON-R075, this move marks that the phase was visited.
         # After a NO_TERRITORY_ACTION, treat territory_processing as complete for
         # this player and delegate to the canonical post-territory helper.
-        _on_territory_processing_complete(game_state, trace_mode=trace_mode)
+        _on_territory_processing_complete(
+            game_state,
+            trace_mode=trace_mode,
+            last_move=last_move,
+        )
 
     elif last_move.type == MoveType.TERRITORY_CLAIM:
         # Legacy territory claim move; kept for replay compatibility.
