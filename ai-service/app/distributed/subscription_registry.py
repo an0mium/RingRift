@@ -37,6 +37,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.core.registry_base import SingletonMixin
+
 logger = logging.getLogger(__name__)
 
 
@@ -66,14 +68,14 @@ class SubscriptionStats:
     active_since: float = 0.0
 
 
-class SubscriptionRegistry:
+class SubscriptionRegistry(SingletonMixin):
     """Registry tracking all event subscriptions.
 
     Provides visibility into which components are subscribed to which events,
     helping debug event flow issues and monitor system integration.
-    """
 
-    _instance: SubscriptionRegistry | None = None
+    Uses SingletonMixin for thread-safe singleton pattern.
+    """
 
     def __init__(self):
         """Initialize the subscription registry."""
@@ -99,12 +101,7 @@ class SubscriptionRegistry:
         # Hook into event bus if available
         self._hooked: bool = False
 
-    @classmethod
-    def get_instance(cls) -> SubscriptionRegistry:
-        """Get the singleton instance."""
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
+    # get_instance() inherited from SingletonMixin (thread-safe)
 
     def track(
         self,

@@ -431,9 +431,69 @@ class TTLRegistryMixin:
         return cursor.rowcount
 
 
+# =============================================================================
+# Singleton Mixin for In-Memory Registries
+# =============================================================================
+
+
+class SingletonMixin:
+    """Thread-safe singleton mixin for in-memory registries.
+
+    Provides a simple, thread-safe singleton pattern for registries that
+    don't need SQLite persistence. Use this for:
+    - HealthRegistry (function/callback registry)
+    - SubscriptionRegistry (event subscription tracking)
+    - Other lightweight in-memory registries
+
+    For SQLite-based registries, use UnifiedRegistryBase instead.
+
+    Usage:
+        class MyRegistry(SingletonMixin):
+            def __init__(self):
+                self.data = {}
+
+            # ... registry methods ...
+
+        # Access singleton
+        registry = MyRegistry.get_instance()
+    """
+
+    _instance: Any = None
+    _instance_lock: threading.Lock = threading.Lock()
+
+    @classmethod
+    def get_instance(cls) -> "SingletonMixin":
+        """Get singleton instance (thread-safe).
+
+        Returns:
+            Registry singleton instance
+        """
+        if cls._instance is None:
+            with cls._instance_lock:
+                # Double-check locking pattern
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset singleton instance (for testing).
+
+        Clears the singleton, so next get_instance() creates fresh instance.
+        """
+        with cls._instance_lock:
+            if hasattr(cls._instance, "close"):
+                try:
+                    cls._instance.close()
+                except Exception:
+                    pass
+            cls._instance = None
+
+
 __all__ = [
     "RegistryConfig",
     "RegistryStats",
+    "SingletonMixin",
     "TTLRegistryMixin",
     "TimestampedRegistryMixin",
     "UnifiedRegistryBase",
