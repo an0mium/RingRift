@@ -536,7 +536,12 @@ def compute_fsm_orchestration(
 
     current_phase = game_state.current_phase
     current_player = game_state.current_player
-    move_type = last_move.type
+    raw_move_type = last_move.type.value if hasattr(last_move.type, "value") else str(last_move.type)
+    normalized_type_str = convert_legacy_move_type(raw_move_type, warn=False)
+    try:
+        move_type = MoveType(normalized_type_str)
+    except ValueError:
+        move_type = last_move.type
 
     # Default result
     next_phase = current_phase
@@ -603,7 +608,7 @@ def compute_fsm_orchestration(
             # RR-CANON-R075: Always visit TERRITORY_PROCESSING as a distinct phase.
             # When no regions exist, the host emits NO_TERRITORY_ACTION next.
             next_phase = GamePhase.TERRITORY_PROCESSING
-        elif move_type in (MoveType.PROCESS_LINE, MoveType.CHOOSE_LINE_OPTION, MoveType.CHOOSE_LINE_REWARD):
+        elif move_type in (MoveType.PROCESS_LINE, MoveType.CHOOSE_LINE_OPTION):
             # Check for more lines
             line_moves = [
                 m
@@ -638,7 +643,6 @@ def compute_fsm_orchestration(
                 next_player = _next_active_player(game_state)
         elif move_type in (
             MoveType.CHOOSE_TERRITORY_OPTION,
-            MoveType.PROCESS_TERRITORY_REGION,
             MoveType.ELIMINATE_RINGS_FROM_STACK,
         ):
             # Per legacy parity: non-processable territory decisions are a no-op
@@ -700,7 +704,6 @@ def compute_fsm_orchestration(
             MoveType.NO_LINE_ACTION,
             MoveType.PROCESS_LINE,
             MoveType.CHOOSE_LINE_OPTION,
-            MoveType.CHOOSE_LINE_REWARD,  # legacy alias
         ):
             pending_decision_type = "no_line_action_required"
 
@@ -722,7 +725,6 @@ def compute_fsm_orchestration(
             MoveType.NO_TERRITORY_ACTION,
             MoveType.SKIP_TERRITORY_PROCESSING,
             MoveType.CHOOSE_TERRITORY_OPTION,
-            MoveType.PROCESS_TERRITORY_REGION,
             MoveType.ELIMINATE_RINGS_FROM_STACK,
         ):
             pending_decision_type = "no_territory_action_required"
