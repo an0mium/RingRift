@@ -32,7 +32,6 @@ Usage:
 
 See also:
     - app.coordination.distributed_lock: Cross-process Redis/file locks
-    - app.coordination.lock_manager: In-process async locks with deadlock detection
 """
 
 from __future__ import annotations

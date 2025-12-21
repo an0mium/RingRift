@@ -547,6 +547,8 @@ class GameEngine:
             new_state.zobrist_hash ^= zobrist.get_player_hash(new_state.current_player)
             new_state.zobrist_hash ^= zobrist.get_phase_hash(new_state.current_phase)
 
+        is_terminal_move = move.type in (MoveType.RESIGN, MoveType.TIMEOUT)
+
         if move.type == MoveType.SWAP_SIDES:
             GameEngine._apply_swap_sides(new_state, move)
         elif move.type == MoveType.PLACE_RING:
@@ -621,6 +623,9 @@ class GameEngine:
             option = getattr(move, "recovery_option", None) or 1
             collapse_positions = getattr(move, "collapse_positions", None)
             apply_recovery_slide(new_state, move, option=option, collapse_positions=collapse_positions)
+        elif move.type in (MoveType.RESIGN, MoveType.TIMEOUT):
+            # Terminal moves: no board mutation, handled after bookkeeping.
+            pass
 
         # Update move history
         new_state.move_history.append(move)
@@ -652,8 +657,11 @@ class GameEngine:
             if from_key == new_state.must_move_from_stack_key:
                 new_state.must_move_from_stack_key = move.to.to_key()
 
-        # Handle phase transitions
-        GameEngine._update_phase(new_state, move, trace_mode=trace_mode)
+        if is_terminal_move:
+            GameEngine._apply_terminal_move(new_state, move)
+        else:
+            # Handle phase transitions
+            GameEngine._update_phase(new_state, move, trace_mode=trace_mode)
 
         # Update hash for phase/player change (add new)
         if new_state.zobrist_hash is not None:
@@ -669,6 +677,9 @@ class GameEngine:
             # log/warn or just accept it if it's a known deviation.
             # For now, we'll assume correctness of logic but this hook is here.
             pass
+
+        if is_terminal_move:
+            return new_state
 
         # Check victory conditions
         GameEngine._check_victory(new_state)
@@ -698,6 +709,21 @@ class GameEngine:
             new_state.zobrist_hash = ZobristHash().compute_initial_hash(new_state)
 
         return new_state
+
+    @staticmethod
+    def _apply_terminal_move(game_state: GameState, move: Move) -> None:
+        """Apply a terminal meta-move (resign/timeout) to end the game."""
+        game_state.game_status = GameStatus.COMPLETED
+        game_state.current_phase = GamePhase.GAME_OVER
+
+        if len(game_state.players) == 2:
+            winner = next(
+                (p.player_number for p in game_state.players if p.player_number != move.player),
+                None,
+            )
+            game_state.winner = winner
+        else:
+            game_state.winner = None
 
     @staticmethod
     def _assert_phase_move_invariant(
@@ -735,8 +761,8 @@ class GameEngine:
         phase = game_state.current_phase
         mtype = move.type
 
-        # Meta-move allowed in any phase
-        if mtype == MoveType.SWAP_SIDES:
+        # Meta-moves allowed in any phase
+        if mtype in (MoveType.SWAP_SIDES, MoveType.RESIGN, MoveType.TIMEOUT):
             return
 
         # Legacy/experimental move types – accept for now, but callers

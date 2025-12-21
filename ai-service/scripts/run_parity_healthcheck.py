@@ -21,9 +21,9 @@ NOTE: This harness intentionally reuses existing test helper modules under
 ``ai-service/tests`` rather than duplicating parity logic. It should remain
 light-weight and non-invasive; it does not change rules semantics.
 
-TODO(P17.B7): once validated, wire this summary into the TS-side
-``ringrift_rules_parity_mismatches_total{mismatch_type,suite}`` metric and
-PARITY-* catalogue described in docs/INVARIANTS_AND_PARITY_FRAMEWORK.md.
+RESOLVED(P17.B7): Prometheus metrics integration added via --emit-prometheus-metrics flag.
+The summary is now wired into ``ringrift_parity_mismatches_total{mismatch_type,suite}``
+metric via app.metrics.parity.emit_parity_summary_metrics().
 """
 
 from __future__ import annotations
@@ -390,6 +390,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help=("If set, exit with non-zero status when any mismatches are " "observed. Intended for CI/nightly gates."),
     )
+    parser.add_argument(
+        "--emit-prometheus-metrics",
+        action="store_true",
+        help=("If set, emit Prometheus metrics for parity healthcheck results. " "Resolves TODO(P17.B7) for metrics integration."),
+    )
     return parser.parse_args(argv)
 
 
@@ -404,6 +409,25 @@ def main(argv: Sequence[str] | None = None) -> None:  # pragma: no cover
         os.makedirs(directory, exist_ok=True)
         with open(args.summary_json, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, sort_keys=True)
+
+    # Emit Prometheus metrics if requested (resolves TODO P17.B7)
+    if getattr(args, "emit_prometheus_metrics", False):
+        try:
+            from app.metrics.parity import emit_parity_summary_metrics
+
+            # Transform summary to expected format
+            metrics_summary = {
+                "total_cases": summary.get("total_cases", 0),
+                "total_mismatches": summary.get("mismatches_total", 0),
+                "mismatches_by_type": summary.get("mismatches_by_type", {}),
+                "mismatches_by_suite": summary.get("mismatches_by_suite", {}),
+            }
+            emit_parity_summary_metrics(metrics_summary)
+            print("Prometheus metrics emitted successfully.")
+        except ImportError as e:
+            print(f"Warning: Could not import metrics module: {e}")
+        except Exception as e:
+            print(f"Warning: Failed to emit Prometheus metrics: {e}")
 
     if args.fail_on_mismatch and summary.get("mismatches_total", 0) > 0:
         raise SystemExit(1)

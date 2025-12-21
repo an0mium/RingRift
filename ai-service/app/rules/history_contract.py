@@ -21,6 +21,12 @@ CanonicalPhase = Literal[
     "forced_elimination",
 ]
 
+# Move types that are always valid regardless of phase (meta/terminal moves).
+ALWAYS_VALID_MOVE_TYPES: tuple[str, ...] = (
+    "resign",
+    "timeout",
+)
+
 
 def phase_move_contract() -> dict[CanonicalPhase, tuple[str, ...]]:
     """
@@ -121,9 +127,24 @@ def validate_canonical_move(phase: str | None, move_type: str) -> CanonicalMoveC
       is inconsistent, ok will be False and reason will describe why.
     """
     raw_phase = (phase or "").strip()
-    eff_phase = raw_phase or derive_phase_from_move_type(move_type)
-
     contract = phase_move_contract()
+
+    if move_type in ALWAYS_VALID_MOVE_TYPES:
+        if not raw_phase:
+            return CanonicalMoveCheckResult(
+                ok=False,
+                effective_phase="",
+                reason=f"missing_phase_for_meta_move:{move_type}",
+            )
+        if raw_phase not in contract:
+            return CanonicalMoveCheckResult(
+                ok=False,
+                effective_phase=raw_phase,
+                reason=f"non_canonical_phase:{raw_phase}",
+            )
+        return CanonicalMoveCheckResult(ok=True, effective_phase=raw_phase, reason=None)
+
+    eff_phase = raw_phase or derive_phase_from_move_type(move_type)
 
     if not eff_phase:
         return CanonicalMoveCheckResult(

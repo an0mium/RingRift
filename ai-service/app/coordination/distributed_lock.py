@@ -11,13 +11,13 @@ Features:
 - Lock timeout and retry support
 - Context manager interface
 
-When to Use This vs LockManager (December 2025):
+When to Use This (December 2025):
 - **DistributedLock** (this module): Use for cross-node/cross-process
   coordination. Uses Redis or file locks for true distributed locking.
   Suitable for training locks, model registry, resource allocation.
 
-- **LockManager** (app.coordination.lock_manager): Use for in-process
-  async coordination with deadlock detection. Suitable for coordinating
+- **LockHierarchy** (app.core.locking): Use for in-process async coordination
+  with deadlock prevention through lock ordering. Suitable for coordinating
   async tasks within a single Python process.
 
 Usage:
@@ -68,7 +68,7 @@ class LockProtocol(Protocol):
     This protocol abstracts over different lock implementations:
     - DistributedLock (this module): Cross-node/cross-process coordination
     - SyncMutex (sync_mutex.py): SQLite-based mutex
-    - LockManager (lock_manager.py): In-process async locks
+    - LockHierarchy (app.core.locking): In-process async locks with ordering
 
     Usage:
         def with_lock(lock: LockProtocol, operation: Callable):
