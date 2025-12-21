@@ -889,7 +889,11 @@ def train_model(
     dtype_map = {'float16': torch.float16, 'bfloat16': torch.bfloat16}
     amp_torch_dtype = dtype_map.get(amp_dtype, torch.bfloat16)
     use_grad_scaler = bool(amp_enabled and amp_torch_dtype == torch.float16)
-    scaler = torch.amp.GradScaler('cuda', enabled=use_grad_scaler)
+    # GradScaler API changed in PyTorch 2.4+: torch.amp.GradScaler vs torch.cuda.amp.GradScaler
+    if hasattr(torch.amp, 'GradScaler'):
+        scaler = torch.amp.GradScaler('cuda', enabled=use_grad_scaler)
+    else:
+        scaler = torch.cuda.amp.GradScaler(enabled=use_grad_scaler)
     if amp_enabled:
         logger.info(f"Mixed precision training enabled with {amp_dtype}")
 
