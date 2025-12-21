@@ -455,25 +455,55 @@ def build_encoder(
     return encoder
 
 
-def parse_position(pos_dict: dict[str, Any] | None) -> Position | None:
-    """Parse position dict to Position object."""
-    if pos_dict is None:
+def parse_position(pos_data: dict[str, Any] | list | None) -> Position | None:
+    """Parse position dict or list to Position object.
+
+    Handles both formats:
+    - Dict: {"x": 6, "y": 6, "z": None}
+    - List: [6, 6] or [6, 6, z]
+    """
+    if pos_data is None:
         return None
+    if isinstance(pos_data, list):
+        # GPU selfplay format: [y, x] or [y, x, z]
+        return Position(
+            x=pos_data[1] if len(pos_data) > 1 else 0,
+            y=pos_data[0] if len(pos_data) > 0 else 0,
+            z=pos_data[2] if len(pos_data) > 2 else None,
+        )
     return Position(
-        x=pos_dict.get("x", 0),
-        y=pos_dict.get("y", 0),
-        z=pos_dict.get("z"),
+        x=pos_data.get("x", 0),
+        y=pos_data.get("y", 0),
+        z=pos_data.get("z"),
     )
 
 
 def parse_move(move_dict: dict[str, Any]) -> Move:
-    """Parse move dict from JSONL to Move object."""
+    """Parse move dict from JSONL to Move object.
+
+    Handles both canonical format and GPU selfplay format:
+    - Canonical: {"type": "place_ring", "from": {...}, "to": {...}}
+    - GPU selfplay: {"move_type": "PLACEMENT", "from_pos": [...], "to_pos": [...]}
+    """
+    # Handle move_type vs type field
+    move_type = move_dict.get("type") or move_dict.get("move_type", "unknown")
+    # Normalize GPU selfplay move types to canonical
+    gpu_type_map = {
+        "PLACEMENT": "place_ring",
+        "MOVEMENT": "move_stack",
+        "CAPTURE": "overtaking_capture",
+        "LINE": "process_line",
+        "TERRITORY": "process_territory_region",
+    }
+    if move_type in gpu_type_map:
+        move_type = gpu_type_map[move_type]
+
     return Move(
         id=move_dict.get("id", "imported"),
-        type=move_dict.get("type", "unknown"),
+        type=move_type,
         player=move_dict.get("player", 1),
         from_pos=parse_position(move_dict.get("from_pos") or move_dict.get("from")),
-        to=parse_position(move_dict.get("to")),
+        to=parse_position(move_dict.get("to_pos") or move_dict.get("to")),
         capture_target=parse_position(move_dict.get("capture_target")),
         captured_stacks=move_dict.get("captured_stacks"),
         capture_chain=move_dict.get("capture_chain"),
