@@ -58,6 +58,12 @@ from .unified_signals import (
     TrainingUrgency,
     get_signal_computer,
 )
+from .improvement_optimizer import (
+    get_improvement_optimizer,
+    get_dynamic_threshold,
+    get_selfplay_priority_boost,
+    should_fast_track_training as optimizer_should_fast_track,
+)
 
 logger = logging.getLogger(__name__)
 
