@@ -46,6 +46,7 @@ import os
 import subprocess
 import sys
 import time
+import tempfile
 from datetime import datetime
 from typing import Any, Optional
 
@@ -94,18 +95,25 @@ def check_nn_quality_gate(
     print(f"Games: {num_games}")
     print()
 
-    # Run tournament: Neural vs Heuristic
-    # Use run_tournament.py basic mode for consistent evaluation
+    if num_players != 2:
+        print("[NN Quality Gate] Skipping gate (only 2-player eval supported).")
+        return False, 0.0
+
+    with tempfile.NamedTemporaryFile(mode="w+", suffix=".json", delete=False) as tmp:
+        output_path = tmp.name
+
+    # Run evaluation: Neural vs Heuristic
     cmd = [
         sys.executable,
-        "scripts/run_tournament.py",
-        "basic",
-        "--p1", "Neural",
-        "--p1-model", nn_model_path,
-        "--p2", "Heuristic",
+        "scripts/evaluate_ai_models.py",
+        "--player1", "neural_network",
+        "--player2", "baseline_heuristic",
+        "--checkpoint", nn_model_path,
         "--board", board_type,
         "--games", str(num_games),
         "--max-moves", str(max_moves),
+        "--output", output_path,
+        "--quiet",
     ]
 
     env = os.environ.copy()
@@ -121,28 +129,17 @@ def check_nn_quality_gate(
             cwd=os.path.dirname(os.path.dirname(__file__)),
         )
 
-        output = result.stdout + result.stderr
-
-        # Parse win rate from output
-        # Look for patterns like "P1 wins: 12/20 (60.0%)" or "Win rate: 0.60"
         winrate = 0.0
-
-        # Try percentage pattern first
-        match = re.search(r"P1.*?(\d+\.?\d*)%", output)
-        if match:
-            winrate = float(match.group(1)) / 100.0
-        else:
-            # Try fraction pattern: "12/20"
-            match = re.search(r"P1.*?(\d+)/(\d+)", output)
+        try:
+            with open(output_path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+            winrate = float(payload["results"]["player1_win_rate"])
+        except Exception as exc:
+            output = result.stdout + result.stderr
+            print(f"[NN Quality Gate] Failed to parse output JSON: {exc}")
+            match = re.search(r"Rate:\s*(\d+\.?\d*)%", output, re.IGNORECASE)
             if match:
-                wins = int(match.group(1))
-                total = int(match.group(2))
-                winrate = wins / max(total, 1)
-            else:
-                # Try decimal pattern
-                match = re.search(r"Win rate:\s*(\d+\.?\d*)", output)
-                if match:
-                    winrate = float(match.group(1))
+                winrate = float(match.group(1)) / 100.0
 
         passed = winrate >= quality_threshold
 
@@ -163,6 +160,12 @@ def check_nn_quality_gate(
     except Exception as e:
         print(f"[NN Quality Gate] Error running tournament: {e}")
         return False, 0.0
+    finally:
+        try:
+            if os.path.exists(output_path):
+                os.remove(output_path)
+        except Exception:
+            pass
 
 
 def get_profile_key(board: str, num_players: int) -> str:
