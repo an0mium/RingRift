@@ -96,6 +96,7 @@ __all__ = [
     "HAS_CURRICULUM",
     "HAS_DATASETS",
     "HAS_DATA_LOADERS",
+    "HAS_DISTILLATION",
     "HAS_DISTRIBUTED_HELPERS",
     "HAS_DISTRIBUTED_UNIFIED",
     "HAS_EBMO_ONLINE",
@@ -131,6 +132,13 @@ __all__ = [
     "CurriculumState",
     "create_default_curriculum",
     "DataAugmentor",
+    # Knowledge Distillation
+    "DistillationConfig",
+    "DistillationTrainer",
+    "EnsembleTeacher",
+    "SoftTargetLoss",
+    "create_distillation_trainer",
+    "distill_checkpoint_ensemble",
     # Distributed helpers
     "DistributedConfig",
     "DistributedMetrics",
@@ -642,3 +650,24 @@ try:
     HAS_CURRICULUM = True
 except ImportError:
     HAS_CURRICULUM = False
+
+# =============================================================================
+# Knowledge Distillation (December 2025)
+# =============================================================================
+# Provides knowledge transfer from teacher models to student models:
+# - Soft target loss with temperature scaling
+# - Ensemble teacher support for combining multiple models
+# - Checkpoint ensemble distillation for model compression
+
+try:
+    from app.training.distillation import (
+        DistillationConfig,
+        DistillationTrainer,
+        EnsembleTeacher,
+        SoftTargetLoss,
+        create_distillation_trainer,
+        distill_checkpoint_ensemble,
+    )
+    HAS_DISTILLATION = True
+except ImportError:
+    HAS_DISTILLATION = False
