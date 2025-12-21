@@ -775,7 +775,12 @@ export function fingerprintGameState(state: GameState): string {
   const metaPlayer = isTerminal ? 0 : state.currentPlayer;
   const metaPhase: GamePhase = isTerminal ? 'game_over' : state.currentPhase;
 
-  const meta = `${metaPlayer}:${metaPhase}:${canonicalStatus}`;
+  // RR-PARITY-FIX-2025-12-21: Include pendingLineRewardElimination in hash
+  // to detect ANM divergence between TS and Python. This flag affects
+  // hasPhaseLocalInteractiveMove in LINE_PROCESSING phase.
+  const pendingLine = state.pendingLineRewardElimination ? '1' : '0';
+
+  const meta = `${metaPlayer}:${metaPhase}:${canonicalStatus}:${pendingLine}`;
 
   return [
     meta,

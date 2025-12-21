@@ -392,7 +392,12 @@ def hash_game_state(state: GameState) -> str:
     meta_player = 0 if is_terminal else state.current_player
     meta_phase = "game_over" if is_terminal else current_phase
 
-    meta = f"{meta_player}:{meta_phase}:{game_status}"
+    # RR-PARITY-FIX-2025-12-21: Include pendingLineRewardElimination in hash
+    # to detect ANM divergence between TS and Python. This flag affects
+    # has_phase_local_interactive_move in LINE_PROCESSING phase.
+    pending_line = "1" if getattr(state, "pending_line_reward_elimination", False) else "0"
+
+    meta = f"{meta_player}:{meta_phase}:{game_status}:{pending_line}"
 
     return "#".join(
         [
