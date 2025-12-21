@@ -37,53 +37,15 @@ if ROOT not in sys.path:
 os.environ.setdefault("RINGRIFT_FORCE_CPU", "1")
 
 # Unified logging setup
-from app.training.canonical_sources import (
-    resolve_registry_path,
-    validate_canonical_sources,
-)
+from app.training.canonical_sources import enforce_canonical_sources
 from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("export_replay_dataset_parallel")
 
-
-def _enforce_registry_canonical_sources(
-    db_paths: list[str],
-    *,
-    registry_path: str | None,
-    allow_noncanonical: bool,
-    allow_pending_gate: bool,
-) -> None:
-    if allow_noncanonical:
-        return
-
-    allowed_statuses = ["canonical", "pending_gate"] if allow_pending_gate else ["canonical"]
-    registry = resolve_registry_path(Path(registry_path) if registry_path else None)
-
-    result = validate_canonical_sources(
-        registry_path=registry,
-        db_paths=[Path(p) for p in db_paths],
-        allowed_statuses=allowed_statuses,
-    )
-    if result.get("ok"):
-        return
-
-    issues = "\n".join(f"- {issue}" for issue in result.get("problems", []))
-    raise SystemExit(
-        "[export-replay-dataset-parallel] Refusing to export from non-canonical DB(s):\n"
-        f"{issues}\n"
-        "Fix TRAINING_DATA_REGISTRY.md or pass --allow-noncanonical to override."
-    )
-
 from app.db import GameReplayDB
 from app.models import BoardType
 from app.training.export_cache import get_export_cache
-
-BOARD_TYPE_MAP: dict[str, BoardType] = {
-    "square8": BoardType.SQUARE8,
-    "square19": BoardType.SQUARE19,
-    "hex8": BoardType.HEX8,
-    "hexagonal": BoardType.HEXAGONAL,
-}
+from scripts.lib.cli import BOARD_TYPE_MAP
 
 
 def load_games_from_db(
@@ -443,11 +405,14 @@ def main():
 
     board_type = BOARD_TYPE_MAP[args.board_type]
 
-    _enforce_registry_canonical_sources(
-        args.db_paths,
-        registry_path=args.registry,
+    # Use central canonical source validation
+    allowed_statuses = ["canonical", "pending_gate"] if args.allow_pending_gate else ["canonical"]
+    enforce_canonical_sources(
+        [Path(p) for p in args.db_paths],
+        registry_path=Path(args.registry) if args.registry else None,
+        allowed_statuses=allowed_statuses,
         allow_noncanonical=bool(args.allow_noncanonical),
-        allow_pending_gate=bool(args.allow_pending_gate),
+        error_prefix="export-replay-dataset-parallel",
     )
 
     export_parallel(

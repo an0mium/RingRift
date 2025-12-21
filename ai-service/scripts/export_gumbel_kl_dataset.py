@@ -43,11 +43,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BOARD_TYPE_MAP = {
-    "square8": BoardType.SQUARE8,
-    "square19": BoardType.SQUARE19,
-    "hexagonal": BoardType.HEXAGONAL,
-}
+from scripts.lib.cli import BOARD_TYPE_MAP
 
 
 def parse_position(pos_dict: dict[str, Any] | None) -> Position | None:

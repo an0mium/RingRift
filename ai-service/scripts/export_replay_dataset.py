@@ -78,19 +78,16 @@ logger = logging.getLogger(__name__)
 from app.ai.neural_net import INVALID_MOVE_INDEX, NeuralNetAI, encode_move_for_board
 from app.db import GameReplayDB
 from app.models import AIConfig, BoardType, GameState
-from app.training.canonical_sources import (
-    resolve_registry_path,
-    validate_canonical_sources,
-)
+from app.training.canonical_sources import enforce_canonical_sources
 from app.training.encoding import get_encoder_for_board_type
 from app.training.export_cache import get_export_cache
-
-BOARD_TYPE_MAP: dict[str, BoardType] = {
-    "square8": BoardType.SQUARE8,
-    "square19": BoardType.SQUARE19,
-    "hex8": BoardType.HEX8,
-    "hexagonal": BoardType.HEXAGONAL,
-}
+from app.training.export_core import (
+    compute_multi_player_values,
+    encode_state_with_history,
+    value_from_final_ranking,
+    value_from_final_winner,
+)
+from scripts.lib.cli import BOARD_TYPE_MAP
 
 
 def _enforce_canonical_db_policy(
@@ -114,35 +111,6 @@ def _enforce_canonical_db_policy(
             f"{joined}\n"
             "Use --allow-noncanonical to override, or rename the output to avoid canonical_ prefix."
         )
-
-
-def _enforce_registry_canonical_sources(
-    db_paths: list[str],
-    *,
-    registry_path: str | None,
-    allow_noncanonical: bool,
-    allow_pending_gate: bool,
-) -> None:
-    if allow_noncanonical:
-        return
-
-    allowed_statuses = ["canonical", "pending_gate"] if allow_pending_gate else ["canonical"]
-    registry = resolve_registry_path(Path(registry_path) if registry_path else None)
-
-    result = validate_canonical_sources(
-        registry_path=registry,
-        db_paths=[Path(p) for p in db_paths],
-        allowed_statuses=allowed_statuses,
-    )
-    if result.get("ok"):
-        return
-
-    issues = "\n".join(f"- {issue}" for issue in result.get("problems", []))
-    raise SystemExit(
-        "[export-replay-dataset] Refusing to export from non-canonical DB(s):\n"
-        f"{issues}\n"
-        "Fix TRAINING_DATA_REGISTRY.md or pass --allow-noncanonical to override."
-    )
 
 
 def build_encoder(
@@ -204,189 +172,7 @@ def build_encoder(
     return encoder
 
 
-def encode_state_with_history(
-    encoder: NeuralNetAI,
-    state: GameState,
-    history_frames: list[np.ndarray],
-    history_length: int,
-) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Encode a GameState + history into (stacked_features, globals_vec).
-
-    This mirrors the stacking logic in NeuralNetAI.evaluate_batch /
-    encode_state_for_model: current features followed by up to history_length
-    previous feature frames, newest-first, padded with zeros as needed.
-
-    For hex boards with attached _hex_encoder, uses the specialized encoder
-    (HexStateEncoder or HexStateEncoderV3) for proper channel count.
-    """
-    # Check if we have a specialized hex encoder attached
-    hex_encoder = getattr(encoder, "_hex_encoder", None)
-    if hex_encoder is not None:
-        # Use the hex-specific encoder
-        features, globals_vec = hex_encoder.encode_state(state)
-    else:
-        # Use the internal feature extractor; this is stable tooling code.
-        features, globals_vec = encoder._extract_features(state)  # type: ignore[attr-defined]
-
-    hist = history_frames[::-1][:history_length]
-    while len(hist) < history_length:
-        hist.append(np.zeros_like(features))
-
-    stacked = np.concatenate([features, *hist], axis=0)
-    return stacked.astype(np.float32), globals_vec.astype(np.float32)
-
-
-def value_from_final_winner(final_state: GameState, perspective: int) -> float:
-    """
-    DEPRECATED: Use value_from_final_ranking for multiplayer support.
-    Map final winner to a scalar value from the perspective of `perspective`.
-    """
-    winner = getattr(final_state, "winner", None)
-    if winner is None:
-        return 0.0
-    if winner == perspective:
-        return 1.0
-    return -1.0
-
-
-def value_from_final_ranking(
-    final_state: GameState,
-    perspective: int,
-    num_players: int,
-) -> float:
-    """
-    Compute rank-aware value from final game state.
-
-    Maps final ranking to a scalar value in [-1, +1] using linear interpolation:
-      - 1st place: +1
-      - Last place: -1
-      - Intermediate positions: linearly interpolated
-
-    Formula: value = 1 - 2 * (rank - 1) / (num_players - 1)
-      - 2-player: 1st=+1, 2nd=-1
-      - 3-player: 1st=+1, 2nd=0, 3rd=-1
-      - 4-player: 1st=+1, 2nd=+0.333, 3rd=-0.333, 4th=-1
-
-    Ranking is determined by eliminated_rings (more = better), with ties broken
-    by territory_spaces.
-
-    Args:
-        final_state: The completed game state
-        perspective: Player number (1-indexed) to compute value for
-        num_players: Total number of players in the game
-
-    Returns:
-        Value in [-1, +1] representing expected outcome for this player
-    """
-    winner = getattr(final_state, "winner", None)
-
-    # Handle incomplete games or draws
-    if winner is None or not final_state.players:
-        return 0.0
-
-    # For 2-player games, use simple winner/loser logic
-    if num_players == 2:
-        if winner == perspective:
-            return 1.0
-        return -1.0
-
-    # For multiplayer, compute ranking based on eliminated_rings (primary)
-    # and territory_spaces (tiebreaker)
-    player_scores = []
-    for player in final_state.players:
-        # Score: eliminated rings as primary, territory as tiebreaker
-        # Higher score = better ranking
-        score = (player.eliminated_rings, player.territory_spaces)
-        player_scores.append((player.player_number, score))
-
-    # Sort by score descending (best first)
-    player_scores.sort(key=lambda x: x[1], reverse=True)
-
-    # Find rank of perspective player (1-indexed)
-    rank = 1
-    for i, (player_num, _) in enumerate(player_scores):
-        if player_num == perspective:
-            rank = i + 1
-            break
-
-    # Linear interpolation: 1st=+1, last=-1, intermediate=interpolated
-    # value = 1 - 2 * (rank - 1) / (num_players - 1)
-    if num_players <= 1:
-        return 0.0
-
-    value = 1.0 - 2.0 * (rank - 1) / (num_players - 1)
-    return float(value)
-
-
-def compute_multi_player_values(
-    final_state: GameState,
-    num_players: int,
-    max_players: int = 4,
-) -> list[float]:
-    """
-    Compute value vector for all player positions.
-
-    This is used with RingRiftCNN_MultiPlayer which outputs values for all
-    players simultaneously instead of just the current player's perspective.
-
-    Args:
-        final_state: The completed game state
-        num_players: Number of active players in the game (2, 3, or 4)
-        max_players: Maximum players the model supports (default: 4)
-
-    Returns:
-        List of values of length max_players, where:
-        - Active players (0 to num_players-1) have values in [-1, +1]
-        - Inactive slots are filled with 0.0
-
-    Examples:
-        >>> # 2-player game where P1 wins
-        >>> values = compute_multi_player_values(state, num_players=2)
-        >>> # values = [1.0, -1.0, 0.0, 0.0]
-
-        >>> # 3-player game ranking P2, P1, P3
-        >>> values = compute_multi_player_values(state, num_players=3)
-        >>> # values = [0.0, 1.0, -1.0, 0.0]  (P2=1st, P1=2nd, P3=3rd)
-    """
-    # Initialize with zeros for inactive slots
-    values = [0.0] * max_players
-
-    winner = getattr(final_state, "winner", None)
-
-    # Handle incomplete games
-    if winner is None or not final_state.players:
-        return values
-
-    # Compute ranking based on eliminated_rings and territory_spaces
-    player_scores = []
-    for player in final_state.players:
-        score = (player.eliminated_rings, player.territory_spaces)
-        player_scores.append((player.player_number, score))
-
-    # Sort by score descending (best = rank 1)
-    player_scores.sort(key=lambda x: x[1], reverse=True)
-
-    # Build rank lookup: player_number -> rank (1-indexed)
-    player_ranks: dict[int, int] = {}
-    for rank, (player_num, _) in enumerate(player_scores, start=1):
-        player_ranks[player_num] = rank
-
-    # Compute value for each active player position
-    for player in final_state.players:
-        player_idx = player.player_number - 1  # 0-indexed for array
-        if player_idx >= max_players:
-            continue
-
-        rank = player_ranks.get(player.player_number, num_players)
-
-        if num_players <= 1:
-            values[player_idx] = 0.0
-        else:
-            # Linear interpolation: 1st=+1, last=-1
-            values[player_idx] = 1.0 - 2.0 * (rank - 1) / (num_players - 1)
-
-    return values
+# Value computation and encoding functions are now imported from app.training.export_core
 
 
 def export_replay_dataset_multi(
@@ -1097,11 +883,14 @@ def main(argv: list[str] | None = None) -> int:
         args.output,
         allow_noncanonical=bool(args.allow_noncanonical),
     )
-    _enforce_registry_canonical_sources(
-        args.db_paths,
-        registry_path=args.registry,
+    # Use central canonical source validation
+    allowed_statuses = ["canonical", "pending_gate"] if args.allow_pending_gate else ["canonical"]
+    enforce_canonical_sources(
+        [Path(p) for p in args.db_paths],
+        registry_path=Path(args.registry) if args.registry else None,
+        allowed_statuses=allowed_statuses,
         allow_noncanonical=bool(args.allow_noncanonical),
-        allow_pending_gate=bool(args.allow_pending_gate),
+        error_prefix="export-replay-dataset",
     )
 
     # Use parallel export if requested
