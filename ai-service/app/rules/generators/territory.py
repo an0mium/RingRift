@@ -78,6 +78,12 @@ class TerritoryGenerator(Generator):
         ):
             return None
 
+        # Check that the move contains region data - matches TS behavior which
+        # returns null from getPendingTerritorySelfEliminationRegion when empty
+        processed_regions = getattr(last_move, "disconnected_regions", None) or ()
+        if not processed_regions:
+            return None
+
         # Elimination is pending after a territory region was processed
         move_number = len(state.move_history) + 1
         elimination_context = (
@@ -87,16 +93,13 @@ class TerritoryGenerator(Generator):
         )
 
         # Get processed region keys to exclude from elimination targets
-        processed_region_keys: set[str] = set()
-        processed_regions = list(getattr(last_move, "disconnected_regions", None) or [])
-        if processed_regions:
-            processed_region_keys = {p.to_key() for p in processed_regions[0].spaces}
+        processed_region_keys = {p.to_key() for p in processed_regions[0].spaces}
 
         board = state.board
         elimination_moves: list[Move] = []
 
         for pos_key, stack in board.stacks.items():
-            if processed_region_keys and pos_key in processed_region_keys:
+            if pos_key in processed_region_keys:
                 continue
 
             if elimination_context == "recovery":

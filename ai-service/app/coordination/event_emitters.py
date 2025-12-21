@@ -669,6 +669,58 @@ async def emit_quality_updated(
 
 
 # =============================================================================
+# Data Sync Events
+# =============================================================================
+
+async def emit_new_games(
+    host: str,
+    new_games: int,
+    total_games: int,
+    source: str = "",
+) -> bool:
+    """Emit NEW_GAMES_AVAILABLE event via DataEventBus.
+
+    Signals that new games have been synced or generated and are available
+    for training. Used by unified_data_sync and other data collection components.
+
+    Args:
+        host: Host/node that generated or synced the games
+        new_games: Number of new games available
+        total_games: Total games now available from this source
+        source: Event source identifier
+
+    Returns:
+        True if emitted successfully
+    """
+    if not HAS_DATA_EVENTS:
+        return False
+
+    try:
+        bus = get_data_bus()
+        if bus is None:
+            return False
+
+        event = DataEvent(
+            event_type=DataEventType.NEW_GAMES_AVAILABLE,
+            payload={
+                "host": host,
+                "new_games": new_games,
+                "total_games": total_games,
+                "timestamp": _get_timestamp(),
+            },
+            source=source or "event_emitters",
+        )
+
+        await bus.publish(event)
+        logger.debug(f"Emitted new_games_available event: {new_games} from {host}")
+        return True
+
+    except Exception as e:
+        logger.debug(f"Failed to emit new_games event: {e}")
+        return False
+
+
+# =============================================================================
 # Task Events (Generic)
 # =============================================================================
 
@@ -1897,6 +1949,8 @@ __all__ = [
     # Host/Node events (December 2025)
     "emit_host_online",
     "emit_model_corrupted",
+    # New games events (December 2025)
+    "emit_new_games",
     "emit_node_recovered",
     # Optimization events (December 2025)
     "emit_optimization_triggered",

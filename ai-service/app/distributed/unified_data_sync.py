@@ -128,7 +128,7 @@ except ImportError:
     IngestionWAL = None
 
 try:
-    from app.distributed.data_events import emit_new_games
+    from app.coordination.event_emitters import emit_new_games
     HAS_EVENT_BUS = True
 except ImportError:
     HAS_EVENT_BUS = False
