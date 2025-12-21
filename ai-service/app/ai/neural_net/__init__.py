@@ -98,6 +98,12 @@ from app.ai.neural_net.square_encoding import (
     DecodedPolicyIndex,
     SQUARE_DIRS,
     get_action_encoder,
+    # Legacy wrapper functions (backwards compatible)
+    _decode_move_square8,
+    _decode_move_square19,
+    _encode_move_square8,
+    _encode_move_square19,
+    transform_policy_index_square,
 )
 
 # Square architectures - migrated to square_architectures.py (Phase 2)
@@ -136,15 +142,12 @@ from app.ai._neural_net_legacy import (
     _MODEL_CACHE,
     # Main AI class
     NeuralNetAI,
-    _decode_move_square8,
-    _encode_move_square8,
     # Cache functions
     clear_model_cache,
     create_hex_mask,
     decode_move_for_board,
     encode_move_for_board,
     get_cached_model_count,
-    transform_policy_index_square,
 )
 
 __all__ = [
@@ -212,7 +215,9 @@ __all__ = [
     "RingRiftCNN_v4",
     "SEResidualBlock",
     "_decode_move_square8",
+    "_decode_move_square19",
     "_encode_move_square8",
+    "_encode_move_square19",
     "_from_canonical_xy",
     "_infer_board_size",
     "_pos_from_key",

@@ -72,6 +72,8 @@ import pathlib as _pathlib
 
 _constants_path = _pathlib.Path(__file__).parent / "neural_net" / "constants.py"
 _spec = _importlib_util.spec_from_file_location("_nn_constants", _constants_path)
+if _spec is None or _spec.loader is None:
+    raise ImportError(f"Failed to load neural_net constants from {_constants_path}")
 _constants_module = _importlib_util.module_from_spec(_spec)
 _spec.loader.exec_module(_constants_module)
 
