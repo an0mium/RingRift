@@ -19,11 +19,14 @@ Usage (from ai-service/):
 """
 
 import argparse
+import json
 import os
 import random
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+from typing import Any
 
 from app.db import GameReplayDB
 from app.rules.history_validation import (
@@ -43,6 +46,29 @@ def _canonical_db_paths() -> list[Path]:
     if not games_dir.exists():
         return []
     return sorted(p for p in games_dir.glob("canonical_*.db") if p.is_file())
+
+
+def _infer_board_type(db_path: Path) -> str | None:
+    try:
+        with GameReplayDB(str(db_path))._get_conn() as conn:  # type: ignore[attr-defined]
+            row = conn.execute("SELECT board_type FROM games LIMIT 1").fetchone()
+    except Exception:
+        return None
+
+    if not row:
+        return None
+    board_type = row["board_type"] if isinstance(row, dict) else row[0]
+    return str(board_type).strip().lower()
+
+
+def _canonical_gate_env(board_type: str | None) -> dict[str, str]:
+    env_overrides: dict[str, str] = {}
+    if board_type in {"square19", "hex", "hexagonal"}:
+        if "RINGRIFT_USE_FAST_TERRITORY" not in os.environ:
+            env_overrides["RINGRIFT_USE_FAST_TERRITORY"] = "false"
+        if "RINGRIFT_USE_MAKE_UNMAKE" not in os.environ:
+            env_overrides["RINGRIFT_USE_MAKE_UNMAKE"] = "true"
+    return env_overrides
 
 
 def run_history_validator() -> bool:
@@ -90,8 +116,6 @@ def run_history_validator() -> bool:
 
 def run_parity_sample(max_games_per_db: int) -> bool:
     """Run the parity checker on a small sample of games per canonical DB."""
-    from scripts import check_ts_python_replay_parity as parity  # type: ignore[import]
-
     db_paths = _canonical_db_paths()
     if not db_paths:
         _log("No canonical_*.db files found; skipping parity sample.")
@@ -111,13 +135,15 @@ def run_parity_sample(max_games_per_db: int) -> bool:
 
         random.shuffle(game_ids)
         sample_ids = game_ids[: max_games_per_db or len(game_ids)]
+        board_type = _infer_board_type(db_path)
+        env_overrides = _canonical_gate_env(board_type)
+        if env_overrides:
+            _log(f"  Env overrides: {env_overrides}")
 
-        summary = parity.check_dbs(  # type: ignore[attr-defined]
-            db_paths=[str(db_path)],
-            game_ids_whitelist=set(sample_ids),
-            emit_fixtures_dir=None,
-            emit_state_bundles_dir=None,
-            compact=True,
+        summary = _run_parity_sample(
+            db_path=db_path,
+            game_ids=sample_ids,
+            env_overrides=env_overrides,
         )
 
         sem = int(summary.get("games_with_semantic_divergence", 0) or 0)
@@ -130,6 +156,65 @@ def run_parity_sample(max_games_per_db: int) -> bool:
         _log(f"  OK (checked {summary.get('total_games_checked', 0)} games; " "no semantic or structural issues).")
 
     return all_ok
+
+
+def _run_parity_sample(
+    *,
+    db_path: Path,
+    game_ids: list[str],
+    env_overrides: dict[str, str],
+) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_dir = Path(tmpdir)
+        game_ids_path = tmp_dir / "game_ids.txt"
+        game_ids_path.write_text("\n".join(game_ids), encoding="utf-8")
+        summary_path = tmp_dir / "parity_summary.json"
+
+        cmd = [
+            sys.executable,
+            "scripts/check_ts_python_replay_parity.py",
+            "--db",
+            str(db_path),
+            "--mode",
+            "canonical",
+            "--view",
+            "post_move",
+            "--include-game-ids-file",
+            str(game_ids_path),
+            "--summary-json",
+            str(summary_path),
+        ]
+
+        env = os.environ.copy()
+        env.setdefault("PYTHONPATH", str(AI_SERVICE_ROOT))
+        env.update(env_overrides or {})
+
+        proc = subprocess.run(
+            cmd,
+            cwd=str(AI_SERVICE_ROOT),
+            env=env,
+            text=True,
+            capture_output=True,
+        )
+
+        if summary_path.exists():
+            try:
+                return json.loads(summary_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                return {
+                    "error": "failed_to_load_parity_summary",
+                    "summary_path": str(summary_path),
+                    "message": str(exc),
+                    "stdout": proc.stdout,
+                    "stderr": proc.stderr,
+                }
+
+        return {
+            "error": "parity_summary_missing",
+            "returncode": proc.returncode,
+            "stdout": proc.stdout,
+            "stderr": proc.stderr,
+        }
 
 
 def run_invariant_soak(with_ts: bool) -> bool:
