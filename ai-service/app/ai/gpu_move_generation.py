@@ -1393,7 +1393,22 @@ def apply_single_chain_capture(
 
     # Check if landing cost eliminated entire cap
     cap_fully_eliminated = landing_ring_cost >= attacker_cap_height
-    if cap_fully_eliminated:
+    # December 2025: Check if attacker has buried rings (opponent's rings under their cap)
+    attacker_has_buried = attacker_cap_height < attacker_height
+    buried_count = attacker_height - attacker_cap_height
+
+    if state.num_players == 2 and cap_fully_eliminated and attacker_has_buried:
+        # December 2025: BUG FIX - When cap is eliminated AND attacker has buried
+        # rings, ownership transfers to the opponent (who owns those buried rings).
+        # The remaining stack: captured ring (bottom) + buried opponent rings (now cap)
+        opponent = 1 if player == 2 else 2
+        new_owner = opponent
+        new_cap = buried_count
+        # The buried rings are now exposed - clear buried tracking
+        if state.buried_at[game_idx, opponent, to_y, to_x].item():
+            state.buried_at[game_idx, opponent, to_y, to_x] = False
+            state.buried_rings[game_idx, opponent] -= 1
+    elif cap_fully_eliminated:
         # Ownership transfers to target owner, new cap is all remaining rings
         new_owner = target_owner
         new_cap = new_height
@@ -1586,7 +1601,22 @@ def apply_single_initial_capture(
 
     # Check if landing cost eliminated entire cap
     cap_fully_eliminated = landing_ring_cost >= attacker_cap_height
-    if cap_fully_eliminated:
+    # December 2025: Check if attacker has buried rings (opponent's rings under their cap)
+    attacker_has_buried = attacker_cap_height < attacker_height
+    buried_count = attacker_height - attacker_cap_height
+
+    if state.num_players == 2 and cap_fully_eliminated and attacker_has_buried:
+        # December 2025: BUG FIX - When cap is eliminated AND attacker has buried
+        # rings, ownership transfers to the opponent (who owns those buried rings).
+        # The remaining stack: captured ring (bottom) + buried opponent rings (now cap)
+        opponent = 1 if player == 2 else 2
+        new_owner = opponent
+        new_cap = buried_count
+        # The buried rings are now exposed - clear buried tracking
+        if state.buried_at[game_idx, opponent, to_y, to_x].item():
+            state.buried_at[game_idx, opponent, to_y, to_x] = False
+            state.buried_rings[game_idx, opponent] -= 1
+    elif cap_fully_eliminated:
         # Ownership transfers to target owner, new cap is all remaining rings
         new_owner = target_owner
         new_cap = new_height

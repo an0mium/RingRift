@@ -216,7 +216,22 @@ def apply_capture_moves_vectorized(
 
         # Check if landing cost eliminated entire cap
         cap_fully_eliminated = landing_ring_cost >= attacker_cap_height
-        if cap_fully_eliminated:
+        # December 2025: Check if attacker has buried rings (opponent's rings under their cap)
+        attacker_has_buried = attacker_cap_height < attacker_height
+        buried_count = attacker_height - attacker_cap_height
+
+        if state.num_players == 2 and cap_fully_eliminated and attacker_has_buried:
+            # December 2025: BUG FIX - When cap is eliminated AND attacker has buried
+            # rings, ownership transfers to the opponent (who owns those buried rings).
+            # The remaining stack: captured ring (bottom) + buried opponent rings (now cap)
+            opponent = 1 if player == 2 else 2
+            new_owner = opponent
+            new_cap = buried_count
+            # The buried rings are now exposed - clear buried tracking
+            if state.buried_at[g, opponent, to_y, to_x].item():
+                state.buried_at[g, opponent, to_y, to_x] = False
+                state.buried_rings[g, opponent] -= 1
+        elif cap_fully_eliminated:
             # Ownership transfers to target owner, new cap is all remaining rings
             new_owner = target_owner
             new_cap = new_height
@@ -1730,36 +1745,81 @@ def apply_capture_moves_batch_vectorized(
     # Check if cap is fully eliminated by landing cost
     cap_fully_eliminated = landing_ring_cost >= attacker_cap_height
 
+    # Check if attacker has buried rings (opponent's rings under their cap)
+    attacker_has_buried = attacker_cap_height < attacker_height
+
     # SELF-CAPTURE without buried rings:
     # If attacker has no buried rings (cap == height) and target is same owner,
     # the entire resulting stack is same color, so cap = new_height.
-    is_self_capture_no_buried = (defender_owner == players) & (attacker_cap_height == attacker_height)
+    is_self_capture_no_buried = (defender_owner == players) & ~attacker_has_buried
+
+    # December 2025: BUG FIX - When cap is eliminated by landing cost AND attacker
+    # has buried rings, ownership transfers to the opponent (who owns those buried
+    # rings), NOT to the defender_owner. The remaining stack after cap elimination:
+    # - Captured ring (target's color) at bottom
+    # - Buried opponent rings become the new cap
+    cap_elim_with_buried = cap_fully_eliminated & attacker_has_buried
+    if state.num_players != 2:
+        # For 3-4 players, buried ring ordering is not tracked on GPU; keep legacy owner.
+        cap_elim_with_buried = torch.zeros_like(cap_elim_with_buried, dtype=torch.bool)
 
     # Calculate new cap height based on:
-    # 1. Cap eliminated: new_cap = new_height
-    # 2. Self-capture without buried rings: new_cap = new_height
-    # 3. Otherwise: new_cap = attacker_cap - landing_cost
+    # 1. Cap eliminated with buried: new_cap = buried_count = attacker_height - attacker_cap
+    # 2. Cap eliminated no buried: new_cap = new_height (all target's color)
+    # 3. Self-capture without buried rings: new_cap = new_height
+    # 4. Otherwise: new_cap = attacker_cap - landing_cost
+    buried_count = attacker_height - attacker_cap_height
     new_cap_height = torch.where(
-        cap_fully_eliminated,
-        new_height,  # All remaining rings are target's color
+        cap_elim_with_buried,
+        buried_count,  # Buried opponent rings become the new cap
         torch.where(
-            is_self_capture_no_buried,
-            torch.clamp(new_height, min=1),  # Self-capture: cap = new_height
-            torch.clamp(attacker_cap_height - landing_ring_cost, min=1)
+            cap_fully_eliminated,
+            new_height,  # All remaining rings are target's color
+            torch.where(
+                is_self_capture_no_buried,
+                torch.clamp(new_height, min=1),  # Self-capture: cap = new_height
+                torch.clamp(attacker_cap_height - landing_ring_cost, min=1)
+            )
         )
     )
     new_cap_height = torch.minimum(new_cap_height, new_height)
 
     # Determine new owner
+    # When cap eliminated with buried rings, opponent takes ownership
+    opponent = torch.where(
+        players == 1,
+        torch.full_like(players, 2),
+        torch.ones_like(players)
+    )
     new_owner = torch.where(
-        cap_fully_eliminated,
-        defender_owner,  # Target's original owner
-        players  # Capturing player
+        cap_elim_with_buried,
+        opponent,  # Buried rings' owner (opponent of attacker)
+        torch.where(
+            cap_fully_eliminated,
+            defender_owner,  # Target's original owner
+            players  # Capturing player
+        )
     )
 
     state.stack_owner[game_indices, to_y, to_x] = new_owner.to(state.stack_owner.dtype)
     state.stack_height[game_indices, to_y, to_x] = new_height.to(state.stack_height.dtype)
     state.cap_height[game_indices, to_y, to_x] = new_cap_height.to(state.cap_height.dtype)
+
+    # December 2025: When cap is eliminated with buried rings, those rings are now
+    # exposed (they became the cap). Clear buried_at and decrement buried_rings.
+    if cap_elim_with_buried.any():
+        elim_games = game_indices[cap_elim_with_buried]
+        elim_to_y = to_y[cap_elim_with_buried]
+        elim_to_x = to_x[cap_elim_with_buried]
+        elim_opponent = opponent[cap_elim_with_buried]
+        for i in range(elim_games.shape[0]):
+            g = elim_games[i].item()
+            y = elim_to_y[i].item()
+            x = elim_to_x[i].item()
+            opp = elim_opponent[i].item()
+            if state.buried_at[g, opp, y, x].item():
+                state.buried_at[g, opp, y, x] = False
+                state.buried_rings[g, opp] -= 1
 
     # Note: No marker at landing - there's a stack there. marker_owner should remain 0.
     # (Already cleared on line 1134-1138 if there was a landing marker)
