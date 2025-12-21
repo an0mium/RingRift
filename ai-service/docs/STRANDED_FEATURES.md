@@ -148,6 +148,10 @@ Last updated: 2025-12-21
   (legacy fallback preserved). Remaining gaps: legacy MAX_N policy head
   path still uses legacy move names, and hex policy space still compresses
   multiple special actions into a single index.
+- **Update (2025-12-22)**: Legacy MAX_N encoding now normalizes legacy move
+  types to canonical names and decodes line/territory actions to canonical
+  move types. Remaining gap: hex policy space still compresses multiple
+  special actions into a single index.
 - **Expected Impact**: Higher policy consistency, fewer off-policy errors,
   and cleaner training data (quality + Elo).
 

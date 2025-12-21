@@ -174,6 +174,7 @@ def parse_jsonl_record(record: dict[str, Any], source: str, filepath: str) -> di
             "source": source,
             "source_file": filepath,
             "game_hash": compute_game_hash(record),
+            "trajectory_snapshots": record.get("trajectory_snapshots", []),
         }
 
         return parsed
@@ -278,6 +279,7 @@ def import_to_database(
         "imported": 0,
         "skipped_duplicate": 0,
         "skipped_error": 0,
+        "snapshots_stored": 0,
     }
 
     if dry_run:
@@ -366,6 +368,32 @@ def import_to_database(
                 store_history_entries=False,  # Skip expensive history for bulk import
                 snapshot_interval=0,  # Disable snapshots to skip move application
             )
+
+            # Store trajectory snapshots if present (from GPU selfplay with --snapshot-interval)
+            trajectory_snapshots = record.get("trajectory_snapshots", [])
+            snapshots_stored = 0
+            for snap in trajectory_snapshots:
+                try:
+                    move_number = snap.get("move_number", 0)
+                    state_json = snap.get("state")
+                    if state_json:
+                        # Parse state JSON and store
+                        if isinstance(state_json, str):
+                            state_data = json.loads(state_json)
+                        else:
+                            state_data = state_json
+                        snapshot_state = GameState.model_validate(state_data)
+                        db._store_snapshot(
+                            game_id=record["game_id"],
+                            move_number=move_number,
+                            state=snapshot_state,
+                        )
+                        snapshots_stored += 1
+                except Exception as snap_e:
+                    logger.debug(f"Failed to store snapshot at move {snap.get('move_number', '?')}: {snap_e}")
+
+            if snapshots_stored > 0:
+                stats["snapshots_stored"] = stats.get("snapshots_stored", 0) + snapshots_stored
 
             stats["imported"] += 1
 
@@ -678,6 +706,7 @@ def main():
     logger.info("=" * 60)
     logger.info(f"Total records processed: {stats['total_records']}")
     logger.info(f"Successfully imported: {stats['imported']}")
+    logger.info(f"Trajectory snapshots stored: {stats['snapshots_stored']}")
     logger.info(f"Skipped (duplicate): {stats['skipped_duplicate']}")
     logger.info(f"Skipped (error): {stats['skipped_error']}")
 

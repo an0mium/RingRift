@@ -169,6 +169,12 @@ class TerritoryMutator(Mutator):
         for _ in range(rings_to_eliminate):
             self._eliminate_top_ring_at(state, pos, credited_player=move.player)
 
+        # RR-PARITY-FIX-2025-12-21: Clear pending_line_reward_elimination after
+        # line elimination to match TS behavior. Without this, Python ANM check
+        # sees stale flag=True while TS sees flag=False, causing parity divergence.
+        if elimination_context == "line":
+            state.pending_line_reward_elimination = False
+
     def _can_process_region(
         self,
         state: GameState,
