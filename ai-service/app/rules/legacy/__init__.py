@@ -61,6 +61,12 @@ from app.rules.legacy.phase_auto_advance import (
     get_auto_advance_stats,
     reset_auto_advance_stats,
 )
+from app.rules.legacy.replay_phase_injection import (
+    auto_inject_before_move,
+    auto_inject_no_action_moves,
+    get_phase_injection_stats,
+    reset_phase_injection_stats,
+)
 from app.rules.legacy.state_normalization import (
     normalize_legacy_phase,
     normalize_legacy_state,
@@ -83,4 +89,9 @@ __all__ = [
     "auto_advance_phase",
     "get_auto_advance_stats",
     "reset_auto_advance_stats",
+    # Replay phase injection (deprecated)
+    "auto_inject_before_move",
+    "auto_inject_no_action_moves",
+    "get_phase_injection_stats",
+    "reset_phase_injection_stats",
 ]
