@@ -535,6 +535,7 @@ class GPUSelfPlayGenerator:
         if engine_mode == "nnue-guided":
             board_type_map = {
                 8: BoardType.SQUARE8,
+                9: BoardType.HEX8,
                 19: BoardType.SQUARE19,
                 25: BoardType.HEXAGONAL,
             }
@@ -592,10 +593,11 @@ class GPUSelfPlayGenerator:
 
         # Pre-compute initial state for training data compatibility
         # All GPU games start from the same initial state with custom rules applied
+        # Hex boards use 2*radius+1 for size: HEX8 radius=4 -> size=9, HEXAGONAL radius=12 -> size=25
         board_type_map = {
             8: BoardType.SQUARE8,
+            9: BoardType.HEX8,
             19: BoardType.SQUARE19,
-            # Hex boards use a 25×25 embedding in the GPU kernels.
             25: BoardType.HEXAGONAL,
         }
         board_type = board_type_map.get(board_size, BoardType.SQUARE8)
