@@ -83,6 +83,20 @@ def advance_cpu_through_phases(state, target_phase_str: str, target_player: int)
                         state.current_phase = GamePhase.LINE_PROCESSING
                         continue
 
+            # Handle territory_processing phase advancement
+            # GPU may record no_territory_action when CPU sees valid territory options.
+            # This happens due to territory detection differences. If GPU expects the next
+            # player's turn, we should skip territory processing.
+            if current_phase == 'territory_processing':
+                valid = GameEngine.get_valid_moves(state, state.current_player)
+                skip_moves = [v for v in valid if v.type == MoveType.SKIP_TERRITORY_PROCESSING]
+
+                # If GPU expects next player's ring_placement, skip territory
+                if target_player != current_player and target_phase_str == 'ring_placement':
+                    if skip_moves:
+                        state = GameEngine.apply_move(state, skip_moves[0])
+                        continue
+
             # No bookkeeping available and no workaround applied
             break
 
@@ -153,6 +167,13 @@ def test_seed(seed: int) -> tuple[int, int, int, int, list]:
                 # Skip placement matches by type only - no position needed
                 matched = v
                 break
+            elif move_type == MoveType.RECOVERY_SLIDE:
+                # Recovery slide matches by from/to positions
+                v_from = v.from_pos.to_key() if v.from_pos else None
+                m_from = from_pos.to_key() if from_pos else None
+                if v_from == m_from and v_to == m_to:
+                    matched = v
+                    break
             elif move_type in (MoveType.CHOOSE_LINE_OPTION, MoveType.PROCESS_LINE):
                 # Line processing moves match by type - take first available
                 matched = v
