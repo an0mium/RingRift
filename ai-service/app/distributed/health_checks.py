@@ -86,13 +86,14 @@ except ImportError:
     CPU_CRITICAL_THRESHOLD = 80.0
     RECOVERY_COOLDOWN = 300
 
-# Event bus for health/recovery events (Phase 10 consolidation)
+# Event router for health/recovery events (Phase 10 consolidation)
 try:
-    from app.distributed.data_events import DataEvent, DataEventType, get_event_bus
+    from app.coordination.event_router import get_router
+    from app.distributed.data_events import DataEvent, DataEventType
     HAS_EVENT_BUS = True
 except ImportError:
     HAS_EVENT_BUS = False
-    get_event_bus = None
+    get_router = None
 
 
 @dataclass
@@ -775,8 +776,8 @@ class HealthRecoveryIntegration:
         if not HAS_EVENT_BUS or event_type is None:
             return
 
-        event_bus = get_event_bus()
-        await event_bus.publish(DataEvent(
+        event_router = get_router()
+        await event_router.publish(DataEvent(
             event_type=event_type,
             payload={
                 "component": component,

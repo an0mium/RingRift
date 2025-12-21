@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.ai.gpu_parallel_games import ParallelGameRunner
 from app.ai.gpu_game_types import GamePhase, MoveType
-from app._game_engine_legacy import GameEngine
+from app.game_engine import GameEngine  # Use wrapper, not direct legacy import
 from app.models import Position
 import torch
 

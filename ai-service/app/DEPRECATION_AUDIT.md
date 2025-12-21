@@ -75,6 +75,24 @@ This document tracks deprecated modules and their replacements as part of the co
 
 These new facades consolidate multiple older modules:
 
+### Rules Move Generators (December 21, 2025)
+
+Extracted move enumeration logic from `_game_engine_legacy.py` into SSoT generators:
+
+| Component            | Location                            | Purpose                                               |
+| -------------------- | ----------------------------------- | ----------------------------------------------------- |
+| `LineGenerator`      | `app/rules/generators/line.py`      | Line processing move enumeration (RR-CANON-R076)      |
+| `TerritoryGenerator` | `app/rules/generators/territory.py` | Territory processing move enumeration (RR-CANON-R076) |
+| `Generator` protocol | `app/rules/interfaces.py`           | Interface for all move generators                     |
+
+**GameEngine now delegates to generators:**
+
+- `_get_line_processing_moves()` → `LineGenerator.generate()`
+- `_get_territory_processing_moves()` → `TerritoryGenerator.generate()`
+- `_can_process_disconnected_region()` → `TerritoryGenerator._can_process_region()`
+
+### Other Unified Components
+
 | New Component             | Location                                     | Purpose                                             |
 | ------------------------- | -------------------------------------------- | --------------------------------------------------- |
 | `UnifiedDataValidator`    | `app/training/unified_data_validator.py`     | Consolidates all data validation                    |

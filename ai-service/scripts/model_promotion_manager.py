@@ -243,17 +243,18 @@ class AutoPromotionTrigger:
             return
 
         try:
-            self._event_bus = get_event_bus()
+            from app.coordination.event_router import get_router
+            self._event_bus = get_router()
 
             # Subscribe to training completion - check if new model beats current best
             self._event_bus.subscribe(
-                DataEventType.TRAINING_COMPLETED,
+                DataEventType.TRAINING_COMPLETED.value,
                 self._on_training_completed
             )
 
             # Subscribe to evaluation completion - check if Elo changes warrant promotion
             self._event_bus.subscribe(
-                DataEventType.EVALUATION_COMPLETED,
+                DataEventType.EVALUATION_COMPLETED.value,
                 self._on_evaluation_completed
             )
 

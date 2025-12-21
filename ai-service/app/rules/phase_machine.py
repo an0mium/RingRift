@@ -32,6 +32,7 @@ All logic here operates directly on a mutable GameState instance.
 from dataclasses import dataclass
 
 from app.models import GamePhase, GameState, Move, MoveType
+from app.rules.legacy.move_type_aliases import convert_legacy_move_type
 
 
 @dataclass
@@ -245,7 +246,7 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
 
     current_player = game_state.current_player
 
-    if last_move.type == MoveType.FORCED_ELIMINATION:
+    if normalized_type == MoveType.FORCED_ELIMINATION:
         # Per RR-CANON-R070 and the shared TS engine, explicit
         # FORCED_ELIMINATION is the seventh and final phase of a turn.
         # After applying the elimination move, the current player has no
@@ -269,7 +270,7 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
         # 3. Phase transitions to ring_placement for the next player
         GameEngine._end_turn(game_state, trace_mode=trace_mode)
 
-    elif last_move.type == MoveType.PLACE_RING:
+    elif normalized_type == MoveType.PLACE_RING:
         # After placement, decide whether to enter movement or, if no
         # movement/capture is available, advance directly to line
         # processing. Mirrors TurnEngine.advanceGameForCurrentPlayer.
@@ -286,17 +287,17 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
         else:
             GameEngine._advance_to_line_processing(game_state, trace_mode=trace_mode)
 
-    elif last_move.type == MoveType.SKIP_PLACEMENT:
+    elif normalized_type == MoveType.SKIP_PLACEMENT:
         # Skipping placement is only allowed when movement or capture is
         # already available. After a legal skip, always enter movement.
         game_state.current_phase = GamePhase.MOVEMENT
 
-    elif last_move.type == MoveType.NO_PLACEMENT_ACTION:
+    elif normalized_type == MoveType.NO_PLACEMENT_ACTION:
         # Explicit no-op placement: always advance to MOVEMENT so that the
         # rest of the turn (movement/capture/line/territory/FE) can run.
         game_state.current_phase = GamePhase.MOVEMENT
 
-    elif last_move.type == MoveType.MOVE_STACK:
+    elif normalized_type == MoveType.MOVE_STACK:
         # After movement, check for captures from the landing position.
         # Per RR-CANON-R093, post-movement captures are only available
         # from the stack that just moved, at its landing position.
@@ -323,36 +324,35 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
             else:
                 GameEngine._advance_to_line_processing(game_state, trace_mode=trace_mode)
 
-    elif last_move.type == MoveType.NO_MOVEMENT_ACTION:
+    elif normalized_type == MoveType.NO_MOVEMENT_ACTION:
         # Movement phase was visited but no legal movement or capture
         # existed anywhere for the player. Per RR-CANON-R075, this is
         # recorded as an explicit NO_MOVEMENT_ACTION and we advance
         # directly to line_processing.
         GameEngine._advance_to_line_processing(game_state, trace_mode=trace_mode)
 
-    elif last_move.type == MoveType.SKIP_CAPTURE:
+    elif normalized_type == MoveType.SKIP_CAPTURE:
         # Explicitly decline optional post-movement capture and proceed to
         # line_processing (RR-CANON-R073). Mirrors TS TurnOrchestrator.
         game_state.chain_capture_state = None
         GameEngine._advance_to_line_processing(game_state, trace_mode=trace_mode)
 
-    elif last_move.type == MoveType.RECOVERY_SLIDE:
+    elif normalized_type == MoveType.RECOVERY_SLIDE:
         # Recovery slide is a movement-phase action (but NOT a "real action" for LPS).
         # After applying it, we proceed to line_processing to record phase traversal
         # (even if no further line decisions remain because collapse was applied).
         game_state.chain_capture_state = None
         GameEngine._advance_to_line_processing(game_state, trace_mode=trace_mode)
 
-    elif last_move.type == MoveType.SKIP_RECOVERY:
+    elif normalized_type == MoveType.SKIP_RECOVERY:
         # RR-CANON-R115: recovery-eligible players may explicitly skip recovery
         # to preserve buried rings. This ends MOVEMENT for the player and
         # advances to line_processing (even though no board change occurred).
         game_state.chain_capture_state = None
         GameEngine._advance_to_line_processing(game_state, trace_mode=trace_mode)
 
-    elif last_move.type in (
+    elif normalized_type in (
         MoveType.OVERTAKING_CAPTURE,
-        MoveType.CHAIN_CAPTURE,
         MoveType.CONTINUE_CAPTURE_SEGMENT,
     ):
         # Check for more captures (chain)
@@ -367,10 +367,8 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
             # End of chain
             GameEngine._advance_to_line_processing(game_state, trace_mode=trace_mode)
 
-    elif last_move.type in (
+    elif normalized_type in (
         MoveType.PROCESS_LINE,
-        MoveType.CHOOSE_LINE_REWARD,
-        MoveType.LINE_FORMATION,
         MoveType.CHOOSE_LINE_OPTION,
     ):
         # After processing a line decision, check if there are more interactive
@@ -398,7 +396,7 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
                 last_move=last_move,
             )
 
-    elif last_move.type == MoveType.NO_LINE_ACTION:
+    elif normalized_type == MoveType.NO_LINE_ACTION:
         # Forced no-op: player entered line_processing but had no lines to process.
         # Per RR-CANON-R075, this move marks that the phase was visited. After the
         # final line-phase move (including NO_LINE_ACTION), delegate to the shared

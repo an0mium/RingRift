@@ -1468,15 +1468,16 @@ def integrate_selfplay_with_training(
     game_counts: dict[str, int] = {}
     pending_training: list[str] = []
 
-    # Import event bus for publishing events
+    # Import event router for publishing events
     try:
-        from app.distributed.data_events import DataEvent, DataEventType, get_event_bus
-        event_bus = get_event_bus()
+        from app.coordination.event_router import get_router
+        from app.distributed.data_events import DataEvent, DataEventType
+        event_router = get_router()
         has_event_bus = True
     except ImportError:
-        event_bus = None
+        event_router = None
         has_event_bus = False
-        logger.warning("[Training↔Selfplay] Event bus not available")
+        logger.warning("[Training↔Selfplay] Event router not available")
 
     # Import thresholds
     try:
@@ -1505,7 +1506,7 @@ def integrate_selfplay_with_training(
 
         # Publish NEW_GAMES_AVAILABLE event
         if has_event_bus and new_games > 0:
-            await event_bus.publish(DataEvent(
+            await event_router.publish(DataEvent(
                 event_type=DataEventType.NEW_GAMES_AVAILABLE,
                 payload={
                     "config": config_key,
@@ -1522,7 +1523,7 @@ def integrate_selfplay_with_training(
 
             # Emit TRAINING_THRESHOLD_REACHED event
             if has_event_bus:
-                await event_bus.publish(DataEvent(
+                await event_router.publish(DataEvent(
                     event_type=DataEventType.TRAINING_THRESHOLD_REACHED,
                     payload={
                         "config": config_key,
@@ -1589,7 +1590,7 @@ def integrate_selfplay_with_training(
                     total_games=payload.get("total_games", game_counts.get(config, 0)),
                 )
 
-        event_bus.subscribe(DataEventType.DATA_SYNC_COMPLETED, handle_sync_completed)
+        event_router.subscribe(DataEventType.DATA_SYNC_COMPLETED.value, handle_sync_completed)
 
     logger.info("[Training↔Selfplay] Event-driven training trigger integration established")
 

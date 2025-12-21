@@ -27,6 +27,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.swa_utils import SWALR, AveragedModel
 
 from ..models import BoardType, Position
+from ..rules.legacy.move_type_aliases import convert_legacy_move_type
 
 if TYPE_CHECKING:
     from torch.utils.data import DataLoader
@@ -1804,16 +1805,14 @@ class NNUEPolicyDataset(Dataset):
                 explicit_phase_markers = {
                     "process_line",
                     "choose_line_option",
-                    "choose_line_reward",
-                    "process_territory_region",
                     "choose_territory_option",
                     "eliminate_rings_from_stack",
                     "forced_elimination",
                 }
                 has_explicit_bookkeeping = any(
-                    (move_type := str(m.get("type", "") or "").lower())
+                    (raw_type := str(m.get("type", "") or "").lower())
                     and (
-                        move_type.startswith("no_")
+                        (move_type := convert_legacy_move_type(raw_type, warn=False)).startswith("no_")
                         or move_type.startswith("skip_")
                         or move_type in explicit_phase_markers
                     )

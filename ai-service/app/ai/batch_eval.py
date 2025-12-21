@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from app.rules.legacy.move_type_aliases import convert_legacy_move_type
+
 if TYPE_CHECKING:
     from .lightweight_state import LightweightState
 
@@ -543,14 +545,15 @@ def prepare_moves_for_batch(
         player = move.player
 
         # Determine move type
-        move_type_str = move.type.value if hasattr(move.type, "value") else str(move.type)
+        raw_type = move.type.value if hasattr(move.type, "value") else str(move.type)
+        move_type_str = convert_legacy_move_type(raw_type, warn=False)
 
         if move_type_str == "place_ring":
             move_type = 0
         elif move_type_str in ("move_stack", "recovery_slide"):
             # recovery_slide is a marker movement (RR-CANON-R110–R115)
             move_type = 1
-        elif move_type_str in ("overtaking_capture", "continue_capture_segment", "chain_capture"):
+        elif move_type_str in ("overtaking_capture", "continue_capture_segment"):
             move_type = 2
         else:
             # Skip non-board-changing moves (line processing, etc.)

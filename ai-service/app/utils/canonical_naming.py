@@ -26,6 +26,14 @@ import re
 from app.models import BoardType
 
 __all__ = [
+    # Canonical board type string constants (December 2025)
+    # Use these instead of hardcoding "square8", etc.
+    "BOARD_SQUARE8",
+    "BOARD_SQUARE19",
+    "BOARD_HEX8",
+    "BOARD_HEXAGONAL",
+    "ALL_BOARD_TYPES",
+    # Config key utilities
     "CANONICAL_CONFIG_KEYS",
     "get_all_config_keys",
     "get_board_type_enum",
@@ -35,6 +43,20 @@ __all__ = [
     "normalize_database_filename",
     "parse_config_key",
 ]
+
+# =============================================================================
+# Canonical Board Type String Constants (December 2025)
+# =============================================================================
+# Use these constants instead of hardcoding board type strings.
+# They are derived from BoardType enum values for consistency.
+
+BOARD_SQUARE8: str = BoardType.SQUARE8.value  # "square8"
+BOARD_SQUARE19: str = BoardType.SQUARE19.value  # "square19"
+BOARD_HEX8: str = BoardType.HEX8.value  # "hex8"
+BOARD_HEXAGONAL: str = BoardType.HEXAGONAL.value  # "hexagonal"
+
+# All canonical board types as a tuple (for iteration)
+ALL_BOARD_TYPES: tuple[str, ...] = (BOARD_SQUARE8, BOARD_SQUARE19, BOARD_HEX8, BOARD_HEXAGONAL)
 
 
 # Mapping of common aliases to canonical board type values

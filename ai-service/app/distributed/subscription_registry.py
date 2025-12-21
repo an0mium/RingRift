@@ -330,12 +330,12 @@ class SubscriptionRegistry(SingletonMixin):
             return True
 
         try:
-            from app.distributed.data_events import get_event_bus
+            from app.coordination.event_router import get_router
 
-            bus = get_event_bus()
+            router = get_router()
 
             # Store original subscribe method
-            original_subscribe = bus.subscribe
+            original_subscribe = router.subscribe
 
             # Create wrapped subscribe that tracks
             def tracked_subscribe(event_type, handler, *args, **kwargs):
@@ -346,7 +346,7 @@ class SubscriptionRegistry(SingletonMixin):
 
                 # Track the subscription
                 self.track(
-                    event_type=event_type.value if hasattr(event_type, 'value') else str(event_type),
+                    event_type=event_type if isinstance(event_type, str) else str(event_type),
                     subscriber_name=subscriber_name,
                     handler=handler,
                 )
@@ -355,14 +355,14 @@ class SubscriptionRegistry(SingletonMixin):
                 return original_subscribe(event_type, handler, *args, **kwargs)
 
             # Replace subscribe method
-            bus.subscribe = tracked_subscribe
+            router.subscribe = tracked_subscribe
             self._hooked = True
 
-            logger.info("[SubscriptionRegistry] Hooked into event bus")
+            logger.info("[SubscriptionRegistry] Hooked into event router")
             return True
 
         except Exception as e:
-            logger.warning(f"[SubscriptionRegistry] Failed to hook event bus: {e}")
+            logger.warning(f"[SubscriptionRegistry] Failed to hook event router: {e}")
             return False
 
 
