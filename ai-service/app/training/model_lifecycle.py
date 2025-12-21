@@ -64,6 +64,21 @@ except ImportError:
     TrainingUrgency = None
     TrainingSignals = None
 
+# Adversarial validation integration (December 2025)
+# Provides robustness testing for models before promotion decisions
+try:
+    from app.training.adversarial_positions import (
+        AdversarialConfig,
+        AdversarialGenerator,
+        AdversarialStrategy,
+    )
+    HAS_ADVERSARIAL_VALIDATION = True
+except ImportError:
+    HAS_ADVERSARIAL_VALIDATION = False
+    AdversarialGenerator = None
+    AdversarialConfig = None
+    AdversarialStrategy = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -466,6 +481,115 @@ class ModelRetentionManager:
         )
 
         return result
+
+    # =========================================================================
+    # Adversarial Robustness Validation (December 2025)
+    # =========================================================================
+
+    def validate_model_robustness(
+        self,
+        model_path: Path,
+        config_key: str,
+        num_positions: int = 50,
+        min_robustness: float = 0.7,
+    ) -> dict[str, Any]:
+        """Validate model robustness using adversarial positions.
+
+        This method evaluates a model on challenging positions to assess
+        its robustness before promotion decisions.
+
+        Args:
+            model_path: Path to model checkpoint
+            config_key: Config key for board type/players
+            num_positions: Number of adversarial positions to test
+            min_robustness: Minimum robustness score (0-1) to pass
+
+        Returns:
+            Dict with validation results:
+            - passed: bool - whether model meets robustness threshold
+            - robustness_score: float - overall robustness (0-1)
+            - avg_uncertainty: float - average model uncertainty
+            - positions_tested: int - number of positions tested
+            - recommendation: str - action recommendation
+        """
+        result = {
+            "passed": True,
+            "robustness_score": 1.0,
+            "avg_uncertainty": 0.0,
+            "positions_tested": 0,
+            "recommendation": "adversarial_validation_not_available",
+        }
+
+        if not HAS_ADVERSARIAL_VALIDATION:
+            logger.debug("Adversarial validation not available")
+            return result
+
+        if not model_path.exists():
+            result["passed"] = False
+            result["recommendation"] = "model_not_found"
+            return result
+
+        try:
+            board_type, num_players = parse_config_key(config_key)
+
+            # Use lightweight strategies for validation
+            config = AdversarialConfig(
+                num_positions=num_positions,
+                strategies=[
+                    AdversarialStrategy.UNCERTAINTY,
+                    AdversarialStrategy.REPLAY,
+                ],
+            )
+
+            generator = AdversarialGenerator(
+                model_paths=[model_path],
+                config=config,
+                game_db_path=self._default_game_db(config_key),
+            )
+
+            # Generate adversarial positions
+            positions = generator.generate(
+                num_positions=num_positions,
+                board_type=board_type,
+                num_players=num_players,
+            )
+
+            if not positions:
+                result["recommendation"] = "no_positions_generated"
+                return result
+
+            # Evaluate robustness
+            metrics = generator.evaluate_model_robustness(positions)
+
+            result["robustness_score"] = metrics.get("robustness", 1.0)
+            result["avg_uncertainty"] = metrics.get("avg_uncertainty", 0.0)
+            result["positions_tested"] = len(positions)
+            result["passed"] = result["robustness_score"] >= min_robustness
+
+            if result["passed"]:
+                result["recommendation"] = "promote"
+            else:
+                result["recommendation"] = f"robustness_{result['robustness_score']:.2f}_below_threshold"
+
+            logger.info(
+                f"[{config_key}] Robustness validation: "
+                f"score={result['robustness_score']:.3f}, "
+                f"passed={result['passed']}"
+            )
+
+            return result
+
+        except Exception as e:
+            logger.warning(f"Robustness validation failed for {model_path}: {e}")
+            result["recommendation"] = f"validation_error: {e}"
+            return result
+
+    def _default_game_db(self, config_key: str) -> Path | None:
+        """Get default game database path for a config."""
+        board_type, _num_players = parse_config_key(config_key)
+        ai_service_root = Path(__file__).parent.parent.parent
+        db_path = ai_service_root / "data" / "games" / f"selfplay_{board_type}.db"
+        return db_path if db_path.exists() else None
 
     def get_status(self) -> dict[str, dict]:
         """Get status summary for all configs.

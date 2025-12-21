@@ -1,5 +1,12 @@
 """Opening Book for Diverse Selfplay Positions.
 
+.. note:: Experimental Feature (2025-12-20)
+    This module provides opening diversity for selfplay. Enable with:
+    RINGRIFT_USE_OPENING_BOOK=1
+
+    Integration point: app/training/parallel_selfplay.py for game initialization.
+    Only enable after benchmarking impact on training diversity.
+
 Generates and manages diverse opening positions to prevent mode collapse
 during selfplay training. Instead of always starting from the initial
 position, games can start from varied positions in the opening book.

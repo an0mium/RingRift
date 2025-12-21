@@ -55,6 +55,27 @@ from app.utils.torch_utils import safe_load_checkpoint
 
 logger = logging.getLogger(__name__)
 
+# Distillation integration (December 2025)
+# Re-export distillation classes for unified training enhancements API
+try:
+    from app.training.distillation import (
+        DistillationConfig,
+        DistillationTrainer,
+        EnsembleTeacher,
+        SoftTargetLoss,
+        create_distillation_trainer,
+        distill_checkpoint_ensemble,
+    )
+    HAS_DISTILLATION = True
+except ImportError:
+    HAS_DISTILLATION = False
+    DistillationConfig = None
+    DistillationTrainer = None
+    EnsembleTeacher = None
+    SoftTargetLoss = None
+    create_distillation_trainer = None
+    distill_checkpoint_ensemble = None
+
 __all__ = [
     # Gradient management
     "AdaptiveGradientClipper",
@@ -82,6 +103,13 @@ __all__ = [
     "WarmRestartsScheduler",
     # Per-sample loss tracking (2025-12)
     "compute_per_sample_loss",
+    # Distillation (2025-12)
+    "DistillationConfig",
+    "DistillationTrainer",
+    "EnsembleTeacher",
+    "SoftTargetLoss",
+    "create_distillation_trainer",
+    "distill_checkpoint_ensemble",
     # Factory function
     "create_training_enhancements",
 ]

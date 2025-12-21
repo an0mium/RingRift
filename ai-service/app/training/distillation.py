@@ -1,5 +1,18 @@
 """Model Distillation Pipeline for RingRift AI.
 
+.. note:: Integration Complete (2025-12-20)
+    This module is now re-exported from app/training/training_enhancements.py.
+    All distillation classes are available from the unified training API:
+
+        from app.training.training_enhancements import (
+            DistillationConfig,
+            DistillationTrainer,
+            EnsembleTeacher,
+            SoftTargetLoss,
+            create_distillation_trainer,
+            distill_checkpoint_ensemble,
+        )
+
 Knowledge distillation compresses a large teacher model (or ensemble)
 into a smaller, faster student model while preserving performance.
 

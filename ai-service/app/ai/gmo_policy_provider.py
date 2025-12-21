@@ -1,5 +1,12 @@
 """GMO Policy Provider for MCTS Move Priors.
 
+.. note:: Experimental Feature (2025-12-20)
+    This module provides uncertainty-based move priors for MCTS. Enable with:
+    RINGRIFT_USE_GMO_POLICY=1
+
+    Integration point: app/ai/mcts_ai.py policy selection logic as alternative
+    to NNUE policy. Could enhance MCTS with uncertainty-aware exploration.
+
 This module provides a GMO-based policy prior provider that can be used
 with MCTS for move ordering. Instead of training a separate policy network,
 this uses GMO's value + uncertainty estimates to rank moves.

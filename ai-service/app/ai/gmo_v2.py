@@ -1,5 +1,14 @@
 """GMO v2 - Enhanced Gradient Move Optimization AI.
 
+.. note:: Experimental Feature (2025-12-20)
+    This is an enhanced version of GMO (gmo_ai.py). GMO is available as an
+    experimental AI type at D13/D14/D17. Enable GMO at D3 with:
+    RINGRIFT_USE_IG_GMO=1
+
+    GMO v2 adds attention-based encoding and ensemble optimization.
+    Consider consolidating v1+v2 into unified implementation if pursuing
+    the GMO research direction.
+
 Improvements over GMO v1:
 1. Larger encoders (256-dim vs 128-dim)
 2. Ensemble optimization - multiple gradient paths with voting

@@ -1,5 +1,21 @@
 """Automatic data discovery for training nodes.
 
+.. note:: Integration Complete (2025-12-20)
+    This module is now integrated into app/training/data_coordinator.py.
+    TrainingDataCoordinator.prepare_for_training() automatically runs
+    data discovery when enable_auto_discovery=True (default).
+
+    Usage:
+        from app.training.data_coordinator import get_data_coordinator
+
+        coordinator = get_data_coordinator()
+        result = await coordinator.prepare_for_training(board_type="square8")
+        print(f"Discovered {result['games_discovered']} games")
+
+    Or use discovery directly:
+        from app.training.auto_data_discovery import discover_training_data
+        discovery = discover_training_data(board_type="square8", num_players=2)
+
 This module provides automatic discovery of high-quality training data
 from synced sources. It's designed to be called automatically when a
 training job starts, ensuring the node uses the best available data

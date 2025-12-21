@@ -10,6 +10,15 @@ from app.training.generate_data import generate_dataset, generate_dataset_gpu_pa
 from app.training.tournament import Tournament
 from app.training.train import train_model
 
+# Optional integration with OptimizedTrainingPipeline (December 2025)
+# Provides: export caching, curriculum feedback, health monitoring, distributed locks
+try:
+    from app.training.optimized_pipeline import get_optimized_pipeline
+    HAS_OPTIMIZED_PIPELINE = True
+except ImportError:
+    HAS_OPTIMIZED_PIPELINE = False
+    get_optimized_pipeline = None
+
 
 def export_heuristic_profiles(log_dir: str) -> None:
     """
@@ -30,9 +39,20 @@ def export_heuristic_profiles(log_dir: str) -> None:
         print("Warning: failed to export heuristic profiles:", str(exc))
 
 
-def run_training_loop(config: TrainConfig | None = None):
+def run_training_loop(config: TrainConfig | None = None, use_optimized_pipeline: bool = True):
+    """Run the training loop with self-play, training, and evaluation.
+
+    Args:
+        config: Training configuration. If None, uses defaults.
+        use_optimized_pipeline: If True and available, uses OptimizedTrainingPipeline
+            for enhanced features (export caching, health monitoring, distributed locks).
+    """
     if config is None:
         config = TrainConfig()
+
+    # Use optimized pipeline if available and requested
+    if use_optimized_pipeline and HAS_OPTIMIZED_PIPELINE:
+        return _run_training_loop_optimized(config)
 
     print(
         f"Starting training loop: {config.epochs_per_iter} iterations, "
@@ -190,6 +210,132 @@ def run_training_loop(config: TrainConfig | None = None):
         # defaults.
         export_heuristic_profiles(config.log_dir)
 
+        print("Iteration complete.")
+
+
+def _run_training_loop_optimized(config: TrainConfig) -> None:
+    """Run training loop using OptimizedTrainingPipeline.
+
+    This version provides:
+    - Export caching (skip unchanged data)
+    - Distributed locks (prevent concurrent training)
+    - Health monitoring (track status and alerts)
+    - Curriculum feedback (adaptive weights)
+    - Model registry (full traceability)
+    """
+    pipeline = get_optimized_pipeline()
+
+    # Determine config key from board type
+    board_type = config.board_type.value if hasattr(config.board_type, 'value') else str(config.board_type)
+    num_players = getattr(config, 'num_players', 2)
+    config_key = f"{board_type}_{num_players}p"
+
+    print(
+        f"Starting optimized training loop for {config_key}: "
+        f"{config.epochs_per_iter} iterations, {config.episodes_per_iter} games/iter"
+    )
+    print(f"  Pipeline status: {pipeline.get_status().available_features}")
+
+    base_dir = os.getcwd()
+    model_file = os.path.join(
+        base_dir,
+        config.model_dir,
+        f"{config.model_id}.pth",
+    )
+    best_model_file = os.path.join(
+        base_dir,
+        config.model_dir,
+        f"{config.model_id}_best.pth",
+    )
+
+    # Initialize best model if not exists
+    if not os.path.exists(best_model_file) and os.path.exists(model_file):
+        shutil.copy(model_file, best_model_file)
+
+    num_loops = config.iterations
+
+    for i in range(num_loops):
+        print(f"\n=== Iteration {i+1}/{num_loops} ===")
+
+        # Check if training should run (using pipeline signals)
+        should_train, reason = pipeline.should_train(config_key)
+        if not should_train:
+            print(f"Skipping training: {reason}")
+            continue
+
+        # Get curriculum weight for adaptive training
+        curriculum_weight = pipeline.get_curriculum_weight(config_key)
+        effective_games = int(config.episodes_per_iter * curriculum_weight)
+        print(f"Curriculum weight: {curriculum_weight:.2f} -> {effective_games} games")
+
+        # 1. Self-Play Data Generation (same as before)
+        data_file = os.path.join(base_dir, config.data_dir, "self_play_data.npz")
+
+        if config.use_gpu_parallel_datagen:
+            print("Generating self-play data (GPU parallel mode)...")
+            generate_dataset_gpu_parallel(
+                num_games=effective_games,
+                output_file=data_file,
+                board_type=config.board_type,
+                seed=config.seed + i,
+                max_moves=config.max_moves_per_game,
+                num_players=2,
+                history_length=config.history_length,
+                feature_version=config.feature_version,
+                gpu_batch_size=config.gpu_batch_size,
+            )
+        else:
+            print("Generating self-play data (CPU sequential mode)...")
+            ai1 = DescentAI(
+                1,
+                AIConfig(difficulty=5, think_time=500, randomness=0.1, rngSeed=config.seed),
+            )
+            ai2 = DescentAI(
+                2,
+                AIConfig(difficulty=5, think_time=500, randomness=0.1, rngSeed=config.seed + 1),
+            )
+            generate_dataset(
+                num_games=effective_games,
+                output_file=data_file,
+                ai1=ai1,
+                ai2=ai2,
+                board_type=config.board_type,
+                seed=config.seed,
+                history_length=config.history_length,
+                feature_version=config.feature_version,
+            )
+
+        # 2. Training via OptimizedPipeline
+        print("Training via optimized pipeline...")
+        result = pipeline.run_training(
+            config_key=config_key,
+            npz_path=data_file,
+            skip_export=True,  # Data already in NPZ format
+        )
+
+        if result.success:
+            print(f"Training complete: {result.message}")
+            if result.model_path and os.path.exists(result.model_path):
+                # 3. Evaluation Tournament
+                print("Running tournament: Candidate vs Best...")
+                tournament = Tournament(result.model_path, best_model_file, num_games=10)
+                results = tournament.run()
+
+                total_decisive = results["A"] + results["B"]
+                if total_decisive > 0:
+                    win_rate = results["A"] / total_decisive
+                    print(f"Candidate win rate: {win_rate:.2f}")
+
+                    if win_rate > 0.55:
+                        print("Candidate promoted to Best Model!")
+                        shutil.copy(result.model_path, best_model_file)
+                        shutil.copy(result.model_path, model_file)
+                    else:
+                        print("Candidate failed to beat Best Model.")
+        else:
+            print(f"Training failed: {result.message}")
+
+        export_heuristic_profiles(config.log_dir)
         print("Iteration complete.")
 
 

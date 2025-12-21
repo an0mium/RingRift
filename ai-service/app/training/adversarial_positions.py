@@ -1,5 +1,21 @@
 """Adversarial Position Generation for RingRift AI.
 
+.. note:: Integration Complete (2025-12-20)
+    This module is now integrated into app/training/model_lifecycle.py.
+    ModelRetentionManager.validate_model_robustness() uses UNCERTAINTY and
+    REPLAY strategies for model validation before promotion decisions.
+
+    Usage:
+        from app.training.model_lifecycle import ModelRetentionManager
+
+        manager = ModelRetentionManager()
+        result = manager.validate_model_robustness(
+            model_path=Path("models/candidate.pt"),
+            config_key="square8_2p",
+        )
+        if result["passed"]:
+            print("Model is robust enough for promotion")
+
 Generates challenging board positions that expose model weaknesses.
 Used to improve training data quality and model robustness.
 

@@ -1,5 +1,20 @@
 """Optimized Training Data Pipeline.
 
+.. note:: Integration Complete (2025-12-20)
+    This module is now integrated into app/training/train_loop.py.
+    When use_optimized_pipeline=True (default), train_loop.py uses this pipeline
+    for enhanced training with export caching, curriculum feedback, health
+    monitoring, and distributed locks.
+
+    Usage:
+        from app.training.train_loop import run_training_loop
+        run_training_loop(config, use_optimized_pipeline=True)
+
+    Or use directly:
+        from app.training.optimized_pipeline import get_optimized_pipeline
+        pipeline = get_optimized_pipeline()
+        result = pipeline.run_training(config_key, db_paths)
+
 Combines all training loop improvements into a unified pipeline:
 - Export cache (skip unchanged data)
 - Parallel export (multi-core encoding)

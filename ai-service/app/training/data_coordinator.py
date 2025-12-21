@@ -49,6 +49,23 @@ except ImportError:
     MIN_QUALITY_FOR_PRIORITY_SYNC = 0.5
     HIGH_QUALITY_THRESHOLD = 0.7
 
+# Auto data discovery integration (December 2025)
+# Provides automatic discovery of high-quality training data from synced sources
+try:
+    from app.training.auto_data_discovery import (
+        DiscoveryResult,
+        discover_training_data,
+        get_best_data_paths,
+        should_auto_discover,
+    )
+    HAS_AUTO_DISCOVERY = True
+except ImportError:
+    HAS_AUTO_DISCOVERY = False
+    discover_training_data = None
+    get_best_data_paths = None
+    should_auto_discover = None
+    DiscoveryResult = None
+
 # Default paths
 DEFAULT_DATA_DIR = Path(__file__).parent.parent.parent / "data"
 DEFAULT_SELFPLAY_DIR = DEFAULT_DATA_DIR / "games"
@@ -61,6 +78,7 @@ class CoordinatorConfig:
     Attributes:
         enable_quality_scoring: Enable quality-based data selection
         enable_sync: Enable automatic sync before training
+        enable_auto_discovery: Enable automatic data discovery from synced sources
         min_quality_threshold: Minimum quality score for training data
         min_elo_threshold: Minimum average Elo for training data
         sync_high_quality_first: Sync high-quality games before bulk sync
@@ -68,9 +86,11 @@ class CoordinatorConfig:
         hot_buffer_memory_mb: Maximum memory for hot buffer
         refresh_interval_seconds: How often to refresh quality data
         auto_load_from_db: Automatically load games from DB on startup
+        auto_discovery_target_games: Target number of games for auto-discovery
     """
     enable_quality_scoring: bool = True
     enable_sync: bool = True
+    enable_auto_discovery: bool = True
     min_quality_threshold: float = MIN_QUALITY_FOR_PRIORITY_SYNC
     min_elo_threshold: float = 1400.0
     sync_high_quality_first: bool = True
@@ -78,6 +98,7 @@ class CoordinatorConfig:
     hot_buffer_memory_mb: int = 500
     refresh_interval_seconds: float = 300.0
     auto_load_from_db: bool = True
+    auto_discovery_target_games: int = 50000
 
 
 @dataclass
@@ -86,8 +107,11 @@ class CoordinatorStats:
     total_games_loaded: int = 0
     high_quality_games_loaded: int = 0
     games_synced: int = 0
+    games_discovered: int = 0  # From auto-discovery
+    discovered_sources: int = 0  # Number of data sources found
     last_sync_time: float = 0.0
     last_load_time: float = 0.0
+    last_discovery_time: float = 0.0
     avg_quality_score: float = 0.0
     avg_elo: float = 0.0
     preparation_count: int = 0
@@ -235,9 +259,10 @@ class TrainingDataCoordinator:
 
         This method:
         1. Syncs high-quality games from the cluster (if enabled)
-        2. Refreshes quality lookups from manifest
-        3. Configures data loaders with quality scores
-        4. Optionally loads games from local databases
+        2. Runs auto-discovery for synced data sources (if enabled)
+        3. Refreshes quality lookups from manifest
+        4. Configures data loaders with quality scores
+        5. Optionally loads games from local databases
 
         Args:
             board_type: Board type for training
@@ -252,9 +277,12 @@ class TrainingDataCoordinator:
         result = {
             "success": True,
             "games_synced": 0,
+            "games_discovered": 0,
+            "discovered_sources": 0,
             "games_loaded": 0,
             "avg_quality": 0.0,
             "duration_seconds": 0.0,
+            "data_paths": [],
             "errors": [],
         }
 
@@ -265,17 +293,28 @@ class TrainingDataCoordinator:
             if sync_result.get("errors"):
                 result["errors"].extend(sync_result["errors"])
 
-        # Step 2: Refresh quality lookups
+        # Step 2: Auto-discover training data from synced sources
+        if self._config.enable_auto_discovery and HAS_AUTO_DISCOVERY:
+            discovery = self._run_auto_discovery(board_type, num_players)
+            result["games_discovered"] = discovery.get("total_games", 0)
+            result["discovered_sources"] = discovery.get("num_sources", 0)
+            result["data_paths"] = discovery.get("data_paths", [])
+            if discovery.get("avg_quality"):
+                result["avg_quality"] = discovery["avg_quality"]
+
+        # Step 3: Refresh quality lookups
         bridge = self._get_quality_bridge()
         if bridge:
             bridge.refresh(force=True)
-            result["avg_quality"] = bridge.get_stats().avg_quality_score
+            # Update avg_quality if we didn't get it from discovery
+            if result["avg_quality"] == 0.0:
+                result["avg_quality"] = bridge.get_stats().avg_quality_score
 
             # Reconfigure hot buffer with fresh lookups
             if self._hot_buffer:
                 bridge.configure_hot_data_buffer(self._hot_buffer)
 
-        # Step 3: Load games from local databases
+        # Step 4: Load games from local databases
         if load_from_db and self._config.auto_load_from_db:
             loaded = self._load_games_from_local_dbs(
                 board_type=board_type,
@@ -291,12 +330,96 @@ class TrainingDataCoordinator:
 
         logger.info(
             f"Training preparation complete: "
-            f"synced={result['games_synced']}, loaded={result['games_loaded']}, "
+            f"synced={result['games_synced']}, discovered={result['games_discovered']}, "
+            f"loaded={result['games_loaded']}, "
             f"avg_quality={result['avg_quality']:.3f}, "
             f"duration={result['duration_seconds']:.1f}s"
         )
 
         return result
+
+    def _run_auto_discovery(
+        self,
+        board_type: str,
+        num_players: int,
+    ) -> dict[str, Any]:
+        """Run automatic data discovery for synced sources.
+
+        Args:
+            board_type: Board type for training
+            num_players: Number of players
+
+        Returns:
+            Dict with discovery results
+        """
+        result = {
+            "total_games": 0,
+            "num_sources": 0,
+            "avg_quality": 0.0,
+            "data_paths": [],
+        }
+
+        if not HAS_AUTO_DISCOVERY or not should_auto_discover():
+            logger.debug("Auto-discovery not available or not enabled")
+            return result
+
+        try:
+            discovery = discover_training_data(
+                board_type=board_type,
+                num_players=num_players,
+                target_games=self._config.auto_discovery_target_games,
+                min_quality=self._config.min_quality_threshold,
+            )
+
+            if discovery.success:
+                result["total_games"] = discovery.total_games
+                result["num_sources"] = len(discovery.data_paths)
+                result["avg_quality"] = discovery.avg_quality_score
+                result["data_paths"] = [str(p) for p in discovery.data_paths]
+
+                self._stats.games_discovered = discovery.total_games
+                self._stats.discovered_sources = len(discovery.data_paths)
+                self._stats.last_discovery_time = time.time()
+
+                logger.info(
+                    f"Auto-discovery found {discovery.total_games} games "
+                    f"across {len(discovery.data_paths)} sources "
+                    f"(avg quality: {discovery.avg_quality_score:.3f})"
+                )
+            else:
+                logger.warning(f"Auto-discovery failed: {discovery.error_message}")
+
+        except Exception as e:
+            logger.warning(f"Auto-discovery error: {e}")
+            self._stats.errors.append(f"Auto-discovery failed: {e}")
+
+        return result
+
+    def get_discovered_data_paths(
+        self,
+        board_type: str | None = None,
+        num_players: int | None = None,
+        target_games: int | None = None,
+    ) -> list[Path]:
+        """Get recommended data paths from auto-discovery.
+
+        Args:
+            board_type: Filter by board type
+            num_players: Filter by player count
+            target_games: Target number of games
+
+        Returns:
+            List of recommended data paths
+        """
+        if not HAS_AUTO_DISCOVERY:
+            return []
+
+        return get_best_data_paths(
+            target_games=target_games or self._config.auto_discovery_target_games,
+            min_quality=self._config.min_quality_threshold,
+            board_type=board_type,
+            num_players=num_players,
+        )
 
     async def _sync_high_quality_data(self, force: bool = False) -> dict[str, Any]:
         """Sync high-quality games from the cluster."""
