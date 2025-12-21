@@ -95,6 +95,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         )
     )
     parser.add_argument(
+        "--num-players",
+        type=int,
+        default=2,
+        help="Legacy compatibility flag (ignored; crossboard assumes 2P tiers).",
+    )
+    parser.add_argument(
         "--boards",
         type=str,
         default="square8,square19,hex",
@@ -199,7 +205,19 @@ def _extract_elos(report: dict[str, Any]) -> dict[str, float]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
+    args_list = list(argv) if argv is not None else list(sys.argv[1:])
+    if "--legacy-cli" in args_list:
+        args_list = [arg for arg in args_list if arg != "--legacy-cli"]
+    elif os.environ.get("RINGRIFT_TOURNAMENT_ENTRYPOINT") != "run_tournament":
+        from scripts.lib.tournament_cli import split_global_args
+        from scripts.run_tournament import main as run_tournament_main
+
+        global_args, sub_args = split_global_args(args_list)
+        sys.argv = ["run_tournament.py", *global_args, "crossboard", *sub_args]
+        print("[Deprecated] Routing run_crossboard_difficulty_tournament.py through run_tournament.py (use --legacy-cli to opt out).")
+        return run_tournament_main()
+
+    args = parse_args(args_list)
 
     boards = _parse_boards(args.boards)
     tiers = _parse_tiers(args.tiers)

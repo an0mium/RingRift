@@ -45,6 +45,7 @@ from app.training.elo_service import (
 )
 
 from .agents import AgentType, AIAgent, AIAgentRegistry
+from .config import TournamentConfig
 from .elo import EloCalculator, EloRating
 from .orchestrator import (
     EvaluationResult,
@@ -125,6 +126,7 @@ __all__ = [
     "TournamentRecordingOptions",
     "TournamentScheduler",
     "TournamentSummary",
+    "TournamentConfig",
     "UnifiedEloRating",
     "create_tournament_runner",
     "get_database_stats",

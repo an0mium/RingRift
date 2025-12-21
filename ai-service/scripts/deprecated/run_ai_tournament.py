@@ -40,6 +40,20 @@ AI_CLASSES = {"Random": RandomAI, "Heuristic": HeuristicAI, "Minimax": MinimaxAI
 BOARD_TYPES = {"Square8": BoardType.SQUARE8, "Square19": BoardType.SQUARE19, "Hex": BoardType.HEXAGONAL}
 
 
+def _forward_to_run_tournament(argv: list[str]) -> int:
+    from scripts.lib.tournament_cli import split_global_args
+    from scripts.run_tournament import main as run_tournament_main
+
+    global_args, sub_args = split_global_args(argv)
+    export_jsonl = "--legacy-mode" in sub_args or "--output-dir" in global_args
+    sub_args = [arg for arg in sub_args if arg != "--legacy-mode"]
+    if export_jsonl and "--export-jsonl" not in sub_args:
+        sub_args.append("--export-jsonl")
+
+    sys.argv = ["run_tournament.py", *global_args, "basic", *sub_args]
+    return run_tournament_main()
+
+
 def _agent_type_from_name(name: str):
     from app.tournament import AgentType
 
@@ -325,6 +339,13 @@ def run_game(p1_ai, p2_ai, board_type: str, max_moves: int = 10000) -> tuple[int
 
 
 def main():
+    argv = list(sys.argv[1:])
+    if "--legacy-cli" in argv:
+        argv = [arg for arg in argv if arg != "--legacy-cli"]
+    elif os.environ.get("RINGRIFT_TOURNAMENT_ENTRYPOINT") != "run_tournament":
+        print("[Deprecated] Routing run_ai_tournament.py through run_tournament.py (use --legacy-cli to opt out).")
+        return _forward_to_run_tournament(argv)
+
     parser = argparse.ArgumentParser(description="Run AI Tournament")
     parser.add_argument("--p1", type=str, required=True, choices=AI_CLASSES.keys(), help="Player 1 AI Type")
     parser.add_argument("--p1-diff", type=int, default=5, help="Player 1 Difficulty (1-10)")
@@ -340,7 +361,7 @@ def main():
         help="Use legacy per-move JSONL path instead of TournamentRunner.",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Check coordination before spawning
     task_id = None

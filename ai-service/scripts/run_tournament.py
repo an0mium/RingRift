@@ -41,6 +41,7 @@ Results are persisted to the unified Elo database (data/unified_elo.db).
 from __future__ import annotations
 
 import argparse
+import os
 import logging
 import sys
 from pathlib import Path
@@ -51,6 +52,7 @@ AI_SERVICE_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 from app.config.unified_config import get_config
+from app.tournament.config import TournamentConfig
 
 logger = logging.getLogger(__name__)
 
@@ -142,9 +144,43 @@ def create_parser() -> argparse.ArgumentParser:
     # Weights mode (from run_axis_aligned_tournament.py)
     weights = subparsers.add_parser("weights", help="Heuristic weight profile tournament")
     weights.add_argument("--board", type=str, default="square8", help="Board type")
+    weights.add_argument(
+        "--boards",
+        type=str,
+        default=None,
+        help="Comma-separated boards (legacy axis-aligned compatibility)",
+    )
     weights.add_argument("--profiles-dir", type=str, required=True, help="Profiles directory")
     weights.add_argument("--games", type=int, default=20, help="Games per matchup")
+    weights.add_argument(
+        "--games-per-pair",
+        type=int,
+        dest="games_per_pair",
+        default=None,
+        help="Legacy alias for games per matchup",
+    )
+    weights.add_argument("--max-moves", type=int, default=None, help="Max moves per game")
+    weights.add_argument(
+        "--seed",
+        type=int,
+        dest="weights_seed",
+        default=None,
+        help="Seed override for weights mode",
+    )
+    weights.add_argument(
+        "--output",
+        type=str,
+        dest="weights_output",
+        default=None,
+        help="Explicit output path for the JSON summary",
+    )
     weights.add_argument("--include-baselines", action="store_true", help="Include baseline AIs")
+    weights.add_argument(
+        "--include-baseline",
+        action="store_true",
+        dest="include_baseline",
+        help="Legacy alias for including baseline AIs",
+    )
 
     # Crossboard mode (from run_crossboard_difficulty_tournament.py)
     crossboard = subparsers.add_parser("crossboard", help="Cross-board difficulty analysis")
@@ -152,6 +188,62 @@ def create_parser() -> argparse.ArgumentParser:
     crossboard.add_argument("--players", type=int, default=2, help="Number of players")
     crossboard.add_argument("--tiers", type=str, default="D1-D10", help="Tiers to include")
     crossboard.add_argument("--games", type=int, default=30, help="Games per matchup")
+    crossboard.add_argument(
+        "--games-per-matchup",
+        type=int,
+        dest="games_per_matchup",
+        default=None,
+        help="Legacy alias for games per matchup",
+    )
+    crossboard.add_argument("--workers", type=int, default=None, help="Parallel workers per board")
+    crossboard.add_argument(
+        "--seed",
+        type=int,
+        dest="crossboard_seed",
+        default=None,
+        help="Seed override for crossboard mode",
+    )
+    crossboard.add_argument(
+        "--think-time-scale",
+        type=float,
+        dest="think_time_scale",
+        default=None,
+        help="Multiply tier think_time_ms by this factor",
+    )
+    crossboard.add_argument(
+        "--max-moves",
+        type=int,
+        default=None,
+        help="Max moves per game before declaring draw",
+    )
+    crossboard.add_argument(
+        "--wilson-confidence",
+        type=float,
+        dest="wilson_confidence",
+        default=None,
+        help="Wilson CI confidence for decisive matchups",
+    )
+    crossboard.add_argument(
+        "--nn-model-id",
+        type=str,
+        dest="nn_model_id",
+        default=None,
+        help="Override CNN model id used by ladder tiers",
+    )
+    crossboard.add_argument(
+        "--output-json",
+        type=str,
+        dest="output_json",
+        default=None,
+        help="Explicit output path for combined JSON report",
+    )
+    crossboard.add_argument(
+        "--board-report",
+        action="append",
+        dest="board_report",
+        default=[],
+        help="Aggregate existing per-board reports (format: board=path)",
+    )
     crossboard.add_argument("--demo", action="store_true", help="Demo mode")
 
     return parser
@@ -284,14 +376,23 @@ def run_weights_tournament(args: argparse.Namespace, config: Any) -> int:
     """Run heuristic weight profile tournament."""
     from scripts.deprecated.run_axis_aligned_tournament import main as weights_main
 
+    boards = args.boards or args.board
+    games_per_pair = args.games_per_pair or args.games
+    seed = args.weights_seed if args.weights_seed is not None else args.seed
     sys_argv = [
         "run_axis_aligned_tournament.py",
-        "--board-type", args.board,
+        "--boards", boards,
         "--profiles-dir", args.profiles_dir,
-        "--games-per-matchup", str(args.games),
+        "--games-per-pair", str(games_per_pair),
     ]
-    if args.include_baselines:
-        sys_argv.append("--include-baselines")
+    if args.max_moves is not None:
+        sys_argv.extend(["--max-moves", str(args.max_moves)])
+    if seed is not None:
+        sys_argv.extend(["--seed", str(seed)])
+    if args.weights_output:
+        sys_argv.extend(["--output", args.weights_output])
+    if args.include_baselines or args.include_baseline:
+        sys_argv.append("--include-baseline")
 
     sys.argv = sys_argv
     return weights_main()
@@ -301,13 +402,35 @@ def run_crossboard_tournament(args: argparse.Namespace, config: Any) -> int:
     """Run cross-board difficulty analysis."""
     from scripts.deprecated.run_crossboard_difficulty_tournament import main as crossboard_main
 
+    games_per_matchup = args.games_per_matchup or args.games
+    seed = args.crossboard_seed if args.crossboard_seed is not None else args.seed
     sys_argv = [
         "run_crossboard_difficulty_tournament.py",
         "--boards", args.boards,
-        "--num-players", str(args.players),
         "--tiers", args.tiers,
-        "--games-per-matchup", str(args.games),
+        "--games-per-matchup", str(games_per_matchup),
     ]
+    if args.players is not None:
+        sys_argv.extend(["--num-players", str(args.players)])
+    if args.workers is not None:
+        sys_argv.extend(["--workers", str(args.workers)])
+    if seed is not None:
+        sys_argv.extend(["--seed", str(seed)])
+    if args.think_time_scale is not None:
+        sys_argv.extend(["--think-time-scale", str(args.think_time_scale)])
+    if args.max_moves is not None:
+        sys_argv.extend(["--max-moves", str(args.max_moves)])
+    if args.wilson_confidence is not None:
+        sys_argv.extend(["--wilson-confidence", str(args.wilson_confidence)])
+    if args.nn_model_id:
+        sys_argv.extend(["--nn-model-id", args.nn_model_id])
+    if args.output_dir:
+        sys_argv.extend(["--output-dir", args.output_dir])
+    if args.output_json:
+        sys_argv.extend(["--output-json", args.output_json])
+    if args.board_report:
+        for item in args.board_report:
+            sys_argv.extend(["--board-report", item])
     if args.demo:
         sys_argv.append("--demo")
 
@@ -339,17 +462,20 @@ def main() -> int:
         return 1
 
     setup_logging(args.verbose)
+    os.environ["RINGRIFT_TOURNAMENT_ENTRYPOINT"] = "run_tournament"
 
     # Load config
     config_path = args.config or str(AI_SERVICE_ROOT / "config" / "unified_loop.yaml")
     config = get_config(config_path)
+    tournament_config = TournamentConfig.from_args(args, config, config_path)
 
     # Apply config defaults
     if hasattr(args, "games") and args.games is None:
-        args.games = config.tournament.default_games_per_matchup
+        args.games = tournament_config.games_per_matchup
 
     logger.info(f"Starting tournament mode: {args.mode}")
     logger.info(f"Output directory: {args.output_dir}")
+    logger.info("Tournament config: %s", tournament_config.summary())
 
     # Create output directory
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
