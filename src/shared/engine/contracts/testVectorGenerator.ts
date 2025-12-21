@@ -102,18 +102,15 @@ export function inferCategory(moveType: Move['type']): TestVectorCategory {
     case 'skip_placement':
       return 'placement';
     case 'move_stack':
-    case 'move_ring':
-    case 'build_stack':
       return 'movement';
     case 'overtaking_capture':
       return 'capture';
     case 'continue_capture_segment':
       return 'chain_capture';
     case 'process_line':
-    case 'choose_line_reward':
+    case 'choose_line_option':
       return 'line_processing';
     case 'choose_territory_option':
-    case 'process_territory_region':
     case 'eliminate_rings_from_stack':
       return 'territory_processing';
     default:

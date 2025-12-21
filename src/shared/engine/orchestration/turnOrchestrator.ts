@@ -2287,11 +2287,11 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
  * - ring_placement:
  *     place_ring, skip_placement, no_placement_action, swap_sides
  * - movement:
- *     move_stack, overtaking_capture, recovery_slide, skip_recovery, no_movement_action, swap_sides
+ *     move_stack, overtaking_capture, recovery_slide, skip_recovery, no_movement_action
  * - capture:
- *     overtaking_capture, skip_capture, swap_sides
+ *     overtaking_capture, skip_capture
  * - chain_capture:
- *     continue_capture_segment, swap_sides
+ *     continue_capture_segment
  * - line_processing:
  *     process_line, choose_line_option, eliminate_rings_from_stack, no_line_action
  * - territory_processing:
@@ -2300,7 +2300,7 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
  * - forced_elimination:
  *     forced_elimination
  *
- * swap_sides is permitted only in early phases (pie rule). Legacy move
+ * swap_sides is permitted only in ring_placement (pie rule). Legacy move
  * types (move_ring/build_stack/choose_line_reward/process_territory_region/
  * line_formation/territory_claim) are only accepted in replay compatibility
  * mode and must be treated as non-canonical by hosts.
