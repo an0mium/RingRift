@@ -231,6 +231,24 @@ CANONICAL_DIFFICULTY_PROFILES: dict[int, DifficultyProfile] = {
         "profile_id": "v3-gmo-mcts-17-experimental",
         "use_neural_net": True,
     },
+    18: {
+        # GMO v2: Enhanced GMO with attention, ensemble, and temperature scheduling
+        # Architectural improvements over D13 GMO: larger embeddings, attention encoder
+        "ai_type": AIType.GMO_V2,
+        "randomness": 0.1,
+        "think_time_ms": 2000,
+        "profile_id": "v3-gmov2-18-experimental",
+        "use_neural_net": True,
+    },
+    19: {
+        # GMO v2 High Exploration: Same as D18 but with higher exploration
+        # Better for discovering novel strategies and diverse play
+        "ai_type": AIType.GMO_V2,
+        "randomness": 0.2,
+        "think_time_ms": 2500,
+        "profile_id": "v3-gmov2-explore-19-experimental",
+        "use_neural_net": True,
+    },
 }
 
 # Overrides for 3-4 player games where MaxN/BRS outperform Minimax
@@ -295,6 +313,8 @@ DIFFICULTY_DESCRIPTIONS: dict[int, str] = {
     15: "Experimental - GPU Minimax (GPU-accelerated)",
     16: "Experimental - CAGE (Constraint-Aware Graph Energy-based)",
     17: "Experimental - GMO-MCTS (GMO-guided tree search)",
+    18: "Experimental - GMO v2 (attention + ensemble optimization)",
+    19: "Experimental - GMO v2 Explorer (high exploration variant)",
 }
 
 # Board types considered "large" (Minimax too slow)
@@ -565,6 +585,9 @@ class AIFactory:
         elif ai_type == AIType.GMO:
             from app.ai.gmo_ai import GMOAI
             ai_class = GMOAI
+        elif ai_type == AIType.GMO_V2:
+            from app.ai.gmo_v2 import GMOv2AI
+            ai_class = GMOv2AI
         elif ai_type == AIType.GMO_MCTS:
             from app.ai.gmo_mcts_hybrid import GMOMCTSHybrid
             ai_class = GMOMCTSHybrid

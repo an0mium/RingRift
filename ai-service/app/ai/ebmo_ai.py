@@ -34,6 +34,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from app.utils.torch_utils import get_device
+
 from ..models import AIConfig, GameState, Move
 from .base import BaseAI
 from .ebmo_network import (
@@ -144,12 +146,8 @@ class EBMO_AI(BaseAI):
             self.ebmo_config.projection_temperature = float(extra['ebmo_temperature'])
 
     def _select_device(self) -> torch.device:
-        """Select best available device."""
-        if torch.cuda.is_available():
-            return torch.device("cuda")
-        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-            return torch.device("mps")
-        return torch.device("cpu")
+        """Select best available device using canonical implementation."""
+        return get_device(prefer_gpu=True)
 
     def _load_model(self, path: str) -> None:
         """Load trained EBMO model."""

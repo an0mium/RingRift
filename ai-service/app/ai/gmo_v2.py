@@ -1,23 +1,29 @@
 """GMO v2 - Enhanced Gradient Move Optimization AI.
 
-.. note:: Experimental Feature (2025-12-20)
-    This is an enhanced version of GMO (gmo_ai.py). GMO is available as an
-    experimental AI type at D13/D14/D17. Enable GMO at D3 with:
-    RINGRIFT_USE_IG_GMO=1
+An enhanced version of GMO with architectural improvements for stronger play.
+Available as experimental AI at difficulty D18/D19 via the AI factory.
 
-    GMO v2 adds attention-based encoding and ensemble optimization.
-    Consider consolidating v1+v2 into unified implementation if pursuing
-    the GMO research direction.
-
-Improvements over GMO v1:
+Improvements over GMO v1 (gmo_ai.py):
 1. Larger encoders (256-dim vs 128-dim)
 2. Ensemble optimization - multiple gradient paths with voting
-3. Temperature scheduling by game phase
+3. Temperature scheduling by game phase (early/mid/late)
 4. Learned projection network (instead of nearest-neighbor)
-5. Attention-based state encoder
+5. Attention-based state encoder for board feature relationships
 
-This module extends the original GMO with architectural improvements
-to achieve stronger play.
+Usage:
+    # Via AI factory (recommended)
+    from app.ai.factory import create_ai
+    ai = create_ai(difficulty=18)  # GMO v2
+    ai = create_ai(difficulty=19)  # GMO v2 with higher exploration
+
+    # Direct instantiation
+    from app.ai.gmo_v2 import GMOv2AI, GMOv2Config
+    config = GMOv2Config(device="cuda")
+    ai = GMOv2AI(gmo_config=config)
+
+See also:
+    - gmo_ai.py: Original GMO implementation (D13/D14/D17)
+    - AI_ARCHITECTURE.md: Full algorithm documentation
 """
 
 from __future__ import annotations

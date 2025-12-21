@@ -1840,10 +1840,10 @@ class ParallelGameRunner:
                 self.state.move_count[g] += 1
                 move_count += 1
 
-                # Second: record the elimination move (if space)
-                if move_count < self.state.max_history_moves:
-                    # Get elimination position from the dict (y, x)
-                    elim_y, elim_x = elimination_positions.get(g, (-1, -1))
+                # Second: record the elimination move ONLY if elimination actually occurred
+                # (player might have no controlled stacks, in which case no elimination is needed)
+                if g in elimination_positions and move_count < self.state.max_history_moves:
+                    elim_y, elim_x = elimination_positions[g]
                     self.state.move_history[g, move_count, 0] = MoveType.ELIMINATE_RINGS_FROM_STACK
                     self.state.move_history[g, move_count, 1] = player
                     self.state.move_history[g, move_count, 2] = -1  # from_y (not used)
