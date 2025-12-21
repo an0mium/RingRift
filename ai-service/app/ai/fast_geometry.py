@@ -273,7 +273,7 @@ class FastGeometry:
             return self._all_keys_square8
         elif board_type == BoardType.SQUARE19:
             return self._all_keys_square19
-        elif board_type == BoardType.HEXAGONAL:
+        elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             return self._all_keys_hex
         return []
 
@@ -290,7 +290,7 @@ class FastGeometry:
             return self._center_square8
         elif board_type == BoardType.SQUARE19:
             return self._center_square19
-        elif board_type == BoardType.HEXAGONAL:
+        elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             return self._center_hex
         return frozenset()
 
@@ -314,7 +314,7 @@ class FastGeometry:
             return 0 <= x < 8 and 0 <= y < 8
         elif board_type == BoardType.SQUARE19:
             return 0 <= x < 19 and 0 <= y < 19
-        elif board_type == BoardType.HEXAGONAL:
+        elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             if z is None:
                 z = -x - y
             return (
@@ -363,7 +363,7 @@ class FastGeometry:
         """
         if board_type in (BoardType.SQUARE8, BoardType.SQUARE19):
             return self.SQUARE_LOS_DIRECTIONS
-        elif board_type == BoardType.HEXAGONAL:
+        elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             return self.HEX_DIRECTIONS
         return []
 
@@ -381,7 +381,7 @@ class FastGeometry:
             return self._coords_square8.get(key, (0, 0, None))
         elif board_type == BoardType.SQUARE19:
             return self._coords_square19.get(key, (0, 0, None))
-        elif board_type == BoardType.HEXAGONAL:
+        elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             return self._coords_hex.get(key, (0, 0, 0))
         return (0, 0, None)
 
@@ -411,7 +411,7 @@ class FastGeometry:
             return self._offset_square8.get(lookup_key)
         elif board_type == BoardType.SQUARE19:
             return self._offset_square19.get(lookup_key)
-        elif board_type == BoardType.HEXAGONAL:
+        elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             return self._offset_hex.get(lookup_key)
         return None
 

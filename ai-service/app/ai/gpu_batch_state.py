@@ -211,6 +211,8 @@ class BatchGameState:
         if rings_per_player is None:
             if board_type == "hexagonal":
                 rings_per_player = 96  # Canonical hex ring count
+            elif board_type == "hex8":
+                rings_per_player = 18  # Hex8 ring count (parallel to square8)
             elif board_type == "square19":
                 rings_per_player = 72  # 19x19 ring count
             elif board_size <= 8:
@@ -293,9 +295,11 @@ class BatchGameState:
             state.rings_in_hand[:, p] = rings_per_player
 
         # Mark hex out-of-bounds cells as collapsed if using hexagonal board
-        if board_type == "hexagonal":
-            # Hexagonal board uses a 25x25 grid with corners cut off
-            # Standard hex board has radius 8, so cells > distance 8 from center are OOB
+        if board_type in ("hexagonal", "hex8"):
+            # Hexagonal boards use a grid with corners cut off
+            # hexagonal: radius 8, 25x25 grid
+            # hex8: radius 4, 9x9 grid
+            radius = 8 if board_type == "hexagonal" else 4
             center = board_size // 2
             for r in range(board_size):
                 for c in range(board_size):
@@ -304,7 +308,7 @@ class BatchGameState:
                     dc = c - center
                     # Hex distance
                     hex_dist = max(abs(dr), abs(dc), abs(dr + dc))
-                    if hex_dist > 8:
+                    if hex_dist > radius:
                         state.is_collapsed[:, r, c] = True
 
         return state
@@ -371,6 +375,8 @@ class BatchGameState:
         board_type_enum = first_game.board_type if hasattr(first_game, 'board_type') else first_game.board.type
         if board_type_enum == BoardType.HEXAGONAL:
             board_type_str = "hexagonal"
+        elif board_type_enum == BoardType.HEX8:
+            board_type_str = "hex8"
         elif board_type_enum == BoardType.SQUARE19:
             board_type_str = "square19"
         else:

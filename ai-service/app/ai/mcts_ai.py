@@ -1504,7 +1504,7 @@ class MCTSAI(HeuristicAI):
                     self.hex_model is not None
                     and self.hex_encoder is not None
                     and states
-                    and states[0].board.type == BoardType.HEXAGONAL
+                    and states[0].board.type in (BoardType.HEXAGONAL, BoardType.HEX8)
                 )
                 use_vector_head = (
                     self.use_vector_value_head
@@ -1666,7 +1666,7 @@ class MCTSAI(HeuristicAI):
             self.hex_model is not None
             and self.hex_encoder is not None
             and states
-            and states[0].board.type == BoardType.HEXAGONAL
+            and states[0].board.type in (BoardType.HEXAGONAL, BoardType.HEX8)
         )
         use_vector_head = (
             self.use_vector_value_head
@@ -1861,7 +1861,7 @@ class MCTSAI(HeuristicAI):
             self.hex_model is not None
             and self.hex_encoder is not None
             and states
-            and states[0].board.type == BoardType.HEXAGONAL
+            and states[0].board.type in (BoardType.HEXAGONAL, BoardType.HEX8)
         )
         use_vector_head = (
             self.use_vector_value_head
@@ -2560,7 +2560,7 @@ class MCTSAI(HeuristicAI):
                     self.hex_model is not None
                     and self.hex_encoder is not None
                     and states
-                    and states[0].board.type == BoardType.HEXAGONAL
+                    and states[0].board.type in (BoardType.HEXAGONAL, BoardType.HEX8)
                 )
                 use_vector_head = (
                     self.use_vector_value_head
@@ -3176,7 +3176,7 @@ class MCTSAI(HeuristicAI):
             use_hex_nn = (
                 self.hex_model is not None
                 and self.hex_encoder is not None
-                and board_type == BoardType.HEXAGONAL
+                and board_type in (BoardType.HEXAGONAL, BoardType.HEX8)
             )
             use_vector_head = (
                 self.use_vector_value_head

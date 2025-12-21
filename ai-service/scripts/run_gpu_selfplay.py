@@ -498,6 +498,7 @@ class GPUSelfPlayGenerator:
         random_opening_moves: int = 0,
         temperature_mix: str | None = None,
         canonical_export: bool = False,
+        snapshot_interval: int = 0,
     ):
         self.board_size = board_size
         self.num_players = num_players
@@ -513,6 +514,9 @@ class GPUSelfPlayGenerator:
         self.filtered_short_games = 0  # Track filtered games for logging
         self.temperature_mix = temperature_mix
         self.canonical_export = canonical_export
+        self.snapshot_interval = snapshot_interval
+        # Store pending snapshots during batch generation: {game_idx: [(move_num, state_json), ...]}
+        self._pending_snapshots: dict[int, list[tuple[int, str]]] = {}
         self.base_temperature = temperature
         # Temperature levels for difficulty mixing: optimal → random
         self.mix_temperatures = [0.5, 1.0, 2.0, 4.0]
@@ -665,11 +669,33 @@ class GPUSelfPlayGenerator:
         start = time.time()
         # Pass None for random mode (uniform random), weights for heuristic mode
         weights_list = None if self.weights is None else [self.weights] * self.batch_size
+
+        # Clear pending snapshots and create callback if snapshot_interval enabled
+        self._pending_snapshots.clear()
+        snapshot_callback = None
+        if self.snapshot_interval > 0:
+            def snapshot_callback(game_idx: int, move_num: int, game_state) -> None:
+                """Capture and serialize game state snapshot."""
+                try:
+                    state_json = game_state.model_dump_json()
+                    if game_idx not in self._pending_snapshots:
+                        self._pending_snapshots[game_idx] = []
+                    self._pending_snapshots[game_idx].append((move_num, state_json))
+                except Exception as e:
+                    logger.debug(f"Snapshot serialization failed for game {game_idx}: {e}")
+
         results = self.runner.run_games(
             weights_list=weights_list,
             max_moves=self.max_moves,
+            snapshot_interval=self.snapshot_interval,
+            snapshot_callback=snapshot_callback,
         )
         elapsed = time.time() - start
+
+        # Log snapshot count if enabled
+        if self.snapshot_interval > 0:
+            total_snapshots = sum(len(snaps) for snaps in self._pending_snapshots.values())
+            logger.debug(f"Captured {total_snapshots} snapshots from {len(self._pending_snapshots)} games")
 
         # Update statistics
         self.total_games += self.batch_size
@@ -894,6 +920,15 @@ class GPUSelfPlayGenerator:
                         # === Canonical export flag ===
                         "canonical_format": self.canonical_export,
                     }
+
+                    # Add trajectory snapshots if captured
+                    if i in self._pending_snapshots:
+                        snapshots = self._pending_snapshots[i]
+                        record["trajectory_snapshots"] = [
+                            {"move_number": move_num, "state": state_json}
+                            for move_num, state_json in snapshots
+                        ]
+
                     all_records.append(record)
 
                     # Buffered write: accumulate records and flush periodically
@@ -1021,6 +1056,7 @@ def run_gpu_selfplay(
     random_opening_moves: int = 0,
     temperature_mix: str | None = None,
     canonical_export: bool = False,
+    snapshot_interval: int = 0,
 ) -> dict[str, Any]:
     """Run GPU-accelerated self-play generation.
 
@@ -1043,6 +1079,7 @@ def run_gpu_selfplay(
         use_heuristic_selection: Use heuristic-based move selection instead of center-bias random
         weight_noise: Multiplicative noise factor (0.0-1.0) for heuristic weights diversity
         canonical_export: Output moves in canonical format (with phase/type strings)
+        snapshot_interval: Capture GameState snapshots every N moves (0 = disabled)
 
     Returns:
         Statistics dict
@@ -1139,7 +1176,11 @@ def run_gpu_selfplay(
         random_opening_moves=random_opening_moves,
         temperature_mix=temperature_mix,
         canonical_export=canonical_export,
+        snapshot_interval=snapshot_interval,
     )
+
+    if snapshot_interval > 0:
+        logger.info(f"Snapshot interval: {snapshot_interval} moves (trajectory capture enabled)")
 
     # Generate games - use unique filename per config to avoid lock contention
     games_file = os.path.join(output_dir, f"games_{board_type}_{num_players}p_{os.getpid()}.jsonl")
@@ -1272,6 +1313,20 @@ def main():
         "--canonical-export",
         action="store_true",
         help="Export moves in canonical format (phase/type strings) for DB import",
+    )
+    parser.add_argument(
+        "--snapshot-interval",
+        type=int,
+        default=0,
+        help="Capture GameState snapshots every N moves per game for NNUE training "
+             "trajectories. 0 = disabled (default). Recommended: 15-20 for good coverage.",
+    )
+    parser.add_argument(
+        "--snapshot-db",
+        type=str,
+        default=None,
+        help="SQLite database path to store trajectory snapshots. If not specified, "
+             "snapshots are stored in-memory with game records (increases memory usage).",
     )
 
     parsed = parser.parse_args()

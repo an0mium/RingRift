@@ -722,6 +722,8 @@ class ParallelGameRunner:
         weights_list: list[dict[str, float]] | None = None,
         max_moves: int = 10000,
         callback: Callable[[int, BatchGameState], None] | None = None,
+        snapshot_interval: int = 0,
+        snapshot_callback: Callable[[int, int, "GameState"], None] | None = None,
     ) -> dict[str, Any]:
         """Run all games to completion.
 
@@ -729,15 +731,24 @@ class ParallelGameRunner:
             weights_list: List of weight dicts (one per game) or None for default
             max_moves: Maximum moves before declaring draw
             callback: Optional callback(move_num, state) after each batch move
+            snapshot_interval: If > 0, capture GameState snapshots every N moves per game.
+                             Useful for NNUE training with full game trajectories.
+            snapshot_callback: Called with (game_idx, move_number, GameState) when a
+                             snapshot is captured. Use to save to database.
 
         Returns:
             Dictionary with:
                 - winners: List of winner player numbers (0 for draw)
                 - move_counts: List of move counts per game
                 - game_lengths: List of game durations
+                - snapshots_captured: Number of snapshots captured (if snapshot_interval > 0)
         """
         self.reset_games()
         start_time = time.perf_counter()
+
+        # Track last snapshot move count per game for interval-based capture
+        last_snapshot_move = torch.zeros(self.batch_size, dtype=torch.int32, device=self.device)
+        snapshots_captured = 0
 
         # Use default weights if not provided (with optional noise for diversity)
         if weights_list is None:
@@ -769,6 +780,22 @@ class ParallelGameRunner:
             phase_steps += 1
             if callback:
                 callback(phase_steps, self.state)
+
+            # Capture snapshots for games that have crossed the interval threshold
+            if snapshot_interval > 0 and snapshot_callback:
+                current_moves = self.state.move_count
+                # Find games where move_count has advanced past last_snapshot + interval
+                need_snapshot = (current_moves >= last_snapshot_move + snapshot_interval) & active_mask
+                if need_snapshot.any():
+                    for g in need_snapshot.nonzero(as_tuple=True)[0].tolist():
+                        try:
+                            move_num = current_moves[g].item()
+                            game_state = self.state.to_game_state(g)
+                            snapshot_callback(g, move_num, game_state)
+                            last_snapshot_move[g] = move_num
+                            snapshots_captured += 1
+                        except Exception as e:
+                            logger.debug(f"Snapshot capture failed for game {g}: {e}")
 
             # Check for game completion.
             self._check_victory_conditions()
@@ -803,6 +830,7 @@ class ParallelGameRunner:
             "stalemate_tiebreakers": stalemate_tiebreakers,
             "elapsed_seconds": elapsed,
             "games_per_second": self.batch_size / elapsed,
+            "snapshots_captured": snapshots_captured,
         }
 
         # Add validation reports if enabled

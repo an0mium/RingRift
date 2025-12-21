@@ -805,7 +805,7 @@ class DescentAI(BaseAI):
 
                     use_hex_encoder = (
                         self.hex_encoder is not None
-                        and state.board.type == BoardType.HEXAGONAL
+                        and state.board.type in (BoardType.HEXAGONAL, BoardType.HEX8)
                     )
 
                     total_prob = 0.0
@@ -1120,7 +1120,7 @@ class DescentAI(BaseAI):
 
                     use_hex_encoder = (
                         self.hex_encoder is not None
-                        and state.board_type == BoardType.HEXAGONAL
+                        and state.board_type in (BoardType.HEXAGONAL, BoardType.HEX8)
                     )
 
                     total_prob = 0.0
