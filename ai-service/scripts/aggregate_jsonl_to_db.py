@@ -87,21 +87,39 @@ logger = setup_script_logging("aggregate_jsonl_to_db")
 def compute_game_hash(record: dict[str, Any]) -> str:
     """Compute a deterministic hash for deduplication.
 
-    Uses seed + board_type + num_players + first few moves to identify
+    Uses game_id (preferred) or seed + board_type + moves to identify
     duplicate games across sources.
     """
+    # If game_id is available and unique, use it directly
+    game_id = record.get("game_id", "")
+    if game_id and not game_id.startswith("gpu_"):
+        # Unique game_id - just hash it
+        return hashlib.sha256(game_id.encode()).hexdigest()[:32]
+
+    # For GPU selfplay games, use content-based hash
     key_parts = [
         str(record.get("seed", "")),
         str(record.get("board_type", "")),
         str(record.get("num_players", "")),
         str(record.get("engine_mode", "")),
+        game_id,  # Include game_id for GPU games
     ]
 
     # Include first 5 moves for additional uniqueness
+    # Support both formats: to.x/to.y and to_pos
     moves = record.get("moves", [])
     for _i, move in enumerate(moves[:5]):
         if isinstance(move, dict):
-            key_parts.append(f"{move.get('type', '')}:{move.get('player', '')}:{move.get('to', {}).get('x', '')}:{move.get('to', {}).get('y', '')}")
+            # Handle to.x/to.y format
+            to_dict = move.get("to", {})
+            if to_dict:
+                key_parts.append(f"{move.get('type', '')}:{move.get('player', '')}:{to_dict.get('x', '')}:{to_dict.get('y', '')}")
+            # Handle to_pos format (GPU selfplay)
+            elif "to_pos" in move:
+                to_pos = move.get("to_pos") or []
+                x = to_pos[0] if len(to_pos) > 0 else ""
+                y = to_pos[1] if len(to_pos) > 1 else ""
+                key_parts.append(f"{move.get('move_type', '')}:{move.get('player', '')}:{x}:{y}")
         elif isinstance(move, str):
             key_parts.append(move[:50])  # Truncate long move strings
 
