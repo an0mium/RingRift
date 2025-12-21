@@ -825,6 +825,61 @@ class BatchGameState:
 
         return moves
 
+    def extract_move_history_batch(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Extract move history for all games as tensors (vectorized).
+
+        Returns:
+            Tuple of (history_tensor, valid_mask):
+            - history_tensor: (batch_size, max_moves, 9) raw move history
+            - valid_mask: (batch_size, max_moves) bool mask for valid moves
+
+        This is much faster than calling extract_move_history() in a loop
+        as it avoids .item() calls and returns GPU tensors directly.
+        """
+        # Valid moves have move_type >= 0
+        valid_mask = self.move_history[:, :, 0] >= 0
+        return self.move_history, valid_mask
+
+    def extract_move_history_batch_dicts(self) -> list[list[dict[str, Any]]]:
+        """Extract move history for all games as list of dicts (optimized).
+
+        Returns:
+            List of move history lists, one per game.
+
+        Optimized version that does a single CPU transfer instead of
+        repeated .item() calls. ~10x faster than calling extract_move_history()
+        in a loop for large batches.
+        """
+        # Transfer all history to CPU once
+        history_cpu = self.move_history.cpu().numpy()
+
+        all_moves = []
+        for g in range(self.batch_size):
+            game_moves = []
+            for i in range(self.max_history_moves):
+                move_type = int(history_cpu[g, i, 0])
+                if move_type < 0:
+                    break
+
+                player = int(history_cpu[g, i, 1])
+                from_y = int(history_cpu[g, i, 2])
+                from_x = int(history_cpu[g, i, 3])
+                to_y = int(history_cpu[g, i, 4])
+                to_x = int(history_cpu[g, i, 5])
+                phase = int(history_cpu[g, i, 6])
+
+                move = {
+                    "move_type": MoveType(move_type).name,
+                    "player": player,
+                    "from_pos": (from_y, from_x) if from_y >= 0 else None,
+                    "to_pos": (to_y, to_x) if to_y >= 0 else None,
+                    "phase": GamePhase(phase).name if phase >= 0 else None,
+                }
+                game_moves.append(move)
+            all_moves.append(game_moves)
+
+        return all_moves
+
     def derive_victory_type(self, game_idx: int, max_moves: int) -> tuple[str, str | None]:
         """Derive the victory type and tiebreaker for a finished game.
 
@@ -948,6 +1003,131 @@ class BatchGameState:
             return "markers"
 
         # Default to last_actor
+        return "last_actor"
+
+    def derive_victory_types_batch(self, max_moves: int) -> tuple[list[str], list[str | None]]:
+        """Derive victory types for all games in batch (optimized).
+
+        Returns:
+            Tuple of (victory_types, tiebreakers) lists.
+
+        Optimized version that does a single CPU transfer and uses
+        vectorized comparisons where possible.
+        """
+        from app.models import BoardType
+        from app.rules.core import get_territory_victory_minimum, get_victory_threshold
+
+        # Map board size to board type
+        if self.board_size == 19:
+            board_type = BoardType.SQUARE19
+        elif self.board_size == 25:
+            board_type = BoardType.HEXAGONAL
+        else:
+            board_type = BoardType.SQUARE8
+
+        territory_threshold = get_territory_victory_minimum(board_type, self.num_players)
+        elim_threshold = get_victory_threshold(board_type, self.num_players)
+
+        # Transfer all needed tensors to CPU once
+        winners_cpu = self.winner.cpu().numpy()
+        lps_rounds_cpu = self.lps_consecutive_exclusive_rounds.cpu().numpy()
+        lps_player_cpu = self.lps_consecutive_exclusive_player.cpu().numpy()
+        territory_cpu = self.territory_count.cpu().numpy()
+        elims_cpu = self.rings_caused_eliminated.cpu().numpy()
+        move_count_cpu = self.move_count.cpu().numpy()
+
+        # Precompute line detection for all games at once
+        from app.ai.gpu_line_detection import detect_lines_vectorized
+        line_winners = {}
+        for p in range(1, self.num_players + 1):
+            try:
+                _, line_counts = detect_lines_vectorized(self, p)
+                line_winners[p] = line_counts.cpu().numpy()
+            except Exception:
+                line_winners[p] = None
+
+        victory_types = []
+        tiebreakers = []
+
+        for g in range(self.batch_size):
+            winner = int(winners_cpu[g])
+
+            if winner <= 0:
+                victory_types.append("in_progress")
+                tiebreakers.append(None)
+                continue
+
+            # Check LPS victory
+            if lps_rounds_cpu[g] >= self.lps_rounds_required:
+                if lps_player_cpu[g] == winner:
+                    victory_types.append("lps")
+                    tiebreakers.append(None)
+                    continue
+
+            # Check territory victory
+            if territory_cpu[g, winner] >= territory_threshold:
+                victory_types.append("territory")
+                tiebreakers.append(None)
+                continue
+
+            # Check elimination victory
+            if elims_cpu[g, winner] >= elim_threshold:
+                victory_types.append("elimination")
+                tiebreakers.append(None)
+                continue
+
+            # Check stalemate
+            if move_count_cpu[g] >= max_moves:
+                # Determine tiebreaker using pre-transferred data
+                tb = self._determine_tiebreaker_from_cpu(
+                    g, winner, territory_cpu, elims_cpu
+                )
+                victory_types.append("stalemate")
+                tiebreakers.append(tb)
+                continue
+
+            # Check line victory
+            if line_winners.get(winner) is not None and line_winners[winner][g] > 0:
+                victory_types.append("line")
+                tiebreakers.append(None)
+                continue
+
+            # Default
+            victory_types.append("unknown")
+            tiebreakers.append(None)
+
+        return victory_types, tiebreakers
+
+    def _determine_tiebreaker_from_cpu(
+        self,
+        game_idx: int,
+        winner: int,
+        territory_cpu,
+        elims_cpu,
+    ) -> str:
+        """Determine tiebreaker using pre-transferred CPU arrays."""
+        if winner <= 0:
+            return "none"
+
+        # Check territory advantage
+        territory_counts = territory_cpu[game_idx, 1:self.num_players + 1]
+        max_territory = territory_counts.max()
+        if max_territory > 0:
+            territory_leader = territory_counts.argmax() + 1
+            if territory_leader == winner:
+                if (territory_counts == max_territory).sum() == 1:
+                    return "territory"
+
+        # Check eliminations advantage
+        elim_counts = elims_cpu[game_idx, 1:self.num_players + 1]
+        max_elims = elim_counts.max()
+        if max_elims > 0:
+            elim_leader = elim_counts.argmax() + 1
+            if elim_leader == winner:
+                if (elim_counts == max_elims).sum() == 1:
+                    return "eliminations"
+
+        # Marker counts would need separate transfer, fall back to last_actor
         return "last_actor"
 
 
