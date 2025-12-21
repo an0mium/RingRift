@@ -206,9 +206,9 @@ class SelfplayOrchestrator:
             True if successfully subscribed
         """
         try:
-            from app.coordination.stage_events import StageEvent, get_event_bus
+            from app.coordination.event_router import StageEvent, get_stage_event_bus
 
-            bus = get_event_bus()
+            bus = get_stage_event_bus()
 
             # Subscribe to selfplay stage events
             bus.subscribe(StageEvent.SELFPLAY_COMPLETE, self._on_selfplay_stage_complete)

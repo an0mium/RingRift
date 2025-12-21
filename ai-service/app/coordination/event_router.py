@@ -587,6 +587,10 @@ __all__ = [
     "DataEvent",
     "DataEventType",
     "get_event_bus",
+    # Re-exports from stage_events for migration
+    "StageEvent",
+    "StageCompletionResult",
+    "get_stage_event_bus",
 ]
 
 

@@ -730,12 +730,12 @@ class TrainingDataCoordinator:
         subscribed = False
 
         try:
-            from app.coordination.stage_events import (
+            from app.coordination.event_router import (
                 StageEvent,
-                get_event_bus,
+                get_stage_event_bus,
             )
 
-            bus = get_event_bus()
+            bus = get_stage_event_bus()
 
             async def on_promotion_complete(result):
                 if result.success:

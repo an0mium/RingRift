@@ -621,12 +621,12 @@ class SyncOrchestrator:
     async def _subscribe_to_sync_triggers(self) -> None:
         """Subscribe to events that should trigger syncs."""
         try:
-            from app.coordination.stage_events import (
+            from app.coordination.event_router import (
                 StageEvent,
-                get_event_bus,
+                get_stage_event_bus,
             )
 
-            bus = get_event_bus()
+            bus = get_stage_event_bus()
 
             # Sync after selfplay completes (new games to sync)
             async def on_selfplay_complete(result):
