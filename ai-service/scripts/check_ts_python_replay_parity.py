@@ -65,6 +65,7 @@ You can optionally restrict to a single DB:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import subprocess
@@ -89,7 +90,19 @@ from app.models import BoardType
 from app.rules import global_actions as ga
 from app.rules.history_validation import validate_canonical_history_for_game
 from app.rules.serialization import serialize_game_state
-from app.training.initial_state import create_initial_state
+def _load_create_initial_state():
+    path = AI_SERVICE_ROOT / "app" / "training" / "initial_state.py"
+    spec = importlib.util.spec_from_file_location(
+        "ringrift_training_initial_state", path
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load initial_state from {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.create_initial_state
+
+
+create_initial_state = _load_create_initial_state()
 
 
 @dataclass
