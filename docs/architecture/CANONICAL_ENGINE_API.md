@@ -1876,3 +1876,38 @@ This API specification defines a stable, narrow boundary for the canonical RingR
 1. Enable orchestrator adapters in production (feature flag rollout)
 2. Extend contract test vector coverage
 3. Consider WASM compilation for Python consumption (long-term)
+
+---
+
+## Wave 5.4 Deprecation Timeline (December 2025)
+
+This section tracks the deprecation timeline for legacy code paths as the canonical engine matures.
+
+### Deprecation Schedule
+
+| Component                                      | Status      | Target Removal | Replacement               |
+| ---------------------------------------------- | ----------- | -------------- | ------------------------- |
+| `validateMove()` legacy validator              | DEPRECATED  | Q1 2026        | `validateMoveWithFSM()`   |
+| Legacy move types (`move_ring`, `build_stack`) | REPLAY-ONLY | N/A            | Canonical move types      |
+| `RuleEngine.ts` helper methods                 | DEPRECATED  | Q2 2026        | Orchestrator delegates    |
+| `legacyReplayHelper.ts`                        | LEGACY-ONLY | Q3 2026        | `CanonicalReplayEngine`   |
+| Python `_game_engine_legacy.py` (11K LOC)      | DEPRECATED  | Q2 2026        | Rules generators + parity |
+| Python `_neural_net_legacy.py` (7K LOC)        | DEPRECATED  | Q2 2026        | NNUE policy network       |
+
+### Migration Checklist
+
+- [x] FSM validation is canonical (`validateMoveWithFSM`)
+- [x] Orchestrator handles all turn processing
+- [x] Line/Territory generators extracted to SSoT modules
+- [ ] Remove legacy `validateMove()` after feature flag rollout complete
+- [ ] Migrate remaining `RuleEngine.ts` callers to orchestrator
+- [ ] Complete Python NNUE migration to unblock legacy removal
+
+### Deprecation Warnings
+
+All deprecated functions emit runtime warnings:
+
+- TypeScript: `console.warn` in development builds
+- Python: `warnings.warn(DeprecationWarning)` on import
+
+See `ai-service/app/DEPRECATION_AUDIT.md` for comprehensive Python module status.

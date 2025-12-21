@@ -45,8 +45,8 @@ def _load_fixtures() -> dict[str, Any]:
 
 
 # Map fixture event types to MoveType enum values
-# Note: Some FSM events (END_CHAIN, _ADVANCE_TURN, RESIGN, TIMEOUT) don't have
-# direct MoveType equivalents in Python - they're FSM-internal transitions.
+# Note: Some FSM events (END_CHAIN, _ADVANCE_TURN) don't have direct MoveType
+# equivalents in Python - they're FSM-internal transitions.
 _EVENT_TO_MOVE_TYPE: dict[str, MoveType | None] = {
     "PLACE_RING": MoveType.PLACE_RING,
     "SKIP_PLACEMENT": MoveType.SKIP_PLACEMENT,
@@ -62,8 +62,8 @@ _EVENT_TO_MOVE_TYPE: dict[str, MoveType | None] = {
     "PROCESS_REGION": MoveType.CHOOSE_TERRITORY_OPTION,  # Canonical type (legacy: PROCESS_TERRITORY_REGION)
     "FORCED_ELIMINATE": MoveType.FORCED_ELIMINATION,
     "_ADVANCE_TURN": None,  # Internal FSM event, not a move type
-    "RESIGN": None,  # Not a move type
-    "TIMEOUT": None,  # Not a move type
+    "RESIGN": MoveType.RESIGN,
+    "TIMEOUT": MoveType.TIMEOUT,
 }
 
 # Map fixture phase strings to GamePhase enum
@@ -205,14 +205,14 @@ class TestFSMValidationVectors:
     def _can_test_vector(self, vector: dict[str, Any]) -> bool:
         """Check if we can test this vector with Python FSM validation.
 
-        Some vectors test internal FSM transitions (_ADVANCE_TURN, RESIGN, TIMEOUT)
+        Some vectors test internal FSM transitions (_ADVANCE_TURN)
         that don't map to move types. We skip those.
         """
         event_type = vector["input"]["event"]["type"]
         phase_str = vector["input"]["currentPhase"]
 
         # Skip internal events
-        if event_type in ("_ADVANCE_TURN", "RESIGN", "TIMEOUT"):
+        if event_type == "_ADVANCE_TURN":
             return False
 
         # Skip phases without GamePhase enum mapping

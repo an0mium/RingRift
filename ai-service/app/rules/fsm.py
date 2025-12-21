@@ -35,7 +35,7 @@ from typing import Literal
 
 from app.models import GamePhase, GameState, Move, MoveType
 from app.rules.legacy.move_type_aliases import convert_legacy_move_type
-from app.rules.history_contract import phase_move_contract
+from app.rules.history_contract import ALWAYS_VALID_MOVE_TYPES, phase_move_contract
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,7 @@ def _get_allowed_move_types_for_phase(phase: GamePhase) -> set[str]:
 
     contract = phase_move_contract()
     allowed = contract.get(canonical_phase, ())  # type: ignore[call-overload]
-    return set(allowed)
+    return set(allowed).union(ALWAYS_VALID_MOVE_TYPES)
 
 
 def _is_bookkeeping_move(move_type: MoveType) -> bool:
