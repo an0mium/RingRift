@@ -692,6 +692,10 @@ def train_model(
         enable_batch_scheduling: Enable dynamic batch size scheduling (linear ramp-up)
         enable_background_eval: Enable background Elo evaluation during training
             Provides early stopping based on Elo tracking
+        find_lr: Run learning rate finder before training to find optimal LR
+        lr_finder_min: Minimum LR for range test (default 1e-7)
+        lr_finder_max: Maximum LR for range test (default 1.0)
+        lr_finder_iterations: Number of iterations for LR range test (default 100)
     """
     # Resolve optional parameters from config (use config as source of truth)
     # This ensures callers that don't pass these params get the config defaults
@@ -2357,6 +2361,62 @@ def train_model(
             ))
         except Exception as e:
             logger.debug(f"Failed to publish training started event: {e}")
+
+    # Learning rate finder (2025-12)
+    # Runs a range test to find optimal learning rate before training
+    if find_lr and (not distributed or is_main_process()):
+        try:
+            from app.training.advanced_training import LRFinder
+
+            logger.info(
+                f"[LR Finder] Running learning rate range test "
+                f"(min={lr_finder_min:.1e}, max={lr_finder_max:.1e}, iters={lr_finder_iterations})"
+            )
+
+            # Create a simple combined loss for LR finding
+            def combined_criterion(outputs, targets):
+                if isinstance(outputs, tuple):
+                    value_out, policy_out = outputs[:2]
+                    if isinstance(targets, tuple):
+                        value_target, policy_target = targets[:2]
+                    else:
+                        value_target = targets
+                        policy_target = None
+                    value_loss = nn.functional.mse_loss(value_out.squeeze(), value_target.squeeze())
+                    if policy_target is not None:
+                        policy_loss = nn.functional.cross_entropy(policy_out, policy_target)
+                        return value_loss + policy_loss
+                    return value_loss
+                return nn.functional.mse_loss(outputs, targets)
+
+            lr_finder = LRFinder(
+                model=model.module if distributed else model,
+                optimizer=optimizer,
+                criterion=combined_criterion,
+                device=device,
+            )
+
+            # Use train_loader for LR range test
+            lr_result = lr_finder.range_test(
+                train_loader,
+                min_lr=lr_finder_min,
+                max_lr=lr_finder_max,
+                num_iter=lr_finder_iterations,
+            )
+
+            logger.info(
+                f"[LR Finder] Results: suggested_lr={lr_result.suggested_lr:.2e}, "
+                f"steepest_lr={lr_result.steepest_lr:.2e}, best_lr={lr_result.best_lr:.2e}"
+            )
+
+            # Apply suggested learning rate
+            old_lr = optimizer.param_groups[0]['lr']
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = lr_result.suggested_lr
+            logger.info(f"[LR Finder] Updated learning rate: {old_lr:.2e} -> {lr_result.suggested_lr:.2e}")
+
+        except Exception as e:
+            logger.warning(f"[LR Finder] Failed: {e}. Continuing with configured LR.")
 
     try:
         for epoch in range(start_epoch, config.epochs_per_iter):
