@@ -10,10 +10,13 @@ generates vectors at arbitrary positions to expand test coverage.
 
 Usage:
     cd ai-service
-    python scripts/generate_parity_vectors.py --db data/games/canonical_square8.db
-    python scripts/generate_parity_vectors.py --db data/games/canonical_square8.db --strategy uniform --interval 10
-    python scripts/generate_parity_vectors.py --db data/games/canonical_square8.db --strategy random --sample-rate 0.1
-    python scripts/generate_parity_vectors.py --db data/games/canonical_square8.db --strategy key_positions
+    python scripts/generate_parity_vectors.py --db data/games/canonical_square8_2p.db
+    python scripts/generate_parity_vectors.py --db data/games/canonical_square8_2p.db --strategy uniform --interval 10
+    python scripts/generate_parity_vectors.py --db data/games/canonical_square8_2p.db --strategy random --sample-rate 0.1
+    python scripts/generate_parity_vectors.py --db data/games/canonical_square8_2p.db --strategy key_positions
+
+Note: `canonical_square8.db` is a smaller parity smoke DB; prefer
+`canonical_square8_2p.db` when you want training-ready coverage.
 
 Options:
     --db PATH           Path to game replay database (required)
@@ -463,19 +466,19 @@ def main() -> None:
         epilog="""
 Examples:
   # Generate vectors with uniform sampling every 10 moves
-  python scripts/generate_parity_vectors.py --db data/games/canonical_square8.db
+  python scripts/generate_parity_vectors.py --db data/games/canonical_square8_2p.db
 
   # Generate vectors with random 10% sampling
-  python scripts/generate_parity_vectors.py --db data/games/canonical_square8.db --strategy random
+  python scripts/generate_parity_vectors.py --db data/games/canonical_square8_2p.db --strategy random
 
   # Generate vectors at key game positions (captures, territory, etc.)
-  python scripts/generate_parity_vectors.py --db data/games/canonical_square8.db --strategy key_positions
+  python scripts/generate_parity_vectors.py --db data/games/canonical_square8_2p.db --strategy key_positions
 
   # Include matching vectors (not just divergent ones)
-  python scripts/generate_parity_vectors.py --db data/games/canonical_square8.db --include-matching
+  python scripts/generate_parity_vectors.py --db data/games/canonical_square8_2p.db --include-matching
 
   # Dry run to see what would be generated
-  python scripts/generate_parity_vectors.py --db data/games/canonical_square8.db --dry-run
+  python scripts/generate_parity_vectors.py --db data/games/canonical_square8_2p.db --dry-run
 """,
     )
 

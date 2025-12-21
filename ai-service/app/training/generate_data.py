@@ -2210,10 +2210,10 @@ def _resolve_db_summary_path(db_path: Path) -> Path | None:
     Mirrors the conventions used by ``scripts/generate_canonical_selfplay.py``:
 
     - ``db_health.<stem>.json`` in the same directory as the DB
-      (for example, ``db_health.canonical_square8.json`` for
-      ``data/games/canonical_square8.db``).
+      (for example, ``db_health.canonical_square8_2p.json`` for
+      ``data/games/canonical_square8_2p.db``).
     - ``<name>.db.summary.json`` as a generic fallback
-      (for example, ``canonical_square8.db.summary.json``).
+      (for example, ``canonical_square8_2p.db.summary.json``).
 
     Returns
     -------
