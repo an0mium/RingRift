@@ -9451,6 +9451,8 @@ print(wins / total)
                             agent_configs,
                             board_type_str,
                             num_players,
+                            match_id,
+                            agents,
                         ),
                         timeout=300.0,  # 5 minute timeout for tournament matches
                     )
@@ -9513,6 +9515,8 @@ print(wins / total)
         agent_configs: list[dict],
         board_type_str: str,
         num_players: int,
+        match_id: str,
+        agent_ids: list[str] | None = None,
     ) -> dict | None:
         """Synchronous wrapper for playing an Elo match.
 
@@ -9527,8 +9531,14 @@ print(wins / total)
         try:
             import time as time_mod
 
+            from app.db.unified_recording import (
+                RecordingConfig,
+                RecordSource,
+                UnifiedGameRecorder,
+                is_recording_enabled,
+            )
+            from app.game_engine import GameEngine
             from app.models import AIConfig, AIType, BoardType, GameStatus
-            from app.rules.default_engine import DefaultRulesEngine
             from app.training.initial_state import create_initial_state
 
             board_type = BoardType(board_type_str)
@@ -9542,7 +9552,7 @@ print(wins / total)
 
             # Create initial state
             state = create_initial_state(board_type, num_players)
-            engine = DefaultRulesEngine()
+            engine = GameEngine()
 
             # Map agent names to AI types
             def get_ai_type(agent_config: dict) -> str:
@@ -9645,30 +9655,107 @@ print(wins / total)
             # Keep initial state for training record
             initial_state = state
 
+            if not agent_ids:
+                agent_ids = [
+                    str(cfg.get("agent_id") or cfg.get("ai_type") or f"player_{idx + 1}")
+                    for idx, cfg in enumerate(agent_configs[:num_players])
+                ]
+            while len(agent_ids) < num_players:
+                agent_ids.append(f"player_{len(agent_ids) + 1}")
+
             # Play game and record actual Move objects for training
             move_count = 0
             max_moves = 500
             recorded_moves = []  # List of actual Move objects for training
+            termination_reason = "completed"
+            recording_enabled = is_recording_enabled()
+            tags = [
+                "elo_tournament",
+                f"node_{self.node_id}",
+                f"board_{board_type.value}",
+                f"players_{num_players}",
+            ]
+            for idx, cfg in enumerate(agent_configs[:num_players]):
+                ai_type = cfg.get("ai_type", "unknown")
+                tags.append(f"p{idx + 1}_{ai_type}")
 
-            while state.game_status == GameStatus.ACTIVE and move_count < max_moves:
-                current_player = state.current_player
-                current_ai = ais.get(current_player)
-                if current_ai is None:
-                    logger.warning(f"No AI for player {current_player}, using random fallback")
-                    from app.ai.random_ai import RandomAI
-                    config = AIConfig(ai_type=AIType.RANDOM, board_type=board_type, difficulty=1)
-                    current_ai = RandomAI(current_player, config)
-                    ais[current_player] = current_ai
+            recording_config = RecordingConfig(
+                board_type=board_type.value,
+                num_players=num_players,
+                source=RecordSource.TOURNAMENT,
+                engine_mode="p2p_elo",
+                db_prefix="tournament",
+                db_dir="data/games",
+                store_history_entries=True,
+                fsm_validation=True,
+                tags=tags,
+            )
+            recorder = UnifiedGameRecorder(recording_config, state, game_id=match_id) if recording_enabled else None
 
-                move = current_ai.select_move(state)
-                if move is None:
-                    break
+            try:
+                if recorder is not None:
+                    recorder.__enter__()
 
-                # Record actual Move object for training
-                recorded_moves.append(move)
+                while state.game_status == GameStatus.ACTIVE and move_count < max_moves:
+                    current_player = state.current_player
 
-                state = engine.apply_move(state, move)
-                move_count += 1
+                    requirement = GameEngine.get_phase_requirement(state, current_player)
+                    if requirement is not None:
+                        move = GameEngine.synthesize_bookkeeping_move(requirement, state)
+                    else:
+                        current_ai = ais.get(current_player)
+                        if current_ai is None:
+                            logger.warning(f"No AI for player {current_player}, using random fallback")
+                            from app.ai.random_ai import RandomAI
+                            config = AIConfig(ai_type=AIType.RANDOM, board_type=board_type, difficulty=1)
+                            current_ai = RandomAI(current_player, config)
+                            ais[current_player] = current_ai
+                        move = current_ai.select_move(state)
+
+                    if move is None:
+                        termination_reason = "no_move"
+                        break
+
+                    # Record actual Move object for training
+                    recorded_moves.append(move)
+
+                    state_before = state
+                    state = engine.apply_move(state, move)
+                    move_count += 1
+                    if recorder is not None:
+                        recorder.add_move(
+                            move,
+                            state_after=state,
+                            state_before=state_before,
+                            available_moves_count=None,
+                        )
+            finally:
+                if move_count >= max_moves and state.game_status == GameStatus.ACTIVE:
+                    termination_reason = "max_moves"
+
+                if recorder is not None:
+                    winner_player = state.winner if state.winner else 0
+                    winner_agent = None
+                    if isinstance(winner_player, int) and winner_player > 0 and winner_player <= len(agent_ids):
+                        winner_agent = agent_ids[winner_player - 1]
+
+                    extra_metadata = {
+                        "match_id": match_id,
+                        "tournament_id": f"p2p_elo_{match_id}",
+                        "node_id": self.node_id,
+                        "match_seed": match_seed,
+                        "agent_ids": agent_ids,
+                        "agent_configs": agent_configs,
+                        "winner_player": winner_player,
+                        "winner_agent": winner_agent,
+                        "game_length": move_count,
+                        "duration_sec": time_mod.time() - start_time,
+                        "termination_reason": termination_reason,
+                    }
+                    try:
+                        recorder.finalize(state, extra_metadata=extra_metadata)
+                    finally:
+                        recorder.__exit__(None, None, None)
 
             duration = time_mod.time() - start_time
 
