@@ -88,7 +88,7 @@ except Exception:  # pragma: no cover - optional guard for minimal envs
         return True
 
 
-def _build_env() -> dict[str, str]:
+def _build_env(extra_env: dict[str, str] | None = None) -> dict[str, str]:
     env = os.environ.copy()
     # Ensure PYTHONPATH includes ai-service root when invoked from repo root.
     # Prepend absolute AI_SERVICE_ROOT if missing so relative PYTHONPATH values
@@ -104,18 +104,31 @@ def _build_env() -> dict[str, str]:
     env.setdefault("MKL_NUM_THREADS", os.environ.get("MKL_NUM_THREADS", "1"))
     # Ensure progress output from long-running child scripts is not buffered.
     env.setdefault("PYTHONUNBUFFERED", os.environ.get("PYTHONUNBUFFERED", "1"))
+    if extra_env:
+        env.update(extra_env)
     return env
+
+
+def _canonical_gate_env(board_type: str) -> dict[str, str]:
+    env_overrides: dict[str, str] = {}
+    if board_type in {"square19", "hex", "hexagonal"}:
+        if "RINGRIFT_USE_FAST_TERRITORY" not in os.environ:
+            env_overrides["RINGRIFT_USE_FAST_TERRITORY"] = "false"
+        if "RINGRIFT_USE_MAKE_UNMAKE" not in os.environ:
+            env_overrides["RINGRIFT_USE_MAKE_UNMAKE"] = "true"
+    return env_overrides
 
 
 def _run_cmd(
     cmd: list[str],
     cwd: Path | None = None,
     *,
+    env_overrides: dict[str, str] | None = None,
     capture_output: bool = True,
     stream_to_stderr: bool = False,
     timeout_seconds: int | None = None,
 ) -> subprocess.CompletedProcess:
-    env = _build_env()
+    env = _build_env(env_overrides)
     stdout = None
     stderr = None
     if stream_to_stderr:
@@ -148,10 +161,11 @@ def _run_cmd_tee(
     cmd: list[str],
     cwd: Path | None = None,
     *,
+    env_overrides: dict[str, str] | None = None,
     max_output_lines: int = 5000,
 ) -> subprocess.CompletedProcess:
     """Run a command while streaming output to stderr and capturing it."""
-    env = _build_env()
+    env = _build_env(env_overrides)
     proc = subprocess.Popen(
         cmd,
         cwd=str(cwd or AI_SERVICE_ROOT),
@@ -277,6 +291,7 @@ def run_selfplay_and_parity(
       - run TS↔Python parity on the resulting DB.
     """
     summary_path = db_path.with_suffix(db_path.suffix + ".parity_gate.json")
+    gate_env = _canonical_gate_env(board_type)
 
     # If num_games == 0, assume the DB already exists and skip running
     # a new soak. We still run parity on the provided DB path.
@@ -337,6 +352,7 @@ def run_selfplay_and_parity(
         proc = _run_cmd(
             cmd,
             cwd=AI_SERVICE_ROOT,
+            env_overrides=gate_env,
             capture_output=False,
             stream_to_stderr=True,
             timeout_seconds=parity_timeout_seconds,
@@ -665,7 +681,8 @@ def run_fe_territory_fixtures(board_type: str) -> bool:
         file=sys.stderr,
         flush=True,
     )
-    proc = _run_cmd_tee(cmd, cwd=AI_SERVICE_ROOT)
+    env_overrides = _canonical_gate_env(board_type)
+    proc = _run_cmd_tee(cmd, cwd=AI_SERVICE_ROOT, env_overrides=env_overrides)
 
     if proc.returncode != 0:
         joined_cmd = " ".join(cmd)
@@ -717,7 +734,8 @@ def run_anm_invariants(board_type: str) -> dict[str, Any]:
         file=sys.stderr,
         flush=True,
     )
-    proc = _run_cmd_tee(cmd, cwd=AI_SERVICE_ROOT)
+    env_overrides = _canonical_gate_env(board_type)
+    proc = _run_cmd_tee(cmd, cwd=AI_SERVICE_ROOT, env_overrides=env_overrides)
 
     output = (proc.stdout or "") + (proc.stderr or "")
     num_tests: int | None = None

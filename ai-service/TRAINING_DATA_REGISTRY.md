@@ -106,11 +106,11 @@ _None retained._ All legacy/non-canonical DBs were deleted as part of the 2025-1
 
 Once canonical self-play DBs are generated and exported, retrain these models:
 
-| Target Model               | Training Data Source   | Status  |
-| -------------------------- | ---------------------- | ------- |
-| `ringrift_v2_square8.pth`  | canonical_square8.db   | Pending |
-| `ringrift_v2_square19.pth` | canonical_square19.db  | Pending |
-| `ringrift_v2_hex.pth`      | canonical_hexagonal.db | Pending |
+| Target Model               | Training Data Source    | Status  |
+| -------------------------- | ----------------------- | ------- |
+| `ringrift_v2_square8.pth`  | canonical_square8_2p.db | Pending |
+| `ringrift_v2_square19.pth` | canonical_square19.db   | Pending |
+| `ringrift_v2_hex.pth`      | canonical_hexagonal.db  | Pending |
 
 ---
 
