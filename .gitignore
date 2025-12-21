@@ -200,6 +200,8 @@ ai-service/data/ab_test_*.json
 ai-service/data/games/*.state_bundles/
 ai-service/data/games/*.parity_summary.json
 ai-service/data/games/*.parity_gate.json
+ai-service/data/*.parity_summary.json
+ai-service/data/*.parity_gate.json
 ai-service/data/games/failures/
 ai-service/parity_summary.*.json
 
