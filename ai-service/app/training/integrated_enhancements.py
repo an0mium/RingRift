@@ -116,7 +116,7 @@ class IntegratedEnhancementsConfig:
     # =========================================================================
     # Batch Scheduling
     # =========================================================================
-    batch_scheduling_enabled: bool = False
+    batch_scheduling_enabled: bool = True  # Dynamic batch sizing (64→512) for better convergence
     batch_initial_size: int = 64
     batch_final_size: int = 512
     batch_warmup_steps: int = 1000
@@ -169,7 +169,7 @@ class IntegratedEnhancementsConfig:
     reanalysis_blend_ratio: float = 0.7  # 70% new, 30% old (MuZero-style)
     reanalysis_interval_steps: int = 2000  # Trigger more frequently for faster iteration
     reanalysis_batch_size: int = 1000
-    reanalysis_min_elo_delta: int = 25  # Lower threshold for more frequent reanalysis
+    reanalysis_min_elo_delta: int = 15  # Very low threshold for aggressive reanalysis (+40-120 Elo)
 
     # =========================================================================
     # Knowledge Distillation
