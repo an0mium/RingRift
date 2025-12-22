@@ -1257,13 +1257,21 @@ export function applyProcessLineDecision(
 
   const { nextState } = collapseLinePositions(state, line.positions, move.player);
 
+  // RR-PARITY-FIX-2025-12-21: Only set pendingLineRewardElimination when player
+  // has controlled stacks. Python's LineMutator checks has_controlled_stack
+  // before setting pending_line_reward_elimination (mutators/line.py:176-182).
+  // Without this check, TS would stay in line_processing waiting for elimination
+  // while Python would advance to territory_processing.
+  const hasControlledStacks = Array.from(nextState.board.stacks.values()).some(
+    (stack) => stack.controllingPlayer === move.player && stack.stackHeight > 0
+  );
+
   return {
     nextState,
-    // Elimination reward is only granted when the collapsed line meets or
-    // exceeds the effective threshold for this board/player-count combination.
-    // Shorter (mini) lines still grant territory but no mandatory
-    // self-elimination.
-    pendingLineRewardElimination: line.length >= requiredLength,
+    // Elimination reward is only granted when:
+    // 1. The collapsed line meets or exceeds the effective threshold
+    // 2. The player has at least one controlled stack to eliminate from
+    pendingLineRewardElimination: line.length >= requiredLength && hasControlledStacks,
   };
 }
 
@@ -1335,9 +1343,16 @@ export function applyChooseLineRewardDecision(
     collapsedKeys.size === lineKeys.size &&
     Array.from(collapsedKeys).every((key) => lineKeys.has(key));
 
-  const pendingReward = length >= requiredLength && isFullCollapse;
-
   const { nextState } = collapseLinePositions(state, positionsToCollapse, move.player);
+
+  // RR-PARITY-FIX-2025-12-21: Only set pendingLineRewardElimination when player
+  // has controlled stacks. Python's LineMutator checks has_controlled_stack
+  // before setting pending_line_reward_elimination (mutators/line.py:176-182).
+  const hasControlledStacks = Array.from(nextState.board.stacks.values()).some(
+    (stack) => stack.controllingPlayer === move.player && stack.stackHeight > 0
+  );
+
+  const pendingReward = length >= requiredLength && isFullCollapse && hasControlledStacks;
 
   return {
     nextState,

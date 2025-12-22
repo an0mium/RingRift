@@ -638,8 +638,9 @@ A **recovery action** allows a player who controls no stacks but has markers and
       - **For lines of exactly the required length:**
         - Replace the entire line with collapsed spaces of your color.
         - Eliminate **one ring** from the top of any stack you control (including height-1 standalone rings). Any controlled stack is an eligible target.
+        - **Edge case:** If you control no stacks (e.g., your last stack was captured on the same move that formed the line), the elimination cost is waived—you still gain the territory.
       - **For lines longer than the required length (any length > required length):** You may choose either:
-        - **Option 1:** Replace the entire line with collapsed spaces of your color **and** eliminate one ring from a controlled stack as above, or
+        - **Option 1:** Replace the entire line with collapsed spaces of your color **and** eliminate one ring from a controlled stack as above (or skip elimination if you control no stacks), or
         - **Option 2:** Replace exactly the required number of _any_ consecutive markers of your choice within the line with collapsed spaces of your color **without eliminating any of your rings**. Option 2 is always available for overlength lines, even if you have no rings you wish to eliminate.
       - After resolving a line, check again for any remaining eligible lines; continue until none remain.
       - Collapsed spaces never form part of a valid line.
@@ -1977,9 +1978,9 @@ A7: You must process each line one at a time. Determine the required length (`li
 
 3. Check for any remaining valid lines (some may no longer meet the length requirement due to intersections with collapsed spaces).
 
-4. Continue until no valid lines remain, or you have no more rings/stacks to eliminate when required for exact‑length lines or Option 1 on overlength lines.
+4. Continue until no valid lines remain.
 
-5. Any remaining lines of the exact required length that you cannot collapse due to running out of rings/stacks to eliminate remain on the board. For longer lines, you can always choose Option 2 to collapse exactly the required number of markers without paying any elimination cost.
+5. **Edge case:** If you control no stacks when processing a line (e.g., your last stack was captured on the same move that formed the line), the elimination cost is waived—you still gain the territory from collapsing the markers. This applies to both exact-length lines and Option 1 for overlength lines.
 
 #### Q8: What happens if I have no rings/stacks to remove when required?
 

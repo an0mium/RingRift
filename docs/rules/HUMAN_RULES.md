@@ -257,12 +257,13 @@ For each line that is eligible, you process it one at a time in an order
      colour.
    - You must **eliminate one ring** from the top of any stack you control (including height-1 standalone rings). Any controlled stack is an eligible target.
    - **Exception for recovery actions:** When a line is formed via recovery, you pay one buried ring extraction instead.
+   - **Edge case: no controlled stacks.** If you form a line but control no stacks (for example, because your last stack was captured on the same turn that formed the line), the elimination cost is simply waived. You still gain the territory from the collapsed markers—you just don't pay any ring cost.
 
 2. **Overlength lines** :
    - If you form a line longer than the minimum required length, you choose between:
      - **Option 1 (full reward)**:
        - Collapse the **entire line** to your territory.
-       - Eliminate **one ring** from the top of any stack you control (same rules as exact-length lines).
+       - Eliminate **one ring** from the top of any stack you control (same rules as exact-length lines). If you have no controlled stacks, the elimination is waived as above.
        - **Exception for recovery actions:** When a line is formed via recovery, you pay one buried ring extraction instead.
      - **Option 2 (minimum collapse)**:
        - Collapse **exactly lineLength** consecutive markers of your choice
