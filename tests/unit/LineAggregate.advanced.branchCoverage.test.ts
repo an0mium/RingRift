@@ -823,13 +823,16 @@ describe('LineAggregate - Advanced Branch Coverage', () => {
     });
 
     it('handles exact-length line collapse (4-player)', () => {
-      // 4-player game has threshold 4
+      // 4-player square8 game has threshold 3 (per RR-CANON-R120)
+      // A 4-marker line is overlength, so pendingLineRewardElimination should be true
       const state = createTestGameState({ numPlayers: 4 });
       state.board.markers.clear();
       addMarker(state.board, { x: 0, y: 0 }, 1);
       addMarker(state.board, { x: 1, y: 0 }, 1);
       addMarker(state.board, { x: 2, y: 0 }, 1);
       addMarker(state.board, { x: 3, y: 0 }, 1);
+      // Must have a controlled stack for elimination reward
+      addStack(state.board, { x: 5, y: 5 }, 1, 1);
       state.board.formedLines = [
         {
           player: 1,
@@ -858,7 +861,7 @@ describe('LineAggregate - Advanced Branch Coverage', () => {
     });
 
     it('handles overlength collapse-all (4-player)', () => {
-      // 4-player game has threshold 4, so 5 markers is overlength
+      // 4-player square8 game has threshold 3, so 5 markers is overlength
       const state = createTestGameState({ numPlayers: 4 });
       state.board.markers.clear();
       addMarker(state.board, { x: 0, y: 0 }, 1);
@@ -866,6 +869,8 @@ describe('LineAggregate - Advanced Branch Coverage', () => {
       addMarker(state.board, { x: 2, y: 0 }, 1);
       addMarker(state.board, { x: 3, y: 0 }, 1);
       addMarker(state.board, { x: 4, y: 0 }, 1);
+      // Must have a controlled stack for elimination reward
+      addStack(state.board, { x: 5, y: 5 }, 1, 1);
       state.board.formedLines = [
         {
           player: 1,

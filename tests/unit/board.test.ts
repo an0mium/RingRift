@@ -38,7 +38,7 @@ describe('BoardState Test Fixtures', () => {
       const board = createTestBoard('hexagonal');
 
       expect(board.type).toBe('hexagonal');
-      expect(board.size).toBe(13); // radius=12
+      expect(board.size).toBe(25); // bounding box = 2*radius+1 = 25 for radius=12
     });
   });
 
@@ -176,7 +176,7 @@ describe('Board Configurations', () => {
     const config = BOARD_CONFIGS.hexagonal;
 
     expect(config.type).toBe('hexagonal');
-    expect(config.size).toBe(13); // radius=12
+    expect(config.size).toBe(25); // bounding box = 2*radius+1 = 25 for radius=12
     expect(config.ringsPerPlayer).toBe(96);
     expect(config.minLineLength).toBe(4);
     expect(config.adjacencyType).toBe('hexagonal');

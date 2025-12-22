@@ -133,12 +133,16 @@ def create_ai_from_model(
         from app.ai.universal_ai import UniversalAI
 
         loader = UnifiedModelLoader()
+        # Don't pass num_players - let loader infer from checkpoint
         loaded = loader.load(
             model_path,
             board_type=board_type,
-            num_players=num_players,
+            num_players=None,  # Use inferred from checkpoint
             allow_fresh=False,  # Fail if can't load, we'll catch and fallback
         )
+
+        # Use inferred num_players from loaded model
+        inferred_players = loaded.config.num_players
 
         config = AIConfig(
             difficulty=5,
@@ -150,14 +154,14 @@ def create_ai_from_model(
             config=config,
             loaded_model=loaded,
             board_type=board_type,
-            num_players=num_players,
+            num_players=inferred_players,
             use_mcts=False,  # Use direct policy/minimax for speed
             policy_temperature=0.1,  # Low temp for more deterministic play
         )
 
         logger.info(
             f"Loaded {loaded.architecture.name} model from {model_path} "
-            f"(board={board_type}, players={num_players})"
+            f"(board={board_type}, players={inferred_players})"
         )
         return ai
 

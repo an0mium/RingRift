@@ -31,9 +31,16 @@ export function posStr(x: number, y: number, z?: number): string {
  * Creates a minimal BoardState for testing
  */
 export function createTestBoard(boardType: BoardType = 'square8'): BoardState {
+  // Size semantics: For hex boards, size = bounding box = 2*radius + 1
+  const sizeMap: Record<string, number> = {
+    square8: 8,
+    square19: 19,
+    hex8: 9, // bounding box = 2*4+1 = 9 for radius=4
+    hexagonal: 25, // bounding box = 2*12+1 = 25 for radius=12
+  };
   return {
     type: boardType,
-    size: boardType === 'square8' ? 8 : boardType === 'square19' ? 19 : 13, // hex: size=13, radius=12
+    size: sizeMap[boardType] ?? 8,
     stacks: new Map(),
     markers: new Map(),
     collapsedSpaces: new Map(),
@@ -63,34 +70,46 @@ export function createTestPlayer(playerNumber: number, overrides: Partial<Player
 
 /**
  * Creates a minimal GameState for testing
+ *
+ * If you pass { numPlayers: N }, the fixture will create N players automatically.
+ * Otherwise, you can pass { players: [...] } directly.
  */
-export function createTestGameState(overrides: Partial<GameState> = {}): GameState {
-  const boardType = (overrides.boardType || 'square8') as BoardType;
-  const board = overrides.board || createTestBoard(boardType);
+export function createTestGameState(
+  overrides: Partial<GameState> & { numPlayers?: number } = {}
+): GameState {
+  const { numPlayers, ...stateOverrides } = overrides;
+  const boardType = (stateOverrides.boardType || 'square8') as BoardType;
+  const board = stateOverrides.board || createTestBoard(boardType);
+
+  // Generate players based on numPlayers if specified
+  const defaultPlayers =
+    numPlayers != null
+      ? Array.from({ length: numPlayers }, (_, i) => createTestPlayer(i + 1))
+      : [createTestPlayer(1), createTestPlayer(2)];
 
   return {
     id: 'test-game-123',
     boardType,
     board,
-    players: overrides.players || [createTestPlayer(1), createTestPlayer(2)],
+    players: stateOverrides.players || defaultPlayers,
     currentPlayer: 0,
     currentPhase: 'ring_placement',
     moveHistory: [],
     // Initialise structured history so helpers that rely on it (e.g. for
     // moveNumber computation) behave like real engine states.
-    history: overrides.history || [],
+    history: stateOverrides.history || [],
     timeControl: { initialTime: 600, increment: 0, type: 'blitz' },
     spectators: [],
     gameStatus: 'active',
     createdAt: new Date(),
     lastMoveAt: new Date(),
     isRated: false,
-    maxPlayers: 2,
+    maxPlayers: numPlayers || 2,
     totalRingsInPlay: 0,
     totalRingsEliminated: 0,
     victoryThreshold: 10,
     territoryVictoryThreshold: 32,
-    ...overrides,
+    ...stateOverrides,
   };
 }
 
@@ -114,7 +133,7 @@ export const BOARD_CONFIGS = {
   },
   hexagonal: {
     type: 'hexagonal' as BoardType,
-    size: 13, // radius=12
+    size: 25, // bounding box = 2*radius+1 = 25 for radius=12
     ringsPerPlayer: 96,
     minLineLength: 4, // Same as other boards
     adjacencyType: 'hexagonal' as const,
