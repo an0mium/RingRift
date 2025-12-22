@@ -512,9 +512,61 @@ def _parse_moves(moves_data: list[Any], initial_state: GameState) -> list[Move]:
     """
     moves = []
 
+    # GPU move type to canonical move type mapping
+    GPU_TO_CANONICAL_MOVE_TYPE = {
+        "PLACEMENT": "place_ring",
+        "MOVEMENT": "move_stack",
+        "CAPTURE": "overtaking_capture",
+        "LINE_FORMATION": "process_line",
+        "TERRITORY_CLAIM": "choose_territory_option",
+        "SKIP": "skip_placement",
+        "NO_ACTION": "no_territory_action",
+        "RECOVERY_SLIDE": "recovery_slide",
+        "NO_PLACEMENT_ACTION": "no_placement_action",
+        "NO_MOVEMENT_ACTION": "no_movement_action",
+        "NO_LINE_ACTION": "no_line_action",
+        "NO_TERRITORY_ACTION": "no_territory_action",
+        "OVERTAKING_CAPTURE": "overtaking_capture",
+        "CONTINUE_CAPTURE_SEGMENT": "continue_capture_segment",
+        "SKIP_CAPTURE": "skip_capture",
+        "SKIP_RECOVERY": "skip_recovery",
+        "FORCED_ELIMINATION": "forced_elimination",
+        "CHOOSE_LINE_OPTION": "choose_line_option",
+        "CHOOSE_TERRITORY_OPTION": "choose_territory_option",
+        "SKIP_PLACEMENT": "skip_placement",
+        "ELIMINATE_RINGS_FROM_STACK": "eliminate_rings_from_stack",
+    }
+
     for i, move_data in enumerate(moves_data):
         try:
             if isinstance(move_data, dict):
+                # Convert GPU JSONL format to canonical format
+                # GPU uses: move_type, from_pos, to_pos, phase
+                # Canonical uses: type, from, to, phase
+
+                # Convert move_type to type
+                if "move_type" in move_data and "type" not in move_data:
+                    gpu_type = move_data["move_type"]
+                    move_data["type"] = GPU_TO_CANONICAL_MOVE_TYPE.get(gpu_type, gpu_type.lower())
+
+                # Convert to_pos [y, x] to to {x, y}
+                if "to_pos" in move_data and "to" not in move_data:
+                    to_pos = move_data["to_pos"]
+                    if to_pos and len(to_pos) >= 2:
+                        move_data["to"] = {"x": to_pos[1], "y": to_pos[0]}
+
+                # Convert from_pos [y, x] to from {x, y}
+                if "from_pos" in move_data and "from" not in move_data:
+                    from_pos = move_data["from_pos"]
+                    if from_pos and len(from_pos) >= 2:
+                        move_data["from"] = {"x": from_pos[1], "y": from_pos[0]}
+
+                # Convert phase to lowercase if uppercase
+                if "phase" in move_data:
+                    phase = move_data["phase"]
+                    if isinstance(phase, str) and phase.isupper():
+                        move_data["phase"] = phase.lower()
+
                 # Ensure required fields have defaults
                 if "id" not in move_data:
                     move_data["id"] = f"move-{i}"
