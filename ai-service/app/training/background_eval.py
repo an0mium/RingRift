@@ -68,6 +68,11 @@ class BackgroundEvalConfig:
         "random": MIN_WIN_RATE_VS_RANDOM,
         "heuristic": MIN_WIN_RATE_VS_HEURISTIC,
     })
+    # Failsafe configuration to prevent process explosion
+    max_consecutive_failures: int = 5  # Circuit breaker trips after N consecutive failures
+    failure_cooldown_seconds: float = 60.0  # Cooldown period after circuit breaker trips
+    max_failures_per_hour: int = 20  # Rate limit: max failures allowed per hour
+    eval_timeout_seconds: float = 300.0  # Timeout for single evaluation (5 min)
 
 
 # Backwards-compatible alias
@@ -145,6 +150,93 @@ class BackgroundEvaluator:
         self.checkpoint_dir = Path(config.checkpoint_dir) if config else Path("data/eval_checkpoints")
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         self._temp_model_path = self.checkpoint_dir / "temp_eval_model.pth"
+
+        # Failsafe state tracking - prevents process explosion on continuous failures
+        self._consecutive_failures = 0
+        self._failure_timestamps: list[float] = []  # For rate limiting
+        self._circuit_breaker_tripped = False
+        self._circuit_breaker_reset_time = 0.0
+        self._total_failures = 0
+        self._total_successes = 0
+
+    def _check_circuit_breaker(self) -> bool:
+        """Check if evaluation should proceed based on failure tracking.
+
+        Returns:
+            True if evaluation should proceed, False if blocked by circuit breaker.
+        """
+        current_time = time.time()
+
+        # Check if circuit breaker is tripped and still in cooldown
+        if self._circuit_breaker_tripped:
+            if current_time < self._circuit_breaker_reset_time:
+                remaining = self._circuit_breaker_reset_time - current_time
+                logger.warning(
+                    f"[BackgroundEval] Circuit breaker active, {remaining:.1f}s until reset "
+                    f"(consecutive failures: {self._consecutive_failures})"
+                )
+                return False
+            else:
+                # Reset circuit breaker after cooldown
+                logger.info("[BackgroundEval] Circuit breaker reset after cooldown")
+                self._circuit_breaker_tripped = False
+                self._consecutive_failures = 0
+
+        # Check hourly failure rate
+        hour_ago = current_time - 3600
+        self._failure_timestamps = [t for t in self._failure_timestamps if t > hour_ago]
+        if len(self._failure_timestamps) >= self.config.max_failures_per_hour:
+            logger.error(
+                f"[BackgroundEval] Rate limit exceeded: {len(self._failure_timestamps)} "
+                f"failures in last hour (max: {self.config.max_failures_per_hour}). "
+                "Pausing evaluation for 5 minutes."
+            )
+            self._circuit_breaker_tripped = True
+            self._circuit_breaker_reset_time = current_time + 300  # 5 min cooldown
+            return False
+
+        return True
+
+    def _record_failure(self, error: Exception | str) -> None:
+        """Record an evaluation failure for circuit breaker tracking."""
+        self._consecutive_failures += 1
+        self._total_failures += 1
+        self._failure_timestamps.append(time.time())
+
+        logger.warning(
+            f"[BackgroundEval] Evaluation failed ({self._consecutive_failures} consecutive, "
+            f"{self._total_failures} total): {error}"
+        )
+
+        # Trip circuit breaker if too many consecutive failures
+        if self._consecutive_failures >= self.config.max_consecutive_failures:
+            self._circuit_breaker_tripped = True
+            self._circuit_breaker_reset_time = time.time() + self.config.failure_cooldown_seconds
+            logger.error(
+                f"[BackgroundEval] Circuit breaker TRIPPED after {self._consecutive_failures} "
+                f"consecutive failures. Pausing for {self.config.failure_cooldown_seconds}s. "
+                f"Last error: {error}"
+            )
+
+    def _record_success(self) -> None:
+        """Record a successful evaluation - resets consecutive failure count."""
+        self._consecutive_failures = 0
+        self._total_successes += 1
+
+    def get_health_status(self) -> dict[str, Any]:
+        """Get current health status of the evaluator for monitoring."""
+        return {
+            "circuit_breaker_tripped": self._circuit_breaker_tripped,
+            "consecutive_failures": self._consecutive_failures,
+            "total_failures": self._total_failures,
+            "total_successes": self._total_successes,
+            "failures_last_hour": len(self._failure_timestamps),
+            "success_rate": (
+                self._total_successes / (self._total_successes + self._total_failures)
+                if (self._total_successes + self._total_failures) > 0
+                else 1.0
+            ),
+        }
 
     def start(self):
         """Start background evaluation thread.
@@ -235,23 +327,38 @@ class BackgroundEvaluator:
                     should_eval = (step - self.last_eval_step) >= self.config.eval_interval_steps
 
                 if should_eval:
+                    # Check circuit breaker before attempting evaluation
+                    if not self._check_circuit_breaker():
+                        return
+
                     try:
                         eval_result = self._run_evaluation(step)
                         self._process_result(eval_result)
+                        self._record_success()
                     except Exception as e:
-                        logger.error(f"[BackgroundEval] Event-triggered evaluation failed: {e}")
+                        self._record_failure(e)
 
             async def on_training_complete(result):
                 """Handle training completion - run final evaluation."""
                 if result.success:
                     logger.info("[BackgroundEval] Training complete, running final evaluation")
+
+                    # Check circuit breaker - but be more lenient for final evaluation
+                    if self._circuit_breaker_tripped:
+                        logger.warning(
+                            "[BackgroundEval] Circuit breaker active, skipping final evaluation. "
+                            f"Health: {self.get_health_status()}"
+                        )
+                        return
+
                     with self._lock:
                         step = self.current_step
                     try:
                         eval_result = self._run_evaluation(step)
                         self._process_result(eval_result)
+                        self._record_success()
                     except Exception as e:
-                        logger.error(f"[BackgroundEval] Final evaluation failed: {e}")
+                        self._record_failure(e)
 
             # Subscribe to relevant events
             bus.subscribe(StageEvent.TRAINING_COMPLETE, on_training_complete)
@@ -308,6 +415,9 @@ class BackgroundEvaluator:
 
         Runs until stop() is called. When using ThreadSpawner, the thread
         will be automatically restarted on failure (up to max_restarts).
+
+        Includes circuit breaker protection to prevent process explosion
+        on continuous failures.
         """
         while self._should_continue():
             with self._lock:
@@ -315,11 +425,17 @@ class BackgroundEvaluator:
                 should_eval = (step - self.last_eval_step) >= self.config.eval_interval_steps
 
             if should_eval:
+                # Check circuit breaker before attempting evaluation
+                if not self._check_circuit_breaker():
+                    time.sleep(10.0)  # Longer sleep when circuit breaker is active
+                    continue
+
                 try:
                     result = self._run_evaluation(step)
                     self._process_result(result)
+                    self._record_success()
                 except Exception as e:
-                    logger.error(f"[BackgroundEval] Evaluation failed: {e}")
+                    self._record_failure(e)
 
             time.sleep(5.0)  # Check interval
 
@@ -340,7 +456,12 @@ class BackgroundEvaluator:
             return self._run_placeholder_evaluation(step)
 
     def _run_real_evaluation(self, step: int, model_info: Any) -> EvalResult:
-        """Run actual games using game_gauntlet module."""
+        """Run actual games using game_gauntlet module.
+
+        Includes timeout protection to prevent runaway evaluations.
+        """
+        import concurrent.futures
+
         from app.training.game_gauntlet import (
             BaselineOpponent,
             run_baseline_gauntlet,
@@ -377,9 +498,9 @@ class BackgroundEvaluator:
             model_getter = _model_getter
             logger.info("[BackgroundEval] Using in-memory model loading (zero disk I/O)")
 
-        try:
-            logger.info(f"[BackgroundEval] Playing {games_per} games per opponent (real mode)")
-            gauntlet_result = run_baseline_gauntlet(
+        def _run_gauntlet():
+            """Inner function for timeout wrapper."""
+            return run_baseline_gauntlet(
                 model_path=model_path,
                 board_type=self.board_type,
                 opponents=opponents,
@@ -388,6 +509,19 @@ class BackgroundEvaluator:
                 verbose=False,
                 model_getter=model_getter,
             )
+
+        try:
+            logger.info(f"[BackgroundEval] Playing {games_per} games per opponent (real mode)")
+
+            # Run with timeout protection
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_run_gauntlet)
+                try:
+                    gauntlet_result = future.result(timeout=self.config.eval_timeout_seconds)
+                except concurrent.futures.TimeoutError:
+                    raise TimeoutError(
+                        f"Evaluation timed out after {self.config.eval_timeout_seconds}s"
+                    )
 
             # Convert to EvalResult format
             baseline_results = {
