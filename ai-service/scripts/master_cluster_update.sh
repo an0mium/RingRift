@@ -9,7 +9,7 @@ echo ""
 update_ssh() {
     local name="$1" host="$2" user="$3" port="${4:-22}"
     result=$(timeout 25 ssh -o ConnectTimeout=12 -o BatchMode=yes -o StrictHostKeyChecking=no -p "$port" "${user}@${host}" '
-        for d in ~/ringrift/ai-service ~/RingRift/ai-service ~/ai-service /root/RingRift/ai-service /root/ringrift/ai-service ~/Development/RingRift/ai-service; do
+        for d in ~/ringrift ~/RingRift ~/ai-service /root/RingRift /root/ringrift ~/Development/RingRift /workspace/RingRift /workspace/ringrift; do
             if [ -d "$d/.git" ]; then
                 cd "$d"
                 git fetch origin 2>/dev/null
